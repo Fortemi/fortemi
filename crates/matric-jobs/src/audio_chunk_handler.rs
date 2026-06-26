@@ -30,6 +30,32 @@ use crate::audio_transcription_handler::{
 };
 use crate::handler::{JobContext, JobHandler, JobResult};
 
+fn audio_chunk_error_reason_code(error: &str) -> &'static str {
+    let text = error.to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("not found")
+        || text.contains("no such")
+        || text.contains("missing")
+        || text.contains("unknown")
+    {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else if text.contains("connection refused")
+        || text.contains("cannot connect")
+        || text.contains("connection")
+    {
+        "connection_failed"
+    } else if text.contains("database") || text.contains("sql") || text.contains("postgres") {
+        "database_error"
+    } else if text.contains("storage") || text.contains("file") {
+        "storage_error"
+    } else {
+        "operation_failed"
+    }
+}
+
 pub struct AudioChunkTranscriptionHandler {
     db: Database,
     transcription: Arc<dyn TranscriptionBackend>,
@@ -252,7 +278,12 @@ impl JobHandler for AudioChunkTranscriptionHandler {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
                 Err(e) => {
-                    warn!(error = %e, "Fan-in count query failed");
+                    let error_text = e.to_string();
+                    warn!(
+                        error_len = error_text.len(),
+                        error_reason = audio_chunk_error_reason_code(&error_text),
+                        "Fan-in count query failed"
+                    );
                     return JobResult::Success(Some(json!({
                         "chunk_index": chunk_index,
                         "segment_count": segment_count,
@@ -300,7 +331,12 @@ impl JobHandler for AudioChunkTranscriptionHandler {
                     })))
                 }
                 Err(e) => {
-                    warn!(error = %e, "Merge failed but chunk transcription succeeded");
+                    let error_text = e.to_string();
+                    warn!(
+                        error_len = error_text.len(),
+                        error_reason = audio_chunk_error_reason_code(&error_text),
+                        "Merge failed but chunk transcription succeeded"
+                    );
                     // The chunk itself succeeded — don't retry. The merge can be
                     // triggered by a re-run or manual assembly job.
                     JobResult::Success(Some(json!({
@@ -480,5 +516,30 @@ impl AudioChunkTranscriptionHandler {
         }
 
         Ok(merged_count)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audio_chunk_error_reason_code_uses_stable_classes() {
+        assert_eq!(
+            audio_chunk_error_reason_code("database sql failed during fan-in"),
+            "database_error"
+        );
+        assert_eq!(
+            audio_chunk_error_reason_code("file storage denied during merge"),
+            "permission_denied"
+        );
+        assert_eq!(
+            audio_chunk_error_reason_code("Cannot connect to transcription queue"),
+            "connection_failed"
+        );
+        assert_eq!(
+            audio_chunk_error_reason_code("opaque backend diagnostic text"),
+            "operation_failed"
+        );
     }
 }
