@@ -91,7 +91,7 @@ impl fmt::Debug for CloneArchiveRequest {
 }
 
 /// Response for archive statistics.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct ArchiveStatsResponse {
     /// Archive name
     pub name: String,
@@ -101,6 +101,17 @@ pub struct ArchiveStatsResponse {
     pub size_bytes: i64,
     /// Schema name in PostgreSQL
     pub schema_name: String,
+}
+
+impl fmt::Debug for ArchiveStatsResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ArchiveStatsResponse")
+            .field("name_len", &self.name.len())
+            .field("note_count", &self.note_count)
+            .field("size_bytes", &self.size_bytes)
+            .field("schema_name_len", &self.schema_name.len())
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -472,6 +483,36 @@ mod tests {
         let json = serde_json::to_string(&stats).unwrap();
         assert!(json.contains("\"note_count\":42"));
         assert!(json.contains("\"size_bytes\":1024"));
+    }
+
+    #[test]
+    fn archive_stats_response_debug_redacts_archive_and_schema_names() {
+        let stats = ArchiveStatsResponse {
+            name: "tenant-alpha/customer@example.com/postgres://user:pass@db.internal/app"
+                .to_string(),
+            note_count: 42,
+            size_bytes: 1024,
+            schema_name: "archive_tenant_alpha_private_schema_sk_live_secret".to_string(),
+        };
+
+        let rendered = format!("{stats:?}");
+
+        assert!(rendered.contains("ArchiveStatsResponse"));
+        assert!(rendered.contains("name_len"));
+        assert!(rendered.contains("note_count"));
+        assert!(rendered.contains("size_bytes"));
+        assert!(rendered.contains("schema_name_len"));
+
+        for raw in [
+            "tenant-alpha",
+            "customer@example.com",
+            "postgres://user:pass",
+            "db.internal",
+            "archive_tenant_alpha_private_schema",
+            "sk_live_secret",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
     }
 
     #[tokio::test]
