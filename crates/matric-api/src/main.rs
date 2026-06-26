@@ -1587,6 +1587,28 @@ fn startup_path_telemetry(path: &str) -> StartupPathTelemetry {
     }
 }
 
+#[derive(Clone, Copy)]
+struct StartupIssuerTelemetry {
+    issuer_class: &'static str,
+    issuer_len: usize,
+}
+
+impl fmt::Debug for StartupIssuerTelemetry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StartupIssuerTelemetry")
+            .field("issuer_class", &self.issuer_class)
+            .field("issuer_len", &self.issuer_len)
+            .finish()
+    }
+}
+
+fn startup_issuer_telemetry(issuer: &str) -> StartupIssuerTelemetry {
+    StartupIssuerTelemetry {
+        issuer_class: telemetry_url_class(issuer),
+        issuer_len: telemetry_text_len(issuer),
+    }
+}
+
 fn preload_diagnostic_reason(value: &str) -> &'static str {
     let value = value.to_ascii_lowercase();
     if value.contains("timeout") || value.contains("timed out") {
@@ -1872,6 +1894,7 @@ async fn main() -> anyhow::Result<()> {
     // `REQUIRE_AUTH=false` AND `I_UNDERSTAND_NO_AUTH=true`. Multi-tenant builds
     // (FORTEMI_MULTI_TENANT=true) refuse anonymous regardless — ADR-090 Rev 1.
     let issuer = validated_issuer_url(&host, port, &security_config)?;
+    let issuer_meta = startup_issuer_telemetry(&issuer);
     if !security_config.require_auth {
         if security_config.multi_tenant {
             anyhow::bail!(
@@ -1915,10 +1938,13 @@ async fn main() -> anyhow::Result<()> {
         if std::env::var("ISSUER_URL").is_err() {
             tracing::warn!(
                 target: "fortemi.security",
-                "REQUIRE_AUTH=true but ISSUER_URL is not set. Falling back to \
-                 'http://{}:{}' — acceptable for local development only. Set ISSUER_URL \
-                 to your actual OAuth issuer URL before any non-localhost deployment.",
-                host, port
+                fallback_host_len = telemetry_text_len(&host),
+                fallback_port = port,
+                issuer_class = issuer_meta.issuer_class,
+                issuer_len = issuer_meta.issuer_len,
+                "REQUIRE_AUTH=true but ISSUER_URL is not set. Falling back to local \
+                 issuer metadata; acceptable for local development only. Set ISSUER_URL \
+                 before any non-localhost deployment."
             );
         }
         info!(
@@ -1927,8 +1953,9 @@ async fn main() -> anyhow::Result<()> {
         );
         info!(
             target: "fortemi.security",
-            "Authentication required (REQUIRE_AUTH=true). Issuer: {}",
-            issuer
+            issuer_class = issuer_meta.issuer_class,
+            issuer_len = issuer_meta.issuer_len,
+            "Authentication required"
         );
     }
 
@@ -37733,6 +37760,22 @@ mod tests {
         assert!(!debug.contains("/srv/fortemi"));
         assert!(!debug.contains("operator@example.com"));
         assert!(!debug.contains("sk-live-secret"));
+    }
+
+    #[test]
+    fn startup_issuer_telemetry_debug_redacts_raw_issuer_urls() {
+        let issuer = "https://token:secret@auth.example.com/tenant/operator@example.com";
+        let meta = startup_issuer_telemetry(issuer);
+
+        let debug = format!("{meta:?}");
+
+        assert_eq!(meta.issuer_class, "external");
+        assert_eq!(meta.issuer_len, telemetry_text_len(issuer));
+        assert!(debug.contains("issuer_class"));
+        assert!(debug.contains("issuer_len"));
+        assert!(!debug.contains("token:secret"));
+        assert!(!debug.contains("auth.example.com"));
+        assert!(!debug.contains("operator@example.com"));
     }
 
     #[test]
