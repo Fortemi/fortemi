@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 use crate::{ApiError, AppState};
 use matric_core::{ArchiveInfo, ArchiveRepository, ServerEvent};
 
+const ARCHIVE_ALREADY_EXISTS_MESSAGE: &str = "Archive already exists.";
+
 // =============================================================================
 // REQUEST/RESPONSE TYPES
 // =============================================================================
@@ -152,10 +154,9 @@ pub async fn create_archive(
         .await?
         .is_some()
     {
-        return Err(ApiError::BadRequest(format!(
-            "Archive '{}' already exists",
-            req.name
-        )));
+        return Err(ApiError::BadRequest(
+            ARCHIVE_ALREADY_EXISTS_MESSAGE.to_string(),
+        ));
     }
 
     let archive = state
@@ -397,6 +398,8 @@ pub async fn clone_archive(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::header;
+    use axum::response::IntoResponse;
 
     #[test]
     fn test_create_archive_request_deserialization() {
@@ -432,6 +435,40 @@ mod tests {
         let json = serde_json::to_string(&stats).unwrap();
         assert!(json.contains("\"note_count\":42"));
         assert!(json.contains("\"size_bytes\":1024"));
+    }
+
+    #[tokio::test]
+    async fn archive_duplicate_validation_does_not_echo_archive_name() {
+        let private_archive_name = "tenant-alpha/client-private-memory";
+        let response =
+            ApiError::BadRequest(ARCHIVE_ALREADY_EXISTS_MESSAGE.to_string()).into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("application/problem+json")
+        );
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let problem: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], ARCHIVE_ALREADY_EXISTS_MESSAGE);
+
+        let serialized = problem.to_string();
+        assert!(!serialized.contains(private_archive_name));
+        assert!(!serialized.contains("tenant-alpha"));
+        assert!(!serialized.contains("client-private-memory"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
     }
 
     // =============================================================================
