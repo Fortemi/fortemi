@@ -452,6 +452,12 @@ fn invalid_attachment_content_type() -> ApiError {
     )
 }
 
+fn invalid_attachment_document_type_id() -> ApiError {
+    ApiError::BadRequest(
+        "Invalid document_type_id. Use a valid document type from the catalog.".to_string(),
+    )
+}
+
 fn incoming_webhook_schema_validation_failed() -> ApiError {
     ApiError::BadRequest(
         "Incoming webhook payload failed schema validation. Check the webhook schema contract."
@@ -18514,9 +18520,7 @@ async fn upload_attachment(
                 .await?;
             attachment.document_type_id = Some(doc_type_id);
         } else {
-            return Err(ApiError::BadRequest(format!(
-                "Invalid document_type_id: {doc_type_id} does not reference a valid document type"
-            )));
+            return Err(invalid_attachment_document_type_id());
         }
     }
     // Document type classification happens asynchronously after extraction (Phase 2)
@@ -18700,9 +18704,7 @@ async fn upload_attachment_multipart(
                 .await?;
             attachment.document_type_id = Some(doc_type_id);
         } else {
-            return Err(ApiError::BadRequest(format!(
-                "Invalid document_type_id: {doc_type_id} does not reference a valid document type"
-            )));
+            return Err(invalid_attachment_document_type_id());
         }
     }
 
@@ -24504,6 +24506,31 @@ mod tests {
         assert!(!body.contains("token:secret"));
         assert!(!body.contains("provider.internal"));
         assert!(!body.contains("https://token:secret@provider.internal"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn attachment_document_type_validation_does_not_echo_id() {
+        let submitted_document_type_id = "018ff7d2-1d90-7c88-9f44-abcdef123456";
+        let valid_uuid = Uuid::parse_str(submitted_document_type_id).unwrap();
+        let err = invalid_attachment_document_type_id();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Invalid document_type_id. Use a valid document type from the catalog."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains(&valid_uuid.to_string()));
+        assert!(!body.contains(submitted_document_type_id));
+        assert!(!body.contains("018ff7d2"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
