@@ -67,8 +67,11 @@ MATRIC_MAX_UPLOAD_SIZE_BYTES=104857600  # 100 MB
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `REQUIRE_AUTH` | Boolean | `true` | Require authentication on protected endpoints. Anonymous local sidecar/dev mode requires `REQUIRE_AUTH=false` plus `I_UNDERSTAND_NO_AUTH=true`. |
-| `ISSUER_URL` | String | `http://<HOST>:<PORT>` | External base URL for OAuth discovery and MCP (e.g., https://memory.example.com). Required for OAuth/MCP. |
+| `REQUIRE_AUTH` | Boolean | `true` | Require authentication on protected endpoints. Anonymous local sidecar/dev mode requires `REQUIRE_AUTH=false` plus `I_UNDERSTAND_NO_AUTH=true`. Security booleans accept only `true`, `false`, `1`, or `0`; invalid values fail startup. |
+| `I_UNDERSTAND_NO_AUTH` | Boolean | `false` | Required companion flag for anonymous local sidecar/dev mode. Invalid values fail startup. |
+| `FORTEMI_MULTI_TENANT` | Boolean | `false` | Hosted/multi-tenant mode. Requires authentication and an explicit hosted-safe `ISSUER_URL`; invalid values fail startup. |
+| `FORTEMI_ALLOW_LOCAL_ISSUER` | Boolean | `false` | Local-development override that permits non-HTTPS or local issuer URLs. Do not enable for hosted deployments. |
+| `ISSUER_URL` | String | `http://<HOST>:<PORT>` local fallback only | External base URL for OAuth, MCP, and AsyncAPI metadata (e.g., https://memory.example.com). Required when `FORTEMI_MULTI_TENANT=true`; hosted values must be public HTTPS with no query, fragment, userinfo, private/listen/loopback host, or unsupported path. |
 | `OAUTH_TOKEN_LIFETIME_SECS` | Integer | `3600` | OAuth access token lifetime in seconds (1 hour). Shorter = more secure; longer = less re-authentication friction. |
 | `OAUTH_MCP_TOKEN_LIFETIME_SECS` | Integer | `86400` | MCP OAuth access token lifetime in seconds (24 hours). MCP sessions are interactive — shorter tokens cause mid-session disconnects. |
 
@@ -89,9 +92,9 @@ OAUTH_MCP_TOKEN_LIFETIME_SECS=86400
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `RATE_LIMIT_ENABLED` | Boolean | `false` | Enable rate limiting for API endpoints |
-| `RATE_LIMIT_REQUESTS` | Integer | `100` | Maximum requests per time window |
-| `RATE_LIMIT_PERIOD_SECS` | Integer | `60` | Rate limit time window in seconds |
+| `RATE_LIMIT_ENABLED` | Boolean | `true` | Enable the current process-local API rate limiter. Accepts only `true`, `false`, `1`, or `0`; invalid values fail startup. |
+| `RATE_LIMIT_REQUESTS` | Integer | `100` | Maximum requests per time window. Must be `1..1000000`; parse failures, zero, and overflow fail startup. |
+| `RATE_LIMIT_PERIOD_SECS` | Integer | `60` | Rate limit time window in seconds. Must be `1..86400`; parse failures and zero fail startup. |
 
 **Example:**
 ```bash

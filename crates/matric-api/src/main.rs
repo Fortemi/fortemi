@@ -5,7 +5,7 @@ mod middleware;
 mod query_types;
 mod route_policy;
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -702,6 +702,8 @@ struct AppState {
     default_archive_cache: Arc<RwLock<DefaultArchiveCache>>,
     /// Require authentication for protected routes (Issue #114).
     require_auth: bool,
+    /// Require explicit confirmation before call-recording session creation.
+    call_recording_require_confirmation: bool,
     /// Authorization policy decision point (#710). Starts with AllowAllPolicy to
     /// preserve current CE/personal-server behavior while middleware wiring lands.
     authorization_policy: Arc<dyn AuthorizationPolicy>,
@@ -1040,11 +1042,8 @@ async fn openapi_yaml() -> impl IntoResponse {
 }
 
 /// Serve AsyncAPI 3.0 YAML spec (auto-generated from ServerEvent metadata + schemars).
-async fn asyncapi_yaml() -> impl IntoResponse {
-    let spec = matric_core::asyncapi::build_asyncapi_spec(
-        env!("CARGO_PKG_VERSION"),
-        &std::env::var("ISSUER_URL").unwrap_or_else(|_| "https://localhost:3000".to_string()),
-    );
+async fn asyncapi_yaml(State(state): State<AppState>) -> impl IntoResponse {
+    let spec = matric_core::asyncapi::build_asyncapi_spec(env!("CARGO_PKG_VERSION"), &state.issuer);
     let yaml = serde_yaml::to_string(&spec).expect("AsyncAPI YAML generation must not fail");
     ([(header::CONTENT_TYPE, "application/yaml")], yaml)
 }
@@ -1137,11 +1136,166 @@ async fn get_call(
 /// # Development
 /// ALLOWED_ORIGINS=https://your-domain.com,http://localhost:3000,https://staging.example.com
 /// ```
-fn env_flag(name: &str, default: bool) -> bool {
+#[derive(Debug, Clone, Copy)]
+struct StartupSecurityConfig {
+    require_auth: bool,
+    i_understand_no_auth: bool,
+    multi_tenant: bool,
+    allow_local_issuer: bool,
+    call_recording_require_confirmation: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RateLimitConfig {
+    enabled: bool,
+    requests: u32,
+    period_secs: u64,
+}
+
+const MAX_RATE_LIMIT_REQUESTS: u32 = 1_000_000;
+const MAX_RATE_LIMIT_PERIOD_SECS: u64 = 86_400;
+
+fn strict_bool_env(name: &str, default: bool) -> anyhow::Result<bool> {
     match std::env::var(name) {
-        Ok(v) if v.eq_ignore_ascii_case("true") || v == "1" => true,
-        Ok(v) if v.eq_ignore_ascii_case("false") || v == "0" => false,
-        Ok(_) | Err(_) => default,
+        Ok(v) if v == "true" || v == "1" => Ok(true),
+        Ok(v) if v == "false" || v == "0" => Ok(false),
+        Ok(v) => anyhow::bail!(
+            "{name} has invalid boolean value '{v}'. Expected one of: true, false, 1, 0."
+        ),
+        Err(std::env::VarError::NotPresent) => Ok(default),
+        Err(err) => anyhow::bail!("{name} could not be read: {err}"),
+    }
+}
+
+fn parse_startup_security_config() -> anyhow::Result<StartupSecurityConfig> {
+    Ok(StartupSecurityConfig {
+        require_auth: strict_bool_env("REQUIRE_AUTH", true)?,
+        i_understand_no_auth: strict_bool_env("I_UNDERSTAND_NO_AUTH", false)?,
+        multi_tenant: strict_bool_env("FORTEMI_MULTI_TENANT", false)?,
+        allow_local_issuer: strict_bool_env("FORTEMI_ALLOW_LOCAL_ISSUER", false)?,
+        call_recording_require_confirmation: strict_bool_env(
+            "FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION",
+            false,
+        )?,
+    })
+}
+
+fn parse_rate_limit_config() -> anyhow::Result<RateLimitConfig> {
+    let enabled = strict_bool_env("RATE_LIMIT_ENABLED", true)?;
+    let requests = parse_rate_limit_requests_env("RATE_LIMIT_REQUESTS")?;
+    let period_secs = parse_rate_limit_period_env("RATE_LIMIT_PERIOD_SECS")?;
+
+    Ok(RateLimitConfig {
+        enabled,
+        requests,
+        period_secs,
+    })
+}
+
+fn parse_rate_limit_requests_env(name: &str) -> anyhow::Result<u32> {
+    let raw = match std::env::var(name) {
+        Ok(raw) => raw,
+        Err(std::env::VarError::NotPresent) => {
+            return Ok(matric_core::defaults::RATE_LIMIT_REQUESTS as u32);
+        }
+        Err(err) => anyhow::bail!("{name} could not be read: {err}"),
+    };
+    let value: u64 = raw
+        .parse()
+        .map_err(|_| anyhow::anyhow!("{name} must be an integer, got '{raw}'"))?;
+    if value == 0 {
+        anyhow::bail!("{name} must be greater than zero");
+    }
+    if value > u32::MAX as u64 {
+        anyhow::bail!("{name} must be <= {}", u32::MAX);
+    }
+    let value = value as u32;
+    if value > MAX_RATE_LIMIT_REQUESTS {
+        anyhow::bail!("{name} must be <= {MAX_RATE_LIMIT_REQUESTS}");
+    }
+    Ok(value)
+}
+
+fn parse_rate_limit_period_env(name: &str) -> anyhow::Result<u64> {
+    let raw = match std::env::var(name) {
+        Ok(raw) => raw,
+        Err(std::env::VarError::NotPresent) => {
+            return Ok(matric_core::defaults::RATE_LIMIT_PERIOD_SECS);
+        }
+        Err(err) => anyhow::bail!("{name} could not be read: {err}"),
+    };
+    let value: u64 = raw
+        .parse()
+        .map_err(|_| anyhow::anyhow!("{name} must be an integer, got '{raw}'"))?;
+    if value == 0 {
+        anyhow::bail!("{name} must be greater than zero");
+    }
+    if value > MAX_RATE_LIMIT_PERIOD_SECS {
+        anyhow::bail!("{name} must be <= {MAX_RATE_LIMIT_PERIOD_SECS}");
+    }
+    Ok(value)
+}
+
+fn validated_issuer_url(
+    host: &str,
+    port: u16,
+    config: &StartupSecurityConfig,
+) -> anyhow::Result<String> {
+    match std::env::var("ISSUER_URL") {
+        Ok(raw) => validate_configured_issuer_url(&raw, config.allow_local_issuer),
+        Err(std::env::VarError::NotPresent) if config.multi_tenant => anyhow::bail!(
+            "Refusing to start: FORTEMI_MULTI_TENANT=true requires ISSUER_URL. \
+             Hosted issuer metadata must be explicit."
+        ),
+        Err(std::env::VarError::NotPresent) => Ok(format!("http://{host}:{port}")),
+        Err(err) => anyhow::bail!("ISSUER_URL could not be read: {err}"),
+    }
+}
+
+fn validate_configured_issuer_url(raw: &str, allow_local_issuer: bool) -> anyhow::Result<String> {
+    let url = reqwest::Url::parse(raw)
+        .map_err(|err| anyhow::anyhow!("ISSUER_URL must be a valid absolute URL: {err}"))?;
+    if !allow_local_issuer && url.scheme() != "https" {
+        anyhow::bail!("ISSUER_URL must use https unless FORTEMI_ALLOW_LOCAL_ISSUER=true");
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        anyhow::bail!("ISSUER_URL must not contain userinfo");
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        anyhow::bail!("ISSUER_URL must not contain query or fragment components");
+    }
+    if !allow_local_issuer && url.path() != "/" && !url.path().is_empty() {
+        anyhow::bail!("ISSUER_URL path components are not supported for hosted metadata");
+    }
+    if !allow_local_issuer {
+        let host = url
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("ISSUER_URL must include a host"))?;
+        if is_local_or_private_issuer_host(host) {
+            anyhow::bail!(
+                "ISSUER_URL host must be public and non-loopback unless \
+                 FORTEMI_ALLOW_LOCAL_ISSUER=true"
+            );
+        }
+    }
+    let normalized = url.as_str().trim_end_matches('/').to_string();
+    Ok(normalized)
+}
+
+fn is_local_or_private_issuer_host(host: &str) -> bool {
+    let lower = host.trim_matches(['[', ']']).to_ascii_lowercase();
+    if matches!(lower.as_str(), "localhost" | "0.0.0.0" | "::" | "::1") {
+        return true;
+    }
+    if lower.ends_with(".localhost") || lower.ends_with(".local") {
+        return true;
+    }
+    match lower.parse::<IpAddr>() {
+        Ok(IpAddr::V4(addr)) => {
+            addr.is_loopback() || addr.is_private() || addr.is_link_local() || addr.is_unspecified()
+        }
+        Ok(IpAddr::V6(addr)) => addr.is_loopback() || addr.is_unspecified(),
+        Err(_) => false,
     }
 }
 
@@ -1171,16 +1325,12 @@ fn process_startup_audit_event(
     event
 }
 
-fn call_recording_disclosure_config() -> serde_json::Value {
+fn call_recording_disclosure_config(require_confirmation: bool) -> serde_json::Value {
     serde_json::json!({
         "text": std::env::var("FORTEMI_CALL_RECORDING_DISCLOSURE_TEXT").ok(),
         "version": std::env::var("FORTEMI_CALL_RECORDING_DISCLOSURE_VERSION").ok(),
-        "require_confirmation": env_flag("FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION", false),
+        "require_confirmation": require_confirmation,
     })
-}
-
-fn call_recording_confirmation_required() -> bool {
-    env_flag("FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION", false)
 }
 
 fn twilio_call_started_consent_confirmed(payload: &serde_json::Value) -> bool {
@@ -1314,30 +1464,18 @@ async fn main() -> anyhow::Result<()> {
         .parse()
         .unwrap_or(matric_core::defaults::SERVER_PORT);
 
-    // Rate limiting configuration (generous for personal server)
-    // RATE_LIMIT_REQUESTS: requests per period (default: 100)
-    // RATE_LIMIT_PERIOD_SECS: period in seconds (default: 60 = 1 minute)
-    let rate_limit_requests: u64 = std::env::var("RATE_LIMIT_REQUESTS")
-        .unwrap_or_else(|_| "100".to_string())
-        .parse()
-        .unwrap_or(matric_core::defaults::RATE_LIMIT_REQUESTS);
-    let rate_limit_period_secs: u64 = std::env::var("RATE_LIMIT_PERIOD_SECS")
-        .unwrap_or_else(|_| "60".to_string())
-        .parse()
-        .unwrap_or(matric_core::defaults::RATE_LIMIT_PERIOD_SECS);
-    let rate_limit_enabled: bool = std::env::var("RATE_LIMIT_ENABLED")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(true);
+    let security_config = parse_startup_security_config()?;
+    let rate_limit_config = parse_rate_limit_config()?;
 
     info!(
         "Rate limiting: {} ({} requests per {} seconds)",
-        if rate_limit_enabled {
+        if rate_limit_config.enabled {
             "enabled"
         } else {
             "disabled"
         },
-        rate_limit_requests,
-        rate_limit_period_secs
+        rate_limit_config.requests,
+        rate_limit_config.period_secs
     );
 
     // ADR-094: fail-closed authentication default.
@@ -1345,18 +1483,16 @@ async fn main() -> anyhow::Result<()> {
     // The boolean default for `require_auth` is now `true`. Opt-out requires BOTH
     // `REQUIRE_AUTH=false` AND `I_UNDERSTAND_NO_AUTH=true`. Multi-tenant builds
     // (FORTEMI_MULTI_TENANT=true) refuse anonymous regardless — ADR-090 Rev 1.
-    let require_auth_env = env_flag("REQUIRE_AUTH", true);
-    let i_understand_no_auth = env_flag("I_UNDERSTAND_NO_AUTH", false);
-    let multi_tenant = env_flag("FORTEMI_MULTI_TENANT", false);
-    if !require_auth_env {
-        if multi_tenant {
+    let issuer = validated_issuer_url(&host, port, &security_config)?;
+    if !security_config.require_auth {
+        if security_config.multi_tenant {
             anyhow::bail!(
                 "Refusing to start: FORTEMI_MULTI_TENANT=true is incompatible with \
                  REQUIRE_AUTH=false. Multi-tenant deployments cannot run anonymous. \
                  See ADR-090 Rev 1 and ADR-094."
             );
         }
-        if !i_understand_no_auth {
+        if !security_config.i_understand_no_auth {
             anyhow::bail!(
                 "Refusing to start: REQUIRE_AUTH=false but I_UNDERSTAND_NO_AUTH is not set. \
                  Anonymous mode is opt-in only and exposes every /api/v1/* route without \
@@ -1388,9 +1524,7 @@ async fn main() -> anyhow::Result<()> {
         // Detach the warn task; it lives for the process lifetime
         std::mem::forget(warn_handle);
     } else {
-        // REQUIRE_AUTH=true: verify an OAuth issuer is configured (not the localhost fallback).
-        let issuer_explicit = std::env::var("ISSUER_URL").is_ok();
-        if !issuer_explicit {
+        if std::env::var("ISSUER_URL").is_err() {
             tracing::warn!(
                 target: "fortemi.security",
                 "REQUIRE_AUTH=true but ISSUER_URL is not set. Falling back to \
@@ -1406,7 +1540,7 @@ async fn main() -> anyhow::Result<()> {
         info!(
             target: "fortemi.security",
             "Authentication required (REQUIRE_AUTH=true). Issuer: {}",
-            std::env::var("ISSUER_URL").unwrap_or_else(|_| format!("http://{host}:{port}"))
+            issuer
         );
     }
 
@@ -1932,10 +2066,6 @@ async fn main() -> anyhow::Result<()> {
         telemetry_mirror(tm_bus).await;
     });
 
-    // Get issuer URL from environment
-    let issuer =
-        std::env::var("ISSUER_URL").unwrap_or_else(|_| format!("http://{}:{}", host, port));
-
     // OAuth token lifetimes (configurable via env vars, defaults to 1h / 4h)
     let oauth_token_lifetime_secs: u64 = std::env::var("OAUTH_TOKEN_LIFETIME_SECS")
         .ok()
@@ -1957,12 +2087,15 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Create rate limiter if enabled
-    let rate_limiter = if rate_limit_enabled {
-        let quota = Quota::with_period(std::time::Duration::from_secs(rate_limit_period_secs))
-            .expect("Rate limit period must be non-zero")
-            .allow_burst(
-                NonZeroU32::new(rate_limit_requests as u32).expect("Rate limit must be non-zero"),
-            );
+    let rate_limiter = if rate_limit_config.enabled {
+        let quota = Quota::with_period(std::time::Duration::from_secs(
+            rate_limit_config.period_secs,
+        ))
+        .ok_or_else(|| anyhow::anyhow!("RATE_LIMIT_PERIOD_SECS must be greater than zero"))?
+        .allow_burst(
+            NonZeroU32::new(rate_limit_config.requests)
+                .ok_or_else(|| anyhow::anyhow!("RATE_LIMIT_REQUESTS must be greater than zero"))?,
+        );
         Some(Arc::new(RateLimiter::direct(quota)))
     } else {
         None
@@ -2033,8 +2166,9 @@ async fn main() -> anyhow::Result<()> {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(60),
         ))),
-        require_auth: require_auth_env, // ADR-094: fail-closed default — see startup validation block in main()
-        authorization_policy: authorization_policy_for_mode(multi_tenant),
+        require_auth: security_config.require_auth, // ADR-094: fail-closed default — see startup validation block in main()
+        call_recording_require_confirmation: security_config.call_recording_require_confirmation,
+        authorization_policy: authorization_policy_for_mode(security_config.multi_tenant),
         oauth_token_lifetime,
         oauth_mcp_token_lifetime,
         max_memories: std::env::var("MAX_MEMORIES")
@@ -4634,13 +4768,13 @@ async fn apply_twilio_voice_webhook(
             metadata,
             ..
         } if provider == matric_api::realtime::adapters::twilio::provider_name() => {
-            if call_recording_confirmation_required()
+            if state.call_recording_require_confirmation
                 && !twilio_call_started_consent_confirmed(metadata)
             {
                 return Ok(serde_json::json!({
                     "type": "call_session_blocked_consent_required",
                     "provider_call_id": provider_call_id,
-                    "disclosure": call_recording_disclosure_config(),
+                    "disclosure": call_recording_disclosure_config(state.call_recording_require_confirmation),
                 }));
             }
 
@@ -4687,7 +4821,7 @@ async fn apply_twilio_voice_webhook(
                     metadata: serde_json::json!({
                         "source": "twilio_voice_webhook",
                         "call_started_metadata": metadata,
-                        "recording_disclosure": call_recording_disclosure_config(),
+                        "recording_disclosure": call_recording_disclosure_config(state.call_recording_require_confirmation),
                         "consent_confirmed": twilio_call_started_consent_confirmed(metadata),
                     }),
                 })
@@ -23258,6 +23392,7 @@ mod tests {
             ws_connections: Arc::new(AtomicUsize::new(0)),
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
+            call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
@@ -23439,19 +23574,110 @@ mod tests {
     }
 
     #[test]
-    fn env_flag_defaults_fail_closed() {
-        std::env::remove_var("MATRIC_TEST_REQUIRE_AUTH_FLAG");
-        assert!(env_flag("MATRIC_TEST_REQUIRE_AUTH_FLAG", true));
-        std::env::set_var("MATRIC_TEST_REQUIRE_AUTH_FLAG", "invalid");
-        assert!(!env_flag("MATRIC_TEST_REQUIRE_AUTH_FLAG", false));
-        assert!(env_flag("MATRIC_TEST_REQUIRE_AUTH_FLAG", true));
-        std::env::set_var("MATRIC_TEST_REQUIRE_AUTH_FLAG", "1");
-        assert!(env_flag("MATRIC_TEST_REQUIRE_AUTH_FLAG", false));
-        std::env::set_var("MATRIC_TEST_REQUIRE_AUTH_FLAG", "true");
-        assert!(env_flag("MATRIC_TEST_REQUIRE_AUTH_FLAG", false));
-        std::env::set_var("MATRIC_TEST_REQUIRE_AUTH_FLAG", "false");
-        assert!(!env_flag("MATRIC_TEST_REQUIRE_AUTH_FLAG", true));
-        std::env::remove_var("MATRIC_TEST_REQUIRE_AUTH_FLAG");
+    fn strict_bool_env_rejects_invalid_security_value() {
+        std::env::set_var("MATRIC_TEST_STRICT_BOOL", "treu");
+        let err = strict_bool_env("MATRIC_TEST_STRICT_BOOL", false)
+            .expect_err("invalid boolean must fail");
+        assert!(err.to_string().contains("MATRIC_TEST_STRICT_BOOL"));
+        assert!(err.to_string().contains("Expected one of"));
+
+        std::env::set_var("MATRIC_TEST_STRICT_BOOL", "true");
+        assert!(strict_bool_env("MATRIC_TEST_STRICT_BOOL", false).unwrap());
+        std::env::set_var("MATRIC_TEST_STRICT_BOOL", "0");
+        assert!(!strict_bool_env("MATRIC_TEST_STRICT_BOOL", true).unwrap());
+        std::env::remove_var("MATRIC_TEST_STRICT_BOOL");
+    }
+
+    #[test]
+    fn startup_security_config_rejects_invalid_call_recording_confirmation() {
+        std::env::remove_var("REQUIRE_AUTH");
+        std::env::remove_var("I_UNDERSTAND_NO_AUTH");
+        std::env::remove_var("FORTEMI_MULTI_TENANT");
+        std::env::remove_var("FORTEMI_ALLOW_LOCAL_ISSUER");
+        std::env::set_var("FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION", "treu");
+
+        let err = parse_startup_security_config()
+            .expect_err("invalid recording confirmation flag must fail startup parsing");
+        assert!(err
+            .to_string()
+            .contains("FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION"));
+
+        std::env::remove_var("FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION");
+    }
+
+    #[test]
+    fn validated_issuer_rejects_missing_multi_tenant_issuer() {
+        std::env::remove_var("ISSUER_URL");
+        let config = StartupSecurityConfig {
+            require_auth: true,
+            i_understand_no_auth: false,
+            multi_tenant: true,
+            allow_local_issuer: false,
+            call_recording_require_confirmation: false,
+        };
+
+        let err = validated_issuer_url("0.0.0.0", 3000, &config)
+            .expect_err("multi-tenant mode must require explicit issuer");
+        assert!(err.to_string().contains("requires ISSUER_URL"));
+    }
+
+    #[test]
+    fn validated_issuer_rejects_localhost_without_dev_override() {
+        let err = validate_configured_issuer_url("https://localhost:3000", false)
+            .expect_err("hosted issuer must not be loopback");
+        assert!(err.to_string().contains("public and non-loopback"));
+    }
+
+    #[test]
+    fn validated_issuer_accepts_explicit_https_public_origin() {
+        let issuer = validate_configured_issuer_url("https://auth.example.com/", false).unwrap();
+        assert_eq!(issuer, "https://auth.example.com");
+    }
+
+    #[test]
+    fn validated_issuer_keeps_single_user_local_fallback() {
+        std::env::remove_var("ISSUER_URL");
+        let config = StartupSecurityConfig {
+            require_auth: true,
+            i_understand_no_auth: false,
+            multi_tenant: false,
+            allow_local_issuer: false,
+            call_recording_require_confirmation: false,
+        };
+
+        let issuer = validated_issuer_url("127.0.0.1", 3000, &config).unwrap();
+        assert_eq!(issuer, "http://127.0.0.1:3000");
+    }
+
+    #[test]
+    fn rate_limit_config_rejects_invalid_boolean_and_numbers() {
+        std::env::set_var("RATE_LIMIT_ENABLED", "treu");
+        let err = parse_rate_limit_config().expect_err("invalid bool must fail");
+        assert!(err.to_string().contains("RATE_LIMIT_ENABLED"));
+
+        std::env::set_var("RATE_LIMIT_ENABLED", "true");
+        std::env::set_var("RATE_LIMIT_REQUESTS", "0");
+        let err = parse_rate_limit_config().expect_err("zero requests must fail");
+        assert!(err.to_string().contains("RATE_LIMIT_REQUESTS"));
+
+        std::env::set_var("RATE_LIMIT_REQUESTS", "4294967296");
+        let err = parse_rate_limit_config().expect_err("overflow requests must fail");
+        assert!(err.to_string().contains("RATE_LIMIT_REQUESTS"));
+
+        std::env::set_var("RATE_LIMIT_REQUESTS", "100");
+        std::env::set_var("RATE_LIMIT_PERIOD_SECS", "0");
+        let err = parse_rate_limit_config().expect_err("zero period must fail");
+        assert!(err.to_string().contains("RATE_LIMIT_PERIOD_SECS"));
+
+        std::env::set_var("RATE_LIMIT_PERIOD_SECS", "60");
+        let config = parse_rate_limit_config().unwrap();
+        assert!(config.enabled);
+        assert_eq!(config.requests, 100);
+        assert_eq!(config.period_secs, 60);
+
+        std::env::remove_var("RATE_LIMIT_ENABLED");
+        std::env::remove_var("RATE_LIMIT_REQUESTS");
+        std::env::remove_var("RATE_LIMIT_PERIOD_SECS");
     }
 
     #[test]
@@ -26323,6 +26549,7 @@ mod tests {
             ws_connections: ws_connections.clone(),
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
+            call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
@@ -27525,6 +27752,7 @@ mod tests {
             ws_connections,
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
+            call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
@@ -27854,6 +28082,7 @@ mod tests {
             ws_connections,
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
+            call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,

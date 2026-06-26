@@ -105,7 +105,7 @@ Set in `.env` file (project root):
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ISSUER_URL` | Yes | External URL for OAuth/MCP |
+| `ISSUER_URL` | Yes for hosted/multi-tenant | External URL for OAuth/MCP/AsyncAPI metadata. Hosted values must be public HTTPS with no query, fragment, userinfo, local/private/listen host, or unsupported path. |
 | `MCP_CLIENT_ID` | No | OAuth client ID (auto-managed, set only for manual override) |
 | `MCP_CLIENT_SECRET` | No | OAuth client secret (auto-managed, set only for manual override) |
 | `MCP_BASE_URL` | No | MCP resource URL (default: `${ISSUER_URL}/mcp`) |
@@ -115,7 +115,7 @@ Container variables (docker-compose.bundle.yml):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RUST_LOG` | `info` | Logging level |
-| `RATE_LIMIT_ENABLED` | `false` | Rate limiting |
+| `RATE_LIMIT_ENABLED` | `true` | Process-local rate limiting; accepts only `true`, `false`, `1`, or `0` |
 | `OLLAMA_BASE` | `http://host.docker.internal:11434` | Ollama API endpoint |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model name |
 | `OLLAMA_GEN_MODEL` | `qwen3.5:27b` | Generation model name |

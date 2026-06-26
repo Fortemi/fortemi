@@ -806,8 +806,8 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 | `COMPOSE_PROFILES` | `edge` | Hardware profile: `edge`, `gpu-12gb`, `gpu-24gb` |
 | `DATABASE_URL` | `postgres://localhost/matric` | PostgreSQL connection |
 | `PORT` | `3000` | API server port |
-| `REQUIRE_AUTH` | `true` | Require OAuth2/API key auth on protected routes |
-| `ISSUER_URL` | `https://localhost:3000` | OAuth2 issuer URL (required for OAuth/MCP) |
+| `REQUIRE_AUTH` | `true` | Require OAuth2/API key auth on protected routes. Security booleans accept only `true`, `false`, `1`, or `0`. |
+| `ISSUER_URL` | local `http://<HOST>:<PORT>` fallback | OAuth2/MCP/AsyncAPI issuer URL. Hosted and multi-tenant deployments require explicit public HTTPS. |
 | `OLLAMA_BASE` | `http://localhost:11434` | Ollama API endpoint |
 | `OLLAMA_GEN_MODEL` | `qwen3.5:9b` | Generation + vision model |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |

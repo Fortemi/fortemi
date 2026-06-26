@@ -41,7 +41,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-26 continuation: stored job generation-failure slice logs raw backend errors server-side while storing a generic AI generation failure message for common AI revision/context/related-concept/metadata paths.
 - [~] **#910** AuditEvent / TracingSink / bounded AuditBuffer — audit baseline. (2026-06-25: first core slice added `AuditEvent`, `AuditSink`, `TracingSink`, bounded `AuditBuffer`, event failure policies, pre-buffer redaction/sanitization, a low-risk process startup producer, and a mapping note for localized audit tables.)
 - [ ] **#968 / #974** hosted secret inventory + telemetry redaction taxonomy.
-- [ ] **#926 / #928 / #933** fail-closed startup: require issuer in multi-tenant; reject invalid security booleans; validate rate-limit env before constructing limiter.
+- [~] **#926 / #928 / #933** fail-closed startup: require issuer in multi-tenant; reject invalid security booleans; validate rate-limit env before constructing limiter. (2026-06-26: first startup-config slice added strict parsing for auth/tenant/local-issuer/rate-limit/realtime-consent booleans, hosted-safe issuer validation reused by AsyncAPI metadata, deterministic process-local rate-limit numeric validation before limiter construction, and operator/env docs for the accepted forms and hosted issuer requirements.)
 
 ## Phase 1 — Open BSL desktop GA  `tier/open-build`
 
@@ -198,3 +198,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-26 — #967 chat/stream error-contract slice landed: chat validation/capacity/provider HTTP errors now return RFC 9457 problem details, `Retry-After` is preserved as a header, model-discovery failures use redacted provider-failure responses, and SSE generation failures no longer expose raw backend text.
 - 2026-06-26 — #967 job API redaction slice landed: job list/detail responses now use a hosted-safe `JobResponse` projection that redacts sensitive payload/result fields and replaces stored failure diagnostics with a generic client-facing message.
 - 2026-06-26 — #967 stored job generation-error slice landed: common AI revision/context/related-concept/metadata job failures now store a generic diagnostic message while logging raw backend detail server-side.
+- 2026-06-26 — #926/#928/#933 fail-closed startup-config slice landed: hosted issuer, security boolean, realtime consent, and process-local rate-limit env values now fail fast on invalid startup configuration, with AsyncAPI metadata using the validated issuer source.

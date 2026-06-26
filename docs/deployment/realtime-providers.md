@@ -262,6 +262,8 @@ FORTEMI_CALL_RECORDING_DISCLOSURE_VERSION="voice-disclosure-2026-05"
 
 # When true, Fortemi will not create the Twilio call session unless the
 # call-start webhook includes ConsentConfirmed=true or RecordingConsent=true.
+# This is a strict security/privacy boolean: use exactly true, false, 1, or 0.
+# Invalid values fail API startup instead of falling back to false.
 FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION=false
 ```
 
