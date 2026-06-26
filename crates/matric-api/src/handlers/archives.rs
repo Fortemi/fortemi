@@ -12,6 +12,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use crate::{ApiError, AppState};
 use matric_core::{ArchiveInfo, ArchiveRepository, ServerEvent};
@@ -30,7 +31,7 @@ fn live_memory_limit_reached() -> ApiError {
 // =============================================================================
 
 /// Request body for creating a new archive.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateArchiveRequest {
     /// Unique name for the archive
     pub name: String,
@@ -38,20 +39,55 @@ pub struct CreateArchiveRequest {
     pub description: Option<String>,
 }
 
+impl fmt::Debug for CreateArchiveRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateArchiveRequest")
+            .field("name_len", &self.name.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .finish()
+    }
+}
+
 /// Request body for updating archive metadata.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct UpdateArchiveRequest {
     /// Updated description (or null to clear)
     pub description: Option<String>,
 }
 
+impl fmt::Debug for UpdateArchiveRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateArchiveRequest")
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .finish()
+    }
+}
+
 /// Request body for cloning an archive.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct CloneArchiveRequest {
     /// Name for the cloned archive
     pub new_name: String,
     /// Optional description for the clone
     pub description: Option<String>,
+}
+
+impl fmt::Debug for CloneArchiveRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CloneArchiveRequest")
+            .field("new_name_len", &self.new_name.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .finish()
+    }
 }
 
 /// Response for archive statistics.
@@ -571,5 +607,48 @@ mod tests {
         let json = r#"{"description":null}"#;
         let req: UpdateArchiveRequest = serde_json::from_str(json).unwrap();
         assert!(req.description.is_none());
+    }
+
+    #[test]
+    fn archive_request_debug_redacts_names_and_descriptions() {
+        let create = CreateArchiveRequest {
+            name: "tenant-alpha/customer@example.com/postgres://user:pass@db.internal/app"
+                .to_string(),
+            description: Some("Archive stored at /srv/private/mm_key_archive".to_string()),
+        };
+        let update = UpdateArchiveRequest {
+            description: Some("Updated archive notes with sk-live-archive-secret".to_string()),
+        };
+        let clone = CloneArchiveRequest {
+            new_name: "tenant-alpha-clone/private-path".to_string(),
+            description: Some("Clone for customer@example.com".to_string()),
+        };
+
+        let rendered_create = format!("{create:?}");
+        let rendered_update = format!("{update:?}");
+        let rendered_clone = format!("{clone:?}");
+        let combined = format!("{rendered_create}\n{rendered_update}\n{rendered_clone}");
+
+        assert!(rendered_create.contains("CreateArchiveRequest"));
+        assert!(rendered_create.contains("name_len"));
+        assert!(rendered_create.contains("description_len"));
+        assert!(rendered_update.contains("UpdateArchiveRequest"));
+        assert!(rendered_update.contains("description_len"));
+        assert!(rendered_clone.contains("CloneArchiveRequest"));
+        assert!(rendered_clone.contains("new_name_len"));
+
+        for raw in [
+            "tenant-alpha",
+            "customer@example.com",
+            "postgres://user:pass",
+            "db.internal",
+            "/srv/private",
+            "mm_key_archive",
+            "sk-live-archive-secret",
+            "tenant-alpha-clone",
+            "private-path",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
     }
 }
