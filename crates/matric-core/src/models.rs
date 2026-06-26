@@ -3413,7 +3413,7 @@ impl fmt::Debug for TimelineGroup {
 // =============================================================================
 
 /// Cross-archive search request.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CrossArchiveSearchRequest {
     /// Search query
     pub query: String,
@@ -3431,12 +3431,32 @@ pub struct CrossArchiveSearchRequest {
     pub enable_fusion: bool,
 }
 
+impl fmt::Debug for CrossArchiveSearchRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CrossArchiveSearchRequest")
+            .field("query_len", &self.query.chars().count())
+            .field("archives_count", &self.archives.len())
+            .field(
+                "archive_lens",
+                &self
+                    .archives
+                    .iter()
+                    .map(|archive| archive.chars().count())
+                    .collect::<Vec<_>>(),
+            )
+            .field("mode", &self.mode)
+            .field("limit", &self.limit)
+            .field("enable_fusion", &self.enable_fusion)
+            .finish()
+    }
+}
+
 fn default_ca_limit() -> i64 {
     crate::defaults::CROSS_ARCHIVE_LIMIT
 }
 
 /// Cross-archive search result.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CrossArchiveSearchResult {
     /// Archive name (schema)
     pub archive_name: String,
@@ -3455,12 +3475,57 @@ pub struct CrossArchiveSearchResult {
     pub tags: Vec<String>,
 }
 
+impl fmt::Debug for CrossArchiveSearchResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CrossArchiveSearchResult")
+            .field("archive_name_len", &self.archive_name.chars().count())
+            .field("note_id_set", &true)
+            .field("score", &self.score)
+            .field(
+                "snippet_len",
+                &self.snippet.as_ref().map(|value| value.chars().count()),
+            )
+            .field(
+                "title_len",
+                &self.title.as_ref().map(|value| value.chars().count()),
+            )
+            .field("tags_count", &self.tags.len())
+            .field(
+                "tag_lens",
+                &self
+                    .tags
+                    .iter()
+                    .map(|tag| tag.chars().count())
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
+}
+
 /// Cross-archive search response.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CrossArchiveSearchResponse {
     pub results: Vec<CrossArchiveSearchResult>,
     pub archives_searched: Vec<String>,
     pub total: usize,
+}
+
+impl fmt::Debug for CrossArchiveSearchResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CrossArchiveSearchResponse")
+            .field("results_count", &self.results.len())
+            .field("archives_searched_count", &self.archives_searched.len())
+            .field(
+                "archives_searched_lens",
+                &self
+                    .archives_searched
+                    .iter()
+                    .map(|archive| archive.chars().count())
+                    .collect::<Vec<_>>(),
+            )
+            .field("total", &self.total)
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -4873,6 +4938,63 @@ mod tests {
         assert_eq!(result.archive_name, deserialized.archive_name);
         assert_eq!(result.note_id, deserialized.note_id);
         assert_eq!(result.tags, deserialized.tags);
+    }
+
+    #[test]
+    fn cross_archive_debug_redacts_queries_results_and_identifiers() {
+        let note_id = Uuid::now_v7();
+        let request = CrossArchiveSearchRequest {
+            query: "find private token sk-secret in postgres://user:secret@db.internal".to_string(),
+            archives: vec![
+                "tenant_archive@example.internal".to_string(),
+                "/srv/fortemi/private/archive".to_string(),
+            ],
+            mode: SearchMode::Hybrid,
+            limit: 50,
+            enable_fusion: true,
+        };
+        let result = CrossArchiveSearchResult {
+            archive_name: "archive_with_secret@example.internal".to_string(),
+            note_id,
+            score: 0.95,
+            snippet: Some("private snippet with /srv/fortemi/path and bearer-secret".to_string()),
+            title: Some("Sensitive title postgres://user:secret@db.internal".to_string()),
+            tags: vec![
+                "customer/email@example.internal".to_string(),
+                "token/sk-secret-cross-archive".to_string(),
+            ],
+        };
+        let response = CrossArchiveSearchResponse {
+            results: vec![result.clone()],
+            archives_searched: vec![
+                "archive_with_secret@example.internal".to_string(),
+                "postgres://user:secret@db.internal/archive".to_string(),
+            ],
+            total: 1,
+        };
+
+        let debug = format!("{request:?} {result:?} {response:?}");
+
+        assert!(debug.contains("CrossArchiveSearchRequest"));
+        assert!(debug.contains("query_len"));
+        assert!(debug.contains("archives_count"));
+        assert!(debug.contains("CrossArchiveSearchResult"));
+        assert!(debug.contains("archive_name_len"));
+        assert!(debug.contains("snippet_len"));
+        assert!(debug.contains("title_len"));
+        assert!(debug.contains("tag_lens"));
+        assert!(debug.contains("CrossArchiveSearchResponse"));
+        assert!(debug.contains("results_count"));
+        assert!(debug.contains("archives_searched_count"));
+        assert!(!debug.contains("sk-secret"));
+        assert!(!debug.contains("postgres://"));
+        assert!(!debug.contains("db.internal"));
+        assert!(!debug.contains("tenant_archive"));
+        assert!(!debug.contains("example.internal"));
+        assert!(!debug.contains("/srv/fortemi"));
+        assert!(!debug.contains("bearer-secret"));
+        assert!(!debug.contains("Sensitive title"));
+        assert!(!debug.contains(&note_id.to_string()));
     }
 
     #[test]
