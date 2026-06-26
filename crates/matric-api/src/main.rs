@@ -1538,6 +1538,7 @@ const API_RELATED_NOTES_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_related_notes_dia
 const API_OAUTH_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_oauth_diagnostic_failed";
 const API_ATTACHMENT_MEDIA_DIAGNOSTIC_FAILURE_DETAIL: &str =
     "api_attachment_media_diagnostic_failed";
+const API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_twilio_realtime_diagnostic_failed";
 const API_DATABASE_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_database_diagnostic_failed";
 const API_INTERNAL_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_internal_diagnostic_failed";
 const API_OPERATION_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_operation_diagnostic_failed";
@@ -3553,19 +3554,35 @@ async fn handle_twilio_realtime_connection(
                             match matric_api::realtime::codec::normalize_frame_to_pcm16k(&frame) {
                                 Ok(samples) if !samples.is_empty() => {
                                     if let Err(error) = session.push_pcm16k(&samples).await {
-                                        tracing::warn!(%call_id, %provider_call_id, %error, "Realtime ASR audio push failed");
+                                        tracing::warn!(
+                                            call_id_present = true,
+                                            provider_call_id_len =
+                                                telemetry_text_len(&provider_call_id),
+                                            error_len = telemetry_text_len(&error.to_string()),
+                                            detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                                            operation = "asr_audio_push",
+                                            "Realtime ASR audio push failed"
+                                        );
                                     }
                                 }
                                 Ok(_) => {}
                                 Err(error) => {
                                     RTP_CODEC_DECODE_FAILURES_TOTAL.fetch_add(1, Ordering::Relaxed);
-                                    tracing::warn!(%call_id, %provider_call_id, %error, "Realtime audio normalization failed");
+                                    tracing::warn!(
+                                        call_id_present = true,
+                                        provider_call_id_len =
+                                            telemetry_text_len(&provider_call_id),
+                                        error_len = telemetry_text_len(&error.to_string()),
+                                        detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                                        operation = "audio_normalization",
+                                        "Realtime audio normalization failed"
+                                    );
                                 }
                             }
                         }
                         tracing::trace!(
-                            %call_id,
-                            %provider_call_id,
+                            call_id_present = true,
+                            provider_call_id_len = telemetry_text_len(&provider_call_id),
                             sequence = frame.sequence,
                             timestamp_rtp = frame.timestamp_rtp,
                             bytes = frame.payload.len(),
@@ -3580,7 +3597,14 @@ async fn handle_twilio_realtime_connection(
                     }
                     Err(error) => {
                         RTP_CODEC_DECODE_FAILURES_TOTAL.fetch_add(1, Ordering::Relaxed);
-                        tracing::warn!(%call_id, %provider_call_id, %error, "Invalid Twilio media envelope");
+                        tracing::warn!(
+                            call_id_present = true,
+                            provider_call_id_len = telemetry_text_len(&provider_call_id),
+                            error_len = telemetry_text_len(&error.to_string()),
+                            detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                            operation = "invalid_media_envelope",
+                            "Invalid Twilio media envelope"
+                        );
                         let _ = socket
                             .send(Message::Text(
                                 twilio_invalid_media_envelope_payload().into(),
@@ -3595,7 +3619,14 @@ async fn handle_twilio_realtime_connection(
             }
             Ok(_) => {}
             Err(error) => {
-                tracing::warn!(%call_id, %provider_call_id, %error, "Twilio media stream socket error");
+                tracing::warn!(
+                    call_id_present = true,
+                    provider_call_id_len = telemetry_text_len(&provider_call_id),
+                    error_len = telemetry_text_len(&error.to_string()),
+                    detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "media_stream_socket",
+                    "Twilio media stream socket error"
+                );
                 break;
             }
         }
@@ -3649,7 +3680,14 @@ async fn start_twilio_asr_pipeline(
             Some((session, handle))
         }
         Err(error) => {
-            tracing::warn!(%call_id, %provider_call_id, %error, "Realtime ASR session start failed");
+            tracing::warn!(
+                call_id_present = true,
+                provider_call_id_len = telemetry_text_len(provider_call_id),
+                error_len = telemetry_text_len(&error.to_string()),
+                detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "asr_session_start",
+                "Realtime ASR session start failed"
+            );
             None
         }
     }
@@ -3657,7 +3695,7 @@ async fn start_twilio_asr_pipeline(
 
 async fn finish_twilio_asr_pipeline(
     asr_pipeline: Option<TwilioAsrPipeline>,
-    call_id: Uuid,
+    _call_id: Uuid,
     provider_call_id: &str,
 ) {
     let Some((mut session, handle)) = asr_pipeline else {
@@ -3665,15 +3703,22 @@ async fn finish_twilio_asr_pipeline(
     };
 
     if let Err(error) = session.close().await {
-        tracing::warn!(%call_id, %provider_call_id, %error, "Realtime ASR session close failed");
+        tracing::warn!(
+            call_id_present = true,
+            provider_call_id_len = telemetry_text_len(provider_call_id),
+            error_len = telemetry_text_len(&error.to_string()),
+            detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "asr_session_close",
+            "Realtime ASR session close failed"
+        );
     }
     drop(session);
 
     match handle.await {
         Ok(Ok(summary)) => {
             tracing::info!(
-                %call_id,
-                %provider_call_id,
+                call_id_present = true,
+                provider_call_id_len = telemetry_text_len(provider_call_id),
                 partials = summary.partials,
                 finals = summary.finals,
                 errors = summary.errors,
@@ -3682,11 +3727,25 @@ async fn finish_twilio_asr_pipeline(
         }
         Ok(Err(error)) => {
             RTP_OUTBOX_WRITE_FAILURES_TOTAL.fetch_add(1, Ordering::Relaxed);
-            tracing::warn!(%call_id, %provider_call_id, %error, "Realtime transcript emitter failed");
+            tracing::warn!(
+                call_id_present = true,
+                provider_call_id_len = telemetry_text_len(provider_call_id),
+                error_len = telemetry_text_len(&error.to_string()),
+                detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "transcript_emitter",
+                "Realtime transcript emitter failed"
+            );
         }
         Err(error) => {
             RTP_OUTBOX_WRITE_FAILURES_TOTAL.fetch_add(1, Ordering::Relaxed);
-            tracing::warn!(%call_id, %provider_call_id, %error, "Realtime transcript emitter task failed");
+            tracing::warn!(
+                call_id_present = true,
+                provider_call_id_len = telemetry_text_len(provider_call_id),
+                error_len = telemetry_text_len(&error.to_string()),
+                detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "transcript_emitter_task",
+                "Realtime transcript emitter task failed"
+            );
         }
     }
 }
@@ -3712,24 +3771,35 @@ async fn handle_twilio_control_event(
         }
         matric_api::realtime::CallControlEvent::Dropped { reason } => {
             let _ = state.db.call_sessions.end_session(call_id, "dropped").await;
-            tracing::info!(%call_id, %provider_call_id, %reason, "Twilio media stream dropped");
+            tracing::info!(
+                call_id_present = true,
+                provider_call_id_len = telemetry_text_len(provider_call_id),
+                reason_len = telemetry_text_len(&reason),
+                detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "media_stream_dropped",
+                "Twilio media stream dropped"
+            );
         }
         matric_api::realtime::CallControlEvent::RecordingAvailable { url } => {
             tracing::info!(
-                %call_id,
-                %provider_call_id,
+                call_id_present = true,
+                provider_call_id_len = telemetry_text_len(provider_call_id),
                 recording_url_class = telemetry_url_class(&url),
                 recording_url_len = telemetry_text_len(&url),
+                detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "recording_available",
                 "Twilio recording available"
             );
         }
         matric_api::realtime::CallControlEvent::DtmfDigit { digit } => {
             let _ = digit;
             tracing::debug!(
-                %call_id,
-                %provider_call_id,
+                call_id_present = true,
+                provider_call_id_len = telemetry_text_len(provider_call_id),
                 digit_present = true,
                 digit_len = 1,
+                detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "dtmf_digit",
                 "Twilio DTMF digit received"
             );
         }
@@ -8218,13 +8288,20 @@ fn realtime_asr_backend_from_env() -> (
                 (Some(Arc::new(backend)), Some(metrics))
             }
             Err(error) => {
-                tracing::info!(%error, "Realtime Deepgram ASR backend disabled");
+                tracing::info!(
+                    error_len = telemetry_text_len(&error.to_string()),
+                    detail = API_PROVIDER_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "realtime_asr_backend_from_env",
+                    "Realtime Deepgram ASR backend disabled"
+                );
                 (None, None)
             }
         },
         other => {
             tracing::warn!(
-                backend = other,
+                backend_len = telemetry_text_len(other),
+                detail = API_PROVIDER_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "realtime_asr_backend_selection",
                 "Unsupported REALTIME_ASR_BACKEND; realtime ASR disabled"
             );
             (None, None)
@@ -26358,6 +26435,7 @@ mod tests {
             API_RELATED_NOTES_DIAGNOSTIC_FAILURE_DETAIL,
             API_OAUTH_DIAGNOSTIC_FAILURE_DETAIL,
             API_ATTACHMENT_MEDIA_DIAGNOSTIC_FAILURE_DETAIL,
+            API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
             API_DATABASE_DIAGNOSTIC_FAILURE_DETAIL,
             API_INTERNAL_DIAGNOSTIC_FAILURE_DETAIL,
             API_OPERATION_DIAGNOSTIC_FAILURE_DETAIL,
