@@ -53,6 +53,8 @@ const CONCEPT_TAGGING_JOB_FAILURE: &str =
     "Concept tagging failed. Check server logs for diagnostics.";
 const RELATED_CONCEPT_JOB_FAILURE: &str =
     "Related concept inference failed. Check server logs for diagnostics.";
+const REFERENCE_EXTRACTION_JOB_FAILURE: &str =
+    "Reference extraction failed. Check server logs for diagnostics.";
 
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
@@ -208,6 +210,18 @@ fn related_concept_job_failure(
         operation, "Related concept inference job failed"
     );
     JobResult::Failed(RELATED_CONCEPT_JOB_FAILURE.to_string())
+}
+
+fn reference_extraction_job_failure(
+    error: impl std::fmt::Display,
+    operation: &'static str,
+) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "Reference extraction job failed"
+    );
+    JobResult::Failed(REFERENCE_EXTRACTION_JOB_FAILURE.to_string())
 }
 
 /// Extract the target schema from a job's payload.
@@ -4371,11 +4385,11 @@ impl JobHandler for ReferenceExtractionHandler {
         // Get the note
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return reference_extraction_job_failure(e, "fetch_note_begin_tx"),
         };
         let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
-            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+            Err(e) => return reference_extraction_job_failure(e, "fetch_note"),
         };
         tx.commit().await.ok();
 
@@ -4710,7 +4724,7 @@ impl JobHandler for ReferenceExtractionHandler {
             // Resolve or create the concept hierarchy in a single transaction
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => return reference_extraction_job_failure(e, "resolve_reference_begin_tx"),
             };
 
             let resolved = match self
@@ -8259,6 +8273,27 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("/srv/fortemi"));
                 assert!(!message.contains("SQLSTATE"));
                 assert!(!message.contains("lookup failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reference_extraction_job_failure_uses_generic_stored_message() {
+        let result = reference_extraction_job_failure(
+            "reference extraction failed to fetch note from postgres://user:secret@db.internal/app at /srv/fortemi SQLSTATE 42P01",
+            "fetch_note",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, REFERENCE_EXTRACTION_JOB_FAILURE);
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("fetch note"));
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
