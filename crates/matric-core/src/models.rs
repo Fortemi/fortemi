@@ -3643,6 +3643,71 @@ mod tests {
     }
 
     #[test]
+    fn inbound_source_debug_redacts_config_and_identifiers() {
+        let now = Utc::now();
+        let source = InboundSource {
+            id: Uuid::new_v4(),
+            name: "tenant-secret-inbound-source".to_string(),
+            kind: "sse-secret-kind".to_string(),
+            config: json!({
+                "url": "https://user:pass@provider.example/stream?api_key=inbound-secret-token",
+                "headers": {
+                    "Authorization": "Bearer inbound-secret-token",
+                    "X-Api-Key": "inbound-api-key-secret"
+                },
+                "event_type_field": "tenant_secret_event_type",
+                "default_event_type": "secret.default.v1",
+                "event_type_filter": ["tenant.secret.v1"]
+            }),
+            enabled: true,
+            created_at: now,
+            updated_at: now,
+        };
+        let create = CreateInboundSourceRequest {
+            name: "create-secret-inbound-source".to_string(),
+            kind: "redis-secret-kind".to_string(),
+            config: json!({
+                "redis_url": "redis://user:pass@redis.example:6379/0",
+                "stream": "tenant-secret-stream",
+                "group": "tenant-secret-group",
+                "consumer": "tenant-secret-consumer",
+                "event_type_field": "tenant_secret_event_type"
+            }),
+            enabled: true,
+        };
+
+        let debug = format!("{source:?}{create:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "tenant-secret-inbound-source",
+                "sse-secret-kind",
+                "create-secret-inbound-source",
+                "redis-secret-kind",
+                "https://user:pass@provider.example",
+                "api_key=inbound-secret-token",
+                "Authorization",
+                "Bearer inbound-secret-token",
+                "X-Api-Key",
+                "inbound-api-key-secret",
+                "tenant_secret_event_type",
+                "secret.default.v1",
+                "tenant.secret.v1",
+                "redis://user:pass@redis.example",
+                "tenant-secret-stream",
+                "tenant-secret-group",
+                "tenant-secret-consumer",
+            ],
+        );
+        assert!(debug.contains("name_len"));
+        assert!(debug.contains("kind_len"));
+        assert!(debug.contains("config_class"));
+        assert!(debug.contains("config_len"));
+        assert!(debug.contains("config_key_count"));
+    }
+
+    #[test]
     fn test_note_meta_serialization() {
         let note = NoteMeta {
             id: Uuid::new_v4(),
@@ -5864,7 +5929,7 @@ fn json_value_class(value: &JsonValue) -> &'static str {
 ///
 /// `kind` selects a connector implementation (e.g. `redis-stream`, `sse`,
 /// `kafka`); `config` is an opaque JSON document interpreted by that connector.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct InboundSource {
     pub id: Uuid,
     pub name: String,
@@ -5875,8 +5940,27 @@ pub struct InboundSource {
     pub updated_at: DateTime<Utc>,
 }
 
+impl std::fmt::Debug for InboundSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InboundSource")
+            .field("id", &self.id)
+            .field("name_len", &self.name.chars().count())
+            .field("kind_len", &self.kind.chars().count())
+            .field("config_class", &json_value_class(&self.config))
+            .field("config_len", &self.config.to_string().chars().count())
+            .field(
+                "config_key_count",
+                &self.config.as_object().map(serde_json::Map::len),
+            )
+            .field("enabled", &self.enabled)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
+}
+
 /// Request to register an inbound event source connector (#833).
-#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Deserialize, utoipa::ToSchema)]
 pub struct CreateInboundSourceRequest {
     pub name: String,
     pub kind: String,
@@ -5884,6 +5968,22 @@ pub struct CreateInboundSourceRequest {
     pub config: JsonValue,
     #[serde(default = "default_inbound_source_enabled")]
     pub enabled: bool,
+}
+
+impl std::fmt::Debug for CreateInboundSourceRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateInboundSourceRequest")
+            .field("name_len", &self.name.chars().count())
+            .field("kind_len", &self.kind.chars().count())
+            .field("config_class", &json_value_class(&self.config))
+            .field("config_len", &self.config.to_string().chars().count())
+            .field(
+                "config_key_count",
+                &self.config.as_object().map(serde_json::Map::len),
+            )
+            .field("enabled", &self.enabled)
+            .finish()
+    }
 }
 
 fn default_inbound_source_config() -> JsonValue {
