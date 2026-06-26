@@ -17,10 +17,14 @@ use std::time::Instant;
 use tracing::{debug, info, warn};
 
 use crate::middleware::archive_routing::ArchiveContext;
-use crate::{ApiError, AppState};
+use crate::{ApiError, AppState, Auth};
 use matric_core::defaults::EMBED_DIMENSION;
 use matric_core::InferenceBackend as InferenceBackendTrait;
 use matric_core::ServerEvent;
+use matric_core::{
+    AuditEvent, AuditFailurePolicy, AuditOutcome, AuditSeverity, AuditSink, AuditSource,
+    AuditVisibilityClass, AuthPrincipal, TracingSink,
+};
 use matric_inference::OllamaBackend;
 
 // =============================================================================
@@ -448,6 +452,94 @@ async fn write_audit_row(
 
     if let Err(e) = result {
         warn!(error = %e, action = %action, "Failed to write inference_config_audit row");
+    }
+}
+
+async fn emit_inference_config_audit_event(event: AuditEvent) {
+    if let Err(err) = TracingSink.emit(event).await {
+        warn!(error = %err, "failed to emit inference config audit event");
+    }
+}
+
+fn inference_config_audit_event(
+    auth: &Auth,
+    action: &str,
+    archive_schema: Option<&str>,
+    changed_fields: &[String],
+    current: &Value,
+) -> AuditEvent {
+    let scope = if archive_schema.is_some() {
+        "archive"
+    } else {
+        "global"
+    };
+    let resource_id = if archive_schema.is_some() {
+        "archive_override"
+    } else {
+        "global_override"
+    };
+    let safe_changed_fields: Vec<String> = changed_fields
+        .iter()
+        .map(|field| sanitize_inference_config_field_name(field))
+        .collect();
+
+    let mut event = AuditEvent::new("inference_config", action, AuditOutcome::Success)
+        .with_principal(inference_config_principal_audit_id(&auth.principal))
+        .with_resource("inference_config", resource_id)
+        .with_attr("config_scope", scope)
+        .with_attr("changed_field_count", safe_changed_fields.len() as i64)
+        .with_attr("changed_fields", serde_json::json!(safe_changed_fields))
+        .with_attr("ollama_present", current.get("ollama").is_some())
+        .with_attr("openai_present", current.get("openai").is_some())
+        .with_attr("llamacpp_present", current.get("llamacpp").is_some())
+        .with_attr("openrouter_present", current.get("openrouter").is_some())
+        .with_attr(
+            "embedding_backend_present",
+            current.get("embedding_backend").is_some(),
+        );
+
+    if let Some(schema) = archive_schema {
+        event = event.with_attr("archive_schema_len", schema.chars().count() as i64);
+    }
+
+    event.source = AuditSource::Api;
+    event.visibility = AuditVisibilityClass::SecurityRestricted;
+    event.failure_policy = AuditFailurePolicy::BestEffort;
+    event.severity = AuditSeverity::Info;
+    event.sanitized()
+}
+
+fn sanitize_inference_config_field_name(field: &str) -> String {
+    let valid_shape = !field.is_empty()
+        && field.len() <= 96
+        && field
+            .chars()
+            .all(|ch| matches!(ch, 'a'..='z' | '0'..='9' | '_' | '.'))
+        && (matches!(
+            field,
+            "__reset__" | "__reset_archive__" | "default_backend" | "embedding_backend"
+        ) || field.starts_with("ollama.")
+            || field.starts_with("openai.")
+            || field.starts_with("llamacpp.")
+            || field.starts_with("openrouter."));
+
+    if valid_shape {
+        field.to_string()
+    } else {
+        "unknown".to_string()
+    }
+}
+
+fn inference_config_principal_audit_id(principal: &AuthPrincipal) -> String {
+    match principal {
+        AuthPrincipal::OAuthClient {
+            client_id, user_id, ..
+        } => user_id
+            .as_ref()
+            .map(|user_id| format!("oauth_user:{user_id}"))
+            .unwrap_or_else(|| format!("oauth_client:{client_id}")),
+        AuthPrincipal::ApiKey { key_id, .. } => format!("api_key:{key_id}"),
+        AuthPrincipal::Anonymous => "anonymous".to_string(),
     }
 }
 
@@ -945,6 +1037,7 @@ fn merge_archive_over_global(global: Option<&Value>, archive: &Value) -> Value {
     )
 )]
 pub async fn update_inference_config(
+    auth: Auth,
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Query(params): Query<UpdateConfigQuery>,
@@ -1613,7 +1706,7 @@ pub async fn update_inference_config(
             state.event_bus.emit(ServerEvent::InferenceConfigChanged {
                 default_backend: current_typed.default_backend.clone(),
                 embedding_backend,
-                changed_fields,
+                changed_fields: changed_fields.clone(),
             });
         }
 
@@ -1624,6 +1717,14 @@ pub async fn update_inference_config(
             Some(&current),
             None,
         )
+        .await;
+        emit_inference_config_audit_event(inference_config_audit_event(
+            &auth,
+            "config_set_archive",
+            Some(schema),
+            &changed_fields,
+            &current,
+        ))
         .await;
 
         let response = UpdateInferenceConfigResponse {
@@ -1794,13 +1895,21 @@ pub async fn update_inference_config(
         state.event_bus.emit(ServerEvent::InferenceConfigChanged {
             default_backend: current_typed.default_backend.clone(),
             embedding_backend,
-            changed_fields,
+            changed_fields: changed_fields.clone(),
         });
     }
 
     // Audit log entry (#656). Best-effort — a failed insert is logged but
     // doesn't fail the request.
     write_audit_row(&state.db.pool, "set", Some(&previous), Some(&current), None).await;
+    emit_inference_config_audit_event(inference_config_audit_event(
+        &auth,
+        "config_set",
+        None,
+        &changed_fields,
+        &current,
+    ))
+    .await;
 
     let response = UpdateInferenceConfigResponse {
         status: "applied".to_string(),
@@ -1829,6 +1938,7 @@ pub async fn update_inference_config(
     )
 )]
 pub async fn delete_inference_config(
+    auth: Auth,
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
 ) -> impl IntoResponse {
@@ -1886,6 +1996,15 @@ pub async fn delete_inference_config(
             Some(&effective),
             None,
         )
+        .await;
+        let changed_fields = vec!["__reset_archive__".to_string()];
+        emit_inference_config_audit_event(inference_config_audit_event(
+            &auth,
+            "config_reset_archive",
+            Some(schema),
+            &changed_fields,
+            &effective,
+        ))
         .await;
 
         let response = ResetInferenceConfigResponse {
@@ -1953,6 +2072,15 @@ pub async fn delete_inference_config(
         Some(&effective),
         None,
     )
+    .await;
+    let changed_fields = vec!["__reset__".to_string()];
+    emit_inference_config_audit_event(inference_config_audit_event(
+        &auth,
+        "config_reset",
+        None,
+        &changed_fields,
+        &effective,
+    ))
     .await;
 
     let response = ResetInferenceConfigResponse {
@@ -2857,6 +2985,82 @@ mod tests_connection {
         assert!(!rendered.contains("provider.example.com"));
         assert!(!rendered.contains("token=secret"));
         assert!(!rendered.contains(&req.base_url));
+    }
+
+    #[test]
+    fn inference_config_audit_event_uses_metadata_only() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: uuid::Uuid::parse_str("018fd1a0-0000-7000-8000-000000000201").unwrap(),
+                scope: "admin sk-secret-scope".to_string(),
+            },
+        };
+        let changed_fields = vec![
+            "openai.api_key".to_string(),
+            "openrouter.http_referer".to_string(),
+            "bad\nfield=sk-secret".to_string(),
+        ];
+        let current = serde_json::json!({
+            "openai": {
+                "api_key": {"value": "sk-secret-openai-key", "source": "db_override"},
+                "base_url": {"value": "https://user:pass@api.openai.com/v1?token=secret", "source": "db_override"},
+                "generation_model": {"value": "gpt-secret-model", "source": "db_override"}
+            },
+            "openrouter": {
+                "http_referer": {"value": "https://tenant-secret.example/app", "source": "db_override"},
+                "app_name": {"value": "secret tenant app", "source": "db_override"}
+            },
+            "embedding_backend": {"value": "secret-embedding-backend", "source": "db_override"}
+        });
+
+        let event = inference_config_audit_event(
+            &auth,
+            "config_set_archive",
+            Some("tenant_secret_schema"),
+            &changed_fields,
+            &current,
+        );
+        let rendered = serde_json::to_string(&event).unwrap();
+
+        assert_eq!(event.category, "inference_config");
+        assert_eq!(event.action, "config_set_archive");
+        assert_eq!(event.outcome, AuditOutcome::Success);
+        assert_eq!(event.source, AuditSource::Api);
+        assert_eq!(event.visibility, AuditVisibilityClass::SecurityRestricted);
+        assert_eq!(event.resource_kind.as_deref(), Some("inference_config"));
+        assert_eq!(event.resource_id.as_deref(), Some("archive_override"));
+        assert_eq!(
+            event
+                .attrs
+                .get("changed_field_count")
+                .and_then(|v| v.as_i64()),
+            Some(3)
+        );
+        assert_eq!(
+            event.attrs.get("config_scope").and_then(|v| v.as_str()),
+            Some("archive")
+        );
+        assert_eq!(
+            event
+                .attrs
+                .get("archive_schema_len")
+                .and_then(|v| v.as_i64()),
+            Some("tenant_secret_schema".chars().count() as i64)
+        );
+        assert!(rendered.contains("openai.api_key"));
+        assert!(rendered.contains("unknown"));
+        assert!(!rendered.contains("sk-secret-openai-key"));
+        assert!(!rendered.contains("sk-secret-scope"));
+        assert!(!rendered.contains("sk_secret"));
+        assert!(!rendered.contains("user:pass"));
+        assert!(!rendered.contains("api.openai.com"));
+        assert!(!rendered.contains("token=secret"));
+        assert!(!rendered.contains("gpt-secret-model"));
+        assert!(!rendered.contains("tenant-secret.example"));
+        assert!(!rendered.contains("secret tenant app"));
+        assert!(!rendered.contains("secret-embedding-backend"));
+        assert!(!rendered.contains("tenant_secret_schema"));
+        assert!(!rendered.contains("bad\nfield=sk-secret"));
     }
 
     // -----------------------------------------------------------------------
