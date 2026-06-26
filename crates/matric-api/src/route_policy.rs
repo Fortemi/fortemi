@@ -1481,13 +1481,15 @@ pub fn authorization_input_for_request(
 ) -> Option<RoutePolicyInput> {
     let policy = route_policy_for_path(path)?;
     let params = route_params(policy.path, path);
+    let action_family = action_family_for_request(policy, method);
+    let policy_class = policy_class_for_request(policy, method);
     let action = Action {
-        name: route_action_name(policy, method),
-        scope_family: scope_family_for_policy(policy),
-        required_scopes: required_scopes_for_policy(policy, method),
+        name: route_action_name(action_family, method),
+        scope_family: scope_family_for_policy_class(policy_class),
+        required_scopes: required_scopes_for_policy_class(policy_class, method),
     };
 
-    let mut resource = Resource::new(resource_kind_for_policy(policy));
+    let mut resource = Resource::new(resource_kind_for_action_family(action_family));
     if let Some(candidate) = resource_id_for_policy(policy, &params) {
         let requires_backing_normalization =
             requires_backing_resource_normalization(policy, candidate.param_name);
@@ -1530,8 +1532,15 @@ pub fn authorization_input_for_request(
         .insert("route_template".to_string(), json!(policy.path));
     resource.attrs.insert(
         "policy_class".to_string(),
+        json!(format!("{:?}", policy_class)),
+    );
+    resource.attrs.insert(
+        "inventory_policy_class".to_string(),
         json!(format!("{:?}", policy.class)),
     );
+    resource
+        .attrs
+        .insert("action_family".to_string(), json!(action_family));
     resource.attrs.insert(
         "docs_exposure".to_string(),
         json!(format!("{:?}", policy.docs)),
@@ -1561,24 +1570,40 @@ pub fn mark_resource_id_normalized(input: &mut RoutePolicyInput) {
         .insert("resource_id_normalized".to_string(), json!(true));
 }
 
-fn route_action_name(policy: &RoutePolicy, method: &Method) -> String {
-    format!(
-        "{}:{}",
-        policy.action_family,
-        method.as_str().to_ascii_lowercase()
-    )
+fn action_family_for_request(policy: &RoutePolicy, method: &Method) -> &'static str {
+    if is_incoming_webhook_receiver_slug_route(policy) && method != Method::POST {
+        "webhook_control"
+    } else {
+        policy.action_family
+    }
 }
 
-fn scope_family_for_policy(policy: &RoutePolicy) -> ScopeFamily {
-    match policy.class {
+fn policy_class_for_request(policy: &RoutePolicy, method: &Method) -> PolicyClass {
+    if is_incoming_webhook_receiver_slug_route(policy) && method != Method::POST {
+        AdminOperator
+    } else {
+        policy.class
+    }
+}
+
+fn is_incoming_webhook_receiver_slug_route(policy: &RoutePolicy) -> bool {
+    policy.path == "/api/v1/webhooks/incoming/{slug}" && policy.action_family == "webhook_receiver"
+}
+
+fn route_action_name(action_family: &str, method: &Method) -> String {
+    format!("{}:{}", action_family, method.as_str().to_ascii_lowercase())
+}
+
+fn scope_family_for_policy_class(policy_class: PolicyClass) -> ScopeFamily {
+    match policy_class {
         AdminOperator => ScopeFamily::Admin,
         RealtimeTransport => ScopeFamily::McpTransport,
         _ => ScopeFamily::Rest,
     }
 }
 
-fn required_scopes_for_policy(policy: &RoutePolicy, method: &Method) -> Vec<String> {
-    match policy.class {
+fn required_scopes_for_policy_class(policy_class: PolicyClass, method: &Method) -> Vec<String> {
+    match policy_class {
         Public | PublicWithInlineProof | Docs | OAuth => vec![],
         RealtimeTransport => vec!["mcp".to_string()],
         AdminOperator => vec!["admin".to_string()],
@@ -1598,8 +1623,8 @@ fn is_read_method(method: &Method) -> bool {
     matches!(method, &Method::GET | &Method::HEAD | &Method::OPTIONS)
 }
 
-fn resource_kind_for_policy(policy: &RoutePolicy) -> ResourceKind {
-    match policy.action_family {
+fn resource_kind_for_action_family(action_family: &str) -> ResourceKind {
+    match action_family {
         "attachment" => ResourceKind::Attachment,
         "backup_restore" => ResourceKind::Backup,
         "collection" => ResourceKind::Collection,
@@ -1886,6 +1911,46 @@ mod tests {
         assert_eq!(input.action.required_scopes, Vec::<String>::new());
         assert_eq!(input.resource.kind, ResourceKind::Webhook);
         assert_eq!(input.resource.id.as_deref(), Some("customer-created"));
+        assert_eq!(
+            input.resource.attrs["policy_class"],
+            json!("PublicWithInlineProof")
+        );
+        assert_eq!(
+            input.resource.attrs["action_family"],
+            json!("webhook_receiver")
+        );
+    }
+
+    #[test]
+    fn incoming_webhook_receiver_management_methods_build_admin_policy_input() {
+        for method in [Method::GET, Method::PATCH, Method::DELETE] {
+            let input = authorization_input_for_request(
+                &method,
+                "/api/v1/webhooks/incoming/customer-created",
+                None,
+            )
+            .expect("incoming webhook management route should be inventoried");
+
+            assert_eq!(input.policy.class, PublicWithInlineProof);
+            assert_eq!(input.policy.action_family, "webhook_receiver");
+            assert_eq!(
+                input.action.name,
+                format!("webhook_control:{}", method.as_str().to_ascii_lowercase())
+            );
+            assert_eq!(input.action.scope_family, ScopeFamily::Admin);
+            assert_eq!(input.action.required_scopes, vec!["admin"]);
+            assert_eq!(input.resource.kind, ResourceKind::Webhook);
+            assert_eq!(input.resource.id.as_deref(), Some("customer-created"));
+            assert_eq!(input.resource.attrs["policy_class"], json!("AdminOperator"));
+            assert_eq!(
+                input.resource.attrs["inventory_policy_class"],
+                json!("PublicWithInlineProof")
+            );
+            assert_eq!(
+                input.resource.attrs["action_family"],
+                json!("webhook_control")
+            );
+        }
     }
 
     #[test]
