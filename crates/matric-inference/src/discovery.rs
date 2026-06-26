@@ -24,9 +24,10 @@ use crate::capabilities::{known_model_capabilities, Capability, ModelCapabilitie
 use crate::hardware::{HardwareTier, OllamaSettings, SystemCapabilities};
 use crate::selector::ModelSelector;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Discovered Ollama model information.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DiscoveredModel {
     /// Model name (e.g., "qwen2.5:14b").
     pub name: String,
@@ -42,6 +43,26 @@ pub struct DiscoveredModel {
     pub has_known_capabilities: bool,
     /// Capabilities (if known).
     pub capabilities: Option<ModelCapabilities>,
+}
+
+impl fmt::Debug for DiscoveredModel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DiscoveredModel")
+            .field("name_len", &self.name.len())
+            .field("size", &self.size)
+            .field("family_len", &self.family.as_ref().map(String::len))
+            .field(
+                "parameter_size_len",
+                &self.parameter_size.as_ref().map(String::len),
+            )
+            .field(
+                "quantization_len",
+                &self.quantization.as_ref().map(String::len),
+            )
+            .field("has_known_capabilities", &self.has_known_capabilities)
+            .field("capabilities_present", &self.capabilities.is_some())
+            .finish()
+    }
 }
 
 impl DiscoveredModel {
@@ -66,7 +87,7 @@ impl DiscoveredModel {
 }
 
 /// Result of model discovery.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DiscoveryResult {
     /// All discovered models.
     pub models: Vec<DiscoveredModel>,
@@ -78,6 +99,18 @@ pub struct DiscoveryResult {
     pub recommended_models: Vec<String>,
     /// Discovery timestamp.
     pub discovered_at: String,
+}
+
+impl fmt::Debug for DiscoveryResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DiscoveryResult")
+            .field("model_count", &self.models.len())
+            .field("embedding_model_count", &self.embedding_models.len())
+            .field("generation_model_count", &self.generation_models.len())
+            .field("recommended_model_count", &self.recommended_models.len())
+            .field("discovered_at_len", &self.discovered_at.len())
+            .finish()
+    }
 }
 
 impl DiscoveryResult {
@@ -109,7 +142,7 @@ impl DiscoveryResult {
 }
 
 /// System configuration recommendation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ConfigRecommendation {
     /// Recommended embedding model.
     pub embedding_model: String,
@@ -131,6 +164,25 @@ pub struct ConfigRecommendation {
     pub alternatives: Vec<AlternativeConfig>,
     /// Comparison to cloud providers.
     pub cloud_comparison: Option<CloudComparisonNote>,
+}
+
+impl fmt::Debug for ConfigRecommendation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConfigRecommendation")
+            .field("embedding_model_len", &self.embedding_model.len())
+            .field("generation_model_len", &self.generation_model.len())
+            .field(
+                "fast_generation_model_len",
+                &self.fast_generation_model.as_ref().map(String::len),
+            )
+            .field("hardware_tier", &self.hardware_tier)
+            .field("expected_quality", &self.expected_quality)
+            .field("confidence", &self.confidence)
+            .field("rationale_len", &self.rationale.len())
+            .field("alternative_count", &self.alternatives.len())
+            .field("cloud_comparison_present", &self.cloud_comparison.is_some())
+            .finish()
+    }
 }
 
 impl ConfigRecommendation {
@@ -207,7 +259,7 @@ impl QualityExpectation {
 }
 
 /// Alternative configuration option.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AlternativeConfig {
     /// Description of this alternative.
     pub description: String,
@@ -219,8 +271,19 @@ pub struct AlternativeConfig {
     pub tradeoff: String,
 }
 
+impl fmt::Debug for AlternativeConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AlternativeConfig")
+            .field("description_len", &self.description.len())
+            .field("embedding_model_len", &self.embedding_model.len())
+            .field("generation_model_len", &self.generation_model.len())
+            .field("tradeoff_len", &self.tradeoff.len())
+            .finish()
+    }
+}
+
 /// Cloud provider comparison note.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CloudComparisonNote {
     /// Equivalent cloud tier.
     pub equivalent_to: String,
@@ -228,6 +291,16 @@ pub struct CloudComparisonNote {
     pub estimated_cloud_cost: String,
     /// Notes about the comparison.
     pub notes: String,
+}
+
+impl fmt::Debug for CloudComparisonNote {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CloudComparisonNote")
+            .field("equivalent_to_len", &self.equivalent_to.len())
+            .field("estimated_cloud_cost_len", &self.estimated_cloud_cost.len())
+            .field("notes_len", &self.notes.len())
+            .finish()
+    }
 }
 
 /// Model discovery service.
@@ -536,7 +609,7 @@ impl ModelDiscovery {
 }
 
 /// Errors that can occur during discovery.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum DiscoveryError {
     /// Failed to connect to Ollama.
     ConnectionFailed(String),
@@ -544,6 +617,25 @@ pub enum DiscoveryError {
     ApiError(String),
     /// Failed to parse response.
     ParseError(String),
+}
+
+impl fmt::Debug for DiscoveryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DiscoveryError::ConnectionFailed(message) => f
+                .debug_struct("ConnectionFailed")
+                .field("message_len", &message.len())
+                .finish(),
+            DiscoveryError::ApiError(message) => f
+                .debug_struct("ApiError")
+                .field("message_len", &message.len())
+                .finish(),
+            DiscoveryError::ParseError(message) => f
+                .debug_struct("ParseError")
+                .field("message_len", &message.len())
+                .finish(),
+        }
+    }
 }
 
 impl std::fmt::Display for DiscoveryError {
@@ -559,23 +651,51 @@ impl std::fmt::Display for DiscoveryError {
 impl std::error::Error for DiscoveryError {}
 
 // Ollama API response types
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct OllamaTagsResponse {
     models: Vec<OllamaModel>,
 }
 
-#[derive(Debug, Deserialize)]
+impl fmt::Debug for OllamaTagsResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OllamaTagsResponse")
+            .field("model_count", &self.models.len())
+            .finish()
+    }
+}
+
+#[derive(Deserialize)]
 struct OllamaModel {
     name: String,
     size: u64,
     details: Option<OllamaModelDetails>,
 }
 
-#[derive(Debug, Deserialize)]
+impl fmt::Debug for OllamaModel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OllamaModel")
+            .field("name_len", &self.name.len())
+            .field("size", &self.size)
+            .field("details_present", &self.details.is_some())
+            .finish()
+    }
+}
+
+#[derive(Deserialize)]
 struct OllamaModelDetails {
     family: String,
     parameter_size: String,
     quantization_level: String,
+}
+
+impl fmt::Debug for OllamaModelDetails {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OllamaModelDetails")
+            .field("family_len", &self.family.len())
+            .field("parameter_size_len", &self.parameter_size.len())
+            .field("quantization_level_len", &self.quantization_level.len())
+            .finish()
+    }
 }
 
 #[cfg(test)]
@@ -682,5 +802,96 @@ mod tests {
     fn test_model_discovery_constructor_with_default_url() {
         let discovery = ModelDiscovery::new("http://localhost:11434");
         assert_eq!(discovery.ollama_url, "http://localhost:11434");
+    }
+
+    #[test]
+    fn discovery_debug_redacts_model_names_rationale_and_provider_details() {
+        let discovered = DiscoveredModel {
+            name: "private-model-jane@example.com:sk-private".to_string(),
+            size: 42,
+            family: Some("family-secret".to_string()),
+            parameter_size: Some("70B-private".to_string()),
+            quantization: Some("q4-secret".to_string()),
+            has_known_capabilities: false,
+            capabilities: None,
+        };
+        let result = DiscoveryResult {
+            models: vec![discovered.clone()],
+            embedding_models: vec!["embed-secret@example.com".to_string()],
+            generation_models: vec!["gen-sk-private".to_string()],
+            recommended_models: vec!["recommended-private".to_string()],
+            discovered_at: "2026-06-26T16:00:00Z".to_string(),
+        };
+        let alternative = AlternativeConfig {
+            description: "Use https://tenant.example private model".to_string(),
+            embedding_model: "embed-secret@example.com".to_string(),
+            generation_model: "gen-sk-private".to_string(),
+            tradeoff: "Trades off token sk-private".to_string(),
+        };
+        let cloud = CloudComparisonNote {
+            equivalent_to: "private-cloud-tier".to_string(),
+            estimated_cloud_cost: "$100 for jane@example.com".to_string(),
+            notes: "Provider URL https://tenant.example".to_string(),
+        };
+        let recommendation = ConfigRecommendation {
+            embedding_model: "embed-secret@example.com".to_string(),
+            generation_model: "gen-sk-private".to_string(),
+            fast_generation_model: Some("fast-private".to_string()),
+            hardware_tier: HardwareTier::Mainstream,
+            ollama_settings: OllamaSettings::for_tier(HardwareTier::Mainstream),
+            expected_quality: QualityExpectation {
+                title_quality_range: (80.0, 90.0),
+                semantic_accuracy_range: (70.0, 80.0),
+                latency_range_ms: (100, 200),
+            },
+            confidence: 80,
+            rationale: "Rationale mentions https://tenant.example and sk-private".to_string(),
+            alternatives: vec![alternative.clone()],
+            cloud_comparison: Some(cloud.clone()),
+        };
+        let error = DiscoveryError::ConnectionFailed(
+            "Failed for https://tenant.example with token sk-private".to_string(),
+        );
+        let tags = OllamaTagsResponse {
+            models: vec![OllamaModel {
+                name: "ollama-private@example.com".to_string(),
+                size: 7,
+                details: Some(OllamaModelDetails {
+                    family: "family-private".to_string(),
+                    parameter_size: "secret-parameter".to_string(),
+                    quantization_level: "secret-quant".to_string(),
+                }),
+            }],
+        };
+
+        let debug = format!(
+            "{:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?}",
+            discovered,
+            result,
+            alternative,
+            cloud,
+            recommendation,
+            error,
+            tags,
+            tags.models[0].details.as_ref().unwrap()
+        );
+
+        assert!(debug.contains("name_len"));
+        assert!(debug.contains("model_count"));
+        assert!(debug.contains("embedding_model_len"));
+        assert!(debug.contains("rationale_len"));
+        assert!(debug.contains("message_len"));
+        assert!(debug.contains("family_len"));
+        assert!(!debug.contains("jane@example.com"));
+        assert!(!debug.contains("sk-private"));
+        assert!(!debug.contains("tenant.example"));
+        assert!(!debug.contains("private-model"));
+        assert!(!debug.contains("family-secret"));
+        assert!(!debug.contains("70B-private"));
+        assert!(!debug.contains("q4-secret"));
+        assert!(!debug.contains("private-cloud-tier"));
+        assert!(!debug.contains("Rationale mentions"));
+        assert!(!debug.contains("ollama-private"));
+        assert!(!debug.contains("secret-parameter"));
     }
 }
