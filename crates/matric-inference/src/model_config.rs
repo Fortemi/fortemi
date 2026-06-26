@@ -4,6 +4,8 @@
 //! or thinking processes. This module provides configuration to detect and
 //! handle these models appropriately.
 
+use std::fmt;
+
 use thiserror::Error;
 
 /// Determines if a model requires raw mode to expose thinking tags.
@@ -56,7 +58,7 @@ pub enum RestrictionType {
 }
 
 /// Information about a model restriction.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ModelRestriction {
     /// Type of restriction.
     pub restriction_type: RestrictionType,
@@ -67,7 +69,7 @@ pub struct ModelRestriction {
 }
 
 /// Error returned when validating a model.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Error, PartialEq, Eq)]
 pub enum ModelValidationError {
     /// Model is blocked and cannot be used.
     #[error("Model '{model}' is blocked: {reason}\nAlternative: {alternative}")]
@@ -76,6 +78,36 @@ pub enum ModelValidationError {
         reason: String,
         alternative: String,
     },
+}
+
+impl fmt::Debug for ModelRestriction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ModelRestriction")
+            .field("restriction_type", &self.restriction_type)
+            .field("reason_len", &self.reason.len())
+            .field(
+                "alternative_len",
+                &self.alternative.as_ref().map(String::len),
+            )
+            .finish()
+    }
+}
+
+impl fmt::Debug for ModelValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ModelBlocked {
+                model,
+                reason,
+                alternative,
+            } => f
+                .debug_struct("ModelBlocked")
+                .field("model_len", &model.len())
+                .field("reason_len", &reason.len())
+                .field("alternative_len", &alternative.len())
+                .finish(),
+        }
+    }
 }
 
 /// Checks if a model has any restrictions.
@@ -534,6 +566,40 @@ mod tests {
 
         assert_eq!(restriction.restriction_type, RestrictionType::Warning);
         assert_eq!(restriction.alternative, None);
+    }
+
+    #[test]
+    fn test_model_restriction_and_validation_error_debug_redacts_details() {
+        let restriction = ModelRestriction {
+            restriction_type: RestrictionType::Blocked,
+            reason: "Contains private policy reason for user@example.com".to_string(),
+            alternative: Some("tenant/private-model:latest".to_string()),
+        };
+        let restriction_debug = format!("{restriction:?}");
+
+        assert!(restriction_debug.contains("ModelRestriction"));
+        assert!(restriction_debug.contains("Blocked"));
+        assert!(restriction_debug.contains("reason_len"));
+        assert!(restriction_debug.contains("alternative_len"));
+        assert!(!restriction_debug.contains("private policy reason"));
+        assert!(!restriction_debug.contains("user@example.com"));
+        assert!(!restriction_debug.contains("tenant/private-model:latest"));
+
+        let err = ModelValidationError::ModelBlocked {
+            model: "tenant/private-model:latest".to_string(),
+            reason: "Contains private policy reason for user@example.com".to_string(),
+            alternative: "safe/internal-alternative".to_string(),
+        };
+        let err_debug = format!("{err:?}");
+
+        assert!(err_debug.contains("ModelBlocked"));
+        assert!(err_debug.contains("model_len"));
+        assert!(err_debug.contains("reason_len"));
+        assert!(err_debug.contains("alternative_len"));
+        assert!(!err_debug.contains("tenant/private-model:latest"));
+        assert!(!err_debug.contains("private policy reason"));
+        assert!(!err_debug.contains("user@example.com"));
+        assert!(!err_debug.contains("safe/internal-alternative"));
     }
 
     // ==========================================================================
