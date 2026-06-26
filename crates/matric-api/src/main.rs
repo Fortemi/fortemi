@@ -17613,7 +17613,7 @@ async fn upload_attachment_multipart(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Multipart error: {}", e)))?
+        .map_err(|_| ApiError::BadRequest("Invalid multipart upload request.".to_string()))?
     {
         let field_name = field.name().map(|n| n.to_string());
         match field_name.as_deref() {
@@ -17624,22 +17624,22 @@ async fn upload_attachment_multipart(
                     field
                         .bytes()
                         .await
-                        .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?
+                        .map_err(|_| {
+                            ApiError::BadRequest("Invalid uploaded file data.".to_string())
+                        })?
                         .to_vec(),
                 );
             }
             Some("document_type_id") => {
-                let val = field
-                    .text()
-                    .await
-                    .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?;
+                let val = field.text().await.map_err(|_| {
+                    ApiError::BadRequest("Invalid document_type_id field.".to_string())
+                })?;
                 document_type_id = val.parse::<Uuid>().ok();
             }
             Some("media_optimize") => {
-                let val = field
-                    .text()
-                    .await
-                    .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?;
+                let val = field.text().await.map_err(|_| {
+                    ApiError::BadRequest("Invalid media_optimize field.".to_string())
+                })?;
                 media_optimize = Some(val == "true" || val == "1");
             }
             _ => {} // ignore unknown fields
@@ -22445,6 +22445,27 @@ mod tests {
         assert!(!body.contains("http://"));
         assert!(!body.contains("secret"));
         assert!(!body.contains("/srv/fortemi"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn api_error_bad_request_returns_validation_problem_without_legacy_shape() {
+        let (status, headers, problem) = read_problem_response(ApiError::BadRequest(
+            "Invalid multipart upload request.".to_string(),
+        ))
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap(),
+            "application/problem+json"
+        );
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], "Invalid multipart upload request.");
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
