@@ -370,6 +370,8 @@ fn parse_revision_mode(mode: Option<&str>) -> Result<RevisionMode, ApiError> {
 const REVISION_MODE_ALLOWED_FULL: &str =
     "standard, light, full, contextual, contextual_filtered, none";
 const REVISION_MODE_ALLOWED_BULK: &str = "full, light, none";
+const BULK_CHUNKING_VALIDATION_MESSAGE: &str =
+    "Invalid note chunking parameters. Check chunk_max_chars and chunk_overlap.";
 
 fn invalid_revision_mode(index: Option<usize>, allowed: &str) -> ApiError {
     let detail = match index {
@@ -401,21 +403,21 @@ fn validate_chunking_params(
     if let Some(max) = chunk_max_chars {
         // 0 is valid (means disable chunking / single-pass)
         if max > 0 && max < 2000 {
-            return Err("chunk_max_chars must be 0 (disable chunking) or >= 2000".to_string());
+            return Err("chunk_max_chars must be 0 or at least 2000.".to_string());
         }
     }
     if let Some(overlap) = chunk_overlap {
         if let Some(max) = chunk_max_chars {
             if max > 0 && overlap >= max / 2 {
-                return Err(format!(
-                    "chunk_overlap ({}) must be less than chunk_max_chars / 2 ({})",
-                    overlap,
-                    max / 2
-                ));
+                return Err("chunk_overlap must be less than half of chunk_max_chars.".to_string());
             }
         }
     }
     Ok(())
+}
+
+fn invalid_bulk_chunking_params() -> ApiError {
+    ApiError::BadRequest(BULK_CHUNKING_VALIDATION_MESSAGE.to_string())
 }
 
 fn tag_length_validation_error(index: Option<usize>) -> ApiError {
@@ -9873,9 +9875,9 @@ async fn bulk_create_notes(
     }
 
     // Validate chunking parameters for all items (#572)
-    for (idx, item) in body.notes.iter().enumerate() {
-        if let Err(e) = validate_chunking_params(item.chunk_max_chars, item.chunk_overlap) {
-            return Err(ApiError::BadRequest(format!("notes[{}]: {}", idx, e)));
+    for item in &body.notes {
+        if validate_chunking_params(item.chunk_max_chars, item.chunk_overlap).is_err() {
+            return Err(invalid_bulk_chunking_params());
         }
     }
 
@@ -25083,6 +25085,57 @@ mod tests {
         assert!(!body.contains(submitted_document_type));
         assert!(!body.contains("client-private"));
         assert!(!body.contains("project-alpha"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn note_chunking_validation_does_not_echo_values_or_bulk_index() {
+        let err = validate_chunking_params(Some(1999), None)
+            .map_err(ApiError::BadRequest)
+            .unwrap_err();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(
+            problem["detail"],
+            "chunk_max_chars must be 0 or at least 2000."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains("1999"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+
+        let err = validate_chunking_params(Some(4000), Some(2500))
+            .map_err(ApiError::BadRequest)
+            .unwrap_err();
+        let (_status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(
+            problem["detail"],
+            "chunk_overlap must be less than half of chunk_max_chars."
+        );
+        let body = problem.to_string();
+        assert!(!body.contains("2500"));
+        assert!(!body.contains("2000"));
+        assert!(!body.contains("4000"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+
+        let submitted_index = 7usize;
+        let err = invalid_bulk_chunking_params();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(problem["detail"], BULK_CHUNKING_VALIDATION_MESSAGE);
+        let body = problem.to_string();
+        assert!(!body.contains(&format!("notes[{submitted_index}]")));
+        assert!(!body.contains("chunk_overlap (2500)"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
