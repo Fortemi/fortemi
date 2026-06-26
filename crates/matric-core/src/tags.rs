@@ -1759,7 +1759,7 @@ pub const MAX_TAG_PATH_DEPTH: usize = 5;
 /// assert_eq!(hier.leaf_label(), "rust");
 /// assert_eq!(hier.parent_path(), Some(vec!["programming".to_string()]));
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TagInput {
     /// The hierarchical path components (e.g., ["programming", "rust"]).
     pub path: Vec<String>,
@@ -1769,6 +1769,27 @@ pub struct TagInput {
     /// Optional notation override (defaults to normalized path).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notation: Option<String>,
+}
+
+impl fmt::Debug for TagInput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TagInput")
+            .field("path_component_count", &self.path.len())
+            .field(
+                "path_component_lens",
+                &self
+                    .path
+                    .iter()
+                    .map(|component| component.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("scheme_len", &self.scheme.len())
+            .field(
+                "notation_len",
+                &self.notation.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
 }
 
 fn default_scheme() -> String {
@@ -1970,7 +1991,7 @@ impl From<String> for TagInput {
 /// facet_type: personality
 /// facet_domain: computer-science
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosTagSpec {
     /// Preferred label (required).
     pub pref_label: String,
@@ -2022,6 +2043,78 @@ pub struct SkosTagSpec {
     /// Initial status (defaults to Candidate).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<TagStatus>,
+}
+
+impl fmt::Debug for SkosTagSpec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosTagSpec")
+            .field("pref_label_len", &self.pref_label.len())
+            .field("alt_label_count", &self.alt_labels.len())
+            .field(
+                "alt_label_lens",
+                &self
+                    .alt_labels
+                    .iter()
+                    .map(|label| label.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("hidden_label_count", &self.hidden_labels.len())
+            .field(
+                "hidden_label_lens",
+                &self
+                    .hidden_labels
+                    .iter()
+                    .map(|label| label.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "definition_len",
+                &self.definition.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "scope_note_len",
+                &self.scope_note.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "example_len",
+                &self.example.as_ref().map(|value| value.len()),
+            )
+            .field("broader_count", &self.broader.len())
+            .field(
+                "broader_lens",
+                &self
+                    .broader
+                    .iter()
+                    .map(|path| path.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("narrower_count", &self.narrower.len())
+            .field(
+                "narrower_lens",
+                &self
+                    .narrower
+                    .iter()
+                    .map(|path| path.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("related_count", &self.related.len())
+            .field(
+                "related_lens",
+                &self
+                    .related
+                    .iter()
+                    .map(|path| path.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("scheme_len", &self.scheme.as_ref().map(|value| value.len()))
+            .field("facet_type", &self.facet_type)
+            .field(
+                "facet_domain_len",
+                &self.facet_domain.as_ref().map(|value| value.len()),
+            )
+            .field("status", &self.status)
+            .finish()
+    }
 }
 
 impl SkosTagSpec {
@@ -2085,7 +2178,7 @@ impl SkosTagSpec {
 }
 
 /// Resolved tag with its SKOS concept ID.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ResolvedTag {
     /// The parsed input.
     pub input: TagInput,
@@ -2095,6 +2188,17 @@ pub struct ResolvedTag {
     pub scheme_id: Uuid,
     /// Whether this concept was newly created.
     pub created: bool,
+}
+
+impl fmt::Debug for ResolvedTag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ResolvedTag")
+            .field("input", &self.input)
+            .field("concept_id_set", &true)
+            .field("scheme_id_set", &true)
+            .field("created", &self.created)
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -3287,6 +3391,94 @@ mod tests {
             &[
                 "cccccccc-3333-4444-8555-cccccccccccc",
                 "dddddddd-4444-4555-8666-dddddddddddd",
+            ],
+        );
+    }
+
+    #[test]
+    fn tag_input_skos_spec_and_resolved_tag_debug_redact_user_values() {
+        let concept_id = Uuid::parse_str("aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa").unwrap();
+        let scheme_id = Uuid::parse_str("bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb").unwrap();
+
+        let tag_input = TagInput {
+            path: vec![
+                "owner@example.internal".to_string(),
+                "postgres://tag:secret@db.internal".to_string(),
+                "sk-secret-tag".to_string(),
+            ],
+            scheme: "scheme /srv/fortemi/private".to_string(),
+            notation: Some("notation-secret@example.internal".to_string()),
+        };
+        let spec = SkosTagSpec {
+            pref_label: "Preferred label owner@example.internal".to_string(),
+            alt_labels: vec!["alt postgres://alt:secret@db.internal".to_string()],
+            hidden_labels: vec!["hidden /srv/fortemi/private".to_string()],
+            definition: Some("definition sk-secret-definition".to_string()),
+            scope_note: Some("scope note owner@example.internal".to_string()),
+            example: Some("example token sk-secret-example".to_string()),
+            broader: vec!["broader/path/secret".to_string()],
+            narrower: vec!["narrower/path/secret".to_string()],
+            related: vec!["related/path/secret".to_string()],
+            scheme: Some("scheme postgres://scheme:secret@db.internal".to_string()),
+            facet_type: Some(PmestFacet::Personality),
+            facet_domain: Some("facet-domain owner@example.internal".to_string()),
+            status: Some(TagStatus::Candidate),
+        };
+        let resolved = ResolvedTag {
+            input: tag_input.clone(),
+            concept_id,
+            scheme_id,
+            created: true,
+        };
+
+        let input_debug = format!("{tag_input:?}");
+        assert!(input_debug.contains("TagInput"));
+        assert!(input_debug.contains("path_component_count"));
+        assert!(input_debug.contains("scheme_len"));
+        assert_debug_excludes(
+            &input_debug,
+            &[
+                "owner@example.internal",
+                "postgres://tag:secret@db.internal",
+                "sk-secret-tag",
+                "/srv/fortemi/private",
+                "notation-secret@example.internal",
+            ],
+        );
+
+        let spec_debug = format!("{spec:?}");
+        assert!(spec_debug.contains("SkosTagSpec"));
+        assert!(spec_debug.contains("pref_label_len"));
+        assert!(spec_debug.contains("broader_count"));
+        assert_debug_excludes(
+            &spec_debug,
+            &[
+                "Preferred label owner@example.internal",
+                "postgres://alt:secret@db.internal",
+                "/srv/fortemi/private",
+                "sk-secret-definition",
+                "scope note owner@example.internal",
+                "sk-secret-example",
+                "broader/path/secret",
+                "narrower/path/secret",
+                "related/path/secret",
+                "postgres://scheme:secret@db.internal",
+                "facet-domain owner@example.internal",
+            ],
+        );
+
+        let resolved_debug = format!("{resolved:?}");
+        assert!(resolved_debug.contains("ResolvedTag"));
+        assert!(resolved_debug.contains("concept_id_set"));
+        assert!(resolved_debug.contains("scheme_id_set"));
+        assert_debug_excludes(
+            &resolved_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "owner@example.internal",
+                "postgres://tag:secret@db.internal",
+                "sk-secret-tag",
             ],
         );
     }
