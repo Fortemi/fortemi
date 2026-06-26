@@ -2728,15 +2728,15 @@ async fn main() -> anyhow::Result<()> {
         ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
-            archive_routing_middleware,
-        ))
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
             authorize_middleware,
         ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            archive_routing_middleware,
         ))
         .layer(TraceLayer::new_for_http())
         .layer(PropagateRequestIdLayer::x_request_id())
@@ -5199,7 +5199,9 @@ async fn authorize_middleware(
         return next.run(request).await;
     };
 
-    let input = normalize_route_policy_input_for_authorization(&state, input).await;
+    let archive_ctx = request.extensions().get::<ArchiveContext>().cloned();
+    let input =
+        normalize_route_policy_input_for_authorization(&state, input, archive_ctx.as_ref()).await;
 
     match authorize_policy_input(state.authorization_policy.as_ref(), &auth, &input).await {
         Ok(()) => next.run(request).await,
@@ -5210,7 +5212,9 @@ async fn authorize_middleware(
 async fn normalize_route_policy_input_for_authorization(
     state: &AppState,
     input: route_policy::RoutePolicyInput,
+    archive_ctx: Option<&ArchiveContext>,
 ) -> route_policy::RoutePolicyInput {
+    let input = apply_archive_context_to_policy_input(input, archive_ctx);
     let input =
         normalize_note_route_policy_input(input, |note_id| state.db.notes.exists(note_id)).await;
     let input = normalize_credential_route_policy_input(input, |api_key_id| {
@@ -5236,11 +5240,11 @@ async fn normalize_route_policy_input_for_authorization(
     })
     .await;
     let input = normalize_collection_route_policy_input(input, |collection_id| {
-        state.db.collections.get(collection_id)
+        lookup_collection_for_authorization(state, archive_ctx, collection_id)
     })
     .await;
     let input = normalize_template_route_policy_input(input, |template_id| {
-        state.db.templates.get(template_id)
+        lookup_template_for_authorization(state, archive_ctx, template_id)
     })
     .await;
     let input = normalize_taxonomy_relation_route_policy_input(input, |concept_id| {
@@ -5287,6 +5291,85 @@ async fn normalize_route_policy_input_for_authorization(
         Ok(keyset.map(PkeKeysetResourceMetadata::from))
     })
     .await
+}
+
+fn apply_archive_context_to_policy_input(
+    mut input: route_policy::RoutePolicyInput,
+    archive_ctx: Option<&ArchiveContext>,
+) -> route_policy::RoutePolicyInput {
+    let Some(archive_ctx) = archive_ctx else {
+        return input;
+    };
+
+    input.resource.attrs.insert(
+        "archive_route_schema".to_string(),
+        serde_json::json!(archive_ctx.schema),
+    );
+    input.resource.attrs.insert(
+        "archive_route_is_default".to_string(),
+        serde_json::json!(archive_ctx.is_default),
+    );
+    if let Some(name) = &archive_ctx.name {
+        input
+            .resource
+            .attrs
+            .insert("archive_route_name".to_string(), serde_json::json!(name));
+    }
+
+    input.context.environment.insert(
+        "archive_schema".to_string(),
+        serde_json::json!(archive_ctx.schema),
+    );
+    input.context.environment.insert(
+        "archive_is_default".to_string(),
+        serde_json::json!(archive_ctx.is_default),
+    );
+    if let Some(name) = &archive_ctx.name {
+        input
+            .context
+            .environment
+            .insert("archive_name".to_string(), serde_json::json!(name));
+    }
+
+    input
+}
+
+async fn lookup_collection_for_authorization(
+    state: &AppState,
+    archive_ctx: Option<&ArchiveContext>,
+    collection_id: Uuid,
+) -> matric_core::Result<Option<matric_core::Collection>> {
+    let Some(archive_ctx) = archive_ctx else {
+        return state.db.collections.get(collection_id).await;
+    };
+    if archive_ctx.schema == "public" {
+        return state.db.collections.get(collection_id).await;
+    }
+
+    let schema_ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = schema_ctx.begin_tx().await?;
+    let collection = state.db.collections.get_tx(&mut tx, collection_id).await?;
+    tx.commit().await.map_err(matric_core::Error::Database)?;
+    Ok(collection)
+}
+
+async fn lookup_template_for_authorization(
+    state: &AppState,
+    archive_ctx: Option<&ArchiveContext>,
+    template_id: Uuid,
+) -> matric_core::Result<Option<matric_core::NoteTemplate>> {
+    let Some(archive_ctx) = archive_ctx else {
+        return state.db.templates.get(template_id).await;
+    };
+    if archive_ctx.schema == "public" {
+        return state.db.templates.get(template_id).await;
+    }
+
+    let schema_ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = schema_ctx.begin_tx().await?;
+    let template = state.db.templates.get_tx(&mut tx, template_id).await?;
+    tx.commit().await.map_err(matric_core::Error::Database)?;
+    Ok(template)
 }
 
 #[derive(Clone, Debug)]
@@ -23385,6 +23468,36 @@ mod tests {
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
         assert!(normalized.resource.attrs.get("archive_id").is_none());
+    }
+
+    #[test]
+    fn archive_context_is_carried_on_authorization_policy_input() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/collections/018fd1a0-0000-7000-8000-000000000009",
+            Some("tenant-a"),
+        )
+        .expect("collection route has policy input");
+        let archive_ctx = ArchiveContext {
+            schema: "archive_research".to_string(),
+            is_default: false,
+            name: Some("research".to_string()),
+        };
+
+        let input = apply_archive_context_to_policy_input(input, Some(&archive_ctx));
+
+        assert_eq!(
+            input.resource.attrs["archive_route_schema"],
+            "archive_research"
+        );
+        assert_eq!(input.resource.attrs["archive_route_name"], "research");
+        assert_eq!(input.resource.attrs["archive_route_is_default"], false);
+        assert_eq!(
+            input.context.environment["archive_schema"],
+            "archive_research"
+        );
+        assert_eq!(input.context.environment["archive_name"], "research");
+        assert_eq!(input.context.environment["archive_is_default"], false);
     }
 
     fn test_collection(id: Uuid, parent_id: Option<Uuid>) -> matric_core::Collection {
