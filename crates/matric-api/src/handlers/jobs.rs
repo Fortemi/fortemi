@@ -26,6 +26,17 @@ use matric_jobs::adapters::exif::{
 use matric_jobs::{JobContext, JobHandler, JobResult};
 use sqlx;
 
+const AI_GENERATION_JOB_FAILURE: &str = "AI generation failed. Check server logs for diagnostics.";
+
+fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
+    warn!(
+        error = %error,
+        operation,
+        "AI generation job failed"
+    );
+    JobResult::Failed(AI_GENERATION_JOB_FAILURE.to_string())
+}
+
 /// Extract the target schema from a job's payload.
 ///
 /// Returns the schema name for multi-memory archive support (Issue #413).
@@ -894,7 +905,12 @@ impl JobHandler for AiRevisionHandler {
                             "Chunk revision failed, skipping"
                         );
                     } else {
-                        single_chunk_error = Some(format!("AI generation failed: {}", e));
+                        warn!(
+                            error = %e,
+                            timeout_secs = chunk_timeout,
+                            "AI revision generation failed"
+                        );
+                        single_chunk_error = Some(AI_GENERATION_JOB_FAILURE.to_string());
                         break;
                     }
                 }
@@ -1548,7 +1564,12 @@ Output the revised note in clean markdown format. Do not add any labels, markers
                             "Phase 2 chunk revision failed, skipping"
                         );
                     } else {
-                        p2_single_chunk_error = Some(format!("AI generation failed: {}", e));
+                        warn!(
+                            error = %e,
+                            timeout_secs = chunk_timeout,
+                            "AI contextual revision generation failed"
+                        );
+                        p2_single_chunk_error = Some(AI_GENERATION_JOB_FAILURE.to_string());
                         break;
                     }
                 }
@@ -3210,7 +3231,7 @@ Keep it concise (2-3 sentences). Output the full note with the new section added
 
         let updated_content = match backend.generate(&prompt).await {
             Ok(c) => clean_enhanced_content(c.trim(), &prompt),
-            Err(e) => return JobResult::Failed(format!("Generation failed: {}", e)),
+            Err(e) => return ai_generation_job_failure(e, "context_update"),
         };
 
         if updated_content.is_empty() {
@@ -4933,7 +4954,7 @@ If no meaningful related pairs exist, output an empty array: []"#
                 if let Some(jid) = link_id {
                     ctx.emit_job_queued(jid, JobType::Linking, Some(note_id));
                 }
-                return JobResult::Failed(format!("AI generation failed: {}", e));
+                return ai_generation_job_failure(e, "related_concept_inference");
             }
         };
 
@@ -5315,7 +5336,7 @@ Example output:
                         "reason": "fast_model_failed"
                     })));
                 }
-                return JobResult::Failed(format!("AI generation failed: {}", e));
+                return ai_generation_job_failure(e, "metadata_extraction");
             }
         };
 
@@ -7743,5 +7764,24 @@ Quick note about the meeting discussion and action items."#;
         // Doc type branch should include keyframe-merging instructions
         assert!(prompt.contains("group consecutive keyframes"));
         assert!(prompt.contains("visual progression"));
+    }
+
+    #[test]
+    fn ai_generation_job_failure_uses_generic_stored_message() {
+        let result = ai_generation_job_failure(
+            "Cannot reach https://token:secret@provider.internal/v1 from /srv/fortemi",
+            "test_generation",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, AI_GENERATION_JOB_FAILURE);
+                assert!(!message.contains("token:secret"));
+                assert!(!message.contains("provider.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("Cannot reach"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
     }
 }
