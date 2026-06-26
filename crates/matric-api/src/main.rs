@@ -244,7 +244,14 @@ async fn queue_extraction_job(
             });
         }
         Err(e) => {
-            error!(%note_id, %attachment_id, error = %e, "Failed to queue extraction job");
+            error!(
+                error_len = telemetry_text_len(&e.to_string()),
+                detail = API_JOB_QUEUE_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "queue_attachment_extraction",
+                strategy = %strategy,
+                filename_len = telemetry_text_len(filename),
+                "Failed to queue extraction job"
+            );
         }
     }
 }
@@ -296,7 +303,13 @@ async fn queue_exif_extraction_job(
             });
         }
         Err(e) => {
-            error!(%note_id, %attachment_id, error = %e, "Failed to queue EXIF extraction job");
+            error!(
+                error_len = telemetry_text_len(&e.to_string()),
+                detail = API_JOB_QUEUE_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "queue_exif_extraction",
+                content_type_len = telemetry_text_len(content_type),
+                "Failed to queue EXIF extraction job"
+            );
         }
     }
 }
@@ -345,7 +358,13 @@ async fn queue_media_optimize_job(
             });
         }
         Err(e) => {
-            error!(%note_id, %attachment_id, error = %e, "Failed to queue media optimize job");
+            error!(
+                error_len = telemetry_text_len(&e.to_string()),
+                detail = API_JOB_QUEUE_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "queue_media_optimize",
+                content_type_len = telemetry_text_len(content_type),
+                "Failed to queue media optimize job"
+            );
         }
     }
 }
@@ -660,7 +679,12 @@ async fn queue_nlp_pipeline_inner(
             }
             Ok(None) => {} // Deduplicated
             Err(e) => {
-                error!(%note_id, error = %e, "Failed to queue AI revision job");
+                error!(
+                    error_len = telemetry_text_len(&e.to_string()),
+                    detail = API_JOB_PIPELINE_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "queue_ai_revision",
+                    "Failed to queue AI revision job"
+                );
             }
         }
     }
@@ -722,7 +746,13 @@ async fn queue_nlp_pipeline_inner(
             }
             Ok(None) => {} // Deduplicated
             Err(e) => {
-                error!(%note_id, job_type = ?job_type, error = %e, "Failed to queue NLP pipeline job");
+                error!(
+                    error_len = telemetry_text_len(&e.to_string()),
+                    detail = API_JOB_PIPELINE_DIAGNOSTIC_FAILURE_DETAIL,
+                    job_type = ?job_type,
+                    operation = "queue_nlp_pipeline_job",
+                    "Failed to queue NLP pipeline job"
+                );
             }
         }
     }
@@ -765,7 +795,12 @@ async fn queue_nlp_pipeline_inner(
             }
             Ok(None) => {} // Deduplicated
             Err(e) => {
-                error!(%note_id, error = %e, "Failed to queue ConceptTagging (no-revision path)");
+                error!(
+                    error_len = telemetry_text_len(&e.to_string()),
+                    detail = API_JOB_PIPELINE_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "queue_concept_tagging_no_revision",
+                    "Failed to queue ConceptTagging (no-revision path)"
+                );
             }
         }
     }
@@ -1489,6 +1524,9 @@ fn is_local_or_private_issuer_host(host: &str) -> bool {
 fn telemetry_text_len(value: &str) -> usize {
     value.chars().count()
 }
+
+const API_JOB_QUEUE_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_job_queue_diagnostic_failed";
+const API_JOB_PIPELINE_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_job_pipeline_diagnostic_failed";
 
 fn telemetry_url_class(raw: &str) -> &'static str {
     let Ok(url) = reqwest::Url::parse(raw) else {
@@ -26048,6 +26086,20 @@ mod tests {
             telemetry_text_len(secret_query),
             secret_query.chars().count()
         );
+    }
+
+    #[test]
+    fn job_queue_diagnostic_classes_are_fixed_and_redacted() {
+        for detail in [
+            API_JOB_QUEUE_DIAGNOSTIC_FAILURE_DETAIL,
+            API_JOB_PIPELINE_DIAGNOSTIC_FAILURE_DETAIL,
+        ] {
+            assert!(!detail.contains("token:secret"));
+            assert!(!detail.contains("postgres://"));
+            assert!(!detail.contains("/srv/fortemi"));
+            assert!(!detail.contains("note_id"));
+            assert!(!detail.contains("attachment_id"));
+        }
     }
 
     #[test]
