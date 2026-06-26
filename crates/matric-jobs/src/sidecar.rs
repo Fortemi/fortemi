@@ -107,13 +107,20 @@ impl DockerSidecarController {
             .args(&args)
             .output()
             .await
-            .map_err(|e| format!("Failed to run docker compose {}: {}", action, e))?;
+            .map_err(|e| {
+                format!(
+                    "docker compose {action} failed to start; io_error_kind={}",
+                    sidecar_io_error_kind(&e)
+                )
+            })?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!(
-                "docker compose {} {} failed: {}",
-                action, service, stderr
+            return Err(sidecar_command_failure_detail(
+                "docker compose",
+                action,
+                service,
+                output.status.code(),
+                &output.stderr,
             ));
         }
         Ok(())
@@ -193,13 +200,20 @@ impl SidecarController for DockerSidecarController {
             .args(&args)
             .output()
             .await
-            .map_err(|e| format!("Failed to stop sidecar {}: {}", service, e))?;
+            .map_err(|e| {
+                format!(
+                    "docker compose stop failed to start; io_error_kind={}",
+                    sidecar_io_error_kind(&e)
+                )
+            })?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr_reason = sidecar_stderr_reason_code(&output.stderr);
             warn!(
                 sidecar = service,
-                stderr = %stderr,
+                status_code = ?output.status.code(),
+                stderr_len = output.stderr.len(),
+                stderr_reason,
                 "Sidecar stop returned non-zero (may already be stopped)"
             );
         }
@@ -226,6 +240,53 @@ impl SidecarController for DockerSidecarController {
             Err(_) => false,
         }
     }
+}
+
+fn sidecar_io_error_kind(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => "not_found",
+        std::io::ErrorKind::PermissionDenied => "permission_denied",
+        std::io::ErrorKind::TimedOut => "timed_out",
+        std::io::ErrorKind::Interrupted => "interrupted",
+        std::io::ErrorKind::WouldBlock => "would_block",
+        _ => "io_error",
+    }
+}
+
+fn sidecar_stderr_reason_code(stderr: &[u8]) -> &'static str {
+    let text = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("not found")
+        || text.contains("no such")
+        || text.contains("unknown service")
+        || text.contains("no such service")
+    {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else if text.contains("connection refused") || text.contains("cannot connect") {
+        "connection_failed"
+    } else {
+        "command_failed"
+    }
+}
+
+fn sidecar_command_failure_detail(
+    command: &'static str,
+    action: &str,
+    service: &str,
+    status_code: Option<i32>,
+    stderr: &[u8],
+) -> String {
+    format!(
+        "{command} {action} {service} failed; status={}; stderr_len={}; stderr_reason={}",
+        status_code
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "signal".to_string()),
+        stderr.len(),
+        sidecar_stderr_reason_code(stderr)
+    )
 }
 
 /// No-op sidecar controller for when GPU_EXCLUSIVE_MODE is disabled.
@@ -259,5 +320,45 @@ pub async fn stop_all_sidecars(controller: &dyn SidecarController) {
         if let Err(e) = controller.stop(*sidecar).await {
             warn!(sidecar = ?sidecar, error = %e, "Failed to stop sidecar — VRAM may not be freed");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sidecar_command_failure_detail_redacts_stderr() {
+        let stderr = b"permission denied for postgres://user:secret@db/app\n/home/operator/file\n";
+        let detail =
+            sidecar_command_failure_detail("docker compose", "start", "whisper", Some(1), stderr);
+
+        assert!(detail.contains("docker compose start whisper failed"));
+        assert!(detail.contains("status=1"));
+        assert!(detail.contains("stderr_len="));
+        assert!(detail.contains("stderr_reason=permission_denied"));
+        assert!(!detail.contains("secret"));
+        assert!(!detail.contains("postgres://"));
+        assert!(!detail.contains("/home/operator"));
+    }
+
+    #[test]
+    fn sidecar_stderr_reason_code_uses_stable_classes() {
+        assert_eq!(
+            sidecar_stderr_reason_code(b"Cannot connect to the Docker daemon"),
+            "connection_failed"
+        );
+        assert_eq!(
+            sidecar_stderr_reason_code(b"no such service: pyannote"),
+            "not_found"
+        );
+        assert_eq!(
+            sidecar_stderr_reason_code(b"request timed out"),
+            "timed_out"
+        );
+        assert_eq!(
+            sidecar_stderr_reason_code(b"opaque backend text"),
+            "command_failed"
+        );
     }
 }
