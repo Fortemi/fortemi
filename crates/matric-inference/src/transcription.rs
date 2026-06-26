@@ -3,9 +3,10 @@
 use async_trait::async_trait;
 use matric_core::Result;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// A word-level timestamp for fine-grained alignment.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct WordTimestamp {
     pub word: String,
     pub start_secs: f64,
@@ -14,8 +15,19 @@ pub struct WordTimestamp {
     pub confidence: Option<f64>,
 }
 
+impl fmt::Debug for WordTimestamp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WordTimestamp")
+            .field("word_len", &self.word.len())
+            .field("start_secs", &self.start_secs)
+            .field("end_secs", &self.end_secs)
+            .field("confidence", &self.confidence)
+            .finish()
+    }
+}
+
 /// A segment of transcribed audio with timestamps.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct TranscriptionSegment {
     pub start_secs: f64,
     pub end_secs: f64,
@@ -28,8 +40,20 @@ pub struct TranscriptionSegment {
     pub words: Option<Vec<WordTimestamp>>,
 }
 
+impl fmt::Debug for TranscriptionSegment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TranscriptionSegment")
+            .field("start_secs", &self.start_secs)
+            .field("end_secs", &self.end_secs)
+            .field("text_len", &self.text.len())
+            .field("speaker_id_len", &self.speaker_id.as_ref().map(String::len))
+            .field("word_count", &self.words.as_ref().map(Vec::len))
+            .finish()
+    }
+}
+
 /// Result of audio transcription.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct TranscriptionResult {
     /// Full transcribed text.
     pub full_text: String,
@@ -39,6 +63,17 @@ pub struct TranscriptionResult {
     pub language: Option<String>,
     /// Total audio duration in seconds.
     pub duration_secs: Option<f64>,
+}
+
+impl fmt::Debug for TranscriptionResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TranscriptionResult")
+            .field("full_text_len", &self.full_text.len())
+            .field("segment_count", &self.segments.len())
+            .field("language_len", &self.language.as_ref().map(String::len))
+            .field("duration_secs", &self.duration_secs)
+            .finish()
+    }
 }
 
 /// Backend for transcribing audio files.
@@ -399,6 +434,44 @@ mod tests {
 
         let deserialized: TranscriptionResult = serde_json::from_value(json).unwrap();
         assert_eq!(deserialized, result);
+    }
+
+    #[test]
+    fn transcription_debug_redacts_transcript_text_words_and_speakers() {
+        let result = TranscriptionResult {
+            full_text: "Call me at +1-555-0100 and use token sk-private".to_string(),
+            segments: vec![TranscriptionSegment {
+                start_secs: 0.0,
+                end_secs: 5.0,
+                text: "Call me at +1-555-0100".to_string(),
+                speaker_id: Some("Jane Private <jane@example.com>".to_string()),
+                words: Some(vec![WordTimestamp {
+                    word: "sk-private".to_string(),
+                    start_secs: 1.0,
+                    end_secs: 1.5,
+                    confidence: Some(0.91),
+                }]),
+            }],
+            language: Some("en".to_string()),
+            duration_secs: Some(5.0),
+        };
+
+        let debug = format!(
+            "{:?} {:?} {:?}",
+            result.segments[0].words.as_ref().unwrap()[0],
+            result.segments[0],
+            result
+        );
+
+        assert!(debug.contains("word_len"));
+        assert!(debug.contains("text_len"));
+        assert!(debug.contains("speaker_id_len"));
+        assert!(debug.contains("full_text_len"));
+        assert!(debug.contains("segment_count"));
+        assert!(!debug.contains("+1-555-0100"));
+        assert!(!debug.contains("sk-private"));
+        assert!(!debug.contains("Jane Private"));
+        assert!(!debug.contains("jane@example.com"));
     }
 
     #[test]

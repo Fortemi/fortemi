@@ -8,12 +8,13 @@
 use async_trait::async_trait;
 use matric_core::Result;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::path::Path;
 
 use crate::transcription::TranscriptionSegment;
 
 /// A diarization segment identifying a speaker over a time range.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct DiarizationSegment {
     /// Speaker identifier (e.g., "SPEAKER_00", "SPEAKER_01").
     pub speaker_id: String,
@@ -23,13 +24,32 @@ pub struct DiarizationSegment {
     pub end_secs: f64,
 }
 
+impl fmt::Debug for DiarizationSegment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DiarizationSegment")
+            .field("speaker_id_len", &self.speaker_id.len())
+            .field("start_secs", &self.start_secs)
+            .field("end_secs", &self.end_secs)
+            .finish()
+    }
+}
+
 /// Result of speaker diarization.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct DiarizationResult {
     /// Diarization segments with speaker labels.
     pub segments: Vec<DiarizationSegment>,
     /// Number of distinct speakers detected.
     pub num_speakers: usize,
+}
+
+impl fmt::Debug for DiarizationResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DiarizationResult")
+            .field("segment_count", &self.segments.len())
+            .field("num_speakers", &self.num_speakers)
+            .finish()
+    }
 }
 
 /// Backend for speaker diarization of audio files.
@@ -376,6 +396,25 @@ SPEAKER audio_file 1 5.500 1.500 <NA> <NA> SPEAKER_00 <NA> <NA>
 
         let deserialized: DiarizationResult = serde_json::from_value(json).unwrap();
         assert_eq!(deserialized, result);
+    }
+
+    #[test]
+    fn diarization_debug_redacts_speaker_identifiers() {
+        let result = DiarizationResult {
+            segments: vec![DiarizationSegment {
+                speaker_id: "Jane Private <jane@example.com>".to_string(),
+                start_secs: 0.0,
+                end_secs: 2.5,
+            }],
+            num_speakers: 1,
+        };
+
+        let debug = format!("{:?} {:?}", result.segments[0], result);
+
+        assert!(debug.contains("speaker_id_len"));
+        assert!(debug.contains("segment_count"));
+        assert!(!debug.contains("Jane Private"));
+        assert!(!debug.contains("jane@example.com"));
     }
 
     #[test]
