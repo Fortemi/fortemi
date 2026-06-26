@@ -6783,13 +6783,15 @@ impl JobHandler for ExifExtractionHandler {
 
         if !content_type.starts_with("image/") {
             info!(
-                attachment_id = %attachment_id,
-                content_type = %content_type,
+                attachment_id_present = true,
+                content_type_len = diagnostic_len(&content_type),
+                detail = JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "skip_exif_non_image_attachment",
                 "Attachment is not an image, skipping EXIF extraction"
             );
             return JobResult::Success(Some(serde_json::json!({
                 "status": "skipped",
-                "reason": format!("Not an image: {}", content_type)
+                "reason": "not_image"
             })));
         }
 
@@ -6800,8 +6802,10 @@ impl JobHandler for ExifExtractionHandler {
             Some(data) => data,
             None => {
                 info!(
-                    attachment_id = %attachment_id,
-                    filename = %filename,
+                    attachment_id_present = true,
+                    filename_len = diagnostic_len(&filename),
+                    detail = JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "skip_exif_no_metadata",
                     "No EXIF data found in image"
                 );
                 // Still mark as completed — no EXIF is a valid outcome (schema-aware)
@@ -7046,14 +7050,16 @@ impl JobHandler for ExifExtractionHandler {
 
         let duration_ms = start.elapsed().as_millis() as u64;
         info!(
-            note_id = %note_id,
-            attachment_id = %attachment_id,
-            filename = %filename,
+            note_id_present = true,
+            attachment_id_present = true,
+            filename_len = diagnostic_len(&filename),
             has_gps = location_id.is_some(),
             has_device = device_id.is_some(),
             has_capture_time = capture_time.is_some(),
-            provenance_id = ?provenance_id,
+            provenance_id_present = provenance_id.is_some(),
             duration_ms,
+            detail = JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "complete_exif_extraction",
             "EXIF extraction completed"
         );
 

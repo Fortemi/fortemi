@@ -19236,8 +19236,10 @@ async fn download_attachment(
         // See issue #631.
         if !tokio::fs::try_exists(&fs_path).await.unwrap_or(false) {
             warn!(
-                attachment_id = %target_id,
-                expected_path = %storage_path,
+                attachment_id_present = true,
+                expected_path_len = telemetry_text_len(&storage_path),
+                detail = API_ATTACHMENT_MEDIA_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "stream_attachment_file_missing_blob",
                 "attachment_blob row exists but file is missing on disk (issue #631)"
             );
             return Err(ApiError::BlobMissing {
