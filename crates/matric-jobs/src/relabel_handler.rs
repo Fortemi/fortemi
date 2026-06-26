@@ -107,7 +107,7 @@ fn extract_schema(ctx: &JobContext) -> &str {
 
 fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResult> {
     db.for_schema(schema)
-        .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
+        .map_err(|_| JobResult::Failed("Invalid schema".into()))
 }
 
 fn relabel_error_reason_code(error: &str) -> &'static str {
@@ -134,6 +134,11 @@ fn relabel_error_reason_code(error: &str) -> &'static str {
     } else {
         "operation_failed"
     }
+}
+
+#[cfg(test)]
+fn relabel_text_len(text: &str) -> usize {
+    text.chars().count()
 }
 
 pub struct SpeakerRelabelHandler {
@@ -186,24 +191,29 @@ impl JobHandler for SpeakerRelabelHandler {
                 // Direct map provided in payload (API-triggered relabel)
                 match serde_json::from_value::<HashMap<String, String>>(config_json.clone()) {
                     Ok(map) => map,
-                    Err(e) => {
-                        return JobResult::Failed(format!("Invalid speaker_map in payload: {}", e))
-                    }
+                    Err(_) => return JobResult::Failed("Invalid speaker_map in payload".into()),
                 }
             } else {
                 // Parse from note content (user edit-triggered)
                 let note = {
                     let mut tx = match schema_ctx.begin_tx().await {
                         Ok(t) => t,
-                        Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                        Err(e) => {
+                            let error_text = e.to_string();
+                            return JobResult::Failed(format!(
+                                "Schema tx failed ({})",
+                                relabel_error_reason_code(&error_text)
+                            ));
+                        }
                     };
                     let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
                         Ok(n) => n,
                         Err(e) => {
+                            let error_text = e.to_string();
                             return JobResult::Failed(format!(
-                                "Failed to fetch note {}: {}",
-                                note_id, e
-                            ))
+                                "Failed to fetch note ({})",
+                                relabel_error_reason_code(&error_text)
+                            ));
                         }
                     };
                     let _ = tx.commit().await;
@@ -238,15 +248,22 @@ impl JobHandler for SpeakerRelabelHandler {
         let attachment = {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        relabel_error_reason_code(&error_text)
+                    ));
+                }
             };
             let att = match file_storage.get_tx(&mut tx, attachment_id).await {
                 Ok(a) => a,
                 Err(e) => {
+                    let error_text = e.to_string();
                     return JobResult::Failed(format!(
-                        "Failed to fetch attachment {}: {}",
-                        attachment_id, e
-                    ))
+                        "Failed to fetch attachment ({})",
+                        relabel_error_reason_code(&error_text)
+                    ));
                 }
             };
             let _ = tx.commit().await;
@@ -291,10 +308,11 @@ impl JobHandler for SpeakerRelabelHandler {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
                 Err(e) => {
+                    let error_text = e.to_string();
                     return JobResult::Failed(format!(
-                        "Schema tx failed for metadata update: {}",
-                        e
-                    ))
+                        "Schema tx failed for metadata update ({})",
+                        relabel_error_reason_code(&error_text)
+                    ));
                 }
             };
 
@@ -320,11 +338,19 @@ impl JobHandler for SpeakerRelabelHandler {
                 )
                 .await
             {
-                return JobResult::Failed(format!("Failed to update metadata: {}", e));
+                let error_text = e.to_string();
+                return JobResult::Failed(format!(
+                    "Failed to update metadata ({})",
+                    relabel_error_reason_code(&error_text)
+                ));
             }
 
             if let Err(e) = tx.commit().await {
-                return JobResult::Failed(format!("Failed to commit metadata: {}", e));
+                let error_text = e.to_string();
+                return JobResult::Failed(format!(
+                    "Failed to commit metadata ({})",
+                    relabel_error_reason_code(&error_text)
+                ));
             }
         }
 
@@ -639,5 +665,25 @@ Edit speaker names below to re-label the transcript.
             relabel_error_reason_code("opaque backend diagnostic text"),
             "operation_failed"
         );
+    }
+
+    #[test]
+    fn relabel_runtime_telemetry_helpers_redact_private_values() {
+        let raw_error =
+            "postgres://user:mm_key_secret@db.internal/app failed at /srv/private/relabel.vtt";
+        let rendered = format!(
+            "attachment_present=true; mappings=2; error_len={}; error_reason={}",
+            relabel_text_len(raw_error),
+            relabel_error_reason_code(raw_error)
+        );
+
+        assert!(rendered.contains("attachment_present=true"));
+        assert!(rendered.contains("mappings=2"));
+        assert!(rendered.contains("error_len="));
+        assert!(rendered.contains("error_reason="));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("postgres://"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("/srv/private"));
     }
 }
