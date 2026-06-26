@@ -32,6 +32,8 @@ const MODEL_RESOLUTION_JOB_FAILURE: &str =
 const GRAPH_MAINTENANCE_STEP_FAILURE: &str =
     "Graph maintenance step failed. Check server logs for diagnostics.";
 const AI_REVISION_JOB_FAILURE: &str = "AI revision failed. Check server logs for diagnostics.";
+const AI_CONTEXTUAL_REVISION_JOB_FAILURE: &str =
+    "AI contextual revision failed. Check server logs for diagnostics.";
 const ATTACHMENT_PROCESSING_JOB_FAILURE: &str =
     "Attachment processing failed. Check server logs for diagnostics.";
 const SCHEMA_CONTEXT_JOB_FAILURE: &str =
@@ -83,6 +85,18 @@ fn ai_revision_job_failure(error: impl std::fmt::Display, operation: &'static st
         operation, "AI revision job failed"
     );
     JobResult::Failed(AI_REVISION_JOB_FAILURE.to_string())
+}
+
+fn ai_contextual_revision_job_failure(
+    error: impl std::fmt::Display,
+    operation: &'static str,
+) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "AI contextual revision job failed"
+    );
+    JobResult::Failed(AI_CONTEXTUAL_REVISION_JOB_FAILURE.to_string())
 }
 
 fn attachment_processing_job_failure(
@@ -1359,14 +1373,14 @@ impl JobHandler for AiRevisionContextualHandler {
         // Read the Phase 1 revised content (output of AiRevision standard mode)
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return ai_contextual_revision_job_failure(e, "fetch_phase1_begin_tx"),
         };
         let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
-            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+            Err(e) => return ai_contextual_revision_job_failure(e, "fetch_phase1_note"),
         };
         if let Err(e) = tx.commit().await {
-            return JobResult::Failed(format!("Commit failed: {}", e));
+            return ai_contextual_revision_job_failure(e, "fetch_phase1_commit");
         }
 
         // Use revised content as Phase 1 output (the clean isolated revision).
@@ -1720,7 +1734,7 @@ Output the revised note in clean markdown format. Do not add any labels, markers
 
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return ai_contextual_revision_job_failure(e, "save_contextual_begin_tx"),
         };
         if let Err(e) = self
             .db
@@ -1728,10 +1742,10 @@ Output the revised note in clean markdown format. Do not add any labels, markers
             .update_revised_tx(&mut tx, note_id, &revised, Some(revision_note))
             .await
         {
-            return JobResult::Failed(format!("Failed to save contextual revision: {}", e));
+            return ai_contextual_revision_job_failure(e, "save_contextual_revision");
         }
         if let Err(e) = tx.commit().await {
-            return JobResult::Failed(format!("Commit failed: {}", e));
+            return ai_contextual_revision_job_failure(e, "save_contextual_commit");
         }
 
         // Record provenance: edges to each related note used as context
@@ -7973,6 +7987,27 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("/srv/fortemi"));
                 assert!(!message.contains("SQLSTATE"));
                 assert!(!message.contains("revision save failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ai_contextual_revision_job_failure_uses_generic_stored_message() {
+        let result = ai_contextual_revision_job_failure(
+            "contextual revision save failed for postgres://user:secret@db.internal/app at /srv/fortemi SQLSTATE 40001",
+            "save_contextual_revision",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, AI_CONTEXTUAL_REVISION_JOB_FAILURE);
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("contextual revision save failed"));
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
