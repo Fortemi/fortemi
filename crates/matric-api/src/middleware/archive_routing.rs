@@ -3,8 +3,9 @@
 //! Provides default archive schema routing with TTL-based caching to minimize
 //! database queries while supporting dynamic archive selection.
 
-use axum::extract::State;
+use axum::{extract::State, response::IntoResponse};
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 
 use crate::AppState;
 use matric_core::ArchiveRepository;
@@ -155,6 +156,36 @@ async fn resolve_archive_context(state: &AppState) -> ArchiveContext {
 /// specific memory (archive schema). If absent, the default memory is used.
 pub const MEMORY_HEADER: &str = "x-fortemi-memory";
 
+#[derive(Debug, Serialize)]
+struct ArchiveProblemDetails {
+    #[serde(rename = "type")]
+    type_uri: String,
+    title: &'static str,
+    status: u16,
+    detail: &'static str,
+}
+
+fn archive_problem_response(
+    status: axum::http::StatusCode,
+    type_suffix: &'static str,
+    title: &'static str,
+    detail: &'static str,
+) -> axum::response::Response {
+    let problem = ArchiveProblemDetails {
+        type_uri: format!("https://fortemi.com/problems/{type_suffix}"),
+        title,
+        status: status.as_u16(),
+        detail,
+    };
+
+    (
+        status,
+        [(axum::http::header::CONTENT_TYPE, "application/problem+json")],
+        axum::Json(problem),
+    )
+        .into_response()
+}
+
 /// Archive routing middleware function.
 ///
 /// Injects an ArchiveContext into request extensions based on:
@@ -173,13 +204,12 @@ pub async fn archive_routing_middleware(
         let name = match memory_name.to_str() {
             Ok(n) => n.to_string(),
             Err(_) => {
-                return axum::response::Response::builder()
-                    .status(axum::http::StatusCode::BAD_REQUEST)
-                    .header("content-type", "application/json")
-                    .body(axum::body::Body::from(
-                        r#"{"error":"Invalid X-Fortemi-Memory header value"}"#,
-                    ))
-                    .unwrap();
+                return archive_problem_response(
+                    axum::http::StatusCode::BAD_REQUEST,
+                    "validation-error",
+                    "Bad Request",
+                    "Invalid memory selection header.",
+                );
             }
         };
 
@@ -199,23 +229,20 @@ pub async fn archive_routing_middleware(
                 return next.run(req).await;
             }
             Ok(None) => {
-                return axum::response::Response::builder()
-                    .status(axum::http::StatusCode::NOT_FOUND)
-                    .header("content-type", "application/json")
-                    .body(axum::body::Body::from(format!(
-                        r#"{{"error":"Memory not found: {}"}}"#,
-                        name
-                    )))
-                    .unwrap();
+                return archive_problem_response(
+                    axum::http::StatusCode::NOT_FOUND,
+                    "not-found",
+                    "Not Found",
+                    "Requested memory is not present or not visible to the caller.",
+                );
             }
             Err(_) => {
-                return axum::response::Response::builder()
-                    .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
-                    .header("content-type", "application/json")
-                    .body(axum::body::Body::from(
-                        r#"{"error":"Failed to look up memory"}"#,
-                    ))
-                    .unwrap();
+                return archive_problem_response(
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal-error",
+                    "Internal Server Error",
+                    "An internal error occurred.",
+                );
             }
         }
     }
@@ -278,5 +305,57 @@ mod tests {
     #[test]
     fn test_memory_header_constant() {
         assert_eq!(MEMORY_HEADER, "x-fortemi-memory");
+    }
+
+    #[tokio::test]
+    async fn archive_problem_response_uses_rfc9457_shape() {
+        let response = archive_problem_response(
+            axum::http::StatusCode::BAD_REQUEST,
+            "validation-error",
+            "Bad Request",
+            "Invalid memory selection header.",
+        );
+
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response.headers().get(axum::http::header::CONTENT_TYPE),
+            Some(&axum::http::HeaderValue::from_static(
+                "application/problem+json"
+            ))
+        );
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("problem body");
+        let problem: serde_json::Value = serde_json::from_slice(&body).expect("problem json");
+
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["title"], "Bad Request");
+        assert_eq!(problem["status"], 400);
+        assert_eq!(problem["detail"], "Invalid memory selection header.");
+        assert!(problem.get("error").is_none());
+    }
+
+    #[tokio::test]
+    async fn archive_memory_not_found_problem_does_not_echo_memory_name() {
+        let response = archive_problem_response(
+            axum::http::StatusCode::NOT_FOUND,
+            "not-found",
+            "Not Found",
+            "Requested memory is not present or not visible to the caller.",
+        );
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("problem body");
+        let body_text = String::from_utf8(body.to_vec()).expect("utf8 body");
+
+        assert!(body_text.contains("https://fortemi.com/problems/not-found"));
+        assert!(!body_text.contains("sensitive-memory-name"));
+        assert!(!body_text.contains("Memory not found:"));
+        assert!(!body_text.contains("\"error\""));
     }
 }
