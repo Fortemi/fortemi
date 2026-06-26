@@ -4991,7 +4991,12 @@ If no meaningful related pairs exist, output an empty array: []"#
                                 "reason": "fast_model_parse_failed"
                             })));
                         }
-                        warn!(error = %e, response = %ai_response, "Failed to parse related concept pairs");
+                        warn!(
+                            error = %e,
+                            response_len = ai_response.len(),
+                            parser = "related_concept_pairs",
+                            "Failed to parse related concept pairs"
+                        );
                         let (embed_id, link_id) = self.queue_phase3_jobs(note_id, schema).await;
                         if let Some(jid) = embed_id {
                             ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id));
@@ -5378,7 +5383,12 @@ Example output:
                                 "reason": "fast_model_parse_failed"
                             })));
                         }
-                        warn!(error = %e, response = %ai_response, "Failed to parse AI metadata response");
+                        warn!(
+                            error = %e,
+                            response_len = ai_response.len(),
+                            parser = "metadata_json",
+                            "Failed to parse AI metadata response"
+                        );
                         return JobResult::Failed(format!("Failed to parse AI response: {}", e));
                     }
                 }

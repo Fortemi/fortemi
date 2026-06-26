@@ -1299,6 +1299,27 @@ fn is_local_or_private_issuer_host(host: &str) -> bool {
     }
 }
 
+fn telemetry_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn telemetry_url_class(raw: &str) -> &'static str {
+    let Ok(url) = reqwest::Url::parse(raw) else {
+        return "invalid_url";
+    };
+    let Some(host) = url.host_str() else {
+        return "unknown_host";
+    };
+    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
+    if host == "api.twilio.com" || host.ends_with(".twilio.com") {
+        return "twilio_api";
+    }
+    if is_local_or_private_issuer_host(&host) {
+        return "local_or_private";
+    }
+    "external"
+}
+
 fn authorization_policy_for_mode(multi_tenant: bool) -> Arc<dyn AuthorizationPolicy> {
     if multi_tenant {
         Arc::new(RoleBasedPolicy)
@@ -3314,10 +3335,23 @@ async fn handle_twilio_control_event(
             tracing::info!(%call_id, %provider_call_id, %reason, "Twilio media stream dropped");
         }
         matric_api::realtime::CallControlEvent::RecordingAvailable { url } => {
-            tracing::info!(%call_id, %provider_call_id, %url, "Twilio recording available");
+            tracing::info!(
+                %call_id,
+                %provider_call_id,
+                recording_url_class = telemetry_url_class(&url),
+                recording_url_len = telemetry_text_len(&url),
+                "Twilio recording available"
+            );
         }
         matric_api::realtime::CallControlEvent::DtmfDigit { digit } => {
-            tracing::debug!(%call_id, %provider_call_id, %digit, "Twilio DTMF digit received");
+            let _ = digit;
+            tracing::debug!(
+                %call_id,
+                %provider_call_id,
+                digit_present = true,
+                digit_len = 1,
+                "Twilio DTMF digit received"
+            );
         }
         matric_api::realtime::CallControlEvent::CallStarted { .. }
         | matric_api::realtime::CallControlEvent::StateChanged { .. }
@@ -13767,7 +13801,12 @@ async fn search_notes(
     // Check cache first
     if let Some(ref key) = cache_key {
         if let Some(cached) = state.search_cache.get::<SearchResponse>(key).await {
-            tracing::debug!("Search cache HIT for query: {}", query.q);
+            tracing::debug!(
+                query_len = telemetry_text_len(&query.q),
+                has_filters = query.filters.is_some(),
+                archive_schema = %archive_ctx.schema,
+                "Search cache hit"
+            );
             return Ok(Json(cached));
         }
     }
@@ -23678,6 +23717,32 @@ mod tests {
         std::env::remove_var("RATE_LIMIT_ENABLED");
         std::env::remove_var("RATE_LIMIT_REQUESTS");
         std::env::remove_var("RATE_LIMIT_PERIOD_SECS");
+    }
+
+    #[test]
+    fn telemetry_url_class_avoids_raw_url_parts() {
+        assert_eq!(
+            telemetry_url_class("https://api.twilio.com/recordings/RE123?token=secret"),
+            "twilio_api"
+        );
+        assert_eq!(
+            telemetry_url_class("https://user:pass@10.0.0.5/internal/path"),
+            "local_or_private"
+        );
+        assert_eq!(
+            telemetry_url_class("https://provider.example.com/path?api_key=secret"),
+            "external"
+        );
+        assert_eq!(telemetry_url_class("not a url with secret"), "invalid_url");
+    }
+
+    #[test]
+    fn telemetry_text_len_counts_without_exposing_content() {
+        let secret_query = "find mm_key_secret and patient name";
+        assert_eq!(
+            telemetry_text_len(secret_query),
+            secret_query.chars().count()
+        );
     }
 
     #[test]
