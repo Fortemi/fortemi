@@ -18258,6 +18258,18 @@ struct DownloadAttachmentQuery {
     variant: Option<String>,
 }
 
+fn attachment_media_operation_failed(
+    operation: &'static str,
+    context: &'static str,
+    error: impl std::fmt::Display,
+) -> ApiError {
+    let diagnostic = error.to_string();
+    ApiError::OperationFailed {
+        operation,
+        detail: format!("{context}; error_len={}", diagnostic.len()),
+    }
+}
+
 /// Download a file attachment (returns raw binary with proper content headers).
 ///
 /// Clients can use `curl -o filename URL` to download directly.
@@ -18302,7 +18314,9 @@ async fn download_attachment(
         .bind(variant.as_str())
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|e| ApiError::Internal(format!("Failed to query variant: {}", e)))?;
+        .map_err(|e| {
+            attachment_media_operation_failed("Attachment download", "query media variant", e)
+        })?;
         drop(tx);
 
         row.map(|r| r.0).ok_or_else(|| {
@@ -18411,7 +18425,11 @@ async fn download_attachment(
                             storage_backend: "filesystem".to_string(),
                         });
                     }
-                    return Err(e.into());
+                    return Err(attachment_media_operation_failed(
+                        "Attachment download",
+                        "read attachment file",
+                        e,
+                    ));
                 }
             },
         };
@@ -18439,12 +18457,22 @@ async fn serve_streaming(
         match parse_byte_range(range_str, total_size) {
             Ok((start, end)) => {
                 let content_length = end - start + 1;
-                let mut file = tokio::fs::File::open(&fs_path)
-                    .await
-                    .map_err(|e| ApiError::Internal(format!("Failed to open file: {}", e)))?;
+                let mut file = tokio::fs::File::open(&fs_path).await.map_err(|e| {
+                    attachment_media_operation_failed(
+                        "Attachment download",
+                        "open streaming file",
+                        e,
+                    )
+                })?;
                 file.seek(std::io::SeekFrom::Start(start as u64))
                     .await
-                    .map_err(|e| ApiError::Internal(format!("Failed to seek: {}", e)))?;
+                    .map_err(|e| {
+                        attachment_media_operation_failed(
+                            "Attachment download",
+                            "seek streaming file",
+                            e,
+                        )
+                    })?;
                 let limited = file.take(content_length as u64);
                 let stream = ReaderStream::with_capacity(
                     limited,
@@ -18476,9 +18504,9 @@ async fn serve_streaming(
             }
         }
     } else {
-        let file = tokio::fs::File::open(&fs_path)
-            .await
-            .map_err(|e| ApiError::Internal(format!("Failed to open file: {}", e)))?;
+        let file = tokio::fs::File::open(&fs_path).await.map_err(|e| {
+            attachment_media_operation_failed("Attachment download", "open streaming file", e)
+        })?;
         let stream =
             ReaderStream::with_capacity(file, matric_core::defaults::MEDIA_STREAM_BUFFER_BYTES);
 
@@ -18698,7 +18726,7 @@ async fn get_attachment_thumbnail(
     .bind(attachment_id)
     .fetch_optional(&mut *tx)
     .await
-    .map_err(|e| ApiError::Internal(format!("Failed to query thumbnail: {}", e)))?;
+    .map_err(|e| attachment_media_operation_failed("Attachment thumbnail", "query thumbnail", e))?;
     drop(tx);
 
     let thumb_id = thumb_row.map(|r| r.0).ok_or_else(|| {
@@ -18768,7 +18796,7 @@ async fn get_sprite_vtt(
     .bind(attachment_id)
     .fetch_optional(&mut *tx)
     .await
-    .map_err(|e| ApiError::Internal(format!("Failed to query sprite VTT: {}", e)))?;
+    .map_err(|e| attachment_media_operation_failed("Attachment sprite", "query sprite VTT", e))?;
     drop(tx);
 
     let vtt_id = vtt_row.map(|r| r.0).ok_or_else(|| {
@@ -18857,7 +18885,7 @@ async fn get_sprite_sheet(
     .bind(&expected_filename)
     .fetch_optional(&mut *tx)
     .await
-    .map_err(|e| ApiError::Internal(format!("Failed to query sprite sheet: {}", e)))?;
+    .map_err(|e| attachment_media_operation_failed("Attachment sprite", "query sprite sheet", e))?;
     drop(tx);
 
     let sprite_id = sprite_row.map(|r| r.0).ok_or_else(|| {
@@ -23114,6 +23142,72 @@ mod tests {
         assert!(!body.contains("postgres://"));
         assert!(!body.contains("secret"));
         assert!(!body.contains("permission denied"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn attachment_media_operation_failed_returns_generic_problem_without_raw_detail() {
+        let err = attachment_media_operation_failed(
+            "Attachment download",
+            "open streaming file",
+            "permission denied for /srv/fortemi/blobs/tenant-a/clip.mp4 with postgres://user:secret@db.internal/app",
+        );
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/operation-failed"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Attachment download failed. Check server logs for diagnostics."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains("/srv/fortemi"));
+        assert!(!body.contains("postgres://"));
+        assert!(!body.contains("secret"));
+        assert!(!body.contains("permission denied"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn serve_streaming_open_failure_returns_operation_problem() {
+        let path = std::path::PathBuf::from(
+            "/tmp/fortemi-redaction-test-secret-token-missing-media-file.mp4",
+        );
+        let err = match serve_streaming(
+            path,
+            32,
+            HeaderValue::from_static("video/mp4"),
+            HeaderValue::from_static("inline"),
+            &HeaderMap::new(),
+        )
+        .await
+        {
+            Ok(_) => panic!("missing streaming file should fail"),
+            Err(err) => err,
+        };
+
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/operation-failed"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Attachment download failed. Check server logs for diagnostics."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains("/tmp/fortemi-redaction-test"));
+        assert!(!body.contains("secret-token"));
+        assert!(!body.contains("missing-media-file"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
