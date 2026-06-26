@@ -22805,7 +22805,7 @@ async fn get_backup_info(
 // BACKUP SWAP (HOT RESTORE)
 // =============================================================================
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct SwapBackupRequest {
     /// Filename of the shard to restore from
     filename: String,
@@ -22815,13 +22815,37 @@ struct SwapBackupRequest {
     strategy: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+impl std::fmt::Debug for SwapBackupRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SwapBackupRequest")
+            .field("filename_len", &self.filename.len())
+            .field("dry_run", &self.dry_run)
+            .field(
+                "strategy_len",
+                &self.strategy.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
+}
+
+#[derive(Serialize)]
 struct SwapBackupResponse {
     status: String,
     message: String,
     /// Stats about what was/would be restored
     stats: Option<ShardImportCounts>,
     dry_run: bool,
+}
+
+impl std::fmt::Debug for SwapBackupResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SwapBackupResponse")
+            .field("status_len", &self.status.len())
+            .field("message_len", &self.message.len())
+            .field("stats", &self.stats)
+            .field("dry_run", &self.dry_run)
+            .finish()
+    }
 }
 
 /// Swap to a different backup (restore from shard file on disk).
@@ -25926,6 +25950,57 @@ mod tests {
             "/srv/private",
             "postgres://user:pass",
             "db.internal",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn swap_backup_debug_redacts_filename_strategy_and_message() {
+        let request = SwapBackupRequest {
+            filename: "customer-postgres-secret-mm_key_backup_secret.shard".to_string(),
+            dry_run: Some(true),
+            strategy: Some("wipe-private-customer-data".to_string()),
+        };
+        let response = SwapBackupResponse {
+            status: "validated-private-swap".to_string(),
+            message: "Would restore /srv/backups/customer/postgres://user:pass@db.internal/customer.shard"
+                .to_string(),
+            stats: Some(ShardImportCounts {
+                notes: 1,
+                collections: 1,
+                tags: 1,
+                templates: 1,
+                links: 1,
+                embedding_sets: 1,
+                embedding_set_members: 1,
+                embeddings: 1,
+            }),
+            dry_run: true,
+        };
+
+        let rendered_request = format!("{request:?}");
+        let rendered_response = format!("{response:?}");
+        let combined = format!("{rendered_request}\n{rendered_response}");
+
+        assert!(rendered_request.contains("SwapBackupRequest"));
+        assert!(rendered_request.contains("filename_len"));
+        assert!(rendered_request.contains("strategy_len"));
+        assert!(rendered_response.contains("SwapBackupResponse"));
+        assert!(rendered_response.contains("status_len"));
+        assert!(rendered_response.contains("message_len"));
+        assert!(rendered_response.contains("stats"));
+
+        for raw in [
+            "customer-postgres-secret",
+            "mm_key_backup_secret",
+            "wipe-private-customer-data",
+            "validated-private-swap",
+            "Would restore",
+            "/srv/backups/customer",
+            "postgres://user:pass",
+            "db.internal",
+            "customer.shard",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
