@@ -24,6 +24,17 @@ struct PersistedPauseState {
 
 const CONFIG_KEY: &str = "job_pause_state";
 
+fn pause_parse_error_reason_code(error: &serde_json::Error) -> &'static str {
+    use serde_json::error::Category;
+
+    match error.classify() {
+        Category::Io => "io",
+        Category::Syntax => "json_syntax",
+        Category::Data => "json_shape",
+        Category::Eof => "json_eof",
+    }
+}
+
 /// Thread-safe pause state manager.
 ///
 /// The hot path (`is_globally_paused`, `is_archive_paused`) uses lock-free
@@ -75,7 +86,12 @@ impl PauseState {
                     }
                 }
                 Err(e) => {
-                    warn!(error = %e, "Failed to parse persisted pause state, defaulting to running");
+                    let error_text = e.to_string();
+                    warn!(
+                        error_len = error_text.len(),
+                        error_reason = pause_parse_error_reason_code(&e),
+                        "Failed to parse persisted pause state, defaulting to running"
+                    );
                 }
             }
         } else {
@@ -230,5 +246,22 @@ mod tests {
         assert!(json.contains("\"global\":\"running\""));
         assert!(json.contains("\"research\":\"paused\""));
         assert!(json.contains("\"pending\":42"));
+    }
+
+    #[test]
+    fn pause_parse_error_reason_code_uses_stable_classes() {
+        let syntax_error =
+            serde_json::from_str::<PersistedPauseState>("{global_paused").unwrap_err();
+        assert_eq!(pause_parse_error_reason_code(&syntax_error), "json_syntax");
+
+        let shape_error = serde_json::from_value::<PersistedPauseState>(serde_json::json!({
+            "global_paused": "postgres://user:secret@db/app",
+            "paused_archives": ["research"]
+        }))
+        .unwrap_err();
+        assert_eq!(pause_parse_error_reason_code(&shape_error), "json_shape");
+
+        let eof_error = serde_json::from_str::<PersistedPauseState>("{").unwrap_err();
+        assert_eq!(pause_parse_error_reason_code(&eof_error), "json_eof");
     }
 }
