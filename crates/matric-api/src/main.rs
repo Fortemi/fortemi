@@ -470,6 +470,22 @@ fn attachment_sprite_not_found() -> ApiError {
     ApiError::NotFound("Attachment sprite not found.".to_string())
 }
 
+fn invalid_attachment_sprite_index() -> ApiError {
+    ApiError::BadRequest("Invalid attachment sprite index.".to_string())
+}
+
+fn upload_offset_mismatch() -> ApiError {
+    ApiError::Conflict("Upload offset does not match the current upload state.".to_string())
+}
+
+fn upload_chunk_exceeds_total_size() -> ApiError {
+    ApiError::BadRequest("Upload chunk exceeds the remaining upload size.".to_string())
+}
+
+fn upload_length_exceeds_max_size() -> ApiError {
+    ApiError::BadRequest("Upload-Length exceeds the maximum upload size.".to_string())
+}
+
 fn incoming_webhook_schema_validation_failed() -> ApiError {
     ApiError::BadRequest(
         "Incoming webhook payload failed schema validation. Check the webhook schema contract."
@@ -19455,7 +19471,7 @@ async fn get_sprite_sheet(
         .unwrap_or(&sprite_index);
     let _idx: u32 = idx_str
         .parse()
-        .map_err(|_| ApiError::BadRequest(format!("Invalid sprite index: {}", sprite_index)))?;
+        .map_err(|_| invalid_attachment_sprite_index())?;
 
     // Find the sprite sheet by matching filename pattern
     let expected_filename = format!("sprite_{}.jpg", idx_str);
@@ -19691,10 +19707,7 @@ async fn tus_create_upload(
         ));
     }
     if total_size > state.max_upload_size as i64 {
-        return Err(ApiError::BadRequest(format!(
-            "Upload-Length {} exceeds maximum upload size {}",
-            total_size, state.max_upload_size
-        )));
+        return Err(upload_length_exceeds_max_size());
     }
 
     // Parse Upload-Metadata (optional): comma-separated key<space>base64value pairs
@@ -19956,22 +19969,14 @@ async fn tus_patch_upload(
     // Validate offset matches server state (tus protocol requirement)
     if client_offset != upload.current_offset {
         drop(tx);
-        return Err(ApiError::Conflict(format!(
-            "Upload-Offset mismatch: client sent {}, server expects {}",
-            client_offset, upload.current_offset
-        )));
+        return Err(upload_offset_mismatch());
     }
 
     // Validate chunk doesn't exceed total size
     let new_offset = upload.current_offset + body.len() as i64;
     if new_offset > upload.total_size {
         drop(tx);
-        return Err(ApiError::BadRequest(format!(
-            "Chunk would exceed total size: current={} + chunk={} > total={}",
-            upload.current_offset,
-            body.len(),
-            upload.total_size
-        )));
+        return Err(upload_chunk_exceeds_total_size());
     }
 
     // Append chunk to staging file
@@ -24617,6 +24622,88 @@ mod tests {
         assert!(!body.contains(&submitted_attachment_id.to_string()));
         assert!(!body.contains("secret-token"));
         assert!(!body.contains("abcdef123456"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn attachment_upload_validation_does_not_echo_offsets_or_sprite_index() {
+        let submitted_sprite = "42-secret-token.jpg";
+        let err = invalid_attachment_sprite_index();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], "Invalid attachment sprite index.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_sprite));
+        assert!(!body.contains("42-secret-token"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+
+        let submitted_upload_length = 9_999_999;
+        let configured_max_size = 1_048_576;
+        let err = upload_length_exceeds_max_size();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Upload-Length exceeds the maximum upload size."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains(&submitted_upload_length.to_string()));
+        assert!(!body.contains(&configured_max_size.to_string()));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+
+        let client_offset = 734_281;
+        let server_offset = 918_422;
+        let err = upload_offset_mismatch();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/conflict");
+        assert_eq!(
+            problem["detail"],
+            "Upload offset does not match the current upload state."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains(&client_offset.to_string()));
+        assert!(!body.contains(&server_offset.to_string()));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+
+        let current_offset = 1_048_576;
+        let chunk_size = 65_536;
+        let total_size = 1_049_000;
+        let err = upload_chunk_exceeds_total_size();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Upload chunk exceeds the remaining upload size."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains(&current_offset.to_string()));
+        assert!(!body.contains(&chunk_size.to_string()));
+        assert!(!body.contains(&total_size.to_string()));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
