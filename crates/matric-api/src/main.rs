@@ -14377,7 +14377,7 @@ async fn list_templates(
     Ok(Json(result))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct CreateTemplateBody {
     name: String,
     description: Option<String>,
@@ -14385,6 +14385,32 @@ struct CreateTemplateBody {
     format: Option<String>,
     default_tags: Option<Vec<String>>,
     collection_id: Option<Uuid>,
+}
+
+impl fmt::Debug for CreateTemplateBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateTemplateBody")
+            .field("name_len", &self.name.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("content_len", &self.content.len())
+            .field("format_len", &self.format.as_ref().map(String::len))
+            .field(
+                "default_tags_count",
+                &self.default_tags.as_ref().map(Vec::len),
+            )
+            .field(
+                "default_tag_lens",
+                &self
+                    .default_tags
+                    .as_ref()
+                    .map(|tags| tags.iter().map(String::len).collect::<Vec<_>>()),
+            )
+            .field("collection_id_set", &self.collection_id.is_some())
+            .finish()
+    }
 }
 
 #[utoipa::path(post, path = "/api/v1/templates", tag = "Templates",
@@ -14438,13 +14464,38 @@ async fn get_template(
     Ok(Json(template))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct UpdateTemplateBody {
     name: Option<String>,
     description: Option<String>,
     content: Option<String>,
     default_tags: Option<Vec<String>>,
     collection_id: Option<Option<Uuid>>,
+}
+
+impl fmt::Debug for UpdateTemplateBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateTemplateBody")
+            .field("name_len", &self.name.as_ref().map(String::len))
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("content_len", &self.content.as_ref().map(String::len))
+            .field(
+                "default_tags_count",
+                &self.default_tags.as_ref().map(Vec::len),
+            )
+            .field(
+                "default_tag_lens",
+                &self
+                    .default_tags
+                    .as_ref()
+                    .map(|tags| tags.iter().map(String::len).collect::<Vec<_>>()),
+            )
+            .field("collection_id_state_set", &self.collection_id.is_some())
+            .finish()
+    }
 }
 
 #[utoipa::path(patch, path = "/api/v1/templates/{id}", tag = "Templates",
@@ -14488,7 +14539,7 @@ async fn delete_template(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct InstantiateTemplateBody {
     /// Variables to substitute in the template (placeholder -> value)
     #[serde(default)]
@@ -14500,6 +14551,35 @@ struct InstantiateTemplateBody {
     /// AI revision mode: "full" (default), "light", or "none"
     #[serde(default)]
     revision_mode: Option<String>,
+}
+
+impl fmt::Debug for InstantiateTemplateBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InstantiateTemplateBody")
+            .field("variables_count", &self.variables.len())
+            .field(
+                "variable_key_lens",
+                &self.variables.keys().map(String::len).collect::<Vec<_>>(),
+            )
+            .field(
+                "variable_value_lens",
+                &self.variables.values().map(String::len).collect::<Vec<_>>(),
+            )
+            .field("tags_count", &self.tags.as_ref().map(Vec::len))
+            .field(
+                "tag_lens",
+                &self
+                    .tags
+                    .as_ref()
+                    .map(|tags| tags.iter().map(String::len).collect::<Vec<_>>()),
+            )
+            .field("collection_id_set", &self.collection_id.is_some())
+            .field(
+                "revision_mode_len",
+                &self.revision_mode.as_ref().map(String::len),
+            )
+            .finish()
+    }
 }
 
 #[utoipa::path(post, path = "/api/v1/templates/{id}/instantiate", tag = "Templates",
@@ -26569,6 +26649,81 @@ mod tests {
             "/srv/private/graph.json",
             "normalize_private_customer",
             "snapshot_mm_key_graph",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn template_debug_redacts_content_variables_tags_and_collection_ids() {
+        let create_collection_id = Uuid::new_v4();
+        let update_collection_id = Uuid::new_v4();
+        let instantiate_collection_id = Uuid::new_v4();
+        let create = CreateTemplateBody {
+            name: "Customer payroll template".to_string(),
+            description: Some("Contains customer@example.com and sk-live-template".to_string()),
+            content: "Template body uses postgres://user:pass@db.internal/app".to_string(),
+            format: Some("markdown-private".to_string()),
+            default_tags: Some(vec![
+                "customer/private/template".to_string(),
+                "mm_key_template_tag".to_string(),
+            ]),
+            collection_id: Some(create_collection_id),
+        };
+        let update = UpdateTemplateBody {
+            name: Some("Updated customer template".to_string()),
+            description: Some("/srv/private/template.md".to_string()),
+            content: Some("Updated content with sk-live-update-template".to_string()),
+            default_tags: Some(vec!["updated/private/tag".to_string()]),
+            collection_id: Some(Some(update_collection_id)),
+        };
+        let instantiate = InstantiateTemplateBody {
+            variables: std::collections::HashMap::from([
+                (
+                    "customer_email".to_string(),
+                    "customer@example.com".to_string(),
+                ),
+                ("token".to_string(), "sk-live-variable-token".to_string()),
+            ]),
+            tags: Some(vec!["instantiate/private/tag".to_string()]),
+            collection_id: Some(instantiate_collection_id),
+            revision_mode: Some("contextual-private-template".to_string()),
+        };
+
+        let rendered_create = format!("{create:?}");
+        let rendered_update = format!("{update:?}");
+        let rendered_instantiate = format!("{instantiate:?}");
+        let combined = format!("{rendered_create}\n{rendered_update}\n{rendered_instantiate}");
+
+        assert!(rendered_create.contains("CreateTemplateBody"));
+        assert!(rendered_create.contains("content_len"));
+        assert!(rendered_update.contains("UpdateTemplateBody"));
+        assert!(rendered_update.contains("default_tag_lens"));
+        assert!(rendered_instantiate.contains("InstantiateTemplateBody"));
+        assert!(rendered_instantiate.contains("variables_count"));
+        assert!(rendered_instantiate.contains("variable_key_lens"));
+        assert!(rendered_instantiate.contains("variable_value_lens"));
+
+        for raw in [
+            "Customer payroll template",
+            "customer@example.com",
+            "sk-live-template",
+            "postgres://user:pass",
+            "db.internal",
+            "markdown-private",
+            "customer/private/template",
+            "mm_key_template_tag",
+            "Updated customer template",
+            "/srv/private/template.md",
+            "sk-live-update-template",
+            "updated/private/tag",
+            "customer_email",
+            "sk-live-variable-token",
+            "instantiate/private/tag",
+            "contextual-private-template",
+            &create_collection_id.to_string(),
+            &update_collection_id.to_string(),
+            &instantiate_collection_id.to_string(),
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
