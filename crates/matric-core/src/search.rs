@@ -4,6 +4,7 @@
 //! using SKOS concepts for precise taxonomy-based filtering.
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use uuid::Uuid;
 
 // =============================================================================
@@ -41,7 +42,7 @@ use uuid::Uuid;
 ///
 /// assert!(!filter.is_empty());
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct StrictTagFilter {
     /// Required concepts (AND logic) - must have ALL.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -88,6 +89,54 @@ pub struct StrictTagFilter {
     /// resolved). Search should return empty results immediately.
     #[serde(default, skip_serializing)]
     pub match_none: bool,
+}
+
+impl fmt::Debug for StrictTagFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StrictTagFilter")
+            .field("required_concepts_count", &self.required_concepts.len())
+            .field("any_concepts_count", &self.any_concepts.len())
+            .field("excluded_concepts_count", &self.excluded_concepts.len())
+            .field("required_schemes_count", &self.required_schemes.len())
+            .field("excluded_schemes_count", &self.excluded_schemes.len())
+            .field(
+                "required_string_tags_count",
+                &self.required_string_tags.len(),
+            )
+            .field(
+                "required_string_tag_lens",
+                &self
+                    .required_string_tags
+                    .iter()
+                    .map(|value| value.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("any_string_tags_count", &self.any_string_tags.len())
+            .field(
+                "any_string_tag_lens",
+                &self
+                    .any_string_tags
+                    .iter()
+                    .map(|value| value.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "excluded_string_tags_count",
+                &self.excluded_string_tags.len(),
+            )
+            .field(
+                "excluded_string_tag_lens",
+                &self
+                    .excluded_string_tags
+                    .iter()
+                    .map(|value| value.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("min_tag_count", &self.min_tag_count)
+            .field("include_untagged", &self.include_untagged)
+            .field("match_none", &self.match_none)
+            .finish()
+    }
 }
 
 fn default_true() -> bool {
@@ -207,7 +256,7 @@ impl StrictTagFilter {
 ///   "include_untagged": false
 /// }
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct StrictTagFilterInput {
     /// Required tag notations (AND logic).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -236,6 +285,60 @@ pub struct StrictTagFilterInput {
     /// Whether to include notes with no tags (default: true).
     #[serde(default = "default_true")]
     pub include_untagged: bool,
+}
+
+impl fmt::Debug for StrictTagFilterInput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StrictTagFilterInput")
+            .field("required_tags_count", &self.required_tags.len())
+            .field(
+                "required_tag_lens",
+                &self
+                    .required_tags
+                    .iter()
+                    .map(|value| value.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("any_tags_count", &self.any_tags.len())
+            .field(
+                "any_tag_lens",
+                &self
+                    .any_tags
+                    .iter()
+                    .map(|value| value.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("excluded_tags_count", &self.excluded_tags.len())
+            .field(
+                "excluded_tag_lens",
+                &self
+                    .excluded_tags
+                    .iter()
+                    .map(|value| value.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("required_schemes_count", &self.required_schemes.len())
+            .field(
+                "required_scheme_lens",
+                &self
+                    .required_schemes
+                    .iter()
+                    .map(|value| value.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("excluded_schemes_count", &self.excluded_schemes.len())
+            .field(
+                "excluded_scheme_lens",
+                &self
+                    .excluded_schemes
+                    .iter()
+                    .map(|value| value.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("min_tag_count", &self.min_tag_count)
+            .field("include_untagged", &self.include_untagged)
+            .finish()
+    }
 }
 
 impl Default for StrictTagFilterInput {
@@ -281,6 +384,15 @@ impl StrictTagFilterInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_debug_excludes(debug: &str, secrets: &[&str]) {
+        for secret in secrets {
+            assert!(
+                !debug.contains(secret),
+                "debug output leaked secret `{secret}`: {debug}"
+            );
+        }
+    }
 
     // =========================================================================
     // StrictTagFilter Tests
@@ -447,6 +559,76 @@ mod tests {
         assert!(!obj.contains_key("min_tag_count"));
         // include_untagged is true by default, should be present
         assert!(obj.contains_key("include_untagged"));
+    }
+
+    #[test]
+    fn strict_tag_filter_debug_redacts_tags_and_identifiers() {
+        let concept_id = Uuid::parse_str("aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa").unwrap();
+        let any_id = Uuid::parse_str("bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb").unwrap();
+        let excluded_id = Uuid::parse_str("cccccccc-3333-4444-8555-cccccccccccc").unwrap();
+        let required_scheme_id = Uuid::parse_str("dddddddd-4444-4555-8666-dddddddddddd").unwrap();
+        let excluded_scheme_id = Uuid::parse_str("eeeeeeee-5555-4666-8777-eeeeeeeeeeee").unwrap();
+
+        let mut filter = StrictTagFilter::new()
+            .require_concept(concept_id)
+            .any_concept(any_id)
+            .exclude_concept(excluded_id)
+            .require_scheme(required_scheme_id)
+            .exclude_scheme(excluded_scheme_id)
+            .with_min_tag_count(2)
+            .with_include_untagged(false);
+        filter
+            .required_string_tags
+            .push("postgres://tag:secret@db.internal/notes".to_string());
+        filter
+            .any_string_tags
+            .push("owner@example.internal".to_string());
+        filter
+            .excluded_string_tags
+            .push("sk-secret-strict-tag".to_string());
+
+        let filter_debug = format!("{filter:?}");
+        assert!(filter_debug.contains("StrictTagFilter"));
+        assert!(filter_debug.contains("required_concepts_count"));
+        assert!(filter_debug.contains("required_string_tag_lens"));
+        assert_debug_excludes(
+            &filter_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "cccccccc-3333-4444-8555-cccccccccccc",
+                "dddddddd-4444-4555-8666-dddddddddddd",
+                "eeeeeeee-5555-4666-8777-eeeeeeeeeeee",
+                "postgres://tag:secret@db.internal/notes",
+                "owner@example.internal",
+                "sk-secret-strict-tag",
+            ],
+        );
+
+        let input = StrictTagFilterInput {
+            required_tags: vec!["topic/secret-owner@example.internal".to_string()],
+            any_tags: vec!["postgres://tag:secret@db.internal/any".to_string()],
+            excluded_tags: vec!["sk-secret-filter-input".to_string()],
+            required_schemes: vec!["scheme-secret@example.internal".to_string()],
+            excluded_schemes: vec!["/srv/fortemi/private/scheme".to_string()],
+            min_tag_count: Some(1),
+            include_untagged: false,
+        };
+
+        let input_debug = format!("{input:?}");
+        assert!(input_debug.contains("StrictTagFilterInput"));
+        assert!(input_debug.contains("required_tags_count"));
+        assert!(input_debug.contains("required_tag_lens"));
+        assert_debug_excludes(
+            &input_debug,
+            &[
+                "topic/secret-owner@example.internal",
+                "postgres://tag:secret@db.internal/any",
+                "sk-secret-filter-input",
+                "scheme-secret@example.internal",
+                "/srv/fortemi/private/scheme",
+            ],
+        );
     }
 
     // =========================================================================
