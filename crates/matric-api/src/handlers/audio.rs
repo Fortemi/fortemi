@@ -6,9 +6,13 @@
 use axum::extract::State;
 use axum::Json;
 use serde::Serialize;
+use tracing::warn;
 
 use crate::{ApiError, AppState};
 use matric_inference::transcription::{TranscriptionSegment, WhisperBackend};
+
+const AUDIO_TRANSCRIPTION_PROVIDER_DETAIL: &str =
+    "Audio transcription backend failed. Check server logs for diagnostics.";
 
 /// Response from audio transcription.
 #[derive(Debug, Serialize)]
@@ -118,9 +122,16 @@ pub async fn transcribe_audio(
     let result = backend
         .transcribe(&audio_bytes, mime_type, language.as_deref())
         .await
-        .map_err(|e| ApiError::ProviderFailure {
-            capability: "Audio transcription",
-            detail: e.to_string(),
+        .map_err(|e| {
+            let diagnostic = e.to_string();
+            warn!(
+                error_len = diagnostic.chars().count(),
+                "Audio transcription backend failed"
+            );
+            ApiError::ProviderFailure {
+                capability: "Audio transcription",
+                detail: AUDIO_TRANSCRIPTION_PROVIDER_DETAIL.to_string(),
+            }
         })?;
 
     Ok(Json(TranscribeAudioResponse {
@@ -131,4 +142,20 @@ pub async fn transcribe_audio(
         model: backend.model_name().to_string(),
         audio_size: audio_bytes.len(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audio_provider_detail_is_fixed_and_redacted() {
+        assert_eq!(
+            AUDIO_TRANSCRIPTION_PROVIDER_DETAIL,
+            "Audio transcription backend failed. Check server logs for diagnostics."
+        );
+        assert!(!AUDIO_TRANSCRIPTION_PROVIDER_DETAIL.contains("https://"));
+        assert!(!AUDIO_TRANSCRIPTION_PROVIDER_DETAIL.contains("token"));
+        assert!(!AUDIO_TRANSCRIPTION_PROVIDER_DETAIL.contains("/srv/fortemi"));
+    }
 }

@@ -22,6 +22,9 @@ use tracing::{debug, error, info, warn};
 
 use crate::{ApiError, AppState};
 
+const INFERENCE_COMPLETION_PROVIDER_DETAIL: &str =
+    "Inference completion backend failed. Check server logs for diagnostics.";
+
 // =============================================================================
 // REQUEST + RESPONSE TYPES
 // =============================================================================
@@ -330,7 +333,7 @@ pub async fn complete(
             );
             Err(ApiError::ProviderFailure {
                 capability: "Inference completion",
-                detail: e.to_string(),
+                detail: INFERENCE_COMPLETION_PROVIDER_DETAIL.to_string(),
             }
             .into_response())
         }
@@ -510,6 +513,17 @@ fn inference_failed_sse_payload() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inference_completion_provider_detail_is_fixed_and_redacted() {
+        assert_eq!(
+            INFERENCE_COMPLETION_PROVIDER_DETAIL,
+            "Inference completion backend failed. Check server logs for diagnostics."
+        );
+        assert!(!INFERENCE_COMPLETION_PROVIDER_DETAIL.contains("https://"));
+        assert!(!INFERENCE_COMPLETION_PROVIDER_DETAIL.contains("token"));
+        assert!(!INFERENCE_COMPLETION_PROVIDER_DETAIL.contains("/srv/fortemi"));
+    }
 
     #[test]
     fn inference_failed_sse_payload_uses_generic_message() {

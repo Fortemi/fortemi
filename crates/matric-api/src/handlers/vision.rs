@@ -6,9 +6,13 @@
 use axum::extract::State;
 use axum::Json;
 use serde::Serialize;
+use tracing::warn;
 
 use crate::{ApiError, AppState};
 use matric_inference::OllamaVisionBackend;
+
+const VISION_ANALYSIS_PROVIDER_DETAIL: &str =
+    "Vision analysis backend failed. Check server logs for diagnostics.";
 
 /// Response from image description.
 #[derive(Debug, Serialize)]
@@ -114,9 +118,16 @@ pub async fn describe_image(
     let description = backend
         .describe_image(&image_bytes, mime_type, prompt.as_deref())
         .await
-        .map_err(|e| ApiError::ProviderFailure {
-            capability: "Vision analysis",
-            detail: e.to_string(),
+        .map_err(|e| {
+            let diagnostic = e.to_string();
+            warn!(
+                error_len = diagnostic.chars().count(),
+                "Vision analysis backend failed"
+            );
+            ApiError::ProviderFailure {
+                capability: "Vision analysis",
+                detail: VISION_ANALYSIS_PROVIDER_DETAIL.to_string(),
+            }
         })?;
 
     Ok(Json(DescribeImageResponse {
@@ -124,4 +135,20 @@ pub async fn describe_image(
         model: backend.model_name().to_string(),
         image_size: image_bytes.len(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vision_provider_detail_is_fixed_and_redacted() {
+        assert_eq!(
+            VISION_ANALYSIS_PROVIDER_DETAIL,
+            "Vision analysis backend failed. Check server logs for diagnostics."
+        );
+        assert!(!VISION_ANALYSIS_PROVIDER_DETAIL.contains("https://"));
+        assert!(!VISION_ANALYSIS_PROVIDER_DETAIL.contains("token"));
+        assert!(!VISION_ANALYSIS_PROVIDER_DETAIL.contains("/srv/fortemi"));
+    }
 }
