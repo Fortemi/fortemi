@@ -7,18 +7,30 @@
 //!
 //! All renderers accept a slice of `CaptionSegment` and produce a complete file string.
 
-use std::fmt::Write;
+use std::fmt::{self, Write};
 
 /// A timestamped text segment for caption rendering.
 ///
 /// This is format-agnostic — convert from transcription segments, whisper output, etc.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CaptionSegment {
     pub start_secs: f64,
     pub end_secs: f64,
     pub text: String,
     /// Optional speaker label (for diarization / RTTM).
     pub speaker: Option<String>,
+}
+
+impl fmt::Debug for CaptionSegment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CaptionSegment")
+            .field("start_secs_set", &self.start_secs.is_finite())
+            .field("end_secs_set", &self.end_secs.is_finite())
+            .field("duration_secs", &(self.end_secs - self.start_secs))
+            .field("text_len", &self.text.len())
+            .field("speaker_len", &self.speaker.as_ref().map(String::len))
+            .finish()
+    }
 }
 
 /// Render segments as WebVTT (Web Video Text Tracks).
@@ -235,6 +247,43 @@ mod tests {
         assert_eq!(render_webvtt(&empty), "WEBVTT\n\n");
         assert_eq!(render_srt(&empty), "");
         assert_eq!(render_rttm(&empty, "file"), "");
+    }
+
+    #[test]
+    fn caption_segment_debug_redacts_text_and_speaker() {
+        let segment = CaptionSegment {
+            start_secs: 1.25,
+            end_secs: 3.75,
+            text: "Patient private@example.test said token sk-live-secret".to_string(),
+            speaker: Some("Dr. Private Speaker".to_string()),
+        };
+
+        let rendered = format!("{segment:?}");
+
+        for raw in [
+            "Patient",
+            "private@example.test",
+            "sk-live-secret",
+            "Dr. Private Speaker",
+        ] {
+            assert!(
+                !rendered.contains(raw),
+                "CaptionSegment Debug output leaked raw value {raw:?}: {rendered}"
+            );
+        }
+
+        for expected in [
+            "start_secs_set",
+            "end_secs_set",
+            "duration_secs",
+            "text_len",
+            "speaker_len",
+        ] {
+            assert!(
+                rendered.contains(expected),
+                "CaptionSegment Debug output should retain safe metadata field {expected:?}: {rendered}"
+            );
+        }
     }
 
     #[test]
