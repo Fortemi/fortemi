@@ -31,7 +31,11 @@ fn extract_schema(ctx: &JobContext) -> &str {
 
 fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResult> {
     db.for_schema(schema)
-        .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
+        .map_err(|_| JobResult::Failed("Invalid schema".into()))
+}
+
+fn keyframe_assembly_text_len(text: &str) -> usize {
+    text.chars().count()
 }
 
 fn keyframe_assembly_error_reason_code(error: &str) -> &'static str {
@@ -112,7 +116,13 @@ impl JobHandler for KeyframeAssemblyHandler {
         let (duration_secs, transcript_segments_json, transcript_text, existing_metadata) = {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        keyframe_assembly_error_reason_code(&error_text)
+                    ));
+                }
             };
             let row: Option<(Option<String>, Option<JsonValue>)> = sqlx::query_as(
                 "SELECT extracted_text, extracted_metadata FROM attachment WHERE id = $1",
@@ -148,12 +158,7 @@ impl JobHandler for KeyframeAssemblyHandler {
                     });
                     (duration, segments, transcript, meta)
                 }
-                None => {
-                    return JobResult::Failed(format!(
-                        "Parent attachment {} not found",
-                        attachment_id
-                    ))
-                }
+                None => return JobResult::Failed("Parent attachment not found".into()),
             }
         };
 
@@ -162,7 +167,13 @@ impl JobHandler for KeyframeAssemblyHandler {
         let keyframe_descriptions: Vec<JsonValue> = {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        keyframe_assembly_error_reason_code(&error_text)
+                    ));
+                }
             };
             let keyframes = file_storage
                 .list_derived_by_type_tx(&mut tx, attachment_id, "keyframe")
@@ -207,10 +218,9 @@ impl JobHandler for KeyframeAssemblyHandler {
         }
 
         info!(
-            attachment = %attachment_id,
+            attachment_id_present = true,
             frames = keyframe_descriptions.len(),
-            "Assembling {} keyframe descriptions into video markdown",
-            keyframe_descriptions.len()
+            "Assembling keyframe descriptions into video markdown"
         );
 
         // Step 3: Rebuild full video markdown
@@ -234,7 +244,13 @@ impl JobHandler for KeyframeAssemblyHandler {
         {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        keyframe_assembly_error_reason_code(&error_text)
+                    ));
+                }
             };
 
             // Merge frame_count into existing metadata
@@ -256,11 +272,19 @@ impl JobHandler for KeyframeAssemblyHandler {
                 )
                 .await
             {
-                return JobResult::Failed(format!("Failed to update extracted content: {}", e));
+                let error_text = e.to_string();
+                return JobResult::Failed(format!(
+                    "Failed to update extracted content ({})",
+                    keyframe_assembly_error_reason_code(&error_text)
+                ));
             }
 
             if let Err(e) = tx.commit().await {
-                return JobResult::Failed(format!("Commit failed: {}", e));
+                let error_text = e.to_string();
+                return JobResult::Failed(format!(
+                    "Commit failed ({})",
+                    keyframe_assembly_error_reason_code(&error_text)
+                ));
             }
         }
 
@@ -279,7 +303,7 @@ impl JobHandler for KeyframeAssemblyHandler {
                 Err(e) => {
                     let error_text = e.to_string();
                     warn!(
-                        error_len = error_text.len(),
+                        error_len = keyframe_assembly_text_len(&error_text),
                         error_reason = keyframe_assembly_error_reason_code(&error_text),
                         "Failed to store manifest, continuing"
                     );
@@ -368,7 +392,7 @@ async fn finish_propagation(
                         let error_text = e.to_string();
                         error!(
                             note_present = true,
-                            error_len = error_text.len(),
+                            error_len = keyframe_assembly_text_len(&error_text),
                             error_reason = keyframe_assembly_error_reason_code(&error_text),
                             "Failed to propagate assembly content to note"
                         );
@@ -378,7 +402,7 @@ async fn finish_propagation(
                 if let Err(e) = tx.commit().await {
                     let error_text = e.to_string();
                     error!(
-                        error_len = error_text.len(),
+                        error_len = keyframe_assembly_text_len(&error_text),
                         error_reason = keyframe_assembly_error_reason_code(&error_text),
                         "Failed to commit note propagation"
                     );
@@ -388,7 +412,7 @@ async fn finish_propagation(
             Err(e) => {
                 let error_text = e.to_string();
                 warn!(
-                    error_len = error_text.len(),
+                    error_len = keyframe_assembly_text_len(&error_text),
                     error_reason = keyframe_assembly_error_reason_code(&error_text),
                     "Failed to begin tx for note propagation"
                 );
@@ -439,7 +463,7 @@ async fn finish_propagation(
                 Err(e) => {
                     let error_text = e.to_string();
                     warn!(
-                        error_len = error_text.len(),
+                        error_len = keyframe_assembly_text_len(&error_text),
                         error_reason = keyframe_assembly_error_reason_code(&error_text),
                         "Failed to queue AiRevision after keyframe assembly"
                     );
@@ -465,7 +489,7 @@ async fn finish_propagation(
                     Err(e) => {
                         let error_text = e.to_string();
                         warn!(
-                            error_len = error_text.len(),
+                            error_len = keyframe_assembly_text_len(&error_text),
                             error_reason = keyframe_assembly_error_reason_code(&error_text),
                             job_type = ?job_type,
                             "Failed to queue downstream job"
@@ -510,5 +534,26 @@ mod tests {
             keyframe_assembly_error_reason_code("opaque backend diagnostic text"),
             "operation_failed"
         );
+    }
+
+    #[test]
+    fn keyframe_assembly_runtime_telemetry_helpers_redact_private_values() {
+        let raw_error = "postgres://user:mm_key_secret@db.internal/app failed at /srv/private";
+        let rendered = format!(
+            "attachment_id_present=true; note_present=true; frame_count=3; base_name_len={}; error_len={}; error_reason={}",
+            keyframe_assembly_text_len("video-mm_key_secret"),
+            keyframe_assembly_text_len(raw_error),
+            keyframe_assembly_error_reason_code(raw_error)
+        );
+
+        assert!(rendered.contains("attachment_id_present=true"));
+        assert!(rendered.contains("note_present=true"));
+        assert!(rendered.contains("base_name_len="));
+        assert!(rendered.contains("error_len="));
+        assert!(!rendered.contains("video-mm_key_secret"));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("postgres://"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("/srv/private"));
     }
 }

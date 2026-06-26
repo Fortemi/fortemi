@@ -31,7 +31,11 @@ fn extract_schema(ctx: &JobContext) -> &str {
 
 fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResult> {
     db.for_schema(schema)
-        .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
+        .map_err(|_| JobResult::Failed("Invalid schema".into()))
+}
+
+fn view_assembly_text_len(text: &str) -> usize {
+    text.chars().count()
 }
 
 fn view_assembly_error_reason_code(error: &str) -> &'static str {
@@ -117,7 +121,13 @@ impl JobHandler for ViewAssemblyHandler {
         let existing_metadata = {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        view_assembly_error_reason_code(&error_text)
+                    ));
+                }
             };
             let row: Option<(Option<JsonValue>,)> =
                 sqlx::query_as("SELECT extracted_metadata FROM attachment WHERE id = $1")
@@ -130,12 +140,7 @@ impl JobHandler for ViewAssemblyHandler {
 
             match row {
                 Some((meta,)) => meta.unwrap_or(json!({})),
-                None => {
-                    return JobResult::Failed(format!(
-                        "Parent attachment {} not found",
-                        attachment_id
-                    ))
-                }
+                None => return JobResult::Failed("Parent attachment not found".into()),
             }
         };
 
@@ -144,7 +149,13 @@ impl JobHandler for ViewAssemblyHandler {
         let view_descriptions: Vec<JsonValue> = {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        view_assembly_error_reason_code(&error_text)
+                    ));
+                }
             };
             let views = file_storage
                 .list_derived_by_type_tx(&mut tx, attachment_id, "3d_rendering")
@@ -183,10 +194,10 @@ impl JobHandler for ViewAssemblyHandler {
         }
 
         info!(
-            attachment = %attachment_id,
+            attachment_id_present = true,
             views = view_descriptions.len(),
-            "Assembling {} view descriptions into 3D model description",
-            view_descriptions.len()
+            filename_len = view_assembly_text_len(filename),
+            "Assembling view descriptions into 3D model description"
         );
 
         // Step 3: Build composite description from all views
@@ -203,7 +214,13 @@ impl JobHandler for ViewAssemblyHandler {
         {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        view_assembly_error_reason_code(&error_text)
+                    ));
+                }
             };
 
             // Merge view_count into existing metadata
@@ -223,7 +240,11 @@ impl JobHandler for ViewAssemblyHandler {
                 )
                 .await
             {
-                return JobResult::Failed(format!("Failed to update extracted content: {}", e));
+                let error_text = e.to_string();
+                return JobResult::Failed(format!(
+                    "Failed to update extracted content ({})",
+                    view_assembly_error_reason_code(&error_text)
+                ));
             }
 
             // Also update ai_description with the composite
@@ -233,14 +254,18 @@ impl JobHandler for ViewAssemblyHandler {
             {
                 let error_text = e.to_string();
                 warn!(
-                    error_len = error_text.len(),
+                    error_len = view_assembly_text_len(&error_text),
                     error_reason = view_assembly_error_reason_code(&error_text),
                     "Failed to update ai_description (non-fatal)"
                 );
             }
 
             if let Err(e) = tx.commit().await {
-                return JobResult::Failed(format!("Commit failed: {}", e));
+                let error_text = e.to_string();
+                return JobResult::Failed(format!(
+                    "Commit failed ({})",
+                    view_assembly_error_reason_code(&error_text)
+                ));
             }
         }
 
@@ -352,7 +377,7 @@ async fn finish_propagation(
                     let error_text = e.to_string();
                     error!(
                         note_present = true,
-                        error_len = error_text.len(),
+                        error_len = view_assembly_text_len(&error_text),
                         error_reason = view_assembly_error_reason_code(&error_text),
                         "Failed to propagate assembly content to note"
                     );
@@ -362,7 +387,7 @@ async fn finish_propagation(
             if let Err(e) = tx.commit().await {
                 let error_text = e.to_string();
                 error!(
-                    error_len = error_text.len(),
+                    error_len = view_assembly_text_len(&error_text),
                     error_reason = view_assembly_error_reason_code(&error_text),
                     "Failed to commit note propagation"
                 );
@@ -372,7 +397,7 @@ async fn finish_propagation(
         Err(e) => {
             let error_text = e.to_string();
             warn!(
-                error_len = error_text.len(),
+                error_len = view_assembly_text_len(&error_text),
                 error_reason = view_assembly_error_reason_code(&error_text),
                 "Failed to begin tx for note propagation"
             );
@@ -421,7 +446,7 @@ async fn finish_propagation(
             Err(e) => {
                 let error_text = e.to_string();
                 warn!(
-                    error_len = error_text.len(),
+                    error_len = view_assembly_text_len(&error_text),
                     error_reason = view_assembly_error_reason_code(&error_text),
                     "Failed to queue AiRevision after view assembly"
                 );
@@ -447,7 +472,7 @@ async fn finish_propagation(
                 Err(e) => {
                     let error_text = e.to_string();
                     warn!(
-                        error_len = error_text.len(),
+                        error_len = view_assembly_text_len(&error_text),
                         error_reason = view_assembly_error_reason_code(&error_text),
                         job_type = ?job_type,
                         "Failed to queue downstream job"
@@ -491,5 +516,26 @@ mod tests {
             view_assembly_error_reason_code("opaque backend diagnostic text"),
             "operation_failed"
         );
+    }
+
+    #[test]
+    fn view_assembly_runtime_telemetry_helpers_redact_private_values() {
+        let raw_error = "postgres://user:mm_key_secret@db.internal/app failed at /srv/private";
+        let rendered = format!(
+            "attachment_id_present=true; note_present=true; view_count=3; filename_len={}; error_len={}; error_reason={}",
+            view_assembly_text_len("model-mm_key_secret.glb"),
+            view_assembly_text_len(raw_error),
+            view_assembly_error_reason_code(raw_error)
+        );
+
+        assert!(rendered.contains("attachment_id_present=true"));
+        assert!(rendered.contains("note_present=true"));
+        assert!(rendered.contains("filename_len="));
+        assert!(rendered.contains("error_len="));
+        assert!(!rendered.contains("model-mm_key_secret.glb"));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("postgres://"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("/srv/private"));
     }
 }
