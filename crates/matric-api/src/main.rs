@@ -23184,6 +23184,12 @@ mod tests {
         serde_json::from_slice(&body).unwrap()
     }
 
+    async fn route_problem_contract_test_handler() -> Result<Json<serde_json::Value>, ApiError> {
+        Err(ApiError::Internal(
+            "postgres://user:secret@db.internal/app failed at /srv/fortemi/private".to_string(),
+        ))
+    }
+
     #[test]
     fn oauth_handler_request_debug_redacts_tokens() {
         let introspect = IntrospectRequest {
@@ -23330,6 +23336,73 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(parsed, serde_json::json!({"ok": true}));
+    }
+
+    #[tokio::test]
+    async fn route_error_boundary_returns_problem_with_request_id_and_security_headers() {
+        let router = Router::new()
+            .route(
+                "/api/v1/problem-contract-test",
+                get(route_problem_contract_test_handler),
+            )
+            .layer(PropagateRequestIdLayer::x_request_id())
+            .layer(SetRequestIdLayer::x_request_id(MakeRequestUuidV7))
+            .layer(axum::middleware::from_fn(problem_request_id_middleware))
+            .layer(axum::middleware::from_fn(security_headers_middleware));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind problem contract test server");
+        let url = format!(
+            "http://{}/api/v1/problem-contract-test",
+            listener.local_addr().unwrap()
+        );
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let response = reqwest::Client::new()
+            .get(url)
+            .header("x-request-id", "018fd1a0-route-contract")
+            .send()
+            .await
+            .expect("send problem route request");
+
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR
+        );
+        let headers = response.headers().clone();
+        assert_eq!(
+            headers.get(reqwest::header::CONTENT_TYPE).unwrap(),
+            "application/problem+json"
+        );
+        assert_eq!(
+            headers.get(reqwest::header::CACHE_CONTROL).unwrap(),
+            "no-store"
+        );
+        assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
+        assert_eq!(headers.get("x-frame-options").unwrap(), "DENY");
+        assert_eq!(
+            headers.get("content-security-policy").unwrap(),
+            "default-src 'none'; frame-ancestors 'none'"
+        );
+
+        let problem: serde_json::Value = response.json().await.expect("problem JSON body");
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/internal-error"
+        );
+        assert_eq!(problem["status"], 500);
+        assert_eq!(problem["detail"], "An internal error occurred.");
+        assert_eq!(problem["request_id"], "018fd1a0-route-contract");
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+
+        let body = problem.to_string();
+        assert!(!body.contains("postgres://"));
+        assert!(!body.contains("secret"));
+        assert!(!body.contains("db.internal"));
+        assert!(!body.contains("/srv/fortemi"));
     }
 
     #[test]
