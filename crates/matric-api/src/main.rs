@@ -18861,7 +18861,7 @@ async fn backup_import(
     }))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct BackupTriggerBody {
     /// Target destinations: local, s3, rsync, or all (reserved for future use)
     #[allow(dead_code)]
@@ -18871,11 +18871,33 @@ struct BackupTriggerBody {
     dry_run: bool,
 }
 
-#[derive(Debug, Serialize)]
+impl std::fmt::Debug for BackupTriggerBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackupTriggerBody")
+            .field(
+                "destinations_count",
+                &self.destinations.as_ref().map(|values| values.len()),
+            )
+            .field("dry_run", &self.dry_run)
+            .finish()
+    }
+}
+
+#[derive(Serialize)]
 struct BackupTriggerResponse {
     status: String,
     output: String,
     timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+impl std::fmt::Debug for BackupTriggerResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackupTriggerResponse")
+            .field("status_len", &self.status.len())
+            .field("output_len", &self.output.len())
+            .field("timestamp", &self.timestamp)
+            .finish()
+    }
 }
 
 /// Trigger an immediate database backup using native pg_dump.
@@ -19090,7 +19112,7 @@ fn log_backup_post_restore_warning(command: &'static str, status_code: Option<i3
     );
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct BackupStatusResponse {
     backup_directory: String,
     /// Total size of all backups in bytes
@@ -19107,12 +19129,42 @@ struct BackupStatusResponse {
     status: String,
 }
 
-#[derive(Debug, Serialize)]
+impl std::fmt::Debug for BackupStatusResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackupStatusResponse")
+            .field("backup_directory_len", &self.backup_directory.len())
+            .field("total_size_bytes", &self.total_size_bytes)
+            .field("total_size_human_len", &self.total_size_human.len())
+            .field(
+                "disk_usage_len",
+                &self.disk_usage.as_ref().map(|value| value.len()),
+            )
+            .field("backup_count", &self.backup_count)
+            .field("shard_count", &self.shard_count)
+            .field("pgdump_count", &self.pgdump_count)
+            .field("latest_backup_set", &self.latest_backup.is_some())
+            .field("status_len", &self.status.len())
+            .finish()
+    }
+}
+
+#[derive(Serialize)]
 struct LatestBackupInfo {
     path: String,
     filename: String,
     size_bytes: u64,
     modified: chrono::DateTime<chrono::Utc>,
+}
+
+impl std::fmt::Debug for LatestBackupInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LatestBackupInfo")
+            .field("path_len", &self.path.len())
+            .field("filename_len", &self.filename.len())
+            .field("size_bytes", &self.size_bytes)
+            .field("modified", &self.modified)
+            .finish()
+    }
 }
 
 /// Get the status of the backup system.
@@ -25696,6 +25748,77 @@ mod tests {
             "archive-secret-tag",
             "Private restore template",
             "partial-with-private-detail",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn backup_trigger_and_status_debug_redacts_paths_destinations_and_output() {
+        let trigger_body = BackupTriggerBody {
+            destinations: Some(vec![
+                "s3://customer-private-bucket/mm_key_backup_secret".to_string(),
+                "rsync://user:pass@backup.internal/srv/private".to_string(),
+            ]),
+            dry_run: true,
+        };
+        let trigger_response = BackupTriggerResponse {
+            status: "dry_run_private".to_string(),
+            output: "Would create backup: /srv/backups/customer/postgres://user:pass@db.internal/matric.sql.gz"
+                .to_string(),
+            timestamp: Utc::now(),
+        };
+        let latest = LatestBackupInfo {
+            path: "/srv/backups/customer/mm_key_backup_secret.sql.gz".to_string(),
+            filename: "customer-postgres-secret.sql.gz".to_string(),
+            size_bytes: 4096,
+            modified: Utc::now(),
+        };
+        let status_response = BackupStatusResponse {
+            backup_directory: "/srv/backups/customer/postgres://user:pass@db.internal".to_string(),
+            total_size_bytes: 4096,
+            total_size_human: "4.0 KiB private".to_string(),
+            disk_usage: Some("/dev/mapper/private 4G".to_string()),
+            backup_count: 1,
+            shard_count: 0,
+            pgdump_count: 1,
+            latest_backup: Some(latest),
+            status: "healthy-private".to_string(),
+        };
+
+        let rendered_body = format!("{trigger_body:?}");
+        let rendered_trigger = format!("{trigger_response:?}");
+        let rendered_status = format!("{status_response:?}");
+        let rendered_latest = format!("{:?}", status_response.latest_backup.as_ref().unwrap());
+        let combined =
+            format!("{rendered_body}\n{rendered_trigger}\n{rendered_status}\n{rendered_latest}");
+
+        assert!(rendered_body.contains("BackupTriggerBody"));
+        assert!(rendered_body.contains("destinations_count"));
+        assert!(rendered_trigger.contains("BackupTriggerResponse"));
+        assert!(rendered_trigger.contains("status_len"));
+        assert!(rendered_trigger.contains("output_len"));
+        assert!(rendered_status.contains("BackupStatusResponse"));
+        assert!(rendered_status.contains("backup_directory_len"));
+        assert!(rendered_status.contains("latest_backup_set"));
+        assert!(rendered_latest.contains("LatestBackupInfo"));
+        assert!(rendered_latest.contains("path_len"));
+        assert!(rendered_latest.contains("filename_len"));
+
+        for raw in [
+            "s3://customer-private-bucket",
+            "rsync://user:pass",
+            "backup.internal",
+            "mm_key_backup_secret",
+            "dry_run_private",
+            "Would create backup",
+            "/srv/backups/customer",
+            "postgres://user:pass",
+            "db.internal",
+            "customer-postgres-secret",
+            "4.0 KiB private",
+            "/dev/mapper/private",
+            "healthy-private",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
