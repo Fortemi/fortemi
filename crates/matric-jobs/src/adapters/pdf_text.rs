@@ -56,6 +56,10 @@ fn page_count(metadata: &JsonValue) -> usize {
     metadata.get("pages").and_then(|v| v.as_u64()).unwrap_or(0) as usize
 }
 
+fn pdf_text_len(text: &str) -> usize {
+    text.len()
+}
+
 fn pdf_text_io_error_kind(error: &std::io::Error) -> &'static str {
     match error.kind() {
         std::io::ErrorKind::NotFound => "not_found",
@@ -83,6 +87,21 @@ fn pdf_text_stderr_reason_code(stderr: &[u8]) -> &'static str {
         "timed_out"
     } else {
         "command_failed"
+    }
+}
+
+fn pdf_text_error_reason_code(error: &str) -> &'static str {
+    let text = error.to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("invalid") || text.contains("xref") || text.contains("not a pdf") {
+        "invalid_pdf"
+    } else if text.contains("not found") || text.contains("no such") {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else {
+        "operation_failed"
     }
 }
 
@@ -181,7 +200,13 @@ impl ExtractionAdapter for PdfTextAdapter {
         let mut metadata = match pdfinfo_output {
             Ok(output) => parse_pdfinfo(&output),
             Err(e) => {
-                warn!(filename, error = %e, "pdfinfo failed, continuing without metadata");
+                let error_text = e.to_string();
+                warn!(
+                    filename_len = pdf_text_len(filename),
+                    error_len = pdf_text_len(&error_text),
+                    error_reason = pdf_text_error_reason_code(&error_text),
+                    "pdfinfo failed, continuing without metadata"
+                );
                 serde_json::json!({})
             }
         };
@@ -190,7 +215,10 @@ impl ExtractionAdapter for PdfTextAdapter {
         let pages = page_count(&metadata);
         let text = if pages > LARGE_PDF_PAGE_THRESHOLD {
             // Batch extraction for large PDFs
-            debug!(filename, pages, "Large PDF detected, extracting in batches");
+            debug!(
+                filename_len = pdf_text_len(filename),
+                pages, "Large PDF detected, extracting in batches"
+            );
             let mut chunks = Vec::new();
             let mut start = 1usize;
             while start <= pages {
@@ -302,6 +330,25 @@ mod tests {
         assert!(!detail.contains("/srv/fortemi"));
         assert!(!detail.contains("mm_key_secret"));
         assert!(!detail.contains("Syntax Error"));
+    }
+
+    #[test]
+    fn pdf_text_log_metadata_omits_raw_filename_and_error() {
+        let filename = "customer-token-mm_key_secret.pdf";
+        let error = "permission denied at /srv/fortemi/private/customer-token-mm_key_secret.pdf";
+        let detail = format!(
+            "filename_len={}; error_len={}; error_reason={}",
+            pdf_text_len(filename),
+            pdf_text_len(error),
+            pdf_text_error_reason_code(error)
+        );
+
+        assert!(detail.contains("filename_len="));
+        assert!(detail.contains("error_len="));
+        assert!(detail.contains("permission_denied"));
+        assert!(!detail.contains("customer-token"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("/srv/fortemi"));
     }
 
     #[test]

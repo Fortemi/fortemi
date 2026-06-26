@@ -15,6 +15,10 @@ use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Resul
 
 pub struct OfficeConvertAdapter;
 
+fn office_text_len(text: &str) -> usize {
+    text.len()
+}
+
 fn office_io_error_kind(error: &std::io::Error) -> &'static str {
     match error.kind() {
         std::io::ErrorKind::NotFound => "not_found",
@@ -188,7 +192,10 @@ impl ExtractionAdapter for OfficeConvertAdapter {
         })?;
         let tmp_path = tmpfile.path().to_string_lossy().to_string();
 
-        debug!(filename, format, "Converting with pandoc");
+        debug!(
+            filename_len = office_text_len(filename),
+            format, "Converting with pandoc"
+        );
 
         // Run pandoc: pandoc -f FORMAT -t plain --wrap=none INPUT
         let text = run_cmd_with_timeout(
@@ -262,6 +269,16 @@ mod tests {
         assert!(!detail.contains("/srv/fortemi"));
         assert!(!detail.contains("mm_key_secret"));
         assert!(!detail.contains("couldn't parse"));
+    }
+
+    #[test]
+    fn office_log_metadata_omits_raw_filename() {
+        let filename = "customer-token-mm_key_secret.docx";
+        let detail = format!("filename_len={}", office_text_len(filename));
+
+        assert!(detail.contains("filename_len="));
+        assert!(!detail.contains("customer-token"));
+        assert!(!detail.contains("mm_key_secret"));
     }
 
     #[test]

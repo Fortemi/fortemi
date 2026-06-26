@@ -17,6 +17,10 @@ use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Resul
 
 pub struct PdfOcrAdapter;
 
+fn pdf_ocr_text_len(text: &str) -> usize {
+    text.len()
+}
+
 fn pdf_ocr_io_error_kind(error: &std::io::Error) -> &'static str {
     match error.kind() {
         std::io::ErrorKind::NotFound => "not_found",
@@ -44,6 +48,21 @@ fn pdf_ocr_stderr_reason_code(stderr: &[u8]) -> &'static str {
         "timed_out"
     } else {
         "command_failed"
+    }
+}
+
+fn pdf_ocr_error_reason_code(error: &str) -> &'static str {
+    let text = error.to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("invalid") || text.contains("xref") || text.contains("not a pdf") {
+        "invalid_pdf"
+    } else if text.contains("not found") || text.contains("no such") {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else {
+        "operation_failed"
     }
 }
 
@@ -175,7 +194,10 @@ impl ExtractionAdapter for PdfOcrAdapter {
         })?;
         let img_prefix = img_dir.path().join("page").to_string_lossy().to_string();
 
-        debug!(filename, dpi, language, "Rendering PDF pages for OCR");
+        debug!(
+            filename_len = pdf_ocr_text_len(filename),
+            dpi, language, "Rendering PDF pages for OCR"
+        );
 
         // Step 1: Render PDF pages to PNG using pdftoppm
         run_cmd_status(
@@ -222,7 +244,11 @@ impl ExtractionAdapter for PdfOcrAdapter {
             });
         }
 
-        debug!(filename, pages = page_images.len(), "OCRing rendered pages");
+        debug!(
+            filename_len = pdf_ocr_text_len(filename),
+            pages = page_images.len(),
+            "OCRing rendered pages"
+        );
 
         // Step 2: OCR each page with tesseract
         let mut page_texts = Vec::new();
@@ -251,7 +277,13 @@ impl ExtractionAdapter for PdfOcrAdapter {
                     }
                 }
                 Err(e) => {
-                    warn!(page = i + 1, error = %e, "OCR failed for page, skipping");
+                    let error_text = e.to_string();
+                    warn!(
+                        page = i + 1,
+                        error_len = pdf_ocr_text_len(&error_text),
+                        error_reason = pdf_ocr_error_reason_code(&error_text),
+                        "OCR failed for page, skipping"
+                    );
                     page_texts.push(format!("[OCR failed for page {}]", i + 1));
                 }
             }
@@ -324,6 +356,25 @@ mod tests {
         assert!(!detail.contains("/srv/fortemi"));
         assert!(!detail.contains("mm_key_secret"));
         assert!(!detail.contains("Syntax Error"));
+    }
+
+    #[test]
+    fn pdf_ocr_log_metadata_omits_raw_filename_and_error() {
+        let filename = "customer-token-mm_key_secret.pdf";
+        let error = "permission denied at /srv/fortemi/private/customer-token-mm_key_secret.pdf";
+        let detail = format!(
+            "filename_len={}; error_len={}; error_reason={}",
+            pdf_ocr_text_len(filename),
+            pdf_ocr_text_len(error),
+            pdf_ocr_error_reason_code(error)
+        );
+
+        assert!(detail.contains("filename_len="));
+        assert!(detail.contains("error_len="));
+        assert!(detail.contains("permission_denied"));
+        assert!(!detail.contains("customer-token"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("/srv/fortemi"));
     }
 
     #[test]
