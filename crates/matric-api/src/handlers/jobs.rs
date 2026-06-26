@@ -1560,7 +1560,9 @@ impl JobHandler for AiRevisionContextualHandler {
             &note.revised.content
         } else {
             warn!(
-                note_id = %note_id,
+                note_id_present = true,
+                detail = JOB_AI_CONTEXTUAL_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "fallback_to_original_for_contextual_revision",
                 "Phase 1 revised content is empty, falling back to original content for Phase 2"
             );
             &note.original.content
@@ -1703,7 +1705,12 @@ impl JobHandler for AiRevisionContextualHandler {
         if related_notes.is_empty() {
             // No related notes found — Phase 1 output stands as final.
             // Update revision note so users know contextual enrichment was attempted.
-            info!(note_id = %note_id, "No related notes found, Phase 1 revision is final");
+            info!(
+                note_id_present = true,
+                detail = JOB_CONTEXT_DISCOVERY_FAILURE_DETAIL,
+                operation = "no_related_notes_for_contextual_revision",
+                "No related notes found, Phase 1 revision is final"
+            );
             self.update_revision_note(
                 &schema_ctx,
                 note_id,
@@ -1759,12 +1766,14 @@ impl JobHandler for AiRevisionContextualHandler {
 
         if is_chunked {
             info!(
-                note_id = %note_id,
+                note_id_present = true,
                 total_chunks,
                 chunk_max = chunk_max_phase2,
                 reference_overhead,
                 content_len = phase1_content.len(),
                 p2_total_revision_secs,
+                detail = JOB_AI_CONTEXTUAL_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "split_contextual_revision_chunks",
                 "Splitting Phase 2 content for chunked contextual revision"
             );
         }
@@ -1778,11 +1787,13 @@ impl JobHandler for AiRevisionContextualHandler {
         for (chunk_idx, chunk_content) in chunks.iter().enumerate() {
             if is_chunked && std::time::Instant::now() >= p2_revision_deadline {
                 warn!(
-                    note_id = %note_id,
+                    note_id_present = true,
                     chunk = chunk_idx + 1,
                     total = total_chunks,
                     p2_total_revision_secs,
                     completed = revised_parts.len(),
+                    detail = JOB_AI_CONTEXTUAL_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "contextual_revision_budget_exhausted",
                     "Phase 2 total revision budget exhausted, stopping early"
                 );
                 break;
@@ -1983,10 +1994,12 @@ Output the revised note in clean markdown format. Do not add any labels, markers
 
         ctx.report_progress(100, Some("Contextual revision complete"));
         info!(
-            note_id = %note_id,
+            note_id_present = true,
             mode = ?revision_mode,
             related_count = related_count,
             duration_ms = start.elapsed().as_millis() as u64,
+            detail = JOB_AI_CONTEXTUAL_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "complete_contextual_revision",
             "AI contextual revision completed"
         );
 
