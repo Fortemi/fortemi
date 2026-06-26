@@ -412,6 +412,15 @@ fn is_local_or_private_telemetry_host(host: &str) -> bool {
 }
 
 fn probe_failure_reason(error: &str) -> &'static str {
+    match error {
+        PROBE_REASON_TIMEOUT => return "timeout",
+        PROBE_REASON_CONNECT_FAILED => return "connect_failed",
+        PROBE_REASON_HTTP_STATUS => return "http_status",
+        PROBE_REASON_INVALID_RESPONSE => return "invalid_response",
+        PROBE_REASON_UNKNOWN_PROVIDER => return "unknown_provider",
+        _ => {}
+    }
+
     let lower = error.to_ascii_lowercase();
     if lower.contains("timed out") || lower.contains("timeout") {
         "timeout"
@@ -427,6 +436,13 @@ fn probe_failure_reason(error: &str) -> &'static str {
         "probe_failed"
     }
 }
+
+const PROBE_REASON_TIMEOUT: &str = "probe timed out";
+const PROBE_REASON_CONNECT_FAILED: &str = "probe connection failed";
+const PROBE_REASON_HTTP_STATUS: &str = "probe returned unsuccessful status";
+const PROBE_REASON_INVALID_RESPONSE: &str = "probe returned invalid response";
+const PROBE_REASON_UNKNOWN_PROVIDER: &str = "probe provider is not supported";
+const HTTP_CLIENT_INIT_ERROR: &str = "Failed to initialize HTTP client";
 
 /// Write a row to `inference_config_audit` (#656). Best-effort — DB
 /// failure is logged at warn level but never propagates to the caller.
@@ -2300,7 +2316,7 @@ pub async fn test_connection(
 
     let client = match reqwest::Client::builder().timeout(timeout).build() {
         Ok(c) => c,
-        Err(e) => {
+        Err(_) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(TestConnectionResponse {
@@ -2310,7 +2326,7 @@ pub async fn test_connection(
                     available_models: None,
                     latency_ms: None,
                     capabilities: None,
-                    error: Some(format!("Failed to build HTTP client: {e}")),
+                    error: Some(HTTP_CLIENT_INIT_ERROR.to_string()),
                     suggestions: None,
                 }),
             );
@@ -2422,7 +2438,7 @@ async fn detect_provider(
     match provider {
         "ollama" => probe_ollama(client, base_url).await,
         "openai" => probe_openai(client, base_url, api_key).await,
-        other => Err(format!("Unknown provider: {other}")),
+        _ => Err(PROBE_REASON_UNKNOWN_PROVIDER.to_string()),
     }
 }
 
@@ -2438,18 +2454,18 @@ async fn probe_ollama(client: &reqwest::Client, base_url: &str) -> Result<Detect
     let latency_ms = t0.elapsed().as_millis() as u64;
 
     if !resp.status().is_success() {
-        return Err(format!("GET /api/tags returned HTTP {}", resp.status()));
+        return Err(PROBE_REASON_HTTP_STATUS.to_string());
     }
 
     let body: serde_json::Value = resp
         .json()
         .await
-        .map_err(|e| format!("Invalid JSON from /api/tags: {e}"))?;
+        .map_err(|_| PROBE_REASON_INVALID_RESPONSE.to_string())?;
 
     let models_arr = body
         .get("models")
         .and_then(|m| m.as_array())
-        .ok_or_else(|| "Response missing 'models' array".to_string())?;
+        .ok_or_else(|| PROBE_REASON_INVALID_RESPONSE.to_string())?;
 
     let models: Vec<String> = models_arr
         .iter()
@@ -2496,18 +2512,18 @@ async fn probe_openai(
     let latency_ms = t0.elapsed().as_millis() as u64;
 
     if !resp.status().is_success() {
-        return Err(format!("GET /v1/models returned HTTP {}", resp.status()));
+        return Err(PROBE_REASON_HTTP_STATUS.to_string());
     }
 
     let body: serde_json::Value = resp
         .json()
         .await
-        .map_err(|e| format!("Invalid JSON from /v1/models: {e}"))?;
+        .map_err(|_| PROBE_REASON_INVALID_RESPONSE.to_string())?;
 
     let data = body
         .get("data")
         .and_then(|d| d.as_array())
-        .ok_or_else(|| "Response missing 'data' array".to_string())?;
+        .ok_or_else(|| PROBE_REASON_INVALID_RESPONSE.to_string())?;
 
     let models: Vec<String> = data
         .iter()
@@ -2592,9 +2608,9 @@ pub fn auto_detect_from_url(url: &str) -> Option<&'static str> {
 
 fn classify_reqwest_error(e: &reqwest::Error) -> String {
     if e.is_timeout() {
-        "request timed out".to_string()
+        PROBE_REASON_TIMEOUT.to_string()
     } else if e.is_connect() {
-        "connection refused".to_string()
+        PROBE_REASON_CONNECT_FAILED.to_string()
     } else {
         "request failed".to_string()
     }
@@ -2873,20 +2889,46 @@ mod tests_connection {
 
     #[test]
     fn inference_probe_failure_reason_uses_stable_codes() {
-        assert_eq!(probe_failure_reason("request timed out"), "timeout");
-        assert_eq!(probe_failure_reason("connection refused"), "connect_failed");
+        assert_eq!(probe_failure_reason(PROBE_REASON_TIMEOUT), "timeout");
         assert_eq!(
-            probe_failure_reason("GET /v1/models returned HTTP 401"),
+            probe_failure_reason(PROBE_REASON_CONNECT_FAILED),
+            "connect_failed"
+        );
+        assert_eq!(
+            probe_failure_reason(PROBE_REASON_HTTP_STATUS),
             "http_status"
         );
         assert_eq!(
-            probe_failure_reason("Invalid JSON from /api/tags"),
+            probe_failure_reason(PROBE_REASON_INVALID_RESPONSE),
             "invalid_response"
+        );
+        assert_eq!(
+            probe_failure_reason(PROBE_REASON_UNKNOWN_PROVIDER),
+            "unknown_provider"
         );
         assert_eq!(
             probe_failure_reason("secret backend message"),
             "probe_failed"
         );
+    }
+
+    #[test]
+    fn inference_probe_reason_strings_do_not_preserve_backend_detail() {
+        let rendered = [
+            PROBE_REASON_UNKNOWN_PROVIDER,
+            PROBE_REASON_HTTP_STATUS,
+            PROBE_REASON_INVALID_RESPONSE,
+            HTTP_CLIENT_INIT_ERROR,
+        ]
+        .join("\n");
+
+        assert!(!rendered.contains("tenant-secret-provider"));
+        assert!(!rendered.contains("GET /api/tags"));
+        assert!(!rendered.contains("GET /v1/models"));
+        assert!(!rendered.contains("HTTP 401"));
+        assert!(!rendered.contains("Invalid JSON"));
+        assert!(!rendered.contains("line"));
+        assert!(!rendered.contains("column"));
     }
 
     #[test]
