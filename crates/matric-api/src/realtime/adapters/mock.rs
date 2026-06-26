@@ -1,5 +1,7 @@
 //! Pure in-process mock call transport for integration tests.
 
+use std::fmt;
+
 use async_trait::async_trait;
 use futures::stream;
 use matric_core::Result;
@@ -9,7 +11,7 @@ use crate::realtime::{
     MediaFrameStream,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MockAdapter {
     provider_call_id: String,
     frames: Vec<MediaFrame>,
@@ -18,7 +20,27 @@ pub struct MockAdapter {
     ended: Option<EndReason>,
 }
 
-#[derive(Debug, Clone)]
+impl fmt::Debug for MockAdapter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MockAdapter")
+            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field("frames_count", &self.frames.len())
+            .field(
+                "frames_payload_bytes",
+                &self
+                    .frames
+                    .iter()
+                    .map(|frame| frame.payload.len())
+                    .sum::<usize>(),
+            )
+            .field("dtmf_count", &self.dtmf.len())
+            .field("dropped_after_frames", &self.dropped_after_frames)
+            .field("ended", &self.ended)
+            .finish()
+    }
+}
+
+#[derive(Clone)]
 pub struct MockAdapterBuilder {
     provider_call_id: String,
     codec: Codec,
@@ -28,6 +50,29 @@ pub struct MockAdapterBuilder {
     dropped_after_frames: Option<usize>,
     codec_mismatch: Option<Codec>,
     seed: u64,
+}
+
+impl fmt::Debug for MockAdapterBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MockAdapterBuilder")
+            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field("codec", &self.codec)
+            .field("frames_count", &self.frames.len())
+            .field(
+                "frames_payload_bytes",
+                &self
+                    .frames
+                    .iter()
+                    .map(|frame| frame.payload.len())
+                    .sum::<usize>(),
+            )
+            .field("dtmf_count", &self.dtmf.len())
+            .field("drop_frame_set", &self.drop_frame.is_some())
+            .field("dropped_after_frames", &self.dropped_after_frames)
+            .field("codec_mismatch", &self.codec_mismatch)
+            .field("seed_set", &true)
+            .finish()
+    }
 }
 
 impl Default for MockAdapterBuilder {
@@ -259,5 +304,49 @@ mod tests {
         assert!(events
             .iter()
             .any(|event| matches!(event, CallControlEvent::Dropped { .. })));
+    }
+
+    #[test]
+    fn mock_adapter_debug_redacts_fixture_identifiers_payloads_and_dtmf() {
+        let builder = MockAdapter::builder()
+            .provider_call_id("CApostgres://user:pass@db.internal/app")
+            .fixture_payload(b"audio payload with sk-live-secret-token", 8)
+            .dtmf_sequence(['4', '2', '#'])
+            .drop_frame(1)
+            .dropped_after_frames(2)
+            .codec_mismatch(Codec::Telephone { event_code: 7 })
+            .seed(12_345);
+        let adapter = builder.clone().build();
+
+        let rendered = format!("{builder:?}\n{adapter:?}");
+
+        for raw in [
+            "CApostgres://user:pass@db.internal/app",
+            "audio payload",
+            "sk-live-secret-token",
+            "'4'",
+            "'2'",
+            "'#'",
+            "12345",
+        ] {
+            assert!(
+                !rendered.contains(raw),
+                "Mock adapter Debug output leaked raw value {raw:?}: {rendered}"
+            );
+        }
+
+        for expected in [
+            "provider_call_id_len",
+            "frames_count",
+            "frames_payload_bytes",
+            "dtmf_count",
+            "drop_frame_set",
+            "seed_set",
+        ] {
+            assert!(
+                rendered.contains(expected),
+                "Mock adapter Debug output should retain safe metadata field {expected:?}: {rendered}"
+            );
+        }
     }
 }
