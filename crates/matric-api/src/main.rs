@@ -3160,23 +3160,96 @@ async fn twilio_realtime_ws(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let session = state
+    let session = match state
         .db
         .call_sessions
         .get_session_by_provider_call_id("twilio", &provider_call_id)
         .await?
-        .ok_or_else(|| ApiError::Unauthorized("unknown Twilio call session".to_string()))?;
+    {
+        Some(session) => session,
+        None => {
+            emit_twilio_realtime_audit_event(twilio_realtime_audit_event(
+                None,
+                &provider_call_id,
+                "websocket_start_missing",
+                AuditOutcome::Denied,
+                Some("unknown_call_session"),
+            ))
+            .await;
+            return Err(ApiError::Unauthorized(
+                "unknown Twilio call session".to_string(),
+            ));
+        }
+    };
 
     if session.ended_at.is_some() || !is_recent_twilio_session(&session) {
+        emit_twilio_realtime_audit_event(twilio_realtime_audit_event(
+            Some(session.call_id),
+            &provider_call_id,
+            "websocket_start_mismatch",
+            AuditOutcome::Denied,
+            Some("stale_or_ended_call_session"),
+        ))
+        .await;
         return Err(ApiError::Unauthorized(
             "Twilio call session is not eligible for media stream binding".to_string(),
         ));
     }
 
     let call_id = session.call_id;
+    emit_twilio_realtime_audit_event(twilio_realtime_audit_event(
+        Some(call_id),
+        &provider_call_id,
+        "websocket_bound",
+        AuditOutcome::Success,
+        None,
+    ))
+    .await;
     Ok(ws.on_upgrade(move |socket| {
         handle_twilio_realtime_connection(socket, state, call_id, provider_call_id)
     }))
+}
+
+async fn emit_twilio_realtime_audit_event(event: AuditEvent) {
+    if let Err(err) = TracingSink.emit(event).await {
+        warn!(error = %err, "failed to emit Twilio realtime audit event");
+    }
+}
+
+fn twilio_realtime_audit_event(
+    call_id: Option<Uuid>,
+    provider_call_id: &str,
+    action: &str,
+    outcome: AuditOutcome,
+    reason: Option<&str>,
+) -> AuditEvent {
+    let provider_call_id_len = provider_call_id.chars().count() as i64;
+    let mut event = AuditEvent::new("realtime", action, outcome)
+        .with_attr("provider", "twilio")
+        .with_attr("provider_call_id_len", provider_call_id_len)
+        .with_attr("transport", "websocket");
+
+    if let Some(call_id) = call_id {
+        event = event.with_resource("call_session", call_id.to_string());
+    } else {
+        event = event.with_attr("resource_lookup", "missing");
+    }
+
+    if let Some(reason) = reason {
+        event.reason = Some(reason.to_string());
+        event = event.with_attr("reason_code", reason.to_string());
+    }
+
+    event.source = AuditSource::Api;
+    event.visibility = AuditVisibilityClass::SecurityRestricted;
+    event.failure_policy = AuditFailurePolicy::BestEffort;
+    event.severity = match outcome {
+        AuditOutcome::Success => AuditSeverity::Info,
+        AuditOutcome::Denied => AuditSeverity::Warn,
+        AuditOutcome::Failure | AuditOutcome::Error => AuditSeverity::Error,
+        AuditOutcome::Unknown => AuditSeverity::Warn,
+    };
+    event.sanitized()
 }
 
 fn is_recent_twilio_session(session: &matric_core::CallSession) -> bool {
@@ -24791,6 +24864,61 @@ mod tests {
         assert!(!serialized.contains("idempotency-key-value"));
         assert!(!serialized.contains("CallSid=CA123"));
         assert!(!serialized.contains("https://"));
+    }
+
+    #[test]
+    fn twilio_realtime_audit_event_uses_metadata_only() {
+        let call_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000401").unwrap();
+        let event = twilio_realtime_audit_event(
+            Some(call_id),
+            "CAsecret-call-sid-value",
+            "websocket_start_mismatch",
+            AuditOutcome::Denied,
+            Some("stale_or_ended_call_session"),
+        );
+
+        assert_eq!(event.category, "realtime");
+        assert_eq!(event.action, "websocket_start_mismatch");
+        assert_eq!(event.outcome, AuditOutcome::Denied);
+        assert_eq!(event.source, AuditSource::Api);
+        assert_eq!(event.visibility, AuditVisibilityClass::SecurityRestricted);
+        assert_eq!(event.severity, AuditSeverity::Warn);
+        assert_eq!(event.resource_kind.as_deref(), Some("call_session"));
+        assert_eq!(
+            event.resource_id.as_deref(),
+            Some("018fd1a0-0000-7000-8000-000000000401")
+        );
+        assert_eq!(event.attrs["provider"], "twilio");
+        assert_eq!(event.attrs["provider_call_id_len"], 23);
+        assert_eq!(event.attrs["transport"], "websocket");
+        assert_eq!(event.attrs["reason_code"], "stale_or_ended_call_session");
+
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("CAsecret-call-sid-value"));
+        assert!(!serialized.contains("X-Twilio-Signature"));
+        assert!(!serialized.contains("wss://"));
+        assert!(!serialized.contains("audio"));
+        assert!(!serialized.contains("payload"));
+    }
+
+    #[test]
+    fn twilio_realtime_missing_session_audit_event_has_no_raw_provider_id() {
+        let event = twilio_realtime_audit_event(
+            None,
+            "CAunknown-secret-call-sid",
+            "websocket_start_missing",
+            AuditOutcome::Denied,
+            Some("unknown_call_session"),
+        );
+
+        assert_eq!(event.resource_kind, None);
+        assert_eq!(event.resource_id, None);
+        assert_eq!(event.attrs["resource_lookup"], "missing");
+        assert_eq!(event.attrs["provider_call_id_len"], 25);
+        assert_eq!(event.attrs["reason_code"], "unknown_call_session");
+
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("CAunknown-secret-call-sid"));
     }
 
     #[test]
