@@ -23079,7 +23079,7 @@ mod backup_prefix {
 }
 
 /// Metadata for a backup file (stored as .meta.json sidecar file)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct BackupMetadata {
     /// Display title for the backup
     title: String,
@@ -23112,6 +23112,33 @@ struct BackupMetadata {
     schema_migration_count: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_migration: Option<String>,
+}
+
+impl fmt::Debug for BackupMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BackupMetadata")
+            .field("title_len", &self.title.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("backup_type_len", &self.backup_type.len())
+            .field("created_at", &self.created_at)
+            .field("note_count", &self.note_count)
+            .field("db_size_bytes", &self.db_size_bytes)
+            .field("source_len", &self.source.len())
+            .field("extra_count", &self.extra.len())
+            .field("matric_version_set", &self.matric_version.is_some())
+            .field("matric_version_min_set", &self.matric_version_min.is_some())
+            .field("matric_version_max_set", &self.matric_version_max.is_some())
+            .field("pg_version_len", &self.pg_version.as_ref().map(String::len))
+            .field("schema_migration_count", &self.schema_migration_count)
+            .field(
+                "last_migration_len",
+                &self.last_migration.as_ref().map(String::len),
+            )
+            .finish()
+    }
 }
 
 impl BackupMetadata {
@@ -24970,6 +24997,65 @@ mod tests {
             "token-shaped-tag",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn backup_metadata_debug_redacts_titles_descriptions_paths_and_versions() {
+        let metadata = BackupMetadata {
+            title: "Uploaded customer payroll backup".to_string(),
+            description: Some(
+                "Restore from postgres://user:pass@db.internal/app at /srv/backups/customer.sql"
+                    .to_string(),
+            ),
+            backup_type: backup_prefix::UPLOAD.to_string(),
+            created_at: Utc::now(),
+            note_count: Some(42),
+            db_size_bytes: Some(1024),
+            source: "operator@customer.example".to_string(),
+            extra: [
+                (
+                    "original_filename".to_string(),
+                    "customer-payroll-mm_key_secret.sql".to_string(),
+                ),
+                (
+                    "restoring_from".to_string(),
+                    "/srv/private/restore-token.dump".to_string(),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            matric_version: Some("2026.6.0-internal".to_string()),
+            matric_version_min: Some("2026.6.0".to_string()),
+            matric_version_max: Some("2026.7.0-private".to_string()),
+            pg_version: Some("PostgreSQL 16 on private-db.internal".to_string()),
+            schema_migration_count: Some(7),
+            last_migration: Some("tenant secret schema migration".to_string()),
+        };
+
+        let rendered = format!("{metadata:?}");
+
+        assert!(rendered.contains("BackupMetadata"));
+        assert!(rendered.contains("title_len"));
+        assert!(rendered.contains("description_len"));
+        assert!(rendered.contains("extra_count"));
+        assert!(rendered.contains("pg_version_len"));
+        assert!(rendered.contains("last_migration_len"));
+
+        for raw in [
+            "Uploaded customer payroll backup",
+            "postgres://user:pass",
+            "db.internal",
+            "/srv/backups",
+            "operator@customer.example",
+            "customer-payroll-mm_key_secret.sql",
+            "/srv/private/restore-token.dump",
+            "2026.6.0-internal",
+            "2026.7.0-private",
+            "private-db.internal",
+            "tenant secret schema migration",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 
