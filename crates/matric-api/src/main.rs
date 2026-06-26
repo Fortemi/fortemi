@@ -1344,6 +1344,41 @@ fn telemetry_url_class(raw: &str) -> &'static str {
     "external"
 }
 
+fn telemetry_error_class(raw: &str) -> &'static str {
+    let value = raw.to_ascii_lowercase();
+    if value.contains("timeout") || value.contains("timed out") {
+        "timeout"
+    } else if value.contains("rate limit") || value.contains("429") {
+        "rate_limited"
+    } else if value.contains("unauthorized")
+        || value.contains("forbidden")
+        || value.contains("permission")
+        || value.contains("scope")
+    {
+        "authorization"
+    } else if value.contains("connect")
+        || value.contains("connection")
+        || value.contains("network")
+        || value.contains("dns")
+    {
+        "connection"
+    } else if value.contains("parse")
+        || value.contains("schema")
+        || value.contains("json")
+        || value.contains("invalid")
+    {
+        "validation"
+    } else if value.contains("database")
+        || value.contains("postgres")
+        || value.contains("sql")
+        || value.contains("outbox")
+    {
+        "storage"
+    } else {
+        "backend"
+    }
+}
+
 fn authorization_policy_for_mode(multi_tenant: bool) -> Arc<dyn AuthorizationPolicy> {
     if multi_tenant {
         Arc::new(RoleBasedPolicy)
@@ -4140,7 +4175,10 @@ async fn telemetry_mirror(event_bus: Arc<EventBus>) {
                     tracing::warn!(
                         target: "fortemi::events",
                         event = "job.failed",
-                        %job_id, %job_type, %error,
+                        %job_id,
+                        %job_type,
+                        error_class = telemetry_error_class(error),
+                        error_len = telemetry_text_len(error),
                         "Job failed"
                     );
                 }
@@ -24941,6 +24979,16 @@ mod tests {
             telemetry_text_len(secret_query),
             secret_query.chars().count()
         );
+    }
+
+    #[test]
+    fn telemetry_error_class_avoids_raw_error_parts() {
+        let raw = "database connect failed for postgres://user:secret@db.internal/matric";
+        let class = telemetry_error_class(raw);
+        assert_eq!(class, "connection");
+        assert!(!class.contains("secret"));
+        assert!(!class.contains("postgres://"));
+        assert!(!class.contains("db.internal"));
     }
 
     #[test]
