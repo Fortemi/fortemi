@@ -14253,6 +14253,14 @@ struct SearchResponse {
     total: usize,
 }
 
+fn search_operation_failed(context: &'static str, error: impl std::fmt::Display) -> ApiError {
+    let diagnostic = error.to_string();
+    ApiError::OperationFailed {
+        operation: "Search",
+        detail: format!("{context}; error_len={}", diagnostic.len()),
+    }
+}
+
 /// Get or create a `HybridSearchEngine` for the given schema.
 ///
 /// For the `public` schema, returns the default engine from `AppState`.
@@ -14275,12 +14283,7 @@ async fn search_engine_for_schema(
     // Slow path: create pool + engine, insert into cache
     let pool = matric_db::pool::create_pool_for_schema(&state.database_url, schema)
         .await
-        .map_err(|e| {
-            ApiError::Internal(format!(
-                "Failed to create pool for schema {}: {}",
-                schema, e
-            ))
-        })?;
+        .map_err(|e| search_operation_failed("create schema search pool", e))?;
     let db = Database::new(pool);
     let engine = Arc::new(HybridSearchEngine::new(db));
     state
@@ -14571,13 +14574,13 @@ async fn federated_search(
             .pool()
             .begin()
             .await
-            .map_err(|e| ApiError::Internal(format!("Failed to begin transaction: {}", e)))?;
+            .map_err(|e| search_operation_failed("begin federated search transaction", e))?;
 
         // Set search_path for this schema
         sqlx::query(&format!("SET LOCAL search_path TO {}, public", schema_name))
             .execute(&mut *tx)
             .await
-            .map_err(|e| ApiError::Internal(format!("Failed to set search_path: {}", e)))?;
+            .map_err(|e| search_operation_failed("set federated search path", e))?;
 
         // Run FTS query (uses matric_english to match the tsv generated column config)
         let rows = sqlx::query(
@@ -14604,9 +14607,7 @@ async fn federated_search(
         .bind(limit)
         .fetch_all(&mut *tx)
         .await
-        .map_err(|e| {
-            ApiError::Internal(format!("Search failed in memory '{}': {}", memory_name, e))
-        })?;
+        .map_err(|e| search_operation_failed("execute federated search query", e))?;
 
         // Transaction automatically rolled back (read-only, no commit needed)
         drop(tx);
@@ -23901,6 +23902,36 @@ mod tests {
         assert!(!body.contains("postgres://"));
         assert!(!body.contains("/srv/fortemi"));
         assert!(!body.contains("secret"));
+        assert!(problem.get("error").is_none());
+    }
+
+    #[tokio::test]
+    async fn search_operation_failed_returns_generic_problem_without_raw_detail() {
+        let raw_detail = "search failed in memory confidential-memory using tenant_schema at postgres://user:secret@db.internal/app for query classified from /srv/fortemi";
+        let (status, _headers, problem) = read_problem_response(search_operation_failed(
+            "execute federated search query",
+            raw_detail,
+        ))
+        .await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/operation-failed"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Search failed. Check server logs for diagnostics."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains("confidential-memory"));
+        assert!(!body.contains("tenant_schema"));
+        assert!(!body.contains("postgres://"));
+        assert!(!body.contains("user:secret"));
+        assert!(!body.contains("db.internal"));
+        assert!(!body.contains("/srv/fortemi"));
+        assert!(!body.contains("classified"));
         assert!(problem.get("error").is_none());
     }
 
