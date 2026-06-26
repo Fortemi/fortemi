@@ -68,6 +68,34 @@ fn stream_copy_to_temp(
     Ok(tmpfile)
 }
 
+fn telemetry_text_len(text: &str) -> usize {
+    text.len()
+}
+
+fn telemetry_path_len(path: &std::path::Path) -> usize {
+    path.display().to_string().len()
+}
+
+fn extraction_error_reason_code(error: &str) -> &'static str {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("permission denied") || lower.contains("access denied") {
+        "permission_denied"
+    } else if lower.contains("no such file")
+        || lower.contains("not found")
+        || lower.contains("does not exist")
+    {
+        "not_found"
+    } else if lower.contains("timeout") || lower.contains("timed out") {
+        "timed_out"
+    } else if lower.contains("invalid") || lower.contains("parse") || lower.contains("decode") {
+        "invalid_input"
+    } else if lower.contains("too large") || lower.contains("limit") {
+        "limit_exceeded"
+    } else {
+        "operation_failed"
+    }
+}
+
 pub struct ExtractionHandler {
     db: Database,
     registry: Arc<ExtractionRegistry>,
@@ -745,10 +773,12 @@ impl JobHandler for ExtractionHandler {
                                             match std::fs::read(path) {
                                                 Ok(d) => d,
                                                 Err(e) => {
+                                                    let error_text = e.to_string();
                                                     warn!(
-                                                        error = %e,
-                                                        path = %path.display(),
-                                                        filename = %df.filename,
+                                                        error_len = telemetry_text_len(&error_text),
+                                                        error_reason = extraction_error_reason_code(&error_text),
+                                                        source_path_len = telemetry_path_len(path),
+                                                        filename_len = telemetry_text_len(&df.filename),
                                                         "Failed to read derived file from source_path"
                                                     );
                                                     continue;
@@ -757,7 +787,7 @@ impl JobHandler for ExtractionHandler {
                                         } else {
                                             // Empty data and no source_path — skip
                                             warn!(
-                                                filename = %df.filename,
+                                                filename_len = telemetry_text_len(&df.filename),
                                                 "Derived file has empty data and no source_path"
                                             );
                                             continue;
@@ -833,9 +863,12 @@ impl JobHandler for ExtractionHandler {
                                             }
                                         }
                                         Err(e) => {
+                                            let error_text = e.to_string();
                                             warn!(
-                                                error = %e,
-                                                filename = %df.filename,
+                                                error_len = telemetry_text_len(&error_text),
+                                                error_reason =
+                                                    extraction_error_reason_code(&error_text),
+                                                filename_len = telemetry_text_len(&df.filename),
                                                 "Failed to store derived file"
                                             );
                                         }
@@ -1594,7 +1627,7 @@ impl JobHandler for ExtractionHandler {
 
                 info!(
                     strategy = %strategy,
-                    filename,
+                    filename_len = telemetry_text_len(filename),
                     text_len = result.extracted_text.as_ref().map(|t| t.len()).unwrap_or(0),
                     "Extraction completed successfully"
                 );
@@ -1604,7 +1637,14 @@ impl JobHandler for ExtractionHandler {
             }
             Err(e) => {
                 let error_msg = format!("Extraction failed: {}", e);
-                error!(strategy = %strategy, filename, error = %e, "Extraction failed");
+                let error_text = e.to_string();
+                error!(
+                    strategy = %strategy,
+                    filename_len = telemetry_text_len(filename),
+                    error_len = telemetry_text_len(&error_text),
+                    error_reason = extraction_error_reason_code(&error_text),
+                    "Extraction failed"
+                );
 
                 // Update attachment status to Failed so it doesn't stay stuck at "uploaded"
                 if let Some(att_id) = attachment_id {
@@ -1677,6 +1717,46 @@ mod tests {
             completed_at: None,
             cost_tier: None,
         }
+    }
+
+    #[test]
+    fn extraction_error_reason_code_uses_stable_classes() {
+        assert_eq!(
+            extraction_error_reason_code("permission denied reading /srv/private/input.pdf"),
+            "permission_denied"
+        );
+        assert_eq!(
+            extraction_error_reason_code("No such file token=mm_key_secret"),
+            "not_found"
+        );
+        assert_eq!(
+            extraction_error_reason_code("decode failed for generated output"),
+            "invalid_input"
+        );
+        assert_eq!(
+            extraction_error_reason_code("opaque backend text /srv/private/input.pdf"),
+            "operation_failed"
+        );
+    }
+
+    #[test]
+    fn extraction_telemetry_lengths_do_not_render_raw_values() {
+        let filename = "secret-customer-token-mm_key_secret.pdf";
+        let path =
+            std::path::Path::new("/srv/fortemi/private/secret-customer-token-mm_key_secret.pdf");
+        let detail = format!(
+            "filename_len={}; source_path_len={}; error_reason={}",
+            telemetry_text_len(filename),
+            telemetry_path_len(path),
+            extraction_error_reason_code("permission denied reading secret path")
+        );
+
+        assert!(detail.contains("filename_len="));
+        assert!(detail.contains("source_path_len="));
+        assert!(detail.contains("permission_denied"));
+        assert!(!detail.contains("secret-customer-token"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("/srv/fortemi"));
     }
 
     #[tokio::test]
