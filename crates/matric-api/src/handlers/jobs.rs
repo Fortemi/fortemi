@@ -31,6 +31,8 @@ const MODEL_RESOLUTION_JOB_FAILURE: &str =
     "Model resolution failed. Check server logs for diagnostics.";
 const GRAPH_MAINTENANCE_STEP_FAILURE: &str =
     "Graph maintenance step failed. Check server logs for diagnostics.";
+const ATTACHMENT_PROCESSING_JOB_FAILURE: &str =
+    "Attachment processing failed. Check server logs for diagnostics.";
 
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
@@ -60,6 +62,18 @@ fn graph_maintenance_step_failure(
         "status": "failed",
         "error": GRAPH_MAINTENANCE_STEP_FAILURE,
     })
+}
+
+fn attachment_processing_job_failure(
+    error: impl std::fmt::Display,
+    operation: &'static str,
+) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "Attachment processing job failed"
+    );
+    JobResult::Failed(ATTACHMENT_PROCESSING_JOB_FAILURE.to_string())
 }
 
 /// Extract the target schema from a job's payload.
@@ -6159,20 +6173,20 @@ impl JobHandler for ExifExtractionHandler {
         {
             match id_str.parse() {
                 Ok(id) => id,
-                Err(e) => return JobResult::Failed(format!("Invalid attachment_id: {}", e)),
+                Err(e) => return attachment_processing_job_failure(e, "parse_attachment_id"),
             }
         } else {
             // No explicit attachment_id — find image attachments for this note (schema-aware)
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => return attachment_processing_job_failure(e, "list_attachments_begin_tx"),
             };
             let attachments = match file_storage.list_by_note_tx(&mut tx, note_id).await {
                 Ok(a) => a,
-                Err(e) => return JobResult::Failed(format!("Failed to list attachments: {}", e)),
+                Err(e) => return attachment_processing_job_failure(e, "list_attachments"),
             };
             if let Err(e) = tx.commit().await {
-                return JobResult::Failed(format!("Commit failed: {}", e));
+                return attachment_processing_job_failure(e, "list_attachments_commit");
             }
             match attachments.into_iter().find(|a| {
                 a.content_type.starts_with("image/")
@@ -6198,7 +6212,7 @@ impl JobHandler for ExifExtractionHandler {
         {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => return attachment_processing_job_failure(e, "mark_processing_begin_tx"),
             };
             if let Err(e) = file_storage
                 .update_status_tx(&mut tx, attachment_id, AttachmentStatus::Processing, None)
@@ -6214,11 +6228,11 @@ impl JobHandler for ExifExtractionHandler {
         // Download the attachment bytes (schema-aware)
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return attachment_processing_job_failure(e, "download_begin_tx"),
         };
         let download_result = file_storage.download_file_tx(&mut tx, attachment_id).await;
         if let Err(e) = tx.commit().await {
-            return JobResult::Failed(format!("Commit failed: {}", e));
+            return attachment_processing_job_failure(e, "download_commit");
         }
         let (data, content_type, filename) = match download_result {
             Ok(result) => result,
@@ -6230,15 +6244,12 @@ impl JobHandler for ExifExtractionHandler {
                             &mut tx,
                             attachment_id,
                             AttachmentStatus::Failed,
-                            Some(&e.to_string()),
+                            Some(ATTACHMENT_PROCESSING_JOB_FAILURE),
                         )
                         .await;
                     let _ = tx.commit().await;
                 }
-                return JobResult::Failed(format!(
-                    "Failed to download attachment {}: {}",
-                    attachment_id, e
-                ));
+                return attachment_processing_job_failure(e, "download_attachment");
             }
         };
 
@@ -6299,7 +6310,7 @@ impl JobHandler for ExifExtractionHandler {
         // Create provenance records in a schema-scoped transaction
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return attachment_processing_job_failure(e, "provenance_begin_tx"),
         };
 
         let mut location_id: Option<uuid::Uuid> = None;
@@ -7846,5 +7857,27 @@ Quick note about the meeting discussion and action items."#;
         assert!(!serialized.contains("db.internal"));
         assert!(!serialized.contains("/srv/fortemi"));
         assert!(!serialized.contains("database error"));
+    }
+
+    #[test]
+    fn attachment_processing_job_failure_uses_generic_stored_message() {
+        let result = attachment_processing_job_failure(
+            "download failed for attachment 018f8d6d-1111-7222-8333-c44444444444 at /srv/fortemi/files with postgres://user:secret@db.internal/app SQLSTATE 58030",
+            "download_attachment",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, ATTACHMENT_PROCESSING_JOB_FAILURE);
+                assert!(!message.contains("018f8d6d"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("download failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
     }
 }
