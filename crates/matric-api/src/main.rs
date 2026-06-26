@@ -24894,12 +24894,24 @@ async fn knowledge_archive_upload(
 // BACKUP METADATA HANDLERS
 // =============================================================================
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct UpdateMetadataRequest {
     /// Human-readable title for the backup
     title: Option<String>,
     /// Detailed description of the backup
     description: Option<String>,
+}
+
+impl fmt::Debug for UpdateMetadataRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateMetadataRequest")
+            .field("title_len", &self.title.as_ref().map(String::len))
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .finish()
+    }
 }
 
 /// Get metadata for a specific backup file.
@@ -25585,6 +25597,33 @@ mod tests {
             "2026.7.0-private",
             "private-db.internal",
             "tenant secret schema migration",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn update_metadata_request_debug_redacts_title_and_description() {
+        let request = UpdateMetadataRequest {
+            title: Some("Customer payroll metadata update".to_string()),
+            description: Some(
+                "Move /srv/backups/customer after postgres://user:pass@db.internal/app sk-live-metadata"
+                    .to_string(),
+            ),
+        };
+
+        let rendered = format!("{request:?}");
+
+        assert!(rendered.contains("UpdateMetadataRequest"));
+        assert!(rendered.contains("title_len"));
+        assert!(rendered.contains("description_len"));
+
+        for raw in [
+            "Customer payroll metadata update",
+            "/srv/backups/customer",
+            "postgres://user:pass",
+            "db.internal",
+            "sk-live-metadata",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
