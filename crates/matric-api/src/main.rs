@@ -20186,7 +20186,7 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
         std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
     let mut response = BackupStatusResponse {
-        backup_directory: backup_dir.clone(),
+        backup_directory: backup_response_path_metadata(std::path::Path::new(&backup_dir)),
         total_size_bytes: 0,
         total_size_human: "0 B".to_string(),
         disk_usage: None,
@@ -20213,7 +20213,7 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
     }
 
     // List ALL backup files (shards, pgdump, json)
-    let mut backups: Vec<(String, std::fs::Metadata, &str)> = Vec::new();
+    let mut backups: Vec<(std::path::PathBuf, std::fs::Metadata, &str)> = Vec::new();
     let mut total_size: u64 = 0;
 
     if let Ok(entries) = fs::read_dir(backup_path) {
@@ -20233,7 +20233,7 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
                 if let Some(btype) = backup_type {
                     if let Ok(meta) = entry.metadata() {
                         total_size += meta.len();
-                        backups.push((path.to_string_lossy().to_string(), meta, btype));
+                        backups.push((path, meta, btype));
                     }
                 }
             }
@@ -20251,7 +20251,7 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
         .iter()
         .max_by_key(|(_, m, _)| m.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH))
     {
-        let filename = std::path::Path::new(path)
+        let filename = path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
@@ -20266,7 +20266,7 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
             .unwrap_or_else(|_| chrono::Utc::now());
 
         response.latest_backup = Some(LatestBackupInfo {
-            path: path.clone(),
+            path: backup_response_path_metadata(path),
             filename,
             size_bytes: meta.len(),
             modified,
@@ -23700,7 +23700,7 @@ async fn list_backups(State(_state): State<AppState>) -> Result<impl IntoRespons
     let backup_path = std::path::Path::new(&backup_dir);
     if !backup_path.exists() {
         return Ok(Json(ListBackupArchivesResponse {
-            backup_directory: backup_dir,
+            backup_directory: backup_response_path_metadata(backup_path),
             shards: vec![],
             total_size_bytes: 0,
             total_size_human: "0 B".to_string(),
@@ -23812,7 +23812,7 @@ async fn list_backups(State(_state): State<AppState>) -> Result<impl IntoRespons
 
                     shards.push(BackupShardInfo {
                         filename: name.to_string(),
-                        path: path.to_string_lossy().to_string(),
+                        path: backup_response_path_metadata(&path),
                         size_bytes: size,
                         size_human: format_size(size),
                         modified,
@@ -23834,7 +23834,7 @@ async fn list_backups(State(_state): State<AppState>) -> Result<impl IntoRespons
     shards.sort_by_key(|shard| std::cmp::Reverse(shard.modified));
 
     Ok(Json(ListBackupArchivesResponse {
-        backup_directory: backup_dir,
+        backup_directory: backup_response_path_metadata(backup_path),
         shards,
         total_size_bytes: total_size,
         total_size_human: format_size(total_size),
@@ -23980,7 +23980,7 @@ async fn get_backup_info(
 
     Ok(Json(BackupShardInfo {
         filename,
-        path: path.to_string_lossy().to_string(),
+        path: backup_response_path_metadata(&path),
         size_bytes: meta.len(),
         size_human: format_size(meta.len()),
         modified,
@@ -27928,6 +27928,68 @@ mod tests {
 
         let rendered = serde_json::to_string(&response).unwrap();
 
+        assert!(rendered.contains("\"path\":\"path_len:"));
+        for raw in [
+            "/srv/backups",
+            "postgres://user:pass",
+            "db.internal",
+            "mm_key_backup",
+            "customer",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn backup_status_and_list_paths_use_metadata_only() {
+        let backup_path = std::path::Path::new(
+            "/srv/backups/customer/postgres://user:pass@db.internal/mm_key_backup.sql.gz",
+        );
+        let backup_dir =
+            std::path::Path::new("/srv/backups/customer/postgres://user:pass@db.internal");
+        let status = BackupStatusResponse {
+            backup_directory: backup_response_path_metadata(backup_dir),
+            total_size_bytes: 4096,
+            total_size_human: "4.0 KiB".to_string(),
+            disk_usage: Some("4.0 KiB".to_string()),
+            backup_count: 1,
+            shard_count: 0,
+            pgdump_count: 1,
+            latest_backup: Some(LatestBackupInfo {
+                path: backup_response_path_metadata(backup_path),
+                filename: "snapshot_database_20260626.sql.gz".to_string(),
+                size_bytes: 4096,
+                modified: Utc::now(),
+            }),
+            status: "healthy".to_string(),
+        };
+        let list = ListBackupArchivesResponse {
+            backup_directory: backup_response_path_metadata(backup_dir),
+            shards: vec![BackupShardInfo {
+                filename: "snapshot_database_20260626.sql.gz".to_string(),
+                path: backup_response_path_metadata(backup_path),
+                size_bytes: 4096,
+                size_human: "4.0 KiB".to_string(),
+                modified: Utc::now(),
+                modified_iso: "2026-06-26T18:00:00Z".to_string(),
+                shard_type: backup_prefix::SNAPSHOT.to_string(),
+                sha256_short: None,
+                sha256: None,
+                manifest: None,
+                metadata_file: None,
+                title: None,
+                description: None,
+            }],
+            total_size_bytes: 4096,
+            total_size_human: "4.0 KiB".to_string(),
+        };
+        let rendered = format!(
+            "{}\n{}",
+            serde_json::to_string(&status).unwrap(),
+            serde_json::to_string(&list).unwrap()
+        );
+
+        assert!(rendered.contains("\"backup_directory\":\"path_len:"));
         assert!(rendered.contains("\"path\":\"path_len:"));
         for raw in [
             "/srv/backups",
