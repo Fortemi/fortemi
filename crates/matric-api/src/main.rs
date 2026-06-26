@@ -1527,6 +1527,10 @@ fn telemetry_text_len(value: &str) -> usize {
 
 const API_JOB_QUEUE_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_job_queue_diagnostic_failed";
 const API_JOB_PIPELINE_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_job_pipeline_diagnostic_failed";
+const API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_audit_emit_diagnostic_failed";
+const API_JOB_CONTROL_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_job_control_diagnostic_failed";
+const API_EVENT_DISPATCH_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_event_dispatch_diagnostic_failed";
+const API_WEBHOOK_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_webhook_diagnostic_failed";
 
 fn telemetry_url_class(raw: &str) -> &'static str {
     let Ok(url) = reqwest::Url::parse(raw) else {
@@ -1733,7 +1737,12 @@ async fn main() -> anyhow::Result<()> {
         ))
         .await
     {
-        warn!(error = %err, "failed to emit process startup audit event");
+        warn!(
+            error_len = telemetry_text_len(&err.to_string()),
+            detail = API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "emit_process_startup_audit_event",
+            "failed to emit process startup audit event"
+        );
     }
 
     // Get configuration from environment
@@ -2008,7 +2017,12 @@ async fn main() -> anyhow::Result<()> {
     let pause_state = match PauseState::load(db.pool.clone()).await {
         Ok(ps) => Some(ps),
         Err(e) => {
-            warn!(error = %e, "Failed to load pause state, job pause/resume disabled");
+            warn!(
+                error_len = telemetry_text_len(&e.to_string()),
+                detail = API_JOB_CONTROL_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "load_pause_state",
+                "Failed to load pause state, job pause/resume disabled"
+            );
             None
         }
     };
@@ -3253,7 +3267,10 @@ async fn bridge_worker_events(
                             .await
                         {
                             tracing::debug!(
-                                %job_id, percent, error = %e,
+                                error_len = telemetry_text_len(&e.to_string()),
+                                detail = API_EVENT_DISPATCH_DIAGNOSTIC_FAILURE_DETAIL,
+                                percent,
+                                operation = "persist_job_progress",
                                 "Failed to persist job progress"
                             );
                         }
@@ -3448,7 +3465,12 @@ async fn twilio_realtime_ws(
 
 async fn emit_twilio_realtime_audit_event(event: AuditEvent) {
     if let Err(err) = TracingSink.emit(event).await {
-        warn!(error = %err, "failed to emit Twilio realtime audit event");
+        warn!(
+            error_len = telemetry_text_len(&err.to_string()),
+            detail = API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "emit_twilio_realtime_audit_event",
+            "failed to emit Twilio realtime audit event"
+        );
     }
 }
 
@@ -4243,7 +4265,13 @@ async fn webhook_dispatcher(event_bus: Arc<EventBus>, db: Database) {
                 let webhooks = match db.webhooks.list_active_for_event(event_type).await {
                     Ok(w) => w,
                     Err(e) => {
-                        tracing::warn!(error = %e, "Failed to list webhooks");
+                        tracing::warn!(
+                            error_len = telemetry_text_len(&e.to_string()),
+                            detail = API_WEBHOOK_DIAGNOSTIC_FAILURE_DETAIL,
+                            event_type = %event_type,
+                            operation = "list_active_webhooks",
+                            "Failed to list webhooks"
+                        );
                         continue;
                     }
                 };
@@ -4624,13 +4652,23 @@ async fn test_webhook(
 
 async fn emit_webhook_control_audit_event(event: AuditEvent) {
     if let Err(err) = TracingSink.emit(event).await {
-        warn!(error = %err, "failed to emit webhook control audit event");
+        warn!(
+            error_len = telemetry_text_len(&err.to_string()),
+            detail = API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "emit_webhook_control_audit_event",
+            "failed to emit webhook control audit event"
+        );
     }
 }
 
 async fn emit_incoming_webhook_audit_event(event: AuditEvent) {
     if let Err(err) = TracingSink.emit(event).await {
-        warn!(error = %err, "failed to emit incoming webhook audit event");
+        warn!(
+            error_len = telemetry_text_len(&err.to_string()),
+            detail = API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "emit_incoming_webhook_audit_event",
+            "failed to emit incoming webhook audit event"
+        );
     }
 }
 
@@ -5104,8 +5142,10 @@ async fn receive_incoming_webhook(
         // caller — the side effect already applied. Log and continue; the
         // caller still receives 200 with the parsed payload.
         tracing::warn!(
-            slug = %receiver.slug,
-            error = %e,
+            error_len = telemetry_text_len(&e.to_string()),
+            detail = API_WEBHOOK_DIAGNOSTIC_FAILURE_DETAIL,
+            slug_len = telemetry_text_len(&receiver.slug),
+            operation = "emit_incoming_webhook_outbox_event",
             "Failed to capture incoming webhook into event outbox"
         );
     }
@@ -15796,7 +15836,12 @@ async fn resume_jobs_archive(
 
 async fn emit_job_queue_control_audit_event(event: AuditEvent) {
     if let Err(err) = TracingSink.emit(event).await {
-        warn!(error = %err, "failed to emit job queue control audit event");
+        warn!(
+            error_len = telemetry_text_len(&err.to_string()),
+            detail = API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "emit_job_queue_control_audit_event",
+            "failed to emit job queue control audit event"
+        );
     }
 }
 
@@ -26093,6 +26138,10 @@ mod tests {
         for detail in [
             API_JOB_QUEUE_DIAGNOSTIC_FAILURE_DETAIL,
             API_JOB_PIPELINE_DIAGNOSTIC_FAILURE_DETAIL,
+            API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL,
+            API_JOB_CONTROL_DIAGNOSTIC_FAILURE_DETAIL,
+            API_EVENT_DISPATCH_DIAGNOSTIC_FAILURE_DETAIL,
+            API_WEBHOOK_DIAGNOSTIC_FAILURE_DETAIL,
         ] {
             assert!(!detail.contains("token:secret"));
             assert!(!detail.contains("postgres://"));
