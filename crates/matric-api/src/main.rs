@@ -24047,7 +24047,7 @@ async fn database_backup_upload(
     }))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct DatabaseRestoreRequest {
     /// Filename of the backup to restore
     filename: String,
@@ -24061,7 +24061,17 @@ struct DatabaseRestoreRequest {
     memory: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+impl std::fmt::Debug for DatabaseRestoreRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DatabaseRestoreRequest")
+            .field("filename_len", &self.filename.len())
+            .field("skip_snapshot", &self.skip_snapshot)
+            .field("memory_len", &self.memory.as_ref().map(|value| value.len()))
+            .finish()
+    }
+}
+
+#[derive(Serialize)]
 struct DatabaseRestoreResponse {
     success: bool,
     message: String,
@@ -24069,6 +24079,21 @@ struct DatabaseRestoreResponse {
     restored_from: String,
     /// Time to wait for DB reconnection
     reconnect_delay_ms: u64,
+}
+
+impl std::fmt::Debug for DatabaseRestoreResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DatabaseRestoreResponse")
+            .field("success", &self.success)
+            .field("message_len", &self.message.len())
+            .field(
+                "prerestore_backup_len",
+                &self.prerestore_backup.as_ref().map(|value| value.len()),
+            )
+            .field("restored_from_len", &self.restored_from.len())
+            .field("reconnect_delay_ms", &self.reconnect_delay_ms)
+            .finish()
+    }
 }
 
 /// Restore a backup into a specific memory using DROP SCHEMA CASCADE.
@@ -26001,6 +26026,51 @@ mod tests {
             "postgres://user:pass",
             "db.internal",
             "customer.shard",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn database_restore_debug_redacts_filenames_memory_and_messages() {
+        let request = DatabaseRestoreRequest {
+            filename: "customer-postgres-secret-mm_key_restore.sql.gz".to_string(),
+            skip_snapshot: true,
+            memory: Some("customer-private-memory".to_string()),
+        };
+        let response = DatabaseRestoreResponse {
+            success: true,
+            message:
+                "Restored /srv/backups/customer/postgres://user:pass@db.internal/private.sql.gz"
+                    .to_string(),
+            prerestore_backup: Some("prerestore-mm_key_secret-customer.sql.gz".to_string()),
+            restored_from: "/srv/backups/customer/private-restore.sql.gz".to_string(),
+            reconnect_delay_ms: 1000,
+        };
+
+        let rendered_request = format!("{request:?}");
+        let rendered_response = format!("{response:?}");
+        let combined = format!("{rendered_request}\n{rendered_response}");
+
+        assert!(rendered_request.contains("DatabaseRestoreRequest"));
+        assert!(rendered_request.contains("filename_len"));
+        assert!(rendered_request.contains("memory_len"));
+        assert!(rendered_response.contains("DatabaseRestoreResponse"));
+        assert!(rendered_response.contains("message_len"));
+        assert!(rendered_response.contains("prerestore_backup_len"));
+        assert!(rendered_response.contains("restored_from_len"));
+
+        for raw in [
+            "customer-postgres-secret",
+            "mm_key_restore",
+            "customer-private-memory",
+            "Restored",
+            "/srv/backups/customer",
+            "postgres://user:pass",
+            "db.internal",
+            "private.sql.gz",
+            "prerestore-mm_key_secret",
+            "private-restore.sql.gz",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
