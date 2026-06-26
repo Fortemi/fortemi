@@ -35,6 +35,8 @@ use uuid::Uuid;
 const CHAT_STREAM_CHANNEL_CAPACITY: usize = 256;
 const CHAT_GENERATION_FAILURE_MESSAGE: &str =
     "Chat generation failed. Check server logs for diagnostics.";
+const CHAT_MODEL_UNAVAILABLE_MESSAGE: &str = "Requested chat model is not available.";
+const CHAT_MODEL_UNSUPPORTED_MESSAGE: &str = "Requested model cannot be used for chat.";
 
 // =============================================================================
 // REQUEST / RESPONSE TYPES
@@ -322,10 +324,9 @@ async fn validate_chat_model(
     // Check model is installed
     let found = models.models.iter().any(|m| m.name == model_slug);
     if !found {
-        return Err(ApiError::BadRequest(format!(
-            "Requested chat model '{model_slug}' is not available"
-        ))
-        .into_response());
+        return Err(
+            ApiError::BadRequest(CHAT_MODEL_UNAVAILABLE_MESSAGE.to_string()).into_response(),
+        );
     }
 
     // Check it's not an embedding-only model
@@ -337,10 +338,9 @@ async fn validate_chat_model(
         .unwrap_or(false);
 
     if is_embed_only {
-        return Err(ApiError::BadRequest(format!(
-            "Requested chat model '{model_slug}' cannot be used for chat"
-        ))
-        .into_response());
+        return Err(
+            ApiError::BadRequest(CHAT_MODEL_UNSUPPORTED_MESSAGE.to_string()).into_response(),
+        );
     }
 
     Ok(())
@@ -1006,6 +1006,44 @@ mod tests {
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
         assert!(problem.get("retry_after").is_none());
+    }
+
+    #[tokio::test]
+    async fn chat_model_validation_problems_do_not_echo_model_slug() {
+        let private_model_slug = "tenant-alpha/private-router/token-secret-model:latest";
+        for detail in [
+            CHAT_MODEL_UNAVAILABLE_MESSAGE,
+            CHAT_MODEL_UNSUPPORTED_MESSAGE,
+        ] {
+            let response = ApiError::BadRequest(detail.to_string()).into_response();
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(
+                response
+                    .headers()
+                    .get(header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok()),
+                Some("application/problem+json")
+            );
+
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let problem: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+            assert_eq!(
+                problem["type"],
+                "https://fortemi.com/problems/validation-error"
+            );
+            assert_eq!(problem["detail"], detail);
+
+            let serialized = problem.to_string();
+            assert!(!serialized.contains(private_model_slug));
+            assert!(!serialized.contains("tenant-alpha"));
+            assert!(!serialized.contains("token-secret"));
+            assert!(problem.get("error").is_none());
+            assert!(problem.get("error_description").is_none());
+        }
     }
 
     #[test]
