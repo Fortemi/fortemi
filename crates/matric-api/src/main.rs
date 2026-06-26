@@ -465,6 +465,10 @@ fn incoming_webhook_schema_validation_failed() -> ApiError {
     )
 }
 
+fn memory_not_found() -> ApiError {
+    ApiError::NotFound("Memory not found.".to_string())
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -3849,7 +3853,7 @@ async fn sse_events(
             .archives
             .get_archive_by_name(name)
             .await?
-            .ok_or_else(|| ApiError::NotFound(format!("Memory '{}' not found", name)))?;
+            .ok_or_else(memory_not_found)?;
         Some(name.clone())
     } else if !archive_ctx.is_default {
         // Explicitly selected via X-Fortemi-Memory header
@@ -14578,7 +14582,7 @@ async fn federated_search(
                     .archives
                     .get_archive_by_name(name)
                     .await?
-                    .ok_or_else(|| ApiError::NotFound(format!("Memory not found: {}", name)))?;
+                    .ok_or_else(memory_not_found)?;
                 if seen.insert(archive.schema_name.clone()) {
                     schemas.push((archive.name, archive.schema_name));
                 }
@@ -21782,7 +21786,7 @@ async fn memory_backup_download(
         .get_archive_by_name(&name)
         .await
         .map_err(|e| backup_operation_failed("Memory backup", "look up memory archive", e))?
-        .ok_or_else(|| ApiError::NotFound(format!("Memory not found: {}", name)))?;
+        .ok_or_else(memory_not_found)?;
 
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
     let filename = format!("memory_{}_{}.sql.gz", name, timestamp);
@@ -22150,7 +22154,7 @@ async fn memory_scoped_restore(
         .get_archive_by_name(memory_name)
         .await
         .map_err(|e| backup_operation_failed("Memory restore", "look up memory archive", e))?
-        .ok_or_else(|| ApiError::NotFound(format!("Memory not found: {}", memory_name)))?;
+        .ok_or_else(memory_not_found)?;
 
     let schema_name = archive.schema_name.clone();
 
@@ -24192,6 +24196,24 @@ mod tests {
         assert!(!body.contains("expected"));
         assert!(!body.contains("postgres://"));
         assert!(!body.contains("secret"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn memory_not_found_does_not_echo_memory_name() {
+        let submitted_memory_name = "tenant-alpha/client-private-memory";
+        let err = memory_not_found();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Memory not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_memory_name));
+        assert!(!body.contains("tenant-alpha"));
+        assert!(!body.contains("client-private-memory"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
