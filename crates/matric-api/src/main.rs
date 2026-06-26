@@ -13598,7 +13598,7 @@ async fn move_note_to_collection(
 // GRAPH EXPLORATION HANDLERS
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct GraphQuery {
     /// Maximum depth to traverse (default: 2)
     #[serde(default = "default_depth")]
@@ -13616,6 +13616,22 @@ struct GraphQuery {
     /// Include structural collection edges (#480, default: true)
     #[serde(default = "default_include_structural")]
     include_structural: bool,
+}
+
+impl fmt::Debug for GraphQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GraphQuery")
+            .field("depth", &self.depth)
+            .field("max_nodes", &self.max_nodes)
+            .field("min_score", &self.min_score)
+            .field("max_edges_per_node", &self.max_edges_per_node)
+            .field(
+                "edge_filter_len",
+                &self.edge_filter.as_ref().map(String::len),
+            )
+            .field("include_structural", &self.include_structural)
+            .finish()
+    }
 }
 
 fn default_include_structural() -> bool {
@@ -13755,10 +13771,19 @@ async fn capture_diagnostics_snapshot(
     Ok(Json(result))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct CaptureSnapshotBody {
     label: String,
     sample_size: Option<i64>,
+}
+
+impl fmt::Debug for CaptureSnapshotBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CaptureSnapshotBody")
+            .field("label_len", &self.label.len())
+            .field("sample_size", &self.sample_size)
+            .finish()
+    }
 }
 
 #[utoipa::path(get, path = "/api/v1/graph/diagnostics/history", tag = "Graph",
@@ -14024,11 +14049,26 @@ async fn trigger_graph_maintenance(
     }
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct GraphMaintenanceBody {
     /// Steps to run. Default: ["normalize", "snn", "pfnet", "snapshot"].
     /// Valid values: "normalize", "snn", "pfnet", "snapshot".
     steps: Option<Vec<String>>,
+}
+
+impl fmt::Debug for GraphMaintenanceBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GraphMaintenanceBody")
+            .field("steps_count", &self.steps.as_ref().map(Vec::len))
+            .field(
+                "step_lens",
+                &self
+                    .steps
+                    .as_ref()
+                    .map(|steps| steps.iter().map(String::len).collect::<Vec<_>>()),
+            )
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -26479,6 +26519,56 @@ mod tests {
             "mm_key_concept",
             &scheme_id.to_string(),
             &governance_scheme_id.to_string(),
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn graph_debug_redacts_filters_labels_and_step_names() {
+        let query = GraphQuery {
+            depth: 3,
+            max_nodes: 250,
+            min_score: 0.42,
+            max_edges_per_node: Some(25),
+            edge_filter: Some(
+                "customer@example.com postgres://user:pass@db.internal/app".to_string(),
+            ),
+            include_structural: true,
+        };
+        let snapshot = CaptureSnapshotBody {
+            label: "private graph snapshot sk-live-graph /srv/private/graph.json".to_string(),
+            sample_size: Some(512),
+        };
+        let maintenance = GraphMaintenanceBody {
+            steps: Some(vec![
+                "normalize_private_customer".to_string(),
+                "snapshot_mm_key_graph".to_string(),
+            ]),
+        };
+
+        let rendered_query = format!("{query:?}");
+        let rendered_snapshot = format!("{snapshot:?}");
+        let rendered_maintenance = format!("{maintenance:?}");
+        let combined = format!("{rendered_query}\n{rendered_snapshot}\n{rendered_maintenance}");
+
+        assert!(rendered_query.contains("GraphQuery"));
+        assert!(rendered_query.contains("edge_filter_len"));
+        assert!(rendered_snapshot.contains("CaptureSnapshotBody"));
+        assert!(rendered_snapshot.contains("label_len"));
+        assert!(rendered_maintenance.contains("GraphMaintenanceBody"));
+        assert!(rendered_maintenance.contains("steps_count"));
+        assert!(rendered_maintenance.contains("step_lens"));
+
+        for raw in [
+            "customer@example.com",
+            "postgres://user:pass",
+            "db.internal",
+            "private graph snapshot",
+            "sk-live-graph",
+            "/srv/private/graph.json",
+            "normalize_private_customer",
+            "snapshot_mm_key_graph",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
