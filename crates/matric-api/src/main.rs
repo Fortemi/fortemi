@@ -11100,7 +11100,7 @@ async fn restore_note(
     Ok(Json(serde_json::json!({ "restored": true, "id": id })))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct ReprocessNoteBody {
     /// AI revision mode: "full", "light" (default), or "none"
     revision_mode: Option<String>,
@@ -11115,6 +11115,28 @@ struct ReprocessNoteBody {
     /// Character overlap between adjacent revision chunks. (#572)
     #[serde(default)]
     chunk_overlap: Option<usize>,
+}
+
+impl fmt::Debug for ReprocessNoteBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReprocessNoteBody")
+            .field(
+                "revision_mode_len",
+                &self.revision_mode.as_ref().map(String::len),
+            )
+            .field("steps_count", &self.steps.as_ref().map(Vec::len))
+            .field(
+                "step_lens",
+                &self
+                    .steps
+                    .as_ref()
+                    .map(|steps| steps.iter().map(String::len).collect::<Vec<_>>()),
+            )
+            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("chunk_max_chars", &self.chunk_max_chars)
+            .field("chunk_overlap", &self.chunk_overlap)
+            .finish()
+    }
 }
 
 /// Manually trigger NLP pipeline steps for a note.
@@ -11262,7 +11284,7 @@ async fn reprocess_note(
     })))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct BulkReprocessBody {
     /// AI revision mode: "full", "light" (default), or "none"
     revision_mode: Option<String>,
@@ -11281,6 +11303,30 @@ struct BulkReprocessBody {
     /// Character overlap between adjacent revision chunks. (#572)
     #[serde(default)]
     chunk_overlap: Option<usize>,
+}
+
+impl fmt::Debug for BulkReprocessBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BulkReprocessBody")
+            .field(
+                "revision_mode_len",
+                &self.revision_mode.as_ref().map(String::len),
+            )
+            .field("note_ids_count", &self.note_ids.as_ref().map(Vec::len))
+            .field("steps_count", &self.steps.as_ref().map(Vec::len))
+            .field(
+                "step_lens",
+                &self
+                    .steps
+                    .as_ref()
+                    .map(|steps| steps.iter().map(String::len).collect::<Vec<_>>()),
+            )
+            .field("limit", &self.limit)
+            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("chunk_max_chars", &self.chunk_max_chars)
+            .field("chunk_overlap", &self.chunk_overlap)
+            .finish()
+    }
 }
 
 /// Bulk reprocess notes through the NLP pipeline.
@@ -26153,6 +26199,62 @@ mod tests {
             "qwen3-update-db.internal",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn reprocess_debug_redacts_steps_models_and_bulk_note_ids() {
+        let note_id = Uuid::new_v4();
+        let single = ReprocessNoteBody {
+            revision_mode: Some("contextual-private-reprocess".to_string()),
+            steps: Some(vec![
+                "metadata_extraction_private".to_string(),
+                "concept_tagging_sk_live_step".to_string(),
+            ]),
+            model: Some("qwen3-reprocess-db.internal".to_string()),
+            chunk_max_chars: Some(2048),
+            chunk_overlap: Some(64),
+        };
+        let bulk = BulkReprocessBody {
+            revision_mode: Some("full-private-bulk-reprocess".to_string()),
+            note_ids: Some(vec![note_id]),
+            steps: Some(vec![
+                "ai_revision_customer_private".to_string(),
+                "embedding_postgres://user:pass@db.internal/app".to_string(),
+            ]),
+            limit: Some(250),
+            model: Some("bulk-model-sk-live-reprocess".to_string()),
+            chunk_max_chars: Some(4096),
+            chunk_overlap: Some(128),
+        };
+
+        let rendered_single = format!("{single:?}");
+        let rendered_bulk = format!("{bulk:?}");
+        let combined = format!("{rendered_single}\n{rendered_bulk}");
+
+        assert!(rendered_single.contains("ReprocessNoteBody"));
+        assert!(rendered_single.contains("revision_mode_len"));
+        assert!(rendered_single.contains("steps_count"));
+        assert!(rendered_single.contains("step_lens"));
+        assert!(rendered_single.contains("model_len"));
+        assert!(rendered_bulk.contains("BulkReprocessBody"));
+        assert!(rendered_bulk.contains("note_ids_count"));
+        assert!(rendered_bulk.contains("limit"));
+        assert!(rendered_bulk.contains("chunk_max_chars"));
+
+        for raw in [
+            "contextual-private-reprocess",
+            "metadata_extraction_private",
+            "concept_tagging_sk_live_step",
+            "qwen3-reprocess-db.internal",
+            "full-private-bulk-reprocess",
+            "ai_revision_customer_private",
+            "embedding_postgres://user:pass",
+            "db.internal",
+            "bulk-model-sk-live-reprocess",
+            &note_id.to_string(),
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
     }
 
