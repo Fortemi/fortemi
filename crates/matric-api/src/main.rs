@@ -1177,12 +1177,21 @@ pub struct PaginationMeta {
 ///   }
 /// }
 /// ```
-#[derive(Serialize, Deserialize, Debug, utoipa::ToSchema)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ListResponse<T> {
     /// The list of items for the current page
     pub data: Vec<T>,
     /// Pagination metadata
     pub pagination: PaginationMeta,
+}
+
+impl<T> std::fmt::Debug for ListResponse<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ListResponse")
+            .field("data_count", &self.data.len())
+            .field("pagination", &self.pagination)
+            .finish()
+    }
 }
 
 #[derive(Serialize, Deserialize, utoipa::ToSchema)]
@@ -26348,6 +26357,37 @@ mod tests {
         assert!(!rendered.contains("Quarterly strategy"));
         assert!(!rendered.contains("customer-private"));
         assert!(!rendered.contains("mm_key_secret"));
+    }
+
+    #[test]
+    fn list_response_debug_redacts_item_contents() {
+        #[derive(Debug, Serialize, Deserialize)]
+        struct SensitiveListItem {
+            value: String,
+        }
+
+        let response = ListResponse::new(
+            vec![SensitiveListItem {
+                value: "customer@example.com postgres://user:pass@db.internal/app sk-live-list"
+                    .to_string(),
+            }],
+            10,
+            1,
+            0,
+        );
+
+        let rendered = format!("{response:?}");
+
+        assert!(rendered.contains("ListResponse"));
+        assert!(rendered.contains("data_count"));
+        assert!(rendered.contains("pagination"));
+        assert!(rendered.contains("total"));
+        assert!(!rendered.contains("SensitiveListItem"));
+        assert!(!rendered.contains("value"));
+        assert!(!rendered.contains("customer@example.com"));
+        assert!(!rendered.contains("postgres://user:pass"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("sk-live-list"));
     }
 
     #[test]
