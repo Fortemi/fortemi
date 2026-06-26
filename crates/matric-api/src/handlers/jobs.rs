@@ -64,6 +64,8 @@ const JOB_PROVENANCE_WRITE_FAILURE_DETAIL: &str = "job_provenance_write_failed";
 const JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL: &str = "job_queue_followup_failed";
 const JOB_REVISION_NOTE_UPDATE_FAILURE_DETAIL: &str = "job_revision_note_update_failed";
 const JOB_CONTEXT_DISCOVERY_FAILURE_DETAIL: &str = "job_context_discovery_failed";
+const JOB_TITLE_ESCALATION_FAILURE_DETAIL: &str = "job_title_escalation_failed";
+const JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_linking_diagnostic_failed";
 
 fn diagnostic_len(error: impl std::fmt::Display) -> usize {
     error.to_string().chars().count()
@@ -2259,7 +2261,11 @@ impl JobHandler for EmbeddingHandler {
                 .complete_activity(act_id, None, Some(prov_metadata))
                 .await
             {
-                warn!(error = %e, "Failed to complete embedding provenance activity");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_PROVENANCE_WRITE_FAILURE_DETAIL,
+                    "Failed to complete embedding provenance activity"
+                );
             }
         }
 
@@ -2480,7 +2486,11 @@ Content:
             }
             Err(e) => {
                 if use_fast {
-                    info!(error = %e, "Fast model failed for title generation, escalating to tier-2");
+                    info!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_TITLE_ESCALATION_FAILURE_DETAIL,
+                        "Fast model failed for title generation, escalating to tier-2"
+                    );
                     if let Some(job_id) = self
                         .queue_tier_escalation(
                             note_id,
@@ -2530,7 +2540,11 @@ Content:
                 .complete_activity(act_id, None, Some(prov_metadata))
                 .await
             {
-                warn!(error = %e, "Failed to complete title generation provenance activity");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_PROVENANCE_WRITE_FAILURE_DETAIL,
+                    "Failed to complete title generation provenance activity"
+                );
             }
         }
 
@@ -2801,12 +2815,22 @@ impl LinkingHandler {
                     )
                     .await;
                 if let Err(e) = tx.commit().await {
-                    warn!(error = %e, note_id = %note_id, target = %hit.note_id, "Link commit failed");
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "hnsw_link_commit",
+                        "Link commit failed"
+                    );
                 }
                 res
             };
             if let Err(e) = result {
-                debug!(error = %e, "Failed to create reciprocal link (may already exist)");
+                debug!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "hnsw_create_reciprocal_link",
+                    "Failed to create reciprocal link"
+                );
             } else {
                 created += 1;
             }
@@ -2858,12 +2882,22 @@ impl LinkingHandler {
                         )
                         .await;
                     if let Err(e) = tx.commit().await {
-                        warn!(error = %e, note_id = %note_id, target = %best_hit.note_id, "Fallback link commit failed");
+                        warn!(
+                            error_len = diagnostic_len(&e),
+                            detail = JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
+                            operation = "hnsw_fallback_link_commit",
+                            "Fallback link commit failed"
+                        );
                     }
                     res
                 };
                 if let Err(e) = result {
-                    debug!(error = %e, "Failed to create fallback link");
+                    debug!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "hnsw_create_fallback_link",
+                        "Failed to create fallback link"
+                    );
                 } else {
                     created += 1;
                 }
@@ -3089,7 +3123,12 @@ impl JobHandler for LinkingHandler {
                 e
             }
             Err(e) => {
-                warn!(error = %e, "No embeddings for note, skipping semantic linking");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "fetch_note_embeddings",
+                    "No embeddings for note, skipping semantic linking"
+                );
                 return JobResult::Success(Some(serde_json::json!({
                     "links_created": created,
                     "wiki_links_found": wiki_links_found,
@@ -3187,7 +3226,11 @@ impl JobHandler for LinkingHandler {
                 .complete_activity(act_id, None, Some(prov_metadata))
                 .await
             {
-                warn!(error = %e, "Failed to complete linking provenance activity");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_PROVENANCE_WRITE_FAILURE_DETAIL,
+                    "Failed to complete linking provenance activity"
+                );
             }
         }
 
@@ -3213,7 +3256,11 @@ impl JobHandler for LinkingHandler {
             }
             Ok(None) => {} // Deduplicated
             Err(e) => {
-                warn!(error = %e, "Failed to queue post-linking graph maintenance job");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
+                    "Failed to queue post-linking graph maintenance job"
+                );
             }
         }
 
@@ -8097,6 +8144,8 @@ Quick note about the meeting discussion and action items."#;
             JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
             JOB_REVISION_NOTE_UPDATE_FAILURE_DETAIL,
             JOB_CONTEXT_DISCOVERY_FAILURE_DETAIL,
+            JOB_TITLE_ESCALATION_FAILURE_DETAIL,
+            JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
         ] {
             assert!(!detail.contains("token:secret"));
             assert!(!detail.contains("provider.internal"));
