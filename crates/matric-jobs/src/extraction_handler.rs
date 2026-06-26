@@ -208,7 +208,7 @@ impl JobHandler for ExtractionHandler {
                                     // Direct mode: use the storage path as-is
                                     debug!(
                                         mode = "direct",
-                                        path = %fs_path.display(),
+                                        source_path_len = telemetry_path_len(&fs_path),
                                         "Using direct file access for extraction"
                                     );
                                     fs_path.to_string_lossy().to_string()
@@ -219,7 +219,7 @@ impl JobHandler for ExtractionHandler {
                                     debug!(
                                         mode = "stream",
                                         buffer_bytes = buffer_size,
-                                        source = %fs_path.display(),
+                                        source_path_len = telemetry_path_len(&fs_path),
                                         "Streaming file to temp location for extraction"
                                     );
                                     match stream_copy_to_temp(&fs_path, buffer_size) {
@@ -1182,16 +1182,19 @@ impl JobHandler for ExtractionHandler {
                                     Some(note_id),
                                 );
                                 info!(
-                                    note_id = %note_id,
-                                    attachment_id = %att_id,
+                                    note_present = true,
+                                    attachment_present = true,
                                     "Thumbnail sprite job queued"
                                 );
                             }
                             Ok(None) => {} // Deduplicated
                             Err(e) => {
+                                let error = e.to_string();
                                 warn!(
-                                    note_id = %note_id,
-                                    error = %e,
+                                    note_present = true,
+                                    attachment_present = true,
+                                    error_len = telemetry_text_len(&error),
+                                    error_reason = extraction_error_reason_code(&error),
                                     "Failed to queue thumbnail sprite job"
                                 );
                             }
@@ -1211,8 +1214,8 @@ impl JobHandler for ExtractionHandler {
                                 let total_frames = keyframes.len();
                                 if total_frames == 0 {
                                     warn!(
-                                        note_id = %note_id,
-                                        attachment_id = %att_id,
+                                        note_present = true,
+                                        attachment_present = true,
                                         in_memory_keyframes = has_keyframes,
                                         "No keyframe attachments found in DB — \
                                          KeyframeVision jobs will not be queued. \
@@ -1303,10 +1306,13 @@ impl JobHandler for ExtractionHandler {
                                                 queued += 1;
                                             }
                                             Err(e) => {
+                                                let error = e.to_string();
                                                 warn!(
-                                                    note_id = %note_id,
+                                                    note_present = true,
                                                     frame_index,
-                                                    error = %e,
+                                                    error_len = telemetry_text_len(&error),
+                                                    error_reason =
+                                                        extraction_error_reason_code(&error),
                                                     "Failed to queue KeyframeVision job"
                                                 );
                                             }
@@ -1364,8 +1370,8 @@ impl JobHandler for ExtractionHandler {
 
                                     if vision_mode == "full" {
                                         info!(
-                                            note_id = %note_id,
-                                            attachment_id = %att_id,
+                                            note_present = true,
+                                            attachment_present = true,
                                             total_frames,
                                             queued,
                                             "Queued {} vision jobs (full mode: scene + character + setting)",
@@ -1373,8 +1379,8 @@ impl JobHandler for ExtractionHandler {
                                         );
                                     } else {
                                         info!(
-                                            note_id = %note_id,
-                                            attachment_id = %att_id,
+                                            note_present = true,
+                                            attachment_present = true,
                                             total_frames,
                                             queued,
                                             "Queued {} KeyframeVision jobs",
@@ -1386,8 +1392,8 @@ impl JobHandler for ExtractionHandler {
                         } // if let Some(fs)
                     } else if matches!(strategy, ExtractionStrategy::VideoMultimodal) {
                         info!(
-                            note_id = %note_id,
-                            attachment_id = %att_id,
+                            note_present = true,
+                            attachment_present = true,
                             derived_count = result.derived_files.len(),
                             has_keyframes,
                             "VideoMultimodal extraction produced no keyframe derived files — \
