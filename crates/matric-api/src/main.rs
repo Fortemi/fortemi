@@ -22401,6 +22401,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pke_validation_error_returns_problem_without_legacy_error_description() {
+        let err =
+            match crate::handlers::pke::pke_address(Json(crate::handlers::pke::PkeAddressRequest {
+                public_key: "not base64".to_string(),
+            }))
+            .await
+            {
+                Ok(_) => panic!("invalid PKE public key should return ApiError"),
+                Err(err) => err,
+            };
+
+        let (status, headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap(),
+            "application/problem+json"
+        );
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], "Invalid base64 for public_key.");
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn pke_decrypt_error_returns_problem_without_crypto_detail() {
+        let err =
+            match crate::handlers::pke::pke_decrypt(Json(crate::handlers::pke::PkeDecryptRequest {
+                ciphertext: "bm90LW1tcGtl".to_string(),
+                encrypted_private_key: "not base64".to_string(),
+                passphrase: "secret".to_string(),
+            }))
+            .await
+            {
+                Ok(_) => panic!("invalid encrypted key should return ApiError"),
+                Err(err) => err,
+            };
+
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], "Invalid private key base64.");
+        let body = problem.to_string();
+        assert!(!body.contains("InvalidByte"));
+        assert!(!body.contains("secret"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
     async fn api_error_blob_missing_problem_keeps_safe_id_and_redacts_storage_path() {
         let attachment_id = Uuid::now_v7();
         let (status, _headers, problem) = read_problem_response(ApiError::BlobMissing {

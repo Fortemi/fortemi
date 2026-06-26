@@ -90,9 +90,7 @@ pub struct PkeVerifyResponse {
 #[utoipa::path(post, path = "/api/v1/pke/keygen", tag = "PKE",
     request_body = PkeKeygenRequest,
     responses((status = 201, description = "Created")))]
-pub async fn pke_keygen(
-    Json(req): Json<PkeKeygenRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+pub async fn pke_keygen(Json(req): Json<PkeKeygenRequest>) -> Result<impl IntoResponse, ApiError> {
     let keypair = Keypair::generate();
     let address = keypair.public.to_address();
 
@@ -102,14 +100,9 @@ pub async fn pke_keygen(
     // Encrypt private key with passphrase
     let encrypted_private =
         key_storage::encrypt_private_key(keypair.private.as_bytes(), &req.passphrase).map_err(
-            |e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({
-                        "error": "keygen_failed",
-                        "error_description": format!("Failed to encrypt private key: {}", e)
-                    })),
-                )
+            |e| ApiError::OperationFailed {
+                operation: "PKE key generation",
+                detail: e.to_string(),
             },
         )?;
     let encrypted_private_b64 = BASE64.encode(&encrypted_private);
@@ -133,25 +126,16 @@ pub async fn pke_keygen(
     responses((status = 200, description = "Success")))]
 pub async fn pke_address(
     Json(req): Json<PkeAddressRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    let public_key_bytes = BASE64.decode(&req.public_key).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "invalid_base64",
-                "error_description": format!("Invalid base64 for public_key: {}", e)
-            })),
-        )
-    })?;
+) -> Result<impl IntoResponse, ApiError> {
+    let public_key_bytes = BASE64
+        .decode(&req.public_key)
+        .map_err(|_| ApiError::BadRequest("Invalid base64 for public_key.".to_string()))?;
 
     if public_key_bytes.len() != 32 {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "invalid_public_key",
-                "error_description": format!("Public key must be 32 bytes, got {}", public_key_bytes.len())
-            })),
-        ));
+        return Err(ApiError::BadRequest(format!(
+            "Public key must be 32 bytes, got {}.",
+            public_key_bytes.len()
+        )));
     }
 
     let mut arr = [0u8; 32];
@@ -173,25 +157,15 @@ pub async fn pke_address(
     responses((status = 200, description = "Success")))]
 pub async fn pke_encrypt(
     Json(req): Json<PkeEncryptRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<impl IntoResponse, ApiError> {
     // Size limit: 10MB
-    let plaintext = BASE64.decode(&req.plaintext).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "invalid_base64",
-                "error_description": format!("Invalid base64 for plaintext: {}", e)
-            })),
-        )
-    })?;
+    let plaintext = BASE64
+        .decode(&req.plaintext)
+        .map_err(|_| ApiError::BadRequest("Invalid base64 for plaintext.".to_string()))?;
 
     if plaintext.len() > 10 * 1024 * 1024 {
-        return Err((
-            StatusCode::PAYLOAD_TOO_LARGE,
-            Json(serde_json::json!({
-                "error": "payload_too_large",
-                "error_description": "Plaintext exceeds 10MB limit"
-            })),
+        return Err(ApiError::BadRequest(
+            "Plaintext exceeds 10MB limit.".to_string(),
         ));
     }
 
@@ -202,32 +176,20 @@ pub async fn pke_encrypt(
 
     for r in &req.recipients {
         if r.starts_with("mm:") {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "address_lookup_not_supported",
-                    "error_description": "Pass base64 public keys directly. Address-based lookup requires a key server."
-                })),
+            return Err(ApiError::BadRequest(
+                "Pass base64 public keys directly. Address-based lookup requires a key server."
+                    .to_string(),
             ));
         }
-        let key_bytes = BASE64.decode(r).map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "invalid_recipient",
-                    "error_description": format!("Invalid base64 public key: {}", e)
-                })),
-            )
-        })?;
+        let key_bytes = BASE64
+            .decode(r)
+            .map_err(|_| ApiError::BadRequest("Invalid recipient public key.".to_string()))?;
 
         if key_bytes.len() != 32 {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "invalid_recipient",
-                    "error_description": format!("Public key must be 32 bytes, got {}", key_bytes.len())
-                })),
-            ));
+            return Err(ApiError::BadRequest(format!(
+                "Recipient public key must be 32 bytes, got {}.",
+                key_bytes.len()
+            )));
         }
 
         let mut arr = [0u8; 32];
@@ -240,13 +202,10 @@ pub async fn pke_encrypt(
 
     let ciphertext =
         encrypt_pke(&plaintext, &recipient_keys, req.original_filename).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "error": "encryption_failed",
-                    "error_description": format!("Encryption failed: {}", e)
-                })),
-            )
+            ApiError::OperationFailed {
+                operation: "PKE encryption",
+                detail: e.to_string(),
+            }
         })?;
 
     Ok(Json(PkeEncryptResponse {
@@ -263,50 +222,25 @@ pub async fn pke_encrypt(
     responses((status = 200, description = "Success")))]
 pub async fn pke_decrypt(
     Json(req): Json<PkeDecryptRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    let ciphertext = BASE64.decode(&req.ciphertext).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "invalid_base64",
-                "error_description": format!("Invalid ciphertext base64: {}", e)
-            })),
-        )
-    })?;
+) -> Result<impl IntoResponse, ApiError> {
+    let ciphertext = BASE64
+        .decode(&req.ciphertext)
+        .map_err(|_| ApiError::BadRequest("Invalid ciphertext base64.".to_string()))?;
 
-    let encrypted_key = BASE64.decode(&req.encrypted_private_key).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "invalid_base64",
-                "error_description": format!("Invalid private key base64: {}", e)
-            })),
-        )
-    })?;
+    let encrypted_key = BASE64
+        .decode(&req.encrypted_private_key)
+        .map_err(|_| ApiError::BadRequest("Invalid private key base64.".to_string()))?;
 
     // Decrypt private key with passphrase
     let private_key_bytes = key_storage::decrypt_private_key(&encrypted_key, &req.passphrase)
         .map_err(|_| {
-            (
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({
-                    "error": "decryption_failed",
-                    "error_description": "Invalid passphrase or corrupted private key"
-                })),
-            )
+            ApiError::Forbidden("Invalid passphrase or corrupted private key.".to_string())
         })?;
 
     let private_key = PrivateKey::from_bytes(private_key_bytes);
 
-    let (plaintext, header) = decrypt_pke(&ciphertext, &private_key).map_err(|e| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({
-                "error": "decryption_failed",
-                "error_description": format!("Decryption failed: {}", e)
-            })),
-        )
-    })?;
+    let (plaintext, header) = decrypt_pke(&ciphertext, &private_key)
+        .map_err(|_| ApiError::Forbidden("Unable to decrypt PKE payload.".to_string()))?;
 
     Ok(Json(PkeDecryptResponse {
         plaintext: BASE64.encode(&plaintext),
@@ -322,26 +256,13 @@ pub async fn pke_decrypt(
     responses((status = 200, description = "Success")))]
 pub async fn pke_recipients(
     Json(req): Json<PkeRecipientsRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    let ciphertext = BASE64.decode(&req.ciphertext).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "invalid_base64",
-                "error_description": format!("Invalid ciphertext base64: {}", e)
-            })),
-        )
-    })?;
+) -> Result<impl IntoResponse, ApiError> {
+    let ciphertext = BASE64
+        .decode(&req.ciphertext)
+        .map_err(|_| ApiError::BadRequest("Invalid ciphertext base64.".to_string()))?;
 
-    let recipients = get_pke_recipients(&ciphertext).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "invalid_format",
-                "error_description": format!("Not a valid MMPKE01 file: {}", e)
-            })),
-        )
-    })?;
+    let recipients = get_pke_recipients(&ciphertext)
+        .map_err(|_| ApiError::BadRequest("Not a valid PKE payload.".to_string()))?;
 
     Ok(Json(PkeRecipientsResponse {
         recipients: recipients.iter().map(|a| a.to_string()).collect(),
@@ -373,7 +294,7 @@ pub async fn pke_verify(Path(address): Path<String>) -> Json<PkeVerifyResponse> 
 // KEYSET MANAGEMENT HANDLERS (Issues #328, #332)
 // =============================================================================
 
-use crate::AppState;
+use crate::{ApiError, AppState};
 use axum::extract::State;
 use matric_db::{CreateKeysetRequest, ExportedKeyset};
 use uuid::Uuid;
@@ -412,18 +333,8 @@ pub struct ImportKeysetRequest {
 /// GET /api/v1/pke/keysets
 #[utoipa::path(get, path = "/api/v1/pke/keysets", tag = "PKE",
     responses((status = 200, description = "Success")))]
-pub async fn list_keysets(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    let keysets = state.db.pke_keysets.list().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "error": "database_error",
-                "error_description": format!("Failed to list keysets: {}", e)
-            })),
-        )
-    })?;
+pub async fn list_keysets(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    let keysets = state.db.pke_keysets.list().await.map_err(ApiError::from)?;
 
     let response: Vec<KeysetResponse> = keysets
         .into_iter()
@@ -449,7 +360,7 @@ pub async fn list_keysets(
 pub async fn create_keyset(
     State(state): State<AppState>,
     Json(req): Json<CreateKeysetApiRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<impl IntoResponse, ApiError> {
     use matric_crypto::pke::{key_storage, Keypair};
 
     // Generate new keypair
@@ -462,14 +373,9 @@ pub async fn create_keyset(
     // Encrypt private key with passphrase
     let encrypted_private_key =
         key_storage::encrypt_private_key(keypair.private.as_bytes(), &req.passphrase).map_err(
-            |e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({
-                        "error": "encryption_failed",
-                        "error_description": format!("Failed to encrypt private key: {}", e)
-                    })),
-                )
+            |e| ApiError::OperationFailed {
+                operation: "PKE keyset creation",
+                detail: e.to_string(),
             },
         )?;
 
@@ -485,18 +391,11 @@ pub async fn create_keyset(
             label: req.label,
         })
         .await
-        .map_err(|e| {
-            let (status, error) = match &e {
-                matric_core::Error::InvalidInput(_) => (StatusCode::CONFLICT, "keyset_exists"),
-                _ => (StatusCode::INTERNAL_SERVER_ERROR, "database_error"),
-            };
-            (
-                status,
-                Json(serde_json::json!({
-                    "error": error,
-                    "error_description": format!("{}", e)
-                })),
-            )
+        .map_err(|e| match &e {
+            matric_core::Error::InvalidInput(_) => {
+                ApiError::Conflict("PKE keyset already exists.".to_string())
+            }
+            _ => ApiError::from(e),
         })?;
 
     Ok((
@@ -519,16 +418,13 @@ pub async fn create_keyset(
     responses((status = 200, description = "Success")))]
 pub async fn get_active_keyset(
     State(state): State<AppState>,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    let keyset = state.db.pke_keysets.get_active().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "error": "database_error",
-                "error_description": format!("Failed to get active keyset: {}", e)
-            })),
-        )
-    })?;
+) -> Result<impl IntoResponse, ApiError> {
+    let keyset = state
+        .db
+        .pke_keysets
+        .get_active()
+        .await
+        .map_err(ApiError::from)?;
 
     Ok(Json(ActiveKeysetResponse {
         active: keyset.is_some(),
@@ -552,47 +448,23 @@ pub async fn get_active_keyset(
 pub async fn set_active_keyset(
     State(state): State<AppState>,
     Path(name_or_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<impl IntoResponse, ApiError> {
     // Try to parse as UUID first, otherwise treat as name
     let keyset = if let Ok(uuid) = Uuid::parse_str(&name_or_id) {
         state.db.pke_keysets.get_by_id(uuid).await
     } else {
         state.db.pke_keysets.get_by_name(&name_or_id).await
     }
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "error": "database_error",
-                "error_description": format!("Failed to get keyset: {}", e)
-            })),
-        )
-    })?;
+    .map_err(ApiError::from)?;
 
-    let keyset = keyset.ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": "not_found",
-                "error_description": format!("Keyset '{}' not found", name_or_id)
-            })),
-        )
-    })?;
+    let keyset = keyset.ok_or_else(|| ApiError::NotFound("PKE keyset not found.".to_string()))?;
 
     state
         .db
         .pke_keysets
         .set_active(keyset.id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "error": "database_error",
-                    "error_description": format!("Failed to set active keyset: {}", e)
-                })),
-            )
-        })?;
+        .map_err(ApiError::from)?;
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -609,22 +481,14 @@ pub async fn set_active_keyset(
 pub async fn delete_keyset(
     State(state): State<AppState>,
     Path(name_or_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<impl IntoResponse, ApiError> {
     // Try to parse as UUID first, otherwise treat as name
     let deleted = if let Ok(uuid) = Uuid::parse_str(&name_or_id) {
         state.db.pke_keysets.delete(uuid).await
     } else {
         state.db.pke_keysets.delete_by_name(&name_or_id).await
     }
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "error": "database_error",
-                "error_description": format!("Failed to delete keyset: {}", e)
-            })),
-        )
-    })?;
+    .map_err(ApiError::from)?;
 
     if deleted {
         Ok(Json(serde_json::json!({
@@ -632,13 +496,7 @@ pub async fn delete_keyset(
             "deleted": name_or_id
         })))
     } else {
-        Err((
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": "not_found",
-                "error_description": format!("Keyset '{}' not found", name_or_id)
-            })),
-        ))
+        Err(ApiError::NotFound("PKE keyset not found.".to_string()))
     }
 }
 
@@ -651,56 +509,24 @@ pub async fn delete_keyset(
 pub async fn export_keyset(
     State(state): State<AppState>,
     Path(name_or_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<impl IntoResponse, ApiError> {
     // Try to parse as UUID first, otherwise treat as name
     let keyset = if let Ok(uuid) = Uuid::parse_str(&name_or_id) {
         state.db.pke_keysets.get_by_id(uuid).await
     } else {
         state.db.pke_keysets.get_by_name(&name_or_id).await
     }
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "error": "database_error",
-                "error_description": format!("Failed to get keyset: {}", e)
-            })),
-        )
-    })?;
+    .map_err(ApiError::from)?;
 
-    let keyset = keyset.ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": "not_found",
-                "error_description": format!("Keyset '{}' not found", name_or_id)
-            })),
-        )
-    })?;
+    let keyset = keyset.ok_or_else(|| ApiError::NotFound("PKE keyset not found.".to_string()))?;
 
     let exported = state
         .db
         .pke_keysets
         .export(keyset.id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "error": "database_error",
-                    "error_description": format!("Failed to export keyset: {}", e)
-                })),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({
-                    "error": "not_found",
-                    "error_description": format!("Keyset '{}' not found", name_or_id)
-                })),
-            )
-        })?;
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError::NotFound("PKE keyset not found.".to_string()))?;
 
     Ok(Json(exported))
 }
@@ -714,24 +540,17 @@ pub async fn export_keyset(
 pub async fn import_keyset(
     State(state): State<AppState>,
     Json(req): Json<ImportKeysetRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<impl IntoResponse, ApiError> {
     let keyset = state
         .db
         .pke_keysets
         .import(req.name, req.exported)
         .await
-        .map_err(|e| {
-            let (status, error) = match &e {
-                matric_core::Error::InvalidInput(_) => (StatusCode::BAD_REQUEST, "invalid_input"),
-                _ => (StatusCode::INTERNAL_SERVER_ERROR, "database_error"),
-            };
-            (
-                status,
-                Json(serde_json::json!({
-                    "error": error,
-                    "error_description": format!("{}", e)
-                })),
-            )
+        .map_err(|e| match &e {
+            matric_core::Error::InvalidInput(_) => {
+                ApiError::BadRequest("Invalid PKE keyset import payload.".to_string())
+            }
+            _ => ApiError::from(e),
         })?;
 
     Ok((
