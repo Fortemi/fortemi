@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 
 /// Thinking model type classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,7 +24,7 @@ pub enum ThinkingType {
 }
 
 /// Performance profile for an Ollama model.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ModelProfile {
     /// Model name as used in Ollama.
     pub name: String,
@@ -41,6 +42,21 @@ pub struct ModelProfile {
     pub family: String,
     /// Model size (e.g., "8.0B", "14.8B").
     pub size: String,
+}
+
+impl fmt::Debug for ModelProfile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ModelProfile")
+            .field("name_len", &self.name.chars().count())
+            .field("native_context", &self.native_context)
+            .field("max_output", &self.max_output)
+            .field("speed_tok_s", &self.speed_tok_s)
+            .field("thinking_type", &self.thinking_type)
+            .field("use_raw_mode", &self.use_raw_mode)
+            .field("family_len", &self.family.chars().count())
+            .field("size_len", &self.size.chars().count())
+            .finish()
+    }
 }
 
 impl ModelProfile {
@@ -74,7 +90,7 @@ impl ModelProfile {
 }
 
 /// Task requirements for model selection.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct TaskRequirements {
     /// Minimum context window size needed.
     pub min_context: Option<usize>,
@@ -86,6 +102,24 @@ pub struct TaskRequirements {
     pub requires_thinking: bool,
     /// Preferred model family.
     pub preferred_family: Option<String>,
+}
+
+impl fmt::Debug for TaskRequirements {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TaskRequirements")
+            .field("min_context", &self.min_context)
+            .field("min_output", &self.min_output)
+            .field("min_speed", &self.min_speed)
+            .field("requires_thinking", &self.requires_thinking)
+            .field(
+                "preferred_family_len",
+                &self
+                    .preferred_family
+                    .as_ref()
+                    .map(|value| value.chars().count()),
+            )
+            .finish()
+    }
 }
 
 /// Registry of model performance profiles.
@@ -1031,5 +1065,44 @@ mod tests {
         assert_eq!(deserialized.name, profile.name);
         assert_eq!(deserialized.native_context, profile.native_context);
         assert_eq!(deserialized.thinking_type, profile.thinking_type);
+    }
+
+    #[test]
+    fn profile_debug_redacts_model_names_family_size_and_requirements() {
+        let profile = ModelProfile {
+            name: "tenant/private-model:jane@example.com:sk-private".to_string(),
+            native_context: 65_536,
+            max_output: 4_096,
+            speed_tok_s: 123.4,
+            thinking_type: ThinkingType::PatternBased,
+            use_raw_mode: true,
+            family: "private-family-sk-private".to_string(),
+            size: "tenant-size-jane@example.com".to_string(),
+        };
+        let requirements = TaskRequirements {
+            min_context: Some(32_768),
+            min_output: Some(2_048),
+            min_speed: Some(100.0),
+            requires_thinking: true,
+            preferred_family: Some("private-family-sk-private".to_string()),
+        };
+
+        let debug = format!("{profile:?}\n{requirements:?}");
+
+        for raw in [
+            "tenant/private-model",
+            "jane@example.com",
+            "sk-private",
+            "private-family",
+            "tenant-size",
+        ] {
+            assert!(!debug.contains(raw), "debug output leaked {raw}: {debug}");
+        }
+
+        assert!(debug.contains("name_len"));
+        assert!(debug.contains("family_len"));
+        assert!(debug.contains("size_len"));
+        assert!(debug.contains("preferred_family_len"));
+        assert!(debug.contains("native_context"));
     }
 }
