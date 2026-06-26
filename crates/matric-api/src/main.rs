@@ -424,6 +424,12 @@ fn tag_depth_validation_error(index: Option<usize>) -> ApiError {
     ApiError::BadRequest(detail)
 }
 
+fn invalid_attachment_content_type() -> ApiError {
+    ApiError::BadRequest(
+        "Invalid attachment content_type. Expected MIME type format type/subtype.".to_string(),
+    )
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -18461,10 +18467,7 @@ async fn upload_attachment(
 
     // Validate MIME content type format (issue #308)
     if !matric_core::is_valid_mime_type(&body.content_type) {
-        return Err(ApiError::BadRequest(format!(
-            "Invalid content_type: '{}' is not a valid MIME type (expected type/subtype format)",
-            body.content_type
-        )));
+        return Err(invalid_attachment_content_type());
     }
 
     // Detect actual content type from magic bytes (fixes #253)
@@ -18640,10 +18643,7 @@ async fn upload_attachment_multipart(
 
     // Validate MIME content type format (issue #308)
     if !matric_core::is_valid_mime_type(&content_type) {
-        return Err(ApiError::BadRequest(format!(
-            "Invalid content_type: '{}' is not a valid MIME type (expected type/subtype format)",
-            content_type
-        )));
+        return Err(invalid_attachment_content_type());
     }
 
     // Validate file safety — block executables and dangerous file types (fixes #241)
@@ -24422,6 +24422,31 @@ mod tests {
         assert!(!body.contains(private_tag));
         assert!(!body.contains("client-private"));
         assert!(!body.contains("customer-notes"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn attachment_content_type_validation_does_not_echo_input() {
+        let submitted_content_type = "text/plain; url=https://token:secret@provider.internal/v1";
+        let err = invalid_attachment_content_type();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Invalid attachment content_type. Expected MIME type format type/subtype."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_content_type));
+        assert!(!body.contains("token:secret"));
+        assert!(!body.contains("provider.internal"));
+        assert!(!body.contains("https://token:secret@provider.internal"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
