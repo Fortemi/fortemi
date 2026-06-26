@@ -5218,6 +5218,10 @@ async fn normalize_route_policy_input_for_authorization(
 ) -> route_policy::RoutePolicyInput {
     let input =
         normalize_note_route_policy_input(input, |note_id| state.db.notes.exists(note_id)).await;
+    let input = normalize_credential_route_policy_input(input, |api_key_id| {
+        state.db.oauth.get_api_key(api_key_id)
+    })
+    .await;
     let input = normalize_attachment_route_policy_input(input, |attachment_id| async move {
         let Some(file_storage) = state.db.file_storage.as_ref() else {
             return Err(matric_core::Error::Config(
@@ -5272,6 +5276,117 @@ async fn normalize_route_policy_input_for_authorization(
         Ok(keyset.map(PkeKeysetResourceMetadata::from))
     })
     .await
+}
+
+#[derive(Clone, Debug)]
+struct ApiKeyResourceMetadata {
+    id: Uuid,
+    key_prefix: String,
+    name: String,
+    scope: String,
+    is_active: bool,
+    has_expiration: bool,
+    has_rate_limit: bool,
+}
+
+impl From<matric_core::ApiKey> for ApiKeyResourceMetadata {
+    fn from(api_key: matric_core::ApiKey) -> Self {
+        Self {
+            id: api_key.id,
+            key_prefix: api_key.key_prefix,
+            name: api_key.name,
+            scope: api_key.scope,
+            is_active: api_key.is_active,
+            has_expiration: api_key.expires_at.is_some(),
+            has_rate_limit: api_key.rate_limit_per_minute.is_some()
+                || api_key.rate_limit_per_hour.is_some(),
+        }
+    }
+}
+
+async fn normalize_credential_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    api_key_lookup: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(Uuid) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<matric_core::ApiKey>>>,
+{
+    if input.policy.action_family != "credential_management"
+        || input.resource.kind != ResourceKind::ApiKey
+        || input
+            .resource
+            .attrs
+            .get("resource_id_param")
+            .and_then(|value| value.as_str())
+            != Some("id")
+        || !input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        return input;
+    }
+
+    let Some(api_key_id) = input
+        .resource
+        .id
+        .as_deref()
+        .and_then(|id| Uuid::parse_str(id).ok())
+    else {
+        return input;
+    };
+
+    match api_key_lookup(api_key_id).await {
+        Ok(Some(api_key)) => {
+            let api_key = ApiKeyResourceMetadata::from(api_key);
+            route_policy::mark_resource_id_normalized(&mut input);
+            input
+                .resource
+                .attrs
+                .insert("api_key_id".to_string(), serde_json::json!(api_key.id));
+            input.resource.attrs.insert(
+                "api_key_prefix".to_string(),
+                serde_json::json!(api_key.key_prefix),
+            );
+            input
+                .resource
+                .attrs
+                .insert("api_key_name".to_string(), serde_json::json!(api_key.name));
+            input.resource.attrs.insert(
+                "api_key_scope".to_string(),
+                serde_json::json!(api_key.scope),
+            );
+            input.resource.attrs.insert(
+                "api_key_is_active".to_string(),
+                serde_json::json!(api_key.is_active),
+            );
+            input.resource.attrs.insert(
+                "api_key_has_expiration".to_string(),
+                serde_json::json!(api_key.has_expiration),
+            );
+            input.resource.attrs.insert(
+                "api_key_has_rate_limit".to_string(),
+                serde_json::json!(api_key.has_rate_limit),
+            );
+        }
+        Ok(None) => {
+            tracing::warn!("authorization resource normalization skipped: API key does not exist");
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "authorization API key normalization lookup failed");
+        }
+    }
+
+    input
 }
 
 async fn normalize_note_route_policy_input<F, Fut>(
@@ -22427,6 +22542,170 @@ mod tests {
             &RoleBasedPolicy,
             &normalized
         ));
+    }
+
+    fn test_api_key(id: Uuid) -> matric_core::ApiKey {
+        matric_core::ApiKey {
+            id,
+            key_prefix: "mm_key_abcd".to_string(),
+            name: "Operator key".to_string(),
+            description: Some("not-for-policy-metadata".to_string()),
+            scope: "admin".to_string(),
+            rate_limit_per_minute: Some(60),
+            rate_limit_per_hour: None,
+            last_used_at: None,
+            use_count: 3,
+            is_active: true,
+            expires_at: Some(chrono::Utc::now()),
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn existing_api_key_route_id_is_marked_normalized_with_safe_metadata() {
+        let api_key_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000012").unwrap();
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/api-keys/018fd1a0-0000-7000-8000-000000000012",
+            Some("tenant-a"),
+        )
+        .expect("api key revoke route has policy input");
+
+        let normalized = normalize_credential_route_policy_input(input, |lookup_id| async move {
+            assert_eq!(lookup_id, api_key_id);
+            Ok(Some(test_api_key(api_key_id)))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert_eq!(
+            normalized.resource.attrs["api_key_id"],
+            serde_json::json!(api_key_id)
+        );
+        assert_eq!(normalized.resource.attrs["api_key_prefix"], "mm_key_abcd");
+        assert_eq!(normalized.resource.attrs["api_key_name"], "Operator key");
+        assert_eq!(normalized.resource.attrs["api_key_scope"], "admin");
+        assert_eq!(normalized.resource.attrs["api_key_is_active"], true);
+        assert_eq!(normalized.resource.attrs["api_key_has_expiration"], true);
+        assert_eq!(normalized.resource.attrs["api_key_has_rate_limit"], true);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("api_key_description")
+            .is_none());
+        assert!(normalized.resource.attrs.get("api_key_hash").is_none());
+        assert!(normalized.resource.attrs.get("api_key_secret").is_none());
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_api_key_route_id_stays_unnormalized_after_backing_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/api-keys/018fd1a0-0000-7000-8000-000000000012",
+            Some("tenant-a"),
+        )
+        .expect("api key revoke route has policy input");
+
+        let normalized =
+            normalize_credential_route_policy_input(input, |_lookup_id| async move { Ok(None) })
+                .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("api_key_id").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn invalid_api_key_route_id_stays_unnormalized_without_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/api-keys/not-a-uuid",
+            Some("tenant-a"),
+        )
+        .expect("api key revoke route has policy input");
+
+        let normalized = normalize_credential_route_policy_input(input, |_lookup_id| async move {
+            panic!("invalid API key route IDs must not perform API key lookups");
+            #[allow(unreachable_code)]
+            Ok(Some(test_api_key(Uuid::new_v4())))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("api_key_id").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn api_key_normalization_lookup_error_preserves_fail_closed_guard() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/api-keys/018fd1a0-0000-7000-8000-000000000012",
+            Some("tenant-a"),
+        )
+        .expect("api key revoke route has policy input");
+
+        let normalized = normalize_credential_route_policy_input(input, |_lookup_id| async move {
+            Err(matric_core::Error::Internal("lookup failed".to_string()))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn api_key_collection_routes_do_not_run_id_lookup() {
+        let input =
+            route_policy::authorization_input_for_request(&Method::GET, "/api/v1/api-keys", None)
+                .expect("api key collection route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::ApiKey);
+        assert_eq!(input.resource.attrs["resource_id_source"], "route_template");
+
+        let normalized = normalize_credential_route_policy_input(input, |_lookup_id| async move {
+            panic!("api key collection routes must not perform API key lookups");
+            #[allow(unreachable_code)]
+            Ok(Some(test_api_key(Uuid::new_v4())))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert!(normalized.resource.attrs.get("api_key_id").is_none());
+    }
+
+    #[tokio::test]
+    async fn pke_keyset_routes_do_not_run_credential_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/pke/keysets/primary",
+            Some("tenant-a"),
+        )
+        .expect("PKE keyset route has policy input");
+        assert_eq!(input.policy.action_family, "pke_keyset");
+
+        let normalized = normalize_credential_route_policy_input(input, |_lookup_id| async move {
+            panic!("PKE keyset routes must not perform credential lookups");
+            #[allow(unreachable_code)]
+            Ok(Some(test_api_key(Uuid::new_v4())))
+        })
+        .await;
+
+        assert_eq!(normalized.policy.action_family, "pke_keyset");
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("api_key_id").is_none());
     }
 
     #[tokio::test]

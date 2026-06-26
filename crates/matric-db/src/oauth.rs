@@ -940,6 +940,37 @@ impl PgOAuthRepository {
             .collect())
     }
 
+    /// Get an API key by ID (without the actual key or hash).
+    pub async fn get_api_key(&self, id: Uuid) -> Result<Option<ApiKey>> {
+        let row = sqlx::query(
+            r#"SELECT
+                id, key_prefix, name, description, scope,
+                rate_limit_per_minute, rate_limit_per_hour,
+                last_used_at, use_count, is_active, expires_at, created_at
+            FROM api_key
+            WHERE id = $1"#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.map(|r| ApiKey {
+            id: r.get("id"),
+            key_prefix: r.get("key_prefix"),
+            name: r.get("name"),
+            description: r.get("description"),
+            scope: r.get("scope"),
+            rate_limit_per_minute: r.get("rate_limit_per_minute"),
+            rate_limit_per_hour: r.get("rate_limit_per_hour"),
+            last_used_at: r.get("last_used_at"),
+            use_count: r.get("use_count"),
+            is_active: r.get("is_active"),
+            expires_at: r.get("expires_at"),
+            created_at: r.get("created_at"),
+        }))
+    }
+
     /// Revoke an API key.
     pub async fn revoke_api_key(&self, id: Uuid) -> Result<bool> {
         let result =
