@@ -15475,7 +15475,10 @@ async fn get_job_pause_status(
 /// Pause all job processing globally.
 #[utoipa::path(post, path = "/api/v1/jobs/pause", tag = "Jobs",
     responses((status = 200, description = "Jobs paused globally")))]
-async fn pause_jobs_global(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+async fn pause_jobs_global(
+    auth: Auth,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
     let ps = state
         .pause_state
         .as_ref()
@@ -15486,6 +15489,14 @@ async fn pause_jobs_global(State(state): State<AppState>) -> Result<impl IntoRes
     state.event_bus.emit(ServerEvent::JobsPaused {
         scope: "global".to_string(),
     });
+    emit_job_queue_control_audit_event(job_queue_control_audit_event(
+        &auth,
+        "pause_global",
+        AuditOutcome::Success,
+        "global",
+        None,
+    ))
+    .await;
 
     Ok(Json(serde_json::json!({
         "status": "paused",
@@ -15496,7 +15507,10 @@ async fn pause_jobs_global(State(state): State<AppState>) -> Result<impl IntoRes
 /// Resume all job processing globally.
 #[utoipa::path(post, path = "/api/v1/jobs/resume", tag = "Jobs",
     responses((status = 200, description = "Jobs resumed globally")))]
-async fn resume_jobs_global(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+async fn resume_jobs_global(
+    auth: Auth,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
     let ps = state
         .pause_state
         .as_ref()
@@ -15507,6 +15521,14 @@ async fn resume_jobs_global(State(state): State<AppState>) -> Result<impl IntoRe
     state.event_bus.emit(ServerEvent::JobsResumed {
         scope: "global".to_string(),
     });
+    emit_job_queue_control_audit_event(job_queue_control_audit_event(
+        &auth,
+        "resume_global",
+        AuditOutcome::Success,
+        "global",
+        None,
+    ))
+    .await;
 
     Ok(Json(serde_json::json!({
         "status": "resumed",
@@ -15519,6 +15541,7 @@ async fn resume_jobs_global(State(state): State<AppState>) -> Result<impl IntoRe
     params(("archive" = String, Path, description = "Archive name to pause")),
     responses((status = 200, description = "Jobs paused for archive")))]
 async fn pause_jobs_archive(
+    auth: Auth,
     State(state): State<AppState>,
     Path(archive): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -15534,6 +15557,14 @@ async fn pause_jobs_archive(
     state.event_bus.emit(ServerEvent::JobsPaused {
         scope: format!("archive:{archive}"),
     });
+    emit_job_queue_control_audit_event(job_queue_control_audit_event(
+        &auth,
+        "pause_archive",
+        AuditOutcome::Success,
+        "archive",
+        Some(&archive),
+    ))
+    .await;
 
     Ok(Json(serde_json::json!({
         "status": "paused",
@@ -15547,6 +15578,7 @@ async fn pause_jobs_archive(
     params(("archive" = String, Path, description = "Archive name to resume")),
     responses((status = 200, description = "Jobs resumed for archive")))]
 async fn resume_jobs_archive(
+    auth: Auth,
     State(state): State<AppState>,
     Path(archive): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -15562,12 +15594,55 @@ async fn resume_jobs_archive(
     state.event_bus.emit(ServerEvent::JobsResumed {
         scope: format!("archive:{archive}"),
     });
+    emit_job_queue_control_audit_event(job_queue_control_audit_event(
+        &auth,
+        "resume_archive",
+        AuditOutcome::Success,
+        "archive",
+        Some(&archive),
+    ))
+    .await;
 
     Ok(Json(serde_json::json!({
         "status": "resumed",
         "scope": "archive",
         "archive": archive
     })))
+}
+
+async fn emit_job_queue_control_audit_event(event: AuditEvent) {
+    if let Err(err) = TracingSink.emit(event).await {
+        warn!(error = %err, "failed to emit job queue control audit event");
+    }
+}
+
+fn job_queue_control_audit_event(
+    auth: &Auth,
+    action: &str,
+    outcome: AuditOutcome,
+    scope: &str,
+    archive: Option<&str>,
+) -> AuditEvent {
+    let mut event = AuditEvent::new("jobs", action, outcome)
+        .with_principal(auth_principal_audit_id(&auth.principal))
+        .with_resource("job_queue", scope.to_string())
+        .with_attr("queue_scope", scope.to_string())
+        .with_attr("archive_name_present", archive.is_some());
+
+    if let Some(archive) = archive {
+        event = event.with_attr("archive_name_len", archive.chars().count() as i64);
+    }
+
+    event.source = AuditSource::Api;
+    event.visibility = AuditVisibilityClass::SecurityRestricted;
+    event.failure_policy = AuditFailurePolicy::BestEffort;
+    event.severity = match outcome {
+        AuditOutcome::Success => AuditSeverity::Info,
+        AuditOutcome::Denied => AuditSeverity::Warn,
+        AuditOutcome::Failure | AuditOutcome::Error => AuditSeverity::Error,
+        AuditOutcome::Unknown => AuditSeverity::Warn,
+    };
+    event.sanitized()
 }
 
 /// Get extraction job statistics.
@@ -25107,6 +25182,76 @@ mod tests {
 
         let serialized = serde_json::to_string(&event).expect("serialize audit event");
         assert!(!serialized.contains("CAunknown-secret-call-sid"));
+    }
+
+    #[test]
+    fn job_queue_control_audit_event_uses_metadata_only() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000501").unwrap(),
+                scope: "admin queue_secret=should-not-appear".to_string(),
+            },
+        };
+
+        let event = job_queue_control_audit_event(
+            &auth,
+            "pause_archive",
+            AuditOutcome::Success,
+            "archive",
+            Some("tenant-secret-archive"),
+        );
+
+        assert_eq!(event.category, "jobs");
+        assert_eq!(event.action, "pause_archive");
+        assert_eq!(event.outcome, AuditOutcome::Success);
+        assert_eq!(event.source, AuditSource::Api);
+        assert_eq!(event.visibility, AuditVisibilityClass::SecurityRestricted);
+        assert_eq!(event.severity, AuditSeverity::Info);
+        assert_eq!(event.resource_kind.as_deref(), Some("job_queue"));
+        assert_eq!(event.resource_id.as_deref(), Some("archive"));
+        assert_eq!(
+            event.principal_id.as_deref(),
+            Some("api_key:018fd1a0-0000-7000-8000-000000000501")
+        );
+        assert_eq!(event.attrs["queue_scope"], "archive");
+        assert_eq!(event.attrs["archive_name_present"], true);
+        assert_eq!(event.attrs["archive_name_len"], 21);
+
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("tenant-secret-archive"));
+        assert!(!serialized.contains("queue_secret=should-not-appear"));
+        assert!(!serialized.contains("archive:tenant-secret-archive"));
+        assert!(!serialized.contains("https://"));
+        assert!(!serialized.contains("payload"));
+    }
+
+    #[test]
+    fn job_queue_control_global_audit_event_has_no_archive_name() {
+        let auth = Auth {
+            principal: AuthPrincipal::OAuthClient {
+                client_id: "client-secret-should-redact".to_string(),
+                scope: "admin".to_string(),
+                user_id: Some("operator-1".to_string()),
+            },
+        };
+
+        let event = job_queue_control_audit_event(
+            &auth,
+            "resume_global",
+            AuditOutcome::Success,
+            "global",
+            None,
+        );
+
+        assert_eq!(event.resource_kind.as_deref(), Some("job_queue"));
+        assert_eq!(event.resource_id.as_deref(), Some("global"));
+        assert_eq!(event.principal_id.as_deref(), Some("oauth_user:operator-1"));
+        assert_eq!(event.attrs["queue_scope"], "global");
+        assert_eq!(event.attrs["archive_name_present"], false);
+        assert!(event.attrs.get("archive_name_len").is_none());
+
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("client-secret-should-redact"));
     }
 
     #[test]
