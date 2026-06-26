@@ -22171,7 +22171,7 @@ impl IntoResponse for ApiError {
 // =============================================================================
 
 /// Info about a single knowledge shard file
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct BackupShardInfo {
     filename: String,
     path: String,
@@ -22199,12 +22199,52 @@ struct BackupShardInfo {
     description: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+impl std::fmt::Debug for BackupShardInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackupShardInfo")
+            .field("filename_len", &self.filename.len())
+            .field("path_len", &self.path.len())
+            .field("size_bytes", &self.size_bytes)
+            .field("size_human_len", &self.size_human.len())
+            .field("modified", &self.modified)
+            .field("modified_iso_len", &self.modified_iso.len())
+            .field("shard_type_len", &self.shard_type.len())
+            .field(
+                "sha256_short_len",
+                &self.sha256_short.as_ref().map(|value| value.len()),
+            )
+            .field("sha256_len", &self.sha256.as_ref().map(|value| value.len()))
+            .field("manifest_set", &self.manifest.is_some())
+            .field(
+                "metadata_file_len",
+                &self.metadata_file.as_ref().map(|value| value.len()),
+            )
+            .field("title_len", &self.title.as_ref().map(|value| value.len()))
+            .field(
+                "description_len",
+                &self.description.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
+}
+
+#[derive(Serialize)]
 struct ListBackupArchivesResponse {
     backup_directory: String,
     shards: Vec<BackupShardInfo>,
     total_size_bytes: u64,
     total_size_human: String,
+}
+
+impl std::fmt::Debug for ListBackupArchivesResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ListBackupArchivesResponse")
+            .field("backup_directory_len", &self.backup_directory.len())
+            .field("shards_count", &self.shards.len())
+            .field("total_size_bytes", &self.total_size_bytes)
+            .field("total_size_human_len", &self.total_size_human.len())
+            .finish()
+    }
 }
 
 fn format_size(bytes: u64) -> String {
@@ -25164,6 +25204,84 @@ mod tests {
             "private restore notes",
             "sk-live-secret",
             "meta.json",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn backup_archive_list_debug_redacts_paths_metadata_and_manifest() {
+        let shard = BackupShardInfo {
+            filename: "snapshot-customer-mm_key_secret.tar.gz".to_string(),
+            path: "/srv/backups/customer/postgres://user:pass@db.internal/archive.tar.gz"
+                .to_string(),
+            size_bytes: 8192,
+            size_human: "8.0 KiB".to_string(),
+            modified: Utc::now(),
+            modified_iso: "2026-06-26T15:30:00Z".to_string(),
+            shard_type: "customer-private-shard".to_string(),
+            sha256_short: Some("deadbeefsecret0011".to_string()),
+            sha256: Some("sha256:sk-live-secret-full-digest".to_string()),
+            manifest: Some(ShardManifest {
+                version: "2026.6.0-private".to_string(),
+                matric_version: Some("2026.6.0-internal".to_string()),
+                format: "matric-shard-private".to_string(),
+                created_at: Utc::now(),
+                components: vec!["notes-private".to_string()],
+                counts: ShardCounts::default(),
+                checksums: [(
+                    "notes-private".to_string(),
+                    "sha256:manifest-secret-digest".to_string(),
+                )]
+                .into_iter()
+                .collect(),
+                min_reader_version: Some("2026.5.0-min-reader".to_string()),
+                migrated_from: Some("2025.12.0-customer".to_string()),
+                migration_history: vec![],
+            }),
+            metadata_file: Some("snapshot-customer-mm_key_secret.meta.json".to_string()),
+            title: Some("Customer payroll backup".to_string()),
+            description: Some("Restore from /srv/private with bearer token".to_string()),
+        };
+        let response = ListBackupArchivesResponse {
+            backup_directory: "/srv/backups/customer".to_string(),
+            shards: vec![shard],
+            total_size_bytes: 8192,
+            total_size_human: "8.0 KiB".to_string(),
+        };
+
+        let rendered_response = format!("{response:?}");
+        let rendered_shard = format!("{:?}", response.shards[0]);
+        let combined = format!("{rendered_response}\n{rendered_shard}");
+
+        assert!(rendered_response.contains("ListBackupArchivesResponse"));
+        assert!(rendered_response.contains("backup_directory_len"));
+        assert!(rendered_response.contains("shards_count"));
+        assert!(rendered_shard.contains("BackupShardInfo"));
+        assert!(rendered_shard.contains("filename_len"));
+        assert!(rendered_shard.contains("path_len"));
+        assert!(rendered_shard.contains("sha256_short_len"));
+        assert!(rendered_shard.contains("sha256_len"));
+        assert!(rendered_shard.contains("manifest_set"));
+        assert!(rendered_shard.contains("metadata_file_len"));
+        assert!(rendered_shard.contains("title_len"));
+        assert!(rendered_shard.contains("description_len"));
+
+        for raw in [
+            "snapshot-customer-mm_key_secret",
+            "/srv/backups/customer",
+            "postgres://user:pass",
+            "db.internal",
+            "customer-private-shard",
+            "deadbeefsecret0011",
+            "sha256:sk-live-secret-full-digest",
+            "2026.6.0-private",
+            "matric-shard-private",
+            "notes-private",
+            "sha256:manifest-secret-digest",
+            "Customer payroll backup",
+            "/srv/private",
+            "bearer token",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
