@@ -2742,6 +2742,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuidV7))
         .layer(axum::middleware::from_fn(problem_request_id_middleware))
+        .layer(axum::middleware::from_fn(security_headers_middleware))
         .layer({
             // Issue #462: Secure CORS configuration with origin whitelist
             let allowed_origins = parse_allowed_origins();
@@ -5056,6 +5057,118 @@ fn is_problem_details_response(response: &axum::response::Response) -> bool {
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|content_type| content_type.starts_with("application/problem+json"))
+}
+
+// =============================================================================
+// SECURITY RESPONSE HEADERS (#967)
+// =============================================================================
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SecurityHeaderClass {
+    ApiJson,
+    BrowserDocument,
+    DownloadOrMedia,
+    PublicProbe,
+}
+
+async fn security_headers_middleware(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let path = request.uri().path().to_string();
+    let mut response = next.run(request).await;
+    apply_security_headers(&path, &mut response);
+    response
+}
+
+fn apply_security_headers(path: &str, response: &mut axum::response::Response) {
+    let header_class = security_header_class(path, response);
+    let is_error = response.status().is_client_error() || response.status().is_server_error();
+    let headers = response.headers_mut();
+
+    headers
+        .entry("x-content-type-options")
+        .or_insert_with(|| HeaderValue::from_static("nosniff"));
+    headers
+        .entry("referrer-policy")
+        .or_insert_with(|| HeaderValue::from_static("no-referrer"));
+    headers.entry("permissions-policy").or_insert_with(|| {
+        HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+    });
+
+    match header_class {
+        SecurityHeaderClass::BrowserDocument => {
+            headers.entry("content-security-policy").or_insert_with(|| {
+                HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'")
+            });
+            headers
+                .entry("x-frame-options")
+                .or_insert_with(|| HeaderValue::from_static("DENY"));
+            headers
+                .entry("cross-origin-opener-policy")
+                .or_insert_with(|| HeaderValue::from_static("same-origin"));
+            headers
+                .entry("cross-origin-resource-policy")
+                .or_insert_with(|| HeaderValue::from_static("same-origin"));
+        }
+        SecurityHeaderClass::ApiJson | SecurityHeaderClass::PublicProbe => {
+            headers.entry("content-security-policy").or_insert_with(|| {
+                HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'")
+            });
+            headers
+                .entry("x-frame-options")
+                .or_insert_with(|| HeaderValue::from_static("DENY"));
+            headers
+                .entry("cross-origin-opener-policy")
+                .or_insert_with(|| HeaderValue::from_static("same-origin"));
+        }
+        SecurityHeaderClass::DownloadOrMedia => {
+            headers
+                .entry("cross-origin-resource-policy")
+                .or_insert_with(|| HeaderValue::from_static("same-origin"));
+        }
+    }
+
+    if is_error {
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    }
+}
+
+fn security_header_class(path: &str, response: &axum::response::Response) -> SecurityHeaderClass {
+    if path == "/health" || path.starts_with("/api/v1/health") {
+        return SecurityHeaderClass::PublicProbe;
+    }
+    if path.starts_with("/docs")
+        || path.starts_with("/swagger")
+        || path.starts_with("/oauth")
+        || path.ends_with(".html")
+    {
+        return SecurityHeaderClass::BrowserDocument;
+    }
+    if is_download_or_media_response(path, response) {
+        return SecurityHeaderClass::DownloadOrMedia;
+    }
+    SecurityHeaderClass::ApiJson
+}
+
+fn is_download_or_media_response(path: &str, response: &axum::response::Response) -> bool {
+    if path.ends_with("/download")
+        || response.headers().contains_key(header::CONTENT_DISPOSITION)
+        || response.headers().contains_key(header::ACCEPT_RANGES)
+    {
+        return true;
+    }
+
+    response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|content_type| {
+            content_type.starts_with("audio/")
+                || content_type.starts_with("video/")
+                || content_type.starts_with("image/")
+                || content_type == "text/vtt"
+        })
 }
 
 // =============================================================================
@@ -22105,6 +22218,77 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(parsed, serde_json::json!({"ok": true}));
+    }
+
+    #[test]
+    fn security_headers_for_api_problem_are_private_and_framing_protected() {
+        let mut response = problem_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ProblemType::Internal,
+            "An internal error occurred.".to_string(),
+            None,
+        );
+
+        apply_security_headers("/api/v1/notes", &mut response);
+        let headers = response.headers();
+
+        assert_eq!(headers["x-content-type-options"], "nosniff");
+        assert_eq!(headers["referrer-policy"], "no-referrer");
+        assert_eq!(headers["x-frame-options"], "DENY");
+        assert_eq!(
+            headers["content-security-policy"],
+            "default-src 'none'; frame-ancestors 'none'"
+        );
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    }
+
+    #[test]
+    fn security_headers_for_browser_docs_include_document_csp() {
+        let mut response = (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            "<html></html>",
+        )
+            .into_response();
+
+        apply_security_headers("/docs", &mut response);
+        let headers = response.headers();
+
+        assert_eq!(headers["x-content-type-options"], "nosniff");
+        assert_eq!(headers["x-frame-options"], "DENY");
+        assert_eq!(
+            headers["content-security-policy"],
+            "default-src 'self'; frame-ancestors 'none'"
+        );
+        assert_eq!(headers["cross-origin-opener-policy"], "same-origin");
+    }
+
+    #[test]
+    fn security_headers_for_downloads_do_not_apply_document_csp() {
+        let mut response = (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, "audio/wav"),
+                (
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=\"clip.wav\"",
+                ),
+            ],
+            vec![0_u8; 16],
+        )
+            .into_response();
+
+        apply_security_headers(
+            "/api/v1/attachments/018fd1a0-0000-7000-8000-000000000002/download",
+            &mut response,
+        );
+        let headers = response.headers();
+
+        assert_eq!(headers["x-content-type-options"], "nosniff");
+        assert_eq!(headers["referrer-policy"], "no-referrer");
+        assert_eq!(headers["cross-origin-resource-policy"], "same-origin");
+        assert!(!headers.contains_key("content-security-policy"));
+        assert!(!headers.contains_key("x-frame-options"));
     }
 
     #[tokio::test]
