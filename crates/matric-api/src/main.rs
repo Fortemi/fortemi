@@ -15098,7 +15098,7 @@ impl std::fmt::Debug for RelatedNote {
 }
 
 /// Query parameters for the related-notes endpoint.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct RelatedNotesQuery {
     /// Maximum related notes to return (default: 10, max: 50).
     limit: Option<i64>,
@@ -15107,6 +15107,16 @@ struct RelatedNotesQuery {
     /// Include an LLM-generated context summary (default: false).
     /// Requires an inference backend to be available.
     context_summary: Option<bool>,
+}
+
+impl fmt::Debug for RelatedNotesQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RelatedNotesQuery")
+            .field("limit", &self.limit)
+            .field("min_score", &self.min_score)
+            .field("context_summary", &self.context_summary)
+            .finish()
+    }
 }
 
 /// Response from the related-notes endpoint.
@@ -15406,7 +15416,7 @@ async fn get_note_provenance(
 // MEMORY SEARCH HANDLERS (Spatial/Temporal Provenance)
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct MemorySearchQuery {
     /// Latitude in decimal degrees (-90 to 90)
     lat: Option<f64>,
@@ -15418,6 +15428,18 @@ struct MemorySearchQuery {
     start: Option<crate::query_types::FlexibleDateTime>,
     /// End of time range (ISO 8601)
     end: Option<crate::query_types::FlexibleDateTime>,
+}
+
+impl fmt::Debug for MemorySearchQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemorySearchQuery")
+            .field("lat_set", &self.lat.is_some())
+            .field("lon_set", &self.lon.is_some())
+            .field("radius_set", &self.radius.is_some())
+            .field("start_set", &self.start.is_some())
+            .field("end_set", &self.end.is_some())
+            .finish()
+    }
 }
 
 /// Search memories by location, time, or both.
@@ -15851,11 +15873,19 @@ async fn get_note_version(
     }
 }
 
-#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
+#[derive(Default, Deserialize, utoipa::ToSchema)]
 struct RestoreVersionRequest {
     /// Whether to restore tags from the version snapshot (default: false)
     #[serde(default)]
     restore_tags: bool,
+}
+
+impl fmt::Debug for RestoreVersionRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RestoreVersionRequest")
+            .field("restore_tags", &self.restore_tags)
+            .finish()
+    }
 }
 
 /// Restore a previous version of a note.
@@ -15920,7 +15950,7 @@ async fn delete_note_version(
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct DiffVersionsQuery {
     /// Version to diff from
     #[serde(alias = "from_version")]
@@ -15928,6 +15958,15 @@ struct DiffVersionsQuery {
     /// Version to diff to
     #[serde(alias = "to_version")]
     to: i32,
+}
+
+impl fmt::Debug for DiffVersionsQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DiffVersionsQuery")
+            .field("from", &self.from)
+            .field("to", &self.to)
+            .finish()
+    }
 }
 
 /// Generate a diff between two versions.
@@ -37853,6 +37892,44 @@ mod tests {
         assert!(debug.contains("host_len"));
         assert!(debug.contains("port"));
         assert!(!debug.contains("10.42.7.19"));
+    }
+
+    #[test]
+    fn memory_search_query_debug_redacts_coordinates_and_times() {
+        let query = MemorySearchQuery {
+            lat: Some(40.712776),
+            lon: Some(-74.005974),
+            radius: Some(2500.5),
+            start: Some(crate::query_types::FlexibleDateTime(
+                chrono::DateTime::parse_from_rfc3339("2026-06-26T14:33:39-04:00")
+                    .expect("valid fixture timestamp")
+                    .with_timezone(&chrono::Utc),
+            )),
+            end: Some(crate::query_types::FlexibleDateTime(
+                chrono::DateTime::parse_from_rfc3339("2026-06-27T09:10:11-04:00")
+                    .expect("valid fixture timestamp")
+                    .with_timezone(&chrono::Utc),
+            )),
+        };
+
+        let debug = format!("{query:?}");
+
+        assert!(debug.contains("lat_set: true"));
+        assert!(debug.contains("lon_set: true"));
+        assert!(debug.contains("radius_set: true"));
+        assert!(debug.contains("start_set: true"));
+        assert!(debug.contains("end_set: true"));
+        for raw in [
+            "40.712776",
+            "-74.005974",
+            "2500.5",
+            "2026-06-26",
+            "14:33:39",
+            "2026-06-27",
+            "09:10:11",
+        ] {
+            assert!(!debug.contains(raw), "raw value leaked: {raw}");
+        }
     }
 
     #[test]
