@@ -24937,8 +24937,8 @@ async fn memory_backup_download(
         .map_err(|e| backup_operation_failed("Memory backup", "look up memory archive", e))?
         .ok_or_else(memory_not_found)?;
 
-    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
-    let filename = format!("memory_{}_{}.sql.gz", name, timestamp);
+    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
+    let filename = memory_backup_download_filename(&name, &timestamp);
 
     // Run pg_dump with --schema to export only this memory's schema
     let output = std::process::Command::new("pg_dump")
@@ -25334,6 +25334,14 @@ fn database_restore_success_message() -> String {
 
 fn backup_response_filename_metadata(filename: &str) -> String {
     format!("filename_len:{}", telemetry_text_len(filename))
+}
+
+fn memory_backup_download_filename(memory_name: &str, timestamp: &str) -> String {
+    format!(
+        "memory_name_len_{}_{}.sql.gz",
+        telemetry_text_len(memory_name),
+        timestamp
+    )
 }
 
 /// Restore a backup into a specific memory using DROP SCHEMA CASCADE.
@@ -28469,6 +28477,30 @@ mod tests {
             "mm_key_backup_secret",
         ] {
             assert!(!output.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn memory_backup_download_filename_uses_metadata_only() {
+        let memory_name = "customer-private-mm_key_memory-postgres://user:pass@db.internal";
+        let filename = memory_backup_download_filename(memory_name, "20260626_183500");
+        let content_disposition = format!("attachment; filename=\"{}\"", filename);
+
+        assert!(filename.starts_with("memory_name_len_"));
+        assert!(filename.ends_with("_20260626_183500.sql.gz"));
+        assert!(HeaderValue::from_str(&content_disposition).is_ok());
+        for raw in [
+            "customer-private",
+            "mm_key_memory",
+            "postgres://user:pass",
+            "db.internal",
+            memory_name,
+        ] {
+            assert!(!filename.contains(raw), "raw value leaked: {raw}");
+            assert!(
+                !content_disposition.contains(raw),
+                "raw value leaked: {raw}"
+            );
         }
     }
 
