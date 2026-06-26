@@ -40,6 +40,8 @@ const METADATA_EXTRACTION_JOB_FAILURE: &str =
 const DOCUMENT_TYPE_INFERENCE_JOB_FAILURE: &str =
     "Document type inference failed. Check server logs for diagnostics.";
 const EMBEDDING_JOB_FAILURE: &str = "Embedding job failed. Check server logs for diagnostics.";
+const TITLE_GENERATION_JOB_FAILURE: &str =
+    "Title generation failed. Check server logs for diagnostics.";
 
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
@@ -114,6 +116,18 @@ fn embedding_job_failure(error: impl std::fmt::Display, operation: &'static str)
         operation, "Embedding job failed"
     );
     JobResult::Failed(EMBEDDING_JOB_FAILURE.to_string())
+}
+
+fn title_generation_job_failure(
+    error: impl std::fmt::Display,
+    operation: &'static str,
+) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "Title generation job failed"
+    );
+    JobResult::Failed(TITLE_GENERATION_JOB_FAILURE.to_string())
 }
 
 /// Extract the target schema from a job's payload.
@@ -2302,7 +2316,7 @@ Content:
                         "reason": "fast_model_failed"
                     })));
                 }
-                return JobResult::Failed(format!("Title generation failed: {}", e));
+                return title_generation_job_failure(e, "generate_title");
             }
         };
 
@@ -2311,7 +2325,7 @@ Content:
         // Save the title
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return title_generation_job_failure(e, "save_title_begin_tx"),
         };
         if let Err(e) = self
             .db
@@ -2319,10 +2333,10 @@ Content:
             .update_title_tx(&mut tx, note_id, &title)
             .await
         {
-            return JobResult::Failed(format!("Failed to save title: {}", e));
+            return title_generation_job_failure(e, "save_title");
         }
         if let Err(e) = tx.commit().await {
-            return JobResult::Failed(format!("Commit failed: {}", e));
+            return title_generation_job_failure(e, "save_title_commit");
         }
 
         // Complete provenance activity (#430)
@@ -7940,6 +7954,29 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("/srv/fortemi"));
                 assert!(!message.contains("SQLSTATE"));
                 assert!(!message.contains("embedding provider failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn title_generation_job_failure_uses_generic_stored_message() {
+        let result = title_generation_job_failure(
+            "title provider failed at https://token:secret@provider.internal/v1; database postgres://user:secret@db.internal/app from /srv/fortemi SQLSTATE 23505",
+            "save_title",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, TITLE_GENERATION_JOB_FAILURE);
+                assert!(!message.contains("token:secret"));
+                assert!(!message.contains("provider.internal"));
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("title provider failed"));
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
