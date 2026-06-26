@@ -1558,7 +1558,7 @@ fn json_value_class(value: &JsonValue) -> &'static str {
 // =============================================================================
 
 /// Governance statistics for a concept scheme.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosGovernanceStats {
     pub scheme_id: Uuid,
     pub scheme_notation: String,
@@ -1574,12 +1574,31 @@ pub struct SkosGovernanceStats {
     pub max_depth: i32,
 }
 
+impl fmt::Debug for SkosGovernanceStats {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosGovernanceStats")
+            .field("scheme_id_set", &true)
+            .field("scheme_notation_len", &self.scheme_notation.len())
+            .field("scheme_title_len", &self.scheme_title.len())
+            .field("total_concepts", &self.total_concepts)
+            .field("candidates", &self.candidates)
+            .field("approved", &self.approved)
+            .field("deprecated", &self.deprecated)
+            .field("orphans", &self.orphans)
+            .field("under_used", &self.under_used)
+            .field("missing_embeddings", &self.missing_embeddings)
+            .field("avg_note_count", &self.avg_note_count)
+            .field("max_depth", &self.max_depth)
+            .finish()
+    }
+}
+
 // =============================================================================
 // SEARCH AND FILTERING
 // =============================================================================
 
 /// Request to search/filter concepts.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SearchConceptsRequest {
     /// Text query (searches labels).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1622,6 +1641,23 @@ pub struct SearchConceptsRequest {
     pub offset: i64,
 }
 
+impl fmt::Debug for SearchConceptsRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SearchConceptsRequest")
+            .field("query_len", &self.query.as_ref().map(|value| value.len()))
+            .field("scheme_id_set", &self.scheme_id.is_some())
+            .field("status", &self.status)
+            .field("facet_type", &self.facet_type)
+            .field("max_depth", &self.max_depth)
+            .field("top_concepts_only", &self.top_concepts_only)
+            .field("has_antipattern", &self.has_antipattern)
+            .field("include_deprecated", &self.include_deprecated)
+            .field("limit", &self.limit)
+            .field("offset", &self.offset)
+            .finish()
+    }
+}
+
 fn default_limit() -> i64 {
     50
 }
@@ -1644,12 +1680,23 @@ impl Default for SearchConceptsRequest {
 }
 
 /// Response for concept search.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SearchConceptsResponse {
     pub concepts: Vec<SkosConceptWithLabel>,
     pub total: i64,
     pub limit: i64,
     pub offset: i64,
+}
+
+impl fmt::Debug for SearchConceptsResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SearchConceptsResponse")
+            .field("concept_count", &self.concepts.len())
+            .field("total", &self.total)
+            .field("limit", &self.limit)
+            .field("offset", &self.offset)
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -2914,6 +2961,129 @@ mod tests {
                 "dddddddd-4444-4555-8666-dddddddddddd",
                 "/srv/fortemi/private/merge",
                 "sk-secret-merge",
+            ],
+        );
+    }
+
+    #[test]
+    fn skos_governance_and_search_debug_redacts_queries_schemes_and_results() {
+        let scheme_id = Uuid::parse_str("aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa").unwrap();
+        let concept_id = Uuid::parse_str("bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb").unwrap();
+        let now = Utc::now();
+
+        let stats = SkosGovernanceStats {
+            scheme_id,
+            scheme_notation: "governance-secret@example.internal".to_string(),
+            scheme_title: "Governance title postgres://gov:secret@db.internal".to_string(),
+            total_concepts: 11,
+            candidates: 2,
+            approved: 7,
+            deprecated: 1,
+            orphans: 1,
+            under_used: 3,
+            missing_embeddings: 4,
+            avg_note_count: 2.5,
+            max_depth: 3,
+        };
+        let request = SearchConceptsRequest {
+            query: Some(
+                "search owner@example.internal /srv/fortemi/private sk-secret-query".to_string(),
+            ),
+            scheme_id: Some(scheme_id),
+            status: Some(TagStatus::Candidate),
+            facet_type: Some(PmestFacet::Space),
+            max_depth: Some(4),
+            top_concepts_only: true,
+            has_antipattern: Some(TagAntipattern::UnderUsed),
+            include_deprecated: true,
+            limit: 25,
+            offset: 5,
+        };
+        let response = SearchConceptsResponse {
+            concepts: vec![SkosConceptWithLabel {
+                concept: SkosConcept {
+                    id: concept_id,
+                    primary_scheme_id: scheme_id,
+                    uri: Some("https://concept.example.internal?token=secret".to_string()),
+                    notation: Some("result-notation-secret".to_string()),
+                    facet_type: Some(PmestFacet::Matter),
+                    facet_source: Some(
+                        "result source postgres://result:secret@db.internal".to_string(),
+                    ),
+                    facet_domain: Some("result domain /srv/fortemi/private/result".to_string()),
+                    facet_scope: Some("result scope sk-secret-result".to_string()),
+                    status: TagStatus::Approved,
+                    promoted_at: Some(now),
+                    deprecated_at: None,
+                    deprecation_reason: None,
+                    replaced_by_id: None,
+                    note_count: 5,
+                    first_used_at: Some(now),
+                    last_used_at: Some(now),
+                    depth: 1,
+                    broader_count: 0,
+                    narrower_count: 2,
+                    related_count: 1,
+                    antipatterns: Vec::new(),
+                    antipattern_checked_at: Some(now),
+                    created_at: now,
+                    updated_at: now,
+                    embedding_model: Some("embedding-secret@example.internal".to_string()),
+                    embedded_at: Some(now),
+                },
+                pref_label: Some("Result label owner@example.internal".to_string()),
+                label_language: Some("en-secret-result".to_string()),
+                scheme_notation: Some("result-scheme-secret".to_string()),
+                scheme_title: Some("Result scheme title sk-secret-scheme".to_string()),
+            }],
+            total: 1,
+            limit: 25,
+            offset: 5,
+        };
+
+        let stats_debug = format!("{stats:?}");
+        assert!(stats_debug.contains("SkosGovernanceStats"));
+        assert!(stats_debug.contains("scheme_notation_len"));
+        assert_debug_excludes(
+            &stats_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "governance-secret@example.internal",
+                "postgres://gov:secret@db.internal",
+            ],
+        );
+
+        let request_debug = format!("{request:?}");
+        assert!(request_debug.contains("SearchConceptsRequest"));
+        assert!(request_debug.contains("query_len"));
+        assert_debug_excludes(
+            &request_debug,
+            &[
+                "owner@example.internal",
+                "/srv/fortemi/private",
+                "sk-secret-query",
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+            ],
+        );
+
+        let response_debug = format!("{response:?}");
+        assert!(response_debug.contains("SearchConceptsResponse"));
+        assert!(response_debug.contains("concept_count"));
+        assert_debug_excludes(
+            &response_debug,
+            &[
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "https://concept.example.internal?token=secret",
+                "result-notation-secret",
+                "postgres://result:secret@db.internal",
+                "/srv/fortemi/private/result",
+                "sk-secret-result",
+                "embedding-secret@example.internal",
+                "Result label owner@example.internal",
+                "en-secret-result",
+                "result-scheme-secret",
+                "sk-secret-scheme",
             ],
         );
     }
