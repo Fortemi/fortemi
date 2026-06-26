@@ -37,6 +37,13 @@ impl Sidecar {
     }
 }
 
+fn sidecar_kind(sidecar: Sidecar) -> &'static str {
+    match sidecar {
+        Sidecar::Whisper => "whisper",
+        Sidecar::Pyannote => "pyannote",
+    }
+}
+
 /// All GPU-consuming sidecars.
 pub const ALL_SIDECARS: &[Sidecar] = &[Sidecar::Whisper, Sidecar::Pyannote];
 
@@ -152,7 +159,7 @@ impl DockerSidecarController {
             match client.get(&url).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     info!(
-                        sidecar = ?sidecar,
+                        sidecar_kind = sidecar_kind(sidecar),
                         elapsed_ms = start.elapsed().as_millis(),
                         "Sidecar health check passed"
                     );
@@ -165,9 +172,9 @@ impl DockerSidecarController {
         }
 
         Err(format!(
-            "Sidecar {:?} health check timed out after {}s",
-            sidecar,
-            self.health_timeout.as_secs()
+            "Sidecar health check timed out after {}s; sidecar_kind={}",
+            self.health_timeout.as_secs(),
+            sidecar_kind(sidecar)
         ))
     }
 }
@@ -176,18 +183,27 @@ impl DockerSidecarController {
 impl SidecarController for DockerSidecarController {
     async fn start(&self, sidecar: Sidecar) -> Result<(), String> {
         let service = sidecar.service_name();
-        info!(sidecar = service, "Starting sidecar for audio tier");
+        info!(
+            sidecar_kind = sidecar_kind(sidecar),
+            "Starting sidecar for audio tier"
+        );
 
         self.run_compose("start", service).await?;
         self.wait_for_health(sidecar).await?;
 
-        info!(sidecar = service, "Sidecar started and healthy");
+        info!(
+            sidecar_kind = sidecar_kind(sidecar),
+            "Sidecar started and healthy"
+        );
         Ok(())
     }
 
     async fn stop(&self, sidecar: Sidecar) -> Result<(), String> {
         let service = sidecar.service_name();
-        info!(sidecar = service, "Stopping sidecar to free VRAM");
+        info!(
+            sidecar_kind = sidecar_kind(sidecar),
+            "Stopping sidecar to free VRAM"
+        );
 
         // Use timeout flag for graceful shutdown
         let mut args = self.compose_args();
@@ -210,7 +226,7 @@ impl SidecarController for DockerSidecarController {
         if !output.status.success() {
             let stderr_reason = sidecar_stderr_reason_code(&output.stderr);
             warn!(
-                sidecar = service,
+                sidecar_kind = sidecar_kind(sidecar),
                 status_code = ?output.status.code(),
                 stderr_len = output.stderr.len(),
                 stderr_reason,
@@ -218,7 +234,7 @@ impl SidecarController for DockerSidecarController {
             );
         }
 
-        info!(sidecar = service, "Sidecar stopped");
+        info!(sidecar_kind = sidecar_kind(sidecar), "Sidecar stopped");
         Ok(())
     }
 
@@ -307,7 +323,8 @@ fn sidecar_command_failure_detail(
     stderr: &[u8],
 ) -> String {
     format!(
-        "{command} {action} {service} failed; status={}; stderr_len={}; stderr_reason={}",
+        "{command} {action} failed; service_len={}; status={}; stderr_len={}; stderr_reason={}",
+        service.chars().count(),
         status_code
             .map(|code| code.to_string())
             .unwrap_or_else(|| "signal".to_string()),
@@ -337,7 +354,7 @@ pub async fn start_all_sidecars(controller: &dyn SidecarController) {
     for sidecar in ALL_SIDECARS {
         if let Err(e) = controller.start(*sidecar).await {
             warn!(
-                sidecar = ?sidecar,
+                sidecar_kind = sidecar_kind(*sidecar),
                 error_len = e.len(),
                 error_reason = sidecar_lifecycle_error_reason_code(&e),
                 "Failed to start sidecar — audio jobs may fail"
@@ -351,7 +368,7 @@ pub async fn stop_all_sidecars(controller: &dyn SidecarController) {
     for sidecar in ALL_SIDECARS {
         if let Err(e) = controller.stop(*sidecar).await {
             warn!(
-                sidecar = ?sidecar,
+                sidecar_kind = sidecar_kind(*sidecar),
                 error_len = e.len(),
                 error_reason = sidecar_lifecycle_error_reason_code(&e),
                 "Failed to stop sidecar — VRAM may not be freed"
@@ -370,10 +387,12 @@ mod tests {
         let detail =
             sidecar_command_failure_detail("docker compose", "start", "whisper", Some(1), stderr);
 
-        assert!(detail.contains("docker compose start whisper failed"));
+        assert!(detail.contains("docker compose start failed"));
+        assert!(detail.contains("service_len=7"));
         assert!(detail.contains("status=1"));
         assert!(detail.contains("stderr_len="));
         assert!(detail.contains("stderr_reason=permission_denied"));
+        assert!(!detail.contains("whisper"));
         assert!(!detail.contains("secret"));
         assert!(!detail.contains("postgres://"));
         assert!(!detail.contains("/home/operator"));
@@ -423,5 +442,25 @@ mod tests {
             sidecar_lifecycle_error_reason_code("opaque backend text with token mm_key_secret"),
             "operation_failed"
         );
+    }
+
+    #[test]
+    fn sidecar_runtime_telemetry_helpers_redact_private_values() {
+        let raw_error =
+            "docker compose start private-sidecar failed for postgres://user:pass@db.internal/mm_key";
+        let rendered = format!(
+            "sidecar_kind={}; error_len={}; error_reason={}",
+            sidecar_kind(Sidecar::Whisper),
+            raw_error.len(),
+            sidecar_lifecycle_error_reason_code(raw_error)
+        );
+
+        assert!(rendered.contains("sidecar_kind=whisper"));
+        assert!(rendered.contains("error_len="));
+        assert!(rendered.contains("error_reason=operation_failed"));
+        assert!(!rendered.contains("private-sidecar"));
+        assert!(!rendered.contains("postgres://user:pass"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("mm_key"));
     }
 }
