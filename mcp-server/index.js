@@ -15,6 +15,11 @@ import path from "node:path";
 import os from "node:os";
 import tools from "./tools.js";
 import { formatFortemiApiError, formatMcpReauthorizationError } from "./lib/api-errors.js";
+import {
+  pushSafeAuthCurlHeader,
+  sanitizeMcpOutput,
+  sanitizeMcpText,
+} from "./lib/output-sanitizer.js";
 // execSync removed — all PKE operations now use HTTP API instead of CLI binary
 import * as DEFAULTS from "./constants/defaults.js";
 
@@ -284,7 +289,7 @@ function createMcpServer() {
             const sessionTok = tokenStorage.getStore()?.token;
             const authTok = sessionTok || API_KEY;
             if (authTok) {
-              curlParts.push(`-H "Authorization: Bearer ${authTok}"`);
+              pushSafeAuthCurlHeader(curlParts);
             }
             const sessId = tokenStorage.getStore()?.sessionId;
             const actMem = sessId ? sessionMemories.get(sessId) : null;
@@ -1363,9 +1368,9 @@ function createMcpServer() {
           const bdCurlParts = [`curl -o "${bdOutputFile}"`];
           const bdToken = tokenStorage.getStore()?.token;
           if (bdToken) {
-            bdCurlParts.push(`-H "Authorization: Bearer ${bdToken}"`);
+            pushSafeAuthCurlHeader(bdCurlParts);
           } else if (API_KEY) {
-            bdCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            pushSafeAuthCurlHeader(bdCurlParts);
           }
           const bdSid = tokenStorage.getStore()?.sessionId;
           const bdMem = bdSid ? sessionMemories.get(bdSid) : null;
@@ -1394,9 +1399,9 @@ function createMcpServer() {
           biCurlParts.push(`-H "Content-Type: application/json"`);
           const biToken = tokenStorage.getStore()?.token;
           if (biToken) {
-            biCurlParts.push(`-H "Authorization: Bearer ${biToken}"`);
+            pushSafeAuthCurlHeader(biCurlParts);
           } else if (API_KEY) {
-            biCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            pushSafeAuthCurlHeader(biCurlParts);
           }
           const biSid = tokenStorage.getStore()?.sessionId;
           const biMem = biSid ? sessionMemories.get(biSid) : null;
@@ -1433,9 +1438,9 @@ function createMcpServer() {
           const shardCurlParts = [`curl -o "${shardOutputFile}"`];
           const shardToken = tokenStorage.getStore()?.token;
           if (shardToken) {
-            shardCurlParts.push(`-H "Authorization: Bearer ${shardToken}"`);
+            pushSafeAuthCurlHeader(shardCurlParts);
           } else if (API_KEY) {
-            shardCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            pushSafeAuthCurlHeader(shardCurlParts);
           }
           const shardSid = tokenStorage.getStore()?.sessionId;
           const shardMem = shardSid ? sessionMemories.get(shardSid) : null;
@@ -1466,9 +1471,9 @@ function createMcpServer() {
           const ksiCurlParts = [`curl -X POST`];
           const ksiToken = tokenStorage.getStore()?.token;
           if (ksiToken) {
-            ksiCurlParts.push(`-H "Authorization: Bearer ${ksiToken}"`);
+            pushSafeAuthCurlHeader(ksiCurlParts);
           } else if (API_KEY) {
-            ksiCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            pushSafeAuthCurlHeader(ksiCurlParts);
           }
           const ksiSid = tokenStorage.getStore()?.sessionId;
           const ksiMem = ksiSid ? sessionMemories.get(ksiSid) : null;
@@ -1521,9 +1526,9 @@ function createMcpServer() {
           const kaCurlParts = [`curl -o "${kaOutputFile}"`];
           const kaToken = tokenStorage.getStore()?.token;
           if (kaToken) {
-            kaCurlParts.push(`-H "Authorization: Bearer ${kaToken}"`);
+            pushSafeAuthCurlHeader(kaCurlParts);
           } else if (API_KEY) {
-            kaCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            pushSafeAuthCurlHeader(kaCurlParts);
           }
           kaCurlParts.push(`"${kaDownloadUrl}"`);
           result = {
@@ -1544,9 +1549,9 @@ function createMcpServer() {
 
           const kauToken = tokenStorage.getStore()?.token;
           if (kauToken) {
-            kauCurlParts.push(`-H "Authorization: Bearer ${kauToken}"`);
+            pushSafeAuthCurlHeader(kauCurlParts);
           } else if (API_KEY) {
-            kauCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            pushSafeAuthCurlHeader(kauCurlParts);
           }
           const kauSid = tokenStorage.getStore()?.sessionId;
           const kauMem = kauSid ? sessionMemories.get(kauSid) : null;
@@ -2868,7 +2873,7 @@ function createMcpServer() {
             const maSessionToken = tokenStorage.getStore()?.token;
             const maAuthToken = maSessionToken || API_KEY;
             if (maAuthToken) {
-              maCurlParts.push(`-H "Authorization: Bearer ${maAuthToken}"`);
+              pushSafeAuthCurlHeader(maCurlParts);
             }
             const maSid = tokenStorage.getStore()?.sessionId;
             const maActiveMem = maSid ? sessionMemories.get(maSid) : null;
@@ -2896,8 +2901,8 @@ function createMcpServer() {
             if (result && result.id) {
               const maGetCurlParts = [`curl -o "${result.filename || result.original_filename || `attachment-${result.id}`}"`];
               const maGetToken = tokenStorage.getStore()?.token;
-              if (maGetToken) maGetCurlParts.push(`-H "Authorization: Bearer ${maGetToken}"`);
-              else if (API_KEY) maGetCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+              if (maGetToken) pushSafeAuthCurlHeader(maGetCurlParts);
+              else if (API_KEY) pushSafeAuthCurlHeader(maGetCurlParts);
               const maGetSid = tokenStorage.getStore()?.sessionId;
               const maGetMem = maGetSid ? sessionMemories.get(maGetSid) : null;
               if (maGetMem) maGetCurlParts.push(`-H "X-Fortemi-Memory: ${maGetMem}"`);
@@ -2914,8 +2919,8 @@ function createMcpServer() {
             const maOutputFilename = maMeta?.filename || maMeta?.original_filename || `attachment-${args.id}`;
             const maDlCurlParts = [`curl -o "${maOutputFilename}"`];
             const maDlToken = tokenStorage.getStore()?.token;
-            if (maDlToken) maDlCurlParts.push(`-H "Authorization: Bearer ${maDlToken}"`);
-            else if (API_KEY) maDlCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            if (maDlToken) pushSafeAuthCurlHeader(maDlCurlParts);
+            else if (API_KEY) pushSafeAuthCurlHeader(maDlCurlParts);
             const maDlSid = tokenStorage.getStore()?.sessionId;
             const maDlMem = maDlSid ? sessionMemories.get(maDlSid) : null;
             if (maDlMem) maDlCurlParts.push(`-H "X-Fortemi-Memory: ${maDlMem}"`);
@@ -2959,7 +2964,7 @@ function createMcpServer() {
           const sessionToken = tokenStorage.getStore()?.token;
           const authToken = sessionToken || API_KEY;
           if (authToken) {
-            curlParts.push(`-H "Authorization: Bearer ${authToken}"`);
+            pushSafeAuthCurlHeader(curlParts);
           }
 
           // Add memory header if set
@@ -2996,8 +3001,8 @@ function createMcpServer() {
           if (result && result.id) {
             const gaGetCurlParts = [`curl -o "${result.filename || result.original_filename || `attachment-${result.id}`}"`];
             const gaGetToken = tokenStorage.getStore()?.token;
-            if (gaGetToken) gaGetCurlParts.push(`-H "Authorization: Bearer ${gaGetToken}"`);
-            else if (API_KEY) gaGetCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            if (gaGetToken) pushSafeAuthCurlHeader(gaGetCurlParts);
+            else if (API_KEY) pushSafeAuthCurlHeader(gaGetCurlParts);
             const gaGetSid = tokenStorage.getStore()?.sessionId;
             const gaGetMem = gaGetSid ? sessionMemories.get(gaGetSid) : null;
             if (gaGetMem) gaGetCurlParts.push(`-H "X-Fortemi-Memory: ${gaGetMem}"`);
@@ -3015,8 +3020,8 @@ function createMcpServer() {
           const outputFilename = meta?.filename || meta?.original_filename || `attachment-${args.id}`;
           const daCurlParts = [`curl -o "${outputFilename}"`];
           const daToken = tokenStorage.getStore()?.token;
-          if (daToken) daCurlParts.push(`-H "Authorization: Bearer ${daToken}"`);
-          else if (API_KEY) daCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+          if (daToken) pushSafeAuthCurlHeader(daCurlParts);
+          else if (API_KEY) pushSafeAuthCurlHeader(daCurlParts);
           const daSid = tokenStorage.getStore()?.sessionId;
           const daMem = daSid ? sessionMemories.get(daSid) : null;
           if (daMem) daCurlParts.push(`-H "X-Fortemi-Memory: ${daMem}"`);
@@ -3176,9 +3181,9 @@ function createMcpServer() {
           const memCurlParts = [`curl -o "${memFilename}"`];
           const memToken = tokenStorage.getStore()?.token;
           if (memToken) {
-            memCurlParts.push(`-H "Authorization: Bearer ${memToken}"`);
+            pushSafeAuthCurlHeader(memCurlParts);
           } else if (API_KEY) {
-            memCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            pushSafeAuthCurlHeader(memCurlParts);
           }
           memCurlParts.push(`"${memDownloadUrl}"`);
           result = {
@@ -3423,8 +3428,8 @@ function createMcpServer() {
             const shardOutputFile = args.output_dir ? `${args.output_dir}/${shardFilename}` : shardFilename;
             const shardCurlParts = [`curl -o "${shardOutputFile}"`];
             const shardToken = tokenStorage.getStore()?.token;
-            if (shardToken) shardCurlParts.push(`-H "Authorization: Bearer ${shardToken}"`);
-            else if (API_KEY) shardCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            if (shardToken) pushSafeAuthCurlHeader(shardCurlParts);
+            else if (API_KEY) pushSafeAuthCurlHeader(shardCurlParts);
             const shardSid = tokenStorage.getStore()?.sessionId;
             const shardMem = shardSid ? sessionMemories.get(shardSid) : null;
             if (shardMem) shardCurlParts.push(`-H "X-Fortemi-Memory: ${shardMem}"`);
@@ -3445,8 +3450,8 @@ function createMcpServer() {
             const ksiUrl = `${PUBLIC_URL}/api/v1/backup/knowledge-shard/upload?on_conflict=${ksiConflict}&dry_run=${ksiDryRun}&skip_embedding_regen=${ksiSkipEmbed}${ksiIncludeParam}`;
             const ksiCurlParts = [`curl -X POST`];
             const ksiToken = tokenStorage.getStore()?.token;
-            if (ksiToken) ksiCurlParts.push(`-H "Authorization: Bearer ${ksiToken}"`);
-            else if (API_KEY) ksiCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            if (ksiToken) pushSafeAuthCurlHeader(ksiCurlParts);
+            else if (API_KEY) pushSafeAuthCurlHeader(ksiCurlParts);
             const ksiSid = tokenStorage.getStore()?.sessionId;
             const ksiMem = ksiSid ? sessionMemories.get(ksiSid) : null;
             if (ksiMem) ksiCurlParts.push(`-H "X-Fortemi-Memory: ${ksiMem}"`);
@@ -3483,8 +3488,8 @@ function createMcpServer() {
             const kaOutputFile = args.output_dir ? `${args.output_dir}/${args.filename}` : args.filename;
             const kaCurlParts = [`curl -o "${kaOutputFile}"`];
             const kaToken = tokenStorage.getStore()?.token;
-            if (kaToken) kaCurlParts.push(`-H "Authorization: Bearer ${kaToken}"`);
-            else if (API_KEY) kaCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            if (kaToken) pushSafeAuthCurlHeader(kaCurlParts);
+            else if (API_KEY) pushSafeAuthCurlHeader(kaCurlParts);
             kaCurlParts.push(`"${kaDownloadUrl}"`);
             result = {
               download_url: kaDownloadUrl,
@@ -3498,8 +3503,8 @@ function createMcpServer() {
             const kauCurlParts = [`curl -X POST`];
             kauCurlParts.push(`-F "file=@${kauFilePath}"`);
             const kauToken = tokenStorage.getStore()?.token;
-            if (kauToken) kauCurlParts.push(`-H "Authorization: Bearer ${kauToken}"`);
-            else if (API_KEY) kauCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            if (kauToken) pushSafeAuthCurlHeader(kauCurlParts);
+            else if (API_KEY) pushSafeAuthCurlHeader(kauCurlParts);
             const kauSid = tokenStorage.getStore()?.sessionId;
             const kauMem = kauSid ? sessionMemories.get(kauSid) : null;
             if (kauMem) kauCurlParts.push(`-H "X-Fortemi-Memory: ${kauMem}"`);
@@ -3522,8 +3527,8 @@ function createMcpServer() {
             const memFilename = `memory_${args.name}_backup.sql.gz`;
             const memCurlParts = [`curl -o "${memFilename}"`];
             const memToken = tokenStorage.getStore()?.token;
-            if (memToken) memCurlParts.push(`-H "Authorization: Bearer ${memToken}"`);
-            else if (API_KEY) memCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            if (memToken) pushSafeAuthCurlHeader(memCurlParts);
+            else if (API_KEY) pushSafeAuthCurlHeader(memCurlParts);
             memCurlParts.push(`"${memDownloadUrl}"`);
             result = {
               download_url: memDownloadUrl,
@@ -3541,12 +3546,13 @@ function createMcpServer() {
           throw new Error(`Unknown tool: ${name}`);
       }
 
+      const sanitizedResult = sanitizeMcpOutput(result);
       return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(sanitizedResult, null, 2) }],
       };
     } catch (error) {
       return {
-        content: [{ type: "text", text: `Error: ${error.message}` }],
+        content: [{ type: "text", text: `Error: ${sanitizeMcpText(error.message)}` }],
         isError: true,
       };
     }
@@ -5576,10 +5582,10 @@ Monitor job progress and system events in real-time via Server-Sent Events.
 curl -N https://your-domain.com/api/v1/events
 
 # With authentication
-curl -N -H "Authorization: Bearer mm_at_xxx" https://your-domain.com/api/v1/events
+curl -N -H "Authorization: Bearer <ACCESS_TOKEN>" https://your-domain.com/api/v1/events
 
 # Or via query param (useful for EventSource)
-curl -N "https://your-domain.com/api/v1/events?token=mm_at_xxx"
+curl -N "https://your-domain.com/api/v1/events?token=<STREAM_TOKEN>"
 
 # Filter to job events only
 curl -N "https://your-domain.com/api/v1/events?types=job"
@@ -5665,7 +5671,7 @@ data: {"type":"JobCompleted","job_id":"bbb","job_type":"ai_revision_contextual",
 ## JavaScript EventSource Example
 
 \`\`\`javascript
-const source = new EventSource('/api/v1/events?types=job&token=mm_at_xxx');
+const source = new EventSource('/api/v1/events?types=job&token=<STREAM_TOKEN>');
 
 source.onmessage = (event) => {
   const data = JSON.parse(event.data);
