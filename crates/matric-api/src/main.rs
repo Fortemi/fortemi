@@ -19484,6 +19484,7 @@ enum ApiError {
     Unauthorized(String),
     Forbidden(String),
     NotFound(String),
+    Gone(String),
     BadRequest(String),
     Conflict(String),
     Internal(String),
@@ -19513,6 +19514,7 @@ enum ProblemType {
     Unauthorized,
     Forbidden,
     NotFound,
+    Gone,
     Conflict,
     RateLimit,
     Internal,
@@ -19531,6 +19533,7 @@ impl ProblemType {
             ProblemType::Unauthorized => "unauthorized",
             ProblemType::Forbidden => "forbidden",
             ProblemType::NotFound => "not-found",
+            ProblemType::Gone => "gone",
             ProblemType::Conflict => "conflict",
             ProblemType::RateLimit => "rate-limit-exceeded",
             ProblemType::Internal => "internal-error",
@@ -19551,6 +19554,7 @@ impl ProblemType {
             ProblemType::Unauthorized => "Unauthorized",
             ProblemType::Forbidden => "Forbidden",
             ProblemType::NotFound => "Not Found",
+            ProblemType::Gone => "Gone",
             ProblemType::Conflict => "Conflict",
             ProblemType::RateLimit => "Too Many Requests",
             ProblemType::Internal => "Internal Server Error",
@@ -19677,6 +19681,7 @@ impl IntoResponse for ApiError {
             ),
             ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, ProblemType::Forbidden, msg, None),
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, ProblemType::NotFound, msg, None),
+            ApiError::Gone(msg) => (StatusCode::GONE, ProblemType::Gone, msg, None),
             ApiError::BadRequest(msg) => {
                 (StatusCode::BAD_REQUEST, ProblemType::Validation, msg, None)
             }
@@ -22763,6 +22768,23 @@ mod tests {
         assert_eq!(problem["detail"], "An internal error occurred.");
         assert!(!problem.to_string().contains("duplicate key"));
         assert!(!problem.to_string().contains("unique constraint"));
+    }
+
+    #[tokio::test]
+    async fn api_error_gone_returns_rfc9457_problem() {
+        let (status, headers, problem) =
+            read_problem_response(ApiError::Gone("cursor expired".to_string())).await;
+
+        assert_eq!(status, StatusCode::GONE);
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap(),
+            "application/problem+json"
+        );
+        assert_eq!(problem["type"], "https://fortemi.com/problems/gone");
+        assert_eq!(problem["title"], "Gone");
+        assert_eq!(problem["status"], 410);
+        assert_eq!(problem["detail"], "cursor expired");
+        assert!(problem.get("error").is_none());
     }
 
     #[tokio::test]

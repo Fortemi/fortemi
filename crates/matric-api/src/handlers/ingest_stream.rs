@@ -102,10 +102,10 @@ use std::time::Duration;
 use async_trait::async_trait;
 use axum::body::{Body, Bytes};
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::{Extension, Json};
+use axum::Extension;
 use futures::{Stream, StreamExt};
 use serde::Deserialize;
 use serde_json::json;
@@ -119,7 +119,7 @@ use matric_api::services::{IngestCursorStore, SearchCache};
 use matric_core::CreateNoteRequest;
 use matric_db::{PgNoteRepository, SchemaContext};
 
-use crate::{AppState, ArchiveContext, Auth};
+use crate::{ApiError, AppState, ArchiveContext, Auth};
 
 /// Default per-line byte ceiling when `FORTEMI_INGEST_MAX_LINE_BYTES` is unset.
 const DEFAULT_INGEST_MAX_LINE_BYTES: usize = 1024 * 1024;
@@ -1214,13 +1214,9 @@ async fn resolve_resumption(
     }
 }
 
-/// Build a `410 Gone` JSON response for an unusable resume cursor.
+/// Build a `410 Gone` problem response for an unusable resume cursor.
 fn gone(message: &str) -> Response {
-    (
-        StatusCode::GONE,
-        Json(json!({ "error": message, "code": "INGEST_CURSOR_EXPIRED" })),
-    )
-        .into_response()
+    ApiError::Gone(message.to_string()).into_response()
 }
 
 /// Resolve the per-stream bearer token (#829) into the effective
@@ -1248,13 +1244,9 @@ async fn resolve_stream_token(
     }
 }
 
-/// Build a `401 Unauthorized` JSON response for a missing/invalid stream token.
+/// Build a `401 Unauthorized` problem response for a missing/invalid stream token.
 fn unauthorized(message: &str) -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(json!({ "error": message, "code": "INGEST_TOKEN_REQUIRED" })),
-    )
-        .into_response()
+    ApiError::Unauthorized(message.to_string()).into_response()
 }
 
 // =============================================================================
@@ -1264,6 +1256,14 @@ fn unauthorized(message: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::{header, StatusCode};
+
+    async fn response_body_json(response: Response) -> serde_json::Value {
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
 
     // ---- env knob -----------------------------------------------------------
 
@@ -1309,6 +1309,36 @@ mod tests {
         let mut s = LineSplitter::new(1024);
         let out = drain(s.push(b"a\r\nb\r\n"));
         assert_eq!(out, vec![b"a".to_vec(), b"b".to_vec()]);
+    }
+
+    #[tokio::test]
+    async fn ingest_cursor_gone_returns_problem_without_legacy_error_shape() {
+        let response = gone("ingest cursor expired or unknown; start a fresh stream");
+        assert_eq!(response.status(), StatusCode::GONE);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/problem+json"
+        );
+        let problem = response_body_json(response).await;
+        assert_eq!(problem["type"], "https://fortemi.com/problems/gone");
+        assert_eq!(problem["status"], 410);
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("code").is_none());
+    }
+
+    #[tokio::test]
+    async fn ingest_token_required_returns_problem_without_legacy_error_shape() {
+        let response = unauthorized("a valid ingest stream token is required");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/problem+json"
+        );
+        let problem = response_body_json(response).await;
+        assert_eq!(problem["type"], "https://fortemi.com/problems/unauthorized");
+        assert_eq!(problem["status"], 401);
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("code").is_none());
     }
 
     #[test]
