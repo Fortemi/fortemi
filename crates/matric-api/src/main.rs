@@ -1525,6 +1525,23 @@ fn telemetry_text_len(value: &str) -> usize {
     value.chars().count()
 }
 
+fn preload_diagnostic_reason(value: &str) -> &'static str {
+    let value = value.to_ascii_lowercase();
+    if value.contains("timeout") || value.contains("timed out") {
+        "timeout"
+    } else if value.contains("connect") || value.contains("connection") {
+        "connection_failed"
+    } else if value.contains("status") || value.contains("http") {
+        "http_status"
+    } else if value.contains("json") || value.contains("parse") || value.contains("invalid") {
+        "invalid_response"
+    } else if value.contains("model") || value.contains("not found") || value.contains("missing") {
+        "model_unavailable"
+    } else {
+        "preload_failed"
+    }
+}
+
 const API_JOB_QUEUE_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_job_queue_diagnostic_failed";
 const API_JOB_PIPELINE_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_job_pipeline_diagnostic_failed";
 const API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_audit_emit_diagnostic_failed";
@@ -1990,7 +2007,14 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move {
             match wb.ensure_model_available().await {
                 Ok(()) => tracing::info!("Whisper model available and ready"),
-                Err(e) => tracing::warn!("Whisper model preload failed: {e}"),
+                Err(e) => {
+                    let diagnostic = e.to_string();
+                    tracing::warn!(
+                        reason_code = preload_diagnostic_reason(&diagnostic),
+                        error_len = telemetry_text_len(&diagnostic),
+                        "Whisper model preload failed"
+                    );
+                }
             }
         });
     }
@@ -27463,6 +27487,50 @@ mod tests {
             telemetry_text_len(secret_query),
             secret_query.chars().count()
         );
+    }
+
+    #[test]
+    fn preload_diagnostic_reason_uses_stable_codes() {
+        let cases = [
+            (
+                "timeout while calling https://user:pass@speaches.internal/v1/models?token=secret",
+                "timeout",
+            ),
+            (
+                "connection refused for http://10.0.0.8:8000/v1/models",
+                "connection_failed",
+            ),
+            (
+                "HTTP status 500 from https://provider.example/model?api_key=secret",
+                "http_status",
+            ),
+            (
+                "invalid json at line 1 column 7 with sk-preload-secret",
+                "invalid_response",
+            ),
+            (
+                "model whisper-large-v3-private not found for tenant-alpha",
+                "model_unavailable",
+            ),
+            (
+                "backend returned provider.example token=secret",
+                "preload_failed",
+            ),
+        ];
+
+        for (diagnostic, expected) in cases {
+            assert_eq!(preload_diagnostic_reason(diagnostic), expected);
+            assert!(!expected.contains("http://"));
+            assert!(!expected.contains("https://"));
+            assert!(!expected.contains("user:pass"));
+            assert!(!expected.contains("speaches.internal"));
+            assert!(!expected.contains("provider.example"));
+            assert!(!expected.contains("api_key=secret"));
+            assert!(!expected.contains("token=secret"));
+            assert!(!expected.contains("sk-preload-secret"));
+            assert!(!expected.contains("whisper-large-v3-private"));
+            assert!(!expected.contains("tenant-alpha"));
+        }
     }
 
     #[test]
