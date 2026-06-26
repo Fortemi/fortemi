@@ -485,6 +485,10 @@ fn collection_not_found() -> ApiError {
     ApiError::NotFound("Collection not found.".to_string())
 }
 
+fn note_not_found() -> ApiError {
+    ApiError::NotFound("Note not found.".to_string())
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -10233,7 +10237,7 @@ async fn purge_note(
         .await?;
 
     if !exists {
-        return Err(ApiError::NotFound(format!("Note {} not found", id)));
+        return Err(note_not_found());
     }
 
     // Queue a high-priority purge job
@@ -12417,7 +12421,7 @@ async fn explore_graph(
         .query(move |tx| Box::pin(async move { notes.exists_tx(tx, id).await }))
         .await?;
     if !exists {
-        return Err(ApiError::NotFound(format!("Note {} not found", id)));
+        return Err(note_not_found());
     }
 
     let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
@@ -13352,7 +13356,7 @@ async fn get_note_links(
         .query(move |tx| Box::pin(async move { notes.exists_tx(tx, note_id).await }))
         .await?;
     if !exists {
-        return Err(ApiError::NotFound(format!("Note {} not found", note_id)));
+        return Err(note_not_found());
     }
 
     let outgoing = {
@@ -13387,7 +13391,7 @@ async fn get_note_backlinks(
         .query(move |tx| Box::pin(async move { notes.exists_tx(tx, id).await }))
         .await?;
     if !exists {
-        return Err(ApiError::NotFound(format!("Note {} not found", id)));
+        return Err(note_not_found());
     }
 
     let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
@@ -13473,7 +13477,7 @@ async fn get_related_notes(
         .query(move |tx| Box::pin(async move { notes.exists_tx(tx, note_id).await }))
         .await?;
     if !note_exists {
-        return Err(ApiError::NotFound(format!("Note {} not found", note_id)));
+        return Err(note_not_found());
     }
 
     // 2. Get note title for the LLM prompt
@@ -15395,7 +15399,7 @@ async fn create_job(
             .notes
             .fetch(note_id)
             .await
-            .map_err(|_| ApiError::NotFound(format!("Note not found: {}", note_id)))?;
+            .map_err(|_| note_not_found())?;
     }
 
     let priority = body.priority.unwrap_or_else(|| job_type.default_priority());
@@ -19723,7 +19727,7 @@ async fn tus_create_upload(
         .map_err(|e| tus_operation_failed("verify note exists", e))?;
 
     if !note_exists {
-        return Err(ApiError::NotFound(format!("Note {} not found", note_id)));
+        return Err(note_not_found());
     }
 
     // Clean up expired uploads lazily (best-effort, don't fail the request)
@@ -24293,6 +24297,24 @@ mod tests {
 
         let body = problem.to_string();
         assert!(!body.contains(&submitted_collection_id.to_string()));
+        assert!(!body.contains("018ff7d2"));
+        assert!(!body.contains("abcdef123456"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn note_not_found_does_not_echo_note_id() {
+        let submitted_note_id = Uuid::parse_str("018ff7d2-1d90-7c88-9f44-abcdef123456").unwrap();
+        let err = note_not_found();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Note not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(&submitted_note_id.to_string()));
         assert!(!body.contains("018ff7d2"));
         assert!(!body.contains("abcdef123456"));
         assert!(problem.get("error").is_none());

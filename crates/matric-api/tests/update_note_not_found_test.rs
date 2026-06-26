@@ -12,7 +12,7 @@ fn test_update_nonexistent_note_expected_behavior() {
     // When update_note is called with a non-existent note ID, it should:
     //
     // 1. Return HTTP 404 Not Found (not 500 Internal Server Error)
-    // 2. Return an error message like "Note {id} not found"
+    // 2. Return a stable RFC 9457 not-found problem without echoing the note ID
     // 3. Behave consistently whether content is provided or not
     //
     // The bug was that update_original() didn't check if the note exists
@@ -33,7 +33,7 @@ fn test_update_nonexistent_note_expected_behavior() {
     //
     // Expected API response:
     // Status: 404 Not Found
-    // Body: {"error":"Note 00000000-0000-0000-0000-000000000000 not found"}
+    // Body detail: "Note not found."
 }
 
 /// Documents that both update paths should behave the same
