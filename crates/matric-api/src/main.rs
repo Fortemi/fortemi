@@ -13231,11 +13231,24 @@ async fn list_collections(
     Ok(Json(collections))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct CreateCollectionBody {
     name: String,
     description: Option<String>,
     parent_id: Option<Uuid>,
+}
+
+impl fmt::Debug for CreateCollectionBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateCollectionBody")
+            .field("name_len", &self.name.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("parent_id_set", &self.parent_id.is_some())
+            .finish()
+    }
 }
 
 #[utoipa::path(post, path = "/api/v1/collections", tag = "Collections",
@@ -13289,10 +13302,22 @@ async fn get_collection(
     Ok(Json(collection))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct UpdateCollectionBody {
     name: String,
     description: Option<String>,
+}
+
+impl fmt::Debug for UpdateCollectionBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateCollectionBody")
+            .field("name_len", &self.name.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .finish()
+    }
 }
 
 #[utoipa::path(patch, path = "/api/v1/collections/{id}", tag = "Collections",
@@ -13495,9 +13520,17 @@ async fn export_collection(
     Ok((StatusCode::OK, headers, output))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct MoveNoteBody {
     collection_id: Option<Uuid>,
+}
+
+impl fmt::Debug for MoveNoteBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MoveNoteBody")
+            .field("collection_id_set", &self.collection_id.is_some())
+            .finish()
+    }
 }
 
 #[utoipa::path(post, path = "/api/v1/notes/{id}/move", tag = "Collections",
@@ -26310,6 +26343,54 @@ mod tests {
             "customer@example.com",
             "sk-live-tag-secret",
             &concept_id.to_string(),
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn collection_mutation_debug_redacts_names_descriptions_and_collection_ids() {
+        let parent_id = Uuid::new_v4();
+        let collection_id = Uuid::new_v4();
+        let create = CreateCollectionBody {
+            name: "Customer Payroll postgres://user:pass@db.internal/app".to_string(),
+            description: Some(
+                "Private collection for customer@example.com with sk-live-collection".to_string(),
+            ),
+            parent_id: Some(parent_id),
+        };
+        let update = UpdateCollectionBody {
+            name: "Updated Confidential Collection".to_string(),
+            description: Some("/srv/private/collection-notes and mm_key_collection".to_string()),
+        };
+        let move_note = MoveNoteBody {
+            collection_id: Some(collection_id),
+        };
+
+        let rendered_create = format!("{create:?}");
+        let rendered_update = format!("{update:?}");
+        let rendered_move = format!("{move_note:?}");
+        let combined = format!("{rendered_create}\n{rendered_update}\n{rendered_move}");
+
+        assert!(rendered_create.contains("CreateCollectionBody"));
+        assert!(rendered_create.contains("name_len"));
+        assert!(rendered_create.contains("description_len"));
+        assert!(rendered_create.contains("parent_id_set"));
+        assert!(rendered_update.contains("UpdateCollectionBody"));
+        assert!(rendered_move.contains("MoveNoteBody"));
+        assert!(rendered_move.contains("collection_id_set"));
+
+        for raw in [
+            "Customer Payroll",
+            "postgres://user:pass",
+            "db.internal",
+            "customer@example.com",
+            "sk-live-collection",
+            "Updated Confidential Collection",
+            "/srv/private/collection-notes",
+            "mm_key_collection",
+            &parent_id.to_string(),
+            &collection_id.to_string(),
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
