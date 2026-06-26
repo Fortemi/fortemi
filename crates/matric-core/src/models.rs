@@ -579,7 +579,7 @@ impl std::str::FromStr for EmbeddingIndexStatus {
 }
 
 /// Criteria for automatic embedding set membership.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingSetCriteria {
     /// Include all notes (default set behavior)
     #[serde(default)]
@@ -610,12 +610,30 @@ pub struct EmbeddingSetCriteria {
     pub exclude_archived: bool,
 }
 
+impl fmt::Debug for EmbeddingSetCriteria {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EmbeddingSetCriteria")
+            .field("include_all", &self.include_all)
+            .field("tags_count", &self.tags.len())
+            .field(
+                "tag_lens",
+                &self.tags.iter().map(String::len).collect::<Vec<_>>(),
+            )
+            .field("collections_count", &self.collections.len())
+            .field("fts_query_len", &self.fts_query.as_ref().map(String::len))
+            .field("created_after_set", &self.created_after.is_some())
+            .field("created_before_set", &self.created_before.is_some())
+            .field("exclude_archived", &self.exclude_archived)
+            .finish()
+    }
+}
+
 fn default_true() -> bool {
     true
 }
 
 /// Rules for automatic embedding generation in Full sets.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AutoEmbedRules {
     /// Trigger embedding on note creation
     #[serde(default)]
@@ -646,6 +664,20 @@ pub struct AutoEmbedRules {
     pub rate_limit: Option<u32>,
 }
 
+impl fmt::Debug for AutoEmbedRules {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AutoEmbedRules")
+            .field("on_create", &self.on_create)
+            .field("on_update", &self.on_update)
+            .field("update_threshold_percent", &self.update_threshold_percent)
+            .field("max_embedding_age_secs", &self.max_embedding_age_secs)
+            .field("priority", &self.priority)
+            .field("batch_size", &self.batch_size)
+            .field("rate_limit", &self.rate_limit)
+            .finish()
+    }
+}
+
 fn default_priority() -> i32 {
     crate::defaults::AUTO_EMBED_PRIORITY
 }
@@ -655,7 +687,7 @@ fn default_batch_size() -> usize {
 }
 
 /// Agent-provided metadata for embedding set discovery.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingSetAgentMetadata {
     /// Agent that created this set
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -678,12 +710,46 @@ pub struct EmbeddingSetAgentMetadata {
     pub suggested_queries: Vec<String>,
 }
 
+impl fmt::Debug for EmbeddingSetAgentMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EmbeddingSetAgentMetadata")
+            .field(
+                "created_by_agent_len",
+                &self.created_by_agent.as_ref().map(String::len),
+            )
+            .field("rationale_len", &self.rationale.as_ref().map(String::len))
+            .field(
+                "performance_notes_len",
+                &self.performance_notes.as_ref().map(String::len),
+            )
+            .field("related_sets_count", &self.related_sets.len())
+            .field(
+                "related_set_lens",
+                &self
+                    .related_sets
+                    .iter()
+                    .map(String::len)
+                    .collect::<Vec<_>>(),
+            )
+            .field("suggested_queries_count", &self.suggested_queries.len())
+            .field(
+                "suggested_query_lens",
+                &self
+                    .suggested_queries
+                    .iter()
+                    .map(String::len)
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
+}
+
 // =============================================================================
 // DOCUMENT COMPOSITION (#485)
 // =============================================================================
 
 /// Strategy for including tags in embedding text.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TagStrategy {
     /// No tags in embedding (optimal default for graph quality).
@@ -697,12 +763,33 @@ pub enum TagStrategy {
     Specific(Vec<String>),
 }
 
+impl fmt::Debug for TagStrategy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::None => f.write_str("None"),
+            Self::All => f.write_str("All"),
+            Self::Schemes(schemes) => f
+                .debug_struct("Schemes")
+                .field("scheme_count", &schemes.len())
+                .finish(),
+            Self::Specific(tags) => f
+                .debug_struct("Specific")
+                .field("tag_count", &tags.len())
+                .field(
+                    "tag_lens",
+                    &tags.iter().map(String::len).collect::<Vec<_>>(),
+                )
+                .finish(),
+        }
+    }
+}
+
 /// Controls what note properties are assembled into the embedding text.
 ///
 /// The document composition is the single most important characteristic of an
 /// embedding set — it entirely determines the semantic geometry of the vector space.
 /// Different compositions produce fundamentally different clustering behaviors.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DocumentComposition {
     /// Include note title in embedding text.
     #[serde(default = "default_true")]
@@ -728,6 +815,19 @@ pub struct DocumentComposition {
     /// Instruction prefix for the embedding model (e.g., "clustering:", "search_document:").
     #[serde(default = "default_embed_prefix")]
     pub instruction_prefix: String,
+}
+
+impl fmt::Debug for DocumentComposition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DocumentComposition")
+            .field("include_title", &self.include_title)
+            .field("include_content", &self.include_content)
+            .field("tag_strategy", &self.tag_strategy)
+            .field("include_concepts", &self.include_concepts)
+            .field("concept_max_doc_freq", &self.concept_max_doc_freq)
+            .field("instruction_prefix_len", &self.instruction_prefix.len())
+            .finish()
+    }
 }
 
 fn default_concept_max_doc_freq() -> f64 {
@@ -793,7 +893,7 @@ impl DocumentComposition {
 }
 
 /// Database-stored embedding configuration profile.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingConfigProfile {
     pub id: Uuid,
     pub name: String,
@@ -839,6 +939,54 @@ pub struct EmbeddingConfigProfile {
     pub document_composition: DocumentComposition,
 }
 
+impl fmt::Debug for EmbeddingConfigProfile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EmbeddingConfigProfile")
+            .field("id_set", &true)
+            .field("name_len", &self.name.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("model_len", &self.model.len())
+            .field("dimension", &self.dimension)
+            .field("chunk_size", &self.chunk_size)
+            .field("chunk_overlap", &self.chunk_overlap)
+            .field("hnsw_m", &self.hnsw_m)
+            .field("hnsw_ef_construction", &self.hnsw_ef_construction)
+            .field("ivfflat_lists", &self.ivfflat_lists)
+            .field("is_default", &self.is_default)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .field("supports_mrl", &self.supports_mrl)
+            .field(
+                "matryoshka_dims_count",
+                &self.matryoshka_dims.as_ref().map(Vec::len),
+            )
+            .field("default_truncate_dim", &self.default_truncate_dim)
+            .field("provider", &self.provider)
+            .field(
+                "provider_config_class",
+                &json_value_class(&self.provider_config),
+            )
+            .field(
+                "provider_config_len",
+                &json_serialized_len(&self.provider_config),
+            )
+            .field("content_types_count", &self.content_types.len())
+            .field(
+                "content_type_lens",
+                &self
+                    .content_types
+                    .iter()
+                    .map(String::len)
+                    .collect::<Vec<_>>(),
+            )
+            .field("document_composition", &self.document_composition)
+            .finish()
+    }
+}
+
 impl EmbeddingConfigProfile {
     /// Validate that a truncation dimension is valid for this config.
     pub fn validate_truncate_dim(&self, dim: i32) -> Result<(), String> {
@@ -867,7 +1015,7 @@ impl EmbeddingConfigProfile {
 }
 
 /// An embedding set groups documents for focused semantic search.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingSet {
     pub id: Uuid,
     pub name: String,
@@ -927,8 +1075,53 @@ pub struct EmbeddingSet {
     pub created_by: Option<String>,
 }
 
+impl fmt::Debug for EmbeddingSet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EmbeddingSet")
+            .field("id_set", &true)
+            .field("name_len", &self.name.len())
+            .field("slug_len", &self.slug.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("purpose_len", &self.purpose.as_ref().map(String::len))
+            .field(
+                "usage_hints_len",
+                &self.usage_hints.as_ref().map(String::len),
+            )
+            .field("keywords_count", &self.keywords.len())
+            .field(
+                "keyword_lens",
+                &self.keywords.iter().map(String::len).collect::<Vec<_>>(),
+            )
+            .field("set_type", &self.set_type)
+            .field("mode", &self.mode)
+            .field("criteria", &self.criteria)
+            .field(
+                "embedding_config_id_set",
+                &self.embedding_config_id.is_some(),
+            )
+            .field("truncate_dim", &self.truncate_dim)
+            .field("auto_embed_rules", &self.auto_embed_rules)
+            .field("document_count", &self.document_count)
+            .field("embedding_count", &self.embedding_count)
+            .field("index_status", &self.index_status)
+            .field("index_size_bytes", &self.index_size_bytes)
+            .field("is_system", &self.is_system)
+            .field("is_active", &self.is_active)
+            .field("auto_refresh", &self.auto_refresh)
+            .field("embeddings_current", &self.embeddings_current)
+            .field("agent_metadata", &self.agent_metadata)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .field("created_by_len", &self.created_by.as_ref().map(String::len))
+            .finish()
+    }
+}
+
 /// Summary view of embedding sets for listing/discovery.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingSetSummary {
     pub id: Uuid,
     pub name: String,
@@ -955,8 +1148,37 @@ pub struct EmbeddingSetSummary {
     pub supports_mrl: bool,
 }
 
+impl fmt::Debug for EmbeddingSetSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EmbeddingSetSummary")
+            .field("id_set", &true)
+            .field("name_len", &self.name.len())
+            .field("slug_len", &self.slug.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("purpose_len", &self.purpose.as_ref().map(String::len))
+            .field("set_type", &self.set_type)
+            .field("document_count", &self.document_count)
+            .field("embedding_count", &self.embedding_count)
+            .field("index_status", &self.index_status)
+            .field("is_system", &self.is_system)
+            .field("keywords_count", &self.keywords.len())
+            .field(
+                "keyword_lens",
+                &self.keywords.iter().map(String::len).collect::<Vec<_>>(),
+            )
+            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("dimension", &self.dimension)
+            .field("truncate_dim", &self.truncate_dim)
+            .field("supports_mrl", &self.supports_mrl)
+            .finish()
+    }
+}
+
 /// Request to create a new embedding set.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateEmbeddingSetRequest {
     pub name: String,
     #[serde(default)]
@@ -985,8 +1207,41 @@ pub struct CreateEmbeddingSetRequest {
     pub auto_embed_rules: AutoEmbedRules,
 }
 
+impl fmt::Debug for CreateEmbeddingSetRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateEmbeddingSetRequest")
+            .field("name_len", &self.name.len())
+            .field("slug_len", &self.slug.as_ref().map(String::len))
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("purpose_len", &self.purpose.as_ref().map(String::len))
+            .field(
+                "usage_hints_len",
+                &self.usage_hints.as_ref().map(String::len),
+            )
+            .field("keywords_count", &self.keywords.len())
+            .field(
+                "keyword_lens",
+                &self.keywords.iter().map(String::len).collect::<Vec<_>>(),
+            )
+            .field("set_type", &self.set_type)
+            .field("mode", &self.mode)
+            .field("criteria", &self.criteria)
+            .field("agent_metadata", &self.agent_metadata)
+            .field(
+                "embedding_config_id_set",
+                &self.embedding_config_id.is_some(),
+            )
+            .field("truncate_dim", &self.truncate_dim)
+            .field("auto_embed_rules", &self.auto_embed_rules)
+            .finish()
+    }
+}
+
 /// Request to update an embedding set.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateEmbeddingSetRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -1010,8 +1265,38 @@ pub struct UpdateEmbeddingSetRequest {
     pub auto_refresh: Option<bool>,
 }
 
+impl fmt::Debug for UpdateEmbeddingSetRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateEmbeddingSetRequest")
+            .field("name_len", &self.name.as_ref().map(String::len))
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("purpose_len", &self.purpose.as_ref().map(String::len))
+            .field(
+                "usage_hints_len",
+                &self.usage_hints.as_ref().map(String::len),
+            )
+            .field("keywords_count", &self.keywords.as_ref().map(Vec::len))
+            .field(
+                "keyword_lens",
+                &self
+                    .keywords
+                    .as_ref()
+                    .map(|keywords| keywords.iter().map(String::len).collect::<Vec<_>>()),
+            )
+            .field("mode", &self.mode)
+            .field("criteria", &self.criteria)
+            .field("agent_metadata", &self.agent_metadata)
+            .field("is_active", &self.is_active)
+            .field("auto_refresh", &self.auto_refresh)
+            .finish()
+    }
+}
+
 /// Embedding set membership record.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingSetMember {
     pub embedding_set_id: Uuid,
     pub note_id: Uuid,
@@ -1021,12 +1306,33 @@ pub struct EmbeddingSetMember {
     pub added_by: Option<String>,
 }
 
+impl fmt::Debug for EmbeddingSetMember {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EmbeddingSetMember")
+            .field("embedding_set_id_set", &true)
+            .field("note_id_set", &true)
+            .field("membership_type_len", &self.membership_type.len())
+            .field("added_at", &self.added_at)
+            .field("added_by_len", &self.added_by.as_ref().map(String::len))
+            .finish()
+    }
+}
+
 /// Request to add members to an embedding set.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AddMembersRequest {
     pub note_ids: Vec<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub added_by: Option<String>,
+}
+
+impl fmt::Debug for AddMembersRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AddMembersRequest")
+            .field("note_ids_count", &self.note_ids.len())
+            .field("added_by_len", &self.added_by.as_ref().map(String::len))
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -2508,7 +2814,7 @@ impl fmt::Debug for CreateFineTuningDatasetRequest {
 // =============================================================================
 
 /// Configuration for two-stage coarse-to-fine retrieval.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TwoStageSearchConfig {
     /// Dimension for coarse stage (must be MRL-compatible)
     #[serde(default = "default_coarse_dim")]
@@ -2519,6 +2825,16 @@ pub struct TwoStageSearchConfig {
     /// HNSW ef_search for coarse stage
     #[serde(default = "default_coarse_ef_search")]
     pub coarse_ef_search: i32,
+}
+
+impl fmt::Debug for TwoStageSearchConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TwoStageSearchConfig")
+            .field("coarse_dim", &self.coarse_dim)
+            .field("coarse_k", &self.coarse_k)
+            .field("coarse_ef_search", &self.coarse_ef_search)
+            .finish()
+    }
 }
 
 fn default_coarse_dim() -> i32 {
@@ -2544,13 +2860,25 @@ impl Default for TwoStageSearchConfig {
 }
 
 /// Coarse embedding for fast initial filtering in two-stage retrieval.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CoarseEmbedding {
     pub note_id: Uuid,
     pub embedding_set_id: Option<Uuid>,
     pub chunk_index: i32,
     pub vector: Vector,
     pub created_at: DateTime<Utc>,
+}
+
+impl fmt::Debug for CoarseEmbedding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CoarseEmbedding")
+            .field("note_id_set", &true)
+            .field("embedding_set_id_set", &self.embedding_set_id.is_some())
+            .field("chunk_index", &self.chunk_index)
+            .field("vector_dimensions", &self.vector.as_slice().len())
+            .field("created_at", &self.created_at)
+            .finish()
+    }
 }
 
 /// Tri-modal fusion weights for search.
@@ -4905,6 +5233,248 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "Entity/fine-tuning Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn embedding_set_debug_redacts_filters_metadata_provider_config_and_vectors() {
+        let now = Utc::now();
+        let criteria = EmbeddingSetCriteria {
+            include_all: false,
+            tags: vec![
+                "private-tag-private@example.test".to_string(),
+                "https://tags.example.test/?token=secret".to_string(),
+            ],
+            collections: vec![Uuid::new_v4()],
+            fts_query: Some("private query sk-live-secret /tmp/customer/query.txt".to_string()),
+            created_after: Some(now),
+            created_before: Some(now),
+            exclude_archived: true,
+        };
+        let rules = AutoEmbedRules {
+            on_create: true,
+            on_update: true,
+            update_threshold_percent: Some(0.25),
+            max_embedding_age_secs: Some(3600),
+            priority: 3,
+            batch_size: 64,
+            rate_limit: Some(120),
+        };
+        let agent_metadata = EmbeddingSetAgentMetadata {
+            created_by_agent: Some("private-agent@example.test".to_string()),
+            rationale: Some(
+                "Rationale includes https://provider.example.test/?token=secret".to_string(),
+            ),
+            performance_notes: Some(
+                "Notes mention /tmp/customer/perf.log and sk-live-secret".to_string(),
+            ),
+            related_sets: vec!["related-private-set".to_string()],
+            suggested_queries: vec!["Suggested query for private@example.test".to_string()],
+        };
+        let composition = DocumentComposition {
+            include_title: true,
+            include_content: true,
+            tag_strategy: TagStrategy::Specific(vec![
+                "specific-private-tag".to_string(),
+                "specific-secret@example.test".to_string(),
+            ]),
+            include_concepts: true,
+            concept_max_doc_freq: 0.4,
+            instruction_prefix: "private-instruction-prefix sk-live-secret".to_string(),
+        };
+        let profile = EmbeddingConfigProfile {
+            id: Uuid::new_v4(),
+            name: "Private embedding profile".to_string(),
+            description: Some("Profile description private@example.test".to_string()),
+            model: "private-embedding-model".to_string(),
+            dimension: 768,
+            chunk_size: 512,
+            chunk_overlap: 64,
+            hnsw_m: Some(16),
+            hnsw_ef_construction: Some(200),
+            ivfflat_lists: Some(100),
+            is_default: true,
+            created_at: now,
+            updated_at: now,
+            supports_mrl: true,
+            matryoshka_dims: Some(vec![768, 512]),
+            default_truncate_dim: Some(512),
+            provider: crate::embedding_provider::EmbeddingProvider::OpenAI,
+            provider_config: json!({
+                "base_url": "https://provider.example.test/embeddings?token=secret",
+                "api_key": "sk-live-secret",
+                "path": "/tmp/customer/provider.json"
+            }),
+            content_types: vec!["private-content-type".to_string()],
+            document_composition: composition.clone(),
+        };
+        let set = EmbeddingSet {
+            id: Uuid::new_v4(),
+            name: "Private embedding set".to_string(),
+            slug: "private-embedding-set".to_string(),
+            description: Some("Set description private@example.test".to_string()),
+            purpose: Some("Purpose with https://purpose.example.test/?token=secret".to_string()),
+            usage_hints: Some("Hints mention sk-live-secret".to_string()),
+            keywords: vec!["private-keyword".to_string()],
+            set_type: EmbeddingSetType::Full,
+            mode: EmbeddingSetMode::Auto,
+            criteria: criteria.clone(),
+            embedding_config_id: Some(Uuid::new_v4()),
+            truncate_dim: Some(512),
+            auto_embed_rules: rules.clone(),
+            document_count: 12,
+            embedding_count: 10,
+            index_status: EmbeddingIndexStatus::Ready,
+            index_size_bytes: Some(4096),
+            is_system: false,
+            is_active: true,
+            auto_refresh: true,
+            embeddings_current: true,
+            agent_metadata: agent_metadata.clone(),
+            created_at: now,
+            updated_at: now,
+            created_by: Some("creator-private@example.test".to_string()),
+        };
+        let summary = EmbeddingSetSummary {
+            id: Uuid::new_v4(),
+            name: "Summary private set".to_string(),
+            slug: "summary-private-set".to_string(),
+            description: Some("Summary description /tmp/customer/summary.md".to_string()),
+            purpose: Some("Summary purpose private@example.test".to_string()),
+            set_type: EmbeddingSetType::Filter,
+            document_count: 5,
+            embedding_count: 4,
+            index_status: EmbeddingIndexStatus::Stale,
+            is_system: false,
+            keywords: vec!["summary-private-keyword".to_string()],
+            model: Some("summary-private-model".to_string()),
+            dimension: Some(384),
+            truncate_dim: Some(256),
+            supports_mrl: true,
+        };
+        let create = CreateEmbeddingSetRequest {
+            name: "Create private set".to_string(),
+            slug: Some("create-private-set".to_string()),
+            description: Some("Create description private@example.test".to_string()),
+            purpose: Some("Create purpose https://create.example.test/?token=secret".to_string()),
+            usage_hints: Some("Create hints sk-live-secret".to_string()),
+            keywords: vec!["create-private-keyword".to_string()],
+            set_type: EmbeddingSetType::Full,
+            mode: EmbeddingSetMode::Mixed,
+            criteria: criteria.clone(),
+            agent_metadata: agent_metadata.clone(),
+            embedding_config_id: Some(Uuid::new_v4()),
+            truncate_dim: Some(512),
+            auto_embed_rules: rules.clone(),
+        };
+        let update = UpdateEmbeddingSetRequest {
+            name: Some("Update private set".to_string()),
+            description: Some("Update description /tmp/customer/update.md".to_string()),
+            purpose: Some("Update purpose private@example.test".to_string()),
+            usage_hints: Some("Update hints https://update.example.test/?token=secret".to_string()),
+            keywords: Some(vec!["update-private-keyword".to_string()]),
+            mode: Some(EmbeddingSetMode::Manual),
+            criteria: Some(criteria),
+            agent_metadata: Some(agent_metadata),
+            is_active: Some(true),
+            auto_refresh: Some(false),
+        };
+        let member = EmbeddingSetMember {
+            embedding_set_id: Uuid::new_v4(),
+            note_id: Uuid::new_v4(),
+            membership_type: "private-membership-type".to_string(),
+            added_at: now,
+            added_by: Some("member-private@example.test".to_string()),
+        };
+        let add_members = AddMembersRequest {
+            note_ids: vec![Uuid::new_v4(), Uuid::new_v4()],
+            added_by: Some("adder-private@example.test".to_string()),
+        };
+        let coarse = CoarseEmbedding {
+            note_id: Uuid::new_v4(),
+            embedding_set_id: Some(Uuid::new_v4()),
+            chunk_index: 2,
+            vector: Vector::from(vec![0.11111, 0.22222, 0.33333]),
+            created_at: now,
+        };
+
+        let debug = format!(
+            "{profile:?}{set:?}{summary:?}{create:?}{update:?}{member:?}{add_members:?}{coarse:?}"
+        );
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "private-tag-private@example.test",
+                "tags.example.test",
+                "private query",
+                "sk-live-secret",
+                "/tmp/customer/query.txt",
+                "private-agent@example.test",
+                "Rationale includes",
+                "provider.example.test",
+                "/tmp/customer/perf.log",
+                "related-private-set",
+                "Suggested query",
+                "specific-private-tag",
+                "specific-secret@example.test",
+                "private-instruction-prefix",
+                "Private embedding profile",
+                "Profile description",
+                "private-embedding-model",
+                "api_key",
+                "/tmp/customer/provider.json",
+                "private-content-type",
+                "Private embedding set",
+                "private-embedding-set",
+                "Set description",
+                "purpose.example.test",
+                "Hints mention",
+                "private-keyword",
+                "creator-private@example.test",
+                "Summary private set",
+                "summary-private-set",
+                "summary-private-keyword",
+                "summary-private-model",
+                "Create private set",
+                "create-private-set",
+                "create.example.test",
+                "create-private-keyword",
+                "Update private set",
+                "/tmp/customer/update.md",
+                "update.example.test",
+                "update-private-keyword",
+                "private-membership-type",
+                "member-private@example.test",
+                "adder-private@example.test",
+                "0.11111",
+                "0.22222",
+                "0.33333",
+            ],
+        );
+
+        for expected in [
+            "tags_count",
+            "tag_lens",
+            "fts_query_len",
+            "created_by_agent_len",
+            "suggested_queries_count",
+            "instruction_prefix_len",
+            "provider_config_class",
+            "provider_config_len",
+            "name_len",
+            "slug_len",
+            "keyword_lens",
+            "criteria",
+            "agent_metadata",
+            "membership_type_len",
+            "note_ids_count",
+            "vector_dimensions",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Embedding-set Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
