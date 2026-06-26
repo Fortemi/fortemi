@@ -18,6 +18,7 @@ use crate::hardware::HardwareTier;
 use crate::selector::KmOperation;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 use std::time::Duration;
@@ -211,7 +212,7 @@ impl LatencyTracker {
 }
 
 /// A latency optimization suggestion.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct LatencyOptimization {
     /// Operation needing optimization.
     pub operation: KmOperation,
@@ -221,6 +222,17 @@ pub struct LatencyOptimization {
     pub target_p95_ms: u64,
     /// Suggested optimization.
     pub suggestion: String,
+}
+
+impl fmt::Debug for LatencyOptimization {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LatencyOptimization")
+            .field("operation", &self.operation)
+            .field("current_p95_ms", &self.current_p95_ms)
+            .field("target_p95_ms", &self.target_p95_ms)
+            .field("suggestion_len", &self.suggestion.chars().count())
+            .finish()
+    }
 }
 
 /// Context window configuration for an operation.
@@ -249,12 +261,25 @@ pub enum ChunkingStrategy {
 }
 
 /// Context optimizer for knowledge management operations.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ContextOptimizer {
     /// Context configurations by operation.
     configs: HashMap<KmOperation, ContextConfig>,
     /// Current scale factor (for adaptive sizing).
     scale_factor: f32,
+}
+
+impl fmt::Debug for ContextOptimizer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut operations = self.configs.keys().copied().collect::<Vec<_>>();
+        operations.sort_by_key(|operation| format!("{operation:?}"));
+
+        f.debug_struct("ContextOptimizer")
+            .field("config_count", &self.configs.len())
+            .field("configured_operations", &operations)
+            .field("scale_factor", &self.scale_factor)
+            .finish()
+    }
 }
 
 impl Default for ContextOptimizer {
@@ -543,5 +568,37 @@ mod tests {
         let suggestions = tracker.suggest_optimizations();
         assert!(!suggestions.is_empty());
         assert_eq!(suggestions[0].operation, KmOperation::TitleGeneration);
+    }
+
+    #[test]
+    fn latency_debug_redacts_suggestion_text_and_config_details() {
+        let optimization = LatencyOptimization {
+            operation: KmOperation::TitleGeneration,
+            current_p95_ms: 1200,
+            target_p95_ms: 500,
+            suggestion:
+                "Use private-model-jane@example.com from https://tenant.example with sk-private"
+                    .to_string(),
+        };
+        let mut optimizer = ContextOptimizer::new();
+        optimizer.adjust_for_tier(HardwareTier::Performance);
+
+        let debug = format!("{optimization:?}\n{optimizer:?}");
+
+        for raw in [
+            "private-model",
+            "jane@example.com",
+            "https://tenant.example",
+            "sk-private",
+            "optimal_context",
+            "max_context",
+        ] {
+            assert!(!debug.contains(raw), "debug output leaked {raw}: {debug}");
+        }
+
+        assert!(debug.contains("suggestion_len"));
+        assert!(debug.contains("config_count"));
+        assert!(debug.contains("configured_operations"));
+        assert!(debug.contains("scale_factor"));
     }
 }
