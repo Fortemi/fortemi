@@ -38,7 +38,11 @@ pub(crate) fn extract_schema(ctx: &JobContext) -> &str {
 
 pub(crate) fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResult> {
     db.for_schema(schema)
-        .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
+        .map_err(|_| JobResult::Failed("Invalid schema".into()))
+}
+
+fn audio_transcription_text_len(text: &str) -> usize {
+    text.chars().count()
 }
 
 fn audio_transcription_error_reason_code(error: &str) -> &'static str {
@@ -108,14 +112,23 @@ pub(crate) async fn store_transcript_and_captions(
 
     // Store in parent metadata
     {
-        let mut tx = schema_ctx
-            .begin_tx()
-            .await
-            .map_err(|e| format!("Schema tx failed: {}", e))?;
+        let mut tx = schema_ctx.begin_tx().await.map_err(|e| {
+            let error_text = e.to_string();
+            format!(
+                "Schema tx failed ({})",
+                audio_transcription_error_reason_code(&error_text)
+            )
+        })?;
         file_storage
             .merge_extracted_metadata_tx(&mut tx, parent_attachment_id, &transcript_metadata)
             .await
-            .map_err(|e| format!("Failed to store transcript metadata: {}", e))?;
+            .map_err(|e| {
+                let error_text = e.to_string();
+                format!(
+                    "Failed to store transcript metadata ({})",
+                    audio_transcription_error_reason_code(&error_text)
+                )
+            })?;
         let _ = tx.commit().await;
     }
 
@@ -163,7 +176,7 @@ pub(crate) async fn store_transcript_and_captions(
                     {
                         Ok(_) => {
                             debug!(
-                                parent = %parent_attachment_id,
+                                parent_attachment_id_present = true,
                                 filename_len = filename.len(),
                                 "Caption file persisted"
                             );
@@ -171,7 +184,7 @@ pub(crate) async fn store_transcript_and_captions(
                         Err(e) => {
                             let error_text = e.to_string();
                             warn!(
-                                error_len = error_text.len(),
+                                error_len = audio_transcription_text_len(&error_text),
                                 error_reason = audio_transcription_error_reason_code(&error_text),
                                 filename_len = filename.len(),
                                 "Failed to store caption file"
@@ -183,7 +196,7 @@ pub(crate) async fn store_transcript_and_captions(
             }
         } else {
             warn!(
-                parent = %parent_attachment_id,
+                parent_attachment_id_present = true,
                 "Cannot persist caption files — no note_id in job context"
             );
         }
@@ -230,7 +243,7 @@ pub(crate) async fn queue_diarization(
                 ctx.emit_job_queued(job_id, JobType::SpeakerDiarization, Some(note_id));
                 info!(
                     note_present = true,
-                    parent = %parent_attachment_id,
+                    parent_attachment_id_present = true,
                     "SpeakerDiarization queued"
                 );
             }
@@ -238,7 +251,7 @@ pub(crate) async fn queue_diarization(
             Err(e) => {
                 let error_text = e.to_string();
                 warn!(
-                    error_len = error_text.len(),
+                    error_len = audio_transcription_text_len(&error_text),
                     error_reason = audio_transcription_error_reason_code(&error_text),
                     "Failed to queue SpeakerDiarization"
                 );
@@ -264,7 +277,7 @@ pub(crate) async fn check_video_fan_in(
             Err(e) => {
                 let error_text = e.to_string();
                 warn!(
-                    error_len = error_text.len(),
+                    error_len = audio_transcription_text_len(&error_text),
                     error_reason = audio_transcription_error_reason_code(&error_text),
                     "Fan-in metadata read failed"
                 );
@@ -371,8 +384,9 @@ pub(crate) async fn check_video_fan_in(
             Ok(Some(job_id)) => {
                 ctx.emit_job_queued(job_id, JobType::KeyframeAssembly, ctx.note_id());
                 info!(
-                    "All {} keyframes + transcript complete, KeyframeAssembly queued (job {})",
-                    expected_frames, job_id
+                    expected_frames,
+                    job_id_present = true,
+                    "All keyframes + transcript complete, KeyframeAssembly queued"
                 );
             }
             Ok(None) => {
@@ -381,7 +395,7 @@ pub(crate) async fn check_video_fan_in(
             Err(e) => {
                 let error_text = e.to_string();
                 error!(
-                    error_len = error_text.len(),
+                    error_len = audio_transcription_text_len(&error_text),
                     error_reason = audio_transcription_error_reason_code(&error_text),
                     "Failed to queue KeyframeAssembly"
                 );
@@ -454,9 +468,10 @@ impl JobHandler for AudioTranscriptionHandler {
                 return JobResult::Retry("Whisper backend not ready — will retry".into());
             }
             Err(e) => {
+                let error_text = e.to_string();
                 return JobResult::Retry(format!(
-                    "Whisper backend health check failed: {} — will retry",
-                    e
+                    "Whisper backend health check failed ({}) — will retry",
+                    audio_transcription_error_reason_code(&error_text)
                 ));
             }
         }
@@ -471,7 +486,13 @@ impl JobHandler for AudioTranscriptionHandler {
         let audio_data = {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        audio_transcription_error_reason_code(&error_text)
+                    ));
+                }
             };
             let result = file_storage
                 .download_file_tx(&mut tx, audio_attachment_id)
@@ -481,10 +502,11 @@ impl JobHandler for AudioTranscriptionHandler {
             match result {
                 Ok((data, _, _)) => data,
                 Err(e) => {
+                    let error_text = e.to_string();
                     return JobResult::Failed(format!(
-                        "Failed to download audio attachment {}: {}",
-                        audio_attachment_id, e
-                    ))
+                        "Failed to download audio attachment ({})",
+                        audio_transcription_error_reason_code(&error_text)
+                    ));
                 }
             }
         };
@@ -497,12 +519,22 @@ impl JobHandler for AudioTranscriptionHandler {
 
         let work_dir = match tempfile::tempdir() {
             Ok(d) => d,
-            Err(e) => return JobResult::Failed(format!("Failed to create work dir: {}", e)),
+            Err(e) => {
+                let error_text = e.to_string();
+                return JobResult::Failed(format!(
+                    "Failed to create work dir ({})",
+                    audio_transcription_error_reason_code(&error_text)
+                ));
+            }
         };
 
         let input_path = work_dir.path().join("input.wav");
         if let Err(e) = std::fs::write(&input_path, &audio_data) {
-            return JobResult::Failed(format!("Failed to write audio temp file: {}", e));
+            let error_text = e.to_string();
+            return JobResult::Failed(format!(
+                "Failed to write audio temp file ({})",
+                audio_transcription_error_reason_code(&error_text)
+            ));
         }
         // Free the in-memory copy now that it's on disk
         drop(audio_data);
@@ -518,7 +550,7 @@ impl JobHandler for AudioTranscriptionHandler {
             Err(e) => {
                 let error_text = e.to_string();
                 warn!(
-                    error_len = error_text.len(),
+                    error_len = audio_transcription_text_len(&error_text),
                     error_reason = audio_transcription_error_reason_code(&error_text),
                     "Audio transcode failed, using original input"
                 );
@@ -580,7 +612,13 @@ impl AudioTranscriptionHandler {
 
         let wav_data = match std::fs::read(wav_path) {
             Ok(d) => d,
-            Err(e) => return JobResult::Failed(format!("Failed to read WAV: {}", e)),
+            Err(e) => {
+                let error_text = e.to_string();
+                return JobResult::Failed(format!(
+                    "Failed to read WAV ({})",
+                    audio_transcription_error_reason_code(&error_text)
+                ));
+            }
         };
 
         let transcription = match self
@@ -589,12 +627,18 @@ impl AudioTranscriptionHandler {
             .await
         {
             Ok(r) => r,
-            Err(e) => return JobResult::Retry(format!("Whisper transcription failed: {}", e)),
+            Err(e) => {
+                let error_text = e.to_string();
+                return JobResult::Retry(format!(
+                    "Whisper transcription failed ({})",
+                    audio_transcription_error_reason_code(&error_text)
+                ));
+            }
         };
 
         let segment_count = transcription.segments.len();
         info!(
-            parent = %parent_attachment_id,
+            parent_attachment_id_present = true,
             segments = segment_count,
             duration = ?transcription.duration_secs,
             "Audio transcription complete (inline)"
@@ -669,7 +713,7 @@ impl AudioTranscriptionHandler {
         let num_chunks = (duration / chunk_duration as f64).ceil() as usize;
 
         info!(
-            parent = %parent_attachment_id,
+            parent_attachment_id_present = true,
             duration_secs = duration,
             chunk_duration_secs = chunk_duration,
             num_chunks,
@@ -691,7 +735,11 @@ impl AudioTranscriptionHandler {
         {
             Ok(c) => c,
             Err(e) => {
-                return JobResult::Failed(format!("Failed to split audio into chunks: {}", e))
+                let error_text = e.to_string();
+                return JobResult::Failed(format!(
+                    "Failed to split audio into chunks ({})",
+                    audio_transcription_error_reason_code(&error_text)
+                ));
             }
         };
 
@@ -715,7 +763,13 @@ impl AudioTranscriptionHandler {
         {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        audio_transcription_error_reason_code(&error_text)
+                    ));
+                }
             };
             let _ = file_storage
                 .merge_extracted_metadata_tx(
@@ -736,7 +790,7 @@ impl AudioTranscriptionHandler {
                     let error_text = e.to_string();
                     warn!(
                         chunk = i,
-                        error_len = error_text.len(),
+                        error_len = audio_transcription_text_len(&error_text),
                         error_reason = audio_transcription_error_reason_code(&error_text),
                         "Failed to read chunk file, skipping"
                     );
@@ -752,7 +806,7 @@ impl AudioTranscriptionHandler {
                         let error_text = e.to_string();
                         warn!(
                             chunk = i,
-                            error_len = error_text.len(),
+                            error_len = audio_transcription_text_len(&error_text),
                             error_reason = audio_transcription_error_reason_code(&error_text),
                             "Schema tx failed for chunk storage"
                         );
@@ -777,7 +831,7 @@ impl AudioTranscriptionHandler {
                         let error_text = e.to_string();
                         warn!(
                             chunk = i,
-                            error_len = error_text.len(),
+                            error_len = audio_transcription_text_len(&error_text),
                             error_reason = audio_transcription_error_reason_code(&error_text),
                             "Failed to store chunk attachment"
                         );
@@ -838,7 +892,7 @@ impl AudioTranscriptionHandler {
                     let error_text = e.to_string();
                     warn!(
                         chunk = i,
-                        error_len = error_text.len(),
+                        error_len = audio_transcription_text_len(&error_text),
                         error_reason = audio_transcription_error_reason_code(&error_text),
                         "Failed to queue AudioChunkTranscription job"
                     );
@@ -847,11 +901,8 @@ impl AudioTranscriptionHandler {
         }
 
         info!(
-            parent = %parent_attachment_id,
-            total_chunks,
-            queued,
-            "Queued {} AudioChunkTranscription jobs",
-            queued
+            parent_attachment_id_present = true,
+            total_chunks, queued, "Queued AudioChunkTranscription jobs"
         );
 
         if queued == 0 {
@@ -890,5 +941,24 @@ mod tests {
             audio_transcription_error_reason_code("opaque backend diagnostic text"),
             "operation_failed"
         );
+    }
+
+    #[test]
+    fn audio_transcription_runtime_telemetry_helpers_redact_private_values() {
+        let raw_error = "postgres://user:mm_key_secret@db.internal/app failed at /srv/private";
+        let rendered = format!(
+            "parent_attachment_id_present=true; note_present=true; job_id_present=true; error_len={}; error_reason={}",
+            audio_transcription_text_len(raw_error),
+            audio_transcription_error_reason_code(raw_error)
+        );
+
+        assert!(rendered.contains("parent_attachment_id_present=true"));
+        assert!(rendered.contains("note_present=true"));
+        assert!(rendered.contains("job_id_present=true"));
+        assert!(rendered.contains("error_len="));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("postgres://"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("/srv/private"));
     }
 }
