@@ -25043,7 +25043,7 @@ async fn update_backup_metadata(
 // MEMORY INFO (Detailed sizing for hardware planning)
 // =============================================================================
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct MemoryInfoResponse {
     /// Summary statistics
     summary: MemorySummary,
@@ -25053,6 +25053,17 @@ struct MemoryInfoResponse {
     storage: StorageBreakdown,
     /// Hardware recommendations
     recommendations: HardwareRecommendations,
+}
+
+impl fmt::Debug for MemoryInfoResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryInfoResponse")
+            .field("summary", &self.summary)
+            .field("embedding_sets_count", &self.embedding_sets.len())
+            .field("storage", &self.storage)
+            .field("recommendations", &self.recommendations)
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -25065,7 +25076,7 @@ struct MemorySummary {
     total_templates: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct EmbeddingSetInfo {
     id: Uuid,
     name: String,
@@ -25086,7 +25097,29 @@ struct EmbeddingSetInfo {
     is_system: bool,
 }
 
-#[derive(Debug, Serialize)]
+impl fmt::Debug for EmbeddingSetInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EmbeddingSetInfo")
+            .field("id", &self.id)
+            .field("name_len", &self.name.len())
+            .field("slug_len", &self.slug.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("document_count", &self.document_count)
+            .field("embedding_count", &self.embedding_count)
+            .field("dimension", &self.dimension)
+            .field("vector_storage_bytes", &self.vector_storage_bytes)
+            .field("vector_storage_human_len", &self.vector_storage_human.len())
+            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("index_status_len", &self.index_status.len())
+            .field("is_system", &self.is_system)
+            .finish()
+    }
+}
+
+#[derive(Serialize)]
 struct StorageBreakdown {
     /// Total database size
     database_total_bytes: i64,
@@ -25117,7 +25150,38 @@ struct StorageBreakdown {
     orphaned_blob_human: String,
 }
 
-#[derive(Debug, Serialize)]
+impl fmt::Debug for StorageBreakdown {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StorageBreakdown")
+            .field("database_total_bytes", &self.database_total_bytes)
+            .field("database_total_human_len", &self.database_total_human.len())
+            .field("embedding_table_bytes", &self.embedding_table_bytes)
+            .field(
+                "embedding_table_human_len",
+                &self.embedding_table_human.len(),
+            )
+            .field("embedding_index_bytes", &self.embedding_index_bytes)
+            .field(
+                "embedding_index_human_len",
+                &self.embedding_index_human.len(),
+            )
+            .field("notes_table_bytes", &self.notes_table_bytes)
+            .field("notes_table_human_len", &self.notes_table_human.len())
+            .field("fts_index_bytes", &self.fts_index_bytes)
+            .field("fts_index_human_len", &self.fts_index_human.len())
+            .field("blob_table_bytes", &self.blob_table_bytes)
+            .field("blob_table_human_len", &self.blob_table_human.len())
+            .field("blob_content_bytes", &self.blob_content_bytes)
+            .field("blob_content_human_len", &self.blob_content_human.len())
+            .field("blob_count", &self.blob_count)
+            .field("orphaned_blob_count", &self.orphaned_blob_count)
+            .field("orphaned_blob_bytes", &self.orphaned_blob_bytes)
+            .field("orphaned_blob_human_len", &self.orphaned_blob_human.len())
+            .finish()
+    }
+}
+
+#[derive(Serialize)]
 struct HardwareRecommendations {
     /// Minimum RAM for embedding inference
     min_inference_ram_gb: f64,
@@ -25129,6 +25193,22 @@ struct HardwareRecommendations {
     gpu_required: bool,
     /// Notes about hardware requirements
     notes: Vec<String>,
+}
+
+impl fmt::Debug for HardwareRecommendations {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HardwareRecommendations")
+            .field("min_inference_ram_gb", &self.min_inference_ram_gb)
+            .field("recommended_ram_gb", &self.recommended_ram_gb)
+            .field("gpu_vram_needed_gb", &self.gpu_vram_needed_gb)
+            .field("gpu_required", &self.gpu_required)
+            .field("notes_count", &self.notes.len())
+            .field(
+                "note_lens",
+                &self.notes.iter().map(String::len).collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 /// Get detailed memory/storage info for hardware planning.
@@ -25624,6 +25704,98 @@ mod tests {
             "postgres://user:pass",
             "db.internal",
             "sk-live-metadata",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn memory_info_debug_redacts_embedding_metadata_and_recommendation_notes() {
+        let response = MemoryInfoResponse {
+            summary: MemorySummary {
+                total_notes: 12,
+                total_embeddings: 34,
+                total_links: 5,
+                total_collections: 2,
+                total_tags: 3,
+                total_templates: 1,
+            },
+            embedding_sets: vec![EmbeddingSetInfo {
+                id: Uuid::new_v4(),
+                name: "customer-private-embedding-set".to_string(),
+                slug: "customer-postgres-secret-mm_key_embeddings".to_string(),
+                description: Some(
+                    "Embeddings for /srv/private/customer with sk-live-vector-token".to_string(),
+                ),
+                document_count: 12,
+                embedding_count: 34,
+                dimension: 768,
+                vector_storage_bytes: 104448,
+                vector_storage_human: "102 KiB private-label".to_string(),
+                model: Some("nomic-embed-text-private-db.internal".to_string()),
+                index_status: "ReadyWithSecretIndexName".to_string(),
+                is_system: false,
+            }],
+            storage: StorageBreakdown {
+                database_total_bytes: 4096,
+                database_total_human: "4 KiB tenant-db.internal".to_string(),
+                embedding_table_bytes: 2048,
+                embedding_table_human: "2 KiB embeddings-private".to_string(),
+                embedding_index_bytes: 512,
+                embedding_index_human: "512 B hnsw-secret".to_string(),
+                notes_table_bytes: 1024,
+                notes_table_human: "1 KiB notes-private".to_string(),
+                fts_index_bytes: 256,
+                fts_index_human: "256 B fts-private".to_string(),
+                blob_table_bytes: 128,
+                blob_table_human: "128 B blob-private".to_string(),
+                blob_content_bytes: 64,
+                blob_content_human: "64 B blob-content-private".to_string(),
+                blob_count: 1,
+                orphaned_blob_count: 1,
+                orphaned_blob_bytes: 32,
+                orphaned_blob_human: "32 B orphan-private".to_string(),
+            },
+            recommendations: HardwareRecommendations {
+                min_inference_ram_gb: 2.0,
+                recommended_ram_gb: 4.0,
+                gpu_vram_needed_gb: 1.5,
+                gpu_required: false,
+                notes: vec![
+                    "Run model nomic-embed-text-private-db.internal for customer@example.com"
+                        .to_string(),
+                    "Cache /srv/private/vector-store sk-live-hardware".to_string(),
+                ],
+            },
+        };
+
+        let rendered = format!("{response:?}");
+
+        assert!(rendered.contains("MemoryInfoResponse"));
+        assert!(rendered.contains("embedding_sets_count"));
+        assert!(rendered.contains("StorageBreakdown"));
+        assert!(rendered.contains("HardwareRecommendations"));
+        assert!(rendered.contains("notes_count"));
+        assert!(rendered.contains("note_lens"));
+
+        for raw in [
+            "customer-private-embedding-set",
+            "customer-postgres-secret",
+            "mm_key_embeddings",
+            "/srv/private",
+            "sk-live-vector-token",
+            "private-label",
+            "nomic-embed-text-private-db.internal",
+            "ReadyWithSecretIndexName",
+            "tenant-db.internal",
+            "embeddings-private",
+            "hnsw-secret",
+            "notes-private",
+            "fts-private",
+            "blob-private",
+            "orphan-private",
+            "customer@example.com",
+            "sk-live-hardware",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
