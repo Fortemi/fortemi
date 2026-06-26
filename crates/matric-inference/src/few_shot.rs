@@ -13,6 +13,7 @@
 //! - Uniform example format improves consistency
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Type of few-shot example.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -79,7 +80,7 @@ impl Default for FewShotConfig {
 }
 
 /// A single few-shot example.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct FewShotExample {
     /// Input text
     pub input: String,
@@ -91,10 +92,34 @@ pub struct FewShotExample {
     pub quality_score: f32,
 }
 
+impl fmt::Debug for FewShotExample {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FewShotExample")
+            .field("input_len", &self.input.len())
+            .field("output_len", &self.output.len())
+            .field("tag_count", &self.tags.len())
+            .field(
+                "tag_total_len",
+                &self.tags.iter().map(String::len).sum::<usize>(),
+            )
+            .field("quality_score", &self.quality_score)
+            .finish()
+    }
+}
+
 /// Builds prompts with few-shot examples embedded.
 pub struct FewShotPromptBuilder {
     examples: Vec<FewShotExample>,
     task_description: String,
+}
+
+impl fmt::Debug for FewShotPromptBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FewShotPromptBuilder")
+            .field("example_count", &self.examples.len())
+            .field("task_description_len", &self.task_description.len())
+            .finish()
+    }
 }
 
 impl FewShotPromptBuilder {
@@ -456,5 +481,37 @@ mod tests {
             // Just verify round-trip doesn't panic
             let _ = format!("{:?}", parsed);
         }
+    }
+
+    #[test]
+    fn few_shot_debug_redacts_examples_tags_and_task_descriptions() {
+        let example = FewShotExample {
+            input: "Meeting note for jane@example.com with token sk-private".to_string(),
+            output: "Summarized private output mentioning +1-555-0100".to_string(),
+            tags: vec![
+                "customer/jane@example.com".to_string(),
+                "sk-private".to_string(),
+            ],
+            quality_score: 0.93,
+        };
+        let builder = FewShotPromptBuilder::new(
+            vec![example.clone()],
+            "Task references https://tenant.example and sk-private".to_string(),
+        );
+
+        let debug = format!("{:?} {:?}", example, builder);
+
+        assert!(debug.contains("input_len"));
+        assert!(debug.contains("output_len"));
+        assert!(debug.contains("tag_count"));
+        assert!(debug.contains("tag_total_len"));
+        assert!(debug.contains("example_count"));
+        assert!(debug.contains("task_description_len"));
+        assert!(!debug.contains("jane@example.com"));
+        assert!(!debug.contains("sk-private"));
+        assert!(!debug.contains("+1-555-0100"));
+        assert!(!debug.contains("tenant.example"));
+        assert!(!debug.contains("Meeting note"));
+        assert!(!debug.contains("Summarized private output"));
     }
 }
