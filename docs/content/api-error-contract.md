@@ -77,6 +77,23 @@ Expected server behavior:
   `Check server logs for diagnostics.`
 - Preserve safe validation messages only when they do not reveal internals.
 
+## Security Headers and Proxies
+
+Fortemi applies hosted-safe response headers by response class:
+
+- API JSON and Problem Details responses receive `X-Content-Type-Options:
+  nosniff`, `Referrer-Policy: no-referrer`, restrictive browser capability
+  policy, and `Cache-Control: no-store` on errors.
+- Browser-rendered docs and OAuth pages receive a document CSP with
+  `frame-ancestors 'none'` for clickjacking protection.
+- Download and media responses keep media-compatible headers and avoid document
+  CSP that would break legitimate attachment rendering.
+
+If TLS terminates at a reverse proxy, the proxy owns HSTS emission and must strip
+or overwrite inbound `Forwarded` / `X-Forwarded-*` headers before forwarding to
+Fortemi. Fortemi diagnostics and problem responses must not echo untrusted
+forwarded host, proto, or client IP header values.
+
 ## Streaming Protocols
 
 SSE and other streaming protocols may carry stream-frame error events after the
