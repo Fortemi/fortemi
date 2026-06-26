@@ -59,7 +59,7 @@ pub struct SourcedOllamaConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourcedOpenAIConfig {
     pub base_url: SourcedValue,
-    /// API key redacted: first 8 chars + "...". Null if not set.
+    /// API key metadata only. Null if not set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_key: Option<SourcedValue>,
     pub generation_model: SourcedValue,
@@ -363,17 +363,64 @@ fn inference_config_database_failed() -> axum::response::Response {
     )
 }
 
-/// Redact an API key: show first 8 chars + "..." or the full value if shorter.
+/// Redact an API key without carrying any raw prefix/suffix material.
 fn redact_api_key(key: &str) -> String {
-    if key.len() <= 8 {
-        key.to_string()
-    } else {
-        format!("{}...", &key[..8])
-    }
+    redacted_secret_metadata(telemetry_text_len(key))
 }
 
 fn telemetry_text_len(value: &str) -> usize {
     value.chars().count()
+}
+
+fn redacted_secret_metadata(len: usize) -> String {
+    format!("<secret_present_len:{len}>")
+}
+
+fn redact_inference_config_json(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut redacted = serde_json::Map::new();
+            for (key, nested) in map {
+                let value = if key == "api_key" {
+                    redact_inference_secret_value(nested)
+                } else {
+                    redact_inference_config_json(nested)
+                };
+                redacted.insert(key.clone(), value);
+            }
+            Value::Object(redacted)
+        }
+        Value::Array(values) => {
+            Value::Array(values.iter().map(redact_inference_config_json).collect())
+        }
+        _ => value.clone(),
+    }
+}
+
+fn redact_inference_secret_value(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut redacted = serde_json::Map::new();
+            if let Some(source) = map.get("source") {
+                redacted.insert("source".to_string(), source.clone());
+            }
+            let len = map
+                .get("value")
+                .and_then(|v| v.as_str())
+                .map(telemetry_text_len)
+                .unwrap_or(0);
+            redacted.insert(
+                "value".to_string(),
+                Value::String(redacted_secret_metadata(len)),
+            );
+            Value::Object(redacted)
+        }
+        Value::String(secret) => {
+            Value::String(redacted_secret_metadata(telemetry_text_len(secret)))
+        }
+        Value::Null => Value::Null,
+        _ => Value::String("<secret_present>".to_string()),
+    }
 }
 
 const INFERENCE_CONFIG_AUDIT_WRITE_FAILURE: &str = "inference_config_audit_write_failed";
@@ -2158,8 +2205,8 @@ pub async fn delete_inference_config(
 // AUDIT LOG ENDPOINT (#656)
 // =============================================================================
 
-/// One row from `inference_config_audit`. API keys in the JSON blobs are
-/// already redacted by the writer; the wire format mirrors the table.
+/// One row from `inference_config_audit`. JSON blobs are sanitized again at
+/// read time so the diagnostic endpoint never depends solely on writer hygiene.
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AuditRow {
     pub id: i64,
@@ -2172,6 +2219,14 @@ pub struct AuditRow {
     pub after_json: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_ip: Option<String>,
+}
+
+impl AuditRow {
+    fn redacted(mut self) -> Self {
+        self.before_json = self.before_json.as_ref().map(redact_inference_config_json);
+        self.after_json = self.after_json.as_ref().map(redact_inference_config_json);
+        self
+    }
 }
 
 /// Query parameters for the audit log endpoint.
@@ -2241,11 +2296,14 @@ pub async fn get_inference_config_audit(
     q = q.bind(limit);
 
     match q.fetch_all(&state.db.pool).await {
-        Ok(entries) => (
-            StatusCode::OK,
-            Json(serde_json::json!({ "entries": entries })),
-        )
-            .into_response(),
+        Ok(entries) => {
+            let entries: Vec<_> = entries.into_iter().map(AuditRow::redacted).collect();
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "entries": entries })),
+            )
+                .into_response()
+        }
         Err(e) => {
             let diagnostic = e.to_string();
             warn!(
@@ -2977,6 +3035,53 @@ mod tests_connection {
             assert!(!class.contains("api_key="));
             assert!(!class.contains("tenant_alpha"));
         }
+    }
+
+    #[test]
+    fn inference_config_api_key_metadata_never_echoes_secret_material() {
+        for secret in [
+            "sk",
+            "sk-secret-prefix-that-should-not-appear",
+            "openrouter-secret-token",
+        ] {
+            let redacted = redact_api_key(secret);
+            assert!(redacted.starts_with("<secret_present_len:"));
+            assert!(!redacted.contains(secret));
+            assert!(!redacted.contains("sk-"));
+            assert!(!redacted.contains("openrouter"));
+            assert!(!redacted.contains("secret-token"));
+        }
+    }
+
+    #[test]
+    fn inference_config_audit_json_redacts_api_key_values_recursively() {
+        let raw = serde_json::json!({
+            "openai": {
+                "api_key": {
+                    "value": "sk-audit-secret-prefix",
+                    "source": "db_override"
+                },
+                "generation_model": {
+                    "value": "gpt-4o-mini",
+                    "source": "default"
+                }
+            },
+            "nested": [{
+                "api_key": "short"
+            }]
+        });
+
+        let redacted = redact_inference_config_json(&raw);
+        let rendered = serde_json::to_string(&redacted).unwrap();
+
+        assert!(rendered.contains("<secret_present_len:22>"));
+        assert!(rendered.contains("<secret_present_len:5>"));
+        assert!(rendered.contains("db_override"));
+        assert!(rendered.contains("gpt-4o-mini"));
+        assert!(!rendered.contains("sk-audit-secret-prefix"));
+        assert!(!rendered.contains("\"short\""));
+        assert!(!rendered.contains("sk-"));
+        assert!(!rendered.contains("secret-prefix"));
     }
 
     #[test]
