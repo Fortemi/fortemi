@@ -32,7 +32,11 @@ fn extract_schema(ctx: &JobContext) -> &str {
 
 fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResult> {
     db.for_schema(schema)
-        .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
+        .map_err(|_| JobResult::Failed("Invalid schema".into()))
+}
+
+fn keyframe_setting_text_len(text: &str) -> usize {
+    text.chars().count()
 }
 
 fn keyframe_setting_error_reason_code(error: &str) -> &'static str {
@@ -128,7 +132,7 @@ impl JobHandler for KeyframeSettingVisionHandler {
             None => {
                 warn!(
                     frame_index,
-                    keyframe = %keyframe_attachment_id,
+                    keyframe_attachment_id_present = true,
                     "KeyframeSettingVision job deferred — vision backend unavailable"
                 );
                 return JobResult::Retry(
@@ -147,7 +151,13 @@ impl JobHandler for KeyframeSettingVisionHandler {
         let image_data = {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        keyframe_setting_error_reason_code(&error_text)
+                    ));
+                }
             };
             let result = file_storage
                 .download_file_tx(&mut tx, keyframe_attachment_id)
@@ -156,19 +166,17 @@ impl JobHandler for KeyframeSettingVisionHandler {
             match result {
                 Ok((data, _content_type, _filename)) => data,
                 Err(e) => {
+                    let error_text = e.to_string();
                     return JobResult::Failed(format!(
-                        "Failed to download keyframe {}: {}",
-                        keyframe_attachment_id, e
-                    ))
+                        "Failed to download keyframe ({})",
+                        keyframe_setting_error_reason_code(&error_text)
+                    ));
                 }
             }
         };
 
         if image_data.is_empty() {
-            return JobResult::Failed(format!(
-                "Empty image data for keyframe {}",
-                keyframe_attachment_id
-            ));
+            return JobResult::Failed("Empty image data for keyframe".into());
         }
 
         // Step 2: Call vision LLM with setting-specific prompt
@@ -196,16 +204,17 @@ impl JobHandler for KeyframeSettingVisionHandler {
                 let error_text = e.to_string();
                 warn!(
                     frame_index,
-                    parent = %parent_attachment_id,
-                    keyframe = %keyframe_attachment_id,
-                    model = vision.model_name(),
-                    error_len = error_text.len(),
+                    parent_attachment_id_present = true,
+                    keyframe_attachment_id_present = true,
+                    model_len = keyframe_setting_text_len(vision.model_name()),
+                    error_len = keyframe_setting_text_len(&error_text),
                     error_reason = keyframe_setting_error_reason_code(&error_text),
                     "Vision LLM failed for setting analysis — will retry"
                 );
                 return JobResult::Retry(format!(
-                    "Vision LLM failed for setting analysis frame {}: {}",
-                    frame_index, e
+                    "Vision LLM failed for setting analysis frame {} ({})",
+                    frame_index,
+                    keyframe_setting_error_reason_code(&error_text)
                 ));
             }
         };
@@ -215,7 +224,13 @@ impl JobHandler for KeyframeSettingVisionHandler {
         {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        keyframe_setting_error_reason_code(&error_text)
+                    ));
+                }
             };
             if let Err(e) = file_storage
                 .merge_extracted_metadata_tx(
@@ -228,20 +243,27 @@ impl JobHandler for KeyframeSettingVisionHandler {
                 )
                 .await
             {
-                return JobResult::Failed(format!("Failed to store setting analysis: {}", e));
+                let error_text = e.to_string();
+                return JobResult::Failed(format!(
+                    "Failed to store setting analysis ({})",
+                    keyframe_setting_error_reason_code(&error_text)
+                ));
             }
             if let Err(e) = tx.commit().await {
-                return JobResult::Failed(format!("Commit failed: {}", e));
+                let error_text = e.to_string();
+                return JobResult::Failed(format!(
+                    "Commit failed ({})",
+                    keyframe_setting_error_reason_code(&error_text)
+                ));
             }
         }
 
         info!(
             frame_index,
-            parent = %parent_attachment_id,
-            keyframe = %keyframe_attachment_id,
-            "Keyframe {} setting analysis complete ({} chars)",
-            frame_index,
-            analysis.len()
+            parent_attachment_id_present = true,
+            keyframe_attachment_id_present = true,
+            analysis_len = keyframe_setting_text_len(&analysis),
+            "Keyframe setting analysis complete"
         );
 
         // Step 4: Fan-in check
@@ -359,8 +381,9 @@ impl KeyframeSettingVisionHandler {
                 Ok(Some(job_id)) => {
                     ctx.emit_job_queued(job_id, JobType::KeyframeAssembly, ctx.note_id());
                     info!(
-                        "All {} keyframes fully analyzed + transcript complete, KeyframeAssembly queued (job {})",
-                        total_frames, job_id
+                        total_frames,
+                        job_id_present = true,
+                        "All keyframes fully analyzed + transcript complete, KeyframeAssembly queued"
                     );
                 }
                 Ok(None) => {
@@ -403,5 +426,28 @@ mod tests {
             keyframe_setting_error_reason_code("opaque backend text with token mm_key_secret"),
             "operation_failed"
         );
+    }
+
+    #[test]
+    fn keyframe_setting_runtime_telemetry_helpers_redact_private_values() {
+        let raw_error =
+            "vision model postgres://user:pass@db.internal failed for /srv/private/mm_key_frame";
+        let rendered = format!(
+            "parent_attachment_id_present=true; keyframe_attachment_id_present=true; model_len={}; error_len={}; error_reason={}",
+            keyframe_setting_text_len("private-model-mm_key"),
+            keyframe_setting_text_len(raw_error),
+            keyframe_setting_error_reason_code(raw_error)
+        );
+
+        assert!(rendered.contains("parent_attachment_id_present=true"));
+        assert!(rendered.contains("keyframe_attachment_id_present=true"));
+        assert!(rendered.contains("model_len="));
+        assert!(rendered.contains("error_len="));
+        assert!(rendered.contains("error_reason=database_error"));
+        assert!(!rendered.contains("private-model-mm_key"));
+        assert!(!rendered.contains("postgres://user:pass"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("/srv/private"));
+        assert!(!rendered.contains("mm_key_frame"));
     }
 }
