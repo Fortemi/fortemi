@@ -18,6 +18,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 
 /// Embedding type: whether the model uses different encodings for queries vs passages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,7 +31,7 @@ pub enum EmbeddingSymmetry {
 }
 
 /// Known embedding model profile.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct EmbeddingModelProfile {
     /// Model name as used in Ollama (e.g., "e5-base-v2", "nomic-embed-text")
     pub name: String,
@@ -48,6 +49,33 @@ pub struct EmbeddingModelProfile {
     pub family: String,
     /// Brief description
     pub description: String,
+}
+
+impl fmt::Debug for EmbeddingModelProfile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EmbeddingModelProfile")
+            .field("name_len", &self.name.chars().count())
+            .field("dimension", &self.dimension)
+            .field("symmetry", &self.symmetry)
+            .field(
+                "query_prefix_len",
+                &self
+                    .query_prefix
+                    .as_ref()
+                    .map(|value| value.chars().count()),
+            )
+            .field(
+                "passage_prefix_len",
+                &self
+                    .passage_prefix
+                    .as_ref()
+                    .map(|value| value.chars().count()),
+            )
+            .field("max_tokens", &self.max_tokens)
+            .field("family_len", &self.family.chars().count())
+            .field("description_len", &self.description.chars().count())
+            .finish()
+    }
 }
 
 impl EmbeddingModelProfile {
@@ -493,5 +521,40 @@ mod tests {
         assert_eq!(parsed.dimension, 768);
         assert!(parsed.is_asymmetric());
         assert_eq!(parsed.query_prefix, Some("query: ".to_string()));
+    }
+
+    #[test]
+    fn embedding_model_profile_debug_redacts_model_prefix_and_description_values() {
+        let profile = EmbeddingModelProfile {
+            name: "tenant/private-embed:jane@example.com:sk-private".to_string(),
+            dimension: 1536,
+            symmetry: EmbeddingSymmetry::Asymmetric,
+            query_prefix: Some("query https://tenant.example sk-private ".to_string()),
+            passage_prefix: Some("passage /srv/private jane@example.com ".to_string()),
+            max_tokens: 4096,
+            family: "private-family-sk-private".to_string(),
+            description: "Private embedding model at https://tenant.example for jane@example.com"
+                .to_string(),
+        };
+
+        let debug = format!("{profile:?}");
+
+        for raw in [
+            "tenant/private-embed",
+            "jane@example.com",
+            "sk-private",
+            "https://tenant.example",
+            "/srv/private",
+            "private-family",
+            "Private embedding model",
+        ] {
+            assert!(!debug.contains(raw), "debug output leaked {raw}: {debug}");
+        }
+
+        assert!(debug.contains("name_len"));
+        assert!(debug.contains("query_prefix_len"));
+        assert!(debug.contains("passage_prefix_len"));
+        assert!(debug.contains("family_len"));
+        assert!(debug.contains("description_len"));
     }
 }
