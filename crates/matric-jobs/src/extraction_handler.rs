@@ -34,7 +34,7 @@ fn extract_schema(ctx: &JobContext) -> &str {
 /// Create a SchemaContext for the given schema, returning a JobResult error on failure.
 fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResult> {
     db.for_schema(schema)
-        .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
+        .map_err(|_| JobResult::Failed("Invalid schema".into()))
 }
 
 /// Stream-copy a file to a temp location using a windowed buffer.
@@ -96,6 +96,15 @@ fn extraction_error_reason_code(error: &str) -> &'static str {
     }
 }
 
+fn extraction_job_failure(message: &str, error: impl std::fmt::Display) -> JobResult {
+    let error_text = error.to_string();
+    JobResult::Failed(format!(
+        "{} ({})",
+        message,
+        extraction_error_reason_code(&error_text)
+    ))
+}
+
 pub struct ExtractionHandler {
     db: Database,
     registry: Arc<ExtractionRegistry>,
@@ -126,7 +135,7 @@ impl JobHandler for ExtractionHandler {
             .unwrap_or("text_native");
         let strategy: ExtractionStrategy = match strategy_str.parse() {
             Ok(s) => s,
-            Err(e) => return JobResult::Failed(format!("Invalid extraction strategy: {}", e)),
+            Err(_) => return JobResult::Failed("Invalid extraction strategy".into()),
         };
 
         let filename = payload
@@ -140,16 +149,15 @@ impl JobHandler for ExtractionHandler {
         let mut config = payload.get("config").cloned().unwrap_or_else(|| json!({}));
 
         // Parse optional attachment_id (used later for persisting results)
-        let attachment_id: Option<Uuid> = if let Some(id_str) =
-            payload.get("attachment_id").and_then(|v| v.as_str())
-        {
-            match id_str.parse() {
-                Ok(id) => Some(id),
-                Err(e) => return JobResult::Failed(format!("Invalid attachment_id UUID: {}", e)),
-            }
-        } else {
-            None
-        };
+        let attachment_id: Option<Uuid> =
+            if let Some(id_str) = payload.get("attachment_id").and_then(|v| v.as_str()) {
+                match id_str.parse() {
+                    Ok(id) => Some(id),
+                    Err(_) => return JobResult::Failed("Invalid attachment_id UUID".into()),
+                }
+            } else {
+                None
+            };
 
         // Schema context for multi-memory archive support (Issue #426)
         let schema = extract_schema(&ctx);
@@ -192,11 +200,11 @@ impl JobHandler for ExtractionHandler {
             if supports_path_access {
                 let mut tx = match schema_ctx.begin_tx().await {
                     Ok(t) => t,
-                    Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                    Err(e) => return extraction_job_failure("Schema tx failed", e),
                 };
                 let path_result = file_storage.get_file_metadata_tx(&mut tx, att_id).await;
                 if let Err(e) = tx.commit().await {
-                    return JobResult::Failed(format!("Commit failed: {}", e));
+                    return extraction_job_failure("Commit failed", e);
                 }
                 match path_result {
                     Ok(info) => {
@@ -229,11 +237,7 @@ impl JobHandler for ExtractionHandler {
                                             path
                                         }
                                         Err(e) => {
-                                            return JobResult::Failed(format!(
-                                                "Stream copy failed for {}: {}",
-                                                fs_path.display(),
-                                                e
-                                            ));
+                                            return extraction_job_failure("Stream copy failed", e);
                                         }
                                     }
                                 };
@@ -247,24 +251,19 @@ impl JobHandler for ExtractionHandler {
                                 // Path couldn't be resolved: download into memory
                                 let mut tx2 = match schema_ctx.begin_tx().await {
                                     Ok(t) => t,
-                                    Err(e) => {
-                                        return JobResult::Failed(format!(
-                                            "Schema tx failed: {}",
-                                            e
-                                        ))
-                                    }
+                                    Err(e) => return extraction_job_failure("Schema tx failed", e),
                                 };
                                 let result = file_storage.download_file_tx(&mut tx2, att_id).await;
                                 if let Err(e) = tx2.commit().await {
-                                    return JobResult::Failed(format!("Commit failed: {}", e));
+                                    return extraction_job_failure("Commit failed", e);
                                 }
                                 match result {
                                     Ok((d, _, _)) => d,
                                     Err(e) => {
-                                        return JobResult::Failed(format!(
-                                            "Failed to download attachment {}: {}",
-                                            att_id, e
-                                        ))
+                                        return extraction_job_failure(
+                                            "Failed to download attachment",
+                                            e,
+                                        )
                                     }
                                 }
                             }
@@ -277,30 +276,22 @@ impl JobHandler for ExtractionHandler {
                         }
                     }
                     Err(e) => {
-                        return JobResult::Failed(format!(
-                            "Failed to get attachment metadata {}: {}",
-                            att_id, e
-                        ))
+                        return extraction_job_failure("Failed to get attachment metadata", e)
                     }
                 }
             } else {
                 // Non-path strategies: download into memory as before
                 let mut tx = match schema_ctx.begin_tx().await {
                     Ok(t) => t,
-                    Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                    Err(e) => return extraction_job_failure("Schema tx failed", e),
                 };
                 let result = file_storage.download_file_tx(&mut tx, att_id).await;
                 if let Err(e) = tx.commit().await {
-                    return JobResult::Failed(format!("Commit failed: {}", e));
+                    return extraction_job_failure("Commit failed", e);
                 }
                 match result {
                     Ok((file_data, _content_type, _filename)) => file_data,
-                    Err(e) => {
-                        return JobResult::Failed(format!(
-                            "Failed to download attachment {}: {}",
-                            att_id, e
-                        ))
-                    }
+                    Err(e) => return extraction_job_failure("Failed to download attachment", e),
                 }
             }
         } else if let Some(data_str) = payload.get("data").and_then(|v| v.as_str()) {
@@ -367,7 +358,7 @@ impl JobHandler for ExtractionHandler {
             }
             debug!(
                 strategy = ?strategy,
-                filename,
+                filename_len = telemetry_text_len(filename),
                 "_skip_vision injected — vision LLM calls deferred to atomic jobs"
             );
         }
@@ -380,7 +371,7 @@ impl JobHandler for ExtractionHandler {
             }
             debug!(
                 strategy = ?strategy,
-                filename,
+                filename_len = telemetry_text_len(filename),
                 "_skip_transcription injected — transcription deferred to AudioTranscription job"
             );
         }
@@ -396,8 +387,9 @@ impl JobHandler for ExtractionHandler {
                 .map(|s| s.to_string())
                 .collect();
             return JobResult::Failed(format!(
-                "No adapter registered for strategy: {:?}. Available strategies: {:?}",
-                strategy, available
+                "No adapter registered for strategy ({:?}); available_strategy_count={}",
+                strategy,
+                available.len()
             ));
         }
 
@@ -1879,6 +1871,22 @@ mod tests {
         assert!(!detail.contains("secret-customer-token"));
         assert!(!detail.contains("mm_key_secret"));
         assert!(!detail.contains("/srv/fortemi"));
+    }
+
+    #[test]
+    fn extraction_setup_failures_redact_error_details() {
+        let failure = extraction_job_failure(
+            "Failed to download attachment",
+            "postgres://user:mm_key_secret@db.internal/app failed at /srv/private/input.pdf",
+        );
+        let rendered = format!("{failure:?}");
+
+        assert!(rendered.contains("Failed to download attachment"));
+        assert!(rendered.contains("operation_failed"));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("postgres://"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("/srv/private"));
     }
 
     #[tokio::test]
