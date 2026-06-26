@@ -1143,14 +1143,12 @@ impl JobHandler for AiRevisionHandler {
         let revised = revised_parts.join("\n\n");
 
         if revised.is_empty() {
-            let mode_context = if revision_mode.is_contextual() {
-                " (Phase 1 of contextual pipeline — Phase 2 will not be queued)"
+            let operation = if revision_mode.is_contextual() {
+                "empty_contextual_revision_after_cleaning"
             } else {
-                ""
+                "empty_revision_after_cleaning"
             };
-            return JobResult::Failed(format!(
-                "AI revision returned empty after content cleaning{mode_context}"
-            ));
+            return ai_revision_job_failure("empty revision after content cleaning", operation);
         }
 
         ctx.report_progress(80, Some("Saving revision..."));
@@ -3237,7 +3235,7 @@ impl JobHandler for PurgeNoteHandler {
             .unwrap_or(false);
         tx.commit().await.ok();
         if !exists {
-            return JobResult::Failed(format!("Note {} does not exist", note_id));
+            return JobResult::Failed("Note does not exist".into());
         }
 
         ctx.report_progress(50, Some("Deleting note and all related data..."));
@@ -8071,6 +8069,22 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("/srv/fortemi"));
                 assert!(!message.contains("SQLSTATE"));
                 assert!(!message.contains("revision save failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+
+        let result = ai_revision_job_failure(
+            "AI revision returned empty after content cleaning (Phase 1 of contextual pipeline)",
+            "empty_contextual_revision_after_cleaning",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, AI_REVISION_JOB_FAILURE);
+                assert!(!message.contains("empty"));
+                assert!(!message.contains("content cleaning"));
+                assert!(!message.contains("Phase 1"));
+                assert!(!message.contains("contextual pipeline"));
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
