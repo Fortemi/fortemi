@@ -13,6 +13,52 @@ use matric_inference::transcription::{
 use tokio::process::Command;
 use tracing::{debug, info, warn};
 
+fn audio_io_error_kind(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => "not_found",
+        std::io::ErrorKind::PermissionDenied => "permission_denied",
+        std::io::ErrorKind::TimedOut => "timed_out",
+        std::io::ErrorKind::Interrupted => "interrupted",
+        std::io::ErrorKind::WouldBlock => "would_block",
+        _ => "io_error",
+    }
+}
+
+fn audio_stderr_reason_code(stderr: &[u8]) -> &'static str {
+    let text = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("invalid data")
+        || text.contains("invalid argument")
+        || text.contains("could not find codec parameters")
+        || text.contains("moov atom not found")
+    {
+        "invalid_media"
+    } else if text.contains("not found") || text.contains("no such") {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else {
+        "command_failed"
+    }
+}
+
+fn audio_command_failure_detail(
+    command: &'static str,
+    phase: &'static str,
+    status_code: Option<i32>,
+    stderr: &[u8],
+) -> String {
+    format!(
+        "{command} {phase} failed; status={}; stderr_len={}; stderr_reason={}",
+        status_code
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "signal".to_string()),
+        stderr.len(),
+        audio_stderr_reason_code(stderr)
+    )
+}
+
 /// Transcode any audio/video file to 16kHz mono PCM WAV for speech processing.
 ///
 /// This normalizes the input to the standard format accepted by all speech
@@ -32,8 +78,8 @@ pub async fn transcode_to_speech_wav(
     let output_path = output_dir.join("speech.wav");
 
     debug!(
-        input = %input_path.display(),
-        output = %output_path.display(),
+        input_path_len = input_path.display().to_string().len(),
+        output_path_len = output_path.display().to_string().len(),
         "Transcoding audio to 16kHz mono PCM WAV"
     );
 
@@ -60,23 +106,28 @@ pub async fn transcode_to_speech_wav(
             EXTRACTION_CMD_TIMEOUT_SECS * 2
         ))
     })?
-    .map_err(|e| matric_core::Error::Internal(format!("Failed to execute ffmpeg: {}", e)))?;
+    .map_err(|e| {
+        matric_core::Error::Internal(format!(
+            "ffmpeg transcode failed to start; io_error_kind={}",
+            audio_io_error_kind(&e)
+        ))
+    })?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(matric_core::Error::Internal(format!(
-            "ffmpeg transcode failed (exit {}): {}",
-            output.status,
-            stderr.trim()
+        return Err(matric_core::Error::Internal(audio_command_failure_detail(
+            "ffmpeg",
+            "transcode",
+            output.status.code(),
+            &output.stderr,
         )));
     }
 
     // Verify output file was created and is non-empty
     let metadata = std::fs::metadata(&output_path).map_err(|e| {
         matric_core::Error::Internal(format!(
-            "Transcoded WAV not found at {}: {}",
-            output_path.display(),
-            e
+            "Transcoded WAV not found; output_path_len={}; io_error_kind={}",
+            output_path.display().to_string().len(),
+            audio_io_error_kind(&e)
         ))
     })?;
 
@@ -87,7 +138,7 @@ pub async fn transcode_to_speech_wav(
     }
 
     debug!(
-        output = %output_path.display(),
+        output_path_len = output_path.display().to_string().len(),
         size_bytes = metadata.len(),
         "Audio transcode complete"
     );
@@ -124,14 +175,19 @@ pub async fn probe_duration(input_path: &Path) -> matric_core::Result<f64> {
     )
     .await
     .map_err(|_| matric_core::Error::Internal("ffprobe timed out".into()))?
-    .map_err(|e| matric_core::Error::Internal(format!("Failed to execute ffprobe: {}", e)))?;
+    .map_err(|e| {
+        matric_core::Error::Internal(format!(
+            "ffprobe failed to start; io_error_kind={}",
+            audio_io_error_kind(&e)
+        ))
+    })?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(matric_core::Error::Internal(format!(
-            "ffprobe failed (exit {}): {}",
-            output.status,
-            stderr.trim()
+        return Err(matric_core::Error::Internal(audio_command_failure_detail(
+            "ffprobe",
+            "duration",
+            output.status.code(),
+            &output.stderr,
         )));
     }
 
@@ -145,7 +201,7 @@ pub async fn probe_duration(input_path: &Path) -> matric_core::Result<f64> {
     })?;
 
     debug!(
-        path = %input_path.display(),
+        input_path_len = input_path.display().to_string().len(),
         duration_secs = duration,
         "Audio duration probed"
     );
@@ -179,7 +235,7 @@ pub async fn split_audio_chunks(
             chunk = index,
             offset_secs = offset,
             duration_secs = this_chunk_dur,
-            path = %chunk_path.display(),
+            chunk_path_len = chunk_path.display().to_string().len(),
             "Splitting audio chunk"
         );
 
@@ -211,27 +267,31 @@ pub async fn split_audio_chunks(
         })?
         .map_err(|e| {
             matric_core::Error::Internal(format!(
-                "Failed to execute ffmpeg for chunk {}: {}",
-                index, e
+                "ffmpeg chunk split failed to start; chunk={}; io_error_kind={}",
+                index,
+                audio_io_error_kind(&e)
             ))
         })?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(matric_core::Error::Internal(format!(
-                "ffmpeg chunk split failed at offset {:.1}s (exit {}): {}",
+                "ffmpeg chunk split failed at offset {:.1}s; {}",
                 offset,
-                output.status,
-                stderr.trim()
+                audio_command_failure_detail(
+                    "ffmpeg",
+                    "chunk_split",
+                    output.status.code(),
+                    &output.stderr
+                )
             )));
         }
 
         // Verify chunk file is non-empty
         let meta = std::fs::metadata(&chunk_path).map_err(|e| {
             matric_core::Error::Internal(format!(
-                "Chunk file not found at {}: {}",
-                chunk_path.display(),
-                e
+                "Chunk file not found; chunk_path_len={}; io_error_kind={}",
+                chunk_path.display().to_string().len(),
+                audio_io_error_kind(&e)
             ))
         })?;
 
@@ -375,9 +435,9 @@ pub async fn transcribe_with_chunking(
 
         let chunk_data = std::fs::read(chunk_path).map_err(|e| {
             matric_core::Error::Internal(format!(
-                "Failed to read chunk {}: {}",
-                chunk_path.display(),
-                e
+                "Failed to read chunk; chunk_path_len={}; io_error_kind={}",
+                chunk_path.display().to_string().len(),
+                audio_io_error_kind(&e)
             ))
         })?;
 
@@ -424,9 +484,9 @@ async fn transcribe_single_pass(
 ) -> matric_core::Result<TranscriptionResult> {
     let wav_data = std::fs::read(wav_path).map_err(|e| {
         matric_core::Error::Internal(format!(
-            "Failed to read audio from {}: {}",
-            wav_path.display(),
-            e
+            "Failed to read audio; wav_path_len={}; io_error_kind={}",
+            wav_path.display().to_string().len(),
+            audio_io_error_kind(&e)
         ))
     })?;
 
@@ -446,6 +506,50 @@ async fn transcribe_single_pass(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn audio_command_failure_detail_redacts_stderr() {
+        let stderr = b"Invalid data found at /srv/fortemi/audio.wav token=mm_key_secret";
+        let detail = audio_command_failure_detail("ffmpeg", "transcode", Some(1), stderr);
+
+        assert!(detail.contains("ffmpeg transcode failed"));
+        assert!(detail.contains("status=1"));
+        assert!(detail.contains("stderr_len="));
+        assert!(detail.contains("stderr_reason=invalid_media"));
+        assert!(!detail.contains("/srv/fortemi"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("Invalid data found"));
+    }
+
+    #[test]
+    fn audio_stderr_reason_code_uses_stable_classes() {
+        assert_eq!(
+            audio_stderr_reason_code(b"Permission denied while reading input"),
+            "permission_denied"
+        );
+        assert_eq!(
+            audio_stderr_reason_code(b"Could not find codec parameters"),
+            "invalid_media"
+        );
+        assert_eq!(audio_stderr_reason_code(b"No such file"), "not_found");
+        assert_eq!(audio_stderr_reason_code(b"request timed out"), "timed_out");
+        assert_eq!(
+            audio_stderr_reason_code(b"opaque backend text"),
+            "command_failed"
+        );
+    }
+
+    #[test]
+    fn audio_io_error_kind_uses_stable_classes() {
+        assert_eq!(
+            audio_io_error_kind(&std::io::Error::from(std::io::ErrorKind::NotFound)),
+            "not_found"
+        );
+        assert_eq!(
+            audio_io_error_kind(&std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+            "permission_denied"
+        );
+    }
 
     #[tokio::test]
     async fn test_ffmpeg_available_check() {
