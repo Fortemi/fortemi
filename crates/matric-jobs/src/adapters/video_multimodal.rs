@@ -10,7 +10,7 @@
 
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -29,6 +29,10 @@ use matric_inference::vision::VisionBackend;
 
 fn video_path_len(path: &str) -> usize {
     path.len()
+}
+
+fn video_display_path_len(path: &Path) -> usize {
+    path.display().to_string().len()
 }
 
 fn video_io_error_kind(error: &std::io::Error) -> &'static str {
@@ -501,7 +505,11 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                             for (i, entry) in frame_entries.iter().enumerate() {
                                 let frame_data = fs::read(&entry.path).unwrap_or_default();
                                 if frame_data.is_empty() {
-                                    warn!(frame = i, path = %entry.path.display(), "Failed to read keyframe");
+                                    warn!(
+                                        frame = i,
+                                        frame_path_len = video_display_path_len(&entry.path),
+                                        "Failed to read keyframe"
+                                    );
                                     continue;
                                 }
                                 derived_files.push(DerivedFile {
@@ -564,7 +572,12 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                                     if persist_keyframes {
                                         let frame_data = fs::read(&entry.path).unwrap_or_default();
                                         if frame_data.is_empty() {
-                                            warn!(frame = i, path = %entry.path.display(), "Failed to read keyframe");
+                                            warn!(
+                                                frame = i,
+                                                frame_path_len =
+                                                    video_display_path_len(&entry.path),
+                                                "Failed to read keyframe"
+                                            );
                                         } else {
                                             derived_files.push(DerivedFile {
                                                 filename: format!(
@@ -854,7 +867,11 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                             for (i, entry) in frame_entries.iter().enumerate() {
                                 let frame_data = fs::read(&entry.path).unwrap_or_default();
                                 if frame_data.is_empty() {
-                                    warn!(frame = i, path = %entry.path.display(), "Failed to read keyframe");
+                                    warn!(
+                                        frame = i,
+                                        frame_path_len = video_display_path_len(&entry.path),
+                                        "Failed to read keyframe"
+                                    );
                                     continue;
                                 }
                                 derived_files.push(DerivedFile {
@@ -943,7 +960,12 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                                             let frame_data =
                                                 fs::read(&entry.path).unwrap_or_default();
                                             if frame_data.is_empty() {
-                                                warn!(frame = i, path = %entry.path.display(), "Failed to read keyframe");
+                                                warn!(
+                                                    frame = i,
+                                                    frame_path_len =
+                                                        video_display_path_len(&entry.path),
+                                                    "Failed to read keyframe"
+                                                );
                                             } else {
                                                 derived_files.push(DerivedFile {
                                                     filename: format!(
@@ -1962,6 +1984,15 @@ mod tests {
     fn video_path_len_reports_length_without_rendering_path() {
         let path = "/srv/fortemi/media/private/token=mm_key_secret/video.mp4";
         assert_eq!(video_path_len(path), path.len());
+    }
+
+    #[test]
+    fn video_display_path_len_reports_length_without_rendering_path() {
+        let path = PathBuf::from("/srv/fortemi/keyframes/token=mm_key_secret/frame-0001.jpg");
+        assert_eq!(
+            video_display_path_len(&path),
+            path.display().to_string().len()
+        );
     }
 
     #[test]
