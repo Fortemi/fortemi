@@ -4671,13 +4671,13 @@ fn incoming_payload_from_body(
         || schema_ref == "twilio.voice.v1"
     {
         let fields: std::collections::BTreeMap<String, String> = serde_urlencoded::from_bytes(body)
-            .map_err(|err| ApiError::BadRequest(format!("invalid form webhook payload: {err}")))?;
+            .map_err(|_| ApiError::BadRequest("Invalid form webhook payload.".to_string()))?;
         return serde_json::to_value(fields)
-            .map_err(|err| ApiError::BadRequest(format!("invalid webhook payload: {err}")));
+            .map_err(|_| ApiError::BadRequest("Invalid webhook payload.".to_string()));
     }
 
     serde_json::from_slice(body)
-        .map_err(|err| ApiError::BadRequest(format!("invalid JSON webhook payload: {err}")))
+        .map_err(|_| ApiError::BadRequest("Invalid JSON webhook payload.".to_string()))
 }
 
 #[utoipa::path(post, path = "/api/v1/webhooks/incoming", tag = "Incoming Webhooks",
@@ -23358,6 +23358,33 @@ mod tests {
     fn health_provider_url_status_does_not_return_url() {
         assert!(provider_url_configured("https://provider.example/v1"));
         assert!(!provider_url_configured("   "));
+    }
+
+    #[tokio::test]
+    async fn incoming_webhook_invalid_json_payload_returns_fixed_problem_detail() {
+        let err = incoming_payload_from_body(
+            "generic.json.v1",
+            Some(&HeaderValue::from_static("application/json")),
+            br#"{"secret":"postgres://user:pass@db.internal/app","unterminated":"#,
+        )
+        .expect_err("malformed JSON should be rejected");
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], "Invalid JSON webhook payload.");
+
+        let body = problem.to_string();
+        assert!(!body.contains("postgres://"));
+        assert!(!body.contains("db.internal"));
+        assert!(!body.contains("unterminated"));
+        assert!(!body.contains("line"));
+        assert!(!body.contains("column"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
     }
 
     #[test]
