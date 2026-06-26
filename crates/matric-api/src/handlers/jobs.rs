@@ -42,6 +42,8 @@ const DOCUMENT_TYPE_INFERENCE_JOB_FAILURE: &str =
 const EMBEDDING_JOB_FAILURE: &str = "Embedding job failed. Check server logs for diagnostics.";
 const TITLE_GENERATION_JOB_FAILURE: &str =
     "Title generation failed. Check server logs for diagnostics.";
+const CONTEXT_UPDATE_JOB_FAILURE: &str =
+    "Context update failed. Check server logs for diagnostics.";
 
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
@@ -128,6 +130,15 @@ fn title_generation_job_failure(
         operation, "Title generation job failed"
     );
     JobResult::Failed(TITLE_GENERATION_JOB_FAILURE.to_string())
+}
+
+fn context_update_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "Context update job failed"
+    );
+    JobResult::Failed(CONTEXT_UPDATE_JOB_FAILURE.to_string())
 }
 
 /// Extract the target schema from a job's payload.
@@ -3228,7 +3239,7 @@ impl JobHandler for ContextUpdateHandler {
         // Get outgoing semantic links with high scores (limit per Miller's Law)
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return context_update_job_failure(e, "links_begin_tx"),
         };
         let links = match self.db.links.get_outgoing_tx(&mut tx, note_id).await {
             Ok(l) => l
@@ -3256,11 +3267,11 @@ impl JobHandler for ContextUpdateHandler {
         // Get current note content
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return context_update_job_failure(e, "fetch_note_begin_tx"),
         };
         let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
-            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+            Err(e) => return context_update_job_failure(e, "fetch_note"),
         };
         tx.commit().await.ok();
 
@@ -3343,7 +3354,7 @@ Keep it concise (2-3 sentences). Output the full note with the new section added
         // Save the updated revision
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return context_update_job_failure(e, "save_begin_tx"),
         };
         if let Err(e) = self
             .db
@@ -3356,10 +3367,10 @@ Keep it concise (2-3 sentences). Output the full note with the new section added
             )
             .await
         {
-            return JobResult::Failed(format!("Failed to save: {}", e));
+            return context_update_job_failure(e, "save_revision");
         }
         if let Err(e) = tx.commit().await {
-            return JobResult::Failed(format!("Commit failed: {}", e));
+            return context_update_job_failure(e, "save_commit");
         }
 
         ctx.report_progress(100, Some("Context update complete"));
@@ -7977,6 +7988,27 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("/srv/fortemi"));
                 assert!(!message.contains("SQLSTATE"));
                 assert!(!message.contains("title provider failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn context_update_job_failure_uses_generic_stored_message() {
+        let result = context_update_job_failure(
+            "context save failed for postgres://user:secret@db.internal/app at /srv/fortemi SQLSTATE 40001",
+            "save_revision",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, CONTEXT_UPDATE_JOB_FAILURE);
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("context save failed"));
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
