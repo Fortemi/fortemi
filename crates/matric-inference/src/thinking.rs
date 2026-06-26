@@ -10,9 +10,10 @@
 //! - Pattern-based: Structured patterns like "First,", "Second,", "Therefore"
 
 use crate::profiles::ThinkingType;
+use std::fmt;
 
 /// Result of parsing a thinking model response.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ThinkingResponse {
     /// The thinking/reasoning content extracted from the response.
     pub thinking_content: Option<String>,
@@ -20,6 +21,19 @@ pub struct ThinkingResponse {
     pub answer_content: String,
     /// The detected thinking type.
     pub thinking_type: ThinkingType,
+}
+
+impl fmt::Debug for ThinkingResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ThinkingResponse")
+            .field(
+                "thinking_content_len",
+                &self.thinking_content.as_ref().map(String::len),
+            )
+            .field("answer_content_len", &self.answer_content.len())
+            .field("thinking_type", &self.thinking_type)
+            .finish()
+    }
 }
 
 /// Detects the thinking type from response text.
@@ -376,6 +390,31 @@ mod tests {
 
         assert!(response.thinking_content.is_none());
         assert_eq!(response.answer_content, "just an answer");
+    }
+
+    #[test]
+    fn thinking_response_debug_redacts_reasoning_and_answer_content() {
+        let response = ThinkingResponse {
+            thinking_content: Some(
+                "private reasoning for user@example.com with token=secret".to_string(),
+            ),
+            answer_content: "final answer with /srv/private/path and https://example.com"
+                .to_string(),
+            thinking_type: ThinkingType::ExplicitTags,
+        };
+
+        let debug = format!("{response:?}");
+
+        assert!(debug.contains("ThinkingResponse"));
+        assert!(debug.contains("thinking_content_len"));
+        assert!(debug.contains("answer_content_len"));
+        assert!(debug.contains("ExplicitTags"));
+        assert!(!debug.contains("private reasoning"));
+        assert!(!debug.contains("user@example.com"));
+        assert!(!debug.contains("token=secret"));
+        assert!(!debug.contains("final answer"));
+        assert!(!debug.contains("/srv/private/path"));
+        assert!(!debug.contains("https://example.com"));
     }
 
     // ==========================================================================
