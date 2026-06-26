@@ -4601,6 +4601,54 @@ impl From<matric_core::WebhookDelivery> for WebhookDeliveryResponse {
     }
 }
 
+#[derive(Serialize, utoipa::ToSchema)]
+struct IncomingWebhookReceiverResponse {
+    id: Uuid,
+    slug_len: usize,
+    provider_len: usize,
+    schema_ref_len: usize,
+    signature_header_class: &'static str,
+    signature_header_len: usize,
+    secret_set: bool,
+    is_active: bool,
+    schema_doc_class: Option<&'static str>,
+    schema_doc_len: Option<usize>,
+    schema_doc_secret_candidate: bool,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+impl From<matric_core::IncomingWebhookReceiver> for IncomingWebhookReceiverResponse {
+    fn from(receiver: matric_core::IncomingWebhookReceiver) -> Self {
+        Self {
+            id: receiver.id,
+            slug_len: telemetry_text_len(&receiver.slug),
+            provider_len: telemetry_text_len(&receiver.provider),
+            schema_ref_len: telemetry_text_len(&receiver.schema_ref),
+            signature_header_class: incoming_webhook_signature_header_class(
+                &receiver.signature_header,
+            ),
+            signature_header_len: telemetry_text_len(&receiver.signature_header),
+            secret_set: receiver.secret_set,
+            is_active: receiver.is_active,
+            schema_doc_class: receiver
+                .schema_doc
+                .as_ref()
+                .map(webhook_delivery_json_class),
+            schema_doc_len: receiver
+                .schema_doc
+                .as_ref()
+                .map(|schema_doc| schema_doc.to_string().chars().count()),
+            schema_doc_secret_candidate: receiver
+                .schema_doc
+                .as_ref()
+                .is_some_and(webhook_delivery_json_has_secret_candidate),
+            created_at: receiver.created_at,
+            updated_at: receiver.updated_at,
+        }
+    }
+}
+
 fn webhook_delivery_json_class(value: &serde_json::Value) -> &'static str {
     match value {
         serde_json::Value::Null => "null",
@@ -5129,7 +5177,9 @@ async fn list_incoming_webhook_receivers(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
     let receivers = state.db.incoming_webhooks.list().await?;
-    Ok(Json(receivers))
+    let response: Vec<IncomingWebhookReceiverResponse> =
+        receivers.into_iter().map(Into::into).collect();
+    Ok(Json(response))
 }
 
 #[utoipa::path(get, path = "/api/v1/webhooks/incoming/{slug}", tag = "Incoming Webhooks",
@@ -5145,7 +5195,7 @@ async fn get_incoming_webhook_receiver(
         .get_by_slug(&slug)
         .await?
         .ok_or_else(incoming_webhook_receiver_not_found)?;
-    Ok(Json(receiver))
+    Ok(Json(IncomingWebhookReceiverResponse::from(receiver)))
 }
 
 #[utoipa::path(post, path = "/api/v1/webhooks/incoming/{slug}", tag = "Incoming Webhooks",
@@ -5426,7 +5476,7 @@ async fn update_incoming_webhook_receiver(
         .get_by_slug(&slug)
         .await?
         .ok_or_else(incoming_webhook_receiver_not_found)?;
-    Ok(Json(receiver))
+    Ok(Json(IncomingWebhookReceiverResponse::from(receiver)))
 }
 
 #[utoipa::path(post, path = "/api/v1/inbound-sources", tag = "Inbound Sources",
@@ -30930,7 +30980,9 @@ mod tests {
             )
             .route(
                 "/api/v1/webhooks/incoming/{slug}",
-                get(get_incoming_webhook_receiver),
+                get(get_incoming_webhook_receiver)
+                    .patch(update_incoming_webhook_receiver)
+                    .delete(delete_incoming_webhook_receiver),
             )
             .layer(Extension(ArchiveContext::default()))
             .with_state(state);
@@ -31766,6 +31818,122 @@ mod tests {
             assert!(
                 !serialized.contains(forbidden),
                 "webhook update response leaked {forbidden}: {serialized}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_incoming_receiver_management_responses_are_metadata_only() {
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+        let client = reqwest::Client::new();
+        let slug = format!("receiver-secret-slug-{}", Uuid::new_v4().simple());
+        let schema_doc = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "token": {"const": "schema-doc-secret-token"}
+            }
+        });
+
+        let create_resp = client
+            .post(format!("{}/api/v1/webhooks/incoming", base_url))
+            .json(&serde_json::json!({
+                "slug": slug.clone(),
+                "provider": "provider-secret-name",
+                "schema_ref": "schema.secret.ref.v1",
+                "hmac_secret": "incoming-hmac-secret-value",
+                "signature_header": "X-Secret-Signature",
+                "is_active": true,
+                "schema_doc": schema_doc
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(create_resp.status(), 201);
+        let id = create_resp.json::<serde_json::Value>().await.unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let list_resp = client
+            .get(format!("{}/api/v1/webhooks/incoming", base_url))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(list_resp.status(), 200);
+        let receivers: Vec<serde_json::Value> = list_resp.json().await.unwrap();
+        let listed = receivers
+            .iter()
+            .find(|receiver| receiver["id"].as_str() == Some(id.as_str()))
+            .expect("created receiver appears in list");
+        assert_incoming_receiver_response_is_metadata_only(listed);
+
+        let get_resp = client
+            .get(format!("{}/api/v1/webhooks/incoming/{}", base_url, slug))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(get_resp.status(), 200);
+        let received: serde_json::Value = get_resp.json().await.unwrap();
+        assert_incoming_receiver_response_is_metadata_only(&received);
+
+        let patch_resp = client
+            .patch(format!("{}/api/v1/webhooks/incoming/{}", base_url, slug))
+            .json(&serde_json::json!({
+                "signature_header": "X-Updated-Secret-Signature",
+                "schema_doc": {
+                    "type": "object",
+                    "properties": {
+                        "api_key": {"const": "updated-schema-secret-token"}
+                    }
+                }
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(patch_resp.status(), 200);
+        let updated: serde_json::Value = patch_resp.json().await.unwrap();
+        assert_incoming_receiver_response_is_metadata_only(&updated);
+
+        let delete_resp = client
+            .delete(format!("{}/api/v1/webhooks/incoming/{}", base_url, slug))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(delete_resp.status(), 204);
+    }
+
+    fn assert_incoming_receiver_response_is_metadata_only(receiver: &serde_json::Value) {
+        assert_eq!(receiver["signature_header_class"], "hmac_sha256");
+        assert_eq!(receiver["secret_set"], true);
+        assert_eq!(receiver["is_active"], true);
+        assert_eq!(receiver["schema_doc_class"], "object");
+        assert_eq!(receiver["schema_doc_secret_candidate"], true);
+        assert!(receiver["slug_len"].as_u64().unwrap() > 0);
+        assert!(receiver["provider_len"].as_u64().unwrap() > 0);
+        assert!(receiver["schema_ref_len"].as_u64().unwrap() > 0);
+        assert!(receiver["signature_header_len"].as_u64().unwrap() > 0);
+        assert!(receiver["schema_doc_len"].as_u64().unwrap() > 0);
+
+        let serialized = serde_json::to_string(receiver).unwrap();
+        for forbidden in [
+            "receiver-secret-slug",
+            "provider-secret-name",
+            "schema.secret.ref.v1",
+            "incoming-hmac-secret-value",
+            "X-Secret-Signature",
+            "X-Updated-Secret-Signature",
+            "schema-doc-secret-token",
+            "updated-schema-secret-token",
+            "\"slug\"",
+            "\"provider\"",
+            "\"schema_ref\"",
+            "\"signature_header\"",
+            "\"schema_doc\"",
+            "\"hmac_secret\"",
+        ] {
+            assert!(
+                !serialized.contains(forbidden),
+                "incoming receiver response leaked {forbidden}: {serialized}"
             );
         }
     }
