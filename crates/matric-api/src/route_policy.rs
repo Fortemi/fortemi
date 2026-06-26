@@ -1465,15 +1465,6 @@ pub fn is_public_without_bearer(path: &str) -> bool {
         })
 }
 
-pub fn is_admin_operator_route(path: &str) -> bool {
-    // Transitional #710 slice: the inventory can classify future hosted
-    // admin/operator routes, but current scope enforcement remains limited to
-    // credential management until the full AuthorizationPolicy middleware lands.
-    route_policy_for_path(path).is_some_and(|policy| {
-        policy.class == AdminOperator && policy.action_family == "credential_management"
-    })
-}
-
 pub fn authorization_input_for_request(
     method: &Method,
     path: &str,
@@ -1778,23 +1769,12 @@ mod tests {
     }
 
     #[test]
-    fn api_key_management_is_one_admin_operator_family() {
-        assert!(is_admin_operator_route("/api/v1/api-keys"));
-        assert!(is_admin_operator_route(
-            "/api/v1/api-keys/018fd1a0-0000-7000-8000-000000000000"
-        ));
-    }
-
-    #[test]
-    fn public_callback_routes_are_not_admin_operator_routes() {
+    fn public_callback_routes_have_explicit_public_bypass_rules() {
         assert!(!is_public_without_bearer(
             "/api/v1/webhooks/incoming/example"
         ));
         assert!(is_public_without_bearer("/api/v1/realtime/twilio/CA123"));
         assert!(is_public_without_bearer("/api/v1/health/streaming"));
-        assert!(!is_admin_operator_route(
-            "/api/v1/webhooks/incoming/example"
-        ));
     }
 
     #[test]

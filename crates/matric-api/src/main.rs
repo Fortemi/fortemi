@@ -5065,19 +5065,16 @@ fn is_problem_details_response(response: &axum::response::Response) -> bool {
 /// Authentication middleware.
 ///
 /// Always validates Bearer tokens when present, regardless of `REQUIRE_AUTH`.
-/// This ensures scope enforcement works for authenticated requests even when
+/// This ensures policy evaluation works for authenticated requests even when
 /// anonymous access is allowed.
 ///
 /// Behavior:
 /// - Public routes: bypass all auth (health, oauth, docs, SSE/WS)
-/// - Bearer token present + valid: inject Auth with proper scope, enforce scopes
+/// - Bearer token present + valid: inject Auth with principal scope for policy evaluation
 /// - Bearer token present + invalid: always reject with 401
 /// - No token + REQUIRE_AUTH=true: reject with 401
 /// - No token + REQUIRE_AUTH=false: allow as Anonymous
 ///
-/// Scope enforcement (centralized):
-/// - Mutation methods (POST/PUT/PATCH/DELETE) on non-read-only routes require "write" scope
-/// - Admin routes (backup/*, api-keys/*) require "admin" scope
 async fn auth_middleware(
     State(state): State<AppState>,
     request: axum::http::Request<axum::body::Body>,
@@ -5142,11 +5139,6 @@ async fn auth_middleware(
     // Handle authentication result
     match principal {
         Some(p) => {
-            // Valid token — enforce scope based on method and route
-            if let Some(err_response) = check_scope_enforcement(&p, &method, &path) {
-                return err_response;
-            }
-
             // Inject auth info into request extensions
             let mut request = request;
             if let Some(input) = route_policy::authorization_input_for_request(&method, &path, None)
@@ -6877,35 +6869,6 @@ fn auth_principal_audit_id(principal: &AuthPrincipal) -> String {
     }
 }
 
-/// Check scope enforcement for authenticated requests.
-///
-/// Returns Some(Response) if the request should be rejected, None if allowed.
-fn check_scope_enforcement(
-    principal: &AuthPrincipal,
-    _method: &axum::http::Method,
-    path: &str,
-) -> Option<axum::response::Response> {
-    // Transitional defense in depth for credential-management routes while
-    // #710 moves enforcement to AuthorizationPolicy. Route classification is
-    // delegated to the executable inventory so this helper cannot drift to a
-    // separate admin-route source of truth.
-    if is_admin_route(path) && !principal.has_scope("admin") {
-        tracing::warn!(scope = %principal.scope_str(), "admin scope required");
-        return Some(problem_response(
-            StatusCode::FORBIDDEN,
-            ProblemType::Forbidden,
-            "Insufficient scope.".to_string(),
-            None,
-        ));
-    }
-
-    // NOTE: Legacy method-level write checks stay disabled here. The
-    // AuthorizationPolicy middleware owns write/admin/tool authorization;
-    // this helper remains only as a transitional guard for credential routes.
-
-    None
-}
-
 /// Check if a request is exempt from authentication.
 fn is_auth_exempt(method: &axum::http::Method, path: &str) -> bool {
     method == axum::http::Method::OPTIONS
@@ -6935,11 +6898,6 @@ fn is_public_incoming_webhook_route(method: &axum::http::Method, path: &str) -> 
     };
 
     !slug.is_empty() && !slug.contains('/')
-}
-
-/// Routes that require admin scope for all methods.
-fn is_admin_route(path: &str) -> bool {
-    route_policy::is_admin_operator_route(path)
 }
 
 /// Get rate limiting status.
@@ -22202,19 +22160,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn admin_scope_enforcement_returns_problem_without_scope_string() {
-        let principal = AuthPrincipal::ApiKey {
-            key_id: Uuid::new_v4(),
-            scope: "read write tenant:secret".to_string(),
+    async fn authorization_policy_admin_denial_returns_problem_without_scope_string() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "read write tenant:secret".to_string(),
+            },
         };
-        let response = check_scope_enforcement(&principal, &Method::POST, "/api/v1/api-keys")
-            .expect("missing admin scope should deny");
+        let input =
+            route_policy::authorization_input_for_request(&Method::POST, "/api/v1/api-keys", None)
+                .expect("api key route has policy input");
+
+        let response = authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+            .await
+            .expect_err("missing admin scope should deny");
         let status = response.status();
         let problem = read_response_json(response).await;
 
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(problem["type"], "https://fortemi.com/problems/forbidden");
-        assert_eq!(problem["detail"], "Insufficient scope.");
+        assert_eq!(problem["detail"], "Authorization denied.");
         assert!(problem.get("error").is_none());
         assert!(!problem.to_string().contains("tenant:secret"));
     }
