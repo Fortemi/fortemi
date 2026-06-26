@@ -39,6 +39,7 @@ const METADATA_EXTRACTION_JOB_FAILURE: &str =
     "Metadata extraction failed. Check server logs for diagnostics.";
 const DOCUMENT_TYPE_INFERENCE_JOB_FAILURE: &str =
     "Document type inference failed. Check server logs for diagnostics.";
+const EMBEDDING_JOB_FAILURE: &str = "Embedding job failed. Check server logs for diagnostics.";
 
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
@@ -104,6 +105,15 @@ fn document_type_inference_job_failure(
         operation, "Document type inference job failed"
     );
     JobResult::Failed(DOCUMENT_TYPE_INFERENCE_JOB_FAILURE.to_string())
+}
+
+fn embedding_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "Embedding job failed"
+    );
+    JobResult::Failed(EMBEDDING_JOB_FAILURE.to_string())
 }
 
 /// Extract the target schema from a job's payload.
@@ -1971,7 +1981,7 @@ impl JobHandler for EmbeddingHandler {
 
         let vectors = match self.backend.embed_texts(&chunks).await {
             Ok(v) => v,
-            Err(e) => return JobResult::Failed(format!("Embedding failed: {}", e)),
+            Err(e) => return embedding_job_failure(e, "generate_embeddings"),
         };
 
         ctx.report_progress(70, Some("Storing embeddings..."));
@@ -1987,7 +1997,7 @@ impl JobHandler for EmbeddingHandler {
 
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return embedding_job_failure(e, "store_begin_tx"),
         };
         let store_result = if let Some(set_id) = embedding_set_id {
             // Delete existing embeddings for this specific set
@@ -1999,7 +2009,7 @@ impl JobHandler for EmbeddingHandler {
                     .await
                     .map_err(matric_core::Error::Database)
             {
-                return JobResult::Failed(format!("Failed to delete embeddings: {}", e));
+                return embedding_job_failure(e, "delete_existing_embeddings");
             }
             if !chunk_vectors.is_empty() {
                 let now = chrono::Utc::now();
@@ -2020,7 +2030,7 @@ impl JobHandler for EmbeddingHandler {
                     .await
                     .map_err(matric_core::Error::Database)
                     {
-                        return JobResult::Failed(format!("Failed to insert embedding: {}", e));
+                        return embedding_job_failure(e, "insert_embedding");
                     }
                 }
             }
@@ -2032,11 +2042,11 @@ impl JobHandler for EmbeddingHandler {
                 .await
         };
         if let Err(e) = tx.commit().await.map_err(matric_core::Error::Database) {
-            return JobResult::Failed(format!("Failed to commit: {}", e));
+            return embedding_job_failure(e, "commit_embeddings");
         }
 
         if let Err(e) = store_result {
-            return JobResult::Failed(format!("Failed to store embeddings: {}", e));
+            return embedding_job_failure(e, "store_embeddings");
         }
 
         // Complete provenance activity (#430)
@@ -7910,6 +7920,29 @@ Quick note about the meeting discussion and action items."#;
         assert!(!serialized.contains("db.internal"));
         assert!(!serialized.contains("/srv/fortemi"));
         assert!(!serialized.contains("database error"));
+    }
+
+    #[test]
+    fn embedding_job_failure_uses_generic_stored_message() {
+        let result = embedding_job_failure(
+            "embedding provider failed at https://token:secret@provider.internal/v1; database postgres://user:secret@db.internal/app from /srv/fortemi SQLSTATE 08006",
+            "store_embeddings",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, EMBEDDING_JOB_FAILURE);
+                assert!(!message.contains("token:secret"));
+                assert!(!message.contains("provider.internal"));
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("embedding provider failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
     }
 
     #[test]
