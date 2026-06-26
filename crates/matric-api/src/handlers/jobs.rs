@@ -35,6 +35,10 @@ const ATTACHMENT_PROCESSING_JOB_FAILURE: &str =
     "Attachment processing failed. Check server logs for diagnostics.";
 const SCHEMA_CONTEXT_JOB_FAILURE: &str =
     "Job schema context failed. Check server logs for diagnostics.";
+const METADATA_EXTRACTION_JOB_FAILURE: &str =
+    "Metadata extraction failed. Check server logs for diagnostics.";
+const DOCUMENT_TYPE_INFERENCE_JOB_FAILURE: &str =
+    "Document type inference failed. Check server logs for diagnostics.";
 
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
@@ -76,6 +80,30 @@ fn attachment_processing_job_failure(
         operation, "Attachment processing job failed"
     );
     JobResult::Failed(ATTACHMENT_PROCESSING_JOB_FAILURE.to_string())
+}
+
+fn metadata_extraction_job_failure(
+    error: impl std::fmt::Display,
+    operation: &'static str,
+) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "Metadata extraction job failed"
+    );
+    JobResult::Failed(METADATA_EXTRACTION_JOB_FAILURE.to_string())
+}
+
+fn document_type_inference_job_failure(
+    error: impl std::fmt::Display,
+    operation: &'static str,
+) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "Document type inference job failed"
+    );
+    JobResult::Failed(DOCUMENT_TYPE_INFERENCE_JOB_FAILURE.to_string())
 }
 
 /// Extract the target schema from a job's payload.
@@ -5052,7 +5080,7 @@ If no meaningful related pairs exist, output an empty array: []"#
                         if let Some(jid) = link_id {
                             ctx.emit_job_queued(jid, JobType::Linking, Some(note_id));
                         }
-                        return JobResult::Failed(format!("Failed to parse AI response: {}", e));
+                        return ai_generation_job_failure(e, "related_concept_parse");
                     }
                 }
             }
@@ -5282,11 +5310,11 @@ impl JobHandler for MetadataExtractionHandler {
 
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return metadata_extraction_job_failure(e, "fetch_note_begin_tx"),
         };
         let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
-            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+            Err(e) => return metadata_extraction_job_failure(e, "fetch_note"),
         };
         tx.commit().await.ok();
 
@@ -5437,7 +5465,7 @@ Example output:
                             parser = "metadata_json",
                             "Failed to parse AI metadata response"
                         );
-                        return JobResult::Failed(format!("Failed to parse AI response: {}", e));
+                        return metadata_extraction_job_failure(e, "parse_ai_response");
                     }
                 }
             }
@@ -5461,7 +5489,7 @@ Example output:
         // Merge extracted metadata into existing note metadata
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return metadata_extraction_job_failure(e, "update_metadata_begin_tx"),
         };
 
         // Get existing metadata and merge
@@ -5513,11 +5541,11 @@ Example output:
             .execute(&mut *tx)
             .await
         {
-            return JobResult::Failed(format!("Failed to update metadata: {}", e));
+            return metadata_extraction_job_failure(e, "update_metadata");
         }
 
         if let Err(e) = tx.commit().await {
-            return JobResult::Failed(format!("Commit failed: {}", e));
+            return metadata_extraction_job_failure(e, "update_metadata_commit");
         }
 
         // Complete provenance activity
@@ -5605,11 +5633,11 @@ impl JobHandler for DocumentTypeInferenceHandler {
 
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return document_type_inference_job_failure(e, "fetch_note_begin_tx"),
         };
         let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
-            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+            Err(e) => return document_type_inference_job_failure(e, "fetch_note"),
         };
         tx.commit().await.ok();
 
@@ -5685,7 +5713,7 @@ impl JobHandler for DocumentTypeInferenceHandler {
                 })));
             }
             Err(e) => {
-                return JobResult::Failed(format!("Document type detection failed: {}", e));
+                return document_type_inference_job_failure(e, "detect_document_type");
             }
         };
 
@@ -5694,7 +5722,7 @@ impl JobHandler for DocumentTypeInferenceHandler {
         // Update note with detected document type
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return document_type_inference_job_failure(e, "assign_begin_tx"),
         };
         if let Err(e) = sqlx::query("UPDATE note SET document_type_id = $1 WHERE id = $2")
             .bind(doc_type_id)
@@ -5702,10 +5730,10 @@ impl JobHandler for DocumentTypeInferenceHandler {
             .execute(&mut *tx)
             .await
         {
-            return JobResult::Failed(format!("Failed to assign document type: {}", e));
+            return document_type_inference_job_failure(e, "assign_document_type");
         }
         if let Err(e) = tx.commit().await {
-            return JobResult::Failed(format!("Commit failed: {}", e));
+            return document_type_inference_job_failure(e, "assign_commit");
         }
 
         // Complete provenance activity
@@ -7901,6 +7929,48 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("db.internal"));
                 assert!(!message.contains("SQLSTATE"));
                 assert!(!message.contains("download failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn metadata_extraction_job_failure_uses_generic_stored_message() {
+        let result = metadata_extraction_job_failure(
+            "failed to parse metadata JSON at line 1 column 2 after contacting https://token:secret@provider.internal/v1 from /srv/fortemi",
+            "parse_ai_response",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, METADATA_EXTRACTION_JOB_FAILURE);
+                assert!(!message.contains("line 1"));
+                assert!(!message.contains("column"));
+                assert!(!message.contains("token:secret"));
+                assert!(!message.contains("provider.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("failed to parse"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn document_type_inference_job_failure_uses_generic_stored_message() {
+        let result = document_type_inference_job_failure(
+            "document type lookup failed for postgres://user:secret@db.internal/app at /srv/fortemi SQLSTATE 42P01",
+            "detect_document_type",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, DOCUMENT_TYPE_INFERENCE_JOB_FAILURE);
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("lookup failed"));
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
