@@ -902,9 +902,13 @@ impl JobHandler for ExtractionHandler {
                                                     )
                                                     .await
                                                 {
+                                                    let error_text = e.to_string();
                                                     warn!(
-                                                        error = %e,
-                                                        attachment_id = %child_att.id,
+                                                        child_attachment_present = true,
+                                                        error_len = telemetry_text_len(&error_text),
+                                                        error_reason = extraction_error_reason_code(
+                                                            &error_text
+                                                        ),
                                                         "Failed to merge derived file metadata"
                                                     );
                                                 }
@@ -921,9 +925,11 @@ impl JobHandler for ExtractionHandler {
                                                     )
                                                     .await
                                                 {
+                                                    let error_text = e.to_string();
                                                     warn!(
-                                                        error = %e,
-                                                        attachment_id = %child_att.id,
+                                                        child_attachment_present = true,
+                                                        error_len = telemetry_text_len(&error_text),
+                                                        error_reason = extraction_error_reason_code(&error_text),
                                                         "Failed to persist derived file ai_description"
                                                     );
                                                 }
@@ -951,10 +957,17 @@ impl JobHandler for ExtractionHandler {
                                     }
                                 }
                                 if let Err(e) = tx.commit().await {
-                                    error!(error = %e, "Failed to commit derived files");
+                                    let error_text = e.to_string();
+                                    error!(
+                                        attachment_present = true,
+                                        stored_count = stored,
+                                        error_len = telemetry_text_len(&error_text),
+                                        error_reason = extraction_error_reason_code(&error_text),
+                                        "Failed to commit derived files"
+                                    );
                                 } else if stored > 0 {
                                     info!(
-                                        parent = %att_id,
+                                        parent_attachment_present = true,
                                         count = stored,
                                         "Derived files persisted as child attachments"
                                     );
