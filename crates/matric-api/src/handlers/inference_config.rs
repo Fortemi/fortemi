@@ -376,6 +376,15 @@ fn telemetry_text_len(value: &str) -> usize {
     value.chars().count()
 }
 
+const INFERENCE_CONFIG_AUDIT_WRITE_FAILURE: &str = "inference_config_audit_write_failed";
+const INFERENCE_CONFIG_AUDIT_EMIT_FAILURE: &str = "inference_config_audit_emit_failed";
+const INFERENCE_CONFIG_OVERRIDE_READ_FAILURE: &str = "inference_config_override_read_failed";
+const INFERENCE_CONFIG_OVERRIDE_PERSIST_FAILURE: &str = "inference_config_override_persist_failed";
+const INFERENCE_CONFIG_OVERRIDE_DELETE_FAILURE: &str = "inference_config_override_delete_failed";
+const INFERENCE_CONFIG_AUDIT_FETCH_FAILURE: &str = "inference_config_audit_fetch_failed";
+const INFERENCE_CONFIG_EMBEDDING_VALIDATION_FAILURE: &str =
+    "inference_config_embedding_validation_failed";
+
 fn telemetry_url_class(raw: &str) -> &'static str {
     let Ok(url) = reqwest::Url::parse(raw) else {
         return "invalid_url";
@@ -474,13 +483,24 @@ async fn write_audit_row(
     .await;
 
     if let Err(e) = result {
-        warn!(error = %e, action = %action, "Failed to write inference_config_audit row");
+        let diagnostic = e.to_string();
+        warn!(
+            error_len = telemetry_text_len(&diagnostic),
+            action = %action,
+            detail = INFERENCE_CONFIG_AUDIT_WRITE_FAILURE,
+            "Failed to write inference_config_audit row"
+        );
     }
 }
 
 async fn emit_inference_config_audit_event(event: AuditEvent) {
     if let Err(err) = TracingSink.emit(event).await {
-        warn!(error = %err, "failed to emit inference config audit event");
+        let diagnostic = err.to_string();
+        warn!(
+            error_len = telemetry_text_len(&diagnostic),
+            detail = INFERENCE_CONFIG_AUDIT_EMIT_FAILURE,
+            "failed to emit inference config audit event"
+        );
     }
 }
 
@@ -984,7 +1004,12 @@ pub async fn get_inference_config(
     let db_override = match read_db_override(&state.db.pool).await {
         Ok(v) => v,
         Err(e) => {
-            warn!(error = %e, "Failed to read inference_override from user_config");
+            let diagnostic = e.to_string();
+            warn!(
+                error_len = telemetry_text_len(&diagnostic),
+                detail = INFERENCE_CONFIG_OVERRIDE_READ_FAILURE,
+                "Failed to read inference_override from user_config"
+            );
             return inference_config_database_failed();
         }
     };
@@ -1001,8 +1026,13 @@ pub async fn get_inference_config(
             Ok(Some(arch)) => Some(merge_archive_over_global(db_override.as_ref(), &arch)),
             Ok(None) => db_override,
             Err(e) => {
-                warn!(error = %e, schema = %schema,
-                    "Failed to read archive_inference_override; falling back to global");
+                let diagnostic = e.to_string();
+                warn!(
+                    error_len = telemetry_text_len(&diagnostic),
+                    schema_len = telemetry_text_len(schema),
+                    detail = INFERENCE_CONFIG_OVERRIDE_READ_FAILURE,
+                    "Failed to read archive_inference_override; falling back to global"
+                );
                 db_override
             }
         }
@@ -1078,8 +1108,13 @@ pub async fn update_inference_config(
         match read_archive_override(&state.db.pool, schema).await {
             Ok(v) => v.unwrap_or(serde_json::json!({})),
             Err(e) => {
-                warn!(error = %e, schema = %schema,
-                    "Failed to read existing archive_inference_override");
+                let diagnostic = e.to_string();
+                warn!(
+                    error_len = telemetry_text_len(&diagnostic),
+                    schema_len = telemetry_text_len(schema),
+                    detail = INFERENCE_CONFIG_OVERRIDE_READ_FAILURE,
+                    "Failed to read existing archive_inference_override"
+                );
                 return inference_config_database_failed();
             }
         }
@@ -1087,7 +1122,12 @@ pub async fn update_inference_config(
         match read_db_override(&state.db.pool).await {
             Ok(v) => v.unwrap_or(serde_json::json!({})),
             Err(e) => {
-                warn!(error = %e, "Failed to read existing inference_override");
+                let diagnostic = e.to_string();
+                warn!(
+                    error_len = telemetry_text_len(&diagnostic),
+                    detail = INFERENCE_CONFIG_OVERRIDE_READ_FAILURE,
+                    "Failed to read existing inference_override"
+                );
                 return inference_config_database_failed();
             }
         }
@@ -1686,8 +1726,13 @@ pub async fn update_inference_config(
         .execute(&state.db.pool)
         .await
         {
-            warn!(error = %e, schema = %schema,
-                "Failed to persist archive_inference_override");
+            let diagnostic = e.to_string();
+            warn!(
+                error_len = telemetry_text_len(&diagnostic),
+                schema_len = telemetry_text_len(schema),
+                detail = INFERENCE_CONFIG_OVERRIDE_PERSIST_FAILURE,
+                "Failed to persist archive_inference_override"
+            );
             return inference_config_database_failed();
         }
         info!(
@@ -1850,7 +1895,12 @@ pub async fn update_inference_config(
             // first. validate_embedding_routing returns informative warnings.
             new_registry.set_embedding_provider(Some(embed_id.to_string()));
             if let Err(e) = new_registry.validate_embedding_routing() {
-                warn!(error = %e, "embedding_backend override fails validation");
+                let diagnostic = e.to_string();
+                warn!(
+                    error_len = telemetry_text_len(&diagnostic),
+                    detail = INFERENCE_CONFIG_EMBEDDING_VALIDATION_FAILURE,
+                    "embedding_backend override fails validation"
+                );
             } else {
                 info!(
                     embedding_provider = %embed_id,
@@ -1879,7 +1929,12 @@ pub async fn update_inference_config(
     .execute(&state.db.pool)
     .await
     {
-        warn!(error = %e, "Failed to persist inference_override");
+        let diagnostic = e.to_string();
+        warn!(
+            error_len = telemetry_text_len(&diagnostic),
+            detail = INFERENCE_CONFIG_OVERRIDE_PERSIST_FAILURE,
+            "Failed to persist inference_override"
+        );
         return inference_config_database_failed();
     }
 
@@ -1966,8 +2021,13 @@ pub async fn delete_inference_config(
             .execute(&state.db.pool)
             .await
         {
-            warn!(error = %e, schema = %schema,
-                "Failed to delete archive_inference_override");
+            let diagnostic = e.to_string();
+            warn!(
+                error_len = telemetry_text_len(&diagnostic),
+                schema_len = telemetry_text_len(schema),
+                detail = INFERENCE_CONFIG_OVERRIDE_DELETE_FAILURE,
+                "Failed to delete archive_inference_override"
+            );
             return inference_config_database_failed();
         }
         info!(
@@ -2028,7 +2088,12 @@ pub async fn delete_inference_config(
         .execute(&state.db.pool)
         .await
     {
-        warn!(error = %e, "Failed to delete inference_override");
+        let diagnostic = e.to_string();
+        warn!(
+            error_len = telemetry_text_len(&diagnostic),
+            detail = INFERENCE_CONFIG_OVERRIDE_DELETE_FAILURE,
+            "Failed to delete inference_override"
+        );
         return inference_config_database_failed();
     }
 
@@ -2182,7 +2247,12 @@ pub async fn get_inference_config_audit(
         )
             .into_response(),
         Err(e) => {
-            warn!(error = %e, "Failed to fetch inference_config_audit");
+            let diagnostic = e.to_string();
+            warn!(
+                error_len = telemetry_text_len(&diagnostic),
+                detail = INFERENCE_CONFIG_AUDIT_FETCH_FAILURE,
+                "Failed to fetch inference_config_audit"
+            );
             inference_config_database_failed()
         }
     }
@@ -2874,6 +2944,39 @@ mod tests_connection {
             "managed_provider"
         );
         assert_eq!(telemetry_url_class("not a url with secret"), "invalid_url");
+    }
+
+    #[test]
+    fn inference_config_diagnostic_classes_are_fixed_and_redacted() {
+        let raw_diagnostics = [
+            "postgres://fortemi:secret@db.internal/fortemi",
+            "https://provider.example.com/v1?api_key=secret",
+            "Bearer inference-config-token",
+            "/srv/fortemi/config/inference.json",
+            "tenant_alpha_archive_schema",
+        ];
+        let classes = [
+            INFERENCE_CONFIG_AUDIT_WRITE_FAILURE,
+            INFERENCE_CONFIG_AUDIT_EMIT_FAILURE,
+            INFERENCE_CONFIG_OVERRIDE_READ_FAILURE,
+            INFERENCE_CONFIG_OVERRIDE_PERSIST_FAILURE,
+            INFERENCE_CONFIG_OVERRIDE_DELETE_FAILURE,
+            INFERENCE_CONFIG_AUDIT_FETCH_FAILURE,
+            INFERENCE_CONFIG_EMBEDDING_VALIDATION_FAILURE,
+        ];
+
+        for class in classes {
+            assert!(class.starts_with("inference_config_"));
+            for raw in raw_diagnostics {
+                assert!(!class.contains(raw));
+            }
+            assert!(!class.contains("postgres://"));
+            assert!(!class.contains("https://"));
+            assert!(!class.contains("Bearer "));
+            assert!(!class.contains("/srv/"));
+            assert!(!class.contains("api_key="));
+            assert!(!class.contains("tenant_alpha"));
+        }
     }
 
     #[test]
