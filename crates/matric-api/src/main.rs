@@ -1531,6 +1531,9 @@ const API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_audit_emit_diagnosti
 const API_JOB_CONTROL_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_job_control_diagnostic_failed";
 const API_EVENT_DISPATCH_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_event_dispatch_diagnostic_failed";
 const API_WEBHOOK_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_webhook_diagnostic_failed";
+const API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL: &str =
+    "api_authz_normalization_diagnostic_failed";
+const API_AUTHZ_POLICY_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_authz_policy_diagnostic_failed";
 
 fn telemetry_url_class(raw: &str) -> &'static str {
     let Ok(url) = reqwest::Url::parse(raw) else {
@@ -6451,7 +6454,12 @@ where
             tracing::warn!("authorization resource normalization skipped: API key does not exist");
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization API key normalization lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_api_key_route_policy_input",
+                "authorization API key normalization lookup failed"
+            );
         }
     }
 
@@ -6497,7 +6505,12 @@ where
             tracing::warn!("authorization resource normalization skipped: note does not exist");
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization resource normalization lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_note_route_policy_input",
+                "authorization resource normalization lookup failed"
+            );
         }
     }
 
@@ -6561,7 +6574,12 @@ where
             );
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization attachment normalization lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_attachment_route_policy_input",
+                "authorization attachment normalization lookup failed"
+            );
         }
     }
 
@@ -6623,7 +6641,12 @@ where
             tracing::warn!("authorization resource normalization skipped: archive does not exist");
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization archive normalization lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_archive_route_policy_input",
+                "authorization archive normalization lookup failed"
+            );
         }
     }
 
@@ -6724,7 +6747,12 @@ where
             );
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization collection normalization lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_collection_route_policy_input",
+                "authorization collection normalization lookup failed"
+            );
         }
     }
 
@@ -6823,7 +6851,12 @@ where
             tracing::warn!("authorization resource normalization skipped: template does not exist");
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization template normalization lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_template_route_policy_input",
+                "authorization template normalization lookup failed"
+            );
         }
     }
 
@@ -6961,7 +6994,12 @@ where
             );
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization taxonomy concept normalization lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_taxonomy_concept_route_policy_input",
+                "authorization taxonomy concept normalization lookup failed"
+            );
         }
     }
 
@@ -7035,7 +7073,12 @@ where
             return input;
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization taxonomy relation source lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_taxonomy_relation_route_policy_input_source",
+                "authorization taxonomy relation source lookup failed"
+            );
             return input;
         }
     };
@@ -7049,7 +7092,12 @@ where
             return input;
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization taxonomy relation target lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_taxonomy_relation_route_policy_input_target",
+                "authorization taxonomy relation target lookup failed"
+            );
             return input;
         }
     };
@@ -7210,7 +7258,12 @@ where
             );
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization taxonomy scheme normalization lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_taxonomy_scheme_route_policy_input",
+                "authorization taxonomy scheme normalization lookup failed"
+            );
         }
     }
 
@@ -7318,7 +7371,12 @@ where
             );
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization taxonomy collection normalization lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_taxonomy_collection_route_policy_input",
+                "authorization taxonomy collection normalization lookup failed"
+            );
         }
     }
 
@@ -7417,7 +7475,12 @@ where
             );
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization document type normalization lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_document_type_route_policy_input",
+                "authorization document type normalization lookup failed"
+            );
         }
     }
 
@@ -7491,7 +7554,12 @@ where
             tracing::warn!("authorization resource normalization skipped: job does not exist");
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization job normalization lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_job_route_policy_input",
+                "authorization job normalization lookup failed"
+            );
         }
     }
 
@@ -7566,7 +7634,12 @@ where
             tracing::warn!("authorization resource normalization skipped: webhook does not exist");
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization webhook normalization lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_webhook_control_route_policy_input",
+                "authorization webhook normalization lookup failed"
+            );
         }
     }
 
@@ -7635,7 +7708,12 @@ where
             );
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization inbound source normalization lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_inbound_source_route_policy_input",
+                "authorization inbound source normalization lookup failed"
+            );
         }
     }
 
@@ -7724,7 +7802,12 @@ where
             );
         }
         Err(err) => {
-            tracing::warn!(error = %err, "authorization PKE keyset normalization lookup failed");
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_pke_keyset_route_policy_input",
+                "authorization PKE keyset normalization lookup failed"
+            );
         }
     }
 
@@ -7819,7 +7902,12 @@ async fn authorize_policy_input(
                 policy.policy_version(),
             ))
             .await;
-            error!(error = %err, "authorization policy error");
+            error!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_POLICY_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "authorize_policy_input",
+                "authorization policy error"
+            );
             Err(problem_response(
                 StatusCode::FORBIDDEN,
                 ProblemType::Forbidden,
@@ -7851,7 +7939,12 @@ fn hosted_policy_requires_normalized_resource(
 
 async fn emit_auth_decision_audit_event(event: AuditEvent) {
     if let Err(err) = TracingSink.emit(event).await {
-        warn!(error = %err, "failed to emit authorization decision audit event");
+        warn!(
+            error_len = telemetry_text_len(&err.to_string()),
+            detail = API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "emit_auth_decision_audit_event",
+            "failed to emit authorization decision audit event"
+        );
     }
 }
 
@@ -26142,6 +26235,8 @@ mod tests {
             API_JOB_CONTROL_DIAGNOSTIC_FAILURE_DETAIL,
             API_EVENT_DISPATCH_DIAGNOSTIC_FAILURE_DETAIL,
             API_WEBHOOK_DIAGNOSTIC_FAILURE_DETAIL,
+            API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+            API_AUTHZ_POLICY_DIAGNOSTIC_FAILURE_DETAIL,
         ] {
             assert!(!detail.contains("token:secret"));
             assert!(!detail.contains("postgres://"));
