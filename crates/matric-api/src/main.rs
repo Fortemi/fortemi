@@ -17578,6 +17578,10 @@ fn backup_operation_failed(
     }
 }
 
+fn backup_archive_not_found() -> ApiError {
+    ApiError::NotFound("Backup archive not found.".to_string())
+}
+
 fn backup_command_failed(
     operation: &'static str,
     command: &'static str,
@@ -20849,10 +20853,7 @@ async fn get_backup_info(
 
     let path = std::path::Path::new(&backup_dir).join(&filename);
     if !path.exists() {
-        return Err(ApiError::NotFound(format!(
-            "Archive not found: {}",
-            filename
-        )));
+        return Err(backup_archive_not_found());
     }
 
     let meta = fs::metadata(&path)
@@ -20985,10 +20986,7 @@ async fn swap_backup(
 
     let path = std::path::Path::new(&backup_dir).join(&req.filename);
     if !path.exists() {
-        return Err(ApiError::NotFound(format!(
-            "Archive not found: {}",
-            req.filename
-        )));
+        return Err(backup_archive_not_found());
     }
 
     // Only support knowledge shards for now
@@ -23998,6 +23996,25 @@ mod tests {
         assert!(!body.contains("postgres://"));
         assert!(!body.contains("secret"));
         assert!(!body.contains("/srv/fortemi"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn backup_archive_not_found_does_not_echo_filename() {
+        let filename = "tenant-alpha-client-private-memory-secret-token.tar.gz";
+        let err = backup_archive_not_found();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Backup archive not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(filename));
+        assert!(!body.contains("tenant-alpha"));
+        assert!(!body.contains("secret-token"));
+        assert!(!body.contains(".tar.gz"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }

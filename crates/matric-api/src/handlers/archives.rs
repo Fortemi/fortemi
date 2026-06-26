@@ -17,6 +17,7 @@ use crate::{ApiError, AppState};
 use matric_core::{ArchiveInfo, ArchiveRepository, ServerEvent};
 
 const ARCHIVE_ALREADY_EXISTS_MESSAGE: &str = "Archive already exists.";
+const ARCHIVE_NOT_FOUND_MESSAGE: &str = "Archive not found.";
 
 // =============================================================================
 // REQUEST/RESPONSE TYPES
@@ -102,7 +103,7 @@ pub async fn get_archive(
         .archives
         .get_archive_by_name(&name)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Archive '{}' not found", name)))?;
+        .ok_or_else(|| ApiError::NotFound(ARCHIVE_NOT_FOUND_MESSAGE.to_string()))?;
     Ok(Json(archive))
 }
 
@@ -246,7 +247,7 @@ pub async fn delete_archive(
         .archives
         .get_archive_by_name(&name)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Archive not found: {}", name)))?;
+        .ok_or_else(|| ApiError::NotFound(ARCHIVE_NOT_FOUND_MESSAGE.to_string()))?;
 
     if archive.is_default {
         return Err(ApiError::BadRequest(
@@ -325,7 +326,7 @@ pub async fn get_archive_stats(
         .archives
         .get_archive_by_name(&name)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Archive '{}' not found", name)))?;
+        .ok_or_else(|| ApiError::NotFound(ARCHIVE_NOT_FOUND_MESSAGE.to_string()))?;
 
     Ok(Json(ArchiveStatsResponse {
         name: archive.name,
@@ -462,6 +463,36 @@ mod tests {
             "https://fortemi.com/problems/validation-error"
         );
         assert_eq!(problem["detail"], ARCHIVE_ALREADY_EXISTS_MESSAGE);
+
+        let serialized = problem.to_string();
+        assert!(!serialized.contains(private_archive_name));
+        assert!(!serialized.contains("tenant-alpha"));
+        assert!(!serialized.contains("client-private-memory"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn archive_not_found_does_not_echo_archive_name() {
+        let private_archive_name = "tenant-alpha/client-private-memory";
+        let response = ApiError::NotFound(ARCHIVE_NOT_FOUND_MESSAGE.to_string()).into_response();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("application/problem+json")
+        );
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let problem: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], ARCHIVE_NOT_FOUND_MESSAGE);
 
         let serialized = problem.to_string();
         assert!(!serialized.contains(private_archive_name));
