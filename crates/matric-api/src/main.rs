@@ -5520,12 +5520,48 @@ async fn create_inbound_source(
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
 
+#[derive(Serialize)]
+struct InboundSourceResponse {
+    id: Uuid,
+    name_len: usize,
+    kind_len: usize,
+    config_class: &'static str,
+    config_len: usize,
+    config_secret_candidate: bool,
+    config_key_count: Option<usize>,
+    enabled: bool,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl From<matric_core::InboundSource> for InboundSourceResponse {
+    fn from(source: matric_core::InboundSource) -> Self {
+        let config_key_count = source.config.as_object().map(serde_json::Map::len);
+        Self {
+            id: source.id,
+            name_len: telemetry_text_len(&source.name),
+            kind_len: telemetry_text_len(&source.kind),
+            config_class: webhook_delivery_json_class(&source.config),
+            config_len: source.config.to_string().chars().count(),
+            config_secret_candidate: webhook_delivery_json_has_secret_candidate(&source.config),
+            config_key_count,
+            enabled: source.enabled,
+            created_at: source.created_at,
+            updated_at: source.updated_at,
+        }
+    }
+}
+
 #[utoipa::path(get, path = "/api/v1/inbound-sources", tag = "Inbound Sources",
     responses((status = 200, description = "Registered inbound source connectors")))]
 async fn list_inbound_sources(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
     let sources = state.db.inbound_sources.list().await?;
+    let sources: Vec<InboundSourceResponse> = sources
+        .into_iter()
+        .map(InboundSourceResponse::from)
+        .collect();
     Ok(Json(sources))
 }
 
@@ -31036,6 +31072,14 @@ mod tests {
             .route("/api/v1/api-keys", get(list_api_keys).post(create_api_key))
             .route("/api/v1/api-keys/{id}", delete(revoke_api_key))
             .route(
+                "/api/v1/inbound-sources",
+                get(list_inbound_sources).post(create_inbound_source),
+            )
+            .route(
+                "/api/v1/inbound-sources/{name}",
+                delete(delete_inbound_source),
+            )
+            .route(
                 "/api/v1/webhooks/incoming",
                 post(create_incoming_webhook_receiver).get(list_incoming_webhook_receivers),
             )
@@ -31147,6 +31191,93 @@ mod tests {
 
         let delete_resp = client
             .delete(format!("{}/api/v1/api-keys/{}", base_url, key_id))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(delete_resp.status(), 204);
+    }
+
+    #[tokio::test]
+    async fn test_inbound_source_list_is_metadata_only() {
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+        let client = reqwest::Client::new();
+        let source_name = format!("source-secret-name-{}", Uuid::new_v4().simple());
+
+        let create_resp = client
+            .post(format!("{}/api/v1/inbound-sources", base_url))
+            .json(&serde_json::json!({
+                "name": source_name,
+                "kind": "sse",
+                "enabled": true,
+                "config": {
+                    "url": "https://user:pass@provider.example/stream?api_key=inbound-secret-token",
+                    "headers": {
+                        "Authorization": "Bearer inbound-secret-token",
+                        "X-Api-Key": "inbound-api-key-secret"
+                    },
+                    "event_type_field": "tenant_secret_event_type",
+                    "default_event_type": "secret.default.v1",
+                    "event_type_filter": ["tenant.secret.v1"]
+                }
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(create_resp.status(), 201);
+        let created: serde_json::Value = create_resp.json().await.unwrap();
+        let source_id = created["id"].as_str().unwrap().to_string();
+
+        let list_resp = client
+            .get(format!("{}/api/v1/inbound-sources", base_url))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(list_resp.status(), 200);
+        let listed: serde_json::Value = list_resp.json().await.unwrap();
+        let sources = listed.as_array().unwrap();
+        let listed_source = sources
+            .iter()
+            .find(|source| source["id"].as_str() == Some(source_id.as_str()))
+            .expect("created inbound source should be listed");
+
+        assert_eq!(
+            listed_source["name_len"].as_u64().unwrap(),
+            source_name.chars().count() as u64
+        );
+        assert_eq!(listed_source["kind_len"].as_u64().unwrap(), 3);
+        assert_eq!(listed_source["config_class"], "object");
+        assert_eq!(listed_source["config_secret_candidate"], true);
+        assert_eq!(listed_source["config_key_count"].as_u64().unwrap(), 5);
+        assert!(listed_source["config_len"].as_u64().unwrap() > 0);
+        assert_eq!(listed_source["enabled"], true);
+
+        let serialized = serde_json::to_string(&listed).unwrap();
+        for forbidden in [
+            "source-secret-name",
+            "\"name\"",
+            "\"kind\"",
+            "\"config\"",
+            "https://user:pass@provider.example",
+            "api_key=inbound-secret-token",
+            "Authorization",
+            "Bearer inbound-secret-token",
+            "X-Api-Key",
+            "inbound-api-key-secret",
+            "tenant_secret_event_type",
+            "secret.default.v1",
+            "tenant.secret.v1",
+        ] {
+            assert!(
+                !serialized.contains(forbidden),
+                "inbound source list response leaked {forbidden}: {serialized}"
+            );
+        }
+
+        let delete_resp = client
+            .delete(format!(
+                "{}/api/v1/inbound-sources/{}",
+                base_url, source_name
+            ))
             .send()
             .await
             .unwrap();
