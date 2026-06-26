@@ -14,6 +14,7 @@
 //! require feature flags (`openai`) and API key configuration.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -67,7 +68,7 @@ pub enum ProviderHealth {
 // ---------------------------------------------------------------------------
 
 /// Configuration for a registered inference provider.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ProviderConfig {
     /// Provider identifier (e.g., "ollama", "openai", "openrouter").
     pub id: String,
@@ -89,17 +90,55 @@ pub struct ProviderConfig {
     pub x_title: Option<String>,
 }
 
+impl fmt::Debug for ProviderConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProviderConfig")
+            .field("id_len", &self.id.chars().count())
+            .field("base_url_len", &self.base_url.chars().count())
+            .field("api_key_present", &self.api_key.is_some())
+            .field(
+                "api_key_len",
+                &self.api_key.as_ref().map(|value| value.chars().count()),
+            )
+            .field("capabilities", &self.capabilities)
+            .field("timeout", &self.timeout)
+            .field("is_default", &self.is_default)
+            .field("health", &self.health)
+            .field(
+                "http_referer_len",
+                &self
+                    .http_referer
+                    .as_ref()
+                    .map(|value| value.chars().count()),
+            )
+            .field(
+                "x_title_len",
+                &self.x_title.as_ref().map(|value| value.chars().count()),
+            )
+            .finish()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Parsed slug result
 // ---------------------------------------------------------------------------
 
 /// Result of parsing a provider-qualified model slug.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ParsedSlug {
     /// Provider identifier.
     pub provider_id: String,
     /// Model slug (everything after the provider prefix).
     pub model: String,
+}
+
+impl fmt::Debug for ParsedSlug {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ParsedSlug")
+            .field("provider_id_len", &self.provider_id.chars().count())
+            .field("model_len", &self.model.chars().count())
+            .finish()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -134,9 +173,10 @@ impl ProviderRegistry {
     /// Register a provider.
     pub fn register(&mut self, config: ProviderConfig) {
         info!(
-            provider = %config.id,
-            base_url = %config.base_url,
+            provider_len = config.id.chars().count(),
+            base_url_len = config.base_url.chars().count(),
             capabilities = ?config.capabilities,
+            api_key_configured = config.api_key.is_some(),
             is_default = config.is_default,
             "Registering inference provider"
         );
@@ -717,6 +757,15 @@ impl ProviderRegistry {
 mod tests {
     use super::*;
 
+    fn assert_debug_excludes(debug: &str, secrets: &[&str]) {
+        for secret in secrets {
+            assert!(
+                !debug.contains(secret),
+                "debug output leaked secret `{secret}`: {debug}"
+            );
+        }
+    }
+
     fn test_registry() -> ProviderRegistry {
         let mut registry = ProviderRegistry::new("ollama".to_string());
 
@@ -769,6 +818,55 @@ mod tests {
     // -----------------------------------------------------------------------
     // Slug parsing tests
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn provider_config_and_parsed_slug_debug_redact_credentials_and_model_values() {
+        let config = ProviderConfig {
+            id: "openrouter-secret@example.internal".to_string(),
+            base_url: "https://user:pass@llm.internal/v1?token=sk-secret-url".to_string(),
+            api_key: Some("sk-secret-provider-key".to_string()),
+            capabilities: vec![
+                ProviderCapability::Generation,
+                ProviderCapability::Embedding,
+            ],
+            timeout: Duration::from_secs(45),
+            is_default: false,
+            health: ProviderHealth::Unhealthy,
+            http_referer: Some("https://tenant.example.internal/private?token=secret".to_string()),
+            x_title: Some("Fortemi tenant owner@example.internal".to_string()),
+        };
+        let parsed = ParsedSlug {
+            provider_id: "provider-secret@example.internal".to_string(),
+            model: "tenant-private/model-sk-secret".to_string(),
+        };
+
+        let config_debug = format!("{config:?}");
+        assert!(config_debug.contains("ProviderConfig"));
+        assert!(config_debug.contains("base_url_len"));
+        assert!(config_debug.contains("api_key_present"));
+        assert_debug_excludes(
+            &config_debug,
+            &[
+                "openrouter-secret@example.internal",
+                "https://user:pass@llm.internal/v1?token=sk-secret-url",
+                "sk-secret-provider-key",
+                "https://tenant.example.internal/private?token=secret",
+                "owner@example.internal",
+            ],
+        );
+
+        let parsed_debug = format!("{parsed:?}");
+        assert!(parsed_debug.contains("ParsedSlug"));
+        assert!(parsed_debug.contains("provider_id_len"));
+        assert!(parsed_debug.contains("model_len"));
+        assert_debug_excludes(
+            &parsed_debug,
+            &[
+                "provider-secret@example.internal",
+                "tenant-private/model-sk-secret",
+            ],
+        );
+    }
 
     #[test]
     fn parse_bare_ollama_slug() {
