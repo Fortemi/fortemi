@@ -2367,7 +2367,7 @@ pub mod cost_tier {
 }
 
 /// A job in the processing queue.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Job {
     pub id: Uuid,
     pub note_id: Option<Uuid>,
@@ -2386,6 +2386,55 @@ pub struct Job {
     pub completed_at: Option<DateTime<Utc>>,
     /// Cost tier for tiered job scheduling. None = agnostic (legacy/backward compat).
     pub cost_tier: Option<i16>,
+}
+
+impl fmt::Debug for Job {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Job")
+            .field("id_set", &(!self.id.is_nil()))
+            .field("note_id_set", &self.note_id.is_some())
+            .field("job_type", &self.job_type)
+            .field("status", &self.status)
+            .field("priority", &self.priority)
+            .field("payload_class", &self.payload.as_ref().map(job_json_class))
+            .field(
+                "payload_len",
+                &self.payload.as_ref().map(json_serialized_len),
+            )
+            .field("result_class", &self.result.as_ref().map(job_json_class))
+            .field("result_len", &self.result.as_ref().map(json_serialized_len))
+            .field(
+                "error_message_len",
+                &self.error_message.as_ref().map(String::len),
+            )
+            .field("progress_percent", &self.progress_percent)
+            .field(
+                "progress_message_len",
+                &self.progress_message.as_ref().map(String::len),
+            )
+            .field("retry_count", &self.retry_count)
+            .field("max_retries", &self.max_retries)
+            .field("created_at", &self.created_at)
+            .field("started_at_set", &self.started_at.is_some())
+            .field("completed_at_set", &self.completed_at.is_some())
+            .field("cost_tier", &self.cost_tier)
+            .finish()
+    }
+}
+
+fn job_json_class(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "bool",
+        JsonValue::Number(_) => "number",
+        JsonValue::String(_) => "string",
+        JsonValue::Array(_) => "array",
+        JsonValue::Object(_) => "object",
+    }
+}
+
+fn json_serialized_len(value: &JsonValue) -> usize {
+    value.to_string().len()
 }
 
 /// Queue statistics summary.
@@ -3761,6 +3810,68 @@ mod tests {
         );
         assert!(debug.contains("api_key_set"));
         assert!(debug.contains("key_prefix_len"));
+    }
+
+    #[test]
+    fn job_debug_redacts_payload_result_and_status_text() {
+        let now = Utc::now();
+        let job = Job {
+            id: Uuid::new_v4(),
+            note_id: Some(Uuid::new_v4()),
+            job_type: JobType::AiRevision,
+            status: JobStatus::Failed,
+            priority: 10,
+            payload: Some(json!({
+                "prompt": "revise private@example.test using sk-live-secret",
+                "provider_url": "https://provider.example.test/v1?token=secret-token"
+            })),
+            result: Some(json!({
+                "generated": "Patient transcript said 555-1212",
+                "storage_path": "/tmp/customer/audio.wav"
+            })),
+            error_message: Some(
+                "provider failed at https://provider.example.test with sk-live-secret".to_string(),
+            ),
+            progress_percent: 42,
+            progress_message: Some("processing private transcript chunk".to_string()),
+            retry_count: 2,
+            max_retries: 5,
+            created_at: now,
+            started_at: Some(now),
+            completed_at: Some(now),
+            cost_tier: Some(cost_tier::STANDARD_GPU),
+        };
+
+        let debug = format!("{job:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "private@example.test",
+                "sk-live-secret",
+                "provider.example.test",
+                "secret-token",
+                "Patient transcript",
+                "555-1212",
+                "/tmp/customer/audio.wav",
+                "processing private transcript chunk",
+            ],
+        );
+
+        for expected in [
+            "payload_class",
+            "payload_len",
+            "result_class",
+            "result_len",
+            "error_message_len",
+            "progress_message_len",
+            "note_id_set",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Job Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
     }
 
     #[test]
