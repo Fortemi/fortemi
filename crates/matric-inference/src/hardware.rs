@@ -13,6 +13,7 @@
 //! | Professional | 48GB+ | A6000, dual GPU | 70B+ models |
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::process::Command;
 
 /// Hardware tier classification.
@@ -62,7 +63,7 @@ impl HardwareTier {
 }
 
 /// Detected system capabilities.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SystemCapabilities {
     /// GPU VRAM in MB (if detected).
     pub gpu_vram_mb: Option<u64>,
@@ -80,6 +81,24 @@ pub struct SystemCapabilities {
     pub rocm_available: bool,
     /// Whether Metal is available (macOS).
     pub metal_available: bool,
+}
+
+impl fmt::Debug for SystemCapabilities {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SystemCapabilities")
+            .field("gpu_vram_mb", &self.gpu_vram_mb)
+            .field(
+                "gpu_name_len",
+                &self.gpu_name.as_ref().map(|value| value.chars().count()),
+            )
+            .field("system_ram_mb", &self.system_ram_mb)
+            .field("cpu_cores", &self.cpu_cores)
+            .field("detected_tier", &self.detected_tier)
+            .field("cuda_available", &self.cuda_available)
+            .field("rocm_available", &self.rocm_available)
+            .field("metal_available", &self.metal_available)
+            .finish()
+    }
 }
 
 impl Default for SystemCapabilities {
@@ -144,7 +163,7 @@ impl SystemCapabilities {
 }
 
 /// Model recommendation for a hardware tier.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ModelRecommendation {
     /// Model name (Ollama format).
     pub model: String,
@@ -152,6 +171,16 @@ pub struct ModelRecommendation {
     pub role: String,
     /// Why this model is recommended.
     pub rationale: String,
+}
+
+impl fmt::Debug for ModelRecommendation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ModelRecommendation")
+            .field("model_len", &self.model.chars().count())
+            .field("role_len", &self.role.chars().count())
+            .field("rationale_len", &self.rationale.chars().count())
+            .finish()
+    }
 }
 
 impl ModelRecommendation {
@@ -170,7 +199,7 @@ impl ModelRecommendation {
 }
 
 /// Quality expectations for a hardware tier.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TierQualityExpectations {
     /// Hardware tier.
     pub tier: HardwareTier,
@@ -182,6 +211,21 @@ pub struct TierQualityExpectations {
     pub revision_quality: String,
     /// Expected latency per generation (ms).
     pub latency_range_ms: (u64, u64),
+}
+
+impl fmt::Debug for TierQualityExpectations {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TierQualityExpectations")
+            .field("tier", &self.tier)
+            .field("title_quality_range", &self.title_quality_range)
+            .field("semantic_accuracy_range", &self.semantic_accuracy_range)
+            .field(
+                "revision_quality_len",
+                &self.revision_quality.chars().count(),
+            )
+            .field("latency_range_ms", &self.latency_range_ms)
+            .finish()
+    }
 }
 
 /// Get quality expectations for a hardware tier.
@@ -280,7 +324,7 @@ pub fn tier_model_recommendations(tier: HardwareTier) -> Vec<ModelRecommendation
 }
 
 /// Ollama optimization settings for a hardware tier.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct OllamaSettings {
     /// OLLAMA_FLASH_ATTENTION (always 1).
     pub flash_attention: bool,
@@ -290,6 +334,17 @@ pub struct OllamaSettings {
     pub num_parallel: u32,
     /// OLLAMA_MAX_LOADED_MODELS.
     pub max_loaded_models: u32,
+}
+
+impl fmt::Debug for OllamaSettings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OllamaSettings")
+            .field("flash_attention", &self.flash_attention)
+            .field("kv_cache_type_len", &self.kv_cache_type.chars().count())
+            .field("num_parallel", &self.num_parallel)
+            .field("max_loaded_models", &self.max_loaded_models)
+            .finish()
+    }
 }
 
 impl OllamaSettings {
@@ -336,7 +391,7 @@ impl OllamaSettings {
 }
 
 /// Cloud/API provider comparison.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CloudComparison {
     /// Provider name.
     pub provider: String,
@@ -346,6 +401,20 @@ pub struct CloudComparison {
     pub cost_per_1k_notes: String,
     /// Typical latency.
     pub latency: String,
+}
+
+impl fmt::Debug for CloudComparison {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CloudComparison")
+            .field("provider_len", &self.provider.chars().count())
+            .field("equivalent_tier", &self.equivalent_tier)
+            .field(
+                "cost_per_1k_notes_len",
+                &self.cost_per_1k_notes.chars().count(),
+            )
+            .field("latency_len", &self.latency.chars().count())
+            .finish()
+    }
 }
 
 /// Get cloud provider comparisons.
@@ -601,5 +670,65 @@ mod tests {
         let caps = SystemCapabilities::default();
         assert!(caps.gpu_vram_mb.is_none());
         assert_eq!(caps.detected_tier, HardwareTier::Budget);
+    }
+
+    #[test]
+    fn hardware_debug_redacts_topology_models_and_recommendations() {
+        let caps = SystemCapabilities {
+            gpu_vram_mb: Some(24_576),
+            gpu_name: Some("NVIDIA Tenant GPU jane@example.com sk-private".to_string()),
+            system_ram_mb: 131_072,
+            cpu_cores: 32,
+            detected_tier: HardwareTier::Performance,
+            cuda_available: true,
+            rocm_available: false,
+            metal_available: false,
+        };
+        let recommendation = ModelRecommendation::new(
+            "private-model-jane@example.com:sk-private",
+            "generation",
+            "Use https://tenant.example with token sk-private",
+        );
+        let quality = TierQualityExpectations {
+            tier: HardwareTier::Performance,
+            title_quality_range: (90.0, 95.0),
+            semantic_accuracy_range: (88.0, 92.0),
+            revision_quality: "Best for /srv/private notes from jane@example.com".to_string(),
+            latency_range_ms: (100, 200),
+        };
+        let settings = OllamaSettings {
+            flash_attention: true,
+            kv_cache_type: "kv-secret@example.com".to_string(),
+            num_parallel: 2,
+            max_loaded_models: 2,
+        };
+        let cloud = CloudComparison {
+            provider: "Private provider https://tenant.example".to_string(),
+            equivalent_tier: HardwareTier::Professional,
+            cost_per_1k_notes: "$100 for account jane@example.com".to_string(),
+            latency: "token sk-private latency".to_string(),
+        };
+
+        let debug = format!("{caps:?}\n{recommendation:?}\n{quality:?}\n{settings:?}\n{cloud:?}");
+
+        for raw in [
+            "NVIDIA Tenant GPU",
+            "jane@example.com",
+            "sk-private",
+            "private-model",
+            "https://tenant.example",
+            "/srv/private",
+            "kv-secret",
+            "Private provider",
+        ] {
+            assert!(!debug.contains(raw), "debug output leaked {raw}: {debug}");
+        }
+
+        assert!(debug.contains("gpu_name_len"));
+        assert!(debug.contains("model_len"));
+        assert!(debug.contains("rationale_len"));
+        assert!(debug.contains("revision_quality_len"));
+        assert!(debug.contains("kv_cache_type_len"));
+        assert!(debug.contains("provider_len"));
     }
 }
