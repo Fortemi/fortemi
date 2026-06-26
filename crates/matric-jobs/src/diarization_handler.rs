@@ -34,6 +34,32 @@ fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResul
         .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
 }
 
+fn diarization_error_reason_code(error: &str) -> &'static str {
+    let text = error.to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("not found")
+        || text.contains("no such")
+        || text.contains("missing")
+        || text.contains("unknown")
+    {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else if text.contains("connection refused")
+        || text.contains("cannot connect")
+        || text.contains("connection")
+    {
+        "connection_failed"
+    } else if text.contains("database") || text.contains("sql") || text.contains("postgres") {
+        "database_error"
+    } else if text.contains("storage") || text.contains("file") {
+        "storage_error"
+    } else {
+        "operation_failed"
+    }
+}
+
 pub struct SpeakerDiarizationHandler {
     db: Database,
     backend: Arc<dyn DiarizationBackend>,
@@ -224,7 +250,12 @@ impl JobHandler for SpeakerDiarizationHandler {
         {
             Ok(p) => p,
             Err(e) => {
-                warn!(error = %e, "Audio transcode failed, using original file for diarization");
+                let error_text = e.to_string();
+                warn!(
+                    error_len = error_text.len(),
+                    error_reason = diarization_error_reason_code(&error_text),
+                    "Audio transcode failed, using original file for diarization"
+                );
                 audio_path // Fall back to original if ffmpeg unavailable
             }
         };
@@ -254,7 +285,7 @@ impl JobHandler for SpeakerDiarizationHandler {
 
         if diarization_result.segments.is_empty() {
             info!(
-                attachment_id = %attachment_id,
+                attachment_present = true,
                 "Diarization returned no segments — single-speaker audio likely"
             );
             return JobResult::Success(Some(json!({
@@ -326,9 +357,11 @@ impl JobHandler for SpeakerDiarizationHandler {
                 )
                 .await
             {
+                let error_text = e.to_string();
                 error!(
-                    attachment_id = %attachment_id,
-                    error = %e,
+                    attachment_present = true,
+                    error_len = error_text.len(),
+                    error_reason = diarization_error_reason_code(&error_text),
                     "Failed to update attachment metadata with diarization"
                 );
                 return JobResult::Failed(format!("Failed to update metadata: {}", e));
@@ -366,7 +399,12 @@ impl JobHandler for SpeakerDiarizationHandler {
                         .delete_derived_captions_tx(&mut tx, attachment_id)
                         .await
                     {
-                        warn!(error = %e, "Failed to delete existing caption attachments");
+                        let error_text = e.to_string();
+                        warn!(
+                            error_len = error_text.len(),
+                            error_reason = diarization_error_reason_code(&error_text),
+                            "Failed to delete existing caption attachments"
+                        );
                     }
 
                     // VTT file
@@ -383,7 +421,12 @@ impl JobHandler for SpeakerDiarizationHandler {
                         )
                         .await
                     {
-                        warn!(error = %e, "Failed to store diarized VTT attachment");
+                        let error_text = e.to_string();
+                        warn!(
+                            error_len = error_text.len(),
+                            error_reason = diarization_error_reason_code(&error_text),
+                            "Failed to store diarized VTT attachment"
+                        );
                     }
 
                     // SRT file
@@ -400,7 +443,12 @@ impl JobHandler for SpeakerDiarizationHandler {
                         )
                         .await
                     {
-                        warn!(error = %e, "Failed to store diarized SRT attachment");
+                        let error_text = e.to_string();
+                        warn!(
+                            error_len = error_text.len(),
+                            error_reason = diarization_error_reason_code(&error_text),
+                            "Failed to store diarized SRT attachment"
+                        );
                     }
 
                     // Plain text transcript with speaker labels
@@ -427,14 +475,24 @@ impl JobHandler for SpeakerDiarizationHandler {
                         )
                         .await
                     {
-                        warn!(error = %e, "Failed to store diarized transcript attachment");
+                        let error_text = e.to_string();
+                        warn!(
+                            error_len = error_text.len(),
+                            error_reason = diarization_error_reason_code(&error_text),
+                            "Failed to store diarized transcript attachment"
+                        );
                     }
 
                     if let Err(e) = tx.commit().await {
-                        error!(error = %e, "Failed to commit diarized caption files");
+                        let error_text = e.to_string();
+                        error!(
+                            error_len = error_text.len(),
+                            error_reason = diarization_error_reason_code(&error_text),
+                            "Failed to commit diarized caption files"
+                        );
                     } else {
                         info!(
-                            attachment_id = %attachment_id,
+                            attachment_present = true,
                             num_speakers = diarization_result.num_speakers,
                             "Caption files re-rendered with speaker labels"
                         );
@@ -481,12 +539,22 @@ impl JobHandler for SpeakerDiarizationHandler {
                                 .update_original_tx(&mut tx, note_id, &updated_content)
                                 .await
                             {
-                                warn!(error = %e, "Failed to inject speaker config into note");
+                                let error_text = e.to_string();
+                                warn!(
+                                    error_len = error_text.len(),
+                                    error_reason = diarization_error_reason_code(&error_text),
+                                    "Failed to inject speaker config into note"
+                                );
                             }
                         }
                     }
                     Err(e) => {
-                        warn!(error = %e, "Failed to fetch note for speaker config injection");
+                        let error_text = e.to_string();
+                        warn!(
+                            error_len = error_text.len(),
+                            error_reason = diarization_error_reason_code(&error_text),
+                            "Failed to fetch note for speaker config injection"
+                        );
                     }
                 }
                 let _ = tx.commit().await;
@@ -503,7 +571,7 @@ impl JobHandler for SpeakerDiarizationHandler {
         });
 
         info!(
-            attachment_id = %attachment_id,
+            attachment_present = true,
             num_speakers = diarization_result.num_speakers,
             "Speaker diarization completed"
         );
@@ -568,5 +636,25 @@ mod tests {
 
         let ctx = JobContext::new(job);
         assert_eq!(extract_schema(&ctx), "archive_photos");
+    }
+
+    #[test]
+    fn diarization_error_reason_code_uses_stable_classes() {
+        assert_eq!(
+            diarization_error_reason_code("database sql failed while writing metadata"),
+            "database_error"
+        );
+        assert_eq!(
+            diarization_error_reason_code("file storage denied during caption write"),
+            "permission_denied"
+        );
+        assert_eq!(
+            diarization_error_reason_code("Cannot connect to diarization backend"),
+            "connection_failed"
+        );
+        assert_eq!(
+            diarization_error_reason_code("opaque backend diagnostic text"),
+            "operation_failed"
+        );
     }
 }
