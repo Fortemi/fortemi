@@ -54,7 +54,9 @@ use matric_core::{
     UpdateNoteStatusRequest,
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
-use matric_db::{Database, FileSource, FilesystemBackend, SkosConceptRepository};
+use matric_db::{
+    Database, FileSource, FilesystemBackend, SkosConceptRepository, SkosConceptSchemeRepository,
+};
 use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
 };
@@ -5252,6 +5254,10 @@ async fn normalize_route_policy_input_for_authorization(
         state.db.skos.get_concept(concept_id)
     })
     .await;
+    let input = normalize_taxonomy_scheme_route_policy_input(input, |scheme_id| {
+        state.db.skos.get_scheme(scheme_id)
+    })
+    .await;
     let input =
         normalize_document_type_route_policy_input(input, |document_type_name| async move {
             state
@@ -5897,6 +5903,124 @@ where
         }
         Err(err) => {
             tracing::warn!(error = %err, "authorization taxonomy concept normalization lookup failed");
+        }
+    }
+
+    input
+}
+
+#[derive(Clone, Debug)]
+struct TaxonomySchemeResourceMetadata {
+    id: Uuid,
+    notation: String,
+    version: String,
+    is_active: bool,
+    is_system: bool,
+    has_issued_at: bool,
+    has_modified_at: bool,
+}
+
+impl From<matric_core::SkosConceptScheme> for TaxonomySchemeResourceMetadata {
+    fn from(scheme: matric_core::SkosConceptScheme) -> Self {
+        Self {
+            id: scheme.id,
+            notation: scheme.notation,
+            version: scheme.version,
+            is_active: scheme.is_active,
+            is_system: scheme.is_system,
+            has_issued_at: scheme.issued_at.is_some(),
+            has_modified_at: scheme.modified_at.is_some(),
+        }
+    }
+}
+
+async fn normalize_taxonomy_scheme_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    scheme_lookup: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(Uuid) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<matric_core::SkosConceptScheme>>>,
+{
+    if input.resource.kind != ResourceKind::Taxonomy
+        || input.policy.action_family != "taxonomy"
+        || input
+            .resource
+            .attrs
+            .get("resource_id_param")
+            .and_then(|value| value.as_str())
+            != Some("id")
+        || !input
+            .resource
+            .attrs
+            .get("route_template")
+            .and_then(|value| value.as_str())
+            .is_some_and(|template| template.starts_with("/api/v1/concepts/schemes/{id}"))
+        || !input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        return input;
+    }
+
+    let Some(scheme_id) = input
+        .resource
+        .id
+        .as_deref()
+        .and_then(|id| Uuid::parse_str(id).ok())
+    else {
+        return input;
+    };
+
+    match scheme_lookup(scheme_id).await {
+        Ok(Some(scheme)) => {
+            let scheme = TaxonomySchemeResourceMetadata::from(scheme);
+            route_policy::mark_resource_id_normalized(&mut input);
+            input.resource.attrs.insert(
+                "taxonomy_scheme_id".to_string(),
+                serde_json::json!(scheme.id),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_scheme_notation".to_string(),
+                serde_json::json!(scheme.notation),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_scheme_version".to_string(),
+                serde_json::json!(scheme.version),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_scheme_is_active".to_string(),
+                serde_json::json!(scheme.is_active),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_scheme_is_system".to_string(),
+                serde_json::json!(scheme.is_system),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_scheme_has_issued_at".to_string(),
+                serde_json::json!(scheme.has_issued_at),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_scheme_has_modified_at".to_string(),
+                serde_json::json!(scheme.has_modified_at),
+            );
+        }
+        Ok(None) => {
+            tracing::warn!(
+                "authorization resource normalization skipped: taxonomy scheme does not exist"
+            );
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "authorization taxonomy scheme normalization lookup failed");
         }
     }
 
@@ -23634,6 +23758,236 @@ mod tests {
             .resource
             .attrs
             .get("taxonomy_concept_id")
+            .is_none());
+    }
+
+    fn test_skos_scheme(id: Uuid) -> matric_core::SkosConceptScheme {
+        matric_core::SkosConceptScheme {
+            id,
+            uri: Some("https://example.test/scheme".to_string()),
+            notation: "research-topics".to_string(),
+            title: "Research topics".to_string(),
+            description: Some("not-for-policy-metadata".to_string()),
+            creator: Some("not-for-policy-metadata".to_string()),
+            publisher: Some("not-for-policy-metadata".to_string()),
+            rights: Some("not-for-policy-metadata".to_string()),
+            version: "2.0.0".to_string(),
+            is_active: true,
+            is_system: false,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            issued_at: Some(chrono::Utc::now()),
+            modified_at: Some(chrono::Utc::now()),
+        }
+    }
+
+    #[tokio::test]
+    async fn existing_taxonomy_scheme_route_id_is_marked_normalized_with_safe_metadata() {
+        let scheme_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000014").unwrap();
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/concepts/schemes/018fd1a0-0000-7000-8000-000000000014/top-concepts",
+            Some("tenant-a"),
+        )
+        .expect("SKOS scheme route has policy input");
+
+        let normalized =
+            normalize_taxonomy_scheme_route_policy_input(input, |lookup_id| async move {
+                assert_eq!(lookup_id, scheme_id);
+                Ok(Some(test_skos_scheme(scheme_id)))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_scheme_id"],
+            serde_json::json!(scheme_id)
+        );
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_scheme_notation"],
+            "research-topics"
+        );
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_scheme_version"],
+            "2.0.0"
+        );
+        assert_eq!(normalized.resource.attrs["taxonomy_scheme_is_active"], true);
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_scheme_is_system"],
+            false
+        );
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_scheme_has_issued_at"],
+            true
+        );
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_scheme_has_modified_at"],
+            true
+        );
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_scheme_uri")
+            .is_none());
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_scheme_title")
+            .is_none());
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_scheme_description")
+            .is_none());
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_scheme_creator")
+            .is_none());
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_scheme_publisher")
+            .is_none());
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_scheme_rights")
+            .is_none());
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_taxonomy_scheme_route_id_stays_unnormalized_after_backing_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/concepts/schemes/018fd1a0-0000-7000-8000-000000000014",
+            Some("tenant-a"),
+        )
+        .expect("SKOS scheme route has policy input");
+
+        let normalized = normalize_taxonomy_scheme_route_policy_input(
+            input,
+            |_lookup_id| async move { Ok(None) },
+        )
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_scheme_id")
+            .is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn invalid_taxonomy_scheme_route_id_stays_unnormalized_without_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/concepts/schemes/not-a-uuid/export/turtle",
+            Some("tenant-a"),
+        )
+        .expect("SKOS scheme export route has policy input");
+
+        let normalized =
+            normalize_taxonomy_scheme_route_policy_input(input, |_lookup_id| async move {
+                panic!("invalid taxonomy scheme route IDs must not perform scheme lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_skos_scheme(Uuid::new_v4())))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_scheme_id")
+            .is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn taxonomy_scheme_normalization_lookup_error_preserves_fail_closed_guard() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/concepts/schemes/018fd1a0-0000-7000-8000-000000000014",
+            Some("tenant-a"),
+        )
+        .expect("SKOS scheme route has policy input");
+
+        let normalized =
+            normalize_taxonomy_scheme_route_policy_input(input, |_lookup_id| async move {
+                Err(matric_core::Error::Internal("lookup failed".to_string()))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn taxonomy_scheme_collection_routes_do_not_run_scheme_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/concepts/schemes",
+            None,
+        )
+        .expect("SKOS scheme collection route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Taxonomy);
+        assert_eq!(input.resource.attrs["resource_id_source"], "route_template");
+
+        let normalized =
+            normalize_taxonomy_scheme_route_policy_input(input, |_lookup_id| async move {
+                panic!("SKOS scheme collection routes must not perform scheme lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_skos_scheme(Uuid::new_v4())))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_scheme_id")
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn taxonomy_concept_routes_do_not_run_scheme_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/concepts/018fd1a0-0000-7000-8000-000000000013",
+            Some("tenant-a"),
+        )
+        .expect("taxonomy concept route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Taxonomy);
+
+        let normalized =
+            normalize_taxonomy_scheme_route_policy_input(input, |_lookup_id| async move {
+                panic!("concept routes must not perform scheme lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_skos_scheme(Uuid::new_v4())))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_scheme_id")
             .is_none());
     }
 
