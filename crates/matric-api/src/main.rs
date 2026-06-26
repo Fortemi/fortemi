@@ -11594,9 +11594,21 @@ async fn get_note_tags(
     Ok(Json(tags))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct SetTagsBody {
     tags: Vec<String>,
+}
+
+impl fmt::Debug for SetTagsBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SetTagsBody")
+            .field("tags_count", &self.tags.len())
+            .field(
+                "tag_lens",
+                &self.tags.iter().map(String::len).collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 #[utoipa::path(put, path = "/api/v1/notes/{id}/tags", tag = "Tags",
@@ -12648,10 +12660,19 @@ async fn get_note_concepts(
     Ok(Json(concepts))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct TagNoteBody {
     concept_id: Uuid,
     is_primary: Option<bool>,
+}
+
+impl fmt::Debug for TagNoteBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TagNoteBody")
+            .field("concept_id_set", &true)
+            .field("is_primary", &self.is_primary)
+            .finish()
+    }
 }
 
 #[utoipa::path(post, path = "/api/v1/notes/{id}/concepts", tag = "SKOS",
@@ -26253,6 +26274,42 @@ mod tests {
             "db.internal",
             "bulk-model-sk-live-reprocess",
             &note_id.to_string(),
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn tag_mutation_debug_redacts_tag_values_and_concept_ids() {
+        let concept_id = Uuid::new_v4();
+        let set_tags = SetTagsBody {
+            tags: vec![
+                "customer/private/payroll".to_string(),
+                "contact/customer@example.com".to_string(),
+                "token/sk-live-tag-secret".to_string(),
+            ],
+        };
+        let tag_note = TagNoteBody {
+            concept_id,
+            is_primary: Some(true),
+        };
+
+        let rendered_tags = format!("{set_tags:?}");
+        let rendered_concept = format!("{tag_note:?}");
+        let combined = format!("{rendered_tags}\n{rendered_concept}");
+
+        assert!(rendered_tags.contains("SetTagsBody"));
+        assert!(rendered_tags.contains("tags_count"));
+        assert!(rendered_tags.contains("tag_lens"));
+        assert!(rendered_concept.contains("TagNoteBody"));
+        assert!(rendered_concept.contains("concept_id_set"));
+        assert!(rendered_concept.contains("is_primary"));
+
+        for raw in [
+            "customer/private/payroll",
+            "customer@example.com",
+            "sk-live-tag-secret",
+            &concept_id.to_string(),
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
