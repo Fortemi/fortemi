@@ -93,14 +93,7 @@ where
                         "call_event",
                         "call_session",
                         call_id,
-                        serde_json::json!({
-                            "call_id": call_id,
-                            "event_type": "asr_error",
-                            "payload": {
-                                "reason": reason,
-                                "sequence": sequence,
-                            }
-                        }),
+                        transcript_error_payload(call_id, &reason, sequence),
                         None,
                     ))
                     .await?;
@@ -146,6 +139,40 @@ pub(crate) fn transcript_final_payload(
     })
 }
 
+pub(crate) fn transcript_error_payload(call_id: Uuid, reason: &str, sequence: i32) -> JsonValue {
+    serde_json::json!({
+        "call_id": call_id,
+        "event_type": "asr_error",
+        "payload": {
+            "reason_class": classify_asr_error_reason(reason),
+            "reason_len": reason.len(),
+            "sequence": sequence,
+        }
+    })
+}
+
+fn classify_asr_error_reason(reason: &str) -> &'static str {
+    let lower = reason.to_ascii_lowercase();
+    if lower.trim().is_empty() {
+        "empty"
+    } else if lower.contains("auth")
+        || lower.contains("unauthorized")
+        || lower.contains("forbidden")
+        || lower.contains("api key")
+        || lower.contains("token")
+    {
+        "auth"
+    } else if lower.contains("parse") || lower.contains("json") || lower.contains("decode") {
+        "parse"
+    } else if lower.contains("timeout") || lower.contains("deadline") {
+        "timeout"
+    } else if lower.contains("connect") || lower.contains("socket") || lower.contains("network") {
+        "transport"
+    } else {
+        "provider_error"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,6 +211,33 @@ mod tests {
         assert_eq!(payload["end_ts"], 2.5);
         assert_eq!(payload["confidence"], serde_json::json!(0.98_f32));
         assert_eq!(payload["sequence"], 8);
+    }
+
+    #[test]
+    fn error_payload_redacts_provider_reason_text() {
+        let call_id = Uuid::nil();
+        let raw_reason = "Deepgram JSON parse failed for https://api.example.test/listen?token=sk-live-secret at /tmp/customer/audio.wav";
+        let payload = transcript_error_payload(call_id, raw_reason, 9);
+        let rendered = payload.to_string();
+
+        assert_eq!(payload["call_id"], serde_json::json!(call_id));
+        assert_eq!(payload["event_type"], "asr_error");
+        assert_eq!(payload["payload"]["reason_class"], "auth");
+        assert_eq!(payload["payload"]["reason_len"], raw_reason.len());
+        assert_eq!(payload["payload"]["sequence"], 9);
+
+        for raw in [
+            "Deepgram",
+            "JSON parse failed",
+            "api.example.test",
+            "sk-live-secret",
+            "/tmp/customer/audio.wav",
+        ] {
+            assert!(
+                !rendered.contains(raw),
+                "ASR error payload leaked raw reason value {raw:?}: {rendered}"
+            );
+        }
     }
 
     #[tokio::test]
