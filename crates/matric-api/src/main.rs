@@ -11115,10 +11115,21 @@ async fn update_note_status(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct RestoreNoteQuery {
     /// AI revision mode: "full" (default), "light", or "none"
     revision_mode: Option<String>,
+}
+
+impl fmt::Debug for RestoreNoteQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RestoreNoteQuery")
+            .field(
+                "revision_mode_len",
+                &self.revision_mode.as_ref().map(String::len),
+            )
+            .finish()
+    }
 }
 
 #[utoipa::path(post, path = "/api/v1/notes/{id}/restore", tag = "Notes",
@@ -26535,10 +26546,16 @@ mod tests {
             chunk_max_chars: Some(4096),
             chunk_overlap: Some(128),
         };
+        let restore = RestoreNoteQuery {
+            revision_mode: Some(
+                "contextual-private-restore postgres://user:pass@db.internal/app".to_string(),
+            ),
+        };
 
         let rendered_single = format!("{single:?}");
         let rendered_bulk = format!("{bulk:?}");
-        let combined = format!("{rendered_single}\n{rendered_bulk}");
+        let rendered_restore = format!("{restore:?}");
+        let combined = format!("{rendered_single}\n{rendered_bulk}\n{rendered_restore}");
 
         assert!(rendered_single.contains("ReprocessNoteBody"));
         assert!(rendered_single.contains("revision_mode_len"));
@@ -26549,6 +26566,8 @@ mod tests {
         assert!(rendered_bulk.contains("note_ids_count"));
         assert!(rendered_bulk.contains("limit"));
         assert!(rendered_bulk.contains("chunk_max_chars"));
+        assert!(rendered_restore.contains("RestoreNoteQuery"));
+        assert!(rendered_restore.contains("revision_mode_len"));
 
         for raw in [
             "contextual-private-reprocess",
@@ -26556,6 +26575,7 @@ mod tests {
             "concept_tagging_sk_live_step",
             "qwen3-reprocess-db.internal",
             "full-private-bulk-reprocess",
+            "contextual-private-restore",
             "ai_revision_customer_private",
             "embedding_postgres://user:pass",
             "db.internal",
