@@ -407,7 +407,7 @@ impl std::str::FromStr for TagAntipattern {
 ///
 /// Concept schemes group related concepts into a coherent vocabulary.
 /// Examples: "Topics", "Domains", "Project Tags", "Imported Vocabulary".
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptScheme {
     pub id: Uuid,
 
@@ -460,12 +460,43 @@ pub struct SkosConceptScheme {
     pub modified_at: Option<DateTime<Utc>>,
 }
 
+impl fmt::Debug for SkosConceptScheme {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosConceptScheme")
+            .field("id_set", &true)
+            .field("uri_len", &self.uri.as_ref().map(|value| value.len()))
+            .field("notation_len", &self.notation.len())
+            .field("title_len", &self.title.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "creator_len",
+                &self.creator.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "publisher_len",
+                &self.publisher.as_ref().map(|value| value.len()),
+            )
+            .field("rights_len", &self.rights.as_ref().map(|value| value.len()))
+            .field("version_len", &self.version.len())
+            .field("is_active", &self.is_active)
+            .field("is_system", &self.is_system)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .field("issued_at_set", &self.issued_at.is_some())
+            .field("modified_at_set", &self.modified_at.is_some())
+            .finish()
+    }
+}
+
 fn default_version() -> String {
     "1.0.0".to_string()
 }
 
 /// Summary view of a concept scheme for listings.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptSchemeSummary {
     pub id: Uuid,
     pub notation: String,
@@ -478,8 +509,26 @@ pub struct SkosConceptSchemeSummary {
     pub updated_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for SkosConceptSchemeSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosConceptSchemeSummary")
+            .field("id_set", &true)
+            .field("notation_len", &self.notation.len())
+            .field("title_len", &self.title.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(|value| value.len()),
+            )
+            .field("is_active", &self.is_active)
+            .field("is_system", &self.is_system)
+            .field("concept_count", &self.concept_count)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
+}
+
 /// Request to create a new concept scheme.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateConceptSchemeRequest {
     pub notation: String,
     pub title: String,
@@ -497,8 +546,35 @@ pub struct CreateConceptSchemeRequest {
     pub version: Option<String>,
 }
 
+impl fmt::Debug for CreateConceptSchemeRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateConceptSchemeRequest")
+            .field("notation_len", &self.notation.len())
+            .field("title_len", &self.title.len())
+            .field("uri_len", &self.uri.as_ref().map(|value| value.len()))
+            .field(
+                "description_len",
+                &self.description.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "creator_len",
+                &self.creator.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "publisher_len",
+                &self.publisher.as_ref().map(|value| value.len()),
+            )
+            .field("rights_len", &self.rights.as_ref().map(|value| value.len()))
+            .field(
+                "version_len",
+                &self.version.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
+}
+
 /// Request to update a concept scheme.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateConceptSchemeRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -514,6 +590,32 @@ pub struct UpdateConceptSchemeRequest {
     pub version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_active: Option<bool>,
+}
+
+impl fmt::Debug for UpdateConceptSchemeRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateConceptSchemeRequest")
+            .field("title_len", &self.title.as_ref().map(|value| value.len()))
+            .field(
+                "description_len",
+                &self.description.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "creator_len",
+                &self.creator.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "publisher_len",
+                &self.publisher.as_ref().map(|value| value.len()),
+            )
+            .field("rights_len", &self.rights.as_ref().map(|value| value.len()))
+            .field(
+                "version_len",
+                &self.version.as_ref().map(|value| value.len()),
+            )
+            .field("is_active", &self.is_active)
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -1693,6 +1795,122 @@ mod tests {
         assert_eq!("energy".parse::<PmestFacet>().unwrap(), PmestFacet::Energy);
         assert_eq!("space".parse::<PmestFacet>().unwrap(), PmestFacet::Space);
         assert_eq!("time".parse::<PmestFacet>().unwrap(), PmestFacet::Time);
+    }
+
+    #[test]
+    fn skos_concept_scheme_debug_redacts_metadata_and_identifiers() {
+        let id = Uuid::parse_str("aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa").unwrap();
+        let now = Utc::now();
+
+        let scheme = SkosConceptScheme {
+            id,
+            uri: Some("https://scheme.example.internal/path?token=secret".to_string()),
+            notation: "secret-scheme-owner@example.internal".to_string(),
+            title: "Scheme title with postgres://scheme:secret@db.internal".to_string(),
+            description: Some("Scheme description /srv/fortemi/private/scheme".to_string()),
+            creator: Some("creator-secret@example.internal".to_string()),
+            publisher: Some("publisher sk-secret-scheme".to_string()),
+            rights: Some("rights-secret-value".to_string()),
+            version: "v1-secret".to_string(),
+            is_active: true,
+            is_system: false,
+            created_at: now,
+            updated_at: now,
+            issued_at: Some(now),
+            modified_at: Some(now),
+        };
+        let summary = SkosConceptSchemeSummary {
+            id,
+            notation: "summary-secret@example.internal".to_string(),
+            title: "Summary title sk-secret-summary".to_string(),
+            description: Some(
+                "Summary description postgres://summary:secret@db.internal".to_string(),
+            ),
+            is_active: true,
+            is_system: false,
+            concept_count: 3,
+            updated_at: now,
+        };
+        let create = CreateConceptSchemeRequest {
+            notation: "create-secret@example.internal".to_string(),
+            title: "Create title /srv/fortemi/private/create".to_string(),
+            uri: Some("https://create.example.internal/scheme?token=secret".to_string()),
+            description: Some("Create description sk-secret-create".to_string()),
+            creator: Some("create-author@example.internal".to_string()),
+            publisher: Some("create-publisher-secret".to_string()),
+            rights: Some("create-rights-secret".to_string()),
+            version: Some("create-version-secret".to_string()),
+        };
+        let update = UpdateConceptSchemeRequest {
+            title: Some("Update title postgres://update:secret@db.internal".to_string()),
+            description: Some("Update description /srv/fortemi/private/update".to_string()),
+            creator: Some("update-author@example.internal".to_string()),
+            publisher: Some("update-publisher-secret".to_string()),
+            rights: Some("update-rights-secret".to_string()),
+            version: Some("update-version-secret".to_string()),
+            is_active: Some(false),
+        };
+
+        let scheme_debug = format!("{scheme:?}");
+        assert!(scheme_debug.contains("SkosConceptScheme"));
+        assert!(scheme_debug.contains("notation_len"));
+        assert!(scheme_debug.contains("id_set"));
+        assert_debug_excludes(
+            &scheme_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "https://scheme.example.internal/path?token=secret",
+                "secret-scheme-owner@example.internal",
+                "postgres://scheme:secret@db.internal",
+                "/srv/fortemi/private/scheme",
+                "creator-secret@example.internal",
+                "sk-secret-scheme",
+                "rights-secret-value",
+                "v1-secret",
+            ],
+        );
+
+        let summary_debug = format!("{summary:?}");
+        assert!(summary_debug.contains("SkosConceptSchemeSummary"));
+        assert_debug_excludes(
+            &summary_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "summary-secret@example.internal",
+                "sk-secret-summary",
+                "postgres://summary:secret@db.internal",
+            ],
+        );
+
+        let create_debug = format!("{create:?}");
+        assert!(create_debug.contains("CreateConceptSchemeRequest"));
+        assert_debug_excludes(
+            &create_debug,
+            &[
+                "create-secret@example.internal",
+                "/srv/fortemi/private/create",
+                "https://create.example.internal/scheme?token=secret",
+                "sk-secret-create",
+                "create-author@example.internal",
+                "create-publisher-secret",
+                "create-rights-secret",
+                "create-version-secret",
+            ],
+        );
+
+        let update_debug = format!("{update:?}");
+        assert!(update_debug.contains("UpdateConceptSchemeRequest"));
+        assert_debug_excludes(
+            &update_debug,
+            &[
+                "postgres://update:secret@db.internal",
+                "/srv/fortemi/private/update",
+                "update-author@example.internal",
+                "update-publisher-secret",
+                "update-rights-secret",
+                "update-version-secret",
+            ],
+        );
     }
 
     #[test]
