@@ -17082,7 +17082,7 @@ async fn backup_download(
 
     // Serialize to JSON
     let json_content = serde_json::to_string_pretty(&response)
-        .map_err(|e| ApiError::BadRequest(format!("Failed to serialize backup: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Backup export", "serialize backup JSON", e))?;
 
     // Generate filename with timestamp
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
@@ -21757,7 +21757,7 @@ async fn memory_backup_download(
         .archives
         .get_archive_by_name(&name)
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to look up memory: {}", e)))?
+        .map_err(|e| backup_operation_failed("Memory backup", "look up memory archive", e))?
         .ok_or_else(|| ApiError::NotFound(format!("Memory not found: {}", name)))?;
 
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
@@ -22125,7 +22125,7 @@ async fn memory_scoped_restore(
         .archives
         .get_archive_by_name(memory_name)
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to look up memory: {}", e)))?
+        .map_err(|e| backup_operation_failed("Memory restore", "look up memory archive", e))?
         .ok_or_else(|| ApiError::NotFound(format!("Memory not found: {}", memory_name)))?;
 
     let schema_name = archive.schema_name.clone();
@@ -23889,6 +23889,34 @@ mod tests {
         assert!(!body.contains("token=secret"));
         assert!(!body.contains("permission denied"));
         assert!(problem.get("error").is_none());
+    }
+
+    #[tokio::test]
+    async fn backup_export_operation_failed_returns_generic_problem_without_raw_detail() {
+        let err = backup_operation_failed(
+            "Backup export",
+            "serialize backup JSON",
+            "serde failed while reading postgres://user:secret@db.internal/app and /srv/fortemi/export.json",
+        );
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/operation-failed"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Backup export failed. Check server logs for diagnostics."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains("serde failed"));
+        assert!(!body.contains("postgres://"));
+        assert!(!body.contains("secret"));
+        assert!(!body.contains("/srv/fortemi"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
     }
 
     #[tokio::test]
