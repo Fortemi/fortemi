@@ -18767,10 +18767,10 @@ async fn backup_trigger(
     // Save metadata sidecar file
     let mut metadata = BackupMetadata::auto(note_count, None);
     if let Err(e) = metadata.populate_version_info(&state.db.pool).await {
-        tracing::warn!("Failed to populate version info: {}", e);
+        log_backup_metadata_warning("database_backup", "populate_version_info", e);
     }
     if let Err(e) = metadata.save(&path) {
-        tracing::warn!("Failed to save backup metadata: {}", e);
+        log_backup_metadata_warning("database_backup", "save_metadata", e);
     }
 
     Ok(Json(BackupTriggerResponse {
@@ -18790,6 +18790,54 @@ fn backup_operation_failed(
         operation,
         detail: format!("{context}; error_len={}", diagnostic.len()),
     }
+}
+
+fn backup_diagnostic_reason(value: &str) -> &'static str {
+    let value = value.to_ascii_lowercase();
+    if value.contains("timeout") || value.contains("timed out") {
+        "timeout"
+    } else if value.contains("permission")
+        || value.contains("denied")
+        || value.contains("forbidden")
+    {
+        "permission_denied"
+    } else if value.contains("connect") || value.contains("connection") {
+        "connection_failed"
+    } else if value.contains("not found")
+        || value.contains("no such file")
+        || value.contains("missing")
+    {
+        "not_found"
+    } else if value.contains("json")
+        || value.contains("parse")
+        || value.contains("invalid")
+        || value.contains("syntax")
+    {
+        "invalid_data"
+    } else if value.contains("database")
+        || value.contains("postgres")
+        || value.contains("sql")
+        || value.contains("schema")
+    {
+        "database_failed"
+    } else {
+        "operation_failed"
+    }
+}
+
+fn log_backup_metadata_warning(
+    operation: &'static str,
+    phase: &'static str,
+    error: impl std::fmt::Display,
+) {
+    let diagnostic = error.to_string();
+    warn!(
+        operation,
+        phase,
+        reason_code = backup_diagnostic_reason(&diagnostic),
+        error_len = telemetry_text_len(&diagnostic),
+        "backup metadata operation failed"
+    );
 }
 
 fn backup_archive_not_found() -> ApiError {
@@ -23434,10 +23482,10 @@ async fn database_backup_snapshot(
     // Save metadata sidecar file
     let mut metadata = BackupMetadata::snapshot(req.title, req.description, note_count);
     if let Err(e) = metadata.populate_version_info(&state.db.pool).await {
-        tracing::warn!("Failed to populate version info: {}", e);
+        log_backup_metadata_warning("database_backup_snapshot", "populate_version_info", e);
     }
     if let Err(e) = metadata.save(&path) {
-        tracing::warn!("Failed to save backup metadata: {}", e);
+        log_backup_metadata_warning("database_backup_snapshot", "save_metadata", e);
     }
 
     // Issue #242: Build metadata echo if title or description provided
@@ -23537,7 +23585,7 @@ async fn database_backup_upload(
     // Save metadata sidecar file
     let metadata = BackupMetadata::upload(req.title, req.description, &original_filename);
     if let Err(e) = metadata.save(&path) {
-        tracing::warn!("Failed to save backup metadata: {}", e);
+        log_backup_metadata_warning("database_backup_upload", "save_metadata", e);
     }
 
     // Issue #242: Build metadata echo if title or description provided
@@ -23677,8 +23725,9 @@ async fn memory_scoped_restore(
     // Step 3: If restore failed, recreate empty archive tables so the schema is usable
     if !success {
         tracing::warn!(
-            "Memory restore for '{}' had issues, ensuring schema is usable",
-            memory_name
+            operation = "memory_restore",
+            memory_name_len = telemetry_text_len(memory_name),
+            "memory restore failed; ensuring schema is usable"
         );
         // Recreate from public schema as fallback
         if let Err(e) = state
@@ -23687,16 +23736,29 @@ async fn memory_scoped_restore(
             .create_archive_schema(memory_name, archive.description.as_deref())
             .await
         {
+            let diagnostic = e.to_string();
             tracing::error!(
-                "Failed to recreate archive schema after failed restore: {}",
-                e
+                operation = "memory_restore",
+                phase = "recreate_schema",
+                memory_name_len = telemetry_text_len(memory_name),
+                reason_code = backup_diagnostic_reason(&diagnostic),
+                error_len = telemetry_text_len(&diagnostic),
+                "failed to recreate archive schema after restore failure"
             );
         }
     }
 
     // Step 4: Update schema version after restore
     if let Err(e) = state.db.archives.sync_archive_schema(memory_name).await {
-        tracing::warn!("Failed to sync schema version after restore: {}", e);
+        let diagnostic = e.to_string();
+        tracing::warn!(
+            operation = "memory_restore",
+            phase = "sync_schema_version",
+            memory_name_len = telemetry_text_len(memory_name),
+            reason_code = backup_diagnostic_reason(&diagnostic),
+            error_len = telemetry_text_len(&diagnostic),
+            "failed to sync schema version after restore"
+        );
     }
 
     Ok(Json(DatabaseRestoreResponse {
@@ -23791,7 +23853,7 @@ async fn database_backup_restore(
             // Save metadata for pre-restore backup
             let metadata = BackupMetadata::prerestore(&req.filename, note_count);
             if let Err(e) = metadata.save(&prerestore_path) {
-                tracing::warn!("Failed to save prerestore metadata: {}", e);
+                log_backup_metadata_warning("database_restore", "save_prerestore_metadata", e);
             }
         }
 
@@ -27530,6 +27592,53 @@ mod tests {
             assert!(!expected.contains("sk-preload-secret"));
             assert!(!expected.contains("whisper-large-v3-private"));
             assert!(!expected.contains("tenant-alpha"));
+        }
+    }
+
+    #[test]
+    fn backup_diagnostic_reason_uses_stable_codes() {
+        let cases = [
+            (
+                "timeout writing /srv/fortemi/backups/db.sql.gz with token=secret",
+                "timeout",
+            ),
+            (
+                "permission denied for /tmp/fortemi-backup/postgres://user:pass@db.internal/app",
+                "permission_denied",
+            ),
+            (
+                "connection refused for postgres://user:pass@10.0.0.5/matric",
+                "connection_failed",
+            ),
+            (
+                "no such file /srv/fortemi/backups/private-tenant.sql.gz",
+                "not_found",
+            ),
+            (
+                "invalid json syntax near sk-backup-secret for metadata sidecar",
+                "invalid_data",
+            ),
+            (
+                "postgres schema error on tenant_alpha.table with PGPASSWORD=secret",
+                "database_failed",
+            ),
+            (
+                "backend returned /srv/fortemi opaque token=secret",
+                "operation_failed",
+            ),
+        ];
+
+        for (diagnostic, expected) in cases {
+            assert_eq!(backup_diagnostic_reason(diagnostic), expected);
+            assert!(!expected.contains("postgres://"));
+            assert!(!expected.contains("user:pass"));
+            assert!(!expected.contains("db.internal"));
+            assert!(!expected.contains("/srv/fortemi"));
+            assert!(!expected.contains("private-tenant"));
+            assert!(!expected.contains("sk-backup-secret"));
+            assert!(!expected.contains("tenant_alpha"));
+            assert!(!expected.contains("PGPASSWORD=secret"));
+            assert!(!expected.contains("token=secret"));
         }
     }
 
