@@ -10,7 +10,7 @@ use uuid::Uuid;
 use matric_core::{Error, Result};
 
 /// A PKE keyset record.
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PkeKeyset {
     pub id: Uuid,
     pub name: String,
@@ -22,6 +22,24 @@ pub struct PkeKeyset {
     pub label: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl std::fmt::Debug for PkeKeyset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PkeKeyset")
+            .field("id", &self.id)
+            .field("name_len", &self.name.chars().count())
+            .field("public_key_len", &self.public_key.len())
+            .field(
+                "encrypted_private_key_len",
+                &self.encrypted_private_key.len(),
+            )
+            .field("address", &self.address)
+            .field("label_len", &optional_text_len(&self.label))
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
 }
 
 /// Summary view of a keyset (without key material).
@@ -37,7 +55,7 @@ pub struct PkeKeysetSummary {
 }
 
 /// Request to create a new keyset.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct CreateKeysetRequest {
     pub name: String,
     pub public_key: Vec<u8>,
@@ -46,8 +64,23 @@ pub struct CreateKeysetRequest {
     pub label: Option<String>,
 }
 
+impl std::fmt::Debug for CreateKeysetRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateKeysetRequest")
+            .field("name_len", &self.name.chars().count())
+            .field("public_key_len", &self.public_key.len())
+            .field(
+                "encrypted_private_key_len",
+                &self.encrypted_private_key.len(),
+            )
+            .field("address", &self.address)
+            .field("label_len", &optional_text_len(&self.label))
+            .finish()
+    }
+}
+
 /// Exported keyset data.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ExportedKeyset {
     pub name: String,
     pub public_key_base64: String,
@@ -55,6 +88,29 @@ pub struct ExportedKeyset {
     pub address: String,
     pub label: Option<String>,
     pub exported_at: DateTime<Utc>,
+}
+
+impl std::fmt::Debug for ExportedKeyset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExportedKeyset")
+            .field("name_len", &self.name.chars().count())
+            .field(
+                "public_key_base64_len",
+                &self.public_key_base64.chars().count(),
+            )
+            .field(
+                "encrypted_private_key_base64_len",
+                &self.encrypted_private_key_base64.chars().count(),
+            )
+            .field("address", &self.address)
+            .field("label_len", &optional_text_len(&self.label))
+            .field("exported_at", &self.exported_at)
+            .finish()
+    }
+}
+
+fn optional_text_len(value: &Option<String>) -> Option<usize> {
+    value.as_deref().map(|value| value.chars().count())
 }
 
 /// PostgreSQL implementation of PKE keyset repository.
@@ -326,6 +382,45 @@ impl PgPkeKeysetRepository {
 mod tests {
     use super::*;
     use crate::pool::create_pool;
+
+    #[test]
+    fn pke_keyset_debug_redacts_key_material() {
+        let now = Utc::now();
+        let keyset = PkeKeyset {
+            id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000301").unwrap(),
+            name: "tenant-secret-keyset".to_string(),
+            public_key: b"public-key-material".to_vec(),
+            encrypted_private_key: b"encrypted-private-key-secret".to_vec(),
+            address: "mm:example-address".to_string(),
+            label: Some("private label".to_string()),
+            created_at: now,
+            updated_at: now,
+        };
+        let create = CreateKeysetRequest {
+            name: "tenant-secret-keyset".to_string(),
+            public_key: b"public-key-material".to_vec(),
+            encrypted_private_key: b"encrypted-private-key-secret".to_vec(),
+            address: "mm:example-address".to_string(),
+            label: Some("private label".to_string()),
+        };
+        let exported = ExportedKeyset {
+            name: "tenant-secret-keyset".to_string(),
+            public_key_base64: "public-key-material".to_string(),
+            encrypted_private_key_base64: "encrypted-private-key-secret".to_string(),
+            address: "mm:example-address".to_string(),
+            label: Some("private label".to_string()),
+            exported_at: now,
+        };
+
+        let rendered = format!("{keyset:?}\n{create:?}\n{exported:?}");
+        assert!(rendered.contains("public_key_len"));
+        assert!(rendered.contains("encrypted_private_key_len"));
+        assert!(rendered.contains("encrypted_private_key_base64_len"));
+        assert!(!rendered.contains("tenant-secret-keyset"));
+        assert!(!rendered.contains("public-key-material"));
+        assert!(!rendered.contains("encrypted-private-key-secret"));
+        assert!(!rendered.contains("private label"));
+    }
 
     /// Returns pool if integration test DB is available, None to skip.
     /// These tests require a migrated database with the pke_keysets table.

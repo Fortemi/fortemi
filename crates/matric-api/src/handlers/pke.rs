@@ -18,13 +18,23 @@ use matric_crypto::pke::{
 // REQUEST/RESPONSE TYPES
 // =============================================================================
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PkeKeygenRequest {
     pub passphrase: String,
     pub label: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+impl std::fmt::Debug for PkeKeygenRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PkeKeygenRequest")
+            .field("passphrase_present", &!self.passphrase.is_empty())
+            .field("passphrase_len", &self.passphrase.chars().count())
+            .field("label_len", &optional_text_len(&self.label))
+            .finish()
+    }
+}
+
+#[derive(Serialize)]
 pub struct PkeKeygenResponse {
     pub public_key: String,            // base64
     pub encrypted_private_key: String, // base64 (encrypted with passphrase)
@@ -32,9 +42,31 @@ pub struct PkeKeygenResponse {
     pub label: Option<String>,
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+impl std::fmt::Debug for PkeKeygenResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PkeKeygenResponse")
+            .field("public_key_len", &self.public_key.chars().count())
+            .field(
+                "encrypted_private_key_len",
+                &self.encrypted_private_key.chars().count(),
+            )
+            .field("address", &self.address)
+            .field("label_len", &optional_text_len(&self.label))
+            .finish()
+    }
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PkeAddressRequest {
     pub public_key: String, // base64 public key bytes
+}
+
+impl std::fmt::Debug for PkeAddressRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PkeAddressRequest")
+            .field("public_key_len", &self.public_key.chars().count())
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -42,35 +74,91 @@ pub struct PkeAddressResponse {
     pub address: String,
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PkeEncryptRequest {
     pub plaintext: String,       // base64 encoded
     pub recipients: Vec<String>, // mm:... addresses or base64 public keys
     pub original_filename: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+impl std::fmt::Debug for PkeEncryptRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PkeEncryptRequest")
+            .field("plaintext_len", &self.plaintext.chars().count())
+            .field("recipient_count", &self.recipients.len())
+            .field(
+                "original_filename_len",
+                &optional_text_len(&self.original_filename),
+            )
+            .finish()
+    }
+}
+
+#[derive(Serialize)]
 pub struct PkeEncryptResponse {
     pub ciphertext: String,      // base64 encoded MMPKE01 format
     pub recipients: Vec<String>, // mm:... addresses
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+impl std::fmt::Debug for PkeEncryptResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PkeEncryptResponse")
+            .field("ciphertext_len", &self.ciphertext.chars().count())
+            .field("recipient_count", &self.recipients.len())
+            .finish()
+    }
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PkeDecryptRequest {
     pub ciphertext: String,            // base64 MMPKE01
     pub encrypted_private_key: String, // base64
     pub passphrase: String,
 }
 
-#[derive(Debug, Serialize)]
+impl std::fmt::Debug for PkeDecryptRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PkeDecryptRequest")
+            .field("ciphertext_len", &self.ciphertext.chars().count())
+            .field(
+                "encrypted_private_key_len",
+                &self.encrypted_private_key.chars().count(),
+            )
+            .field("passphrase_present", &!self.passphrase.is_empty())
+            .field("passphrase_len", &self.passphrase.chars().count())
+            .finish()
+    }
+}
+
+#[derive(Serialize)]
 pub struct PkeDecryptResponse {
     pub plaintext: String, // base64
     pub original_filename: Option<String>,
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+impl std::fmt::Debug for PkeDecryptResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PkeDecryptResponse")
+            .field("plaintext_len", &self.plaintext.chars().count())
+            .field(
+                "original_filename_len",
+                &optional_text_len(&self.original_filename),
+            )
+            .finish()
+    }
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PkeRecipientsRequest {
     pub ciphertext: String, // base64 MMPKE01
+}
+
+impl std::fmt::Debug for PkeRecipientsRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PkeRecipientsRequest")
+            .field("ciphertext_len", &self.ciphertext.chars().count())
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -83,6 +171,10 @@ pub struct PkeVerifyResponse {
     pub address: String,
     pub valid: bool,
     pub version: Option<u8>,
+}
+
+fn optional_text_len(value: &Option<String>) -> Option<usize> {
+    value.as_deref().map(|value| value.chars().count())
 }
 
 // =============================================================================
@@ -304,11 +396,22 @@ use axum::extract::State;
 use matric_db::{CreateKeysetRequest, ExportedKeyset};
 use uuid::Uuid;
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateKeysetApiRequest {
     pub name: String,
     pub passphrase: String,
     pub label: Option<String>,
+}
+
+impl std::fmt::Debug for CreateKeysetApiRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateKeysetApiRequest")
+            .field("name_len", &self.name.chars().count())
+            .field("passphrase_present", &!self.passphrase.is_empty())
+            .field("passphrase_len", &self.passphrase.chars().count())
+            .field("label_len", &optional_text_len(&self.label))
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -327,10 +430,19 @@ pub struct ActiveKeysetResponse {
     pub keyset: Option<KeysetResponse>,
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct ImportKeysetRequest {
     pub name: String,
     pub exported: ExportedKeyset,
+}
+
+impl std::fmt::Debug for ImportKeysetRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImportKeysetRequest")
+            .field("name_len", &self.name.chars().count())
+            .field("exported", &self.exported)
+            .finish()
+    }
 }
 
 /// List all PKE keysets.
@@ -690,6 +802,80 @@ fn pke_principal_audit_id(principal: &AuthPrincipal) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pke_http_debug_redacts_secret_material() {
+        let keygen = PkeKeygenRequest {
+            passphrase: "secret-passphrase".to_string(),
+            label: Some("private label".to_string()),
+        };
+        let keygen_response = PkeKeygenResponse {
+            public_key: "public-key-bytes".to_string(),
+            encrypted_private_key: "encrypted-private-key-secret".to_string(),
+            address: "mm:example-address".to_string(),
+            label: Some("private label".to_string()),
+        };
+        let address = PkeAddressRequest {
+            public_key: "public-key-bytes".to_string(),
+        };
+        let encrypt = PkeEncryptRequest {
+            plaintext: "secret-plaintext-base64".to_string(),
+            recipients: vec!["recipient-public-key-secret".to_string()],
+            original_filename: Some("patient-secret.pdf".to_string()),
+        };
+        let encrypt_response = PkeEncryptResponse {
+            ciphertext: "secret-ciphertext-base64".to_string(),
+            recipients: vec!["mm:recipient-address".to_string()],
+        };
+        let decrypt = PkeDecryptRequest {
+            ciphertext: "secret-ciphertext-base64".to_string(),
+            encrypted_private_key: "encrypted-private-key-secret".to_string(),
+            passphrase: "secret-passphrase".to_string(),
+        };
+        let decrypt_response = PkeDecryptResponse {
+            plaintext: "secret-plaintext-base64".to_string(),
+            original_filename: Some("patient-secret.pdf".to_string()),
+        };
+        let recipients = PkeRecipientsRequest {
+            ciphertext: "secret-ciphertext-base64".to_string(),
+        };
+        let create_keyset = CreateKeysetApiRequest {
+            name: "tenant-secret-keyset".to_string(),
+            passphrase: "secret-passphrase".to_string(),
+            label: Some("private label".to_string()),
+        };
+        let import_keyset = ImportKeysetRequest {
+            name: "tenant-secret-keyset".to_string(),
+            exported: ExportedKeyset {
+                name: "export-secret-name".to_string(),
+                public_key_base64: "public-key-bytes".to_string(),
+                encrypted_private_key_base64: "encrypted-private-key-secret".to_string(),
+                address: "mm:example-address".to_string(),
+                label: Some("private label".to_string()),
+                exported_at: chrono::Utc::now(),
+            },
+        };
+
+        let rendered = format!(
+            "{keygen:?}\n{keygen_response:?}\n{address:?}\n{encrypt:?}\n{encrypt_response:?}\n{decrypt:?}\n{decrypt_response:?}\n{recipients:?}\n{create_keyset:?}\n{import_keyset:?}"
+        );
+
+        assert!(rendered.contains("passphrase_present: true"));
+        assert!(rendered.contains("encrypted_private_key_len"));
+        assert!(rendered.contains("plaintext_len"));
+        assert!(rendered.contains("ciphertext_len"));
+        assert!(rendered.contains("recipient_count"));
+        assert!(!rendered.contains("secret-passphrase"));
+        assert!(!rendered.contains("encrypted-private-key-secret"));
+        assert!(!rendered.contains("secret-plaintext-base64"));
+        assert!(!rendered.contains("secret-ciphertext-base64"));
+        assert!(!rendered.contains("recipient-public-key-secret"));
+        assert!(!rendered.contains("patient-secret.pdf"));
+        assert!(!rendered.contains("tenant-secret-keyset"));
+        assert!(!rendered.contains("export-secret-name"));
+        assert!(!rendered.contains("private label"));
+        assert!(!rendered.contains("public-key-bytes"));
+    }
 
     #[test]
     fn pke_keyset_audit_event_uses_metadata_only() {
