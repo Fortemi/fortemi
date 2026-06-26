@@ -3496,6 +3496,81 @@ mod tests {
     }
 
     #[test]
+    fn webhook_model_debug_redacts_secret_material() {
+        let now = Utc::now();
+        let webhook = Webhook {
+            id: Uuid::new_v4(),
+            url: "https://hooks.example/tenant/path?token=webhook-url-secret".to_string(),
+            secret: Some("outbound-webhook-signing-secret".to_string()),
+            events: vec!["note.created.secret".to_string()],
+            is_active: true,
+            created_at: now,
+            updated_at: now,
+            last_triggered_at: Some(now),
+            failure_count: 1,
+            max_retries: 3,
+        };
+        let delivery = WebhookDelivery {
+            id: Uuid::new_v4(),
+            webhook_id: webhook.id,
+            event_type: "incoming_webhook.received.secret".to_string(),
+            payload: json!({
+                "token": "payload-secret",
+                "url": "https://provider.example/callback?api_key=payload-secret"
+            }),
+            status_code: Some(500),
+            response_body: Some("provider response body secret".to_string()),
+            delivered_at: now,
+            success: false,
+        };
+        let create = CreateWebhookRequest {
+            url: "https://hooks.example/create?token=create-url-secret".to_string(),
+            secret: Some("create-webhook-secret".to_string()),
+            events: vec!["note.updated.secret".to_string()],
+            max_retries: 5,
+        };
+        let incoming = CreateIncomingWebhookReceiverRequest {
+            slug: "sensitive-slug".to_string(),
+            provider: "sensitive-provider".to_string(),
+            schema_ref: "custom.secret.schema".to_string(),
+            hmac_secret: "incoming-hmac-secret".to_string(),
+            signature_header: "X-Secret-Signature".to_string(),
+            is_active: true,
+            schema_doc: Some(json!({"secret": "schema-doc-secret"})),
+        };
+
+        let debug = format!("{webhook:?}{delivery:?}{create:?}{incoming:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "webhook-url-secret",
+                "outbound-webhook-signing-secret",
+                "note.created.secret",
+                "incoming_webhook.received.secret",
+                "payload-secret",
+                "provider response body secret",
+                "create-url-secret",
+                "create-webhook-secret",
+                "note.updated.secret",
+                "sensitive-slug",
+                "sensitive-provider",
+                "custom.secret.schema",
+                "incoming-hmac-secret",
+                "X-Secret-Signature",
+                "schema-doc-secret",
+                "https://hooks.example",
+                "https://provider.example",
+            ],
+        );
+        assert!(debug.contains("secret_set"));
+        assert!(debug.contains("hmac_secret_set"));
+        assert!(debug.contains("payload_class"));
+        assert!(debug.contains("response_body_len"));
+        assert!(debug.contains("schema_doc_class"));
+    }
+
+    #[test]
     fn test_note_meta_serialization() {
         let note = NoteMeta {
             id: Uuid::new_v4(),
@@ -5515,7 +5590,7 @@ pub struct CreateNoteProvenanceRequest {
 // =============================================================================
 
 /// Webhook configuration for outbound HTTP notifications.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Webhook {
     pub id: Uuid,
     pub url: String,
@@ -5530,8 +5605,25 @@ pub struct Webhook {
     pub max_retries: i32,
 }
 
+impl std::fmt::Debug for Webhook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Webhook")
+            .field("id", &self.id)
+            .field("url_len", &self.url.chars().count())
+            .field("secret_set", &self.secret.is_some())
+            .field("event_count", &self.events.len())
+            .field("is_active", &self.is_active)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .field("last_triggered_at", &self.last_triggered_at)
+            .field("failure_count", &self.failure_count)
+            .field("max_retries", &self.max_retries)
+            .finish()
+    }
+}
+
 /// A record of a webhook delivery attempt.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct WebhookDelivery {
     pub id: Uuid,
     pub webhook_id: Uuid,
@@ -5543,14 +5635,44 @@ pub struct WebhookDelivery {
     pub success: bool,
 }
 
+impl std::fmt::Debug for WebhookDelivery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WebhookDelivery")
+            .field("id", &self.id)
+            .field("webhook_id", &self.webhook_id)
+            .field("event_type_len", &self.event_type.chars().count())
+            .field("payload_class", &json_value_class(&self.payload))
+            .field("payload_len", &self.payload.to_string().chars().count())
+            .field("status_code", &self.status_code)
+            .field(
+                "response_body_len",
+                &self.response_body.as_ref().map(|body| body.chars().count()),
+            )
+            .field("delivered_at", &self.delivered_at)
+            .field("success", &self.success)
+            .finish()
+    }
+}
+
 /// Request to create a new webhook.
-#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Deserialize, utoipa::ToSchema)]
 pub struct CreateWebhookRequest {
     pub url: String,
     pub secret: Option<String>,
     pub events: Vec<String>,
     #[serde(default = "default_max_retries")]
     pub max_retries: i32,
+}
+
+impl std::fmt::Debug for CreateWebhookRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateWebhookRequest")
+            .field("url_len", &self.url.chars().count())
+            .field("secret_set", &self.secret.is_some())
+            .field("event_count", &self.events.len())
+            .field("max_retries", &self.max_retries)
+            .finish()
+    }
 }
 
 fn default_max_retries() -> i32 {
@@ -5577,7 +5699,7 @@ pub struct IncomingWebhookReceiver {
 }
 
 /// Request to register an incoming webhook receiver.
-#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Deserialize, utoipa::ToSchema)]
 pub struct CreateIncomingWebhookReceiverRequest {
     pub slug: String,
     pub provider: String,
@@ -5592,6 +5714,26 @@ pub struct CreateIncomingWebhookReceiverRequest {
     /// omitted, `schema_ref` must name a built-in schema.
     #[serde(default)]
     pub schema_doc: Option<JsonValue>,
+}
+
+impl std::fmt::Debug for CreateIncomingWebhookReceiverRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateIncomingWebhookReceiverRequest")
+            .field("slug_len", &self.slug.chars().count())
+            .field("provider_len", &self.provider.chars().count())
+            .field("schema_ref_len", &self.schema_ref.chars().count())
+            .field("hmac_secret_set", &!self.hmac_secret.is_empty())
+            .field(
+                "signature_header_len",
+                &self.signature_header.chars().count(),
+            )
+            .field("is_active", &self.is_active)
+            .field(
+                "schema_doc_class",
+                &self.schema_doc.as_ref().map(json_value_class),
+            )
+            .finish()
+    }
 }
 
 /// Request to update an incoming webhook receiver in place (#821 PATCH).
@@ -5633,6 +5775,17 @@ fn default_incoming_webhook_signature_header() -> String {
 
 fn default_incoming_webhook_active() -> bool {
     true
+}
+
+fn json_value_class(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "bool",
+        JsonValue::Number(_) => "number",
+        JsonValue::String(_) => "string",
+        JsonValue::Array(_) => "array",
+        JsonValue::Object(_) => "object",
+    }
 }
 
 /// A registered inbound external event source connector (#833, Phase D).
