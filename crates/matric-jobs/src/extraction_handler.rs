@@ -1421,8 +1421,8 @@ impl JobHandler for ExtractionHandler {
                                 let total_views = views.len();
                                 if total_views == 0 {
                                     warn!(
-                                        note_id = %note_id,
-                                        attachment_id = %att_id,
+                                        note_present = true,
+                                        attachment_present = true,
                                         in_memory_views = has_3d_views,
                                         "No 3d_rendering attachments found in DB — \
                                          ViewVision jobs will not be queued. \
@@ -1513,10 +1513,13 @@ impl JobHandler for ExtractionHandler {
                                                 queued += 1;
                                             }
                                             Err(e) => {
+                                                let error = e.to_string();
                                                 warn!(
-                                                    note_id = %note_id,
+                                                    note_present = true,
                                                     view_index,
-                                                    error = %e,
+                                                    error_len = telemetry_text_len(&error),
+                                                    error_reason =
+                                                        extraction_error_reason_code(&error),
                                                     "Failed to queue ViewVision job"
                                                 );
                                             }
@@ -1524,8 +1527,8 @@ impl JobHandler for ExtractionHandler {
                                     }
 
                                     info!(
-                                        note_id = %note_id,
-                                        attachment_id = %att_id,
+                                        note_present = true,
+                                        attachment_present = true,
                                         total_views,
                                         queued,
                                         "Queued {} ViewVision jobs",
@@ -1536,8 +1539,8 @@ impl JobHandler for ExtractionHandler {
                         }
                     } else if matches!(strategy, ExtractionStrategy::Glb3DModel) && !has_3d_views {
                         info!(
-                            note_id = %note_id,
-                            attachment_id = %att_id,
+                            note_present = true,
+                            attachment_present = true,
                             derived_count = result.derived_files.len(),
                             "Glb3DModel extraction produced no 3d_rendering derived files — \
                              ViewVision jobs will not be queued"
