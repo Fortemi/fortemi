@@ -16786,7 +16786,7 @@ async fn delete_embedding_config(
 const INVALID_JOB_TYPE_MESSAGE: &str =
     "Invalid job_type. Use a supported job type from the API contract.";
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct CreateJobBody {
     note_id: Option<Uuid>,
     job_type: String,
@@ -16795,6 +16795,35 @@ struct CreateJobBody {
     /// When true, skip if a pending job with the same note_id+job_type already exists.
     #[serde(default)]
     deduplicate: bool,
+}
+
+impl fmt::Debug for CreateJobBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateJobBody")
+            .field("note_id_set", &self.note_id.is_some())
+            .field("job_type_len", &telemetry_text_len(&self.job_type))
+            .field("priority", &self.priority)
+            .field(
+                "payload_class",
+                &self.payload.as_ref().map(webhook_delivery_json_class),
+            )
+            .field(
+                "payload_len",
+                &self
+                    .payload
+                    .as_ref()
+                    .map(|payload| telemetry_text_len(&payload.to_string())),
+            )
+            .field(
+                "payload_secret_candidate",
+                &self
+                    .payload
+                    .as_ref()
+                    .is_some_and(webhook_delivery_json_has_secret_candidate),
+            )
+            .field("deduplicate", &self.deduplicate)
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -17038,13 +17067,31 @@ async fn pending_jobs_count(State(state): State<AppState>) -> Result<impl IntoRe
     Ok(Json(serde_json::json!({ "pending": count })))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ListJobsQuery {
     status: Option<String>,
     job_type: Option<String>,
     note_id: Option<Uuid>,
     limit: Option<i64>,
     offset: Option<i64>,
+}
+
+impl fmt::Debug for ListJobsQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ListJobsQuery")
+            .field(
+                "status_len",
+                &self.status.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "job_type_len",
+                &self.job_type.as_deref().map(telemetry_text_len),
+            )
+            .field("note_id_set", &self.note_id.is_some())
+            .field("limit", &self.limit)
+            .field("offset", &self.offset)
+            .finish()
+    }
 }
 
 #[utoipa::path(get, path = "/api/v1/jobs", tag = "Jobs",
@@ -27971,6 +28018,60 @@ mod tests {
                 "job response leaked {forbidden}"
             );
         }
+    }
+
+    #[test]
+    fn job_request_debug_redacts_payload_filters_and_note_ids() {
+        let note_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000701").unwrap();
+        let create = CreateJobBody {
+            note_id: Some(note_id),
+            job_type: "ai_revision token=should-not-appear".to_string(),
+            priority: Some(10),
+            payload: Some(serde_json::json!({
+                "prompt": "summarize /home/operator/private.md",
+                "provider_url": "https://token:secret@provider.internal/v1",
+                "input": "private note content with operator@example.com",
+                "nested": {
+                    "database_url": "postgres://user:secret@db.internal/app",
+                    "api_key": "sk-live-should-not-appear"
+                }
+            })),
+            deduplicate: true,
+        };
+        let list = ListJobsQuery {
+            status: Some("failed bearer=should-not-appear".to_string()),
+            job_type: Some("audio_transcription /srv/fortemi/private.wav".to_string()),
+            note_id: Some(note_id),
+            limit: Some(25),
+            offset: Some(5),
+        };
+
+        let debug = format!("{create:?}{list:?}");
+
+        for forbidden in [
+            "018fd1a0-0000-7000-8000-000000000701",
+            "token=should-not-appear",
+            "bearer=should-not-appear",
+            "provider.internal",
+            "token:secret",
+            "operator@example.com",
+            "postgres://user:secret@db.internal/app",
+            "sk-live-should-not-appear",
+            "/home/operator/private.md",
+            "/srv/fortemi/private.wav",
+            "private note content",
+        ] {
+            assert!(
+                !debug.contains(forbidden),
+                "job request debug leaked {forbidden}"
+            );
+        }
+        assert!(debug.contains("note_id_set"));
+        assert!(debug.contains("job_type_len"));
+        assert!(debug.contains("payload_class"));
+        assert!(debug.contains("payload_len"));
+        assert!(debug.contains("payload_secret_candidate"));
+        assert!(debug.contains("status_len"));
     }
 
     #[tokio::test]
