@@ -56,6 +56,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-26 continuation: Twilio realtime WebSocket invalid-envelope protocol frame now uses a fixed helper payload with a stable code and regression coverage proving malformed provider/frame details are not serialized back to clients.
   - 2026-06-26 continuation: health live/readiness dependency diagnostics now use stable `reason_code` fields instead of legacy `error` fields, with regression coverage proving raw DSNs, credentials, and hostnames are not serialized.
   - 2026-06-26 continuation: knowledge-shard export/archive construction failures now route through the generic operation-failed problem boundary, and multipart shard upload parser errors use fixed validation messages instead of raw parser diagnostics.
+  - 2026-06-26 continuation: backup and shard import result `errors[]` now use fixed client-safe diagnostics instead of raw note import database or JSON parser details.
   - 2026-06-26 continuation: backup knowledge-archive and metadata handlers now route filesystem/tar/write internals through generic operation-failed problems, while archive multipart/parser validation uses fixed client messages instead of raw IO diagnostics.
   - 2026-06-26 continuation: knowledge-shard import/swap file and tar parser failures now use generic operation-failed or fixed validation problem messages instead of raw filesystem/tar/path diagnostics.
   - 2026-06-26 continuation: backup JSON export serialization and memory archive lookup failures now route through generic operation-failed problem responses instead of raw serde/database lookup diagnostics.
@@ -270,3 +271,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-26 — #967 incoming webhook parser diagnostics now use fixed validation problem text instead of raw JSON/form parser messages, with regression coverage for malformed JSON redaction.
 - 2026-06-26 — #967 base64 upload/import decode diagnostics now use fixed validation problem text across shard import, attachment upload, and database backup upload paths.
 - 2026-06-26 — #967 search strict-filter parser diagnostics now use fixed validation problem text instead of raw JSON parser line/column detail.
+- 2026-06-26 — #967 backup/shard import result diagnostics now use fixed client-safe `errors[]` messages instead of raw database or JSON parser detail.

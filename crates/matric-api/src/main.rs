@@ -17335,8 +17335,8 @@ async fn backup_import(
 
                     imported.notes += 1;
                 }
-                Err(e) => {
-                    errors.push(format!("Failed to import note: {}", e));
+                Err(_) => {
+                    errors.push(backup_import_error("Failed to import note."));
                 }
             }
         } else {
@@ -17580,6 +17580,10 @@ fn backup_command_failed(
     }
 }
 
+fn backup_import_error(message: &'static str) -> String {
+    message.to_string()
+}
+
 fn backup_restore_issue_message(operation: &'static str, stderr: &[u8]) -> String {
     error!(
         operation,
@@ -17806,6 +17810,10 @@ fn shard_validation_failed(message: &'static str) -> ApiError {
 
 fn invalid_base64_payload(message: &'static str) -> ApiError {
     ApiError::BadRequest(message.to_string())
+}
+
+fn shard_import_error(message: &'static str) -> String {
+    message.to_string()
 }
 
 /// Create a knowledge shard (portable tar.gz export) with selected components.
@@ -21314,13 +21322,13 @@ async fn knowledge_shard_import_internal(
                                     }
                                     imported.notes += 1;
                                 }
-                                Err(e) => errors.push(format!("Note import failed: {}", e)),
+                                Err(_) => errors.push(shard_import_error("Note import failed.")),
                             }
                         } else {
                             imported.notes += 1;
                         }
                     }
-                    Err(e) => errors.push(format!("Invalid note JSON: {}", e)),
+                    Err(_) => errors.push(shard_import_error("Invalid note JSON.")),
                 }
             }
         }
@@ -24008,6 +24016,17 @@ mod tests {
         assert!(problem.get("error_description").is_none());
     }
 
+    #[test]
+    fn backup_import_error_returns_fixed_text_without_raw_detail() {
+        let message = backup_import_error("Failed to import note.");
+
+        assert_eq!(message, "Failed to import note.");
+        assert!(!message.contains("postgres://"));
+        assert!(!message.contains("secret"));
+        assert!(!message.contains("/srv/fortemi"));
+        assert!(!message.contains("SQLSTATE"));
+    }
+
     #[tokio::test]
     async fn shard_operation_failed_returns_generic_problem_without_raw_detail() {
         let err = shard_operation_failed(
@@ -24033,6 +24052,23 @@ mod tests {
         assert!(!body.contains("secret"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
+    }
+
+    #[test]
+    fn shard_import_error_returns_fixed_text_without_raw_detail() {
+        let db_message = shard_import_error("Note import failed.");
+        let json_message = shard_import_error("Invalid note JSON.");
+
+        assert_eq!(db_message, "Note import failed.");
+        assert_eq!(json_message, "Invalid note JSON.");
+        for message in [db_message, json_message] {
+            assert!(!message.contains("postgres://"));
+            assert!(!message.contains("secret"));
+            assert!(!message.contains("/srv/fortemi"));
+            assert!(!message.contains("SQLSTATE"));
+            assert!(!message.contains("line"));
+            assert!(!message.contains("column"));
+        }
     }
 
     #[tokio::test]
