@@ -12,10 +12,16 @@ const MODE = process.env.DOCS_CONTRACT_MODE || "advisory";
 const SELF_TEST = process.argv.includes("--self-test");
 const UPDATE_BASELINE = process.argv.includes("--update-baseline");
 const DEFAULT_BASELINE_PATH = path.join(ROOT, "scripts/ci/docs-contract.baseline.json");
+const DEFAULT_ALLOWLIST_PATH = path.join(ROOT, "scripts/ci/docs-contract.allowlist.json");
 const BASELINE_PATH = path.resolve(
   process.argv.find((arg) => arg.startsWith("--baseline="))?.slice(11) ||
     process.env.DOCS_CONTRACT_BASELINE ||
     DEFAULT_BASELINE_PATH
+);
+const ALLOWLIST_PATH = path.resolve(
+  process.argv.find((arg) => arg.startsWith("--allowlist="))?.slice(12) ||
+    process.env.DOCS_CONTRACT_ALLOWLIST ||
+    DEFAULT_ALLOWLIST_PATH
 );
 
 const DEFAULT_SCAN_PATHS = [
@@ -44,6 +50,7 @@ const EXCLUDED_RELATIVE_PATHS = new Set([
   // Exact detector fixture files. Broader tests/scripts remain scanned so
   // local-dev and test-fixture allowlists can be made explicit later.
   "mcp-server/tests/output-sanitizer.test.js",
+  "scripts/ci/docs-contract.allowlist.json",
   "scripts/ci/docs-contract.baseline.json",
   "scripts/ci/docs-contract.cjs",
 ]);
@@ -231,7 +238,43 @@ function scan(root) {
   return findings;
 }
 
-function normalizeBaselineEntry(finding) {
+function validateAllowlistEntry(entry) {
+  const required = ["fingerprint", "rule", "issue", "classification", "reason", "owner_issue", "review_after"];
+  for (const field of required) {
+    if (!entry[field] || typeof entry[field] !== "string") {
+      throw new Error(`allowlist entry missing ${field}: ${JSON.stringify(entry)}`);
+    }
+  }
+  if (!/^#\d+$/.test(entry.owner_issue)) {
+    throw new Error(`allowlist owner_issue must be an issue ref: ${entry.owner_issue}`);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.review_after)) {
+    throw new Error(`allowlist review_after must be YYYY-MM-DD: ${entry.review_after}`);
+  }
+  if (entry.file === "*" || entry.line === "*") {
+    throw new Error(`broad allowlist entries are not allowed: ${JSON.stringify(entry)}`);
+  }
+}
+
+function loadAllowlist(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return { filePath, exists: false, entries: [], byFingerprint: new Map() };
+  }
+  const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
+  for (const entry of entries) {
+    validateAllowlistEntry(entry);
+  }
+  return {
+    filePath,
+    exists: true,
+    entries,
+    byFingerprint: new Map(entries.map((entry) => [entry.fingerprint, entry])),
+  };
+}
+
+function normalizeBaselineEntry(finding, allowlist) {
+  const allowlistEntry = allowlist.byFingerprint.get(finding.fingerprint);
   return {
     fingerprint: finding.fingerprint,
     rule: finding.rule,
@@ -241,9 +284,12 @@ function normalizeBaselineEntry(finding) {
     category: finding.category,
     file: finding.file,
     line: finding.line,
-    classification: finding.issue === "#1001" ? "existing_credential_example" : "existing_placeholder",
-    reason: "Initial advisory baseline; cleanup tracked by owner issue.",
-    review_after: "2026-07-31",
+    classification:
+      allowlistEntry?.classification ||
+      (finding.issue === "#1001" ? "existing_credential_example" : "existing_placeholder"),
+    reason: allowlistEntry?.reason || "Initial advisory baseline; cleanup tracked by owner issue.",
+    owner_issue: allowlistEntry?.owner_issue || finding.issue,
+    review_after: allowlistEntry?.review_after || "2026-07-31",
   };
 }
 
@@ -261,7 +307,7 @@ function loadBaseline(filePath) {
   };
 }
 
-function writeBaseline(filePath, findings) {
+function writeBaseline(filePath, findings, allowlist) {
   const baseline = {
     version: 1,
     profile: PROFILE,
@@ -269,7 +315,8 @@ function writeBaseline(filePath, findings) {
     owner_issues: Array.from(new Set(findings.map((finding) => finding.issue))).sort(),
     policy:
       "Redacted docs-contract baseline. Entries store stable fingerprints and finding metadata only; raw matched values are intentionally excluded.",
-    entries: findings.map(normalizeBaselineEntry).sort((a, b) => {
+    allowlist: allowlist.exists ? path.relative(ROOT, allowlist.filePath) : null,
+    entries: findings.map((finding) => normalizeBaselineEntry(finding, allowlist)).sort((a, b) => {
       return (
         a.file.localeCompare(b.file) ||
         a.line - b.line ||
@@ -287,6 +334,7 @@ function classifyFindings(findings, baseline) {
   return findings.map((finding) => ({
     ...finding,
     baseline_state: baseline.byFingerprint.has(finding.fingerprint) ? "known" : "new",
+    classification: baseline.byFingerprint.get(finding.fingerprint)?.classification || "unclassified",
   }));
 }
 
@@ -294,9 +342,11 @@ function countByState(findings) {
   return findings.reduce(
     (counts, finding) => {
       counts[finding.baseline_state] += 1;
+      counts.classifications[finding.classification] =
+        (counts.classifications[finding.classification] || 0) + 1;
       return counts;
     },
-    { known: 0, new: 0 }
+    { known: 0, new: 0, classifications: {} }
   );
 }
 
@@ -308,6 +358,10 @@ function staleBaselineCount(findings, baseline) {
 function printFindings(findings, baseline) {
   const counts = countByState(findings);
   const stale = staleBaselineCount(findings, baseline);
+  const classificationSummary = Object.entries(counts.classifications)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, count]) => `${name}:${count}`)
+    .join(",");
   console.log(
     [
       `docs-contract profile=${PROFILE}`,
@@ -317,6 +371,7 @@ function printFindings(findings, baseline) {
       `new=${counts.new}`,
       `baseline=${baseline.exists ? path.relative(ROOT, baseline.filePath) : "none"}`,
       `stale_baseline=${stale}`,
+      `classifications=${classificationSummary || "none"}`,
     ].join(" ")
   );
   for (const finding of findings) {
@@ -330,6 +385,7 @@ function printFindings(findings, baseline) {
         `category=${finding.category}`,
         `fingerprint=${finding.fingerprint}`,
         `baseline=${finding.baseline_state}`,
+        `classification=${finding.classification}`,
         `remediation=${finding.remediation}`,
       ].join(" | ")
     );
@@ -374,7 +430,8 @@ function runSelfTest() {
       throw new Error(`expected zero negative findings, got ${negativeFindings.length}`);
     }
     const baselinePath = path.join(tmp, "docs-contract.baseline.json");
-    const writtenBaseline = writeBaseline(baselinePath, findings);
+    const allowlist = loadAllowlist(path.join(tmp, "docs-contract.allowlist.json"));
+    const writtenBaseline = writeBaseline(baselinePath, findings, allowlist);
     const baseline = loadBaseline(baselinePath);
     const classified = classifyFindings(findings, baseline);
     const counts = countByState(classified);
@@ -412,8 +469,9 @@ if (SELF_TEST) {
 }
 
 const findings = scan(ROOT);
+const allowlist = loadAllowlist(ALLOWLIST_PATH);
 if (UPDATE_BASELINE) {
-  writeBaseline(BASELINE_PATH, findings);
+  writeBaseline(BASELINE_PATH, findings, allowlist);
 }
 const baseline = loadBaseline(BASELINE_PATH);
 const classifiedFindings = classifyFindings(findings, baseline);
