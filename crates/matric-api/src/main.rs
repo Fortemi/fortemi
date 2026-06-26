@@ -25344,6 +25344,13 @@ fn memory_backup_download_filename(memory_name: &str, timestamp: &str) -> String
     )
 }
 
+fn knowledge_archive_download_filename(filename: &str) -> String {
+    format!(
+        "backup_filename_len_{}.archive",
+        telemetry_text_len(filename)
+    )
+}
+
 /// Restore a backup into a specific memory using DROP SCHEMA CASCADE.
 ///
 /// This is dramatically simpler than public schema restore because:
@@ -25950,12 +25957,7 @@ async fn knowledge_archive_download(
     }
 
     // Generate archive filename
-    let archive_name = format!(
-        "{}.archive",
-        filename
-            .trim_end_matches(".sql.gz")
-            .trim_end_matches(".tar.gz")
-    );
+    let archive_name = knowledge_archive_download_filename(&filename);
     let content_disposition = format!("attachment; filename=\"{}\"", archive_name);
 
     let headers = [
@@ -28497,6 +28499,32 @@ mod tests {
             memory_name,
         ] {
             assert!(!filename.contains(raw), "raw value leaked: {raw}");
+            assert!(
+                !content_disposition.contains(raw),
+                "raw value leaked: {raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn knowledge_archive_download_filename_uses_metadata_only() {
+        let backup_filename =
+            "snapshot-customer-private-mm_key_backup-postgres://user:pass@db.internal.sql.gz";
+        let archive_name = knowledge_archive_download_filename(backup_filename);
+        let content_disposition = format!("attachment; filename=\"{}\"", archive_name);
+
+        assert!(archive_name.starts_with("backup_filename_len_"));
+        assert!(archive_name.ends_with(".archive"));
+        assert!(HeaderValue::from_str(&content_disposition).is_ok());
+        for raw in [
+            "snapshot-customer-private",
+            "mm_key_backup",
+            "postgres://user:pass",
+            "db.internal",
+            ".sql.gz",
+            backup_filename,
+        ] {
+            assert!(!archive_name.contains(raw), "raw value leaked: {raw}");
             assert!(
                 !content_disposition.contains(raw),
                 "raw value leaked: {raw}"
