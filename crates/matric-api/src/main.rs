@@ -7817,7 +7817,7 @@ async fn streaming_health_check(
         "rtp": build_rtp_metrics(call_metrics, deepgram_rate, deepgram_metrics),
         "chat": state.chat_stream_metrics.snapshot(),
         "ingest": state.ingest_stream_metrics.snapshot(),
-        "inbound": state.inbound_metrics.snapshot(),
+        "inbound": state.inbound_metrics.public_snapshot(),
     })))
 }
 
