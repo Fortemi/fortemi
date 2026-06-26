@@ -1912,7 +1912,7 @@ pub struct UpdateCallSessionRequest {
 }
 
 /// Final transcript segment persisted for a call session.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, sqlx::FromRow)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema, sqlx::FromRow)]
 pub struct TranscriptSegment {
     pub id: Uuid,
     pub call_id: Uuid,
@@ -1925,8 +1925,27 @@ pub struct TranscriptSegment {
     pub created_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for TranscriptSegment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TranscriptSegment")
+            .field("id_set", &true)
+            .field("call_id_set", &true)
+            .field(
+                "speaker_label_len",
+                &self.speaker_label.as_ref().map(String::len),
+            )
+            .field("text_len", &self.text.len())
+            .field("start_ts_set", &self.start_ts.is_some())
+            .field("end_ts_set", &self.end_ts.is_some())
+            .field("confidence", &self.confidence)
+            .field("sequence", &self.sequence)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
 /// Request payload for persisting a final transcript segment.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateTranscriptSegmentRequest {
     pub call_id: Uuid,
     pub speaker_label: Option<String>,
@@ -1935,6 +1954,23 @@ pub struct CreateTranscriptSegmentRequest {
     pub end_ts: Option<f64>,
     pub confidence: Option<f32>,
     pub sequence: i32,
+}
+
+impl fmt::Debug for CreateTranscriptSegmentRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateTranscriptSegmentRequest")
+            .field("call_id_set", &true)
+            .field(
+                "speaker_label_len",
+                &self.speaker_label.as_ref().map(String::len),
+            )
+            .field("text_len", &self.text.len())
+            .field("start_ts_set", &self.start_ts.is_some())
+            .field("end_ts_set", &self.end_ts.is_some())
+            .field("confidence", &self.confidence)
+            .field("sequence", &self.sequence)
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -4116,6 +4152,66 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "Link/search Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn transcript_segment_debug_redacts_text_and_speaker_labels() {
+        let now = Utc::now();
+        let segment = TranscriptSegment {
+            id: Uuid::new_v4(),
+            call_id: Uuid::new_v4(),
+            speaker_label: Some("Private speaker private@example.test".to_string()),
+            text: "Transcript includes 555-1212, sk-live-secret, and /tmp/customer/audio.wav"
+                .to_string(),
+            start_ts: Some(1.25),
+            end_ts: Some(3.5),
+            confidence: Some(0.91),
+            sequence: 8,
+            created_at: now,
+        };
+        let request = CreateTranscriptSegmentRequest {
+            call_id: Uuid::new_v4(),
+            speaker_label: Some("Caller with secret-token label".to_string()),
+            text: "Request transcript mentions https://provider.example.test/?token=secret"
+                .to_string(),
+            start_ts: Some(5.0),
+            end_ts: Some(8.0),
+            confidence: Some(0.82),
+            sequence: 9,
+        };
+
+        let debug = format!("{segment:?}{request:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "Private speaker",
+                "private@example.test",
+                "Transcript includes",
+                "555-1212",
+                "sk-live-secret",
+                "/tmp/customer/audio.wav",
+                "Caller with",
+                "secret-token",
+                "Request transcript",
+                "provider.example.test",
+            ],
+        );
+
+        for expected in [
+            "speaker_label_len",
+            "text_len",
+            "start_ts_set",
+            "end_ts_set",
+            "confidence",
+            "sequence",
+            "created_at",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Transcript Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
