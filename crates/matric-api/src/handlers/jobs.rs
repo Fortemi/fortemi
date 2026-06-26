@@ -2848,7 +2848,12 @@ impl LinkingHandler {
             .collect();
 
         if filtered.is_empty() {
-            debug!(note_id = %note_id, "No candidates above min_similarity");
+            debug!(
+                note_id_present = true,
+                detail = JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "hnsw_no_candidates_above_min_similarity",
+                "No candidates above min_similarity"
+            );
             return Ok(0);
         }
 
@@ -3702,9 +3707,11 @@ Keep it concise (2-3 sentences). Output the full note with the new section added
 
         ctx.report_progress(100, Some("Context update complete"));
         info!(
-            note_id = %note_id,
+            note_id_present = true,
             result_count = links.len(),
             duration_ms = start.elapsed().as_millis() as u64,
+            detail = JOB_CONTEXT_UPDATE_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "context_update_complete",
             "Context update completed"
         );
 
@@ -3931,16 +3938,23 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                         }
                     }
                     info!(
-                        note_id = %note_id,
+                        note_id_present = true,
                         gliner_concepts = concept_labels.len(),
                         target = self.target_concepts,
+                        detail = JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "tier0_gliner_concept_extraction_complete",
                         "Tier-0 GLiNER produced {} concepts (target: {})",
                         concept_labels.len(),
                         self.target_concepts
                     );
                 }
                 Ok(_) => {
-                    info!(note_id = %note_id, "Tier-0 GLiNER returned no entities");
+                    info!(
+                        note_id_present = true,
+                        detail = JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "tier0_gliner_no_entities",
+                        "Tier-0 GLiNER returned no entities"
+                    );
                 }
                 Err(e) => {
                     warn!(
@@ -4077,9 +4091,11 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
         let escalating = total_concepts < standard_threshold;
         if escalating {
             info!(
-                note_id = %note_id,
+                note_id_present = true,
                 count = concept_labels.len(),
                 threshold = standard_threshold,
+                detail = JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "tier1_below_escalation_threshold",
                 "Tier-1 below escalation threshold, chaining to tier-2"
             );
             if let Some(job_id) = self
@@ -4262,7 +4278,12 @@ impl JobHandler for ConceptTaggingHandler {
         // Early exit: tier-0 with no NER backend — skip note fetch and escalate directly
         if ctx.job.cost_tier == Some(matric_core::cost_tier::CPU_NER) && self.ner_backend.is_none()
         {
-            info!(note_id = %note_id, "Tier-0 requested but no NER backend — escalating to tier-1");
+            info!(
+                note_id_present = true,
+                detail = JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "tier0_no_ner_backend_escalate",
+                "Tier-0 requested but no NER backend — escalating to tier-1"
+            );
             if let Some(job_id) = self
                 .queue_escalation(
                     note_id,
@@ -4548,11 +4569,13 @@ impl JobHandler for ConceptTaggingHandler {
 
         ctx.report_progress(100, Some("Concept tagging complete"));
         info!(
-            note_id = %note_id,
+            note_id_present = true,
             result_count = tagged_count,
             concepts_suggested = concept_labels.len(),
             extraction_method,
             duration_ms = start.elapsed().as_millis() as u64,
+            detail = JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "concept_tagging_complete",
             "Concept tagging completed"
         );
 
@@ -4760,9 +4783,11 @@ impl JobHandler for ReferenceExtractionHandler {
             match ner.extract(&content_preview, NER_ENTITY_TYPES, None).await {
                 Ok(result) if !result.entities.is_empty() => {
                     info!(
-                        note_id = %note_id,
+                        note_id_present = true,
                         entities = result.entities.len(),
                         model = %result.model,
+                        detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "gliner_reference_extraction_complete",
                         "GLiNER extraction succeeded"
                     );
                     ctx.report_progress(50, Some("Parsing GLiNER entities..."));
@@ -4788,7 +4813,12 @@ impl JobHandler for ReferenceExtractionHandler {
                     (mapped, "gliner")
                 }
                 Ok(_) => {
-                    info!(note_id = %note_id, "GLiNER returned no entities, falling back to LLM");
+                    info!(
+                        note_id_present = true,
+                        detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "gliner_no_reference_entities",
+                        "GLiNER returned no entities, falling back to LLM"
+                    );
                     if is_tiered {
                         // Tier-0: chain to tier-1 on empty results
                         if let Some(job_id) = self
@@ -4943,15 +4973,22 @@ impl JobHandler for ReferenceExtractionHandler {
 
             if let Some(parsed) = fast_result {
                 info!(
-                    note_id = %note_id,
+                    note_id_present = true,
                     entities = parsed.len(),
+                    detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "fast_reference_extraction_complete",
                     "Fast LLM reference extraction succeeded"
                 );
                 ctx.report_progress(50, Some("Parsing LLM entities..."));
                 (parsed, "llm_fast")
             } else if skip_standard {
                 // Tier-1: fast model failed/unavailable — chain to tier-2
-                info!(note_id = %note_id, "Tier-1 fast model failed for references, chaining to tier-2");
+                info!(
+                    note_id_present = true,
+                    detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "tier1_reference_fast_failed_escalate",
+                    "Tier-1 fast model failed for references, chaining to tier-2"
+                );
                 if let Some(job_id) = self
                     .queue_ref_tier_escalation(
                         note_id,
@@ -4978,8 +5015,10 @@ impl JobHandler for ReferenceExtractionHandler {
                     Ok(json_str) => match parse_json_lenient::<Vec<RefEntity>>(&json_str) {
                         Ok(parsed) => {
                             info!(
-                                note_id = %note_id,
+                                note_id_present = true,
                                 entities = parsed.len(),
+                                detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                                operation = "standard_reference_extraction_complete",
                                 "LLM reference extraction succeeded"
                             );
                             ctx.report_progress(50, Some("Parsing LLM entities..."));
@@ -5143,11 +5182,13 @@ impl JobHandler for ReferenceExtractionHandler {
 
         ctx.report_progress(100, Some("Reference extraction complete"));
         info!(
-            note_id = %note_id,
+            note_id_present = true,
             result_count = tagged_count,
             references_found = entities.len(),
             extraction_method = extraction_method,
             duration_ms = start.elapsed().as_millis() as u64,
+            detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "reference_extraction_complete",
             "Reference extraction completed"
         );
 
@@ -5692,11 +5733,13 @@ If no meaningful related pairs exist, output an empty array: []"#
 
         ctx.report_progress(100, Some("Related concept inference complete"));
         info!(
-            note_id = %note_id,
+            note_id_present = true,
             relations_created,
             pairs_suggested = total_pairs,
             concepts_analyzed = concepts.len(),
             duration_ms = start.elapsed().as_millis() as u64,
+            detail = JOB_RELATED_CONCEPT_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "related_concept_inference_complete",
             "Related concept inference completed"
         );
 
@@ -6081,9 +6124,11 @@ Example output:
 
         ctx.report_progress(100, Some("Metadata extraction complete"));
         info!(
-            note_id = %note_id,
+            note_id_present = true,
             fields_extracted = fields_extracted,
             duration_ms = start.elapsed().as_millis() as u64,
+            detail = JOB_METADATA_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "metadata_extraction_complete",
             "Metadata extraction completed"
         );
 
@@ -6275,11 +6320,13 @@ impl JobHandler for DocumentTypeInferenceHandler {
 
         ctx.report_progress(100, Some("Document type inference complete"));
         info!(
-            note_id = %note_id,
+            note_id_present = true,
             document_type_id = %doc_type_id,
             detection_method = %detection_method,
             confidence = confidence,
             duration_ms = start.elapsed().as_millis() as u64,
+            detail = JOB_DOCUMENT_TYPE_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "document_type_inference_complete",
             "Document type inference completed"
         );
 
@@ -6764,7 +6811,12 @@ impl JobHandler for ExifExtractionHandler {
             }) {
                 Some(a) => a.id,
                 None => {
-                    info!(note_id = %note_id, "No image attachments found for EXIF extraction");
+                    info!(
+                        note_id_present = true,
+                        detail = JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "exif_no_image_attachments",
+                        "No image attachments found for EXIF extraction"
+                    );
                     return JobResult::Success(Some(serde_json::json!({
                         "status": "skipped",
                         "reason": "No image attachments found"
