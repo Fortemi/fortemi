@@ -55,6 +55,10 @@ const RELATED_CONCEPT_JOB_FAILURE: &str =
     "Related concept inference failed. Check server logs for diagnostics.";
 const REFERENCE_EXTRACTION_JOB_FAILURE: &str =
     "Reference extraction failed. Check server logs for diagnostics.";
+const REEMBED_ALL_JOB_FAILURE: &str =
+    "Bulk re-embedding failed. Check server logs for diagnostics.";
+const REFRESH_EMBEDDING_SET_JOB_FAILURE: &str =
+    "Embedding set refresh failed. Check server logs for diagnostics.";
 
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
@@ -222,6 +226,27 @@ fn reference_extraction_job_failure(
         operation, "Reference extraction job failed"
     );
     JobResult::Failed(REFERENCE_EXTRACTION_JOB_FAILURE.to_string())
+}
+
+fn reembed_all_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "Bulk re-embedding job failed"
+    );
+    JobResult::Failed(REEMBED_ALL_JOB_FAILURE.to_string())
+}
+
+fn refresh_embedding_set_job_failure(
+    error: impl std::fmt::Display,
+    operation: &'static str,
+) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "Embedding set refresh job failed"
+    );
+    JobResult::Failed(REFRESH_EMBEDDING_SET_JOB_FAILURE.to_string())
 }
 
 /// Extract the target schema from a job's payload.
@@ -5932,12 +5957,7 @@ impl JobHandler for ReEmbedAllHandler {
             // Use a large limit to get all members
             match self.db.embedding_sets.list_members(slug, 100000, 0).await {
                 Ok(members) => members.into_iter().map(|m| m.note_id).collect(),
-                Err(e) => {
-                    return JobResult::Failed(format!(
-                        "Failed to list embedding set members: {}",
-                        e
-                    ))
-                }
+                Err(e) => return reembed_all_job_failure(e, "list_embedding_set_members"),
             }
         } else {
             ctx.report_progress(10, Some("Getting all active notes..."));
@@ -5945,7 +5965,7 @@ impl JobHandler for ReEmbedAllHandler {
             // Get all active notes
             match self.db.notes.list_all_ids().await {
                 Ok(ids) => ids,
-                Err(e) => return JobResult::Failed(format!("Failed to list notes: {}", e)),
+                Err(e) => return reembed_all_job_failure(e, "list_all_notes"),
             }
         };
 
@@ -6203,8 +6223,13 @@ impl JobHandler for RefreshEmbeddingSetHandler {
 
         let set = match self.db.embedding_sets.get_by_slug(&set_slug).await {
             Ok(Some(s)) => s,
-            Ok(None) => return JobResult::Failed(format!("Embedding set not found: {}", set_slug)),
-            Err(e) => return JobResult::Failed(format!("Failed to look up set: {}", e)),
+            Ok(None) => {
+                return refresh_embedding_set_job_failure(
+                    "embedding set not found",
+                    "lookup_set_not_found",
+                )
+            }
+            Err(e) => return refresh_embedding_set_job_failure(e, "lookup_set"),
         };
 
         ctx.report_progress(20, Some("Finding members missing embeddings..."));
@@ -6223,7 +6248,7 @@ impl JobHandler for RefreshEmbeddingSetHandler {
         .await
         {
             Ok(ids) => ids,
-            Err(e) => return JobResult::Failed(format!("Failed to find missing embeddings: {}", e)),
+            Err(e) => return refresh_embedding_set_job_failure(e, "find_missing_embeddings"),
         };
 
         ctx.report_progress(50, Some("Queuing embedding jobs..."));
@@ -8294,6 +8319,49 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("/srv/fortemi"));
                 assert!(!message.contains("SQLSTATE"));
                 assert!(!message.contains("fetch note"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reembed_all_job_failure_uses_generic_stored_message() {
+        let result = reembed_all_job_failure(
+            "failed to list notes from postgres://user:secret@db.internal/app at /srv/fortemi SQLSTATE 08006",
+            "list_all_notes",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, REEMBED_ALL_JOB_FAILURE);
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("list notes"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn refresh_embedding_set_job_failure_uses_generic_stored_message() {
+        let result = refresh_embedding_set_job_failure(
+            "failed to find missing embeddings for confidential-set against postgres://user:secret@db.internal/app at /srv/fortemi SQLSTATE 42P01",
+            "find_missing_embeddings",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, REFRESH_EMBEDDING_SET_JOB_FAILURE);
+                assert!(!message.contains("confidential-set"));
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("missing embeddings"));
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
