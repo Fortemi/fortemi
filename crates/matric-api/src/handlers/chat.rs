@@ -288,10 +288,16 @@ pub async fn chat_handler(
                 .into_response()
         }
         Err(e) => {
-            warn!(error = %e, model = model_name, "Chat generation failed");
+            let diagnostic = e.to_string();
+            warn!(
+                error_len = diagnostic.chars().count(),
+                model_len = model_name.chars().count(),
+                detail = CHAT_GENERATION_FAILURE_MESSAGE,
+                "Chat generation failed"
+            );
             ApiError::ProviderFailure {
                 capability: "Chat generation",
-                detail: "chat generation request failed".to_string(),
+                detail: CHAT_GENERATION_FAILURE_MESSAGE.to_string(),
             }
             .into_response()
         }
@@ -672,7 +678,12 @@ async fn pump_chat_stream<S>(
                 }
             }
             Err(e) => {
-                warn!(error = %e, "Streaming chat generation failed");
+                let diagnostic = e.to_string();
+                warn!(
+                    error_len = diagnostic.chars().count(),
+                    detail = CHAT_GENERATION_FAILURE_MESSAGE,
+                    "Streaming chat generation failed"
+                );
                 seq += 1;
                 let frame = ChatStreamFrame::generation_failed();
                 store.append(&session, &frame.to_stored(seq)).await;
@@ -839,7 +850,13 @@ pub async fn chat_stream_handler(
                 .await;
             }
             Err(e) => {
-                warn!(error = %e, model = %model_name, "Streaming chat failed to start");
+                let diagnostic = e.to_string();
+                warn!(
+                    error_len = diagnostic.chars().count(),
+                    model_len = model_name.chars().count(),
+                    detail = CHAT_GENERATION_FAILURE_MESSAGE,
+                    "Streaming chat failed to start"
+                );
                 let frame = ChatStreamFrame::generation_failed();
                 store.append(&session, &frame.to_stored(1)).await;
                 let _ = tx.send(frame.with_id(format!("{session}-1"))).await;
@@ -1078,6 +1095,33 @@ mod tests {
         assert!(!CHAT_MODEL_DISCOVERY_FAILURE_DETAIL.contains("Bearer "));
         assert!(!CHAT_MODEL_DISCOVERY_FAILURE_DETAIL.contains("/srv/"));
         assert!(!CHAT_MODEL_DISCOVERY_FAILURE_DETAIL.contains("api_key="));
+    }
+
+    #[test]
+    fn chat_generation_failure_detail_is_fixed_and_redacted() {
+        let raw_diagnostics = [
+            "http://provider.local:11434/api/chat?api_key=secret",
+            "postgres://fortemi:secret@db.internal/fortemi",
+            "Bearer chat-generation-token",
+            "/srv/fortemi/provider/prompt-cache.json",
+            "tenant-alpha/private-model:latest",
+        ];
+
+        assert_eq!(
+            CHAT_GENERATION_FAILURE_MESSAGE,
+            "Chat generation failed. Check server logs for diagnostics."
+        );
+
+        for raw in raw_diagnostics {
+            assert!(!CHAT_GENERATION_FAILURE_MESSAGE.contains(raw));
+        }
+        assert!(!CHAT_GENERATION_FAILURE_MESSAGE.contains("http://"));
+        assert!(!CHAT_GENERATION_FAILURE_MESSAGE.contains("postgres://"));
+        assert!(!CHAT_GENERATION_FAILURE_MESSAGE.contains("Bearer "));
+        assert!(!CHAT_GENERATION_FAILURE_MESSAGE.contains("/srv/"));
+        assert!(!CHAT_GENERATION_FAILURE_MESSAGE.contains("api_key="));
+        assert!(!CHAT_GENERATION_FAILURE_MESSAGE.contains("tenant-alpha"));
+        assert!(!CHAT_GENERATION_FAILURE_MESSAGE.contains("private-model"));
     }
 
     #[test]
