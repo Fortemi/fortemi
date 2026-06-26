@@ -16585,15 +16585,17 @@ async fn backup_trigger(
         .args(["-U", "matric", "-h", "localhost", "matric"])
         .env("PGPASSWORD", "matric")
         .output()
-        .map_err(|e| ApiError::BadRequest(format!("pg_dump failed: {}", e)))?;
+        .map_err(|e| ApiError::OperationFailed {
+            operation: "Database backup",
+            detail: format!("pg_dump failed: {e}"),
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Ok(Json(BackupTriggerResponse {
-            status: "failed".to_string(),
-            output: format!("pg_dump error: {}", stderr),
-            timestamp,
-        }));
+        return Err(ApiError::OperationFailed {
+            operation: "Database backup",
+            detail: format!("pg_dump error: {stderr}"),
+        });
     }
 
     // Compress and save
@@ -19184,6 +19186,10 @@ enum ApiError {
     BadRequest(String),
     Conflict(String),
     Internal(String),
+    OperationFailed {
+        operation: &'static str,
+        detail: String,
+    },
     ServiceUnavailable(String),
     /// Attachment row exists in `attachment_blob` but the on-disk file is gone.
     /// Distinct from a generic 500 I/O error so clients can surface the
@@ -19205,6 +19211,7 @@ enum ProblemType {
     Conflict,
     RateLimit,
     Internal,
+    OperationFailed,
     ServiceUnavailable,
     BlobMissing,
 }
@@ -19221,6 +19228,7 @@ impl ProblemType {
             ProblemType::Conflict => "conflict",
             ProblemType::RateLimit => "rate-limit-exceeded",
             ProblemType::Internal => "internal-error",
+            ProblemType::OperationFailed => "operation-failed",
             ProblemType::ServiceUnavailable => "service-unavailable",
             ProblemType::BlobMissing => "blob-missing",
         }
@@ -19239,6 +19247,7 @@ impl ProblemType {
             ProblemType::Conflict => "Conflict",
             ProblemType::RateLimit => "Too Many Requests",
             ProblemType::Internal => "Internal Server Error",
+            ProblemType::OperationFailed => "Operation Failed",
             ProblemType::ServiceUnavailable => "Service Unavailable",
             ProblemType::BlobMissing => "Blob Missing",
         }
@@ -19370,6 +19379,19 @@ impl IntoResponse for ApiError {
                     StatusCode::INTERNAL_SERVER_ERROR,
                     ProblemType::Internal,
                     "An internal error occurred.".to_string(),
+                    None,
+                )
+            }
+            ApiError::OperationFailed { operation, detail } => {
+                error!(
+                    operation,
+                    error = %detail,
+                    "operation failure mapped to problem response"
+                );
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ProblemType::OperationFailed,
+                    format!("{operation} failed. Check server logs for diagnostics."),
                     None,
                 )
             }
@@ -20640,11 +20662,17 @@ async fn memory_backup_download(
         ])
         .env("PGPASSWORD", "matric")
         .output()
-        .map_err(|e| ApiError::BadRequest(format!("pg_dump failed: {}", e)))?;
+        .map_err(|e| ApiError::OperationFailed {
+            operation: "Memory backup",
+            detail: format!("pg_dump failed: {e}"),
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(ApiError::BadRequest(format!("pg_dump error: {}", stderr)));
+        return Err(ApiError::OperationFailed {
+            operation: "Memory backup",
+            detail: format!("pg_dump error: {stderr}"),
+        });
     }
 
     // Compress with gzip
@@ -20684,11 +20712,17 @@ async fn database_backup_download(
         .args(["-U", "matric", "-h", "localhost", "matric"])
         .env("PGPASSWORD", "matric")
         .output()
-        .map_err(|e| ApiError::BadRequest(format!("pg_dump failed: {}", e)))?;
+        .map_err(|e| ApiError::OperationFailed {
+            operation: "Database backup",
+            detail: format!("pg_dump failed: {e}"),
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(ApiError::BadRequest(format!("pg_dump error: {}", stderr)));
+        return Err(ApiError::OperationFailed {
+            operation: "Database backup",
+            detail: format!("pg_dump error: {stderr}"),
+        });
     }
 
     // Compress with gzip
@@ -20771,11 +20805,17 @@ async fn database_backup_snapshot(
         .args(["-U", "matric", "-h", "localhost", "matric"])
         .env("PGPASSWORD", "matric")
         .output()
-        .map_err(|e| ApiError::BadRequest(format!("pg_dump failed: {}", e)))?;
+        .map_err(|e| ApiError::OperationFailed {
+            operation: "Database backup snapshot",
+            detail: format!("pg_dump failed: {e}"),
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(ApiError::BadRequest(format!("pg_dump error: {}", stderr)));
+        return Err(ApiError::OperationFailed {
+            operation: "Database backup snapshot",
+            detail: format!("pg_dump error: {stderr}"),
+        });
     }
 
     // Compress and save
@@ -22331,6 +22371,33 @@ mod tests {
         assert_eq!(problem["detail"], "An internal error occurred.");
         assert!(!problem.to_string().contains("duplicate key"));
         assert!(!problem.to_string().contains("unique constraint"));
+    }
+
+    #[tokio::test]
+    async fn api_error_operation_failed_returns_generic_problem_without_raw_detail() {
+        let raw_detail = "pg_dump error: could not connect to postgres://user:secret@db.internal/app at /srv/fortemi/backups";
+        let (status, _headers, problem) = read_problem_response(ApiError::OperationFailed {
+            operation: "Database backup",
+            detail: raw_detail.to_string(),
+        })
+        .await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/operation-failed"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Database backup failed. Check server logs for diagnostics."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains("pg_dump"));
+        assert!(!body.contains("postgres://"));
+        assert!(!body.contains("/srv/fortemi"));
+        assert!(!body.contains("secret"));
+        assert!(problem.get("error").is_none());
     }
 
     #[tokio::test]
