@@ -17451,17 +17451,15 @@ async fn backup_trigger(
         .args(["-U", "matric", "-h", "localhost", "matric"])
         .env("PGPASSWORD", "matric")
         .output()
-        .map_err(|e| ApiError::OperationFailed {
-            operation: "Database backup",
-            detail: format!("pg_dump failed: {e}"),
-        })?;
+        .map_err(|e| backup_operation_failed("Database backup", "spawn pg_dump", e))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(ApiError::OperationFailed {
-            operation: "Database backup",
-            detail: format!("pg_dump error: {stderr}"),
-        });
+        return Err(backup_command_failed(
+            "Database backup",
+            "pg_dump",
+            output.status.code(),
+            &output.stderr,
+        ));
     }
 
     // Compress and save
@@ -17509,6 +17507,32 @@ fn backup_operation_failed(
     }
 }
 
+fn backup_command_failed(
+    operation: &'static str,
+    command: &'static str,
+    status_code: Option<i32>,
+    stderr: &[u8],
+) -> ApiError {
+    warn!(
+        operation,
+        command,
+        status_code,
+        stderr_len = stderr.len(),
+        "backup command failed"
+    );
+    ApiError::OperationFailed {
+        operation,
+        detail: format!(
+            "{} failed; command={command}; status={}; stderr_len={}",
+            operation,
+            status_code
+                .map(|status| status.to_string())
+                .unwrap_or_else(|| "terminated".to_string()),
+            stderr.len()
+        ),
+    }
+}
+
 fn backup_restore_issue_message(operation: &'static str, stderr: &[u8]) -> String {
     error!(
         operation,
@@ -17516,6 +17540,15 @@ fn backup_restore_issue_message(operation: &'static str, stderr: &[u8]) -> Strin
         "backup restore command completed with errors"
     );
     format!("{operation} completed with issues. Check server logs for diagnostics.")
+}
+
+fn log_backup_post_restore_warning(command: &'static str, status_code: Option<i32>, stderr: &[u8]) {
+    warn!(
+        command,
+        status_code,
+        stderr_len = stderr.len(),
+        "backup post-restore maintenance completed with warnings"
+    );
 }
 
 #[derive(Debug, Serialize)]
@@ -21690,17 +21723,15 @@ async fn memory_backup_download(
         ])
         .env("PGPASSWORD", "matric")
         .output()
-        .map_err(|e| ApiError::OperationFailed {
-            operation: "Memory backup",
-            detail: format!("pg_dump failed: {e}"),
-        })?;
+        .map_err(|e| backup_operation_failed("Memory backup", "spawn pg_dump", e))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(ApiError::OperationFailed {
-            operation: "Memory backup",
-            detail: format!("pg_dump error: {stderr}"),
-        });
+        return Err(backup_command_failed(
+            "Memory backup",
+            "pg_dump",
+            output.status.code(),
+            &output.stderr,
+        ));
     }
 
     // Compress with gzip
@@ -21740,17 +21771,15 @@ async fn database_backup_download(
         .args(["-U", "matric", "-h", "localhost", "matric"])
         .env("PGPASSWORD", "matric")
         .output()
-        .map_err(|e| ApiError::OperationFailed {
-            operation: "Database backup",
-            detail: format!("pg_dump failed: {e}"),
-        })?;
+        .map_err(|e| backup_operation_failed("Database backup", "spawn pg_dump", e))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(ApiError::OperationFailed {
-            operation: "Database backup",
-            detail: format!("pg_dump error: {stderr}"),
-        });
+        return Err(backup_command_failed(
+            "Database backup",
+            "pg_dump",
+            output.status.code(),
+            &output.stderr,
+        ));
     }
 
     // Compress with gzip
@@ -21834,17 +21863,15 @@ async fn database_backup_snapshot(
         .args(["-U", "matric", "-h", "localhost", "matric"])
         .env("PGPASSWORD", "matric")
         .output()
-        .map_err(|e| ApiError::OperationFailed {
-            operation: "Database backup snapshot",
-            detail: format!("pg_dump failed: {e}"),
-        })?;
+        .map_err(|e| backup_operation_failed("Database backup snapshot", "spawn pg_dump", e))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(ApiError::OperationFailed {
-            operation: "Database backup snapshot",
-            detail: format!("pg_dump error: {stderr}"),
-        });
+        return Err(backup_command_failed(
+            "Database backup snapshot",
+            "pg_dump",
+            output.status.code(),
+            &output.stderr,
+        ));
     }
 
     // Compress and save
@@ -22486,11 +22513,14 @@ CREATE INDEX IF NOT EXISTS idx_revised_current_tsv ON note_revised_current USING
         .unwrap_or_else(|e| Err(std::io::Error::other(format!("task panicked: {}", e))));
         match &reindex_result {
             Ok(o) if !o.status.success() => {
-                let stderr = String::from_utf8_lossy(&o.stderr);
-                tracing::warn!("Post-restore REINDEX/VACUUM had warnings: {}", stderr);
+                log_backup_post_restore_warning("psql", o.status.code(), &o.stderr);
             }
             Err(e) => {
-                tracing::warn!("Post-restore REINDEX/VACUUM failed: {}", e);
+                tracing::warn!(
+                    command = "psql",
+                    error_len = telemetry_text_len(&e.to_string()),
+                    "backup post-restore maintenance task failed"
+                );
             }
             _ => {
                 tracing::info!("Post-restore REINDEX, VACUUM ANALYZE, and FTS index rebuild completed successfully");
@@ -23776,6 +23806,43 @@ mod tests {
         assert!(!body.contains("token=secret"));
         assert!(!body.contains("permission denied"));
         assert!(problem.get("error").is_none());
+    }
+
+    #[tokio::test]
+    async fn backup_command_failed_returns_generic_problem_without_raw_stderr() {
+        let err = backup_command_failed(
+            "Database backup",
+            "pg_dump",
+            Some(2),
+            b"pg_dump: could not connect to postgres://user:secret@db.internal/app at /srv/fortemi\nSQLSTATE 08001",
+        );
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/operation-failed"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Database backup failed. Check server logs for diagnostics."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains("pg_dump"));
+        assert!(!body.contains("postgres://"));
+        assert!(!body.contains("secret"));
+        assert!(!body.contains("/srv/fortemi"));
+        assert!(!body.contains("SQLSTATE"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[test]
+    fn backup_post_restore_warning_accepts_raw_stderr_without_returning_it() {
+        let stderr =
+            b"psql: warning postgres://user:secret@db.internal/app /srv/fortemi SQLSTATE 01000";
+        log_backup_post_restore_warning("psql", Some(1), stderr);
     }
 
     #[tokio::test]
