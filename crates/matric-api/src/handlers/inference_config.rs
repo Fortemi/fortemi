@@ -41,22 +41,48 @@ pub enum ConfigSource {
 }
 
 /// A config value with its source attribution.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SourcedValue {
     pub value: String,
     pub source: ConfigSource,
 }
 
+impl std::fmt::Debug for SourcedValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SourcedValue")
+            .field("value_len", &telemetry_text_len(&self.value))
+            .field("source", &self.source)
+            .finish()
+    }
+}
+
 /// Ollama config fields with source attribution.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SourcedOllamaConfig {
     pub base_url: SourcedValue,
     pub generation_model: SourcedValue,
     pub embedding_model: SourcedValue,
 }
 
+impl std::fmt::Debug for SourcedOllamaConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SourcedOllamaConfig")
+            .field("base_url_class", &telemetry_url_class(&self.base_url.value))
+            .field("base_url_len", &telemetry_text_len(&self.base_url.value))
+            .field(
+                "generation_model_len",
+                &telemetry_text_len(&self.generation_model.value),
+            )
+            .field(
+                "embedding_model_len",
+                &telemetry_text_len(&self.embedding_model.value),
+            )
+            .finish()
+    }
+}
+
 /// OpenAI config fields with source attribution.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SourcedOpenAIConfig {
     pub base_url: SourcedValue,
     /// API key metadata only. Null if not set.
@@ -66,14 +92,64 @@ pub struct SourcedOpenAIConfig {
     pub embedding_model: SourcedValue,
 }
 
+impl std::fmt::Debug for SourcedOpenAIConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SourcedOpenAIConfig")
+            .field("base_url_class", &telemetry_url_class(&self.base_url.value))
+            .field("base_url_len", &telemetry_text_len(&self.base_url.value))
+            .field("api_key_present", &self.api_key.is_some())
+            .field(
+                "api_key_len",
+                &self
+                    .api_key
+                    .as_ref()
+                    .map(|value| telemetry_text_len(&value.value)),
+            )
+            .field(
+                "generation_model_len",
+                &telemetry_text_len(&self.generation_model.value),
+            )
+            .field(
+                "embedding_model_len",
+                &telemetry_text_len(&self.embedding_model.value),
+            )
+            .finish()
+    }
+}
+
 /// llama.cpp config fields with source attribution.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SourcedLlamaCppConfig {
     pub base_url: SourcedValue,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_key: Option<SourcedValue>,
     pub generation_model: SourcedValue,
     pub embedding_model: SourcedValue,
+}
+
+impl std::fmt::Debug for SourcedLlamaCppConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SourcedLlamaCppConfig")
+            .field("base_url_class", &telemetry_url_class(&self.base_url.value))
+            .field("base_url_len", &telemetry_text_len(&self.base_url.value))
+            .field("api_key_present", &self.api_key.is_some())
+            .field(
+                "api_key_len",
+                &self
+                    .api_key
+                    .as_ref()
+                    .map(|value| telemetry_text_len(&value.value)),
+            )
+            .field(
+                "generation_model_len",
+                &telemetry_text_len(&self.generation_model.value),
+            )
+            .field(
+                "embedding_model_len",
+                &telemetry_text_len(&self.embedding_model.value),
+            )
+            .finish()
+    }
 }
 
 /// OpenRouter config fields with source attribution.
@@ -85,7 +161,7 @@ pub struct SourcedLlamaCppConfig {
 /// `OPENROUTER_HTTP_REFERER` and `OPENROUTER_APP_NAME` env vars or the
 /// runtime `http_referer` / `app_name` fields. Embeddings are not supported
 /// by OpenRouter; the field is omitted from this struct intentionally.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SourcedOpenRouterConfig {
     pub base_url: SourcedValue,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -95,8 +171,38 @@ pub struct SourcedOpenRouterConfig {
     pub app_name: SourcedValue,
 }
 
+impl std::fmt::Debug for SourcedOpenRouterConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SourcedOpenRouterConfig")
+            .field("base_url_class", &telemetry_url_class(&self.base_url.value))
+            .field("base_url_len", &telemetry_text_len(&self.base_url.value))
+            .field("api_key_present", &self.api_key.is_some())
+            .field(
+                "api_key_len",
+                &self
+                    .api_key
+                    .as_ref()
+                    .map(|value| telemetry_text_len(&value.value)),
+            )
+            .field(
+                "generation_model_len",
+                &telemetry_text_len(&self.generation_model.value),
+            )
+            .field(
+                "http_referer_class",
+                &telemetry_url_class(&self.http_referer.value),
+            )
+            .field(
+                "http_referer_len",
+                &telemetry_text_len(&self.http_referer.value),
+            )
+            .field("app_name_len", &telemetry_text_len(&self.app_name.value))
+            .finish()
+    }
+}
+
 /// Full effective inference config response with source attribution.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct InferenceConfigResponse {
     pub default_backend: String,
     /// Embedding-route override. `None` (omitted from JSON) means embeddings
@@ -115,6 +221,29 @@ pub struct InferenceConfigResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openrouter: Option<SourcedOpenRouterConfig>,
     pub providers: Vec<String>,
+}
+
+impl std::fmt::Debug for InferenceConfigResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InferenceConfigResponse")
+            .field(
+                "default_backend_len",
+                &telemetry_text_len(&self.default_backend),
+            )
+            .field(
+                "embedding_backend_len",
+                &self
+                    .embedding_backend
+                    .as_ref()
+                    .map(|value| telemetry_text_len(&value.value)),
+            )
+            .field("ollama_present", &self.ollama.is_some())
+            .field("openai_present", &self.openai.is_some())
+            .field("llamacpp_present", &self.llamacpp.is_some())
+            .field("openrouter_present", &self.openrouter.is_some())
+            .field("provider_count", &self.providers.len())
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -3141,6 +3270,13 @@ mod tests_connection {
 
     #[test]
     fn inference_config_request_debug_redacts_secret_fields() {
+        fn sourced(value: &str) -> SourcedValue {
+            SourcedValue {
+                value: value.to_string(),
+                source: ConfigSource::DbOverride,
+            }
+        }
+
         let req = UpdateInferenceConfigRequest {
             ollama: Some(PartialOllamaConfig {
                 base_url: Some("http://localhost:11434?token=secret".to_string()),
@@ -3168,11 +3304,52 @@ mod tests_connection {
             }),
             embedding_backend: Some(Some("secret-embedding-backend".to_string())),
         };
+        let response = InferenceConfigResponse {
+            default_backend: "secret-default-backend".to_string(),
+            embedding_backend: Some(sourced("secret-embedding-backend")),
+            ollama: Some(SourcedOllamaConfig {
+                base_url: sourced("http://localhost:11434?token=secret"),
+                generation_model: sourced("qwen-secret-model"),
+                embedding_model: sourced("nomic-secret-embedding"),
+            }),
+            openai: Some(SourcedOpenAIConfig {
+                base_url: sourced("https://user:pass@api.openai.com/v1?api_key=secret"),
+                api_key: Some(sourced("<secret_present_len:22>")),
+                generation_model: sourced("gpt-secret-model"),
+                embedding_model: sourced("text-secret-embedding"),
+            }),
+            llamacpp: Some(SourcedLlamaCppConfig {
+                base_url: sourced("http://10.0.0.4:8080/v1?token=secret"),
+                api_key: Some(sourced("<secret_present_len:19>")),
+                generation_model: sourced("local-secret-model"),
+                embedding_model: sourced("local-secret-embedding"),
+            }),
+            openrouter: Some(SourcedOpenRouterConfig {
+                base_url: sourced("https://openrouter.ai/api/v1?token=secret"),
+                api_key: Some(sourced("<secret_present_len:27>")),
+                generation_model: sourced("anthropic/secret-model"),
+                http_referer: sourced("https://tenant-secret.example/app"),
+                app_name: sourced("secret tenant app"),
+            }),
+            providers: vec![
+                "openai-secret-provider".to_string(),
+                "openrouter-secret-provider".to_string(),
+            ],
+        };
 
-        let rendered = format!("{req:?}");
+        let rendered = format!(
+            "{req:?}{response:?}{:?}{:?}{:?}{:?}",
+            response.ollama.as_ref(),
+            response.openai.as_ref(),
+            response.llamacpp.as_ref(),
+            response.openrouter.as_ref()
+        );
         assert!(rendered.contains("openai_present: true"));
         assert!(rendered.contains("openrouter_present: true"));
         assert!(rendered.contains("embedding_backend_state: \"set\""));
+        assert!(rendered.contains("provider_count: 2"));
+        assert!(rendered.contains("api_key_present: true"));
+        assert!(rendered.contains("base_url_class"));
         assert!(!rendered.contains("sk-secret-openai-key"));
         assert!(!rendered.contains("llamacpp-secret-key"));
         assert!(!rendered.contains("sk-or-secret-openrouter-key"));
@@ -3182,13 +3359,18 @@ mod tests_connection {
         assert!(!rendered.contains("api.openai.com"));
         assert!(!rendered.contains("openrouter.ai"));
         assert!(!rendered.contains("tenant-secret.example"));
+        assert!(!rendered.contains("secret-default-backend"));
         assert!(!rendered.contains("qwen-secret-model"));
+        assert!(!rendered.contains("nomic-secret-embedding"));
         assert!(!rendered.contains("gpt-secret-model"));
         assert!(!rendered.contains("text-secret-embedding"));
         assert!(!rendered.contains("local-secret-model"));
+        assert!(!rendered.contains("local-secret-embedding"));
         assert!(!rendered.contains("anthropic/secret-model"));
         assert!(!rendered.contains("secret tenant app"));
         assert!(!rendered.contains("secret-embedding-backend"));
+        assert!(!rendered.contains("openai-secret-provider"));
+        assert!(!rendered.contains("openrouter-secret-provider"));
     }
 
     #[test]
