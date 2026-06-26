@@ -71,6 +71,10 @@ const JOB_CONTEXT_UPDATE_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_context_update_d
 const JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_concept_tagging_diagnostic_failed";
 const JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL: &str =
     "job_reference_extraction_diagnostic_failed";
+const JOB_RELATED_CONCEPT_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_related_concept_diagnostic_failed";
+const JOB_METADATA_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_metadata_diagnostic_failed";
+const JOB_DOCUMENT_TYPE_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_document_type_diagnostic_failed";
+const JOB_REEMBED_QUEUE_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_reembed_queue_diagnostic_failed";
 
 fn diagnostic_len(error: impl std::fmt::Display) -> usize {
     error.to_string().chars().count()
@@ -5370,7 +5374,12 @@ If no meaningful related pairs exist, output an empty array: []"#
                 if use_fast {
                     // Fast model failed — escalate to tier-2 via job queue.
                     // Do NOT queue phase-3 here — the tier-2 job will do it after completion.
-                    info!(error = %e, "Fast model failed for related concepts, escalating to tier-2");
+                    info!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_RELATED_CONCEPT_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "fast_related_concept_generation",
+                        "Fast model failed for related concepts, escalating to tier-2"
+                    );
                     if let Some(job_id) = self.queue_related_tier_escalation(note_id, schema).await
                     {
                         ctx.emit_job_queued(
@@ -5413,7 +5422,12 @@ If no meaningful related pairs exist, output an empty array: []"#
                     Ok(p) => p,
                     Err(e) => {
                         if use_fast {
-                            info!(error = %e, "Fast model output unparseable for related concepts, escalating to tier-2");
+                            info!(
+                                error_len = diagnostic_len(&e),
+                                detail = JOB_RELATED_CONCEPT_DIAGNOSTIC_FAILURE_DETAIL,
+                                operation = "fast_related_concept_parse",
+                                "Fast model output unparseable for related concepts, escalating to tier-2"
+                            );
                             if let Some(job_id) =
                                 self.queue_related_tier_escalation(note_id, schema).await
                             {
@@ -5539,7 +5553,12 @@ If no meaningful related pairs exist, output an empty array: []"#
                 }
                 Err(e) => {
                     // Unique constraint violation means it already exists — not an error
-                    debug!(error = %e, a = %a.notation, b = %b.notation, "Failed to create related relation (may already exist)");
+                    debug!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_RELATED_CONCEPT_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "create_related_relation",
+                        "Failed to create related relation"
+                    );
                 }
             }
 
@@ -5762,7 +5781,12 @@ Example output:
             Ok(r) => r.trim().to_string(),
             Err(e) => {
                 if use_fast {
-                    info!(error = %e, "Fast model failed for metadata extraction, escalating to tier-2");
+                    info!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_METADATA_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "fast_metadata_extraction",
+                        "Fast model failed for metadata extraction, escalating to tier-2"
+                    );
                     if let Some(job_id) = self
                         .queue_tier_escalation(
                             note_id,
@@ -5800,7 +5824,12 @@ Example output:
                     Ok(v) => v,
                     Err(e) => {
                         if use_fast {
-                            info!(error = %e, "Fast model returned unparseable metadata, escalating to tier-2");
+                            info!(
+                                error_len = diagnostic_len(&e),
+                                detail = JOB_METADATA_DIAGNOSTIC_FAILURE_DETAIL,
+                                operation = "fast_metadata_parse",
+                                "Fast model returned unparseable metadata, escalating to tier-2"
+                            );
                             if let Some(job_id) = self
                                 .queue_tier_escalation(
                                     note_id,
@@ -5922,7 +5951,12 @@ Example output:
                 .complete_activity(act_id, None, Some(prov_metadata))
                 .await
             {
-                warn!(error = %e, "Failed to complete metadata extraction provenance activity");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_PROVENANCE_WRITE_FAILURE_DETAIL,
+                    diagnostic = JOB_METADATA_DIAGNOSTIC_FAILURE_DETAIL,
+                    "Failed to complete metadata extraction provenance activity"
+                );
             }
         }
 
@@ -6111,7 +6145,12 @@ impl JobHandler for DocumentTypeInferenceHandler {
                 .complete_activity(act_id, None, Some(prov_metadata))
                 .await
             {
-                warn!(error = %e, "Failed to complete document type inference provenance activity");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_PROVENANCE_WRITE_FAILURE_DETAIL,
+                    diagnostic = JOB_DOCUMENT_TYPE_DIAGNOSTIC_FAILURE_DETAIL,
+                    "Failed to complete document type inference provenance activity"
+                );
             }
         }
 
@@ -6217,7 +6256,12 @@ impl JobHandler for ReEmbedAllHandler {
             {
                 Ok(_) => queued += 1,
                 Err(e) => {
-                    debug!(error = %e, note_id = %note_id, "Failed to queue embedding job");
+                    debug!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_REEMBED_QUEUE_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "queue_embedding_job",
+                        "Failed to queue embedding job"
+                    );
                     failed += 1;
                 }
             }
@@ -6488,7 +6532,12 @@ impl JobHandler for RefreshEmbeddingSetHandler {
                 .await
             {
                 Ok(_) => queued += 1,
-                Err(e) => warn!(note_id = %note_id, error = %e, "Failed to queue embedding job"),
+                Err(e) => warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_REEMBED_QUEUE_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "queue_embedding_set_refresh_job",
+                    "Failed to queue embedding job"
+                ),
             }
         }
 
@@ -8261,6 +8310,10 @@ Quick note about the meeting discussion and action items."#;
             JOB_CONTEXT_UPDATE_DIAGNOSTIC_FAILURE_DETAIL,
             JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
             JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+            JOB_RELATED_CONCEPT_DIAGNOSTIC_FAILURE_DETAIL,
+            JOB_METADATA_DIAGNOSTIC_FAILURE_DETAIL,
+            JOB_DOCUMENT_TYPE_DIAGNOSTIC_FAILURE_DETAIL,
+            JOB_REEMBED_QUEUE_DIAGNOSTIC_FAILURE_DETAIL,
         ] {
             assert!(!detail.contains("token:secret"));
             assert!(!detail.contains("provider.internal"));
