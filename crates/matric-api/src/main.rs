@@ -4528,6 +4528,77 @@ struct UpdateWebhookBody {
     is_active: Option<bool>,
     secret: Option<String>,
 }
+
+#[derive(Serialize, utoipa::ToSchema)]
+struct WebhookDeliveryResponse {
+    id: Uuid,
+    webhook_id: Uuid,
+    event_type_len: usize,
+    payload_class: &'static str,
+    payload_len: usize,
+    payload_secret_candidate: bool,
+    status_code: Option<i32>,
+    response_body_len: Option<usize>,
+    delivered_at: DateTime<Utc>,
+    success: bool,
+}
+
+impl From<matric_core::WebhookDelivery> for WebhookDeliveryResponse {
+    fn from(delivery: matric_core::WebhookDelivery) -> Self {
+        Self {
+            id: delivery.id,
+            webhook_id: delivery.webhook_id,
+            event_type_len: telemetry_text_len(&delivery.event_type),
+            payload_class: webhook_delivery_json_class(&delivery.payload),
+            payload_len: delivery.payload.to_string().chars().count(),
+            payload_secret_candidate: webhook_delivery_json_has_secret_candidate(&delivery.payload),
+            status_code: delivery.status_code,
+            response_body_len: delivery
+                .response_body
+                .as_ref()
+                .map(|body| telemetry_text_len(body)),
+            delivered_at: delivery.delivered_at,
+            success: delivery.success,
+        }
+    }
+}
+
+fn webhook_delivery_json_class(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
+fn webhook_delivery_json_has_secret_candidate(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(value) => webhook_delivery_text_has_secret_candidate(value),
+        serde_json::Value::Array(values) => values
+            .iter()
+            .any(webhook_delivery_json_has_secret_candidate),
+        serde_json::Value::Object(map) => map.iter().any(|(key, value)| {
+            webhook_delivery_text_has_secret_candidate(key)
+                || webhook_delivery_json_has_secret_candidate(value)
+        }),
+        _ => false,
+    }
+}
+
+fn webhook_delivery_text_has_secret_candidate(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains("secret")
+        || lower.contains("token")
+        || lower.contains("api_key")
+        || lower.contains("apikey")
+        || lower.contains("password")
+        || lower.contains("bearer ")
+        || lower.contains("authorization")
+        || lower.contains("client_secret")
+}
 #[utoipa::path(post, path = "/api/v1/webhooks", tag = "Webhooks",
     request_body = matric_core::CreateWebhookRequest,
     responses((status = 201, description = "Created")))]
@@ -4677,7 +4748,8 @@ async fn list_webhook_deliveries(
         .and_then(|l| l.parse::<i64>().ok())
         .unwrap_or(matric_core::defaults::PAGE_LIMIT);
     let deliveries = state.db.webhooks.list_deliveries(id, limit).await?;
-    Ok(Json(deliveries))
+    let response: Vec<WebhookDeliveryResponse> = deliveries.into_iter().map(Into::into).collect();
+    Ok(Json(response))
 }
 
 #[utoipa::path(post, path = "/api/v1/webhooks/{id}/test", tag = "Webhooks",
@@ -31687,6 +31759,84 @@ mod tests {
         assert_eq!(resp.status(), 200);
         let deliveries: Vec<serde_json::Value> = resp.json().await.unwrap();
         assert!(deliveries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_deliveries_redacts_payload_and_response_body() {
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+        let client = reqwest::Client::new();
+
+        let create_resp = client
+            .post(format!("{}/api/v1/webhooks", base_url))
+            .json(&serde_json::json!({
+                "url": format!("https://delivery-redaction-{}.example.com", chrono::Utc::now().timestamp_millis()),
+                "events": [],
+                "max_retries": 3
+            }))
+            .send()
+            .await
+            .unwrap();
+        let id = create_resp.json::<serde_json::Value>().await.unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .parse::<Uuid>()
+            .unwrap();
+
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("Failed to connect to test DB");
+        db.webhooks
+            .record_delivery(
+                id,
+                "custom.event.secret",
+                &serde_json::json!({
+                    "token": "payload-secret-token",
+                    "callback": "https://provider.example/callback?api_key=payload-secret-token"
+                }),
+                Some(500),
+                Some("provider response body bearer-secret"),
+                false,
+            )
+            .await
+            .unwrap();
+
+        let resp = client
+            .get(format!(
+                "{}/api/v1/webhooks/{}/deliveries?limit=1",
+                base_url, id
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let deliveries: Vec<serde_json::Value> = resp.json().await.unwrap();
+        assert_eq!(deliveries.len(), 1);
+
+        let delivery = &deliveries[0];
+        assert_eq!(delivery["payload_class"], "object");
+        assert_eq!(delivery["payload_secret_candidate"], true);
+        assert_eq!(delivery["status_code"], 500);
+        assert!(delivery["event_type_len"].as_u64().unwrap() > 0);
+        assert!(delivery["payload_len"].as_u64().unwrap() > 0);
+        assert!(delivery["response_body_len"].as_u64().unwrap() > 0);
+
+        let serialized = serde_json::to_string(&deliveries).unwrap();
+        for forbidden in [
+            "custom.event.secret",
+            "payload-secret-token",
+            "provider response body bearer-secret",
+            "https://provider.example",
+            "api_key",
+            "callback",
+            "token",
+        ] {
+            assert!(
+                !serialized.contains(forbidden),
+                "delivery response leaked {forbidden}: {serialized}"
+            );
+        }
     }
 
     #[tokio::test]
