@@ -1481,7 +1481,7 @@ impl std::str::FromStr for ChunkingStrategy {
 /// Provides structured prompts, required sections, context requirements,
 /// and agent hints to guide AI agents in generating high-quality content
 /// for specific document types.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, Default, PartialEq, utoipa::ToSchema)]
 pub struct AgenticConfig {
     /// Generation prompt to guide AI document creation
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1517,11 +1517,48 @@ pub struct AgenticConfig {
     pub revision_chunking: Option<RevisionChunkingConfig>,
 }
 
+impl fmt::Debug for AgenticConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AgenticConfig")
+            .field(
+                "generation_prompt_len",
+                &self.generation_prompt.as_ref().map(String::len),
+            )
+            .field("required_sections_count", &self.required_sections.len())
+            .field(
+                "required_section_lens",
+                &self
+                    .required_sections
+                    .iter()
+                    .map(String::len)
+                    .collect::<Vec<_>>(),
+            )
+            .field("optional_sections_count", &self.optional_sections.len())
+            .field(
+                "optional_section_lens",
+                &self
+                    .optional_sections
+                    .iter()
+                    .map(String::len)
+                    .collect::<Vec<_>>(),
+            )
+            .field("template_id_set", &self.template_id.is_some())
+            .field(
+                "context_requirement_count",
+                &self.context_requirements.len(),
+            )
+            .field("validation_rule_count", &self.validation_rules.len())
+            .field("agent_hint_count", &self.agent_hints.len())
+            .field("revision_chunking_set", &self.revision_chunking.is_some())
+            .finish()
+    }
+}
+
 /// Per-document-type revision chunking configuration (#573).
 ///
 /// Controls how content is split into chunks for AI revision. Part of the
 /// layered default resolution: per-call → document type → system → auto-computed.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RevisionChunkingConfig {
     /// Maximum characters per revision chunk. Null means use system default.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1529,6 +1566,15 @@ pub struct RevisionChunkingConfig {
     /// Character overlap between adjacent chunks. Default: 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overlap: Option<usize>,
+}
+
+impl fmt::Debug for RevisionChunkingConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RevisionChunkingConfig")
+            .field("max_chars", &self.max_chars)
+            .field("overlap", &self.overlap)
+            .finish()
+    }
 }
 
 /// Extraction strategy for processing file attachments (Issue #436).
@@ -1835,7 +1881,7 @@ impl std::str::FromStr for ExtractionStrategy {
 }
 
 /// A document type configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DocumentType {
     pub id: Uuid,
     pub name: String,
@@ -1900,8 +1946,104 @@ pub struct DocumentType {
     pub agentic_config: AgenticConfig,
 }
 
+impl fmt::Debug for DocumentType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DocumentType")
+            .field("id_set", &true)
+            .field("name_len", &self.name.len())
+            .field("display_name_len", &self.display_name.len())
+            .field("category", &self.category)
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("file_extensions_count", &self.file_extensions.len())
+            .field(
+                "file_extension_lens",
+                &self
+                    .file_extensions
+                    .iter()
+                    .map(String::len)
+                    .collect::<Vec<_>>(),
+            )
+            .field("mime_types_count", &self.mime_types.len())
+            .field(
+                "mime_type_lens",
+                &self.mime_types.iter().map(String::len).collect::<Vec<_>>(),
+            )
+            .field("magic_patterns_count", &self.magic_patterns.len())
+            .field(
+                "magic_pattern_lens",
+                &self
+                    .magic_patterns
+                    .iter()
+                    .map(String::len)
+                    .collect::<Vec<_>>(),
+            )
+            .field("filename_patterns_count", &self.filename_patterns.len())
+            .field(
+                "filename_pattern_lens",
+                &self
+                    .filename_patterns
+                    .iter()
+                    .map(String::len)
+                    .collect::<Vec<_>>(),
+            )
+            .field("chunking_strategy", &self.chunking_strategy)
+            .field("chunk_size_default", &self.chunk_size_default)
+            .field("chunk_overlap_default", &self.chunk_overlap_default)
+            .field("preserve_boundaries", &self.preserve_boundaries)
+            .field(
+                "chunking_config_class",
+                &json_value_class(&self.chunking_config),
+            )
+            .field(
+                "chunking_config_len",
+                &json_serialized_len(&self.chunking_config),
+            )
+            .field(
+                "recommended_config_id_set",
+                &self.recommended_config_id.is_some(),
+            )
+            .field("content_types_count", &self.content_types.len())
+            .field(
+                "content_type_lens",
+                &self
+                    .content_types
+                    .iter()
+                    .map(String::len)
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "tree_sitter_language_len",
+                &self.tree_sitter_language.as_ref().map(String::len),
+            )
+            .field("extraction_strategy", &self.extraction_strategy)
+            .field(
+                "extraction_config_class",
+                &json_value_class(&self.extraction_config),
+            )
+            .field(
+                "extraction_config_len",
+                &json_serialized_len(&self.extraction_config),
+            )
+            .field("requires_attachment", &self.requires_attachment)
+            .field(
+                "attachment_generates_content",
+                &self.attachment_generates_content,
+            )
+            .field("is_system", &self.is_system)
+            .field("is_active", &self.is_active)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .field("created_by_len", &self.created_by.as_ref().map(String::len))
+            .field("agentic_config", &self.agentic_config)
+            .finish()
+    }
+}
+
 /// Summary view of document types for listing.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DocumentTypeSummary {
     pub id: Uuid,
     pub name: String,
@@ -1922,8 +2064,32 @@ pub struct DocumentTypeSummary {
     pub is_active: bool,
 }
 
+impl fmt::Debug for DocumentTypeSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DocumentTypeSummary")
+            .field("id_set", &true)
+            .field("name_len", &self.name.len())
+            .field("display_name_len", &self.display_name.len())
+            .field("category", &self.category)
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("chunking_strategy", &self.chunking_strategy)
+            .field(
+                "tree_sitter_language_len",
+                &self.tree_sitter_language.as_ref().map(String::len),
+            )
+            .field("extraction_strategy", &self.extraction_strategy)
+            .field("requires_attachment", &self.requires_attachment)
+            .field("is_system", &self.is_system)
+            .field("is_active", &self.is_active)
+            .finish()
+    }
+}
+
 /// Request to create a document type.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateDocumentTypeRequest {
     pub name: String,
     #[serde(default)]
@@ -1968,6 +2134,63 @@ pub struct CreateDocumentTypeRequest {
     pub attachment_generates_content: bool,
 }
 
+impl fmt::Debug for CreateDocumentTypeRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateDocumentTypeRequest")
+            .field("name_len", &self.name.len())
+            .field(
+                "display_name_len",
+                &self.display_name.as_ref().map(String::len),
+            )
+            .field("category", &self.category)
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("file_extensions_count", &self.file_extensions.len())
+            .field("mime_types_count", &self.mime_types.len())
+            .field("magic_patterns_count", &self.magic_patterns.len())
+            .field("filename_patterns_count", &self.filename_patterns.len())
+            .field("chunking_strategy", &self.chunking_strategy)
+            .field("chunk_size_default", &self.chunk_size_default)
+            .field("chunk_overlap_default", &self.chunk_overlap_default)
+            .field("preserve_boundaries", &self.preserve_boundaries)
+            .field(
+                "chunking_config_class",
+                &self.chunking_config.as_ref().map(json_value_class),
+            )
+            .field(
+                "chunking_config_len",
+                &self.chunking_config.as_ref().map(json_serialized_len),
+            )
+            .field(
+                "recommended_config_id_set",
+                &self.recommended_config_id.is_some(),
+            )
+            .field("content_types_count", &self.content_types.len())
+            .field(
+                "tree_sitter_language_len",
+                &self.tree_sitter_language.as_ref().map(String::len),
+            )
+            .field("agentic_config_set", &self.agentic_config.is_some())
+            .field("extraction_strategy", &self.extraction_strategy)
+            .field(
+                "extraction_config_class",
+                &self.extraction_config.as_ref().map(json_value_class),
+            )
+            .field(
+                "extraction_config_len",
+                &self.extraction_config.as_ref().map(json_serialized_len),
+            )
+            .field("requires_attachment", &self.requires_attachment)
+            .field(
+                "attachment_generates_content",
+                &self.attachment_generates_content,
+            )
+            .finish()
+    }
+}
+
 fn default_chunk_size() -> i32 {
     crate::defaults::CHUNK_SIZE_I32
 }
@@ -1977,7 +2200,7 @@ fn default_chunk_overlap() -> i32 {
 }
 
 /// Request to update a document type.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateDocumentTypeRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
@@ -2022,12 +2245,90 @@ pub struct UpdateDocumentTypeRequest {
     pub attachment_generates_content: Option<bool>,
 }
 
+impl fmt::Debug for UpdateDocumentTypeRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateDocumentTypeRequest")
+            .field(
+                "display_name_len",
+                &self.display_name.as_ref().map(String::len),
+            )
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field(
+                "file_extensions_count",
+                &self.file_extensions.as_ref().map(Vec::len),
+            )
+            .field("mime_types_count", &self.mime_types.as_ref().map(Vec::len))
+            .field(
+                "magic_patterns_count",
+                &self.magic_patterns.as_ref().map(Vec::len),
+            )
+            .field(
+                "filename_patterns_count",
+                &self.filename_patterns.as_ref().map(Vec::len),
+            )
+            .field("chunking_strategy", &self.chunking_strategy)
+            .field("chunk_size_default", &self.chunk_size_default)
+            .field("chunk_overlap_default", &self.chunk_overlap_default)
+            .field("preserve_boundaries", &self.preserve_boundaries)
+            .field(
+                "chunking_config_class",
+                &self.chunking_config.as_ref().map(json_value_class),
+            )
+            .field(
+                "chunking_config_len",
+                &self.chunking_config.as_ref().map(json_serialized_len),
+            )
+            .field(
+                "recommended_config_id_set",
+                &self.recommended_config_id.is_some(),
+            )
+            .field(
+                "content_types_count",
+                &self.content_types.as_ref().map(Vec::len),
+            )
+            .field(
+                "tree_sitter_language_len",
+                &self.tree_sitter_language.as_ref().map(String::len),
+            )
+            .field("is_active", &self.is_active)
+            .field("agentic_config_set", &self.agentic_config.is_some())
+            .field("extraction_strategy", &self.extraction_strategy)
+            .field(
+                "extraction_config_class",
+                &self.extraction_config.as_ref().map(json_value_class),
+            )
+            .field(
+                "extraction_config_len",
+                &self.extraction_config.as_ref().map(json_serialized_len),
+            )
+            .field("requires_attachment", &self.requires_attachment)
+            .field(
+                "attachment_generates_content",
+                &self.attachment_generates_content,
+            )
+            .finish()
+    }
+}
+
 /// Result from document type detection.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DetectDocumentTypeResult {
     pub document_type: DocumentTypeSummary,
     pub confidence: f32,
     pub detection_method: String,
+}
+
+impl fmt::Debug for DetectDocumentTypeResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DetectDocumentTypeResult")
+            .field("document_type", &self.document_type)
+            .field("confidence", &self.confidence)
+            .field("detection_method_len", &self.detection_method.len())
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -5475,6 +5776,224 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "Embedding-set Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn document_type_debug_redacts_prompts_patterns_configs_and_detection() {
+        let now = Utc::now();
+        let mut context_requirements = HashMap::new();
+        context_requirements.insert("needs_private_context".to_string(), true);
+        let mut validation_rules = HashMap::new();
+        validation_rules.insert(
+            "private_validation_rule".to_string(),
+            json!({
+                "regex": "https://validator.example.test/?token=secret",
+                "path": "/tmp/customer/validation.json"
+            }),
+        );
+        let mut agent_hints = HashMap::new();
+        agent_hints.insert(
+            "private_agent_hint".to_string(),
+            json!({"hint": "prefer private@example.test and sk-live-secret"}),
+        );
+        let agentic_config = AgenticConfig {
+            generation_prompt: Some(
+                "Generate a private report for private@example.test with sk-live-secret"
+                    .to_string(),
+            ),
+            required_sections: vec!["Required secret section 555-1212".to_string()],
+            optional_sections: vec!["Optional private section".to_string()],
+            template_id: Some(Uuid::new_v4()),
+            context_requirements,
+            validation_rules,
+            agent_hints,
+            revision_chunking: Some(RevisionChunkingConfig {
+                max_chars: Some(2048),
+                overlap: Some(64),
+            }),
+        };
+        let document_type = DocumentType {
+            id: Uuid::new_v4(),
+            name: "private-document-type".to_string(),
+            display_name: "Private Document Type".to_string(),
+            category: DocumentCategory::Custom,
+            description: Some("Description includes /tmp/customer/type.md".to_string()),
+            file_extensions: vec!["secret-ext".to_string()],
+            mime_types: vec!["application/private-type".to_string()],
+            magic_patterns: vec!["SECRET_MAGIC".to_string()],
+            filename_patterns: vec!["private-*.sk-live-secret".to_string()],
+            chunking_strategy: ChunkingStrategy::Hybrid,
+            chunk_size_default: 1024,
+            chunk_overlap_default: 128,
+            preserve_boundaries: true,
+            chunking_config: json!({
+                "delimiter": "private@example.test",
+                "path": "/tmp/customer/chunking.json"
+            }),
+            recommended_config_id: Some(Uuid::new_v4()),
+            content_types: vec!["private-content-type".to_string()],
+            tree_sitter_language: Some("private-language".to_string()),
+            extraction_strategy: ExtractionStrategy::Vision,
+            extraction_config: json!({
+                "model": "private-vision-model",
+                "callback_url": "https://extract.example.test/?token=secret"
+            }),
+            requires_attachment: true,
+            attachment_generates_content: true,
+            is_system: false,
+            is_active: true,
+            created_at: now,
+            updated_at: now,
+            created_by: Some("creator-private@example.test".to_string()),
+            agentic_config: agentic_config.clone(),
+        };
+        let summary = DocumentTypeSummary {
+            id: Uuid::new_v4(),
+            name: "summary-private-type".to_string(),
+            display_name: "Summary Private Type".to_string(),
+            category: DocumentCategory::Media,
+            description: Some(
+                "Summary description https://summary.example.test/?token=secret".to_string(),
+            ),
+            chunking_strategy: ChunkingStrategy::Semantic,
+            tree_sitter_language: Some("summary-private-language".to_string()),
+            extraction_strategy: ExtractionStrategy::PdfText,
+            requires_attachment: false,
+            is_system: false,
+            is_active: true,
+        };
+        let create = CreateDocumentTypeRequest {
+            name: "create-private-type".to_string(),
+            display_name: Some("Create Private Type".to_string()),
+            category: DocumentCategory::Research,
+            description: Some("Create description private@example.test".to_string()),
+            file_extensions: vec!["create-secret-ext".to_string()],
+            mime_types: vec!["application/create-private".to_string()],
+            magic_patterns: vec!["CREATE_SECRET_MAGIC".to_string()],
+            filename_patterns: vec!["create-private-*".to_string()],
+            chunking_strategy: ChunkingStrategy::Fixed,
+            chunk_size_default: 512,
+            chunk_overlap_default: 32,
+            preserve_boundaries: true,
+            chunking_config: Some(json!({"token": "create-secret-token"})),
+            recommended_config_id: Some(Uuid::new_v4()),
+            content_types: vec!["create-private-content".to_string()],
+            tree_sitter_language: Some("create-private-language".to_string()),
+            agentic_config: Some(agentic_config.clone()),
+            extraction_strategy: ExtractionStrategy::OfficeConvert,
+            extraction_config: Some(json!({
+                "temp_path": "/tmp/customer/create-extract",
+                "api_key": "sk-live-secret"
+            })),
+            requires_attachment: true,
+            attachment_generates_content: false,
+        };
+        let update = UpdateDocumentTypeRequest {
+            display_name: Some("Update Private Type".to_string()),
+            description: Some(
+                "Update description https://update.example.test/?token=secret".to_string(),
+            ),
+            file_extensions: Some(vec!["update-secret-ext".to_string()]),
+            mime_types: Some(vec!["application/update-private".to_string()]),
+            magic_patterns: Some(vec!["UPDATE_SECRET_MAGIC".to_string()]),
+            filename_patterns: Some(vec!["update-private-*".to_string()]),
+            chunking_strategy: Some(ChunkingStrategy::PerSection),
+            chunk_size_default: Some(768),
+            chunk_overlap_default: Some(48),
+            preserve_boundaries: Some(false),
+            chunking_config: Some(json!({"private": "update-private@example.test"})),
+            recommended_config_id: Some(Uuid::new_v4()),
+            content_types: Some(vec!["update-private-content".to_string()]),
+            tree_sitter_language: Some("update-private-language".to_string()),
+            is_active: Some(false),
+            agentic_config: Some(agentic_config),
+            extraction_strategy: Some(ExtractionStrategy::AudioTranscribe),
+            extraction_config: Some(json!({
+                "audio_model": "private-audio-model",
+                "recording_url": "https://recordings.example.test/?token=secret"
+            })),
+            requires_attachment: Some(true),
+            attachment_generates_content: Some(true),
+        };
+        let detection = DetectDocumentTypeResult {
+            document_type: summary.clone(),
+            confidence: 0.88,
+            detection_method: "filename private-document-sk-live-secret.pdf".to_string(),
+        };
+
+        let debug = format!("{document_type:?}{summary:?}{create:?}{update:?}{detection:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "private-document-type",
+                "Private Document Type",
+                "/tmp/customer/type.md",
+                "secret-ext",
+                "application/private-type",
+                "SECRET_MAGIC",
+                "private-*.sk-live-secret",
+                "private@example.test",
+                "/tmp/customer/chunking.json",
+                "private-content-type",
+                "private-language",
+                "private-vision-model",
+                "extract.example.test",
+                "creator-private@example.test",
+                "Generate a private report",
+                "Required secret section",
+                "555-1212",
+                "Optional private section",
+                "private_validation_rule",
+                "validator.example.test",
+                "/tmp/customer/validation.json",
+                "private_agent_hint",
+                "summary-private-type",
+                "Summary Private Type",
+                "summary.example.test",
+                "summary-private-language",
+                "create-private-type",
+                "Create Private Type",
+                "create-secret-ext",
+                "application/create-private",
+                "CREATE_SECRET_MAGIC",
+                "create-secret-token",
+                "/tmp/customer/create-extract",
+                "Update Private Type",
+                "update.example.test",
+                "update-secret-ext",
+                "application/update-private",
+                "UPDATE_SECRET_MAGIC",
+                "update-private-content",
+                "private-audio-model",
+                "recordings.example.test",
+                "filename private-document",
+            ],
+        );
+
+        for expected in [
+            "name_len",
+            "display_name_len",
+            "description_len",
+            "file_extensions_count",
+            "mime_types_count",
+            "magic_patterns_count",
+            "filename_patterns_count",
+            "chunking_config_class",
+            "chunking_config_len",
+            "extraction_config_class",
+            "extraction_config_len",
+            "generation_prompt_len",
+            "required_sections_count",
+            "validation_rule_count",
+            "agent_hint_count",
+            "detection_method_len",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Document-type Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
