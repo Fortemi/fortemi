@@ -10,10 +10,11 @@ use chrono::{DateTime, Utc};
 use matric_core::{Error, NoteFull, NoteRepository, Result};
 use matric_db::Database;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use uuid::Uuid;
 
 /// Summary of a single chunk in a document chain.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChunkSummary {
     pub id: Uuid,
     pub sequence: u32,
@@ -21,8 +22,19 @@ pub struct ChunkSummary {
     pub byte_range: (usize, usize),
 }
 
+impl fmt::Debug for ChunkSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ChunkSummary")
+            .field("id", &self.id)
+            .field("sequence", &self.sequence)
+            .field("title_len", &self.title.len())
+            .field("byte_range", &self.byte_range)
+            .finish()
+    }
+}
+
 /// Full document response with reconstructed content.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct FullDocumentResponse {
     pub id: Uuid,
     pub title: String,
@@ -33,6 +45,22 @@ pub struct FullDocumentResponse {
     pub tags: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl fmt::Debug for FullDocumentResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FullDocumentResponse")
+            .field("id", &self.id)
+            .field("title_len", &self.title.len())
+            .field("content_len", &self.content.len())
+            .field("chunks_count", &self.chunks.as_ref().map(Vec::len))
+            .field("total_chunks", &self.total_chunks)
+            .field("is_chunked", &self.is_chunked)
+            .field("tags_count", &self.tags.len())
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
 }
 
 /// Service for document reconstruction operations.
@@ -387,6 +415,64 @@ mod tests {
 
         let overlap = detect_overlap(accumulated, next_chunk);
         assert_eq!(overlap, 0);
+    }
+
+    #[test]
+    fn chunk_summary_debug_redacts_title() {
+        let chunk = ChunkSummary {
+            id: Uuid::nil(),
+            sequence: 3,
+            title: "Executive payroll sk-live-secret-token".to_string(),
+            byte_range: (128, 512),
+        };
+
+        let rendered = format!("{chunk:?}");
+
+        assert!(rendered.contains("ChunkSummary"));
+        assert!(rendered.contains("title_len"));
+        assert!(rendered.contains("sequence"));
+        assert!(!rendered.contains("Executive payroll"));
+        assert!(!rendered.contains("sk-live-secret-token"));
+    }
+
+    #[test]
+    fn full_document_response_debug_redacts_content_title_tags_and_chunk_titles() {
+        let now = Utc::now();
+        let response = FullDocumentResponse {
+            id: Uuid::nil(),
+            title: "Incident notes for tenant secret-project".to_string(),
+            content: "Full reconstructed content with bearer token and copied private notes"
+                .to_string(),
+            chunks: Some(vec![ChunkSummary {
+                id: Uuid::nil(),
+                sequence: 1,
+                title: "Chunk title with customer@example.com".to_string(),
+                byte_range: (0, 64),
+            }]),
+            total_chunks: Some(1),
+            is_chunked: true,
+            tags: vec![
+                "customer-private".to_string(),
+                "api-key-mm_key_secret".to_string(),
+            ],
+            created_at: now,
+            updated_at: now,
+        };
+
+        let rendered = format!("{response:?}");
+
+        assert!(rendered.contains("FullDocumentResponse"));
+        assert!(rendered.contains("content_len"));
+        assert!(rendered.contains("title_len"));
+        assert!(rendered.contains("tags_count"));
+        assert!(rendered.contains("chunks_count"));
+        assert!(!rendered.contains("Incident notes"));
+        assert!(!rendered.contains("secret-project"));
+        assert!(!rendered.contains("Full reconstructed content"));
+        assert!(!rendered.contains("bearer token"));
+        assert!(!rendered.contains("customer@example.com"));
+        assert!(!rendered.contains("customer-private"));
+        assert!(!rendered.contains("mm_key_secret"));
     }
 
     // Integration tests would require database connection
