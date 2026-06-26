@@ -489,6 +489,14 @@ fn note_not_found() -> ApiError {
     ApiError::NotFound("Note not found.".to_string())
 }
 
+fn note_version_not_found() -> ApiError {
+    ApiError::NotFound("Note version not found.".to_string())
+}
+
+fn note_revision_not_found() -> ApiError {
+    ApiError::NotFound("Note revision not found.".to_string())
+}
+
 fn embedding_set_not_found() -> ApiError {
     ApiError::NotFound("Embedding set not found.".to_string())
 }
@@ -14116,7 +14124,7 @@ async fn get_note_version(
                     Box::pin(async move { repo.get_original_version_tx(tx, id, version).await })
                 })
                 .await?
-                .ok_or_else(|| ApiError::NotFound(format!("Version {} not found", version)))?;
+                .ok_or_else(note_version_not_found)?;
 
             Ok(Json(serde_json::json!({
                 "track": "original",
@@ -14135,7 +14143,7 @@ async fn get_note_version(
                     Box::pin(async move { repo.get_revision_version_tx(tx, id, version).await })
                 })
                 .await?
-                .ok_or_else(|| ApiError::NotFound(format!("Revision {} not found", version)))?;
+                .ok_or_else(note_revision_not_found)?;
 
             Ok(Json(serde_json::json!({
                 "track": "revision",
@@ -14222,7 +14230,7 @@ async fn delete_note_version(
             "deleted_version": version
         })))
     } else {
-        Err(ApiError::NotFound(format!("Version {} not found", version)))
+        Err(note_version_not_found())
     }
 }
 
@@ -24329,6 +24337,35 @@ mod tests {
         assert!(!body.contains(&submitted_note_id.to_string()));
         assert!(!body.contains("018ff7d2"));
         assert!(!body.contains("abcdef123456"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn note_version_not_found_does_not_echo_version_number() {
+        let submitted_version = 734_281;
+        let version_err = note_version_not_found();
+        let (status, _headers, problem) = read_problem_response(version_err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Note version not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(&submitted_version.to_string()));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+
+        let submitted_revision = 918_422;
+        let revision_err = note_revision_not_found();
+        let (status, _headers, problem) = read_problem_response(revision_err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Note revision not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(&submitted_revision.to_string()));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
