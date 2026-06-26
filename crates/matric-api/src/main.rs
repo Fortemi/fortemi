@@ -4042,7 +4042,7 @@ fn envelope_matches_filters(
 ///
 /// Browser `EventSource` cannot set custom headers, so token and memory
 /// selection are accepted as query parameters (Issue #452).
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct SseQuery {
     /// Bearer token (`mm_at_*` or `mm_key_*`) for auth when headers are unavailable.
     token: Option<String>,
@@ -4055,6 +4055,18 @@ struct SseQuery {
     /// Filter by entity ID (Issue #457).
     /// Only events for this specific entity are delivered, e.g., `?entity_id=<uuid>`.
     entity_id: Option<String>,
+}
+
+impl fmt::Debug for SseQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SseQuery")
+            .field("token_set", &self.token.is_some())
+            .field("token_len", &self.token.as_ref().map(String::len))
+            .field("memory_len", &self.memory.as_ref().map(String::len))
+            .field("types_len", &self.types.as_ref().map(String::len))
+            .field("entity_id_len", &self.entity_id.as_ref().map(String::len))
+            .finish()
+    }
 }
 
 /// SSE event stream handler (Issues #43, #452, #456, #457).
@@ -26873,6 +26885,40 @@ mod tests {
             &collection_id.to_string(),
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn sse_query_debug_redacts_tokens_memory_filters_and_entity_ids() {
+        let query = SseQuery {
+            token: Some("mm_at_customer@example.com_sk-live-sse-token".to_string()),
+            memory: Some("tenant-alpha/private-memory".to_string()),
+            types: Some("note.created,postgres://user:pass@db.internal/app".to_string()),
+            entity_id: Some("entity-/srv/private/mm_key_sse".to_string()),
+        };
+
+        let rendered = format!("{query:?}");
+
+        assert!(rendered.contains("SseQuery"));
+        assert!(rendered.contains("token_set"));
+        assert!(rendered.contains("token_len"));
+        assert!(rendered.contains("memory_len"));
+        assert!(rendered.contains("types_len"));
+        assert!(rendered.contains("entity_id_len"));
+
+        for raw in [
+            "mm_at_",
+            "customer@example.com",
+            "sk-live-sse-token",
+            "tenant-alpha",
+            "private-memory",
+            "note.created",
+            "postgres://user:pass",
+            "db.internal",
+            "entity-/srv/private",
+            "mm_key_sse",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 
