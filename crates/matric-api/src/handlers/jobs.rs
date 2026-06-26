@@ -892,7 +892,9 @@ impl JobHandler for AiRevisionHandler {
 
             if has_media {
                 info!(
-                    note_id = %note_id,
+                    note_id_present = true,
+                    detail = JOB_AI_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "defer_ai_revision_for_media",
                     "Deferring AI revision — note has media attachments; \
                      extraction pipeline will re-queue after content assembly"
                 );
@@ -1002,11 +1004,13 @@ impl JobHandler for AiRevisionHandler {
 
         if chunk_max_override.is_some() || doc_type_chunking.is_some() {
             info!(
-                note_id = %note_id,
+                note_id_present = true,
                 chunk_max_override = ?chunk_max_override,
                 doc_type_max = ?doc_type_chunking.and_then(|c| c.max_chars),
                 chunk_max,
                 chunk_overlap,
+                detail = JOB_AI_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "resolve_ai_revision_chunking_config",
                 "Chunking config resolved (per-call > doc-type > env > auto)"
             );
         }
@@ -1048,12 +1052,14 @@ impl JobHandler for AiRevisionHandler {
 
         if is_chunked {
             info!(
-                note_id = %note_id,
+                note_id_present = true,
                 total_chunks,
                 chunk_max,
                 content_len = original_content.len(),
                 is_video_timeline,
                 total_revision_secs,
+                detail = JOB_AI_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "split_ai_revision_chunks",
                 "Splitting oversized content for chunked revision"
             );
         }
@@ -1074,11 +1080,13 @@ impl JobHandler for AiRevisionHandler {
             // timeout when content is unexpectedly dense.
             if is_chunked && std::time::Instant::now() >= revision_deadline {
                 warn!(
-                    note_id = %note_id,
+                    note_id_present = true,
                     chunk = chunk_idx + 1,
                     total = total_chunks,
                     total_revision_secs,
                     completed = revised_parts.len(),
+                    detail = JOB_AI_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "ai_revision_budget_exhausted",
                     "Total revision budget exhausted, stopping early"
                 );
                 break;
@@ -1287,7 +1295,13 @@ impl JobHandler for AiRevisionHandler {
             {
                 Ok(Some(job_id)) => {
                     ctx.emit_job_queued(job_id, JobType::AiRevisionContextual, Some(note_id));
-                    info!(note_id = %note_id, job_id = %job_id, "Queued AiRevisionContextual (phase 2)");
+                    info!(
+                        note_id_present = true,
+                        job_id_present = true,
+                        detail = JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
+                        operation = "queue_ai_revision_contextual_phase_2",
+                        "Queued AiRevisionContextual (phase 2)"
+                    );
                 }
                 Ok(None) => {} // Deduplicated
                 Err(e) => {
@@ -1328,7 +1342,13 @@ impl JobHandler for AiRevisionHandler {
             {
                 Ok(Some(job_id)) => {
                     ctx.emit_job_queued(job_id, JobType::ConceptTagging, Some(note_id));
-                    info!(note_id = %note_id, job_id = %job_id, "Queued ConceptTagging after revision");
+                    info!(
+                        note_id_present = true,
+                        job_id_present = true,
+                        detail = JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
+                        operation = "queue_concept_tagging_after_revision",
+                        "Queued ConceptTagging after revision"
+                    );
                 }
                 Ok(None) => {} // Deduplicated
                 Err(e) => {
@@ -1343,10 +1363,12 @@ impl JobHandler for AiRevisionHandler {
 
         ctx.report_progress(100, Some("Revision complete"));
         info!(
-            note_id = %note_id,
+            note_id_present = true,
             mode = ?revision_mode,
             effective_mode = ?effective_mode,
             duration_ms = start.elapsed().as_millis() as u64,
+            detail = JOB_AI_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "complete_ai_revision",
             "AI revision completed"
         );
 
@@ -1422,7 +1444,13 @@ impl AiRevisionContextualHandler {
         {
             Ok(Some(job_id)) => {
                 ctx.emit_job_queued(job_id, JobType::ConceptTagging, Some(note_id));
-                info!(note_id = %note_id, job_id = %job_id, "Queued ConceptTagging after contextual revision");
+                info!(
+                    note_id_present = true,
+                    job_id_present = true,
+                    detail = JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
+                    operation = "queue_concept_tagging_after_contextual_revision",
+                    "Queued ConceptTagging after contextual revision"
+                );
             }
             Ok(None) => {} // Deduplicated
             Err(e) => {
