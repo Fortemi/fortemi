@@ -17643,11 +17643,47 @@ fn validate_redirect_uri(redirect_uri: &str, registered_uris: &[String]) -> bool
 // API KEY HANDLERS
 // =============================================================================
 
+#[derive(Serialize)]
+struct ApiKeyResponse {
+    id: Uuid,
+    key_prefix_len: usize,
+    name_len: usize,
+    description_len: Option<usize>,
+    scope_len: usize,
+    rate_limit_per_minute: Option<i32>,
+    rate_limit_per_hour: Option<i32>,
+    last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    use_count: i64,
+    is_active: bool,
+    expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl From<matric_core::ApiKey> for ApiKeyResponse {
+    fn from(api_key: matric_core::ApiKey) -> Self {
+        Self {
+            id: api_key.id,
+            key_prefix_len: telemetry_text_len(&api_key.key_prefix),
+            name_len: telemetry_text_len(&api_key.name),
+            description_len: api_key.description.as_deref().map(telemetry_text_len),
+            scope_len: telemetry_text_len(&api_key.scope),
+            rate_limit_per_minute: api_key.rate_limit_per_minute,
+            rate_limit_per_hour: api_key.rate_limit_per_hour,
+            last_used_at: api_key.last_used_at,
+            use_count: api_key.use_count,
+            is_active: api_key.is_active,
+            expires_at: api_key.expires_at,
+            created_at: api_key.created_at,
+        }
+    }
+}
+
 /// List all API keys (requires admin scope).
 #[utoipa::path(get, path = "/api/v1/api-keys", tag = "OAuth",
     responses((status = 200, description = "Success")))]
 async fn list_api_keys(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let keys = state.db.oauth.list_api_keys().await?;
+    let keys: Vec<ApiKeyResponse> = keys.into_iter().map(ApiKeyResponse::from).collect();
     Ok(Json(serde_json::json!({ "api_keys": keys })))
 }
 
@@ -30997,6 +31033,8 @@ mod tests {
                 get(list_webhook_deliveries),
             )
             .route("/api/v1/webhooks/{id}/test", post(test_webhook))
+            .route("/api/v1/api-keys", get(list_api_keys).post(create_api_key))
+            .route("/api/v1/api-keys/{id}", delete(revoke_api_key))
             .route(
                 "/api/v1/webhooks/incoming",
                 post(create_incoming_webhook_receiver).get(list_incoming_webhook_receivers),
@@ -31030,6 +31068,90 @@ mod tests {
     }
 
     // -- WebSocket Tests --
+
+    #[tokio::test]
+    async fn test_api_key_list_is_metadata_only_after_one_time_create() {
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+        let client = reqwest::Client::new();
+
+        let create_resp = client
+            .post(format!("{}/api/v1/api-keys", base_url))
+            .json(&serde_json::json!({
+                "name": "operator-key-secret-label",
+                "description": "description with api_key=metadata-secret",
+                "scope": "admin secret-scope-marker"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(create_resp.status(), 201);
+        let created: serde_json::Value = create_resp.json().await.unwrap();
+        let key_id = created["id"].as_str().unwrap().to_string();
+        let full_key = created["api_key"].as_str().unwrap().to_string();
+        let key_prefix = created["key_prefix"].as_str().unwrap().to_string();
+
+        assert!(full_key.starts_with("mm_key_"));
+        assert!(!key_prefix.is_empty());
+
+        let list_resp = client
+            .get(format!("{}/api/v1/api-keys", base_url))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(list_resp.status(), 200);
+        let listed: serde_json::Value = list_resp.json().await.unwrap();
+        let keys = listed["api_keys"].as_array().unwrap();
+        let listed_key = keys
+            .iter()
+            .find(|key| key["id"].as_str() == Some(key_id.as_str()))
+            .expect("created API key should be listed");
+
+        assert_eq!(
+            listed_key["key_prefix_len"].as_u64().unwrap(),
+            key_prefix.chars().count() as u64
+        );
+        assert_eq!(
+            listed_key["name_len"].as_u64().unwrap(),
+            "operator-key-secret-label".chars().count() as u64
+        );
+        assert_eq!(
+            listed_key["description_len"].as_u64().unwrap(),
+            "description with api_key=metadata-secret".chars().count() as u64
+        );
+        assert_eq!(
+            listed_key["scope_len"].as_u64().unwrap(),
+            "admin secret-scope-marker".chars().count() as u64
+        );
+
+        let serialized = serde_json::to_string(&listed).unwrap();
+        for forbidden in [
+            full_key.as_str(),
+            key_prefix.as_str(),
+            "mm_key_",
+            "operator-key-secret-label",
+            "metadata-secret",
+            "secret-scope-marker",
+            "\"api_key\"",
+            "\"key_prefix\"",
+            "\"name\"",
+            "\"description\"",
+            "\"scope\"",
+            "key_hash",
+            "Bearer",
+        ] {
+            assert!(
+                !serialized.contains(forbidden),
+                "API key list response leaked {forbidden}: {serialized}"
+            );
+        }
+
+        let delete_resp = client
+            .delete(format!("{}/api/v1/api-keys/{}", base_url, key_id))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(delete_resp.status(), 204);
+    }
 
     #[tokio::test]
     async fn test_ws_upgrade_succeeds() {
