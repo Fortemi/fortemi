@@ -69,6 +69,10 @@ fn worker_error_reason_code(error: &str) -> &'static str {
     }
 }
 
+fn worker_failure_telemetry(error: &str) -> (usize, &'static str) {
+    (error.len(), worker_error_reason_code(error))
+}
+
 impl WorkerConfig {
     /// Create config from environment variables (with defaults).
     ///
@@ -762,10 +766,12 @@ impl JobWorkerRef {
                 if let Err(e) = self.db.jobs.fail(job_id, &error).await {
                     error!(error = ?e, ?job_id, "Failed to mark job as failed");
                 } else {
+                    let (error_len, error_reason) = worker_failure_telemetry(&error);
                     warn!(
                         ?job_id,
                         ?job_type,
-                        %error,
+                        error_len,
+                        error_reason,
                         is_retry,
                         duration_ms = start.elapsed().as_millis() as u64,
                         "Job failed"
@@ -888,6 +894,29 @@ mod tests {
             worker_error_reason_code("opaque backend text with token mm_key_secret"),
             "operation_failed"
         );
+    }
+
+    #[test]
+    fn worker_failure_telemetry_reports_metadata_without_raw_error() {
+        let raw_error =
+            "postgres://user:pass@db.internal/app failed for /srv/private/mm_key_worker";
+
+        let (error_len, error_reason) = worker_failure_telemetry(raw_error);
+        let rendered = format!("error_len={error_len}; error_reason={error_reason}");
+
+        assert_eq!(error_len, raw_error.len());
+        assert_eq!(error_reason, "database_error");
+        assert!(rendered.contains("error_len="));
+        assert!(rendered.contains("error_reason=database_error"));
+
+        for raw in [
+            "postgres://user:pass",
+            "db.internal",
+            "/srv/private",
+            "mm_key_worker",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
     }
 
     // ========== NEW COMPREHENSIVE TESTS ==========
