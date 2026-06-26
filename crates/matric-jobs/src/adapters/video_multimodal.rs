@@ -1841,7 +1841,10 @@ pub async fn extract_thumbnail(video_path: &str, work_dir: &TempDir) -> Option<P
             // Verify the thumbnail is not empty / corrupt
             if let Ok(meta) = fs::metadata(&output_path) {
                 if meta.len() > 100 {
-                    debug!(video_path, "Thumbnail extracted via scene+thumbnail filter");
+                    debug!(
+                        video_path_len = video_path_len(video_path),
+                        "Thumbnail extracted via scene+thumbnail filter"
+                    );
                     return Some(output_path);
                 }
             }
@@ -1895,7 +1898,10 @@ pub async fn extract_thumbnail(video_path: &str, work_dir: &TempDir) -> Option<P
         _ => {}
     }
 
-    warn!(video_path, "Could not extract thumbnail from video");
+    warn!(
+        video_path_len = video_path_len(video_path),
+        "Could not extract thumbnail from video"
+    );
     None
 }
 
@@ -1929,7 +1935,10 @@ pub async fn generate_audio_waveform(audio_path: &str, work_dir: &TempDir) -> Op
         Ok(Ok(output)) if output.status.success() && output_path.exists() => {
             if let Ok(meta) = fs::metadata(&output_path) {
                 if meta.len() > 100 {
-                    debug!(audio_path, "Audio waveform thumbnail generated");
+                    debug!(
+                        audio_path_len = video_path_len(audio_path),
+                        "Audio waveform thumbnail generated"
+                    );
                     return Some(output_path);
                 }
             }
@@ -1937,7 +1946,10 @@ pub async fn generate_audio_waveform(audio_path: &str, work_dir: &TempDir) -> Op
         _ => {}
     }
 
-    warn!(audio_path, "Could not generate audio waveform thumbnail");
+    warn!(
+        audio_path_len = video_path_len(audio_path),
+        "Could not generate audio waveform thumbnail"
+    );
     None
 }
 
@@ -1945,6 +1957,12 @@ pub async fn generate_audio_waveform(audio_path: &str, work_dir: &TempDir) -> Op
 mod tests {
     use super::*;
     use matric_inference::transcription::TranscriptionSegment;
+
+    #[test]
+    fn video_path_len_reports_length_without_rendering_path() {
+        let path = "/srv/fortemi/media/private/token=mm_key_secret/video.mp4";
+        assert_eq!(video_path_len(path), path.len());
+    }
 
     #[test]
     fn video_command_failure_detail_redacts_stderr() {
