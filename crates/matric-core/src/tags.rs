@@ -24,6 +24,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::fmt;
 use uuid::Uuid;
 
 // =============================================================================
@@ -774,7 +775,7 @@ pub struct UpdateConceptRequest {
 // =============================================================================
 
 /// A lexical label for a concept.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptLabel {
     pub id: Uuid,
     pub concept_id: Uuid,
@@ -784,8 +785,21 @@ pub struct SkosConceptLabel {
     pub created_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for SkosConceptLabel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosConceptLabel")
+            .field("id_set", &true)
+            .field("concept_id_set", &true)
+            .field("label_type", &self.label_type)
+            .field("value_len", &self.value.len())
+            .field("language_len", &self.language.len())
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
 /// Request to add a label to a concept.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AddLabelRequest {
     pub concept_id: Uuid,
     #[serde(default)]
@@ -795,12 +809,23 @@ pub struct AddLabelRequest {
     pub language: String,
 }
 
+impl fmt::Debug for AddLabelRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AddLabelRequest")
+            .field("concept_id_set", &true)
+            .field("label_type", &self.label_type)
+            .field("value_len", &self.value.len())
+            .field("language_len", &self.language.len())
+            .finish()
+    }
+}
+
 // =============================================================================
 // SKOS NOTES (Documentation)
 // =============================================================================
 
 /// A documentation note for a concept.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptNote {
     pub id: Uuid,
     pub concept_id: Uuid,
@@ -815,8 +840,24 @@ pub struct SkosConceptNote {
     pub updated_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for SkosConceptNote {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosConceptNote")
+            .field("id_set", &true)
+            .field("concept_id_set", &true)
+            .field("note_type", &self.note_type)
+            .field("value_len", &self.value.len())
+            .field("language_len", &self.language.len())
+            .field("author_len", &self.author.as_ref().map(|value| value.len()))
+            .field("source_len", &self.source.as_ref().map(|value| value.len()))
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
+}
+
 /// Request to add a note to a concept.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AddNoteRequest {
     pub concept_id: Uuid,
     #[serde(default)]
@@ -828,6 +869,19 @@ pub struct AddNoteRequest {
     pub author: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+}
+
+impl fmt::Debug for AddNoteRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AddNoteRequest")
+            .field("concept_id_set", &true)
+            .field("note_type", &self.note_type)
+            .field("value_len", &self.value.len())
+            .field("language_len", &self.language.len())
+            .field("author_len", &self.author.as_ref().map(|value| value.len()))
+            .field("source_len", &self.source.as_ref().map(|value| value.len()))
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -1572,6 +1626,15 @@ pub struct UpdateCollectionMembersRequest {
 mod tests {
     use super::*;
 
+    fn assert_debug_excludes(debug: &str, secrets: &[&str]) {
+        for secret in secrets {
+            assert!(
+                !debug.contains(secret),
+                "debug output leaked secret `{secret}`: {debug}"
+            );
+        }
+    }
+
     #[test]
     fn test_semantic_relation_serialization() {
         let relations = vec![
@@ -1630,6 +1693,108 @@ mod tests {
         assert_eq!("energy".parse::<PmestFacet>().unwrap(), PmestFacet::Energy);
         assert_eq!("space".parse::<PmestFacet>().unwrap(), PmestFacet::Space);
         assert_eq!("time".parse::<PmestFacet>().unwrap(), PmestFacet::Time);
+    }
+
+    #[test]
+    fn skos_label_and_note_debug_redacts_values_and_identifiers() {
+        let id = Uuid::parse_str("aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa").unwrap();
+        let concept_id = Uuid::parse_str("bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb").unwrap();
+        let now = Utc::now();
+
+        let label = SkosConceptLabel {
+            id,
+            concept_id,
+            label_type: SkosLabelType::PrefLabel,
+            value: "Label owner@example.internal postgres://tag:secret@db.internal".to_string(),
+            language: "en-secret-label".to_string(),
+            created_at: now,
+        };
+        let add_label = AddLabelRequest {
+            concept_id,
+            label_type: SkosLabelType::AltLabel,
+            value: "Alt label /srv/fortemi/private/tag sk-secret-label".to_string(),
+            language: "fr-secret-label".to_string(),
+        };
+        let note = SkosConceptNote {
+            id,
+            concept_id,
+            note_type: SkosNoteType::Definition,
+            value: "Definition contains bearer-secret and internal.example".to_string(),
+            language: "en-secret-note".to_string(),
+            author: Some("author-secret@example.internal".to_string()),
+            source: Some("postgres://source:secret@db.internal/tags".to_string()),
+            created_at: now,
+            updated_at: now,
+        };
+        let add_note = AddNoteRequest {
+            concept_id,
+            note_type: SkosNoteType::ScopeNote,
+            value: "Scope note /srv/fortemi/private/scope sk-secret-note".to_string(),
+            language: "es-secret-note".to_string(),
+            author: Some("request-author@example.internal".to_string()),
+            source: Some("https://source.example.internal/path?token=secret".to_string()),
+        };
+
+        let label_debug = format!("{label:?}");
+        assert!(label_debug.contains("SkosConceptLabel"));
+        assert!(label_debug.contains("value_len"));
+        assert!(label_debug.contains("concept_id_set"));
+        assert_debug_excludes(
+            &label_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "owner@example.internal",
+                "postgres://tag:secret@db.internal",
+                "en-secret-label",
+            ],
+        );
+
+        let add_label_debug = format!("{add_label:?}");
+        assert!(add_label_debug.contains("AddLabelRequest"));
+        assert!(add_label_debug.contains("value_len"));
+        assert_debug_excludes(
+            &add_label_debug,
+            &[
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "/srv/fortemi/private/tag",
+                "sk-secret-label",
+                "fr-secret-label",
+            ],
+        );
+
+        let note_debug = format!("{note:?}");
+        assert!(note_debug.contains("SkosConceptNote"));
+        assert!(note_debug.contains("author_len"));
+        assert!(note_debug.contains("source_len"));
+        assert_debug_excludes(
+            &note_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "bearer-secret",
+                "internal.example",
+                "en-secret-note",
+                "author-secret@example.internal",
+                "postgres://source:secret@db.internal/tags",
+            ],
+        );
+
+        let add_note_debug = format!("{add_note:?}");
+        assert!(add_note_debug.contains("AddNoteRequest"));
+        assert!(add_note_debug.contains("author_len"));
+        assert!(add_note_debug.contains("source_len"));
+        assert_debug_excludes(
+            &add_note_debug,
+            &[
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "/srv/fortemi/private/scope",
+                "sk-secret-note",
+                "es-secret-note",
+                "request-author@example.internal",
+                "https://source.example.internal/path?token=secret",
+            ],
+        );
     }
 
     #[test]
