@@ -14353,7 +14353,7 @@ async fn search_notes(
     // Use a schema-scoped TagResolver for non-default archives
     if let Some(filter_json) = &query.strict_filter {
         let filter_input: StrictTagFilterInput = serde_json::from_str(filter_json)
-            .map_err(|e| ApiError::BadRequest(format!("Invalid strict_filter JSON: {}", e)))?;
+            .map_err(|_| ApiError::BadRequest("Invalid strict_filter JSON.".to_string()))?;
         let tag_resolver = if archive_ctx.schema == "public" {
             state.tag_resolver.clone()
         } else {
@@ -24071,6 +24071,28 @@ mod tests {
         let body = problem.to_string();
         assert!(!body.contains("Invalid byte"));
         assert!(!body.contains("offset"));
+        assert!(!body.contains("postgres://"));
+        assert!(!body.contains("secret"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn strict_filter_json_validation_returns_fixed_problem_without_raw_detail() {
+        let err = ApiError::BadRequest("Invalid strict_filter JSON.".to_string());
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], "Invalid strict_filter JSON.");
+
+        let body = problem.to_string();
+        assert!(!body.contains("line"));
+        assert!(!body.contains("column"));
+        assert!(!body.contains("expected"));
         assert!(!body.contains("postgres://"));
         assert!(!body.contains("secret"));
         assert!(problem.get("error").is_none());
