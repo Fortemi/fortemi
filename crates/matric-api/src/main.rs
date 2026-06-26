@@ -17804,6 +17804,10 @@ fn shard_validation_failed(message: &'static str) -> ApiError {
     ApiError::BadRequest(message.to_string())
 }
 
+fn invalid_base64_payload(message: &'static str) -> ApiError {
+    ApiError::BadRequest(message.to_string())
+}
+
 /// Create a knowledge shard (portable tar.gz export) with selected components.
 /// Respects X-Fortemi-Memory header for archive-scoped exports (#421).
 #[utoipa::path(get, path = "/api/v1/backup/knowledge-shard", tag = "Backup",
@@ -18222,7 +18226,7 @@ async fn knowledge_shard_import(
 
     let shard_bytes = base64::engine::general_purpose::STANDARD
         .decode(&body.shard_base64)
-        .map_err(|e| ApiError::BadRequest(format!("Invalid base64 data: {}", e)))?;
+        .map_err(|_| invalid_base64_payload("Invalid base64-encoded shard data."))?;
 
     let opts = ShardImportOptions {
         include: body.include,
@@ -18435,7 +18439,7 @@ async fn upload_attachment(
     // Decode base64 data
     let data = base64::engine::general_purpose::STANDARD
         .decode(&body.data)
-        .map_err(|e| ApiError::BadRequest(format!("Invalid base64 data: {}", e)))?;
+        .map_err(|_| invalid_base64_payload("Invalid base64-encoded attachment data."))?;
 
     // Validate file safety — block executables and dangerous file types (fixes #241)
     let validation =
@@ -22009,7 +22013,7 @@ async fn database_backup_upload(
 
     // Decode base64
     let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &req.data_base64)
-        .map_err(|e| ApiError::BadRequest(format!("Invalid base64: {}", e)))?;
+        .map_err(|_| invalid_base64_payload("Invalid base64-encoded backup data."))?;
 
     let timestamp = chrono::Utc::now();
     let ts_str = timestamp.format("%Y%m%d_%H%M%S");
@@ -24048,6 +24052,27 @@ mod tests {
         assert!(!body.contains("postgres://"));
         assert!(!body.contains("secret"));
         assert!(!body.contains("tar entry"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn invalid_base64_payload_returns_fixed_problem_without_raw_detail() {
+        let err = invalid_base64_payload("Invalid base64-encoded attachment data.");
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], "Invalid base64-encoded attachment data.");
+
+        let body = problem.to_string();
+        assert!(!body.contains("Invalid byte"));
+        assert!(!body.contains("offset"));
+        assert!(!body.contains("postgres://"));
+        assert!(!body.contains("secret"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
