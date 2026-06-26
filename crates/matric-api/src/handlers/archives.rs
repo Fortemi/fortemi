@@ -18,6 +18,12 @@ use matric_core::{ArchiveInfo, ArchiveRepository, ServerEvent};
 
 const ARCHIVE_ALREADY_EXISTS_MESSAGE: &str = "Archive already exists.";
 const ARCHIVE_NOT_FOUND_MESSAGE: &str = "Archive not found.";
+const LIVE_MEMORY_LIMIT_REACHED_MESSAGE: &str =
+    "Live memory limit reached. Export and delete unused memories, or increase MAX_MEMORIES.";
+
+fn live_memory_limit_reached() -> ApiError {
+    ApiError::BadRequest(LIVE_MEMORY_LIMIT_REACHED_MESSAGE.to_string())
+}
 
 // =============================================================================
 // REQUEST/RESPONSE TYPES
@@ -141,10 +147,7 @@ pub async fn create_archive(
     // Users can export memories as shards, delete them to free slots, and re-import later.
     let current_count = state.db.archives.list_archive_schemas().await?.len() as i64;
     if current_count >= state.max_memories {
-        return Err(ApiError::BadRequest(format!(
-            "Live memory limit reached ({}/{}). Export and delete unused memories, or increase MAX_MEMORIES.",
-            current_count, state.max_memories
-        )));
+        return Err(live_memory_limit_reached());
     }
 
     // Check if archive already exists
@@ -373,10 +376,7 @@ pub async fn clone_archive(
     // Enforce MAX_MEMORIES limit on live memories (clone creates a new one)
     let current_count = state.db.archives.list_archive_schemas().await?.len() as i64;
     if current_count >= state.max_memories {
-        return Err(ApiError::BadRequest(format!(
-            "Live memory limit reached ({}/{}). Export and delete unused memories, or increase MAX_MEMORIES.",
-            current_count, state.max_memories
-        )));
+        return Err(live_memory_limit_reached());
     }
 
     let archive = state
@@ -468,6 +468,40 @@ mod tests {
         assert!(!serialized.contains(private_archive_name));
         assert!(!serialized.contains("tenant-alpha"));
         assert!(!serialized.contains("client-private-memory"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn live_memory_limit_validation_does_not_echo_counts() {
+        let current_count = 17;
+        let configured_limit = 17;
+        let response = live_memory_limit_reached().into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("application/problem+json")
+        );
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let problem: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], LIVE_MEMORY_LIMIT_REACHED_MESSAGE);
+
+        let serialized = problem.to_string();
+        assert!(!serialized.contains(&current_count.to_string()));
+        assert!(!serialized.contains(&configured_limit.to_string()));
+        assert!(!serialized.contains("(17/17)"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
