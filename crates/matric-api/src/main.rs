@@ -477,6 +477,10 @@ fn incoming_webhook_receiver_not_found() -> ApiError {
     ApiError::NotFound("Incoming webhook receiver not found.".to_string())
 }
 
+fn call_session_not_found() -> ApiError {
+    ApiError::NotFound("Call session not found.".to_string())
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -1179,7 +1183,7 @@ async fn get_call(
         .call_sessions
         .get_session(id)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Call session {} not found", id)))?;
+        .ok_or_else(call_session_not_found)?;
 
     let total = state.db.call_sessions.transcript_segment_count(id).await? as usize;
     let segments = state
@@ -24250,6 +24254,24 @@ mod tests {
         assert!(!body.contains(submitted_slug));
         assert!(!body.contains("tenant-alpha"));
         assert!(!body.contains("secret-token"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn call_session_not_found_does_not_echo_call_id() {
+        let submitted_call_id = Uuid::parse_str("018ff7d2-1d90-7c88-9f44-abcdef123456").unwrap();
+        let err = call_session_not_found();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Call session not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(&submitted_call_id.to_string()));
+        assert!(!body.contains("018ff7d2"));
+        assert!(!body.contains("abcdef123456"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
