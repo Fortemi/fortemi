@@ -1534,6 +1534,11 @@ const API_WEBHOOK_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_webhook_diagnostic_fail
 const API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL: &str =
     "api_authz_normalization_diagnostic_failed";
 const API_AUTHZ_POLICY_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_authz_policy_diagnostic_failed";
+const API_RELATED_NOTES_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_related_notes_diagnostic_failed";
+const API_OAUTH_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_oauth_diagnostic_failed";
+const API_ATTACHMENT_MEDIA_DIAGNOSTIC_FAILURE_DETAIL: &str =
+    "api_attachment_media_diagnostic_failed";
+const API_DATABASE_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_database_diagnostic_failed";
 
 fn telemetry_url_class(raw: &str) -> &'static str {
     let Ok(url) = reqwest::Url::parse(raw) else {
@@ -13873,7 +13878,12 @@ async fn get_related_notes(
         match GenerationBackend::generate_with_system(&backend, system, &prompt).await {
             Ok(summary) => Some(summary.trim().to_string()),
             Err(e) => {
-                tracing::warn!(error = %e, "Failed to generate context summary for related notes");
+                tracing::warn!(
+                    error_len = telemetry_text_len(&e.to_string()),
+                    detail = API_RELATED_NOTES_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "generate_related_notes_context_summary",
+                    "Failed to generate context summary for related notes"
+                );
                 None
             }
         }
@@ -16895,8 +16905,14 @@ impl IntoResponse for OAuthApiError {
                 };
                 if status == StatusCode::INTERNAL_SERVER_ERROR {
                     error!(
-                        oauth_error = %err.error,
-                        oauth_error_description = ?err.error_description,
+                        oauth_error_code = "server_error",
+                        oauth_error_description_len = err
+                            .error_description
+                            .as_deref()
+                            .map(telemetry_text_len)
+                            .unwrap_or(0),
+                        detail = API_OAUTH_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "map_oauth_server_error",
                         "oauth server error mapped to problem response"
                     );
                     return problem_response(
@@ -16909,7 +16925,12 @@ impl IntoResponse for OAuthApiError {
                 (status, Json(err)).into_response()
             }
             OAuthApiError::Database(err) => {
-                error!(error = %err, "oauth database error mapped to problem response");
+                error!(
+                    error_len = telemetry_text_len(&err.to_string()),
+                    detail = API_OAUTH_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "map_oauth_database_error",
+                    "oauth database error mapped to problem response"
+                );
                 problem_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     ProblemType::Internal,
@@ -19202,9 +19223,11 @@ async fn download_attachment(
                         || err_str.to_lowercase().contains("not found");
                     if looks_missing {
                         warn!(
-                            attachment_id = %target_id,
-                            expected_path = %path,
-                            error = %err_str,
+                            attachment_id_present = true,
+                            expected_path_len = telemetry_text_len(&path),
+                            error_len = telemetry_text_len(&err_str),
+                            detail = API_ATTACHMENT_MEDIA_DIAGNOSTIC_FAILURE_DETAIL,
+                            operation = "read_attachment_file_missing_blob",
                             "attachment_blob row exists but file is missing on disk (issue #631)"
                         );
                         return Err(ApiError::BlobMissing {
@@ -20716,7 +20739,12 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let (status, problem_type, detail, attachment_id) = match self {
             ApiError::Database(err) => {
-                error!(error = %err, "database error mapped to problem response");
+                error!(
+                    error_len = telemetry_text_len(&err.to_string()),
+                    detail = API_DATABASE_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "map_api_database_error",
+                    "database error mapped to problem response"
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     ProblemType::Internal,
@@ -26237,6 +26265,10 @@ mod tests {
             API_WEBHOOK_DIAGNOSTIC_FAILURE_DETAIL,
             API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
             API_AUTHZ_POLICY_DIAGNOSTIC_FAILURE_DETAIL,
+            API_RELATED_NOTES_DIAGNOSTIC_FAILURE_DETAIL,
+            API_OAUTH_DIAGNOSTIC_FAILURE_DETAIL,
+            API_ATTACHMENT_MEDIA_DIAGNOSTIC_FAILURE_DETAIL,
+            API_DATABASE_DIAGNOSTIC_FAILURE_DETAIL,
         ] {
             assert!(!detail.contains("token:secret"));
             assert!(!detail.contains("postgres://"));
