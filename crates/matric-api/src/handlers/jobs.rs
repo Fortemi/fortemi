@@ -1859,11 +1859,11 @@ impl JobHandler for EmbeddingHandler {
 
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return embedding_job_failure(e, "fetch_note_begin_tx"),
         };
         let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
-            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+            Err(e) => return embedding_job_failure(e, "fetch_note"),
         };
 
         // Fetch SKOS concept labels for embedding enrichment (#424, #475).
@@ -8031,6 +8031,24 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("/srv/fortemi"));
                 assert!(!message.contains("SQLSTATE"));
                 assert!(!message.contains("embedding provider failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+
+        let result = embedding_job_failure(
+            "failed to fetch note from postgres://user:secret@db.internal/app at /srv/fortemi SQLSTATE 42P01",
+            "fetch_note",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, EMBEDDING_JOB_FAILURE);
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("failed to fetch note"));
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
