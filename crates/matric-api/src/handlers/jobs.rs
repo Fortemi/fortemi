@@ -2227,11 +2227,11 @@ impl JobHandler for TitleGenerationHandler {
 
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return title_generation_job_failure(e, "fetch_note_begin_tx"),
         };
         let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
-            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+            Err(e) => return title_generation_job_failure(e, "fetch_note"),
         };
         tx.commit().await.ok();
 
@@ -8072,6 +8072,24 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("/srv/fortemi"));
                 assert!(!message.contains("SQLSTATE"));
                 assert!(!message.contains("title provider failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+
+        let result = title_generation_job_failure(
+            "failed to fetch note from postgres://user:secret@db.internal/app at /srv/fortemi SQLSTATE 42P01",
+            "fetch_note",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, TITLE_GENERATION_JOB_FAILURE);
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("failed to fetch note"));
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
