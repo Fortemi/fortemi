@@ -11,6 +11,7 @@
 //! - Shinn et al. (2023) "Reflexion: Language Agents with Verbal Reinforcement Learning"
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 // ============================================================================
 // SELF-REFINE (#163)
@@ -38,7 +39,7 @@ impl Default for SelfRefineConfig {
 }
 
 /// Result of a single self-refine iteration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct RefineIteration {
     /// Iteration number (1-indexed)
     pub iteration: u32,
@@ -52,8 +53,20 @@ pub struct RefineIteration {
     pub accepted: bool,
 }
 
+impl fmt::Debug for RefineIteration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RefineIteration")
+            .field("iteration", &self.iteration)
+            .field("content_len", &self.content.len())
+            .field("critique_len", &self.critique.len())
+            .field("quality_score", &self.quality_score)
+            .field("accepted", &self.accepted)
+            .finish()
+    }
+}
+
 /// Complete result of a self-refine loop.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SelfRefineResult {
     /// The final refined content
     pub final_content: String,
@@ -63,6 +76,17 @@ pub struct SelfRefineResult {
     pub total_iterations: u32,
     /// Whether the quality threshold was met
     pub threshold_met: bool,
+}
+
+impl fmt::Debug for SelfRefineResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SelfRefineResult")
+            .field("final_content_len", &self.final_content.len())
+            .field("iteration_count", &self.iterations.len())
+            .field("total_iterations", &self.total_iterations)
+            .field("threshold_met", &self.threshold_met)
+            .finish()
+    }
 }
 
 /// Generate a self-critique prompt for the given content.
@@ -124,7 +148,7 @@ pub fn parse_quality_score(critique: &str) -> f32 {
 // ============================================================================
 
 /// A single step in a ReAct reasoning trace.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ReActStep {
     /// The step number (1-indexed)
     pub step: u32,
@@ -136,8 +160,19 @@ pub struct ReActStep {
     pub observation: String,
 }
 
+impl fmt::Debug for ReActStep {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReActStep")
+            .field("step", &self.step)
+            .field("thought_len", &self.thought.len())
+            .field("action_len", &self.action.len())
+            .field("observation_len", &self.observation.len())
+            .finish()
+    }
+}
+
 /// Complete ReAct reasoning trace for an AI operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ReActTrace {
     /// The original task/query
     pub task: String,
@@ -145,6 +180,16 @@ pub struct ReActTrace {
     pub steps: Vec<ReActStep>,
     /// Final answer/output
     pub final_answer: String,
+}
+
+impl fmt::Debug for ReActTrace {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReActTrace")
+            .field("task_len", &self.task.len())
+            .field("step_count", &self.steps.len())
+            .field("final_answer_len", &self.final_answer.len())
+            .finish()
+    }
 }
 
 /// Generate a ReAct-style prompt for transparent AI reasoning.
@@ -247,7 +292,7 @@ pub fn parse_react_response(response: &str) -> ReActTrace {
 // ============================================================================
 
 /// An episode from past AI revision experience.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Episode {
     /// Unique episode identifier
     pub id: String,
@@ -261,6 +306,19 @@ pub struct Episode {
     pub lesson: String,
     /// Quality score achieved (0.0-1.0)
     pub quality_score: f32,
+}
+
+impl fmt::Debug for Episode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Episode")
+            .field("id_len", &self.id.len())
+            .field("task_type_len", &self.task_type.len())
+            .field("attempt_summary_len", &self.attempt_summary.len())
+            .field("outcome", &self.outcome)
+            .field("lesson_len", &self.lesson.len())
+            .field("quality_score", &self.quality_score)
+            .finish()
+    }
 }
 
 /// Outcome of an episode.
@@ -282,12 +340,21 @@ impl std::fmt::Display for EpisodeOutcome {
 }
 
 /// Reflexion memory that accumulates lessons from past episodes.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct ReflexionMemory {
     /// Past episodes for learning
     pub episodes: Vec<Episode>,
     /// Maximum episodes to retain (oldest are pruned)
     pub max_episodes: usize,
+}
+
+impl fmt::Debug for ReflexionMemory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReflexionMemory")
+            .field("episode_count", &self.episodes.len())
+            .field("max_episodes", &self.max_episodes)
+            .finish()
+    }
 }
 
 impl ReflexionMemory {
@@ -521,5 +588,63 @@ This is the final content."#;
         assert_eq!(format!("{}", EpisodeOutcome::Success), "success");
         assert_eq!(format!("{}", EpisodeOutcome::Failure), "failure");
         assert_eq!(format!("{}", EpisodeOutcome::Partial), "partial");
+    }
+
+    #[test]
+    fn refinement_debug_redacts_content_reasoning_and_lessons() {
+        let iteration = RefineIteration {
+            iteration: 1,
+            content: "Refined note for jane@example.com with token sk-private".to_string(),
+            critique: "Critique references https://tenant.example and +1-555-0100".to_string(),
+            quality_score: 0.82,
+            accepted: true,
+        };
+        let refine_result = SelfRefineResult {
+            final_content: "Final refined content containing jane@example.com".to_string(),
+            iterations: vec![iteration.clone()],
+            total_iterations: 1,
+            threshold_met: true,
+        };
+        let react_step = ReActStep {
+            step: 1,
+            thought: "Think about sk-private".to_string(),
+            action: "Use private context from jane@example.com".to_string(),
+            observation: "Observed URL https://tenant.example".to_string(),
+        };
+        let react_trace = ReActTrace {
+            task: "Revise private note for jane@example.com".to_string(),
+            steps: vec![react_step.clone()],
+            final_answer: "Generated answer with sk-private".to_string(),
+        };
+        let episode = Episode {
+            id: "episode-jane@example.com".to_string(),
+            task_type: "revision-private".to_string(),
+            attempt_summary: "Tried private URL https://tenant.example".to_string(),
+            outcome: EpisodeOutcome::Partial,
+            lesson: "Never expose sk-private in output".to_string(),
+            quality_score: 0.66,
+        };
+        let mut memory = ReflexionMemory::new();
+        memory.add_episode(episode.clone());
+
+        let debug = format!(
+            "{:?} {:?} {:?} {:?} {:?} {:?}",
+            iteration, refine_result, react_step, react_trace, episode, memory
+        );
+
+        assert!(debug.contains("content_len"));
+        assert!(debug.contains("critique_len"));
+        assert!(debug.contains("final_content_len"));
+        assert!(debug.contains("thought_len"));
+        assert!(debug.contains("final_answer_len"));
+        assert!(debug.contains("lesson_len"));
+        assert!(debug.contains("episode_count"));
+        assert!(!debug.contains("jane@example.com"));
+        assert!(!debug.contains("sk-private"));
+        assert!(!debug.contains("tenant.example"));
+        assert!(!debug.contains("+1-555-0100"));
+        assert!(!debug.contains("Refined note"));
+        assert!(!debug.contains("Generated answer"));
+        assert!(!debug.contains("Never expose"));
     }
 }
