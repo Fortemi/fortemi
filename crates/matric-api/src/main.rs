@@ -19750,7 +19750,7 @@ async fn knowledge_shard(
 // ARCHIVE IMPORT (Full restore from knowledge shard)
 // =============================================================================
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct ShardImportBody {
     /// Base64-encoded knowledge shard data
     shard_base64: String,
@@ -19767,6 +19767,21 @@ struct ShardImportBody {
     skip_embedding_regen: bool,
 }
 
+impl std::fmt::Debug for ShardImportBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShardImportBody")
+            .field("shard_base64_len", &self.shard_base64.len())
+            .field(
+                "include_len",
+                &self.include.as_ref().map(|value| value.len()),
+            )
+            .field("dry_run", &self.dry_run)
+            .field("on_conflict", &self.on_conflict)
+            .field("skip_embedding_regen", &self.skip_embedding_regen)
+            .finish()
+    }
+}
+
 /// Import options shared between base64 and multipart shard import handlers.
 struct ShardImportOptions {
     include: Option<String>,
@@ -19775,7 +19790,7 @@ struct ShardImportOptions {
     skip_embedding_regen: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct ShardImportResponse {
     status: String,
     manifest: Option<ShardManifest>,
@@ -19785,6 +19800,20 @@ struct ShardImportResponse {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     warnings: Vec<String>,
     dry_run: bool,
+}
+
+impl std::fmt::Debug for ShardImportResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShardImportResponse")
+            .field("status_len", &self.status.len())
+            .field("manifest_set", &self.manifest.is_some())
+            .field("imported", &self.imported)
+            .field("skipped", &self.skipped)
+            .field("errors_count", &self.errors.len())
+            .field("warnings_count", &self.warnings.len())
+            .field("dry_run", &self.dry_run)
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize, Default)]
@@ -25819,6 +25848,84 @@ mod tests {
             "4.0 KiB private",
             "/dev/mapper/private",
             "healthy-private",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn shard_import_debug_redacts_payload_manifest_errors_and_warnings() {
+        let body = ShardImportBody {
+            shard_base64: "base64-shard-payload-sk-live-secret-token".to_string(),
+            include: Some("notes,templates,customer-private-component".to_string()),
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let response = ShardImportResponse {
+            status: "partial-private-shard".to_string(),
+            manifest: Some(ShardManifest {
+                version: "2026.6.0-private".to_string(),
+                matric_version: Some("2026.6.0-customer".to_string()),
+                format: "matric-shard-private".to_string(),
+                created_at: Utc::now(),
+                components: vec!["notes-private".to_string()],
+                counts: ShardCounts::default(),
+                checksums: [(
+                    "notes-private".to_string(),
+                    "sha256:manifest-secret-digest".to_string(),
+                )]
+                .into_iter()
+                .collect(),
+                min_reader_version: Some("2026.5.0-min-reader".to_string()),
+                migrated_from: Some("2025.12.0-customer".to_string()),
+                migration_history: vec![],
+            }),
+            imported: ShardImportCounts {
+                notes: 1,
+                collections: 1,
+                tags: 1,
+                templates: 1,
+                links: 1,
+                embedding_sets: 1,
+                embedding_set_members: 1,
+                embeddings: 1,
+            },
+            skipped: ShardImportCounts::default(),
+            errors: vec![
+                "failed import for customer@example.com with sk-live-secret-token".to_string(),
+            ],
+            warnings: vec!["warning from /srv/private postgres://user:pass@db.internal".to_string()],
+            dry_run: true,
+        };
+
+        let rendered_body = format!("{body:?}");
+        let rendered_response = format!("{response:?}");
+        let combined = format!("{rendered_body}\n{rendered_response}");
+
+        assert!(rendered_body.contains("ShardImportBody"));
+        assert!(rendered_body.contains("shard_base64_len"));
+        assert!(rendered_body.contains("include_len"));
+        assert!(rendered_response.contains("ShardImportResponse"));
+        assert!(rendered_response.contains("status_len"));
+        assert!(rendered_response.contains("manifest_set"));
+        assert!(rendered_response.contains("errors_count"));
+        assert!(rendered_response.contains("warnings_count"));
+
+        for raw in [
+            "base64-shard-payload",
+            "sk-live-secret-token",
+            "customer-private-component",
+            "partial-private-shard",
+            "2026.6.0-private",
+            "2026.6.0-customer",
+            "matric-shard-private",
+            "notes-private",
+            "sha256:manifest-secret-digest",
+            "customer@example.com",
+            "/srv/private",
+            "postgres://user:pass",
+            "db.internal",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
