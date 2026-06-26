@@ -29,7 +29,7 @@ const DEFAULT_ENCODING: &str = "linear16";
 const TARGET_SAMPLE_RATE_HZ: u32 = 16_000;
 const MAX_RECONNECT_BACKOFF: Duration = Duration::from_secs(5);
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DeepgramConfig {
     pub api_key: String,
     pub listen_url: String,
@@ -37,6 +37,20 @@ pub struct DeepgramConfig {
     pub language: String,
     pub encoding: String,
     pub sample_rate_hz: u32,
+}
+
+impl fmt::Debug for DeepgramConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeepgramConfig")
+            .field("api_key_set", &!self.api_key.is_empty())
+            .field("api_key_len", &self.api_key.len())
+            .field("listen_url_len", &self.listen_url.len())
+            .field("model_len", &self.model.len())
+            .field("language_len", &self.language.len())
+            .field("encoding_len", &self.encoding.len())
+            .field("sample_rate_hz", &self.sample_rate_hz)
+            .finish()
+    }
 }
 
 impl DeepgramConfig {
@@ -624,6 +638,38 @@ mod tests {
         assert!(url.contains("model=nova-3"));
         assert!(url.contains("language=en-US"));
         assert!(!url.contains("secret-token"));
+    }
+
+    #[test]
+    fn config_debug_redacts_provider_credentials_and_topology() {
+        let config = DeepgramConfig {
+            api_key: "dg_sk_live_customer@example.com".to_string(),
+            listen_url: "wss://api.deepgram.com/v1/listen?token=sk-live-url".to_string(),
+            model: "nova-private-model".to_string(),
+            language: "en-private".to_string(),
+            encoding: "linear16-private".to_string(),
+            sample_rate_hz: 16_000,
+        };
+
+        let rendered = format!("{config:?}");
+
+        assert!(rendered.contains("DeepgramConfig"));
+        assert!(rendered.contains("api_key_set"));
+        assert!(rendered.contains("api_key_len"));
+        assert!(rendered.contains("listen_url_len"));
+        assert!(rendered.contains("sample_rate_hz"));
+
+        for raw in [
+            "dg_sk_live",
+            "customer@example.com",
+            "api.deepgram.com",
+            "sk-live-url",
+            "nova-private-model",
+            "en-private",
+            "linear16-private",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
     }
 
     #[test]
