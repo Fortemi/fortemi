@@ -17,18 +17,33 @@ use matric_inference::{
     Capability, OllamaBackend,
 };
 use std::env;
+use std::fmt;
 use std::path::PathBuf;
 use std::time::Instant;
 
 const DATA_DIR: &str = "/home/roctinam/data/evals/matric";
 
-#[derive(Debug)]
 struct Args {
     tier: EvalTier,
     model: String,
     output_dir: Option<PathBuf>,
     verbose: bool,
     data_dir: PathBuf,
+}
+
+impl fmt::Debug for Args {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Args")
+            .field("tier", &self.tier)
+            .field("model_len", &self.model.len())
+            .field(
+                "output_dir_len",
+                &self.output_dir.as_ref().map(|path| path_len(path)),
+            )
+            .field("verbose", &self.verbose)
+            .field("data_dir_len", &path_len(&self.data_dir))
+            .finish()
+    }
 }
 
 impl Default for Args {
@@ -59,7 +74,7 @@ fn parse_args() -> Args {
                         "extended" => EvalTier::Extended,
                         "full" => EvalTier::Full,
                         _ => {
-                            eprintln!("Unknown tier: {}. Using smoke.", args[i]);
+                            eprintln!("Unknown tier value length: {}. Using smoke.", args[i].len());
                             EvalTier::Smoke
                         }
                     };
@@ -96,6 +111,10 @@ fn parse_args() -> Args {
     }
 
     result
+}
+
+fn path_len(path: &std::path::Path) -> usize {
+    path.as_os_str().to_string_lossy().chars().count()
 }
 
 fn print_help() {
@@ -200,8 +219,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Matric Evaluation Runner");
     println!("═══════════════════════════════════════════════════════════════");
     println!("Tier: {:?}", args.tier);
-    println!("Model: {}", args.model);
-    println!("Data dir: {}", args.data_dir.display());
+    println!("Model length: {}", args.model.len());
+    println!("Data dir length: {}", path_len(&args.data_dir));
     println!();
 
     // Load test cases
@@ -284,7 +303,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             results.push(result);
             if args.verbose {
-                println!("  [PASS] {}", test.id);
+                println!("  [PASS] test_id_len={}", test.id.len());
             }
         }
         let summary = EvalSummary::from_results(
@@ -367,13 +386,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Save JSON
         let json_path = output_dir.join(format!("eval-{}.json", timestamp));
         std::fs::write(&json_path, serde_json::to_string_pretty(&report)?)?;
-        println!("JSON report: {}", json_path.display());
+        println!("JSON report path length: {}", path_len(&json_path));
 
         // Save markdown
         let md_path = output_dir.join(format!("eval-{}.md", timestamp));
         std::fs::write(&md_path, report.text_summary())?;
-        println!("Markdown report: {}", md_path.display());
+        println!("Markdown report path length: {}", path_len(&md_path));
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn args_debug_redacts_model_and_paths() {
+        let args = Args {
+            tier: EvalTier::Core,
+            model: "tenant/private-model:latest".to_string(),
+            output_dir: Some(PathBuf::from("/srv/private/output/user@example.com")),
+            verbose: true,
+            data_dir: PathBuf::from("/srv/private/evals/token=secret"),
+        };
+
+        let debug = format!("{args:?}");
+
+        assert!(debug.contains("Args"));
+        assert!(debug.contains("model_len"));
+        assert!(debug.contains("output_dir_len"));
+        assert!(debug.contains("data_dir_len"));
+        assert!(!debug.contains("tenant/private-model"));
+        assert!(!debug.contains("/srv/private"));
+        assert!(!debug.contains("user@example.com"));
+        assert!(!debug.contains("token=secret"));
+    }
 }
