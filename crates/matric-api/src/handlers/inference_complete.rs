@@ -30,10 +30,19 @@ const INFERENCE_COMPLETION_PROVIDER_DETAIL: &str =
 // =============================================================================
 
 /// A single chat message — `{role, content}`.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+}
+
+impl std::fmt::Debug for ChatMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatMessage")
+            .field("role_len", &self.role.chars().count())
+            .field("content_len", &self.content.chars().count())
+            .finish()
+    }
 }
 
 /// Request body for `/complete` and `/stream`.
@@ -152,7 +161,7 @@ fn complete_request_url_class(raw: &str) -> &'static str {
 }
 
 /// Response body for `/complete`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct CompleteResponse {
     pub content: String,
     pub finish_reason: String,
@@ -160,8 +169,19 @@ pub struct CompleteResponse {
     pub provider_id: String,
 }
 
+impl std::fmt::Debug for CompleteResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompleteResponse")
+            .field("content_len", &self.content.chars().count())
+            .field("finish_reason_len", &self.finish_reason.chars().count())
+            .field("model_len", &self.model.chars().count())
+            .field("provider_id_len", &self.provider_id.chars().count())
+            .finish()
+    }
+}
+
 /// One entry in the `/providers` response.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct ProviderInfo {
     pub id: String,
     pub r#type: String,
@@ -182,9 +202,36 @@ pub struct ProviderInfo {
     pub supports_embeddings: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+impl std::fmt::Debug for ProviderInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderInfo")
+            .field("id_len", &self.id.chars().count())
+            .field("type_len", &self.r#type.chars().count())
+            .field("name_len", &self.name.chars().count())
+            .field(
+                "base_url_class",
+                &complete_request_url_class(&self.base_url),
+            )
+            .field("base_url_len", &self.base_url.chars().count())
+            .field("capability_count", &self.capabilities.len())
+            .field("server_configured", &self.server_configured)
+            .field("requires_user_key", &self.requires_user_key)
+            .field("supports_embeddings", &self.supports_embeddings)
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize)]
 pub struct ProvidersResponse {
     pub providers: Vec<ProviderInfo>,
+}
+
+impl std::fmt::Debug for ProvidersResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProvidersResponse")
+            .field("provider_count", &self.providers.len())
+            .finish()
+    }
 }
 
 const INFERENCE_FAILURE_MESSAGE: &str =
@@ -554,17 +601,55 @@ mod tests {
             max_tokens: Some(128),
             think: Some(false),
         };
+        let message = ChatMessage {
+            role: "system-secret-role".to_string(),
+            content: "system prompt with credential sk-message-secret".to_string(),
+        };
+        let response = CompleteResponse {
+            content: "model output with private transcript secret".to_string(),
+            finish_reason: "stop-secret-reason".to_string(),
+            model: "gpt-secret-response-model".to_string(),
+            provider_id: "openai-secret-provider".to_string(),
+        };
+        let provider = ProviderInfo {
+            id: "provider-secret-id".to_string(),
+            r#type: "provider-secret-type".to_string(),
+            name: "Provider Secret Name".to_string(),
+            base_url: "https://user:pass@llm.example/v1?token=provider-secret".to_string(),
+            capabilities: vec!["secret-capability".to_string()],
+            server_configured: true,
+            requires_user_key: true,
+            supports_embeddings: false,
+        };
+        let providers = ProvidersResponse {
+            providers: vec![provider.clone()],
+        };
 
-        let rendered = format!("{req:?}");
+        let rendered = format!("{req:?}{message:?}{response:?}{provider:?}{providers:?}");
         assert!(rendered.contains("api_key_present: true"));
         assert!(rendered.contains("base_url_class: \"managed_provider\""));
         assert!(rendered.contains("message_count: 1"));
+        assert!(rendered.contains("role_len"));
+        assert!(rendered.contains("content_len"));
+        assert!(rendered.contains("content_len"));
+        assert!(rendered.contains("provider_count"));
+        assert!(rendered.contains("capability_count"));
         assert!(!rendered.contains("sk-secret-provider-key"));
+        assert!(!rendered.contains("sk-message-secret"));
         assert!(!rendered.contains("user:pass"));
         assert!(!rendered.contains("token=secret"));
+        assert!(!rendered.contains("provider-secret"));
         assert!(!rendered.contains("api.openai.com"));
+        assert!(!rendered.contains("llm.example"));
         assert!(!rendered.contains("gpt-secret-model"));
+        assert!(!rendered.contains("gpt-secret-response-model"));
         assert!(!rendered.contains("patient prompt"));
         assert!(!rendered.contains("secret transcript"));
+        assert!(!rendered.contains("system-secret-role"));
+        assert!(!rendered.contains("system prompt"));
+        assert!(!rendered.contains("private transcript"));
+        assert!(!rendered.contains("stop-secret-reason"));
+        assert!(!rendered.contains("Provider Secret Name"));
+        assert!(!rendered.contains("secret-capability"));
     }
 }

@@ -175,6 +175,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-26 continuation: Webhook management response slice replaces list/get/update raw webhook records with metadata-only output carrying URL class/length, URL secret-candidate flag, `secret_set`, event count, status, timestamps, and retry state.
   - 2026-06-26 continuation: Incoming webhook receiver management response slice replaces list/get/update raw receiver records with metadata-only output carrying slug/provider/schema/header lengths/classes, `secret_set`, schema-doc class/length, and secret-candidate flags.
   - 2026-06-26 continuation: Incoming webhook accepted-response slice changes signed receiver acknowledgements and idempotency replay bodies from raw slug/provider/schema/payload/side-effect echoes to metadata-only output with lengths/classes, secret-candidate flags, and idempotency flags.
+  - 2026-06-26 continuation: Inference completion/provider DTO Debug slice replaces raw chat message, completion response, provider, and providers-list output with metadata-only lengths, classes, counts, and booleans.
   - 2026-06-26 continuation: Inference config audit/readback slice replaces API-key prefix masks with metadata-only length sentinels and defensively sanitizes audit JSON on diagnostic reads.
   - 2026-06-26 continuation: API-key management list slice replaces raw key prefixes, labels, descriptions, and scopes with metadata-only lengths while preserving one-time create display.
   - 2026-06-26 continuation: OAuth client readback Debug slice replaces derived output on post-creation client records with metadata-only lengths/counts for ids, labels, URLs, contacts, software fields, and scopes.
@@ -518,6 +519,7 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-26 — #968/#974 webhook management list/get/update responses now expose metadata-only subscription records instead of raw destination URLs, event names, or signing secrets.
 - 2026-06-26 — #968/#974 incoming webhook receiver management list/get/update responses now expose metadata-only receiver records instead of raw slugs, provider/schema names, signature headers, schema docs, or HMAC material.
 - 2026-06-26 — #968/#974 incoming webhook accepted responses now return metadata-only acknowledgements instead of raw receiver identifiers, payloads, side effects, or idempotency keys.
+- 2026-06-26 — #968/#974 inference completion/provider DTO Debug output now redacts raw prompts, generated content, model/provider identifiers, provider URLs, and capability strings.
 - 2026-06-26 — #968/#974 inference config API-key readback and audit JSON now use metadata-only secret sentinels instead of raw or prefix-masked key values.
 - 2026-06-26 — #968/#974 API-key management list responses now return metadata-only key records after one-time create display, without key prefixes, labels, descriptions, scopes, hashes, or raw keys.
 - 2026-06-26 — #968/#974 OAuth client post-creation Debug output now reports metadata-only lengths/counts instead of raw client ids, labels, URLs, contacts, software fields, or scopes.
