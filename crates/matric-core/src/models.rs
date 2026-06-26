@@ -2629,7 +2629,7 @@ pub enum TokenAuthMethod {
 }
 
 /// OAuth2 client registration (RFC 7591).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct OAuthClient {
     pub id: Uuid,
     pub client_id: String,
@@ -2651,6 +2651,48 @@ pub struct OAuthClient {
     pub client_id_issued_at: DateTime<Utc>,
     pub client_secret_expires_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+}
+
+impl std::fmt::Debug for OAuthClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OAuthClient")
+            .field("id", &self.id)
+            .field("client_id_len", &self.client_id.chars().count())
+            .field("client_name_len", &self.client_name.chars().count())
+            .field(
+                "client_uri_len",
+                &optional_debug_len(self.client_uri.as_ref()),
+            )
+            .field("logo_uri_len", &optional_debug_len(self.logo_uri.as_ref()))
+            .field("redirect_uri_count", &self.redirect_uris.len())
+            .field("grant_type_count", &self.grant_types.len())
+            .field("response_type_count", &self.response_types.len())
+            .field("scope_len", &self.scope.chars().count())
+            .field(
+                "token_endpoint_auth_method",
+                &self.token_endpoint_auth_method,
+            )
+            .field(
+                "software_id_len",
+                &optional_debug_len(self.software_id.as_ref()),
+            )
+            .field(
+                "software_version_len",
+                &optional_debug_len(self.software_version.as_ref()),
+            )
+            .field("contact_count", &self.contacts.len())
+            .field(
+                "policy_uri_len",
+                &optional_debug_len(self.policy_uri.as_ref()),
+            )
+            .field("tos_uri_len", &optional_debug_len(self.tos_uri.as_ref()))
+            .field("is_active", &self.is_active)
+            .field("is_confidential", &self.is_confidential)
+            .field("client_id_issued_at", &self.client_id_issued_at)
+            .field("client_secret_expires_at", &self.client_secret_expires_at)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
 }
 
 /// OAuth2 client registration request (RFC 7591).
@@ -3366,6 +3408,28 @@ mod tests {
     #[test]
     fn oauth_model_debug_redacts_secret_material() {
         let now = Utc::now();
+        let oauth_client = OAuthClient {
+            id: Uuid::new_v4(),
+            client_id: "oauth-client-secret-id".to_string(),
+            client_name: "Sensitive OAuth Client secret label".to_string(),
+            client_uri: Some("https://client.example/client-secret-path".to_string()),
+            logo_uri: Some("https://client.example/logo-secret.png".to_string()),
+            redirect_uris: vec!["https://client.example/callback?code=secret".to_string()],
+            grant_types: vec!["authorization_code".to_string()],
+            response_types: vec!["code".to_string()],
+            scope: "read write client-secret-scope".to_string(),
+            token_endpoint_auth_method: "client_secret_post".to_string(),
+            software_id: Some("software-secret-id".to_string()),
+            software_version: Some("software-secret-version".to_string()),
+            contacts: vec!["security-secret@example.com".to_string()],
+            policy_uri: Some("https://client.example/policy?token=secret".to_string()),
+            tos_uri: Some("https://client.example/tos?token=secret".to_string()),
+            is_active: true,
+            is_confidential: true,
+            client_id_issued_at: now,
+            client_secret_expires_at: Some(now),
+            created_at: now,
+        };
         let client_registration = ClientRegistrationRequest {
             client_name: "Sensitive OAuth Client".to_string(),
             redirect_uris: vec!["https://client.example/callback?code=secret".to_string()],
@@ -3442,7 +3506,8 @@ mod tests {
         };
 
         let debug = format!(
-            "{:?}{:?}{:?}{:?}{:?}{:?}",
+            "{:?}{:?}{:?}{:?}{:?}{:?}{:?}",
+            oauth_client,
             client_registration,
             client_response,
             auth_code,
@@ -3466,8 +3531,15 @@ mod tests {
                 "state-secret",
                 "https://client.example",
                 "oauth-client-secret-id",
+                "Sensitive OAuth Client secret label",
+                "client-secret-scope",
+                "software-secret-id",
+                "software-secret-version",
+                "security-secret@example.com",
             ],
         );
+        assert!(debug.contains("client_name_len"));
+        assert!(debug.contains("redirect_uri_count"));
         assert!(debug.contains("client_secret_set"));
         assert!(debug.contains("access_token_set"));
         assert!(debug.contains("refresh_token_hash_len"));
