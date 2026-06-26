@@ -14815,10 +14815,68 @@ async fn instantiate_template(
 // LINK HANDLERS
 // =============================================================================
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct NoteLinksResponse {
     outgoing: Vec<matric_core::Link>,
     incoming: Vec<matric_core::Link>,
+}
+
+impl std::fmt::Debug for NoteLinksResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NoteLinksResponse")
+            .field("outgoing_count", &self.outgoing.len())
+            .field("incoming_count", &self.incoming.len())
+            .field("outgoing_url_count", &note_links_url_count(&self.outgoing))
+            .field("incoming_url_count", &note_links_url_count(&self.incoming))
+            .field(
+                "outgoing_snippet_count",
+                &note_links_snippet_count(&self.outgoing),
+            )
+            .field(
+                "incoming_snippet_count",
+                &note_links_snippet_count(&self.incoming),
+            )
+            .field(
+                "outgoing_metadata_count",
+                &note_links_metadata_count(&self.outgoing),
+            )
+            .field(
+                "incoming_metadata_count",
+                &note_links_metadata_count(&self.incoming),
+            )
+            .field(
+                "outgoing_metadata_secret_candidate_count",
+                &note_links_metadata_secret_candidate_count(&self.outgoing),
+            )
+            .field(
+                "incoming_metadata_secret_candidate_count",
+                &note_links_metadata_secret_candidate_count(&self.incoming),
+            )
+            .finish()
+    }
+}
+
+fn note_links_url_count(links: &[matric_core::Link]) -> usize {
+    links.iter().filter(|link| link.to_url.is_some()).count()
+}
+
+fn note_links_snippet_count(links: &[matric_core::Link]) -> usize {
+    links.iter().filter(|link| link.snippet.is_some()).count()
+}
+
+fn note_links_metadata_count(links: &[matric_core::Link]) -> usize {
+    links.iter().filter(|link| link.metadata.is_some()).count()
+}
+
+fn note_links_metadata_secret_candidate_count(links: &[matric_core::Link]) -> usize {
+    links
+        .iter()
+        .filter(|link| {
+            link.metadata
+                .as_ref()
+                .is_some_and(webhook_delivery_json_has_secret_candidate)
+        })
+        .count()
 }
 
 #[utoipa::path(get, path = "/api/v1/notes/{id}/links", tag = "Graph",
@@ -27134,6 +27192,89 @@ mod tests {
             "snapshot_mm_key_graph",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn note_links_response_debug_redacts_link_ids_urls_snippets_and_metadata() {
+        let outgoing_id = Uuid::new_v4();
+        let from_note_id = Uuid::new_v4();
+        let to_note_id = Uuid::new_v4();
+        let incoming_id = Uuid::new_v4();
+        let incoming_from_note_id = Uuid::new_v4();
+        let incoming_to_note_id = Uuid::new_v4();
+        let response = NoteLinksResponse {
+            outgoing: vec![matric_core::Link {
+                id: outgoing_id,
+                from_note_id,
+                to_note_id: Some(to_note_id),
+                to_url: Some(
+                    "https://operator.example/download?token=sk-live-link-secret".to_string(),
+                ),
+                kind: "customer-private-reference".to_string(),
+                score: 0.91,
+                created_at_utc: chrono::Utc::now(),
+                snippet: Some(
+                    "link snippet contains customer@example.com and /srv/private/link.md"
+                        .to_string(),
+                ),
+                metadata: Some(serde_json::json!({
+                    "path": "/srv/private/link.md",
+                    "api_key": "mm_key_link_secret",
+                    "dsn": "postgres://user:pass@db.internal/app"
+                })),
+            }],
+            incoming: vec![matric_core::Link {
+                id: incoming_id,
+                from_note_id: incoming_from_note_id,
+                to_note_id: Some(incoming_to_note_id),
+                to_url: None,
+                kind: "incoming-private-backlink".to_string(),
+                score: 0.84,
+                created_at_utc: chrono::Utc::now(),
+                snippet: Some("incoming snippet has sk-live-incoming".to_string()),
+                metadata: Some(serde_json::json!({
+                    "source": "customer@example.com",
+                    "url": "https://internal.example/path?token=secret"
+                })),
+            }],
+        };
+
+        let rendered = format!("{response:?}");
+
+        assert!(rendered.contains("NoteLinksResponse"));
+        assert!(rendered.contains("outgoing_count"));
+        assert!(rendered.contains("incoming_count"));
+        assert!(rendered.contains("outgoing_url_count"));
+        assert!(rendered.contains("incoming_url_count"));
+        assert!(rendered.contains("outgoing_snippet_count"));
+        assert!(rendered.contains("incoming_snippet_count"));
+        assert!(rendered.contains("outgoing_metadata_count"));
+        assert!(rendered.contains("incoming_metadata_count"));
+        assert!(rendered.contains("outgoing_metadata_secret_candidate_count"));
+        assert!(rendered.contains("incoming_metadata_secret_candidate_count"));
+
+        for raw in [
+            &outgoing_id.to_string(),
+            &from_note_id.to_string(),
+            &to_note_id.to_string(),
+            &incoming_id.to_string(),
+            &incoming_from_note_id.to_string(),
+            &incoming_to_note_id.to_string(),
+            "operator.example",
+            "sk-live-link-secret",
+            "customer-private-reference",
+            "customer@example.com",
+            "/srv/private/link.md",
+            "mm_key_link_secret",
+            "postgres://user:pass",
+            "db.internal",
+            "incoming-private-backlink",
+            "sk-live-incoming",
+            "internal.example",
+            "token=secret",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 
