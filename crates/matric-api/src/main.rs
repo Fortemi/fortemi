@@ -15203,6 +15203,9 @@ async fn delete_embedding_config(
 // JOB HANDLERS
 // =============================================================================
 
+const INVALID_JOB_TYPE_MESSAGE: &str =
+    "Invalid job_type. Use a supported job type from the API contract.";
+
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct CreateJobBody {
     note_id: Option<Uuid>,
@@ -15362,12 +15365,7 @@ async fn create_job(
         "view_vision" => JobType::ViewVision,
         "view_assembly" => JobType::ViewAssembly,
         "thumbnail_sprite" => JobType::ThumbnailSprite,
-        _ => {
-            return Err(ApiError::BadRequest(format!(
-                "Invalid job type: {}",
-                body.job_type
-            )))
-        }
+        _ => return Err(ApiError::BadRequest(INVALID_JOB_TYPE_MESSAGE.to_string())),
     };
 
     // Validate note exists before queuing (avoids raw FK constraint error)
@@ -24173,6 +24171,28 @@ mod tests {
         assert!(!body.contains("expected"));
         assert!(!body.contains("postgres://"));
         assert!(!body.contains("secret"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn job_type_validation_does_not_echo_submitted_type() {
+        let submitted_job_type = "tenant-alpha://token:secret@provider.internal/private-job";
+        let err = ApiError::BadRequest(INVALID_JOB_TYPE_MESSAGE.to_string());
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], INVALID_JOB_TYPE_MESSAGE);
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_job_type));
+        assert!(!body.contains("tenant-alpha"));
+        assert!(!body.contains("token:secret"));
+        assert!(!body.contains("provider.internal"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
