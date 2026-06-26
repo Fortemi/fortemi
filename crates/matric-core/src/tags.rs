@@ -1191,7 +1191,7 @@ impl fmt::Debug for AddNoteRequest {
 // =============================================================================
 
 /// A semantic relation between two concepts.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosSemanticRelationEdge {
     pub id: Uuid,
     pub subject_id: Uuid,
@@ -1206,8 +1206,27 @@ pub struct SkosSemanticRelationEdge {
     pub created_by: Option<String>,
 }
 
+impl fmt::Debug for SkosSemanticRelationEdge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosSemanticRelationEdge")
+            .field("id_set", &true)
+            .field("subject_id_set", &true)
+            .field("object_id_set", &true)
+            .field("relation_type", &self.relation_type)
+            .field("inference_score", &self.inference_score)
+            .field("is_inferred", &self.is_inferred)
+            .field("is_validated", &self.is_validated)
+            .field("created_at", &self.created_at)
+            .field(
+                "created_by_len",
+                &self.created_by.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
+}
+
 /// Request to create a semantic relation.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateSemanticRelationRequest {
     pub subject_id: Uuid,
     pub object_id: Uuid,
@@ -1220,8 +1239,24 @@ pub struct CreateSemanticRelationRequest {
     pub created_by: Option<String>,
 }
 
+impl fmt::Debug for CreateSemanticRelationRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateSemanticRelationRequest")
+            .field("subject_id_set", &true)
+            .field("object_id_set", &true)
+            .field("relation_type", &self.relation_type)
+            .field("inference_score", &self.inference_score)
+            .field("is_inferred", &self.is_inferred)
+            .field(
+                "created_by_len",
+                &self.created_by.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
+}
+
 /// A mapping relation to an external vocabulary.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosMappingRelationEdge {
     pub id: Uuid,
     pub concept_id: Uuid,
@@ -1241,8 +1276,35 @@ pub struct SkosMappingRelationEdge {
     pub validated_by: Option<String>,
 }
 
+impl fmt::Debug for SkosMappingRelationEdge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosMappingRelationEdge")
+            .field("id_set", &true)
+            .field("concept_id_set", &true)
+            .field("target_uri_len", &self.target_uri.len())
+            .field(
+                "target_scheme_uri_len",
+                &self.target_scheme_uri.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "target_label_len",
+                &self.target_label.as_ref().map(|value| value.len()),
+            )
+            .field("relation_type", &self.relation_type)
+            .field("confidence", &self.confidence)
+            .field("is_validated", &self.is_validated)
+            .field("created_at", &self.created_at)
+            .field("validated_at", &self.validated_at)
+            .field(
+                "validated_by_len",
+                &self.validated_by.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
+}
+
 /// Request to create a mapping relation.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateMappingRelationRequest {
     pub concept_id: Uuid,
     pub target_uri: String,
@@ -1253,6 +1315,25 @@ pub struct CreateMappingRelationRequest {
     pub relation_type: SkosMappingRelation,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f32>,
+}
+
+impl fmt::Debug for CreateMappingRelationRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateMappingRelationRequest")
+            .field("concept_id_set", &true)
+            .field("target_uri_len", &self.target_uri.len())
+            .field(
+                "target_scheme_uri_len",
+                &self.target_scheme_uri.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "target_label_len",
+                &self.target_label.as_ref().map(|value| value.len()),
+            )
+            .field("relation_type", &self.relation_type)
+            .field("confidence", &self.confidence)
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -2462,6 +2543,110 @@ mod tests {
                 "owner@example.internal",
                 "/srv/fortemi/private/update",
                 "sk-secret-update",
+            ],
+        );
+    }
+
+    #[test]
+    fn skos_relation_debug_redacts_identifiers_urls_and_actors() {
+        let relation_id = Uuid::parse_str("aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa").unwrap();
+        let concept_id = Uuid::parse_str("bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb").unwrap();
+        let target_id = Uuid::parse_str("cccccccc-3333-4444-8555-cccccccccccc").unwrap();
+        let mapping_id = Uuid::parse_str("dddddddd-4444-4555-8666-dddddddddddd").unwrap();
+        let now = Utc::now();
+
+        let semantic_edge = SkosSemanticRelationEdge {
+            id: relation_id,
+            subject_id: concept_id,
+            object_id: target_id,
+            relation_type: SkosSemanticRelation::Related,
+            inference_score: Some(0.87),
+            is_inferred: true,
+            is_validated: false,
+            created_at: now,
+            created_by: Some("semantic-author-secret@example.internal".to_string()),
+        };
+        let semantic_request = CreateSemanticRelationRequest {
+            subject_id: concept_id,
+            object_id: target_id,
+            relation_type: SkosSemanticRelation::Broader,
+            inference_score: Some(0.91),
+            is_inferred: true,
+            created_by: Some("request-author sk-secret-semantic".to_string()),
+        };
+        let mapping_edge = SkosMappingRelationEdge {
+            id: mapping_id,
+            concept_id,
+            target_uri: "https://external.example.internal/vocab?token=secret".to_string(),
+            target_scheme_uri: Some(
+                "https://scheme.example.internal/private?access_token=secret".to_string(),
+            ),
+            target_label: Some("Mapped label owner@example.internal sk-secret-map".to_string()),
+            relation_type: SkosMappingRelation::ExactMatch,
+            confidence: Some(0.95),
+            is_validated: true,
+            created_at: now,
+            validated_at: Some(now),
+            validated_by: Some("validator-secret@example.internal".to_string()),
+        };
+        let mapping_request = CreateMappingRelationRequest {
+            concept_id,
+            target_uri: "postgres://mapping:secret@db.internal/vocab".to_string(),
+            target_scheme_uri: Some("file:///srv/fortemi/private/scheme".to_string()),
+            target_label: Some("Request target label bearer-secret".to_string()),
+            relation_type: SkosMappingRelation::CloseMatch,
+            confidence: Some(0.72),
+        };
+
+        let semantic_edge_debug = format!("{semantic_edge:?}");
+        assert!(semantic_edge_debug.contains("SkosSemanticRelationEdge"));
+        assert!(semantic_edge_debug.contains("subject_id_set"));
+        assert_debug_excludes(
+            &semantic_edge_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "cccccccc-3333-4444-8555-cccccccccccc",
+                "semantic-author-secret@example.internal",
+            ],
+        );
+
+        let semantic_request_debug = format!("{semantic_request:?}");
+        assert!(semantic_request_debug.contains("CreateSemanticRelationRequest"));
+        assert_debug_excludes(
+            &semantic_request_debug,
+            &[
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "cccccccc-3333-4444-8555-cccccccccccc",
+                "request-author sk-secret-semantic",
+            ],
+        );
+
+        let mapping_edge_debug = format!("{mapping_edge:?}");
+        assert!(mapping_edge_debug.contains("SkosMappingRelationEdge"));
+        assert!(mapping_edge_debug.contains("target_uri_len"));
+        assert_debug_excludes(
+            &mapping_edge_debug,
+            &[
+                "dddddddd-4444-4555-8666-dddddddddddd",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "https://external.example.internal/vocab?token=secret",
+                "https://scheme.example.internal/private?access_token=secret",
+                "owner@example.internal",
+                "sk-secret-map",
+                "validator-secret@example.internal",
+            ],
+        );
+
+        let mapping_request_debug = format!("{mapping_request:?}");
+        assert!(mapping_request_debug.contains("CreateMappingRelationRequest"));
+        assert_debug_excludes(
+            &mapping_request_debug,
+            &[
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "postgres://mapping:secret@db.internal/vocab",
+                "file:///srv/fortemi/private/scheme",
+                "bearer-secret",
             ],
         );
     }
