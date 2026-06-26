@@ -717,7 +717,15 @@ impl JobHandler for ExtractionHandler {
                                                 .await;
                                         }
                                         Err(e) => {
-                                            warn!(error = %e, "Failed to store VTT attachment")
+                                            let error_text = e.to_string();
+                                            warn!(
+                                                attachment_present = true,
+                                                note_present = true,
+                                                error_len = telemetry_text_len(&error_text),
+                                                error_reason =
+                                                    extraction_error_reason_code(&error_text),
+                                                "Failed to store VTT attachment"
+                                            )
                                         }
                                     }
 
@@ -746,7 +754,15 @@ impl JobHandler for ExtractionHandler {
                                                 .await;
                                         }
                                         Err(e) => {
-                                            warn!(error = %e, "Failed to store SRT attachment")
+                                            let error_text = e.to_string();
+                                            warn!(
+                                                attachment_present = true,
+                                                note_present = true,
+                                                error_len = telemetry_text_len(&error_text),
+                                                error_reason =
+                                                    extraction_error_reason_code(&error_text),
+                                                "Failed to store SRT attachment"
+                                            )
                                         }
                                     }
 
@@ -774,15 +790,32 @@ impl JobHandler for ExtractionHandler {
                                                 .await;
                                         }
                                         Err(e) => {
-                                            warn!(error = %e, "Failed to store transcript attachment")
+                                            let error_text = e.to_string();
+                                            warn!(
+                                                attachment_present = true,
+                                                note_present = true,
+                                                error_len = telemetry_text_len(&error_text),
+                                                error_reason =
+                                                    extraction_error_reason_code(&error_text),
+                                                "Failed to store transcript attachment"
+                                            )
                                         }
                                     }
 
                                     if let Err(e) = tx.commit().await {
-                                        error!(error = %e, "Failed to commit transcript attachments");
+                                        let error_text = e.to_string();
+                                        error!(
+                                            attachment_present = true,
+                                            note_present = true,
+                                            error_len = telemetry_text_len(&error_text),
+                                            error_reason =
+                                                extraction_error_reason_code(&error_text),
+                                            "Failed to commit transcript attachments"
+                                        );
                                     } else {
                                         info!(
-                                            parent = %att_id,
+                                            parent_attachment_present = true,
+                                            note_present = true,
                                             "Transcript files persisted as derived attachments (VTT, SRT, TXT)"
                                         );
                                     }
