@@ -327,7 +327,7 @@ impl IngestFrame {
             data: json!({
                 "line": line,
                 "status": "error",
-                "error": error,
+                "error": sanitize_ingest_ack_error(error),
                 "cursor": cursor(stream_id, line),
             })
             .to_string(),
@@ -362,7 +362,8 @@ impl IngestFrame {
     fn fatal(error: &str) -> Self {
         Self {
             event: "error",
-            data: json!({ "error": error, "code": "INGEST_FATAL" }).to_string(),
+            data: json!({ "error": sanitize_ingest_fatal_error(error), "code": "INGEST_FATAL" })
+                .to_string(),
         }
     }
 
@@ -413,6 +414,25 @@ impl IngestFrame {
     fn into_event(self) -> Event {
         Event::default().event(self.event).data(self.data)
     }
+}
+
+fn sanitize_ingest_ack_error(error: &str) -> String {
+    let lower = error.to_ascii_lowercase();
+    if lower.starts_with("invalid ingest line") {
+        "invalid ingest line".to_string()
+    } else if lower == "note content must not be empty"
+        || lower == "metadata must be a json object"
+        || lower.starts_with("tag exceeds ")
+        || (lower.starts_with("line exceeds ") && lower.ends_with(" byte limit"))
+    {
+        error.to_string()
+    } else {
+        "ingest line could not be stored. Check server logs for diagnostics.".to_string()
+    }
+}
+
+fn sanitize_ingest_fatal_error(_error: &str) -> String {
+    "ingest stream could not be initialized. Check server logs for diagnostics.".to_string()
 }
 
 /// Running per-stream counters. `total == success + errors` (blank lines are not
@@ -1459,13 +1479,51 @@ mod tests {
 
     #[test]
     fn frame_ack_error_shape() {
-        let f = IngestFrame::ack_error(5, "boom", "strm");
+        let f = IngestFrame::ack_error(5, "note content must not be empty", "strm");
         assert_eq!(f.event, "ack");
         let j = frame_json(&f);
         assert_eq!(j["line"], 5);
         assert_eq!(j["status"], "error");
-        assert_eq!(j["error"], "boom");
+        assert_eq!(j["error"], "note content must not be empty");
         assert_eq!(j["cursor"], "strm-5");
+    }
+
+    #[test]
+    fn frame_ack_error_redacts_internal_detail() {
+        let f = IngestFrame::ack_error(
+            5,
+            "database write failed for postgres://user:secret@db/app at /srv/fortemi/private",
+            "strm",
+        );
+        let j = frame_json(&f);
+        assert_eq!(
+            j["error"],
+            "ingest line could not be stored. Check server logs for diagnostics."
+        );
+        let serialized = j.to_string();
+        assert!(!serialized.contains("postgres://"));
+        assert!(!serialized.contains("secret"));
+        assert!(!serialized.contains("/srv/fortemi"));
+        assert!(!serialized.contains("database write failed"));
+    }
+
+    #[test]
+    fn frame_fatal_redacts_internal_detail() {
+        let f = IngestFrame::fatal(
+            "invalid schema postgres://user:secret@db/app at /srv/fortemi/private",
+        );
+        assert_eq!(f.event, "error");
+        let j = frame_json(&f);
+        assert_eq!(
+            j["error"],
+            "ingest stream could not be initialized. Check server logs for diagnostics."
+        );
+        assert_eq!(j["code"], "INGEST_FATAL");
+        let serialized = j.to_string();
+        assert!(!serialized.contains("postgres://"));
+        assert!(!serialized.contains("secret"));
+        assert!(!serialized.contains("/srv/fortemi"));
+        assert!(!serialized.contains("invalid schema"));
     }
 
     #[test]
@@ -1488,11 +1546,11 @@ mod tests {
     /// value-independence guarantee asserted for `/chat/stream` frames.
     #[test]
     fn frame_data_is_value_independent() {
-        let error_owned = String::from("transient failure");
+        let error_owned = String::from("metadata must be a JSON object");
         let f = IngestFrame::ack_error(9, &error_owned, "strm");
         drop(error_owned);
         let j = frame_json(&f);
-        assert_eq!(j["error"], "transient failure");
+        assert_eq!(j["error"], "metadata must be a JSON object");
         assert_eq!(j["line"], 9);
     }
 
