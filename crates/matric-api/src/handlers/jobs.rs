@@ -27,6 +27,10 @@ use matric_jobs::{JobContext, JobHandler, JobResult};
 use sqlx;
 
 const AI_GENERATION_JOB_FAILURE: &str = "AI generation failed. Check server logs for diagnostics.";
+const MODEL_RESOLUTION_JOB_FAILURE: &str =
+    "Model resolution failed. Check server logs for diagnostics.";
+const GRAPH_MAINTENANCE_STEP_FAILURE: &str =
+    "Graph maintenance step failed. Check server logs for diagnostics.";
 
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
@@ -35,6 +39,27 @@ fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static 
         "AI generation job failed"
     );
     JobResult::Failed(AI_GENERATION_JOB_FAILURE.to_string())
+}
+
+fn model_resolution_job_failure(error: impl std::fmt::Display) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(error_len = diagnostic.len(), "Model resolution failed");
+    JobResult::Failed(MODEL_RESOLUTION_JOB_FAILURE.to_string())
+}
+
+fn graph_maintenance_step_failure(
+    error: impl std::fmt::Display,
+    step: &'static str,
+) -> serde_json::Value {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        step, "Graph maintenance step failed"
+    );
+    serde_json::json!({
+        "status": "failed",
+        "error": GRAPH_MAINTENANCE_STEP_FAILURE,
+    })
 }
 
 /// Extract the target schema from a job's payload.
@@ -80,7 +105,7 @@ fn resolve_gen_backend(
 ) -> Result<Option<Box<dyn GenerationBackend>>, JobResult> {
     registry
         .resolve_gen_override(model_override)
-        .map_err(|e| JobResult::Failed(format!("Model resolution error: {}", e)))
+        .map_err(model_resolution_job_failure)
 }
 
 /// Try to parse a JSON string as `T`. If it's an object wrapping a single array
@@ -6594,11 +6619,7 @@ impl JobHandler for GraphMaintenanceHandler {
                     );
                 }
                 Err(e) => {
-                    warn!(error = %e, "SNN scoring failed");
-                    results.insert(
-                        "snn".to_string(),
-                        serde_json::json!({ "status": "failed", "error": e.to_string() }),
-                    );
+                    results.insert("snn".to_string(), graph_maintenance_step_failure(e, "snn"));
                 }
             }
         }
@@ -6628,10 +6649,9 @@ impl JobHandler for GraphMaintenanceHandler {
                     );
                 }
                 Err(e) => {
-                    warn!(error = %e, "PFNET sparsification failed");
                     results.insert(
                         "pfnet".to_string(),
-                        serde_json::json!({ "status": "failed", "error": e.to_string() }),
+                        graph_maintenance_step_failure(e, "pfnet"),
                     );
                 }
             }
@@ -6660,10 +6680,9 @@ impl JobHandler for GraphMaintenanceHandler {
                     );
                 }
                 Err(e) => {
-                    warn!(error = %e, "Diagnostics snapshot failed");
                     results.insert(
                         "snapshot".to_string(),
-                        serde_json::json!({ "status": "failed", "error": e.to_string() }),
+                        graph_maintenance_step_failure(e, "snapshot"),
                     );
                 }
             }
@@ -7793,5 +7812,39 @@ Quick note about the meeting discussion and action items."#;
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn model_resolution_job_failure_uses_generic_stored_message() {
+        let result = model_resolution_job_failure(
+            "provider resolution failed for https://token:secret@provider.internal/v1 from /srv/fortemi",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, MODEL_RESOLUTION_JOB_FAILURE);
+                assert!(!message.contains("token:secret"));
+                assert!(!message.contains("provider.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("provider resolution failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn graph_maintenance_step_failure_uses_generic_stored_message() {
+        let result = graph_maintenance_step_failure(
+            "database error at postgresql://user:secret@db.internal/app from /srv/fortemi",
+            "snn",
+        );
+
+        assert_eq!(result["status"], "failed");
+        assert_eq!(result["error"], GRAPH_MAINTENANCE_STEP_FAILURE);
+        let serialized = result.to_string();
+        assert!(!serialized.contains("user:secret"));
+        assert!(!serialized.contains("db.internal"));
+        assert!(!serialized.contains("/srv/fortemi"));
+        assert!(!serialized.contains("database error"));
     }
 }
