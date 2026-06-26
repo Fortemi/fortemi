@@ -22629,7 +22629,7 @@ async fn knowledge_archive_download(
 
     // Read backup file
     let backup_data = std::fs::read(&backup_path)
-        .map_err(|e| ApiError::BadRequest(format!("Failed to read backup: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Knowledge archive", "read backup file", e))?;
 
     // Load or create metadata
     let metadata = BackupMetadata::load(&backup_path).unwrap_or_else(|| {
@@ -22664,7 +22664,7 @@ async fn knowledge_archive_download(
     });
 
     let metadata_json = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| ApiError::BadRequest(format!("Failed to serialize metadata: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Knowledge archive", "serialize metadata", e))?;
 
     // Create tar in memory
     let mut tar_data = Vec::new();
@@ -22678,7 +22678,9 @@ async fn knowledge_archive_download(
         header.set_mtime(chrono::Utc::now().timestamp() as u64);
         header.set_cksum();
         tar.append_data(&mut header, &filename, backup_data.as_slice())
-            .map_err(|e| ApiError::BadRequest(format!("Failed to add backup to archive: {}", e)))?;
+            .map_err(|e| {
+                backup_operation_failed("Knowledge archive", "add backup to archive", e)
+            })?;
 
         // Add metadata file
         let metadata_bytes = metadata_json.as_bytes();
@@ -22689,11 +22691,11 @@ async fn knowledge_archive_download(
         meta_header.set_cksum();
         tar.append_data(&mut meta_header, "metadata.json", metadata_bytes)
             .map_err(|e| {
-                ApiError::BadRequest(format!("Failed to add metadata to archive: {}", e))
+                backup_operation_failed("Knowledge archive", "add metadata to archive", e)
             })?;
 
         tar.finish()
-            .map_err(|e| ApiError::BadRequest(format!("Failed to finalize archive: {}", e)))?;
+            .map_err(|e| backup_operation_failed("Knowledge archive", "finalize archive", e))?;
     }
 
     // Generate archive filename
@@ -22732,7 +22734,7 @@ async fn knowledge_archive_upload(
 
     // Ensure backup directory exists
     std::fs::create_dir_all(&backup_dir)
-        .map_err(|e| ApiError::BadRequest(format!("Failed to create backup directory: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Knowledge archive", "create backup directory", e))?;
 
     let mut archive_data: Option<Vec<u8>> = None;
     let mut original_filename: Option<String> = None;
@@ -22741,7 +22743,7 @@ async fn knowledge_archive_upload(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to read upload: {}", e)))?
+        .map_err(|_| ApiError::BadRequest("Invalid multipart archive upload.".to_string()))?
     {
         if field.name() == Some("file") || field.name() == Some("archive") {
             original_filename = field.file_name().map(|s| s.to_string());
@@ -22749,7 +22751,9 @@ async fn knowledge_archive_upload(
                 field
                     .bytes()
                     .await
-                    .map_err(|e| ApiError::BadRequest(format!("Failed to read file data: {}", e)))?
+                    .map_err(|_| {
+                        ApiError::BadRequest("Invalid uploaded archive data.".to_string())
+                    })?
                     .to_vec(),
             );
             break;
@@ -22769,19 +22773,19 @@ async fn knowledge_archive_upload(
 
     for entry in tar_reader
         .entries()
-        .map_err(|e| ApiError::BadRequest(format!("Invalid tar archive: {}", e)))?
+        .map_err(|_| ApiError::BadRequest("Invalid archive format.".to_string()))?
     {
         let mut entry =
-            entry.map_err(|e| ApiError::BadRequest(format!("Failed to read tar entry: {}", e)))?;
+            entry.map_err(|e| backup_operation_failed("Knowledge archive", "read tar entry", e))?;
         let path = entry
             .path()
-            .map_err(|e| ApiError::BadRequest(format!("Invalid path in archive: {}", e)))?
+            .map_err(|_| ApiError::BadRequest("Invalid path in archive.".to_string()))?
             .to_string_lossy()
             .to_string();
 
         let mut contents = Vec::new();
         std::io::Read::read_to_end(&mut entry, &mut contents)
-            .map_err(|e| ApiError::BadRequest(format!("Failed to read entry contents: {}", e)))?;
+            .map_err(|e| backup_operation_failed("Knowledge archive", "read archive entry", e))?;
 
         if path == "metadata.json" {
             metadata = serde_json::from_slice(&contents).ok();
@@ -22823,7 +22827,7 @@ async fn knowledge_archive_upload(
 
     // Write backup file
     std::fs::write(&backup_path, &backup_data)
-        .map_err(|e| ApiError::BadRequest(format!("Failed to write backup: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Knowledge archive", "write backup file", e))?;
 
     // Write or update metadata
     let final_metadata = metadata.unwrap_or_else(|| {
@@ -22835,7 +22839,7 @@ async fn knowledge_archive_upload(
     });
     final_metadata
         .save(&backup_path)
-        .map_err(|e| ApiError::BadRequest(format!("Failed to write metadata: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Knowledge archive", "write metadata", e))?;
 
     let size_bytes = backup_data.len() as u64;
     let size_human = if size_bytes > 1024 * 1024 {
@@ -22989,7 +22993,7 @@ async fn update_backup_metadata(
     // Save updated metadata
     metadata
         .save(&backup_path)
-        .map_err(|e| ApiError::BadRequest(format!("Failed to save metadata: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Backup metadata", "save metadata", e))?;
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -23883,6 +23887,34 @@ mod tests {
         assert!(!body.contains("token=secret"));
         assert!(!body.contains("permission denied"));
         assert!(problem.get("error").is_none());
+    }
+
+    #[tokio::test]
+    async fn knowledge_archive_operation_failed_returns_generic_problem_without_raw_detail() {
+        let err = backup_operation_failed(
+            "Knowledge archive",
+            "read tar entry",
+            "tar entry failed for /srv/fortemi/private/export.archive with postgres://user:secret@db.internal/app",
+        );
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/operation-failed"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Knowledge archive failed. Check server logs for diagnostics."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains("/srv/fortemi"));
+        assert!(!body.contains("postgres://"));
+        assert!(!body.contains("secret"));
+        assert!(!body.contains("tar entry failed"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
     }
 
     #[tokio::test]
