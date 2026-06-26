@@ -22309,10 +22309,7 @@ async fn database_backup_restore(
 
     let backup_path = std::path::Path::new(&backup_dir).join(&req.filename);
     if !backup_path.exists() {
-        return Err(ApiError::NotFound(format!(
-            "Backup not found: {}",
-            req.filename
-        )));
+        return Err(backup_archive_not_found());
     }
 
     // Must be a .sql.gz or .sql file
@@ -22683,10 +22680,7 @@ async fn knowledge_archive_download(
 
     let backup_path = std::path::Path::new(&backup_dir).join(&filename);
     if !backup_path.exists() {
-        return Err(ApiError::NotFound(format!(
-            "Backup not found: {}",
-            filename
-        )));
+        return Err(backup_archive_not_found());
     }
 
     // Read backup file
@@ -22948,10 +22942,7 @@ async fn get_backup_metadata(Path(filename): Path<String>) -> Result<impl IntoRe
 
     let backup_path = std::path::Path::new(&backup_dir).join(&filename);
     if !backup_path.exists() {
-        return Err(ApiError::NotFound(format!(
-            "Backup not found: {}",
-            filename
-        )));
+        return Err(backup_archive_not_found());
     }
 
     // Try to load metadata from sidecar file
@@ -23003,10 +22994,7 @@ async fn update_backup_metadata(
 
     let backup_path = std::path::Path::new(&backup_dir).join(&filename);
     if !backup_path.exists() {
-        return Err(ApiError::NotFound(format!(
-            "Backup not found: {}",
-            filename
-        )));
+        return Err(backup_archive_not_found());
     }
 
     // Determine backup type from filename prefix
@@ -24039,6 +24027,7 @@ mod tests {
     #[tokio::test]
     async fn backup_archive_not_found_does_not_echo_filename() {
         let filename = "tenant-alpha-client-private-memory-secret-token.tar.gz";
+        let sql_backup = "upload_tenant-alpha_postgres-secret_20260626.sql.gz";
         let err = backup_archive_not_found();
         let (status, _headers, problem) = read_problem_response(err).await;
 
@@ -24048,9 +24037,12 @@ mod tests {
 
         let body = problem.to_string();
         assert!(!body.contains(filename));
+        assert!(!body.contains(sql_backup));
         assert!(!body.contains("tenant-alpha"));
+        assert!(!body.contains("postgres-secret"));
         assert!(!body.contains("secret-token"));
         assert!(!body.contains(".tar.gz"));
+        assert!(!body.contains(".sql.gz"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
