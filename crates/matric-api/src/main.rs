@@ -452,6 +452,13 @@ fn invalid_attachment_content_type() -> ApiError {
     )
 }
 
+fn incoming_webhook_schema_validation_failed() -> ApiError {
+    ApiError::BadRequest(
+        "Incoming webhook payload failed schema validation. Check the webhook schema contract."
+            .to_string(),
+    )
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -4937,10 +4944,7 @@ async fn receive_incoming_webhook(
             idempotency_key.is_some(),
         ))
         .await;
-        return Err(ApiError::BadRequest(format!(
-            "incoming webhook schema validation failed: {}",
-            validation.errors.join("; ")
-        )));
+        return Err(incoming_webhook_schema_validation_failed());
     }
 
     let side_effect =
@@ -24456,6 +24460,31 @@ mod tests {
         assert!(!body.contains("token:secret"));
         assert!(!body.contains("provider.internal"));
         assert!(!body.contains("https://token:secret@provider.internal"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn incoming_webhook_schema_validation_does_not_echo_validator_detail() {
+        let raw_validator_detail = "$.customer.email: value secret@example.com failed pattern";
+        let err = incoming_webhook_schema_validation_failed();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Incoming webhook payload failed schema validation. Check the webhook schema contract."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains(raw_validator_detail));
+        assert!(!body.contains("$.customer.email"));
+        assert!(!body.contains("secret@example.com"));
+        assert!(!body.contains("failed pattern"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
