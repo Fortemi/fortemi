@@ -22933,7 +22933,6 @@ fn base64_decode_metadata(b64: &str) -> Option<String> {
 // ERROR HANDLING
 // =============================================================================
 
-#[derive(Debug)]
 #[allow(dead_code)]
 enum ApiError {
     Database(matric_core::Error),
@@ -22962,6 +22961,69 @@ enum ApiError {
         expected_path: String,
         storage_backend: String,
     },
+}
+
+impl fmt::Debug for ApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ApiError::Database(error) => f
+                .debug_struct("ApiError::Database")
+                .field("error_len", &telemetry_text_len(&error.to_string()))
+                .finish(),
+            ApiError::Unauthorized(detail) => f
+                .debug_struct("ApiError::Unauthorized")
+                .field("detail_len", &telemetry_text_len(detail))
+                .finish(),
+            ApiError::Forbidden(detail) => f
+                .debug_struct("ApiError::Forbidden")
+                .field("detail_len", &telemetry_text_len(detail))
+                .finish(),
+            ApiError::NotFound(detail) => f
+                .debug_struct("ApiError::NotFound")
+                .field("detail_len", &telemetry_text_len(detail))
+                .finish(),
+            ApiError::Gone(detail) => f
+                .debug_struct("ApiError::Gone")
+                .field("detail_len", &telemetry_text_len(detail))
+                .finish(),
+            ApiError::BadRequest(detail) => f
+                .debug_struct("ApiError::BadRequest")
+                .field("detail_len", &telemetry_text_len(detail))
+                .finish(),
+            ApiError::Conflict(detail) => f
+                .debug_struct("ApiError::Conflict")
+                .field("detail_len", &telemetry_text_len(detail))
+                .finish(),
+            ApiError::Internal(detail) => f
+                .debug_struct("ApiError::Internal")
+                .field("detail_len", &telemetry_text_len(detail))
+                .finish(),
+            ApiError::OperationFailed { operation, detail } => f
+                .debug_struct("ApiError::OperationFailed")
+                .field("operation", operation)
+                .field("detail_len", &telemetry_text_len(detail))
+                .finish(),
+            ApiError::ProviderFailure { capability, detail } => f
+                .debug_struct("ApiError::ProviderFailure")
+                .field("capability", capability)
+                .field("detail_len", &telemetry_text_len(detail))
+                .finish(),
+            ApiError::ServiceUnavailable(detail) => f
+                .debug_struct("ApiError::ServiceUnavailable")
+                .field("detail_len", &telemetry_text_len(detail))
+                .finish(),
+            ApiError::BlobMissing {
+                attachment_id,
+                expected_path,
+                storage_backend,
+            } => f
+                .debug_struct("ApiError::BlobMissing")
+                .field("attachment_id_set", &(!attachment_id.is_nil()))
+                .field("expected_path_len", &telemetry_text_len(expected_path))
+                .field("storage_backend_len", &telemetry_text_len(storage_backend))
+                .finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37574,6 +37636,51 @@ mod tests {
         assert!(!debug.contains("sk-live-secret"));
         assert!(!debug.contains("operator@example.com"));
         assert!(!debug.contains("018fd1a0-secret-request-id"));
+        assert!(!debug.contains(&attachment_id.to_string()));
+    }
+
+    #[test]
+    fn api_error_debug_redacts_details_and_blob_paths() {
+        let attachment_id =
+            Uuid::parse_str("018fd1a0-0000-7000-8000-000000000456").expect("valid fixture uuid");
+        let errors = vec![
+            ApiError::BadRequest(
+                "postgres://user:secret@db.internal/fortemi /srv/tenant/private sk-live-secret"
+                    .to_string(),
+            ),
+            ApiError::Internal("operator@example.com /var/lib/fortemi/private".to_string()),
+            ApiError::OperationFailed {
+                operation: "restore",
+                detail: "PGPASSWORD=secret psql stderr /srv/backups/private".to_string(),
+            },
+            ApiError::ProviderFailure {
+                capability: "vision",
+                detail: "https://token@example.internal/provider sk-provider-secret".to_string(),
+            },
+            ApiError::BlobMissing {
+                attachment_id,
+                expected_path: "/srv/fortemi/private/blob.bin".to_string(),
+                storage_backend: "local://operator@example.com/private".to_string(),
+            },
+        ];
+
+        let debug = format!("{errors:?}");
+
+        assert!(debug.contains("detail_len"));
+        assert!(debug.contains("expected_path_len"));
+        assert!(debug.contains("storage_backend_len"));
+        assert!(debug.contains("attachment_id_set: true"));
+        assert!(!debug.contains("postgres://user:secret@db.internal/fortemi"));
+        assert!(!debug.contains("/srv/tenant/private"));
+        assert!(!debug.contains("sk-live-secret"));
+        assert!(!debug.contains("operator@example.com"));
+        assert!(!debug.contains("/var/lib/fortemi/private"));
+        assert!(!debug.contains("PGPASSWORD=secret"));
+        assert!(!debug.contains("/srv/backups/private"));
+        assert!(!debug.contains("https://token@example.internal/provider"));
+        assert!(!debug.contains("sk-provider-secret"));
+        assert!(!debug.contains("/srv/fortemi/private/blob.bin"));
+        assert!(!debug.contains("local://operator@example.com/private"));
         assert!(!debug.contains(&attachment_id.to_string()));
     }
 
