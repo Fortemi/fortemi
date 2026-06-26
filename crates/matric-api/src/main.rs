@@ -19089,7 +19089,7 @@ struct ShardExportQuery {
     include: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct MigrationHistoryEntry {
     from_version: String,
     to_version: String,
@@ -19098,7 +19098,19 @@ struct MigrationHistoryEntry {
     changes: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl std::fmt::Debug for MigrationHistoryEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MigrationHistoryEntry")
+            .field("from_version_len", &self.from_version.len())
+            .field("to_version_len", &self.to_version.len())
+            .field("migrated_at", &self.migrated_at)
+            .field("migrated_by_len", &self.migrated_by.len())
+            .field("changes_count", &self.changes.len())
+            .finish()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 struct ShardManifest {
     /// Shard format version (e.g., "1.0.0")
     version: String,
@@ -19122,6 +19134,32 @@ struct ShardManifest {
     /// History of migrations applied to this shard
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     migration_history: Vec<MigrationHistoryEntry>,
+}
+
+impl std::fmt::Debug for ShardManifest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShardManifest")
+            .field("version_len", &self.version.len())
+            .field(
+                "matric_version_len",
+                &self.matric_version.as_ref().map(|value| value.len()),
+            )
+            .field("format_len", &self.format.len())
+            .field("created_at", &self.created_at)
+            .field("components_count", &self.components.len())
+            .field("counts", &self.counts)
+            .field("checksums_count", &self.checksums.len())
+            .field(
+                "min_reader_version_len",
+                &self.min_reader_version.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "migrated_from_len",
+                &self.migrated_from.as_ref().map(|value| value.len()),
+            )
+            .field("migration_history_count", &self.migration_history.len())
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -27369,6 +27407,82 @@ mod tests {
         assert!(json.contains("\"notes\":100"));
         assert!(json.contains("\"links\":50"));
         assert!(json.contains("\"embeddings\":500"));
+    }
+
+    #[test]
+    fn shard_manifest_debug_redacts_versions_checksums_and_migration_details() {
+        let manifest = ShardManifest {
+            version: "2026.6.0-private".to_string(),
+            matric_version: Some("2026.6.0-internal".to_string()),
+            format: "matric-shard-private".to_string(),
+            created_at: Utc::now(),
+            components: vec![
+                "notes-private".to_string(),
+                "embeddings-mm_key_secret".to_string(),
+            ],
+            counts: ShardCounts {
+                notes: 7,
+                collections: 1,
+                tags: 2,
+                templates: 1,
+                links: 3,
+                embedding_sets: 1,
+                embedding_set_members: 4,
+                embeddings: 9,
+                embedding_configs: 1,
+            },
+            checksums: [(
+                "notes-private".to_string(),
+                "sha256:sk-live-secret-digest".to_string(),
+            )]
+            .into_iter()
+            .collect(),
+            min_reader_version: Some("2026.5.0-min-reader".to_string()),
+            migrated_from: Some("2025.12.0-customer".to_string()),
+            migration_history: vec![MigrationHistoryEntry {
+                from_version: "2025.12.0-customer".to_string(),
+                to_version: "2026.6.0-private".to_string(),
+                migrated_at: Utc::now(),
+                migrated_by: "operator@example.com".to_string(),
+                changes: vec![
+                    "renamed tenant secret table".to_string(),
+                    "moved backup path /srv/private/customer".to_string(),
+                ],
+            }],
+        };
+
+        let rendered_manifest = format!("{manifest:?}");
+        let rendered_entry = format!("{:?}", manifest.migration_history[0]);
+        let combined = format!("{rendered_manifest}\n{rendered_entry}");
+
+        assert!(rendered_manifest.contains("ShardManifest"));
+        assert!(rendered_manifest.contains("version_len"));
+        assert!(rendered_manifest.contains("matric_version_len"));
+        assert!(rendered_manifest.contains("format_len"));
+        assert!(rendered_manifest.contains("components_count"));
+        assert!(rendered_manifest.contains("checksums_count"));
+        assert!(rendered_manifest.contains("migration_history_count"));
+        assert!(rendered_entry.contains("MigrationHistoryEntry"));
+        assert!(rendered_entry.contains("from_version_len"));
+        assert!(rendered_entry.contains("to_version_len"));
+        assert!(rendered_entry.contains("migrated_by_len"));
+        assert!(rendered_entry.contains("changes_count"));
+
+        for raw in [
+            "2026.6.0-private",
+            "2026.6.0-internal",
+            "matric-shard-private",
+            "notes-private",
+            "embeddings-mm_key_secret",
+            "sha256:sk-live-secret-digest",
+            "2026.5.0-min-reader",
+            "2025.12.0-customer",
+            "operator@example.com",
+            "renamed tenant secret table",
+            "/srv/private/customer",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
     }
 
     #[test]
