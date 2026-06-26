@@ -65,6 +65,8 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 infer = "0.16"
 dotenvy = "0.15"
 blake3 = "1.5"
+dirs = "5"
+toml = "0.8"
 
 # Extraction adapters
 mailparse = "0.16"

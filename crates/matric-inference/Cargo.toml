@@ -34,6 +34,8 @@ chrono = { workspace = true }
 
 # Regex for LLM-as-Judge parsing
 regex.workspace = true
+dirs.workspace = true
+toml.workspace = true
 
 # Base64 encoding for vision backend
 base64.workspace = true

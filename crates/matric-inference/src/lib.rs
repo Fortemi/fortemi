@@ -35,6 +35,7 @@
 
 pub mod capabilities;
 pub mod circuit_breaker;
+pub mod config;
 pub mod diarization;
 pub mod discovery;
 pub mod embedding_models;

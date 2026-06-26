@@ -80,7 +80,7 @@ impl fmt::Display for InferenceBackend {
 }
 
 /// Ollama backend configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct OllamaConfig {
     /// Base URL for Ollama API.
     pub base_url: String,
@@ -88,6 +88,19 @@ pub struct OllamaConfig {
     pub generation_model: String,
     /// Model to use for embeddings.
     pub embedding_model: String,
+}
+
+impl fmt::Debug for OllamaConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OllamaConfig")
+            .field("base_url_len", &self.base_url.chars().count())
+            .field(
+                "generation_model_len",
+                &self.generation_model.chars().count(),
+            )
+            .field("embedding_model_len", &self.embedding_model.chars().count())
+            .finish()
+    }
 }
 
 impl Default for OllamaConfig {
@@ -112,8 +125,8 @@ impl OllamaConfig {
         // Basic URL validation
         if !self.base_url.starts_with("http://") && !self.base_url.starts_with("https://") {
             return Err(ConfigError::Validation(format!(
-                "Ollama base_url must start with http:// or https://, got: {}",
-                self.base_url
+                "Ollama base_url must start with http:// or https://; submitted value length: {}",
+                self.base_url.chars().count()
             )));
         }
 
@@ -134,7 +147,7 @@ impl OllamaConfig {
 }
 
 /// OpenAI backend configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct OpenAIConfig {
     /// Base URL for OpenAI-compatible API.
     pub base_url: String,
@@ -145,6 +158,24 @@ pub struct OpenAIConfig {
     pub generation_model: String,
     /// Model to use for embeddings.
     pub embedding_model: String,
+}
+
+impl fmt::Debug for OpenAIConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OpenAIConfig")
+            .field("base_url_len", &self.base_url.chars().count())
+            .field("api_key_present", &self.api_key.is_some())
+            .field(
+                "api_key_len",
+                &self.api_key.as_ref().map(|value| value.chars().count()),
+            )
+            .field(
+                "generation_model_len",
+                &self.generation_model.chars().count(),
+            )
+            .field("embedding_model_len", &self.embedding_model.chars().count())
+            .finish()
+    }
 }
 
 impl Default for OpenAIConfig {
@@ -170,8 +201,8 @@ impl OpenAIConfig {
         // Basic URL validation
         if !self.base_url.starts_with("http://") && !self.base_url.starts_with("https://") {
             return Err(ConfigError::Validation(format!(
-                "OpenAI base_url must start with http:// or https://, got: {}",
-                self.base_url
+                "OpenAI base_url must start with http:// or https://; submitted value length: {}",
+                self.base_url.chars().count()
             )));
         }
 
@@ -321,7 +352,7 @@ pub enum BackendHealth {
 }
 
 /// Main inference configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct InferenceConfig {
     /// Default backend to use.
     pub default: InferenceBackend,
@@ -337,6 +368,18 @@ pub struct InferenceConfig {
     /// Fallback configuration for automatic failover.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<FallbackConfig>,
+}
+
+impl fmt::Debug for InferenceConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InferenceConfig")
+            .field("default", &self.default)
+            .field("ollama", &self.ollama)
+            .field("openai", &self.openai)
+            .field("routing", &self.routing)
+            .field("fallback", &self.fallback)
+            .finish()
+    }
 }
 
 impl Default for InferenceConfig {
@@ -602,6 +645,15 @@ impl InferenceConfig {
 mod tests {
     use super::*;
 
+    fn assert_text_excludes(text: &str, secrets: &[&str]) {
+        for secret in secrets {
+            assert!(
+                !text.contains(secret),
+                "text leaked secret `{secret}`: {text}"
+            );
+        }
+    }
+
     #[test]
     fn test_env_var_substitution_with_value() {
         // Create test content with a placeholder
@@ -655,5 +707,82 @@ mod tests {
         }
         let test: Test = toml::from_str(toml_str).unwrap();
         assert_eq!(test.default, InferenceBackend::Ollama);
+    }
+
+    #[test]
+    fn inference_config_debug_redacts_urls_keys_and_models() {
+        let config = InferenceConfig {
+            default: InferenceBackend::OpenAI,
+            ollama: Some(OllamaConfig {
+                base_url: "http://ollama.internal:11434/path?token=sk-secret".to_string(),
+                generation_model: "tenant-private/generation-model".to_string(),
+                embedding_model: "tenant-private/embedding-model".to_string(),
+            }),
+            openai: Some(OpenAIConfig {
+                base_url: "https://user:pass@api.internal/v1?token=sk-secret-url".to_string(),
+                api_key: Some("sk-secret-openai-key".to_string()),
+                generation_model: "gpt-private-owner@example.internal".to_string(),
+                embedding_model: "embed-private-/srv/fortemi/private".to_string(),
+            }),
+            routing: Some(RoutingConfig {
+                embedding: Some(InferenceBackend::OpenAI),
+                generation: Some(InferenceBackend::Ollama),
+            }),
+            fallback: Some(FallbackConfig {
+                enabled: true,
+                chain: vec![InferenceBackend::OpenAI, InferenceBackend::Ollama],
+                max_retries: 2,
+                health_check_timeout_secs: 7,
+            }),
+        };
+
+        let debug = format!("{config:?}");
+        assert!(debug.contains("InferenceConfig"));
+        assert!(debug.contains("base_url_len"));
+        assert!(debug.contains("api_key_present"));
+        assert_text_excludes(
+            &debug,
+            &[
+                "http://ollama.internal:11434/path?token=sk-secret",
+                "tenant-private/generation-model",
+                "tenant-private/embedding-model",
+                "https://user:pass@api.internal/v1?token=sk-secret-url",
+                "sk-secret-openai-key",
+                "gpt-private-owner@example.internal",
+                "embed-private-/srv/fortemi/private",
+            ],
+        );
+    }
+
+    #[test]
+    fn inference_config_validation_errors_redact_invalid_base_urls() {
+        let ollama = OllamaConfig {
+            base_url: "postgres://ollama:secret@db.internal/path".to_string(),
+            generation_model: "qwen3:8b".to_string(),
+            embedding_model: "nomic-embed-text".to_string(),
+        };
+        let openai = OpenAIConfig {
+            base_url: "ftp://user:secret@api.internal/v1?token=sk-secret-url".to_string(),
+            api_key: Some("sk-secret-openai-key".to_string()),
+            generation_model: "gpt-4o-mini".to_string(),
+            embedding_model: "text-embedding-3-small".to_string(),
+        };
+
+        let ollama_error = ollama.validate().unwrap_err().to_string();
+        assert!(ollama_error.contains("submitted value length"));
+        assert_text_excludes(
+            &ollama_error,
+            &["postgres://ollama:secret@db.internal/path", "secret"],
+        );
+
+        let openai_error = openai.validate().unwrap_err().to_string();
+        assert!(openai_error.contains("submitted value length"));
+        assert_text_excludes(
+            &openai_error,
+            &[
+                "ftp://user:secret@api.internal/v1?token=sk-secret-url",
+                "sk-secret-openai-key",
+            ],
+        );
     }
 }
