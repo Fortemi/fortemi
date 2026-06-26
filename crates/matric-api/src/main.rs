@@ -5250,8 +5250,17 @@ async fn normalize_route_policy_input_for_authorization(
         state.db.webhooks.get(webhook_id)
     })
     .await;
-    normalize_inbound_source_route_policy_input(input, |source_name| async move {
+    let input = normalize_inbound_source_route_policy_input(input, |source_name| async move {
         state.db.inbound_sources.get_by_name(&source_name).await
+    })
+    .await;
+    normalize_pke_keyset_route_policy_input(input, |name_or_id| async move {
+        let keyset = if let Ok(keyset_id) = Uuid::parse_str(&name_or_id) {
+            state.db.pke_keysets.get_by_id(keyset_id).await
+        } else {
+            state.db.pke_keysets.get_by_name(&name_or_id).await
+        }?;
+        Ok(keyset.map(PkeKeysetResourceMetadata::from))
     })
     .await
 }
@@ -5739,6 +5748,95 @@ where
         }
         Err(err) => {
             tracing::warn!(error = %err, "authorization inbound source normalization lookup failed");
+        }
+    }
+
+    input
+}
+
+#[derive(Clone, Debug)]
+struct PkeKeysetResourceMetadata {
+    id: Uuid,
+    name: String,
+    address: String,
+    label: Option<String>,
+}
+
+impl From<matric_db::PkeKeyset> for PkeKeysetResourceMetadata {
+    fn from(keyset: matric_db::PkeKeyset) -> Self {
+        Self {
+            id: keyset.id,
+            name: keyset.name,
+            address: keyset.address,
+            label: keyset.label,
+        }
+    }
+}
+
+async fn normalize_pke_keyset_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    keyset_lookup: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<PkeKeysetResourceMetadata>>>,
+{
+    if input.policy.action_family != "pke_keyset"
+        || input
+            .resource
+            .attrs
+            .get("resource_id_param")
+            .and_then(|value| value.as_str())
+            != Some("name_or_id")
+        || !input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        return input;
+    }
+
+    let Some(name_or_id) = input.resource.id.clone() else {
+        return input;
+    };
+
+    match keyset_lookup(name_or_id).await {
+        Ok(Some(keyset)) => {
+            route_policy::mark_resource_id_normalized(&mut input);
+            input
+                .resource
+                .attrs
+                .insert("pke_keyset_id".to_string(), serde_json::json!(keyset.id));
+            input.resource.attrs.insert(
+                "pke_keyset_name".to_string(),
+                serde_json::json!(keyset.name),
+            );
+            input.resource.attrs.insert(
+                "pke_keyset_address".to_string(),
+                serde_json::json!(keyset.address),
+            );
+            if let Some(label) = keyset.label {
+                input
+                    .resource
+                    .attrs
+                    .insert("pke_keyset_label".to_string(), serde_json::json!(label));
+            }
+        }
+        Ok(None) => {
+            tracing::warn!(
+                "authorization resource normalization skipped: PKE keyset does not exist"
+            );
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "authorization PKE keyset normalization lookup failed");
         }
     }
 
@@ -22890,6 +22988,186 @@ mod tests {
         assert_eq!(normalized.policy.action_family, "webhook_control");
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
         assert!(normalized.resource.attrs.get("inbound_source_id").is_none());
+    }
+
+    fn test_pke_keyset_metadata(name: &str) -> PkeKeysetResourceMetadata {
+        PkeKeysetResourceMetadata {
+            id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000008").unwrap(),
+            name: name.to_string(),
+            address: "mm:example-address".to_string(),
+            label: Some("Primary".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn existing_pke_keyset_route_name_is_marked_normalized_with_safe_metadata() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/pke/keysets/primary/export",
+            Some("tenant-a"),
+        )
+        .expect("PKE keyset export route has policy input");
+
+        let normalized = normalize_pke_keyset_route_policy_input(input, |lookup_name| async move {
+            assert_eq!(lookup_name, "primary");
+            Ok(Some(test_pke_keyset_metadata("primary")))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert_eq!(
+            normalized.resource.attrs["pke_keyset_id"],
+            serde_json::json!(Uuid::parse_str("018fd1a0-0000-7000-8000-000000000008").unwrap())
+        );
+        assert_eq!(normalized.resource.attrs["pke_keyset_name"], "primary");
+        assert_eq!(
+            normalized.resource.attrs["pke_keyset_address"],
+            "mm:example-address"
+        );
+        assert_eq!(normalized.resource.attrs["pke_keyset_label"], "Primary");
+        assert!(normalized.resource.attrs.get("pke_public_key").is_none());
+        assert!(normalized
+            .resource
+            .attrs
+            .get("pke_encrypted_private_key")
+            .is_none());
+        assert!(normalized
+            .resource
+            .attrs
+            .get("pke_keyset_private_key")
+            .is_none());
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn existing_pke_keyset_route_uuid_is_marked_normalized_with_safe_metadata() {
+        let keyset_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000008").unwrap();
+        let input = route_policy::authorization_input_for_request(
+            &Method::PUT,
+            "/api/v1/pke/keysets/018fd1a0-0000-7000-8000-000000000008/active",
+            Some("tenant-a"),
+        )
+        .expect("PKE keyset active route has policy input");
+
+        let normalized =
+            normalize_pke_keyset_route_policy_input(input, |lookup_name_or_id| async move {
+                assert_eq!(lookup_name_or_id, keyset_id.to_string());
+                Ok(Some(test_pke_keyset_metadata("primary")))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert_eq!(
+            normalized.resource.attrs["pke_keyset_id"],
+            serde_json::json!(keyset_id)
+        );
+        assert_eq!(normalized.resource.attrs["pke_keyset_name"], "primary");
+        assert_eq!(
+            normalized.resource.attrs["pke_keyset_address"],
+            "mm:example-address"
+        );
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_pke_keyset_route_stays_unnormalized_after_backing_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/pke/keysets/missing",
+            Some("tenant-a"),
+        )
+        .expect("PKE keyset delete route has policy input");
+
+        let normalized = normalize_pke_keyset_route_policy_input(
+            input,
+            |_lookup_name_or_id| async move { Ok(None) },
+        )
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("pke_keyset_id").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn pke_keyset_normalization_lookup_error_preserves_fail_closed_guard() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/pke/keysets/primary/export",
+            Some("tenant-a"),
+        )
+        .expect("PKE keyset export route has policy input");
+
+        let normalized =
+            normalize_pke_keyset_route_policy_input(input, |_lookup_name_or_id| async move {
+                Err(matric_core::Error::Internal("lookup failed".to_string()))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn pke_keyset_collection_routes_do_not_run_name_or_id_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/pke/keysets/active",
+            None,
+        )
+        .expect("PKE keyset active collection route has policy input");
+        assert_eq!(
+            input.resource.kind,
+            ResourceKind::Other("pke_keyset".to_string())
+        );
+        assert_eq!(input.policy.action_family, "pke_keyset");
+        assert_eq!(input.resource.attrs["resource_id_source"], "route_template");
+
+        let normalized =
+            normalize_pke_keyset_route_policy_input(input, |_lookup_name_or_id| async move {
+                panic!("PKE keyset collection routes must not perform name/id lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_pke_keyset_metadata("unused")))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert!(normalized.resource.attrs.get("pke_keyset_id").is_none());
+    }
+
+    #[tokio::test]
+    async fn inbound_source_routes_do_not_run_pke_keyset_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/inbound-sources/redis-events",
+            Some("tenant-a"),
+        )
+        .expect("inbound source route has policy input");
+        assert_eq!(input.policy.action_family, "inbound_connector");
+
+        let normalized =
+            normalize_pke_keyset_route_policy_input(input, |_lookup_name_or_id| async move {
+                panic!("inbound source routes must not perform PKE keyset lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_pke_keyset_metadata("unused")))
+            })
+            .await;
+
+        assert_eq!(normalized.policy.action_family, "inbound_connector");
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("pke_keyset_id").is_none());
     }
 
     #[tokio::test]
