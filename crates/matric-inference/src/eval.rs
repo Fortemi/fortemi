@@ -15,12 +15,13 @@ use crate::capabilities::{Capability, CapabilityRating, ModelCapabilities, Quali
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 /// Evaluation result for a single test case.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct EvalResult {
     /// Test case identifier.
     pub test_id: String,
@@ -38,8 +39,22 @@ pub struct EvalResult {
     pub notes: Option<String>,
 }
 
+impl fmt::Debug for EvalResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EvalResult")
+            .field("test_id_len", &self.test_id.len())
+            .field("passed", &self.passed)
+            .field("score", &self.score)
+            .field("latency_ms", &self.latency_ms)
+            .field("output_len", &self.output.len())
+            .field("expected_len", &self.expected.as_ref().map(String::len))
+            .field("notes_len", &self.notes.as_ref().map(String::len))
+            .finish()
+    }
+}
+
 /// Summary of evaluation results for a suite.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct EvalSummary {
     /// Suite name.
     pub suite: String,
@@ -61,6 +76,23 @@ pub struct EvalSummary {
     pub latency_p50_ms: u64,
     /// P95 latency.
     pub latency_p95_ms: u64,
+}
+
+impl fmt::Debug for EvalSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EvalSummary")
+            .field("suite_len", &self.suite.len())
+            .field("model_len", &self.model.len())
+            .field("capability", &self.capability)
+            .field("passed", &self.passed)
+            .field("total", &self.total)
+            .field("pass_rate", &self.pass_rate)
+            .field("avg_score", &self.avg_score)
+            .field("tier", &self.tier)
+            .field("latency_p50_ms", &self.latency_p50_ms)
+            .field("latency_p95_ms", &self.latency_p95_ms)
+            .finish()
+    }
 }
 
 impl EvalSummary {
@@ -117,7 +149,7 @@ impl EvalSummary {
 }
 
 /// Test case for title generation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TitleTestCase {
     /// Test case ID.
     pub id: String,
@@ -129,8 +161,27 @@ pub struct TitleTestCase {
     pub max_length: usize,
 }
 
+impl fmt::Debug for TitleTestCase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TitleTestCase")
+            .field("id_len", &self.id.len())
+            .field("content_len", &self.content.len())
+            .field("expected_keyword_count", &self.expected_keywords.len())
+            .field(
+                "expected_keyword_total_len",
+                &self
+                    .expected_keywords
+                    .iter()
+                    .map(String::len)
+                    .sum::<usize>(),
+            )
+            .field("max_length", &self.max_length)
+            .finish()
+    }
+}
+
 /// Test case for semantic similarity.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SemanticTestCase {
     /// Test case ID.
     pub id: String,
@@ -142,8 +193,27 @@ pub struct SemanticTestCase {
     pub negative: Vec<String>,
 }
 
+impl fmt::Debug for SemanticTestCase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SemanticTestCase")
+            .field("id_len", &self.id.len())
+            .field("query_len", &self.query.len())
+            .field("positive_count", &self.positive.len())
+            .field(
+                "positive_total_len",
+                &self.positive.iter().map(String::len).sum::<usize>(),
+            )
+            .field("negative_count", &self.negative.len())
+            .field(
+                "negative_total_len",
+                &self.negative.iter().map(String::len).sum::<usize>(),
+            )
+            .finish()
+    }
+}
+
 /// Test case for content revision.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct RevisionTestCase {
     /// Test case ID.
     pub id: String,
@@ -155,8 +225,35 @@ pub struct RevisionTestCase {
     pub forbidden_elements: Vec<String>,
 }
 
+impl fmt::Debug for RevisionTestCase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RevisionTestCase")
+            .field("id_len", &self.id.len())
+            .field("input_len", &self.input.len())
+            .field("required_element_count", &self.required_elements.len())
+            .field(
+                "required_element_total_len",
+                &self
+                    .required_elements
+                    .iter()
+                    .map(String::len)
+                    .sum::<usize>(),
+            )
+            .field("forbidden_element_count", &self.forbidden_elements.len())
+            .field(
+                "forbidden_element_total_len",
+                &self
+                    .forbidden_elements
+                    .iter()
+                    .map(String::len)
+                    .sum::<usize>(),
+            )
+            .finish()
+    }
+}
+
 /// Test case for tag generation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TagTestCase {
     /// Test case ID.
     pub id: String,
@@ -170,8 +267,28 @@ pub struct TagTestCase {
     pub max_tags: usize,
 }
 
+impl fmt::Debug for TagTestCase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TagTestCase")
+            .field("id_len", &self.id.len())
+            .field("content_len", &self.content.len())
+            .field("expected_tag_count", &self.expected_tags.len())
+            .field(
+                "expected_tag_total_len",
+                &self.expected_tags.iter().map(String::len).sum::<usize>(),
+            )
+            .field("forbidden_tag_count", &self.forbidden_tags.len())
+            .field(
+                "forbidden_tag_total_len",
+                &self.forbidden_tags.iter().map(String::len).sum::<usize>(),
+            )
+            .field("max_tags", &self.max_tags)
+            .finish()
+    }
+}
+
 /// Format constraint for format compliance testing.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct FormatConstraint {
     /// Type of constraint (e.g., "max_words", "format", "language").
     #[serde(rename = "type")]
@@ -180,8 +297,18 @@ pub struct FormatConstraint {
     pub value: serde_json::Value,
 }
 
+impl fmt::Debug for FormatConstraint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = self.value.to_string();
+        f.debug_struct("FormatConstraint")
+            .field("constraint_type_len", &self.constraint_type.len())
+            .field("value_len", &value.len())
+            .finish()
+    }
+}
+
 /// Test case for format compliance (IFEval-style).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct FormatTestCase {
     /// Test case ID.
     pub id: String,
@@ -191,8 +318,18 @@ pub struct FormatTestCase {
     pub constraints: Vec<FormatConstraint>,
 }
 
+impl fmt::Debug for FormatTestCase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FormatTestCase")
+            .field("id_len", &self.id.len())
+            .field("prompt_len", &self.prompt.len())
+            .field("constraint_count", &self.constraints.len())
+            .finish()
+    }
+}
+
 /// Test case for semantic linking/context generation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ContextTestCase {
     /// Test case ID.
     pub id: String,
@@ -206,8 +343,39 @@ pub struct ContextTestCase {
     pub unrelated_notes: Vec<String>,
 }
 
+impl fmt::Debug for ContextTestCase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ContextTestCase")
+            .field("id_len", &self.id.len())
+            .field("note_content_len", &self.note_content.len())
+            .field("related_note_count", &self.related_notes.len())
+            .field(
+                "related_note_total_len",
+                &self.related_notes.iter().map(String::len).sum::<usize>(),
+            )
+            .field(
+                "expected_connection_count",
+                &self.expected_connections.len(),
+            )
+            .field(
+                "expected_connection_total_len",
+                &self
+                    .expected_connections
+                    .iter()
+                    .map(String::len)
+                    .sum::<usize>(),
+            )
+            .field("unrelated_note_count", &self.unrelated_notes.len())
+            .field(
+                "unrelated_note_total_len",
+                &self.unrelated_notes.iter().map(String::len).sum::<usize>(),
+            )
+            .finish()
+    }
+}
+
 /// Test case for long context evaluation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct LongContextTestCase {
     /// Test case ID.
     pub id: String,
@@ -219,6 +387,22 @@ pub struct LongContextTestCase {
     pub expected_facts: Vec<String>,
     /// Context length in words.
     pub context_length_words: usize,
+}
+
+impl fmt::Debug for LongContextTestCase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LongContextTestCase")
+            .field("id_len", &self.id.len())
+            .field("context_len", &self.context.len())
+            .field("query_len", &self.query.len())
+            .field("expected_fact_count", &self.expected_facts.len())
+            .field(
+                "expected_fact_total_len",
+                &self.expected_facts.iter().map(String::len).sum::<usize>(),
+            )
+            .field("context_length_words", &self.context_length_words)
+            .finish()
+    }
 }
 
 /// Evaluation tier for test suite sizing.
@@ -257,7 +441,7 @@ impl EvalTier {
 }
 
 /// Judge prompt template for LLM-as-Judge evaluation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct JudgePrompt {
     pub name: String,
     #[serde(rename = "type")]
@@ -270,6 +454,20 @@ pub struct JudgePrompt {
     pub scoring: Option<ScoringConfig>,
 }
 
+impl fmt::Debug for JudgePrompt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JudgePrompt")
+            .field("name_len", &self.name.len())
+            .field("prompt_type_len", &self.prompt_type.len())
+            .field("category_len", &self.category.len())
+            .field("system_prompt_len", &self.system_prompt.len())
+            .field("prompt_template_len", &self.prompt_template.len())
+            .field("output_format_len", &self.output_format.len())
+            .field("scoring", &self.scoring)
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScoringConfig {
     pub min: i32,
@@ -277,13 +475,25 @@ pub struct ScoringConfig {
 }
 
 /// Result from an LLM judge evaluation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct JudgeResult {
     pub prompt_name: String,
     pub score: Option<f32>,     // For single evaluations (1-10)
     pub winner: Option<String>, // For pairwise ("A", "B", or "C")
     pub reasoning: String,
     pub raw_output: String,
+}
+
+impl fmt::Debug for JudgeResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JudgeResult")
+            .field("prompt_name_len", &self.prompt_name.len())
+            .field("score", &self.score)
+            .field("winner_len", &self.winner.as_ref().map(String::len))
+            .field("reasoning_len", &self.reasoning.len())
+            .field("raw_output_len", &self.raw_output.len())
+            .finish()
+    }
 }
 
 /// Load test cases from JSONL file.
@@ -855,7 +1065,7 @@ pub fn evaluate_semantic(
 }
 
 /// Full evaluation report.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct EvalReport {
     /// Model evaluated.
     pub model: String,
@@ -865,6 +1075,17 @@ pub struct EvalReport {
     pub summaries: HashMap<Capability, EvalSummary>,
     /// Derived model capabilities.
     pub capabilities: ModelCapabilities,
+}
+
+impl fmt::Debug for EvalReport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EvalReport")
+            .field("model_len", &self.model.len())
+            .field("timestamp_len", &self.timestamp.len())
+            .field("summary_count", &self.summaries.len())
+            .field("capabilities_present", &true)
+            .finish()
+    }
 }
 
 impl EvalReport {
@@ -1246,6 +1467,123 @@ mod tests {
         assert_eq!(cases[0].context_length_words, 1000);
 
         std::fs::remove_file(test_file).ok();
+    }
+
+    #[test]
+    fn eval_debug_redacts_cases_outputs_prompts_and_reports() {
+        let result = EvalResult {
+            test_id: "case-jane@example.com".to_string(),
+            passed: false,
+            score: 0.4,
+            latency_ms: 123,
+            output: "Generated output with sk-private and +1-555-0100".to_string(),
+            expected: Some("Expected private answer for jane@example.com".to_string()),
+            notes: Some("Backend note https://tenant.example".to_string()),
+        };
+        let summary = EvalSummary::from_results(
+            "suite-jane@example.com",
+            "model-sk-private",
+            Capability::TitleGeneration,
+            std::slice::from_ref(&result),
+        );
+        let title = TitleTestCase {
+            id: "title-jane@example.com".to_string(),
+            content: "Private note sk-private".to_string(),
+            expected_keywords: vec!["jane@example.com".to_string()],
+            max_length: 80,
+        };
+        let semantic = SemanticTestCase {
+            id: "semantic-private".to_string(),
+            query: "Query with https://tenant.example".to_string(),
+            positive: vec!["positive jane@example.com".to_string()],
+            negative: vec!["negative sk-private".to_string()],
+        };
+        let revision = RevisionTestCase {
+            id: "revision-private".to_string(),
+            input: "Input +1-555-0100".to_string(),
+            required_elements: vec!["required jane@example.com".to_string()],
+            forbidden_elements: vec!["forbidden sk-private".to_string()],
+        };
+        let tag = TagTestCase {
+            id: "tag-private".to_string(),
+            content: "Content jane@example.com".to_string(),
+            expected_tags: vec!["tag/sk-private".to_string()],
+            forbidden_tags: vec!["private".to_string()],
+            max_tags: 5,
+        };
+        let format_case = FormatTestCase {
+            id: "format-private".to_string(),
+            prompt: "Prompt with sk-private".to_string(),
+            constraints: vec![FormatConstraint {
+                constraint_type: "contains".to_string(),
+                value: serde_json::json!("jane@example.com"),
+            }],
+        };
+        let context = ContextTestCase {
+            id: "context-private".to_string(),
+            note_content: "Note jane@example.com".to_string(),
+            related_notes: vec!["Related sk-private".to_string()],
+            expected_connections: vec!["https://tenant.example".to_string()],
+            unrelated_notes: vec!["+1-555-0100".to_string()],
+        };
+        let long_context = LongContextTestCase {
+            id: "long-private".to_string(),
+            context: "Long context sk-private".to_string(),
+            query: "Query jane@example.com".to_string(),
+            expected_facts: vec!["fact https://tenant.example".to_string()],
+            context_length_words: 999,
+        };
+        let judge_prompt = JudgePrompt {
+            name: "judge-jane@example.com".to_string(),
+            prompt_type: "single".to_string(),
+            category: "private".to_string(),
+            system_prompt: "System sk-private".to_string(),
+            prompt_template: "Template https://tenant.example".to_string(),
+            output_format: "JSON with jane@example.com".to_string(),
+            scoring: Some(ScoringConfig { min: 1, max: 10 }),
+        };
+        let judge_result = JudgeResult {
+            prompt_name: "judge-jane@example.com".to_string(),
+            score: Some(6.0),
+            winner: Some("winner-sk-private".to_string()),
+            reasoning: "Reasoning mentions https://tenant.example".to_string(),
+            raw_output: "Raw output jane@example.com".to_string(),
+        };
+        let mut report = EvalReport::new("model-jane@example.com");
+        report.add_summary(summary.clone());
+
+        let debug = format!(
+            "{:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?}",
+            result,
+            summary,
+            title,
+            semantic,
+            revision,
+            tag,
+            format_case,
+            context,
+            long_context,
+            judge_prompt,
+            judge_result,
+            report
+        );
+
+        assert!(debug.contains("output_len"));
+        assert!(debug.contains("model_len"));
+        assert!(debug.contains("content_len"));
+        assert!(debug.contains("query_len"));
+        assert!(debug.contains("prompt_len"));
+        assert!(debug.contains("reasoning_len"));
+        assert!(debug.contains("summary_count"));
+        assert!(!debug.contains("jane@example.com"));
+        assert!(!debug.contains("sk-private"));
+        assert!(!debug.contains("tenant.example"));
+        assert!(!debug.contains("+1-555-0100"));
+        assert!(!debug.contains("Generated output"));
+        assert!(!debug.contains("Expected private"));
+        assert!(!debug.contains("System sk"));
+        assert!(!debug.contains("Reasoning mentions"));
+        assert!(!debug.contains("Raw output"));
     }
 
     #[test]
