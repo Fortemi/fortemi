@@ -46,11 +46,12 @@ use matric_core::{
     AllowAllPolicy, ArchiveRepository, AttachmentStatus, AuditEvent, AuditFailurePolicy,
     AuditOutcome, AuditSeverity, AuditSink, AuditSource, AuditVisibilityClass, AuthPrincipal,
     AuthorizationPolicy, AuthorizationServerMetadata, BatchTagNoteRequest,
-    ClientRegistrationRequest, CreateApiKeyRequest, CreateNoteRequest, Decision, DenyReason,
-    DocumentTypeRepository, EventBus, EventContext, EventEnvelope, ExtractionAdapter,
-    ExtractionStrategy, JobRepository, JobType, ListNotesRequest, NoteRepository, OAuthError,
-    ResourceKind, RevisionMode, RoleBasedPolicy, ServerEvent, StrictTagFilterInput, TagInput,
-    TagRepository, TokenRequest, TracingSink, UpdateNoteStatusRequest,
+    ClientRegistrationRequest, CollectionRepository, CreateApiKeyRequest, CreateNoteRequest,
+    Decision, DenyReason, DocumentTypeRepository, EventBus, EventContext, EventEnvelope,
+    ExtractionAdapter, ExtractionStrategy, JobRepository, JobType, ListNotesRequest,
+    NoteRepository, OAuthError, ResourceKind, RevisionMode, RoleBasedPolicy, ServerEvent,
+    StrictTagFilterInput, TagInput, TagRepository, TokenRequest, TracingSink,
+    UpdateNoteStatusRequest,
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_db::{Database, FileSource, FilesystemBackend};
@@ -5235,6 +5236,10 @@ async fn normalize_route_policy_input_for_authorization(
         state.db.archives.get_archive_by_name(&archive_name).await
     })
     .await;
+    let input = normalize_collection_route_policy_input(input, |collection_id| {
+        state.db.collections.get(collection_id)
+    })
+    .await;
     let input =
         normalize_document_type_route_policy_input(input, |document_type_name| async move {
             state
@@ -5431,6 +5436,107 @@ where
         }
         Err(err) => {
             tracing::warn!(error = %err, "authorization archive normalization lookup failed");
+        }
+    }
+
+    input
+}
+
+#[derive(Clone, Debug)]
+struct CollectionResourceMetadata {
+    id: Uuid,
+    name: String,
+    parent_id: Option<Uuid>,
+    note_count: i64,
+}
+
+impl From<matric_core::Collection> for CollectionResourceMetadata {
+    fn from(collection: matric_core::Collection) -> Self {
+        Self {
+            id: collection.id,
+            name: collection.name,
+            parent_id: collection.parent_id,
+            note_count: collection.note_count,
+        }
+    }
+}
+
+async fn normalize_collection_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    collection_lookup: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(Uuid) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<matric_core::Collection>>>,
+{
+    if input.resource.kind != ResourceKind::Collection
+        || input
+            .resource
+            .attrs
+            .get("resource_id_param")
+            .and_then(|value| value.as_str())
+            != Some("id")
+        || !input
+            .resource
+            .attrs
+            .get("route_template")
+            .and_then(|value| value.as_str())
+            .is_some_and(|template| template.starts_with("/api/v1/collections/{id}"))
+        || !input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        return input;
+    }
+
+    let Some(collection_id) = input
+        .resource
+        .id
+        .as_deref()
+        .and_then(|id| Uuid::parse_str(id).ok())
+    else {
+        return input;
+    };
+
+    match collection_lookup(collection_id).await {
+        Ok(Some(collection)) => {
+            let collection = CollectionResourceMetadata::from(collection);
+            route_policy::mark_resource_id_normalized(&mut input);
+            input.resource.attrs.insert(
+                "collection_id".to_string(),
+                serde_json::json!(collection.id),
+            );
+            input.resource.attrs.insert(
+                "collection_name".to_string(),
+                serde_json::json!(collection.name),
+            );
+            if let Some(parent_id) = collection.parent_id {
+                input.resource.attrs.insert(
+                    "parent_collection_id".to_string(),
+                    serde_json::json!(parent_id),
+                );
+            }
+            input.resource.attrs.insert(
+                "collection_note_count".to_string(),
+                serde_json::json!(collection.note_count),
+            );
+        }
+        Ok(None) => {
+            tracing::warn!(
+                "authorization resource normalization skipped: collection does not exist"
+            );
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "authorization collection normalization lookup failed");
         }
     }
 
@@ -22418,6 +22524,167 @@ mod tests {
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
         assert!(normalized.resource.attrs.get("archive_id").is_none());
+    }
+
+    fn test_collection(id: Uuid, parent_id: Option<Uuid>) -> matric_core::Collection {
+        matric_core::Collection {
+            id,
+            name: "Research".to_string(),
+            description: Some("not-for-policy-metadata".to_string()),
+            parent_id,
+            created_at_utc: chrono::Utc::now(),
+            note_count: 12,
+        }
+    }
+
+    #[tokio::test]
+    async fn existing_collection_route_id_is_marked_normalized_with_safe_metadata() {
+        let collection_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000009").unwrap();
+        let parent_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000010").unwrap();
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/collections/018fd1a0-0000-7000-8000-000000000009",
+            Some("tenant-a"),
+        )
+        .expect("collection route has policy input");
+
+        let normalized = normalize_collection_route_policy_input(input, |lookup_id| async move {
+            assert_eq!(lookup_id, collection_id);
+            Ok(Some(test_collection(collection_id, Some(parent_id))))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert_eq!(
+            normalized.resource.attrs["collection_id"],
+            serde_json::json!(collection_id)
+        );
+        assert_eq!(normalized.resource.attrs["collection_name"], "Research");
+        assert_eq!(
+            normalized.resource.attrs["parent_collection_id"],
+            serde_json::json!(parent_id)
+        );
+        assert_eq!(normalized.resource.attrs["collection_note_count"], 12);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("collection_description")
+            .is_none());
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_collection_route_id_stays_unnormalized_after_backing_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/collections/018fd1a0-0000-7000-8000-000000000009/export",
+            Some("tenant-a"),
+        )
+        .expect("collection export route has policy input");
+
+        let normalized =
+            normalize_collection_route_policy_input(input, |_lookup_id| async move { Ok(None) })
+                .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("collection_id").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn invalid_collection_route_id_stays_unnormalized_without_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/collections/not-a-uuid/notes",
+            Some("tenant-a"),
+        )
+        .expect("collection notes route has policy input");
+
+        let normalized = normalize_collection_route_policy_input(input, |_lookup_id| async move {
+            panic!("invalid collection route IDs must not perform collection lookups");
+            #[allow(unreachable_code)]
+            Ok(Some(test_collection(Uuid::new_v4(), None)))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("collection_id").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn collection_normalization_lookup_error_preserves_fail_closed_guard() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/collections/018fd1a0-0000-7000-8000-000000000009",
+            Some("tenant-a"),
+        )
+        .expect("collection delete route has policy input");
+
+        let normalized = normalize_collection_route_policy_input(input, |_lookup_id| async move {
+            Err(matric_core::Error::Internal("lookup failed".to_string()))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn collection_root_routes_do_not_run_id_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/collections",
+            None,
+        )
+        .expect("collection root route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Collection);
+        assert_eq!(input.resource.attrs["resource_id_source"], "route_template");
+
+        let normalized = normalize_collection_route_policy_input(input, |_lookup_id| async move {
+            panic!("collection root routes must not perform collection lookups");
+            #[allow(unreachable_code)]
+            Ok(Some(test_collection(Uuid::new_v4(), None)))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert!(normalized.resource.attrs.get("collection_id").is_none());
+    }
+
+    #[tokio::test]
+    async fn note_move_routes_do_not_treat_note_id_as_collection_id() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/move",
+            Some("tenant-a"),
+        )
+        .expect("note move route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Collection);
+        assert_eq!(input.policy.action_family, "collection");
+
+        let normalized = normalize_collection_route_policy_input(input, |_lookup_id| async move {
+            panic!("note move routes must not perform collection ID lookups on note IDs");
+            #[allow(unreachable_code)]
+            Ok(Some(test_collection(Uuid::new_v4(), None)))
+        })
+        .await;
+
+        assert_eq!(normalized.policy.action_family, "collection");
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("collection_id").is_none());
     }
 
     fn test_document_type_metadata(name: &str) -> DocumentTypeResourceMetadata {
