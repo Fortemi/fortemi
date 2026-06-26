@@ -39,7 +39,26 @@ fn extract_schema(ctx: &JobContext) -> &str {
 
 fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResult> {
     db.for_schema(schema)
-        .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
+        .map_err(|_| JobResult::Failed("Invalid schema".into()))
+}
+
+fn sprite_text_len(text: &str) -> usize {
+    text.chars().count()
+}
+
+fn sprite_error_reason_code(error: &str) -> &'static str {
+    let text = error.to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("not found") || text.contains("no such") || text.contains("missing") {
+        "not_found"
+    } else if text.contains("database") || text.contains("sql") || text.contains("postgres") {
+        "database_error"
+    } else if text.contains("image") || text.contains("decode") || text.contains("jpeg") {
+        "invalid_image"
+    } else {
+        "operation_failed"
+    }
 }
 
 /// Format seconds as a WebVTT timestamp (HH:MM:SS.mmm).
@@ -83,16 +102,16 @@ impl ThumbnailSpriteHandler {
         let mut tx = schema_ctx
             .begin_tx()
             .await
-            .map_err(|e| format!("Failed to begin transaction: {}", e))?;
+            .map_err(|e| sprite_error_reason_code(&e.to_string()).to_string())?;
 
         let keyframes = file_storage
             .list_derived_by_type_tx(&mut tx, parent_id, "keyframe")
             .await
-            .map_err(|e| format!("Failed to list keyframe attachments: {}", e))?;
+            .map_err(|e| sprite_error_reason_code(&e.to_string()).to_string())?;
 
         tx.commit()
             .await
-            .map_err(|e| format!("Transaction commit failed: {}", e))?;
+            .map_err(|e| sprite_error_reason_code(&e.to_string()).to_string())?;
 
         let mut entries: Vec<KeyframeEntry> = keyframes
             .into_iter()
@@ -127,19 +146,19 @@ impl ThumbnailSpriteHandler {
         let mut tx = schema_ctx
             .begin_tx()
             .await
-            .map_err(|e| format!("Failed to begin transaction: {}", e))?;
+            .map_err(|e| sprite_error_reason_code(&e.to_string()).to_string())?;
 
         let (data, _ct, _filename) = file_storage
             .download_file_tx(&mut tx, attachment_id)
             .await
-            .map_err(|e| format!("Failed to download keyframe {}: {}", attachment_id, e))?;
+            .map_err(|e| sprite_error_reason_code(&e.to_string()).to_string())?;
 
         tx.commit()
             .await
-            .map_err(|e| format!("Transaction commit failed: {}", e))?;
+            .map_err(|e| sprite_error_reason_code(&e.to_string()).to_string())?;
 
         let img = image::load_from_memory(&data)
-            .map_err(|e| format!("Failed to decode keyframe image: {}", e))?;
+            .map_err(|e| sprite_error_reason_code(&e.to_string()).to_string())?;
 
         // Resize to thumbnail dimensions, maintaining aspect ratio via exact fit
         let thumb = img.resize_exact(THUMB_WIDTH, THUMB_HEIGHT, FilterType::Lanczos3);
@@ -183,9 +202,11 @@ impl ThumbnailSpriteHandler {
                     }
                     Err(e) => {
                         warn!(
-                            attachment_id = %entry.attachment_id,
+                            attachment_id_present = true,
                             frame_index = entry.frame_index,
-                            "Failed to load keyframe thumbnail: {}", e
+                            error_len = sprite_text_len(&e),
+                            error_reason = sprite_error_reason_code(&e),
+                            "Failed to load keyframe thumbnail"
                         );
                         // Leave black square for missing frames
                     }
@@ -197,7 +218,13 @@ impl ThumbnailSpriteHandler {
             let encoder =
                 image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buf, JPEG_QUALITY);
             if let Err(e) = canvas.write_with_encoder(encoder) {
-                error!(sheet_idx, "Failed to encode sprite sheet: {}", e);
+                let error_text = e.to_string();
+                error!(
+                    sheet_idx,
+                    error_len = sprite_text_len(&error_text),
+                    error_reason = sprite_error_reason_code(&error_text),
+                    "Failed to encode sprite sheet"
+                );
                 continue;
             }
 
@@ -306,12 +333,14 @@ impl JobHandler for ThumbnailSpriteHandler {
         // Load all keyframe derived attachments for this video
         let keyframes = match self.load_keyframes(&schema_ctx, attachment_id).await {
             Ok(kfs) => kfs,
-            Err(e) => return JobResult::Failed(format!("Failed to load keyframes: {}", e)),
+            Err(reason) => {
+                return JobResult::Failed(format!("Failed to load keyframes ({reason})"));
+            }
         };
 
         if keyframes.is_empty() {
             info!(
-                %attachment_id,
+                attachment_id_present = true,
                 "No keyframes found, skipping sprite generation"
             );
             return JobResult::Success(Some(json!({
@@ -323,7 +352,7 @@ impl JobHandler for ThumbnailSpriteHandler {
         // Skip very short videos (<5s or single frame)
         if keyframes.len() < 2 {
             info!(
-                %attachment_id,
+                attachment_id_present = true,
                 frames = keyframes.len(),
                 "Too few keyframes for sprite sheet"
             );
@@ -334,7 +363,7 @@ impl JobHandler for ThumbnailSpriteHandler {
         }
 
         info!(
-            %attachment_id,
+            attachment_id_present = true,
             frame_count = keyframes.len(),
             "Building sprite sheets from keyframes"
         );
@@ -368,10 +397,12 @@ impl JobHandler for ThumbnailSpriteHandler {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(tx) => tx,
                 Err(e) => {
+                    let error_text = e.to_string();
                     error!(
-                        "Failed to begin transaction for sprite sheet {}: {}",
-                        i + 1,
-                        e
+                        sheet_index = i + 1,
+                        error_len = sprite_text_len(&error_text),
+                        error_reason = sprite_error_reason_code(&error_text),
+                        "Failed to begin transaction for sprite sheet"
                     );
                     continue;
                 }
@@ -404,10 +435,22 @@ impl JobHandler for ThumbnailSpriteHandler {
                         )
                         .await
                     {
-                        warn!("Failed to merge sprite metadata: {}", e);
+                        let error_text = e.to_string();
+                        warn!(
+                            sheet_index = i + 1,
+                            error_len = sprite_text_len(&error_text),
+                            error_reason = sprite_error_reason_code(&error_text),
+                            "Failed to merge sprite metadata"
+                        );
                     }
                     if let Err(e) = tx.commit().await {
-                        error!("Failed to commit sprite sheet {}: {}", i + 1, e);
+                        let error_text = e.to_string();
+                        error!(
+                            sheet_index = i + 1,
+                            error_len = sprite_text_len(&error_text),
+                            error_reason = sprite_error_reason_code(&error_text),
+                            "Failed to commit sprite sheet"
+                        );
                         continue;
                     }
                     stored_count += 1;
@@ -418,7 +461,13 @@ impl JobHandler for ThumbnailSpriteHandler {
                     );
                 }
                 Err(e) => {
-                    error!("Failed to store sprite sheet {}: {}", i + 1, e);
+                    let error_text = e.to_string();
+                    error!(
+                        sheet_index = i + 1,
+                        error_len = sprite_text_len(&error_text),
+                        error_reason = sprite_error_reason_code(&error_text),
+                        "Failed to store sprite sheet"
+                    );
                     let _ = tx.rollback().await;
                 }
             }
@@ -429,8 +478,13 @@ impl JobHandler for ThumbnailSpriteHandler {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(tx) => tx,
                 Err(e) => {
-                    error!("Failed to begin transaction for sprite VTT: {}", e);
-                    return JobResult::Failed(format!("Failed to store sprite VTT: {}", e));
+                    let error_text = e.to_string();
+                    error!(
+                        error_len = sprite_text_len(&error_text),
+                        error_reason = sprite_error_reason_code(&error_text),
+                        "Failed to begin transaction for sprite VTT"
+                    );
+                    return JobResult::Failed("Failed to store sprite VTT".into());
                 }
             };
 
@@ -448,11 +502,21 @@ impl JobHandler for ThumbnailSpriteHandler {
             {
                 Ok(_) => {
                     if let Err(e) = tx.commit().await {
-                        error!("Failed to commit sprite VTT: {}", e);
+                        let error_text = e.to_string();
+                        error!(
+                            error_len = sprite_text_len(&error_text),
+                            error_reason = sprite_error_reason_code(&error_text),
+                            "Failed to commit sprite VTT"
+                        );
                     }
                 }
                 Err(e) => {
-                    error!("Failed to store sprite VTT: {}", e);
+                    let error_text = e.to_string();
+                    error!(
+                        error_len = sprite_text_len(&error_text),
+                        error_reason = sprite_error_reason_code(&error_text),
+                        "Failed to store sprite VTT"
+                    );
                     let _ = tx.rollback().await;
                 }
             }
@@ -463,7 +527,12 @@ impl JobHandler for ThumbnailSpriteHandler {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(tx) => tx,
                 Err(e) => {
-                    warn!("Failed to begin tx for parent metadata update: {}", e);
+                    let error_text = e.to_string();
+                    warn!(
+                        error_len = sprite_text_len(&error_text),
+                        error_reason = sprite_error_reason_code(&error_text),
+                        "Failed to begin tx for parent metadata update"
+                    );
                     // Non-fatal: sprites are stored, metadata is optional
                     return JobResult::Success(Some(json!({
                         "sprite_sheets": stored_count,
@@ -486,7 +555,12 @@ impl JobHandler for ThumbnailSpriteHandler {
                 )
                 .await
             {
-                warn!("Failed to update parent metadata with sprite info: {}", e);
+                let error_text = e.to_string();
+                warn!(
+                    error_len = sprite_text_len(&error_text),
+                    error_reason = sprite_error_reason_code(&error_text),
+                    "Failed to update parent metadata with sprite info"
+                );
             }
 
             let _ = tx.commit().await;
@@ -495,7 +569,7 @@ impl JobHandler for ThumbnailSpriteHandler {
         ctx.report_progress(100, Some("Sprite sheets complete"));
 
         info!(
-            %attachment_id,
+            attachment_id_present = true,
             sprite_sheets = stored_count,
             keyframes = keyframes.len(),
             "Thumbnail sprite generation complete"
@@ -508,5 +582,29 @@ impl JobHandler for ThumbnailSpriteHandler {
             "grid": format!("{}x{}", SPRITE_COLS, SPRITE_ROWS),
             "thumb_dimensions": [THUMB_WIDTH, THUMB_HEIGHT],
         })))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sprite_runtime_telemetry_helpers_redact_private_values() {
+        let raw_error =
+            "postgres://user:pass@db.internal failed for /srv/private/mm_key_sprite.jpg";
+        let rendered = format!(
+            "attachment_id_present=true; error_len={}; error_reason={}",
+            sprite_text_len(raw_error),
+            sprite_error_reason_code(raw_error)
+        );
+
+        assert!(rendered.contains("attachment_id_present=true"));
+        assert!(rendered.contains("error_len="));
+        assert!(rendered.contains("error_reason=database_error"));
+        assert!(!rendered.contains("postgres://user:pass"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("/srv/private"));
+        assert!(!rendered.contains("mm_key_sprite"));
     }
 }
