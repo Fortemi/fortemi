@@ -9033,12 +9033,23 @@ impl fmt::Debug for TimelineQuery {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct TimelineBucket {
     period_start: chrono::DateTime<chrono::Utc>,
     period_end: chrono::DateTime<chrono::Utc>,
     count: i64,
     note_ids: Vec<Uuid>,
+}
+
+impl std::fmt::Debug for TimelineBucket {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TimelineBucket")
+            .field("period_start", &self.period_start)
+            .field("period_end", &self.period_end)
+            .field("count", &self.count)
+            .field("note_id_count", &self.note_ids.len())
+            .finish()
+    }
 }
 
 /// Get notes grouped by time periods for timeline visualization.
@@ -9224,7 +9235,7 @@ impl fmt::Debug for ActivityQuery {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct ActivityEntry {
     note_id: Uuid,
     title: Option<String>,
@@ -9232,6 +9243,19 @@ struct ActivityEntry {
     updated_at: chrono::DateTime<chrono::Utc>,
     is_recently_created: bool,
     is_recently_updated: bool,
+}
+
+impl std::fmt::Debug for ActivityEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ActivityEntry")
+            .field("note_id_present", &true)
+            .field("title_len", &self.title.as_ref().map(|value| value.len()))
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .field("is_recently_created", &self.is_recently_created)
+            .field("is_recently_updated", &self.is_recently_updated)
+            .finish()
+    }
 }
 
 /// Get recent note activity (created and modified notes).
@@ -37380,6 +37404,50 @@ mod tests {
         assert!(rendered.contains("database_size_human_len"));
         assert!(rendered_memory.contains("name_len"));
         assert!(rendered_memory.contains("note_count"));
+    }
+
+    #[test]
+    fn note_timeline_and_activity_debug_redacts_note_ids_and_titles() {
+        let note_id = Uuid::new_v4();
+        let timeline = TimelineBucket {
+            period_start: chrono::Utc::now(),
+            period_end: chrono::Utc::now(),
+            count: 1,
+            note_ids: vec![note_id],
+        };
+        let activity = ActivityEntry {
+            note_id,
+            title: Some(
+                "operator@example.com postgres://user:secret@db.internal/note /srv/private sk-live-title"
+                    .to_string(),
+            ),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            is_recently_created: true,
+            is_recently_updated: false,
+        };
+
+        let rendered_timeline = format!("{timeline:?}");
+        let rendered_activity = format!("{activity:?}");
+        let combined = format!("{rendered_timeline}\n{rendered_activity}");
+
+        for forbidden in [
+            &note_id.to_string(),
+            "operator@example.com",
+            "postgres://user:secret@db.internal/note",
+            "/srv/private",
+            "sk-live-title",
+        ] {
+            assert!(
+                !combined.contains(forbidden),
+                "timeline/activity Debug leaked {forbidden}: {combined}"
+            );
+        }
+
+        assert!(rendered_timeline.contains("note_id_count"));
+        assert!(rendered_timeline.contains("count"));
+        assert!(rendered_activity.contains("note_id_present"));
+        assert!(rendered_activity.contains("title_len"));
     }
 
     #[test]
