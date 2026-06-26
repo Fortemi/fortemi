@@ -54,7 +54,7 @@ use matric_core::{
     UpdateNoteStatusRequest,
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
-use matric_db::{Database, FileSource, FilesystemBackend};
+use matric_db::{Database, FileSource, FilesystemBackend, SkosConceptRepository};
 use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
 };
@@ -5248,6 +5248,10 @@ async fn normalize_route_policy_input_for_authorization(
         state.db.templates.get(template_id)
     })
     .await;
+    let input = normalize_taxonomy_concept_route_policy_input(input, |concept_id| {
+        state.db.skos.get_concept(concept_id)
+    })
+    .await;
     let input =
         normalize_document_type_route_policy_input(input, |document_type_name| async move {
             state
@@ -5755,6 +5759,144 @@ where
         }
         Err(err) => {
             tracing::warn!(error = %err, "authorization template normalization lookup failed");
+        }
+    }
+
+    input
+}
+
+#[derive(Clone, Debug)]
+struct TaxonomyConceptResourceMetadata {
+    id: Uuid,
+    primary_scheme_id: Uuid,
+    status: String,
+    note_count: i32,
+    depth: i32,
+    broader_count: i32,
+    narrower_count: i32,
+    related_count: i32,
+    has_notation: bool,
+    has_embedding: bool,
+}
+
+impl From<matric_core::SkosConcept> for TaxonomyConceptResourceMetadata {
+    fn from(concept: matric_core::SkosConcept) -> Self {
+        Self {
+            id: concept.id,
+            primary_scheme_id: concept.primary_scheme_id,
+            status: format!("{:?}", concept.status),
+            note_count: concept.note_count,
+            depth: concept.depth,
+            broader_count: concept.broader_count,
+            narrower_count: concept.narrower_count,
+            related_count: concept.related_count,
+            has_notation: concept.notation.is_some(),
+            has_embedding: concept.embedded_at.is_some(),
+        }
+    }
+}
+
+async fn normalize_taxonomy_concept_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    concept_lookup: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(Uuid) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<matric_core::SkosConcept>>>,
+{
+    if input.resource.kind != ResourceKind::Taxonomy
+        || input.policy.action_family != "taxonomy"
+        || input
+            .resource
+            .attrs
+            .get("resource_id_param")
+            .and_then(|value| value.as_str())
+            != Some("id")
+        || !input
+            .resource
+            .attrs
+            .get("route_template")
+            .and_then(|value| value.as_str())
+            .is_some_and(|template| {
+                template.starts_with("/api/v1/concepts/{id}") && !template.contains("{target_id}")
+            })
+        || !input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        return input;
+    }
+
+    let Some(concept_id) = input
+        .resource
+        .id
+        .as_deref()
+        .and_then(|id| Uuid::parse_str(id).ok())
+    else {
+        return input;
+    };
+
+    match concept_lookup(concept_id).await {
+        Ok(Some(concept)) => {
+            let concept = TaxonomyConceptResourceMetadata::from(concept);
+            route_policy::mark_resource_id_normalized(&mut input);
+            input.resource.attrs.insert(
+                "taxonomy_concept_id".to_string(),
+                serde_json::json!(concept.id),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_concept_primary_scheme_id".to_string(),
+                serde_json::json!(concept.primary_scheme_id),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_concept_status".to_string(),
+                serde_json::json!(concept.status),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_concept_note_count".to_string(),
+                serde_json::json!(concept.note_count),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_concept_depth".to_string(),
+                serde_json::json!(concept.depth),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_concept_broader_count".to_string(),
+                serde_json::json!(concept.broader_count),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_concept_narrower_count".to_string(),
+                serde_json::json!(concept.narrower_count),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_concept_related_count".to_string(),
+                serde_json::json!(concept.related_count),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_concept_has_notation".to_string(),
+                serde_json::json!(concept.has_notation),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_concept_has_embedding".to_string(),
+                serde_json::json!(concept.has_embedding),
+            );
+        }
+        Ok(None) => {
+            tracing::warn!(
+                "authorization resource normalization skipped: taxonomy concept does not exist"
+            );
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "authorization taxonomy concept normalization lookup failed");
         }
     }
 
@@ -23229,6 +23371,270 @@ mod tests {
         assert_eq!(normalized.resource.kind, ResourceKind::DocumentType);
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
         assert!(normalized.resource.attrs.get("template_id").is_none());
+    }
+
+    fn test_skos_concept(id: Uuid, primary_scheme_id: Uuid) -> matric_core::SkosConcept {
+        matric_core::SkosConcept {
+            id,
+            primary_scheme_id,
+            uri: Some("https://example.test/concept".to_string()),
+            notation: Some("EX-1".to_string()),
+            facet_type: None,
+            facet_source: None,
+            facet_domain: Some("not-for-policy-metadata".to_string()),
+            facet_scope: None,
+            status: matric_core::TagStatus::Approved,
+            promoted_at: Some(chrono::Utc::now()),
+            deprecated_at: None,
+            deprecation_reason: None,
+            replaced_by_id: None,
+            note_count: 7,
+            first_used_at: None,
+            last_used_at: Some(chrono::Utc::now()),
+            depth: 2,
+            broader_count: 1,
+            narrower_count: 3,
+            related_count: 4,
+            antipatterns: vec![],
+            antipattern_checked_at: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            embedding_model: Some("not-for-policy-metadata".to_string()),
+            embedded_at: Some(chrono::Utc::now()),
+        }
+    }
+
+    #[tokio::test]
+    async fn existing_taxonomy_concept_route_id_is_marked_normalized_with_safe_metadata() {
+        let concept_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000013").unwrap();
+        let scheme_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000014").unwrap();
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/concepts/018fd1a0-0000-7000-8000-000000000013/full",
+            Some("tenant-a"),
+        )
+        .expect("taxonomy concept route has policy input");
+
+        let normalized =
+            normalize_taxonomy_concept_route_policy_input(input, |lookup_id| async move {
+                assert_eq!(lookup_id, concept_id);
+                Ok(Some(test_skos_concept(concept_id, scheme_id)))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_concept_id"],
+            serde_json::json!(concept_id)
+        );
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_concept_primary_scheme_id"],
+            serde_json::json!(scheme_id)
+        );
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_concept_status"],
+            "Approved"
+        );
+        assert_eq!(normalized.resource.attrs["taxonomy_concept_note_count"], 7);
+        assert_eq!(normalized.resource.attrs["taxonomy_concept_depth"], 2);
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_concept_broader_count"],
+            1
+        );
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_concept_narrower_count"],
+            3
+        );
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_concept_related_count"],
+            4
+        );
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_concept_has_notation"],
+            true
+        );
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_concept_has_embedding"],
+            true
+        );
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_concept_uri")
+            .is_none());
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_concept_embedding_model")
+            .is_none());
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_concept_facet_domain")
+            .is_none());
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_taxonomy_concept_route_id_stays_unnormalized_after_backing_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/concepts/018fd1a0-0000-7000-8000-000000000013",
+            Some("tenant-a"),
+        )
+        .expect("taxonomy concept route has policy input");
+
+        let normalized = normalize_taxonomy_concept_route_policy_input(
+            input,
+            |_lookup_id| async move { Ok(None) },
+        )
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_concept_id")
+            .is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn invalid_taxonomy_concept_route_id_stays_unnormalized_without_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/concepts/not-a-uuid/ancestors",
+            Some("tenant-a"),
+        )
+        .expect("taxonomy concept route has policy input");
+
+        let normalized =
+            normalize_taxonomy_concept_route_policy_input(input, |_lookup_id| async move {
+                panic!("invalid taxonomy concept route IDs must not perform concept lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_skos_concept(Uuid::new_v4(), Uuid::new_v4())))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_concept_id")
+            .is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn taxonomy_concept_normalization_lookup_error_preserves_fail_closed_guard() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/concepts/018fd1a0-0000-7000-8000-000000000013",
+            Some("tenant-a"),
+        )
+        .expect("taxonomy concept route has policy input");
+
+        let normalized =
+            normalize_taxonomy_concept_route_policy_input(input, |_lookup_id| async move {
+                Err(matric_core::Error::Internal("lookup failed".to_string()))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn taxonomy_collection_routes_do_not_run_concept_lookup() {
+        let input =
+            route_policy::authorization_input_for_request(&Method::GET, "/api/v1/concepts", None)
+                .expect("taxonomy collection route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Taxonomy);
+        assert_eq!(input.resource.attrs["resource_id_source"], "route_template");
+
+        let normalized =
+            normalize_taxonomy_concept_route_policy_input(input, |_lookup_id| async move {
+                panic!("taxonomy collection routes must not perform concept lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_skos_concept(Uuid::new_v4(), Uuid::new_v4())))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_concept_id")
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn taxonomy_secondary_target_routes_wait_for_explicit_target_normalization() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/concepts/018fd1a0-0000-7000-8000-000000000013/broader/018fd1a0-0000-7000-8000-000000000014",
+            Some("tenant-a"),
+        )
+        .expect("taxonomy relation target route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Taxonomy);
+        assert_eq!(input.resource.attrs["resource_id_param"], "id");
+
+        let normalized =
+            normalize_taxonomy_concept_route_policy_input(input, |_lookup_id| async move {
+                panic!("secondary target taxonomy routes need explicit target normalization first");
+                #[allow(unreachable_code)]
+                Ok(Some(test_skos_concept(Uuid::new_v4(), Uuid::new_v4())))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_concept_id")
+            .is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn skos_scheme_routes_do_not_run_concept_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/concepts/schemes/018fd1a0-0000-7000-8000-000000000014",
+            Some("tenant-a"),
+        )
+        .expect("SKOS scheme route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Taxonomy);
+
+        let normalized =
+            normalize_taxonomy_concept_route_policy_input(input, |_lookup_id| async move {
+                panic!("SKOS scheme routes must not perform concept lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_skos_concept(Uuid::new_v4(), Uuid::new_v4())))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_concept_id")
+            .is_none());
     }
 
     fn test_document_type_metadata(name: &str) -> DocumentTypeResourceMetadata {
