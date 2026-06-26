@@ -177,6 +177,14 @@ fn optional_text_len(value: &Option<String>) -> Option<usize> {
     value.as_deref().map(|value| value.chars().count())
 }
 
+fn invalid_pke_public_key_length() -> ApiError {
+    ApiError::BadRequest("Public key must be 32 bytes.".to_string())
+}
+
+fn invalid_pke_recipient_public_key_length() -> ApiError {
+    ApiError::BadRequest("Recipient public key must be 32 bytes.".to_string())
+}
+
 // =============================================================================
 // HANDLERS
 // =============================================================================
@@ -229,10 +237,7 @@ pub async fn pke_address(
         .map_err(|_| ApiError::BadRequest("Invalid base64 for public_key.".to_string()))?;
 
     if public_key_bytes.len() != 32 {
-        return Err(ApiError::BadRequest(format!(
-            "Public key must be 32 bytes, got {}.",
-            public_key_bytes.len()
-        )));
+        return Err(invalid_pke_public_key_length());
     }
 
     let mut arr = [0u8; 32];
@@ -283,10 +288,7 @@ pub async fn pke_encrypt(
             .map_err(|_| ApiError::BadRequest("Invalid recipient public key.".to_string()))?;
 
         if key_bytes.len() != 32 {
-            return Err(ApiError::BadRequest(format!(
-                "Recipient public key must be 32 bytes, got {}.",
-                key_bytes.len()
-            )));
+            return Err(invalid_pke_recipient_public_key_length());
         }
 
         let mut arr = [0u8; 32];
@@ -802,6 +804,51 @@ fn pke_principal_audit_id(principal: &AuthPrincipal) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn read_problem_response(error: ApiError) -> (StatusCode, serde_json::Value) {
+        let response = error.into_response();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let problem = serde_json::from_slice(&body).unwrap();
+        (status, problem)
+    }
+
+    #[tokio::test]
+    async fn pke_public_key_length_validation_does_not_echo_lengths() {
+        let submitted_public_key_len = 17;
+        let err = invalid_pke_public_key_length();
+        let (status, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], "Public key must be 32 bytes.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(&submitted_public_key_len.to_string()));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+
+        let submitted_recipient_key_len = 48;
+        let err = invalid_pke_recipient_public_key_length();
+        let (status, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], "Recipient public key must be 32 bytes.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(&submitted_recipient_key_len.to_string()));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
 
     #[test]
     fn pke_http_debug_redacts_secret_material() {
