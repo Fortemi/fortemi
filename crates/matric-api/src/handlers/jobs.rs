@@ -47,6 +47,7 @@ const TITLE_GENERATION_JOB_FAILURE: &str =
     "Title generation failed. Check server logs for diagnostics.";
 const CONTEXT_UPDATE_JOB_FAILURE: &str =
     "Context update failed. Check server logs for diagnostics.";
+const LINKING_JOB_FAILURE: &str = "Linking job failed. Check server logs for diagnostics.";
 
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
@@ -163,6 +164,15 @@ fn context_update_job_failure(error: impl std::fmt::Display, operation: &'static
         operation, "Context update job failed"
     );
     JobResult::Failed(CONTEXT_UPDATE_JOB_FAILURE.to_string())
+}
+
+fn linking_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "Linking job failed"
+    );
+    JobResult::Failed(LINKING_JOB_FAILURE.to_string())
 }
 
 /// Extract the target schema from a job's payload.
@@ -2877,14 +2887,14 @@ impl JobHandler for LinkingHandler {
 
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return linking_job_failure(e, "fetch_note_begin_tx"),
         };
         let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
-            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+            Err(e) => return linking_job_failure(e, "fetch_note"),
         };
         if let Err(e) = tx.commit().await {
-            return JobResult::Failed(format!("Commit failed: {}", e));
+            return linking_job_failure(e, "fetch_note_commit");
         }
 
         // Determine content-type-aware similarity threshold (for threshold strategy).
@@ -2936,7 +2946,7 @@ impl JobHandler for LinkingHandler {
         // Get embeddings for this note
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return linking_job_failure(e, "fetch_embeddings_begin_tx"),
         };
         let embeddings = match self.db.embeddings.get_for_note_tx(&mut tx, note_id).await {
             Ok(e) => {
@@ -8111,6 +8121,27 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("/srv/fortemi"));
                 assert!(!message.contains("SQLSTATE"));
                 assert!(!message.contains("context save failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn linking_job_failure_uses_generic_stored_message() {
+        let result = linking_job_failure(
+            "linking note fetch failed for postgres://user:secret@db.internal/app at /srv/fortemi SQLSTATE 40001",
+            "fetch_note",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, LINKING_JOB_FAILURE);
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("linking note fetch failed"));
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
