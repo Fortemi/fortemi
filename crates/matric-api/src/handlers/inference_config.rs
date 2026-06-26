@@ -356,6 +356,13 @@ fn err(status: StatusCode, msg: impl Into<String>) -> axum::response::Response {
     }
 }
 
+fn inference_config_database_failed() -> axum::response::Response {
+    err(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Inference configuration database operation failed.",
+    )
+}
+
 /// Redact an API key: show first 8 chars + "..." or the full value if shorter.
 fn redact_api_key(key: &str) -> String {
     if key.len() <= 8 {
@@ -962,11 +969,7 @@ pub async fn get_inference_config(
         Ok(v) => v,
         Err(e) => {
             warn!(error = %e, "Failed to read inference_override from user_config");
-            return err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Database error: {e}"),
-            )
-            .into_response();
+            return inference_config_database_failed();
         }
     };
 
@@ -1061,11 +1064,7 @@ pub async fn update_inference_config(
             Err(e) => {
                 warn!(error = %e, schema = %schema,
                     "Failed to read existing archive_inference_override");
-                return err(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Database error: {e}"),
-                )
-                .into_response();
+                return inference_config_database_failed();
             }
         }
     } else {
@@ -1073,11 +1072,7 @@ pub async fn update_inference_config(
             Ok(v) => v.unwrap_or(serde_json::json!({})),
             Err(e) => {
                 warn!(error = %e, "Failed to read existing inference_override");
-                return err(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Database error: {e}"),
-                )
-                .into_response();
+                return inference_config_database_failed();
             }
         }
     };
@@ -1677,11 +1672,7 @@ pub async fn update_inference_config(
         {
             warn!(error = %e, schema = %schema,
                 "Failed to persist archive_inference_override");
-            return err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Database error: {e}"),
-            )
-            .into_response();
+            return inference_config_database_failed();
         }
         info!(
             schema = %schema,
@@ -1873,11 +1864,7 @@ pub async fn update_inference_config(
     .await
     {
         warn!(error = %e, "Failed to persist inference_override");
-        return err(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Database error: {e}"),
-        )
-        .into_response();
+        return inference_config_database_failed();
     }
 
     info!("inference_override persisted via POST /api/v1/inference/config");
@@ -1965,11 +1952,7 @@ pub async fn delete_inference_config(
         {
             warn!(error = %e, schema = %schema,
                 "Failed to delete archive_inference_override");
-            return err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Database error: {e}"),
-            )
-            .into_response();
+            return inference_config_database_failed();
         }
         info!(
             schema = %schema,
@@ -2030,11 +2013,7 @@ pub async fn delete_inference_config(
         .await
     {
         warn!(error = %e, "Failed to delete inference_override");
-        return err(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Database error: {e}"),
-        )
-        .into_response();
+        return inference_config_database_failed();
     }
 
     info!("inference_override deleted via DELETE /api/v1/inference/config");
@@ -2188,11 +2167,7 @@ pub async fn get_inference_config_audit(
             .into_response(),
         Err(e) => {
             warn!(error = %e, "Failed to fetch inference_config_audit");
-            err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Database error: {e}"),
-            )
-            .into_response()
+            inference_config_database_failed()
         }
     }
 }
@@ -2674,12 +2649,9 @@ mod tests_connection {
     use super::*;
 
     #[tokio::test]
-    async fn inference_err_helper_returns_problem_without_legacy_error_shape() {
-        let response = err(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Database error: postgres://user:secret@db.internal/app",
-        )
-        .into_response();
+    async fn inference_config_database_failure_returns_fixed_problem() {
+        let raw_database_detail = "postgres://user:secret@db.internal/app";
+        let response = inference_config_database_failed();
 
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(
@@ -2703,8 +2675,10 @@ mod tests_connection {
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
         let serialized = problem.to_string();
+        assert!(!serialized.contains(raw_database_detail));
         assert!(!serialized.contains("postgres://"));
         assert!(!serialized.contains("secret"));
+        assert!(!serialized.contains("db.internal"));
     }
 
     #[tokio::test]
