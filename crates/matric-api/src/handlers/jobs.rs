@@ -75,6 +75,7 @@ const JOB_RELATED_CONCEPT_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_related_concept
 const JOB_METADATA_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_metadata_diagnostic_failed";
 const JOB_DOCUMENT_TYPE_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_document_type_diagnostic_failed";
 const JOB_REEMBED_QUEUE_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_reembed_queue_diagnostic_failed";
+const JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_exif_diagnostic_failed";
 
 fn diagnostic_len(error: impl std::fmt::Display) -> usize {
     error.to_string().chars().count()
@@ -6666,10 +6667,20 @@ impl JobHandler for ExifExtractionHandler {
                 .update_status_tx(&mut tx, attachment_id, AttachmentStatus::Processing, None)
                 .await
             {
-                warn!(attachment_id = %attachment_id, error = %e, "Failed to update attachment status to Processing");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "mark_attachment_processing",
+                    "Failed to update attachment status to Processing"
+                );
             }
             if let Err(e) = tx.commit().await {
-                warn!(error = %e, "Failed to commit status update");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "commit_attachment_processing_status",
+                    "Failed to commit status update"
+                );
             }
         }
 
@@ -6730,7 +6741,12 @@ impl JobHandler for ExifExtractionHandler {
                         .update_status_tx(&mut tx, attachment_id, AttachmentStatus::Completed, None)
                         .await
                     {
-                        warn!(error = %e, "Failed to update attachment status to Completed");
+                        warn!(
+                            error_len = diagnostic_len(&e),
+                            detail = JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL,
+                            operation = "mark_attachment_completed_no_exif",
+                            "Failed to update attachment status to Completed"
+                        );
                     }
                     let _ = tx.commit().await;
                 }
@@ -6796,7 +6812,12 @@ impl JobHandler for ExifExtractionHandler {
                         location_id = Some(id);
                     }
                     Err(e) => {
-                        warn!(error = %e, "Failed to create provenance location from EXIF GPS");
+                        warn!(
+                            error_len = diagnostic_len(&e),
+                            detail = JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL,
+                            operation = "create_exif_gps_location",
+                            "Failed to create provenance location from EXIF GPS"
+                        );
                     }
                 }
             }
@@ -6842,7 +6863,12 @@ impl JobHandler for ExifExtractionHandler {
                     device_id = Some(device.id);
                 }
                 Err(e) => {
-                    warn!(error = %e, "Failed to create provenance device from EXIF");
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "create_exif_device",
+                        "Failed to create provenance device from EXIF"
+                    );
                 }
             }
         }
@@ -6897,7 +6923,12 @@ impl JobHandler for ExifExtractionHandler {
                 Some(id)
             }
             Err(e) => {
-                warn!(error = %e, "Failed to create file provenance record");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "create_exif_file_provenance",
+                    "Failed to create file provenance record"
+                );
                 None
             }
         };
@@ -6913,7 +6944,12 @@ impl JobHandler for ExifExtractionHandler {
             .update_extracted_content_tx(&mut tx, attachment_id, None, Some(metadata))
             .await
         {
-            warn!(error = %e, "Failed to update attachment extracted metadata");
+            warn!(
+                error_len = diagnostic_len(&e),
+                detail = JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "update_exif_extracted_metadata",
+                "Failed to update attachment extracted metadata"
+            );
         }
 
         // Mark attachment as completed
@@ -6921,12 +6957,22 @@ impl JobHandler for ExifExtractionHandler {
             .update_status_tx(&mut tx, attachment_id, AttachmentStatus::Completed, None)
             .await
         {
-            warn!(error = %e, "Failed to update attachment status to Completed");
+            warn!(
+                error_len = diagnostic_len(&e),
+                detail = JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "mark_attachment_completed_with_exif",
+                "Failed to update attachment status to Completed"
+            );
         }
 
         // Commit all provenance and attachment updates
         if let Err(e) = tx.commit().await {
-            warn!(error = %e, "Failed to commit EXIF extraction results");
+            warn!(
+                error_len = diagnostic_len(&e),
+                detail = JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "commit_exif_extraction_results",
+                "Failed to commit EXIF extraction results"
+            );
         }
 
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -8314,6 +8360,7 @@ Quick note about the meeting discussion and action items."#;
             JOB_METADATA_DIAGNOSTIC_FAILURE_DETAIL,
             JOB_DOCUMENT_TYPE_DIAGNOSTIC_FAILURE_DETAIL,
             JOB_REEMBED_QUEUE_DIAGNOSTIC_FAILURE_DETAIL,
+            JOB_EXIF_DIAGNOSTIC_FAILURE_DETAIL,
         ] {
             assert!(!detail.contains("token:secret"));
             assert!(!detail.contains("provider.internal"));
