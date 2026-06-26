@@ -35,7 +35,7 @@ use tracing::{info, warn};
 const DEFAULT_TTL_SECONDS: u64 = 86_400;
 
 /// Cached outcome of a processed inbound webhook, keyed by `Idempotency-Key`.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct IdempotencyRecord {
     /// Hex SHA-256 of the raw request body, used to detect key reuse with a
     /// different payload.
@@ -44,6 +44,34 @@ pub struct IdempotencyRecord {
     pub response_status: u16,
     /// The JSON response body to replay.
     pub response_body: serde_json::Value,
+}
+
+impl std::fmt::Debug for IdempotencyRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IdempotencyRecord")
+            .field("body_hash_len", &idempotency_text_len(&self.body_hash))
+            .field("response_status", &self.response_status)
+            .field(
+                "response_body_class",
+                &idempotency_json_class(&self.response_body),
+            )
+            .field(
+                "response_body_len",
+                &idempotency_text_len(&self.response_body.to_string()),
+            )
+            .finish()
+    }
+}
+
+fn idempotency_json_class(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
 }
 
 /// Redis-backed idempotency store for incoming webhooks.
@@ -274,6 +302,52 @@ mod tests {
         store.store("slug", "key-1", &rec).await;
         assert!(store.get("slug", "key-1").await.is_none());
         assert_eq!(store.ttl_seconds(), DEFAULT_TTL_SECONDS);
+    }
+
+    #[test]
+    fn idempotency_record_json_persistence_preserves_replay_body() {
+        let rec = IdempotencyRecord {
+            body_hash: "body-hash-secret-value".to_string(),
+            response_status: 200,
+            response_body: serde_json::json!({
+                "status": "accepted",
+                "token": "payload-secret-token",
+                "callback": "https://provider.example/hook?api_key=payload-secret-token"
+            }),
+        };
+
+        let json = serde_json::to_string(&rec).unwrap();
+        let back: IdempotencyRecord = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(back.body_hash, rec.body_hash);
+        assert_eq!(back.response_status, rec.response_status);
+        assert_eq!(back.response_body, rec.response_body);
+    }
+
+    #[test]
+    fn idempotency_record_debug_redacts_cached_payload_and_hash() {
+        let rec = IdempotencyRecord {
+            body_hash: "body-hash-secret-value".to_string(),
+            response_status: 200,
+            response_body: serde_json::json!({
+                "status": "accepted",
+                "token": "payload-secret-token",
+                "callback": "https://provider.example/hook?api_key=payload-secret-token"
+            }),
+        };
+
+        let rendered = format!("{rec:?}");
+
+        assert!(rendered.contains("IdempotencyRecord"));
+        assert!(rendered.contains("body_hash_len"));
+        assert!(rendered.contains("response_body_class"));
+        assert!(rendered.contains("response_body_len"));
+        assert!(!rendered.contains("body-hash-secret-value"));
+        assert!(!rendered.contains("payload-secret-token"));
+        assert!(!rendered.contains("provider.example"));
+        assert!(!rendered.contains("api_key"));
+        assert!(!rendered.contains("\"status\""));
+        assert!(!rendered.contains("accepted"));
     }
 
     #[test]
