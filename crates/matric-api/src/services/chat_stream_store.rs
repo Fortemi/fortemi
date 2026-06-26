@@ -80,10 +80,19 @@ fn chat_store_json_text_class(value: &str) -> &'static str {
 
 /// A resumption cursor parsed from a `Last-Event-ID` of the form
 /// `{session}-{seq}`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ResumeCursor {
     pub session: String,
     pub after_seq: u64,
+}
+
+impl std::fmt::Debug for ResumeCursor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResumeCursor")
+            .field("session_len", &chat_store_text_len(&self.session))
+            .field("after_seq", &self.after_seq)
+            .finish()
+    }
 }
 
 impl ResumeCursor {
@@ -296,6 +305,20 @@ mod tests {
             assert_eq!(c.session, session);
             assert_eq!(c.after_seq, seq);
         }
+    }
+
+    #[test]
+    fn resume_cursor_debug_redacts_session_id() {
+        let cursor =
+            ResumeCursor::parse("tenant-secret-session-11111111-2222-3333-4444-555555555555-42")
+                .unwrap();
+
+        let rendered = format!("{cursor:?}");
+
+        assert!(rendered.contains("session_len"));
+        assert!(rendered.contains("after_seq: 42"));
+        assert!(!rendered.contains("tenant-secret-session"));
+        assert!(!rendered.contains("11111111-2222-3333-4444-555555555555"));
     }
 
     #[test]

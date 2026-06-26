@@ -1002,12 +1002,21 @@ pub async fn chat_stream_handler(
 // =============================================================================
 
 /// Response from GET /api/v1/chat/models.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct ListChatModelsResponse {
     /// All installed Ollama models capable of chat (excludes embedding-only models).
     pub models: Vec<ChatModelInfo>,
     /// The server's default chat model slug.
     pub default_model: String,
+}
+
+impl std::fmt::Debug for ListChatModelsResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ListChatModelsResponse")
+            .field("model_count", &self.models.len())
+            .field("default_model_len", &chat_text_len(&self.default_model))
+            .finish()
+    }
 }
 
 /// GET /api/v1/chat/models — list installed models available for chat.
@@ -1405,6 +1414,56 @@ mod tests {
             assert!(
                 !rendered.contains(forbidden),
                 "chat Debug leaked {forbidden}: {rendered}"
+            );
+        }
+    }
+
+    #[test]
+    fn chat_model_list_debug_redacts_model_identifiers() {
+        let response = ListChatModelsResponse {
+            models: vec![
+                ChatModelInfo {
+                    model: "tenant/private-chat-model-secret".to_string(),
+                    context_window: 40960,
+                    estimated_available_context: 40760,
+                    max_output_tokens: 4096,
+                    supports_thinking: true,
+                    thinking_type: "private-thinking-profile".to_string(),
+                    speed_tok_s: 144.3,
+                    parameter_size: Some("secret-parameter-size".to_string()),
+                    family: Some("secret-model-family".to_string()),
+                },
+                ChatModelInfo {
+                    model: "tenant/secondary-secret-model".to_string(),
+                    context_window: 8192,
+                    estimated_available_context: 7992,
+                    max_output_tokens: 2048,
+                    supports_thinking: false,
+                    thinking_type: "private-secondary-profile".to_string(),
+                    speed_tok_s: 55.0,
+                    parameter_size: None,
+                    family: None,
+                },
+            ],
+            default_model: "tenant/private-chat-model-secret".to_string(),
+        };
+
+        let rendered = format!("{response:?}{:?}", response.models.first());
+
+        assert!(rendered.contains("model_count: 2"));
+        assert!(rendered.contains("default_model_len"));
+        assert!(rendered.contains("model_len"));
+        for forbidden in [
+            "tenant/private-chat-model-secret",
+            "tenant/secondary-secret-model",
+            "private-thinking-profile",
+            "secret-parameter-size",
+            "secret-model-family",
+            "private-secondary-profile",
+        ] {
+            assert!(
+                !rendered.contains(forbidden),
+                "chat model list Debug leaked {forbidden}: {rendered}"
             );
         }
     }
