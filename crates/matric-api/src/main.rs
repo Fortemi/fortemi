@@ -18509,7 +18509,7 @@ async fn upload_attachment(
 
     tx.commit()
         .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
+        .map_err(|e| attachment_media_operation_failed("Attachment upload", "commit upload", e))?;
 
     // Emit AttachmentCreated event (Issue #454, scoped via #452)
     state.event_bus.emit_with_context(
@@ -18697,7 +18697,7 @@ async fn upload_attachment_multipart(
 
     tx.commit()
         .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
+        .map_err(|e| attachment_media_operation_failed("Attachment upload", "commit upload", e))?;
 
     // Emit AttachmentCreated event (Issue #454, scoped via #452)
     state.event_bus.emit_with_context(
@@ -19509,7 +19509,7 @@ async fn delete_attachment(
     file_storage.delete_tx(&mut tx, attachment_id).await?;
     tx.commit()
         .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
+        .map_err(|e| attachment_media_operation_failed("Attachment delete", "commit delete", e))?;
 
     // Emit AttachmentDeleted event (Issue #454, scoped via #452)
     state.event_bus.emit_with_context(
@@ -24196,6 +24196,27 @@ mod tests {
         assert!(!body.contains("postgres://"));
         assert!(!body.contains("secret"));
         assert!(!body.contains("permission denied"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+
+        let err = attachment_media_operation_failed(
+            "Attachment upload",
+            "commit upload",
+            "commit failed for /srv/fortemi/blobs/tenant-a/upload.bin with postgres://user:secret@db.internal/app",
+        );
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            problem["detail"],
+            "Attachment upload failed. Check server logs for diagnostics."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains("/srv/fortemi"));
+        assert!(!body.contains("postgres://"));
+        assert!(!body.contains("user:secret"));
+        assert!(!body.contains("commit failed"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
