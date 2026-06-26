@@ -17800,6 +17800,10 @@ fn shard_operation_failed(context: &'static str, error: impl std::fmt::Display) 
     }
 }
 
+fn shard_validation_failed(message: &'static str) -> ApiError {
+    ApiError::BadRequest(message.to_string())
+}
+
 /// Create a knowledge shard (portable tar.gz export) with selected components.
 /// Respects X-Fortemi-Memory header for archive-scoped exports (#421).
 #[utoipa::path(get, path = "/api/v1/backup/knowledge-shard", tag = "Backup",
@@ -20826,7 +20830,7 @@ async fn get_backup_info(
     }
 
     let meta = fs::metadata(&path)
-        .map_err(|e| ApiError::BadRequest(format!("Cannot read file: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Backup archive info", "read file metadata", e))?;
 
     // Issue #257: Use consistent shard_type values
     let shard_type = if filename.ends_with(".tar.gz") {
@@ -20970,11 +20974,10 @@ async fn swap_backup(
     }
 
     // Read shard file
-    let mut file =
-        File::open(&path).map_err(|e| ApiError::BadRequest(format!("Cannot read shard: {}", e)))?;
+    let mut file = File::open(&path).map_err(|e| shard_operation_failed("open shard file", e))?;
     let mut shard_data = Vec::new();
     file.read_to_end(&mut shard_data)
-        .map_err(|e| ApiError::BadRequest(format!("Cannot read shard: {}", e)))?;
+        .map_err(|e| shard_operation_failed("read shard file", e))?;
 
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
 
@@ -21092,19 +21095,18 @@ async fn knowledge_shard_import_internal(
     let mut files: HashMap<String, Vec<u8>> = HashMap::new();
     for entry in tar_reader
         .entries()
-        .map_err(|e| ApiError::BadRequest(format!("Invalid tar: {}", e)))?
+        .map_err(|_| shard_validation_failed("Invalid shard archive."))?
     {
-        let mut entry =
-            entry.map_err(|e| ApiError::BadRequest(format!("Invalid tar entry: {}", e)))?;
+        let mut entry = entry.map_err(|_| shard_validation_failed("Invalid shard entry."))?;
         let entry_path = entry
             .path()
-            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+            .map_err(|_| shard_validation_failed("Invalid path in shard archive."))?;
         let name = entry_path.to_string_lossy().to_string();
 
         let mut contents = Vec::new();
         entry
             .read_to_end(&mut contents)
-            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+            .map_err(|_| shard_validation_failed("Invalid shard entry contents."))?;
         files.insert(name, contents);
     }
 
@@ -23970,6 +23972,27 @@ mod tests {
         assert!(!body.contains("/srv/fortemi"));
         assert!(!body.contains("postgres://"));
         assert!(!body.contains("secret"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn shard_validation_failed_returns_fixed_problem_without_raw_detail() {
+        let err = shard_validation_failed("Invalid shard archive.");
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], "Invalid shard archive.");
+
+        let body = problem.to_string();
+        assert!(!body.contains("/srv/fortemi"));
+        assert!(!body.contains("postgres://"));
+        assert!(!body.contains("secret"));
+        assert!(!body.contains("tar entry"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
