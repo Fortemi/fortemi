@@ -14792,6 +14792,9 @@ async fn memories_overview(
 // EMBEDDING SET HANDLERS
 // =============================================================================
 
+const UNKNOWN_EMBEDDING_CONFIG_MESSAGE: &str =
+    "Unknown embedding_config_id. Use a configured embedding provider.";
+
 use matric_core::{AddMembersRequest, CreateEmbeddingSetRequest, UpdateEmbeddingSetRequest};
 
 /// List all embedding sets for discovery
@@ -14852,10 +14855,9 @@ async fn create_embedding_set(
     if let Some(config_id) = body.embedding_config_id {
         let config = state.db.embedding_sets.get_config(config_id).await?;
         if config.is_none() {
-            return Err(ApiError::BadRequest(format!(
-                "embedding_config_id '{}' does not exist",
-                config_id
-            )));
+            return Err(ApiError::BadRequest(
+                UNKNOWN_EMBEDDING_CONFIG_MESSAGE.to_string(),
+            ));
         }
     }
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
@@ -24193,6 +24195,28 @@ mod tests {
         assert!(!body.contains("tenant-alpha"));
         assert!(!body.contains("token:secret"));
         assert!(!body.contains("provider.internal"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn embedding_config_validation_does_not_echo_config_id() {
+        let submitted_config_id = "018ff7d2-1d90-7c88-9f44-123456789abc";
+        let valid_uuid = Uuid::parse_str("018ff7d2-1d90-7c88-9f44-123456789abc").unwrap();
+        let err = ApiError::BadRequest(UNKNOWN_EMBEDDING_CONFIG_MESSAGE.to_string());
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], UNKNOWN_EMBEDDING_CONFIG_MESSAGE);
+
+        let body = problem.to_string();
+        assert!(!body.contains(&valid_uuid.to_string()));
+        assert!(!body.contains(submitted_config_id));
+        assert!(!body.contains("018ff7d2"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
