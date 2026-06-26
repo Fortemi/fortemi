@@ -17,9 +17,60 @@ use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Resul
 
 pub struct PdfOcrAdapter;
 
+fn pdf_ocr_io_error_kind(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => "not_found",
+        std::io::ErrorKind::PermissionDenied => "permission_denied",
+        std::io::ErrorKind::TimedOut => "timed_out",
+        std::io::ErrorKind::Interrupted => "interrupted",
+        std::io::ErrorKind::WouldBlock => "would_block",
+        _ => "io_error",
+    }
+}
+
+fn pdf_ocr_stderr_reason_code(stderr: &[u8]) -> &'static str {
+    let text = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("syntax error")
+        || text.contains("invalid")
+        || text.contains("xref")
+        || text.contains("not a pdf")
+    {
+        "invalid_pdf"
+    } else if text.contains("not found") || text.contains("no such") {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else {
+        "command_failed"
+    }
+}
+
+fn pdf_ocr_command_failure_detail(
+    command: &'static str,
+    phase: &'static str,
+    status_code: Option<i32>,
+    stderr: &[u8],
+) -> String {
+    format!(
+        "{command} {phase} failed; status={}; stderr_len={}; stderr_reason={}",
+        status_code
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "signal".to_string()),
+        stderr.len(),
+        pdf_ocr_stderr_reason_code(stderr)
+    )
+}
+
 #[allow(dead_code)]
 /// Run a command with a timeout, returning stdout as a string.
-async fn run_cmd_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<String> {
+async fn run_cmd_with_timeout(
+    cmd: &mut Command,
+    timeout_secs: u64,
+    command: &'static str,
+    phase: &'static str,
+) -> Result<String> {
     let output = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output())
         .await
         .map_err(|_| {
@@ -28,22 +79,29 @@ async fn run_cmd_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<St
                 timeout_secs
             ))
         })?
-        .map_err(|e| matric_core::Error::Internal(format!("Failed to execute command: {}", e)))?;
+        .map_err(|e| {
+            matric_core::Error::Internal(format!(
+                "{command} {phase} failed to start; io_error_kind={}",
+                pdf_ocr_io_error_kind(&e)
+            ))
+        })?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(matric_core::Error::Internal(format!(
-            "Command failed (exit {}): {}",
-            output.status,
-            stderr.trim()
-        )));
+        return Err(matric_core::Error::Internal(
+            pdf_ocr_command_failure_detail(command, phase, output.status.code(), &output.stderr),
+        ));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// Run a command that may output to files rather than stdout.
-async fn run_cmd_status(cmd: &mut Command, timeout_secs: u64) -> Result<()> {
+async fn run_cmd_status(
+    cmd: &mut Command,
+    timeout_secs: u64,
+    command: &'static str,
+    phase: &'static str,
+) -> Result<()> {
     let output = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output())
         .await
         .map_err(|_| {
@@ -52,15 +110,17 @@ async fn run_cmd_status(cmd: &mut Command, timeout_secs: u64) -> Result<()> {
                 timeout_secs
             ))
         })?
-        .map_err(|e| matric_core::Error::Internal(format!("Failed to execute command: {}", e)))?;
+        .map_err(|e| {
+            matric_core::Error::Internal(format!(
+                "{command} {phase} failed to start; io_error_kind={}",
+                pdf_ocr_io_error_kind(&e)
+            ))
+        })?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(matric_core::Error::Internal(format!(
-            "Command failed (exit {}): {}",
-            output.status,
-            stderr.trim()
-        )));
+        return Err(matric_core::Error::Internal(
+            pdf_ocr_command_failure_detail(command, phase, output.status.code(), &output.stderr),
+        ));
     }
 
     Ok(())
@@ -126,6 +186,8 @@ impl ExtractionAdapter for PdfOcrAdapter {
                 .arg(&pdf_path)
                 .arg(&img_prefix),
             EXTRACTION_CMD_TIMEOUT_SECS * 3, // Allow more time for rendering
+            "pdftoppm",
+            "render",
         )
         .await?;
 
@@ -177,6 +239,8 @@ impl ExtractionAdapter for PdfOcrAdapter {
                     .arg("-l")
                     .arg(language),
                 EXTRACTION_CMD_TIMEOUT_SECS,
+                "tesseract",
+                "ocr_page",
             )
             .await;
 
@@ -246,6 +310,38 @@ mod tests {
     fn test_pdf_ocr_name() {
         let adapter = PdfOcrAdapter;
         assert_eq!(adapter.name(), "pdf_ocr");
+    }
+
+    #[test]
+    fn pdf_ocr_command_failure_detail_redacts_stderr() {
+        let stderr = b"Syntax Error at /srv/fortemi/private/file.pdf token=mm_key_secret";
+        let detail = pdf_ocr_command_failure_detail("pdftoppm", "render", Some(1), stderr);
+
+        assert!(detail.contains("pdftoppm render failed"));
+        assert!(detail.contains("status=1"));
+        assert!(detail.contains("stderr_len="));
+        assert!(detail.contains("stderr_reason=invalid_pdf"));
+        assert!(!detail.contains("/srv/fortemi"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("Syntax Error"));
+    }
+
+    #[test]
+    fn pdf_ocr_stderr_reason_code_uses_stable_classes() {
+        assert_eq!(
+            pdf_ocr_stderr_reason_code(b"Permission denied"),
+            "permission_denied"
+        );
+        assert_eq!(pdf_ocr_stderr_reason_code(b"xref invalid"), "invalid_pdf");
+        assert_eq!(pdf_ocr_stderr_reason_code(b"No such file"), "not_found");
+        assert_eq!(
+            pdf_ocr_stderr_reason_code(b"request timed out"),
+            "timed_out"
+        );
+        assert_eq!(
+            pdf_ocr_stderr_reason_code(b"opaque backend detail"),
+            "command_failed"
+        );
     }
 
     #[tokio::test]

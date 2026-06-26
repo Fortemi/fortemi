@@ -56,8 +56,59 @@ fn page_count(metadata: &JsonValue) -> usize {
     metadata.get("pages").and_then(|v| v.as_u64()).unwrap_or(0) as usize
 }
 
+fn pdf_text_io_error_kind(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => "not_found",
+        std::io::ErrorKind::PermissionDenied => "permission_denied",
+        std::io::ErrorKind::TimedOut => "timed_out",
+        std::io::ErrorKind::Interrupted => "interrupted",
+        std::io::ErrorKind::WouldBlock => "would_block",
+        _ => "io_error",
+    }
+}
+
+fn pdf_text_stderr_reason_code(stderr: &[u8]) -> &'static str {
+    let text = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("syntax error")
+        || text.contains("invalid")
+        || text.contains("xref")
+        || text.contains("not a pdf")
+    {
+        "invalid_pdf"
+    } else if text.contains("not found") || text.contains("no such") {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else {
+        "command_failed"
+    }
+}
+
+fn pdf_text_command_failure_detail(
+    command: &'static str,
+    phase: &'static str,
+    status_code: Option<i32>,
+    stderr: &[u8],
+) -> String {
+    format!(
+        "{command} {phase} failed; status={}; stderr_len={}; stderr_reason={}",
+        status_code
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "signal".to_string()),
+        stderr.len(),
+        pdf_text_stderr_reason_code(stderr)
+    )
+}
+
 /// Run a command with a timeout, returning stdout as a string.
-async fn run_cmd_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<String> {
+async fn run_cmd_with_timeout(
+    cmd: &mut Command,
+    timeout_secs: u64,
+    command: &'static str,
+    phase: &'static str,
+) -> Result<String> {
     let output = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output())
         .await
         .map_err(|_| {
@@ -66,15 +117,17 @@ async fn run_cmd_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<St
                 timeout_secs
             ))
         })?
-        .map_err(|e| matric_core::Error::Internal(format!("Failed to execute command: {}", e)))?;
+        .map_err(|e| {
+            matric_core::Error::Internal(format!(
+                "{command} {phase} failed to start; io_error_kind={}",
+                pdf_text_io_error_kind(&e)
+            ))
+        })?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(matric_core::Error::Internal(format!(
-            "Command failed (exit {}): {}",
-            output.status,
-            stderr.trim()
-        )));
+        return Err(matric_core::Error::Internal(
+            pdf_text_command_failure_detail(command, phase, output.status.code(), &output.stderr),
+        ));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
@@ -120,6 +173,8 @@ impl ExtractionAdapter for PdfTextAdapter {
         let pdfinfo_output = run_cmd_with_timeout(
             Command::new("pdfinfo").arg(&tmp_path),
             EXTRACTION_CMD_TIMEOUT_SECS,
+            "pdfinfo",
+            "metadata",
         )
         .await;
 
@@ -149,6 +204,8 @@ impl ExtractionAdapter for PdfTextAdapter {
                         .arg(&tmp_path)
                         .arg("-"),
                     EXTRACTION_CMD_TIMEOUT_SECS,
+                    "pdftotext",
+                    "batch_extract",
                 )
                 .await?;
                 chunks.push(chunk);
@@ -160,6 +217,8 @@ impl ExtractionAdapter for PdfTextAdapter {
             run_cmd_with_timeout(
                 Command::new("pdftotext").arg(&tmp_path).arg("-"),
                 EXTRACTION_CMD_TIMEOUT_SECS,
+                "pdftotext",
+                "extract",
             )
             .await?
         };
@@ -229,6 +288,38 @@ mod tests {
     fn test_pdf_text_name() {
         let adapter = PdfTextAdapter;
         assert_eq!(adapter.name(), "pdf_text");
+    }
+
+    #[test]
+    fn pdf_text_command_failure_detail_redacts_stderr() {
+        let stderr = b"Syntax Error at /srv/fortemi/private/file.pdf token=mm_key_secret";
+        let detail = pdf_text_command_failure_detail("pdftotext", "extract", Some(1), stderr);
+
+        assert!(detail.contains("pdftotext extract failed"));
+        assert!(detail.contains("status=1"));
+        assert!(detail.contains("stderr_len="));
+        assert!(detail.contains("stderr_reason=invalid_pdf"));
+        assert!(!detail.contains("/srv/fortemi"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("Syntax Error"));
+    }
+
+    #[test]
+    fn pdf_text_stderr_reason_code_uses_stable_classes() {
+        assert_eq!(
+            pdf_text_stderr_reason_code(b"Permission denied"),
+            "permission_denied"
+        );
+        assert_eq!(pdf_text_stderr_reason_code(b"xref invalid"), "invalid_pdf");
+        assert_eq!(pdf_text_stderr_reason_code(b"No such file"), "not_found");
+        assert_eq!(
+            pdf_text_stderr_reason_code(b"request timed out"),
+            "timed_out"
+        );
+        assert_eq!(
+            pdf_text_stderr_reason_code(b"opaque backend detail"),
+            "command_failed"
+        );
     }
 
     #[tokio::test]

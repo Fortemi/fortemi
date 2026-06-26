@@ -15,6 +15,52 @@ use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Resul
 
 pub struct OfficeConvertAdapter;
 
+fn office_io_error_kind(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => "not_found",
+        std::io::ErrorKind::PermissionDenied => "permission_denied",
+        std::io::ErrorKind::TimedOut => "timed_out",
+        std::io::ErrorKind::Interrupted => "interrupted",
+        std::io::ErrorKind::WouldBlock => "would_block",
+        _ => "io_error",
+    }
+}
+
+fn office_stderr_reason_code(stderr: &[u8]) -> &'static str {
+    let text = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("unknown reader")
+        || text.contains("couldn't parse")
+        || text.contains("parse")
+        || text.contains("invalid")
+    {
+        "invalid_document"
+    } else if text.contains("not found") || text.contains("no such") {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else {
+        "command_failed"
+    }
+}
+
+fn office_command_failure_detail(
+    command: &'static str,
+    phase: &'static str,
+    status_code: Option<i32>,
+    stderr: &[u8],
+) -> String {
+    format!(
+        "{command} {phase} failed; status={}; stderr_len={}; stderr_reason={}",
+        status_code
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "signal".to_string()),
+        stderr.len(),
+        office_stderr_reason_code(stderr)
+    )
+}
+
 /// Determine the pandoc input format from filename extension.
 fn pandoc_input_format(filename: &str) -> Option<&'static str> {
     let ext = filename.rsplit('.').next()?.to_lowercase();
@@ -50,7 +96,12 @@ fn pandoc_format_from_mime(mime_type: &str) -> Option<&'static str> {
 }
 
 /// Run a command with a timeout, returning stdout as a string.
-async fn run_cmd_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<String> {
+async fn run_cmd_with_timeout(
+    cmd: &mut Command,
+    timeout_secs: u64,
+    command: &'static str,
+    phase: &'static str,
+) -> Result<String> {
     let output = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output())
         .await
         .map_err(|_| {
@@ -59,14 +110,19 @@ async fn run_cmd_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<St
                 timeout_secs
             ))
         })?
-        .map_err(|e| matric_core::Error::Internal(format!("Failed to execute command: {}", e)))?;
+        .map_err(|e| {
+            matric_core::Error::Internal(format!(
+                "{command} {phase} failed to start; io_error_kind={}",
+                office_io_error_kind(&e)
+            ))
+        })?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(matric_core::Error::Internal(format!(
-            "Command failed (exit {}): {}",
-            output.status,
-            stderr.trim()
+        return Err(matric_core::Error::Internal(office_command_failure_detail(
+            command,
+            phase,
+            output.status.code(),
+            &output.stderr,
         )));
     }
 
@@ -144,6 +200,8 @@ impl ExtractionAdapter for OfficeConvertAdapter {
                 .arg("--wrap=none")
                 .arg(&tmp_path),
             EXTRACTION_CMD_TIMEOUT_SECS,
+            "pandoc",
+            "convert",
         )
         .await?;
 
@@ -190,6 +248,38 @@ mod tests {
     fn test_office_convert_name() {
         let adapter = OfficeConvertAdapter;
         assert_eq!(adapter.name(), "office_convert");
+    }
+
+    #[test]
+    fn office_command_failure_detail_redacts_stderr() {
+        let stderr = b"couldn't parse /srv/fortemi/private/doc.docx token=mm_key_secret";
+        let detail = office_command_failure_detail("pandoc", "convert", Some(1), stderr);
+
+        assert!(detail.contains("pandoc convert failed"));
+        assert!(detail.contains("status=1"));
+        assert!(detail.contains("stderr_len="));
+        assert!(detail.contains("stderr_reason=invalid_document"));
+        assert!(!detail.contains("/srv/fortemi"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("couldn't parse"));
+    }
+
+    #[test]
+    fn office_stderr_reason_code_uses_stable_classes() {
+        assert_eq!(
+            office_stderr_reason_code(b"Permission denied"),
+            "permission_denied"
+        );
+        assert_eq!(
+            office_stderr_reason_code(b"unknown reader"),
+            "invalid_document"
+        );
+        assert_eq!(office_stderr_reason_code(b"No such file"), "not_found");
+        assert_eq!(office_stderr_reason_code(b"request timed out"), "timed_out");
+        assert_eq!(
+            office_stderr_reason_code(b"opaque backend detail"),
+            "command_failed"
+        );
     }
 
     #[tokio::test]
