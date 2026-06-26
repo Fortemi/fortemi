@@ -5245,7 +5245,11 @@ async fn normalize_route_policy_input_for_authorization(
                 .map(|document_type| document_type.map(DocumentTypeResourceMetadata::from))
         })
         .await;
-    normalize_job_route_policy_input(input, |job_id| state.db.jobs.get(job_id)).await
+    let input = normalize_job_route_policy_input(input, |job_id| state.db.jobs.get(job_id)).await;
+    normalize_webhook_control_route_policy_input(input, |webhook_id| {
+        state.db.webhooks.get(webhook_id)
+    })
+    .await
 }
 
 async fn normalize_note_route_policy_input<F, Fut>(
@@ -5587,6 +5591,81 @@ where
         }
         Err(err) => {
             tracing::warn!(error = %err, "authorization job normalization lookup failed");
+        }
+    }
+
+    input
+}
+
+async fn normalize_webhook_control_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    webhook_lookup: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(Uuid) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<matric_core::Webhook>>>,
+{
+    if input.resource.kind != ResourceKind::Webhook
+        || input.policy.action_family != "webhook_control"
+        || input
+            .resource
+            .attrs
+            .get("resource_id_param")
+            .and_then(|value| value.as_str())
+            != Some("id")
+        || !input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        return input;
+    }
+
+    let Some(resource_id) = input.resource.id.as_deref() else {
+        return input;
+    };
+    let Ok(webhook_id) = Uuid::parse_str(resource_id) else {
+        tracing::warn!("authorization resource normalization skipped: invalid webhook id");
+        return input;
+    };
+
+    match webhook_lookup(webhook_id).await {
+        Ok(Some(webhook)) => {
+            route_policy::mark_resource_id_normalized(&mut input);
+            input
+                .resource
+                .attrs
+                .insert("webhook_id".to_string(), serde_json::json!(webhook.id));
+            input.resource.attrs.insert(
+                "webhook_is_active".to_string(),
+                serde_json::json!(webhook.is_active),
+            );
+            input.resource.attrs.insert(
+                "webhook_event_count".to_string(),
+                serde_json::json!(webhook.events.len()),
+            );
+            input.resource.attrs.insert(
+                "webhook_failure_count".to_string(),
+                serde_json::json!(webhook.failure_count),
+            );
+            input.resource.attrs.insert(
+                "webhook_max_retries".to_string(),
+                serde_json::json!(webhook.max_retries),
+            );
+        }
+        Ok(None) => {
+            tracing::warn!("authorization resource normalization skipped: webhook does not exist");
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "authorization webhook normalization lookup failed");
         }
     }
 
@@ -22427,6 +22506,169 @@ mod tests {
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
         assert!(normalized.resource.attrs.get("job_type").is_none());
+    }
+
+    fn test_webhook_resource(id: Uuid) -> matric_core::Webhook {
+        matric_core::Webhook {
+            id,
+            url: "https://example.test/webhook".to_string(),
+            secret: Some("secret-not-for-policy-metadata".to_string()),
+            events: vec!["note.created".to_string(), "note.updated".to_string()],
+            is_active: true,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            last_triggered_at: None,
+            failure_count: 2,
+            max_retries: 5,
+        }
+    }
+
+    #[tokio::test]
+    async fn existing_webhook_control_route_id_is_marked_normalized_with_safe_metadata() {
+        let webhook_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000006").unwrap();
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/webhooks/018fd1a0-0000-7000-8000-000000000006",
+            Some("tenant-a"),
+        )
+        .expect("webhook route has policy input");
+
+        let normalized =
+            normalize_webhook_control_route_policy_input(input, |lookup_id| async move {
+                assert_eq!(lookup_id, webhook_id);
+                Ok(Some(test_webhook_resource(webhook_id)))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert_eq!(
+            normalized.resource.attrs["webhook_id"],
+            serde_json::json!(webhook_id)
+        );
+        assert_eq!(normalized.resource.attrs["webhook_is_active"], true);
+        assert_eq!(normalized.resource.attrs["webhook_event_count"], 2);
+        assert_eq!(normalized.resource.attrs["webhook_failure_count"], 2);
+        assert_eq!(normalized.resource.attrs["webhook_max_retries"], 5);
+        assert!(normalized.resource.attrs.get("webhook_url").is_none());
+        assert!(normalized.resource.attrs.get("webhook_secret").is_none());
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_webhook_control_route_id_stays_unnormalized_after_backing_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/webhooks/018fd1a0-0000-7000-8000-000000000006/deliveries",
+            Some("tenant-a"),
+        )
+        .expect("webhook deliveries route has policy input");
+
+        let normalized = normalize_webhook_control_route_policy_input(
+            input,
+            |_lookup_id| async move { Ok(None) },
+        )
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("webhook_id").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn invalid_webhook_control_route_id_stays_unnormalized_without_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/webhooks/not-a-uuid/test",
+            Some("tenant-a"),
+        )
+        .expect("webhook test route has policy input");
+
+        let normalized =
+            normalize_webhook_control_route_policy_input(input, |_lookup_id| async move {
+                panic!("invalid webhook route IDs must not perform webhook lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_webhook_resource(Uuid::new_v4())))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("webhook_id").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn webhook_control_normalization_lookup_error_preserves_fail_closed_guard() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/webhooks/018fd1a0-0000-7000-8000-000000000006/test",
+            Some("tenant-a"),
+        )
+        .expect("webhook test route has policy input");
+
+        let normalized =
+            normalize_webhook_control_route_policy_input(input, |_lookup_id| async move {
+                Err(matric_core::Error::Internal("lookup failed".to_string()))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn webhook_collection_routes_do_not_run_id_lookup() {
+        let input =
+            route_policy::authorization_input_for_request(&Method::GET, "/api/v1/webhooks", None)
+                .expect("webhook collection route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Webhook);
+        assert_eq!(input.resource.attrs["resource_id_source"], "route_template");
+
+        let normalized =
+            normalize_webhook_control_route_policy_input(input, |_lookup_id| async move {
+                panic!("webhook collection routes must not perform webhook lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_webhook_resource(Uuid::new_v4())))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert!(normalized.resource.attrs.get("webhook_id").is_none());
+    }
+
+    #[tokio::test]
+    async fn incoming_webhook_receiver_routes_do_not_run_control_id_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/webhooks/incoming/customer-created",
+            None,
+        )
+        .expect("incoming webhook receiver route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Webhook);
+        assert_eq!(input.policy.action_family, "webhook_receiver");
+
+        let normalized =
+            normalize_webhook_control_route_policy_input(input, |_lookup_id| async move {
+                panic!("incoming webhook receiver routes must not perform control ID lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_webhook_resource(Uuid::new_v4())))
+            })
+            .await;
+
+        assert_eq!(normalized.policy.action_family, "webhook_receiver");
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("webhook_id").is_none());
     }
 
     #[tokio::test]
