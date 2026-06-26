@@ -2008,7 +2008,7 @@ impl fmt::Debug for TusUpload {
 // =============================================================================
 
 /// Provider-agnostic persisted real-time call session metadata.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, sqlx::FromRow)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema, sqlx::FromRow)]
 pub struct CallSession {
     pub call_id: Uuid,
     pub provider: String,
@@ -2023,8 +2023,32 @@ pub struct CallSession {
     pub metadata: serde_json::Value,
 }
 
+impl fmt::Debug for CallSession {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CallSession")
+            .field("call_id_set", &true)
+            .field("provider_len", &self.provider.len())
+            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field("started_at", &self.started_at)
+            .field("ended_at_set", &self.ended_at.is_some())
+            .field("end_reason_len", &self.end_reason.as_ref().map(String::len))
+            .field(
+                "asr_backend_len",
+                &self.asr_backend.as_ref().map(String::len),
+            )
+            .field(
+                "remote_party_len",
+                &self.remote_party.as_ref().map(String::len),
+            )
+            .field("archive_id_set", &self.archive_id.is_some())
+            .field("metadata_class", &json_value_class(&self.metadata))
+            .field("metadata_len", &json_serialized_len(&self.metadata))
+            .finish()
+    }
+}
+
 /// Request payload for creating a call session row.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateCallSessionRequest {
     pub provider: String,
     pub provider_call_id: String,
@@ -2036,8 +2060,29 @@ pub struct CreateCallSessionRequest {
     pub metadata: serde_json::Value,
 }
 
+impl fmt::Debug for CreateCallSessionRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateCallSessionRequest")
+            .field("provider_len", &self.provider.len())
+            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field("started_at_set", &self.started_at.is_some())
+            .field(
+                "asr_backend_len",
+                &self.asr_backend.as_ref().map(String::len),
+            )
+            .field(
+                "remote_party_len",
+                &self.remote_party.as_ref().map(String::len),
+            )
+            .field("archive_id_set", &self.archive_id.is_some())
+            .field("metadata_class", &json_value_class(&self.metadata))
+            .field("metadata_len", &json_serialized_len(&self.metadata))
+            .finish()
+    }
+}
+
 /// Partial update payload for ending or annotating a call session.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateCallSessionRequest {
     pub ended_at: Option<DateTime<Utc>>,
     pub end_reason: Option<String>,
@@ -2045,6 +2090,32 @@ pub struct UpdateCallSessionRequest {
     pub remote_party: Option<String>,
     pub archive_id: Option<Uuid>,
     pub metadata: Option<serde_json::Value>,
+}
+
+impl fmt::Debug for UpdateCallSessionRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateCallSessionRequest")
+            .field("ended_at_set", &self.ended_at.is_some())
+            .field("end_reason_len", &self.end_reason.as_ref().map(String::len))
+            .field(
+                "asr_backend_len",
+                &self.asr_backend.as_ref().map(String::len),
+            )
+            .field(
+                "remote_party_len",
+                &self.remote_party.as_ref().map(String::len),
+            )
+            .field("archive_id_set", &self.archive_id.is_some())
+            .field(
+                "metadata_class",
+                &self.metadata.as_ref().map(json_value_class),
+            )
+            .field(
+                "metadata_len",
+                &self.metadata.as_ref().map(json_serialized_len),
+            )
+            .finish()
+    }
 }
 
 /// Final transcript segment persisted for a call session.
@@ -4474,6 +4545,108 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "TusUpload Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn call_session_debug_redacts_provider_parties_reasons_and_metadata() {
+        let now = Utc::now();
+        let session = CallSession {
+            call_id: Uuid::new_v4(),
+            provider: "twilio-private-provider".to_string(),
+            provider_call_id: "CA-secret-provider-call-id".to_string(),
+            started_at: now,
+            ended_at: Some(now),
+            end_reason: Some(
+                "Ended after callback https://provider.example.test/?token=secret".to_string(),
+            ),
+            asr_backend: Some("deepgram-private-model".to_string()),
+            remote_party: Some("+15551212 private@example.test".to_string()),
+            archive_id: Some(Uuid::new_v4()),
+            metadata: json!({
+                "recording_url": "https://recordings.example.test/call?token=secret-token",
+                "storage_path": "/tmp/customer/calls/private.wav",
+                "api_key": "sk-live-secret"
+            }),
+        };
+        let create = CreateCallSessionRequest {
+            provider: "create-private-provider".to_string(),
+            provider_call_id: "CA-create-secret-call-id".to_string(),
+            started_at: Some(now),
+            asr_backend: Some("create-private-asr".to_string()),
+            remote_party: Some("+15559876 caller@example.test".to_string()),
+            archive_id: Some(Uuid::new_v4()),
+            metadata: json!({
+                "webhook_url": "https://hooks.example.test/call?token=create-secret",
+                "customer_path": "/tmp/customer/create-call.json"
+            }),
+        };
+        let update = UpdateCallSessionRequest {
+            ended_at: Some(now),
+            end_reason: Some(
+                "Update reason includes sk-live-secret and /tmp/customer/end.txt".to_string(),
+            ),
+            asr_backend: Some("updated-private-asr".to_string()),
+            remote_party: Some("+15550000 updated@example.test".to_string()),
+            archive_id: Some(Uuid::new_v4()),
+            metadata: Some(json!({
+                "provider_error": "https://provider.example.test/error?token=update-secret",
+                "transcript_path": "/tmp/customer/transcript.txt"
+            })),
+        };
+
+        let debug = format!("{session:?}{create:?}{update:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "twilio-private-provider",
+                "CA-secret-provider-call-id",
+                "Ended after callback",
+                "provider.example.test",
+                "deepgram-private-model",
+                "+15551212",
+                "private@example.test",
+                "recordings.example.test",
+                "secret-token",
+                "/tmp/customer/calls",
+                "sk-live-secret",
+                "create-private-provider",
+                "CA-create-secret-call-id",
+                "create-private-asr",
+                "+15559876",
+                "caller@example.test",
+                "hooks.example.test",
+                "create-secret",
+                "/tmp/customer/create-call.json",
+                "Update reason",
+                "/tmp/customer/end.txt",
+                "updated-private-asr",
+                "+15550000",
+                "updated@example.test",
+                "update-secret",
+                "/tmp/customer/transcript.txt",
+            ],
+        );
+
+        for expected in [
+            "call_id_set",
+            "provider_len",
+            "provider_call_id_len",
+            "started_at",
+            "started_at_set",
+            "ended_at_set",
+            "end_reason_len",
+            "asr_backend_len",
+            "remote_party_len",
+            "archive_id_set",
+            "metadata_class",
+            "metadata_len",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "CallSession Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
