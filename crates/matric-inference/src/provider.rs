@@ -22,6 +22,13 @@ use tracing::{debug, info, warn};
 
 use matric_core::{Error, Result};
 
+fn string_lens<S: AsRef<str>>(values: &[S]) -> Vec<usize> {
+    values
+        .iter()
+        .map(|value| value.as_ref().chars().count())
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Provider capability enum
 // ---------------------------------------------------------------------------
@@ -302,9 +309,9 @@ impl ProviderRegistry {
             if let Some(model) = slug.strip_prefix(&prefix) {
                 if !model.is_empty() {
                     debug!(
-                        slug = slug,
-                        provider = %provider_id,
-                        model = model,
+                        slug_len = slug.chars().count(),
+                        provider_id_len = provider_id.chars().count(),
+                        model_len = model.chars().count(),
                         "Parsed provider-qualified slug"
                     );
                     return ParsedSlug {
@@ -317,8 +324,8 @@ impl ProviderRegistry {
 
         // No known provider prefix — use default
         debug!(
-            slug = slug,
-            provider = %self.default_provider,
+            slug_len = slug.chars().count(),
+            default_provider_len = self.default_provider.chars().count(),
             "Using default provider for bare slug"
         );
         ParsedSlug {
@@ -383,7 +390,7 @@ impl ProviderRegistry {
 
         if config.health == ProviderHealth::Unhealthy {
             warn!(
-                provider = %parsed.provider_id,
+                provider_id_len = parsed.provider_id.chars().count(),
                 "Resolving backend for unhealthy provider"
             );
         }
@@ -717,20 +724,20 @@ impl ProviderRegistry {
                 if let Some(cfg) = registry.providers.get(&trimmed) {
                     if cfg.capabilities.contains(&ProviderCapability::Embedding) {
                         info!(
-                            embedding_provider = %trimmed,
+                            embedding_provider_len = trimmed.chars().count(),
                             "Independent embedding routing enabled"
                         );
                         registry.embedding_provider = Some(trimmed);
                     } else {
                         warn!(
-                            embedding_provider = %trimmed,
+                            embedding_provider_len = trimmed.chars().count(),
                             "MATRIC_EMBEDDING_PROVIDER points at a provider that doesn't \
                              support embeddings; falling back to default"
                         );
                     }
                 } else {
                     warn!(
-                        embedding_provider = %trimmed,
+                        embedding_provider_len = trimmed.chars().count(),
                         "MATRIC_EMBEDDING_PROVIDER points at an unregistered provider; \
                          configure it first or fall back to default"
                     );
@@ -739,9 +746,10 @@ impl ProviderRegistry {
         }
 
         info!(
-            providers = ?registry.provider_ids(),
-            default = %registry.default_provider,
-            embedding = %registry.embedding_provider(),
+            provider_count = registry.provider_ids().len(),
+            provider_id_lens = ?string_lens(&registry.provider_ids()),
+            default_provider_len = registry.default_provider.chars().count(),
+            embedding_provider_len = registry.embedding_provider().chars().count(),
             "Provider registry initialized from environment"
         );
 
@@ -864,6 +872,32 @@ mod tests {
             &[
                 "provider-secret@example.internal",
                 "tenant-private/model-sk-secret",
+            ],
+        );
+    }
+
+    #[test]
+    fn provider_diagnostic_lengths_do_not_include_raw_provider_ids() {
+        let providers = vec![
+            "tenant/provider@example.internal".to_string(),
+            "openrouter-token=secret".to_string(),
+        ];
+
+        let lens = string_lens(&providers);
+
+        assert_eq!(
+            lens,
+            providers
+                .iter()
+                .map(|provider| provider.chars().count())
+                .collect::<Vec<_>>()
+        );
+        let diagnostic = format!("{lens:?}");
+        assert_debug_excludes(
+            &diagnostic,
+            &[
+                "tenant/provider@example.internal",
+                "openrouter-token=secret",
             ],
         );
     }
