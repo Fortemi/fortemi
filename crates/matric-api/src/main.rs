@@ -50,7 +50,7 @@ use matric_core::{
     Decision, DenyReason, DocumentTypeRepository, EventBus, EventContext, EventEnvelope,
     ExtractionAdapter, ExtractionStrategy, JobRepository, JobType, ListNotesRequest,
     NoteRepository, OAuthError, ResourceKind, RevisionMode, RoleBasedPolicy, ServerEvent,
-    StrictTagFilterInput, TagInput, TagRepository, TokenRequest, TracingSink,
+    StrictTagFilterInput, TagInput, TagRepository, TemplateRepository, TokenRequest, TracingSink,
     UpdateNoteStatusRequest,
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
@@ -5240,6 +5240,10 @@ async fn normalize_route_policy_input_for_authorization(
         state.db.collections.get(collection_id)
     })
     .await;
+    let input = normalize_template_route_policy_input(input, |template_id| {
+        state.db.templates.get(template_id)
+    })
+    .await;
     let input =
         normalize_document_type_route_policy_input(input, |document_type_name| async move {
             state
@@ -5537,6 +5541,105 @@ where
         }
         Err(err) => {
             tracing::warn!(error = %err, "authorization collection normalization lookup failed");
+        }
+    }
+
+    input
+}
+
+#[derive(Clone, Debug)]
+struct TemplateResourceMetadata {
+    id: Uuid,
+    name: String,
+    format: String,
+    default_tag_count: usize,
+    collection_id: Option<Uuid>,
+}
+
+impl From<matric_core::NoteTemplate> for TemplateResourceMetadata {
+    fn from(template: matric_core::NoteTemplate) -> Self {
+        Self {
+            id: template.id,
+            name: template.name,
+            format: template.format,
+            default_tag_count: template.default_tags.len(),
+            collection_id: template.collection_id,
+        }
+    }
+}
+
+async fn normalize_template_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    template_lookup: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(Uuid) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<matric_core::NoteTemplate>>>,
+{
+    if input.resource.kind != ResourceKind::Template
+        || input
+            .resource
+            .attrs
+            .get("resource_id_param")
+            .and_then(|value| value.as_str())
+            != Some("id")
+        || !input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        return input;
+    }
+
+    let Some(template_id) = input
+        .resource
+        .id
+        .as_deref()
+        .and_then(|id| Uuid::parse_str(id).ok())
+    else {
+        return input;
+    };
+
+    match template_lookup(template_id).await {
+        Ok(Some(template)) => {
+            let template = TemplateResourceMetadata::from(template);
+            route_policy::mark_resource_id_normalized(&mut input);
+            input
+                .resource
+                .attrs
+                .insert("template_id".to_string(), serde_json::json!(template.id));
+            input.resource.attrs.insert(
+                "template_name".to_string(),
+                serde_json::json!(template.name),
+            );
+            input.resource.attrs.insert(
+                "template_format".to_string(),
+                serde_json::json!(template.format),
+            );
+            input.resource.attrs.insert(
+                "template_default_tag_count".to_string(),
+                serde_json::json!(template.default_tag_count),
+            );
+            if let Some(collection_id) = template.collection_id {
+                input.resource.attrs.insert(
+                    "template_collection_id".to_string(),
+                    serde_json::json!(collection_id),
+                );
+            }
+        }
+        Ok(None) => {
+            tracing::warn!("authorization resource normalization skipped: template does not exist");
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "authorization template normalization lookup failed");
         }
     }
 
@@ -22685,6 +22788,168 @@ mod tests {
         assert_eq!(normalized.policy.action_family, "collection");
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
         assert!(normalized.resource.attrs.get("collection_id").is_none());
+    }
+
+    fn test_template(id: Uuid, collection_id: Option<Uuid>) -> matric_core::NoteTemplate {
+        matric_core::NoteTemplate {
+            id,
+            name: "Daily note".to_string(),
+            description: Some("not-for-policy-metadata".to_string()),
+            content: "not-for-policy-metadata".to_string(),
+            format: "markdown".to_string(),
+            default_tags: vec!["daily".to_string(), "journal".to_string()],
+            collection_id,
+            created_at_utc: chrono::Utc::now(),
+            updated_at_utc: chrono::Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn existing_template_route_id_is_marked_normalized_with_safe_metadata() {
+        let template_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000011").unwrap();
+        let collection_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000009").unwrap();
+        let input = route_policy::authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/templates/018fd1a0-0000-7000-8000-000000000011/instantiate",
+            Some("tenant-a"),
+        )
+        .expect("template instantiate route has policy input");
+
+        let normalized = normalize_template_route_policy_input(input, |lookup_id| async move {
+            assert_eq!(lookup_id, template_id);
+            Ok(Some(test_template(template_id, Some(collection_id))))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert_eq!(
+            normalized.resource.attrs["template_id"],
+            serde_json::json!(template_id)
+        );
+        assert_eq!(normalized.resource.attrs["template_name"], "Daily note");
+        assert_eq!(normalized.resource.attrs["template_format"], "markdown");
+        assert_eq!(normalized.resource.attrs["template_default_tag_count"], 2);
+        assert_eq!(
+            normalized.resource.attrs["template_collection_id"],
+            serde_json::json!(collection_id)
+        );
+        assert!(normalized.resource.attrs.get("template_content").is_none());
+        assert!(normalized
+            .resource
+            .attrs
+            .get("template_description")
+            .is_none());
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_template_route_id_stays_unnormalized_after_backing_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/templates/018fd1a0-0000-7000-8000-000000000011",
+            Some("tenant-a"),
+        )
+        .expect("template get route has policy input");
+
+        let normalized =
+            normalize_template_route_policy_input(input, |_lookup_id| async move { Ok(None) })
+                .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("template_id").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn invalid_template_route_id_stays_unnormalized_without_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/templates/not-a-uuid",
+            Some("tenant-a"),
+        )
+        .expect("template update route has policy input");
+
+        let normalized = normalize_template_route_policy_input(input, |_lookup_id| async move {
+            panic!("invalid template route IDs must not perform template lookups");
+            #[allow(unreachable_code)]
+            Ok(Some(test_template(Uuid::new_v4(), None)))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("template_id").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn template_normalization_lookup_error_preserves_fail_closed_guard() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/templates/018fd1a0-0000-7000-8000-000000000011",
+            Some("tenant-a"),
+        )
+        .expect("template delete route has policy input");
+
+        let normalized = normalize_template_route_policy_input(input, |_lookup_id| async move {
+            Err(matric_core::Error::Internal("lookup failed".to_string()))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn template_collection_routes_do_not_run_id_lookup() {
+        let input =
+            route_policy::authorization_input_for_request(&Method::GET, "/api/v1/templates", None)
+                .expect("template collection route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Template);
+        assert_eq!(input.resource.attrs["resource_id_source"], "route_template");
+
+        let normalized = normalize_template_route_policy_input(input, |_lookup_id| async move {
+            panic!("template collection routes must not perform template lookups");
+            #[allow(unreachable_code)]
+            Ok(Some(test_template(Uuid::new_v4(), None)))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert!(normalized.resource.attrs.get("template_id").is_none());
+    }
+
+    #[tokio::test]
+    async fn document_type_routes_do_not_run_template_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/document-types/markdown",
+            Some("tenant-a"),
+        )
+        .expect("document type route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::DocumentType);
+
+        let normalized = normalize_template_route_policy_input(input, |_lookup_id| async move {
+            panic!("document type routes must not perform template lookups");
+            #[allow(unreachable_code)]
+            Ok(Some(test_template(Uuid::new_v4(), None)))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.kind, ResourceKind::DocumentType);
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("template_id").is_none());
     }
 
     fn test_document_type_metadata(name: &str) -> DocumentTypeResourceMetadata {
