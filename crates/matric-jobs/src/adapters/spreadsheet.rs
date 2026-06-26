@@ -19,6 +19,30 @@ use tracing::debug;
 
 use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Result};
 
+fn spreadsheet_text_len(text: &str) -> usize {
+    text.len()
+}
+
+fn spreadsheet_error_reason_code(error: &str) -> &'static str {
+    let text = error.to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("password") || text.contains("encrypted") || text.contains("protected")
+    {
+        "protected_workbook"
+    } else if text.contains("zip")
+        || text.contains("xml")
+        || text.contains("format")
+        || text.contains("invalid")
+    {
+        "invalid_workbook"
+    } else if text.contains("not found") || text.contains("no such") {
+        "not_found"
+    } else {
+        "read_failed"
+    }
+}
+
 // ── Column label helpers ─────────────────────────────────────────────────────
 
 /// Convert a 0-based column index to a spreadsheet-style label (A, B, …, Z, AA, AB, …).
@@ -190,7 +214,7 @@ impl ExtractionAdapter for SpreadsheetAdapter {
 
         let sheet_names = workbook.sheet_names().to_owned();
         debug!(
-            filename,
+            filename_len = spreadsheet_text_len(filename),
             sheet_count = sheet_names.len(),
             "Opening spreadsheet"
         );
@@ -209,7 +233,10 @@ impl ExtractionAdapter for SpreadsheetAdapter {
                     let rows: Vec<Vec<Data>> = range.rows().map(|row| row.to_vec()).collect();
 
                     if rows.is_empty() || width == 0 {
-                        debug!(sheet = %sheet_name, "Skipping empty sheet");
+                        debug!(
+                            sheet_name_len = spreadsheet_text_len(sheet_name),
+                            "Skipping empty sheet"
+                        );
                         sheet_meta.push(serde_json::json!({
                             "name": sheet_name,
                             "rows": 0,
@@ -234,7 +261,13 @@ impl ExtractionAdapter for SpreadsheetAdapter {
                     }
                 }
                 Err(e) => {
-                    debug!(sheet = %sheet_name, error = %e, "Failed to read sheet, skipping");
+                    let error_text = e.to_string();
+                    debug!(
+                        sheet_name_len = spreadsheet_text_len(sheet_name),
+                        error_len = spreadsheet_text_len(&error_text),
+                        error_reason = spreadsheet_error_reason_code(&error_text),
+                        "Failed to read sheet, skipping"
+                    );
                     sheet_meta.push(serde_json::json!({
                         "name": sheet_name,
                         "error": e.to_string(),
@@ -281,6 +314,49 @@ impl ExtractionAdapter for SpreadsheetAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spreadsheet_error_reason_code_uses_stable_classes() {
+        assert_eq!(
+            spreadsheet_error_reason_code("permission denied opening /srv/private/book.xlsx"),
+            "permission_denied"
+        );
+        assert_eq!(
+            spreadsheet_error_reason_code("workbook is password protected token=mm_key_secret"),
+            "protected_workbook"
+        );
+        assert_eq!(
+            spreadsheet_error_reason_code("invalid zip central directory"),
+            "invalid_workbook"
+        );
+        assert_eq!(
+            spreadsheet_error_reason_code("opaque backend text /srv/private/book.xlsx"),
+            "read_failed"
+        );
+    }
+
+    #[test]
+    fn spreadsheet_log_metadata_omits_raw_sheet_names_and_errors() {
+        let filename = "customer-token-mm_key_secret.xlsx";
+        let sheet = "Payroll customer-token-mm_key_secret";
+        let error = "permission denied at /srv/fortemi/private/customer-token-mm_key_secret.xlsx";
+        let detail = format!(
+            "filename_len={}; sheet_name_len={}; error_len={}; error_reason={}",
+            spreadsheet_text_len(filename),
+            spreadsheet_text_len(sheet),
+            spreadsheet_text_len(error),
+            spreadsheet_error_reason_code(error)
+        );
+
+        assert!(detail.contains("filename_len="));
+        assert!(detail.contains("sheet_name_len="));
+        assert!(detail.contains("error_len="));
+        assert!(detail.contains("permission_denied"));
+        assert!(!detail.contains("Payroll"));
+        assert!(!detail.contains("customer-token"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("/srv/fortemi"));
+    }
 
     // ── column_label ─────────────────────────────────────────────────────
 
