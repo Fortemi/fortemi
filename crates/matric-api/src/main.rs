@@ -3313,9 +3313,7 @@ async fn handle_twilio_realtime_connection(
                         tracing::warn!(%call_id, %provider_call_id, %error, "Invalid Twilio media envelope");
                         let _ = socket
                             .send(Message::Text(
-                                serde_json::json!({"error":"invalid_twilio_media_envelope"})
-                                    .to_string()
-                                    .into(),
+                                twilio_invalid_media_envelope_payload().into(),
                             ))
                             .await;
                     }
@@ -3344,6 +3342,14 @@ async fn handle_twilio_realtime_connection(
         },
     )
     .await;
+}
+
+fn twilio_invalid_media_envelope_payload() -> String {
+    serde_json::json!({
+        "error": "invalid Twilio media envelope",
+        "code": "INVALID_TWILIO_MEDIA_ENVELOPE",
+    })
+    .to_string()
 }
 
 async fn start_twilio_asr_pipeline(
@@ -23164,6 +23170,19 @@ mod tests {
     fn health_provider_url_status_does_not_return_url() {
         assert!(provider_url_configured("https://provider.example/v1"));
         assert!(!provider_url_configured("   "));
+    }
+
+    #[test]
+    fn twilio_invalid_media_envelope_payload_is_protocol_safe() {
+        let payload = twilio_invalid_media_envelope_payload();
+        let json: serde_json::Value = serde_json::from_str(&payload).unwrap();
+
+        assert_eq!(json["error"], "invalid Twilio media envelope");
+        assert_eq!(json["code"], "INVALID_TWILIO_MEDIA_ENVELOPE");
+        assert!(!payload.contains("https://api.twilio.com"));
+        assert!(!payload.contains("AuthToken"));
+        assert!(!payload.contains("/srv/fortemi"));
+        assert!(!payload.contains("malformed frame"));
     }
 
     async fn read_problem_response(error: ApiError) -> (StatusCode, HeaderMap, serde_json::Value) {
