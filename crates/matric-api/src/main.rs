@@ -10111,7 +10111,7 @@ async fn list_notes(
     Ok(Json(response))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct CreateNoteBody {
     content: String,
     format: Option<String>,
@@ -10162,6 +10162,47 @@ struct CreateNoteBody {
     /// - `"concept_tagging"` — concept tagging (chains from revision if both enabled)
     #[serde(default)]
     pipeline: Option<Vec<String>>,
+}
+
+impl fmt::Debug for CreateNoteBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateNoteBody")
+            .field("content_len", &self.content.len())
+            .field("format_len", &self.format.as_ref().map(String::len))
+            .field("source_len", &self.source.as_ref().map(String::len))
+            .field("collection_id_set", &self.collection_id.is_some())
+            .field("tags_count", &self.tags.as_ref().map(Vec::len))
+            .field(
+                "tag_lens",
+                &self
+                    .tags
+                    .as_ref()
+                    .map(|tags| tags.iter().map(String::len).collect::<Vec<_>>()),
+            )
+            .field("title_len", &self.title.as_ref().map(String::len))
+            .field(
+                "revision_mode_len",
+                &self.revision_mode.as_ref().map(String::len),
+            )
+            .field("metadata_set", &self.metadata.is_some())
+            .field("document_type_id_set", &self.document_type_id.is_some())
+            .field(
+                "document_type_len",
+                &self.document_type.as_ref().map(String::len),
+            )
+            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("chunk_max_chars", &self.chunk_max_chars)
+            .field("chunk_overlap", &self.chunk_overlap)
+            .field("pipeline_count", &self.pipeline.as_ref().map(Vec::len))
+            .field(
+                "pipeline_lens",
+                &self
+                    .pipeline
+                    .as_ref()
+                    .map(|pipeline| pipeline.iter().map(String::len).collect::<Vec<_>>()),
+            )
+            .finish()
+    }
 }
 
 #[utoipa::path(
@@ -25870,6 +25911,70 @@ mod tests {
             "db.internal",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn create_note_body_debug_redacts_content_metadata_tags_and_model_fields() {
+        let body = CreateNoteBody {
+            content: "Customer note contains postgres://user:pass@db.internal/app and sk-live-note"
+                .to_string(),
+            format: Some("markdown-private".to_string()),
+            source: Some("customer@example.com/private-import".to_string()),
+            collection_id: Some(Uuid::new_v4()),
+            tags: Some(vec![
+                "customer-secret-tag".to_string(),
+                "mm_key_tag_secret".to_string(),
+            ]),
+            title: Some("Customer payroll note".to_string()),
+            revision_mode: Some("full-private-revision".to_string()),
+            metadata: Some(serde_json::json!({
+                "path": "/srv/private/customer-note.md",
+                "token": "sk-live-metadata-token",
+                "url": "postgres://user:pass@db.internal/app"
+            })),
+            document_type_id: Some(Uuid::new_v4()),
+            document_type: Some("private-document-type".to_string()),
+            model: Some("qwen3-private-db.internal".to_string()),
+            chunk_max_chars: Some(4096),
+            chunk_overlap: Some(256),
+            pipeline: Some(vec![
+                "metadata_extraction_private".to_string(),
+                "concept_tagging_secret".to_string(),
+            ]),
+        };
+
+        let rendered = format!("{body:?}");
+
+        assert!(rendered.contains("CreateNoteBody"));
+        assert!(rendered.contains("content_len"));
+        assert!(rendered.contains("tags_count"));
+        assert!(rendered.contains("tag_lens"));
+        assert!(rendered.contains("metadata_set"));
+        assert!(rendered.contains("model_len"));
+        assert!(rendered.contains("pipeline_count"));
+        assert!(rendered.contains("pipeline_lens"));
+
+        for raw in [
+            "Customer note contains",
+            "postgres://user:pass",
+            "db.internal",
+            "sk-live-note",
+            "markdown-private",
+            "customer@example.com",
+            "private-import",
+            "customer-secret-tag",
+            "mm_key_tag_secret",
+            "Customer payroll note",
+            "full-private-revision",
+            "/srv/private/customer-note.md",
+            "sk-live-metadata-token",
+            "private-document-type",
+            "qwen3-private-db.internal",
+            "metadata_extraction_private",
+            "concept_tagging_secret",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 
