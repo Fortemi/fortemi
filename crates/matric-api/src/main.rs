@@ -5214,6 +5214,25 @@ async fn authorize_policy_input(
     auth: &Auth,
     input: &route_policy::RoutePolicyInput,
 ) -> Result<(), axum::response::Response> {
+    if hosted_policy_requires_normalized_resource(policy, input) {
+        emit_auth_decision_audit_event(auth_decision_audit_event(
+            auth,
+            input,
+            AuditOutcome::Denied,
+            Some(DenyReason::InvalidResource),
+            policy.policy_id(),
+            policy.policy_version(),
+        ))
+        .await;
+        tracing::warn!("authorization denied: resource requires backing-store normalization");
+        return Err(problem_response(
+            StatusCode::FORBIDDEN,
+            ProblemType::Forbidden,
+            "Authorization denied.".to_string(),
+            None,
+        ));
+    }
+
     match policy
         .authorize(
             &auth.principal,
@@ -5287,6 +5306,25 @@ async fn authorize_policy_input(
             ))
         }
     }
+}
+
+fn hosted_policy_requires_normalized_resource(
+    policy: &dyn AuthorizationPolicy,
+    input: &route_policy::RoutePolicyInput,
+) -> bool {
+    policy.policy_id() == "role_based"
+        && input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        && !input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
 }
 
 async fn emit_auth_decision_audit_event(event: AuditEvent) {
@@ -21464,6 +21502,69 @@ mod tests {
         assert!(event.reason.is_none());
         let serialized = serde_json::to_string(&event).expect("serialize audit event");
         assert!(!serialized.contains("client_secret=should-redact"));
+    }
+
+    #[test]
+    fn hosted_policy_requires_normalized_route_param_resource() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001",
+            Some("tenant-a"),
+        )
+        .expect("note route has policy input");
+
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &input
+        ));
+        assert!(!hosted_policy_requires_normalized_resource(
+            &AllowAllPolicy,
+            &input
+        ));
+    }
+
+    #[tokio::test]
+    async fn role_policy_denies_unnormalized_tenant_object_route() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "write".to_string(),
+            },
+        };
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001",
+            Some("tenant-a"),
+        )
+        .expect("note route has policy input");
+
+        let response = authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+            .await
+            .expect_err("hosted policy must not trust route-param object ids");
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let problem = read_response_json(response).await;
+        assert_eq!(problem["detail"], "Authorization denied.");
+    }
+
+    #[tokio::test]
+    async fn allow_all_policy_preserves_personal_mode_unnormalized_route_param_behavior() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "write".to_string(),
+            },
+        };
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001",
+            None,
+        )
+        .expect("note route has policy input");
+
+        authorize_policy_input(&AllowAllPolicy, &auth, &input)
+            .await
+            .expect("personal mode preserves current local object-route behavior");
     }
 
     #[tokio::test]
