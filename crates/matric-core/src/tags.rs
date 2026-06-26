@@ -2109,7 +2109,7 @@ pub struct ResolvedTag {
 ///
 /// Reference: W3C SKOS Reference Section 9 — "SKOS collections are labeled
 /// and/or ordered groups of SKOS concepts"
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosCollection {
     pub id: Uuid,
     pub uri: Option<String>,
@@ -2121,16 +2121,43 @@ pub struct SkosCollection {
     pub updated_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for SkosCollection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosCollection")
+            .field("id_set", &true)
+            .field("uri_len", &self.uri.as_ref().map(|value| value.len()))
+            .field("pref_label_len", &self.pref_label.len())
+            .field(
+                "definition_len",
+                &self.definition.as_ref().map(|value| value.len()),
+            )
+            .field("is_ordered", &self.is_ordered)
+            .field("scheme_id_set", &self.scheme_id.is_some())
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
+}
+
 /// A SKOS Collection with its member concepts.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosCollectionWithMembers {
     #[serde(flatten)]
     pub collection: SkosCollection,
     pub members: Vec<SkosCollectionMember>,
 }
 
+impl fmt::Debug for SkosCollectionWithMembers {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosCollectionWithMembers")
+            .field("collection", &self.collection)
+            .field("member_count", &self.members.len())
+            .finish()
+    }
+}
+
 /// A member entry in a SKOS Collection.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosCollectionMember {
     pub concept_id: Uuid,
     pub pref_label: Option<String>,
@@ -2138,8 +2165,22 @@ pub struct SkosCollectionMember {
     pub added_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for SkosCollectionMember {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosCollectionMember")
+            .field("concept_id_set", &true)
+            .field(
+                "pref_label_len",
+                &self.pref_label.as_ref().map(|value| value.len()),
+            )
+            .field("position", &self.position)
+            .field("added_at", &self.added_at)
+            .finish()
+    }
+}
+
 /// Request to create a SKOS Collection.
-#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Deserialize, utoipa::ToSchema)]
 pub struct CreateSkosCollectionRequest {
     pub pref_label: String,
     pub definition: Option<String>,
@@ -2149,19 +2190,61 @@ pub struct CreateSkosCollectionRequest {
     pub concept_ids: Option<Vec<Uuid>>,
 }
 
+impl fmt::Debug for CreateSkosCollectionRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateSkosCollectionRequest")
+            .field("pref_label_len", &self.pref_label.len())
+            .field(
+                "definition_len",
+                &self.definition.as_ref().map(|value| value.len()),
+            )
+            .field("is_ordered", &self.is_ordered)
+            .field("scheme_id_set", &self.scheme_id.is_some())
+            .field(
+                "concept_id_count",
+                &self.concept_ids.as_ref().map(|values| values.len()),
+            )
+            .finish()
+    }
+}
+
 /// Request to update a SKOS Collection.
-#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Deserialize, utoipa::ToSchema)]
 pub struct UpdateSkosCollectionRequest {
     pub pref_label: Option<String>,
     pub definition: Option<String>,
     pub is_ordered: Option<bool>,
 }
 
+impl fmt::Debug for UpdateSkosCollectionRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateSkosCollectionRequest")
+            .field(
+                "pref_label_len",
+                &self.pref_label.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "definition_len",
+                &self.definition.as_ref().map(|value| value.len()),
+            )
+            .field("is_ordered", &self.is_ordered)
+            .finish()
+    }
+}
+
 /// Request to update member ordering in a SKOS Collection.
-#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Deserialize, utoipa::ToSchema)]
 pub struct UpdateCollectionMembersRequest {
     /// Ordered list of concept IDs (replaces current member list)
     pub concept_ids: Vec<Uuid>,
+}
+
+impl fmt::Debug for UpdateCollectionMembersRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateCollectionMembersRequest")
+            .field("concept_id_count", &self.concept_ids.len())
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -3084,6 +3167,126 @@ mod tests {
                 "en-secret-result",
                 "result-scheme-secret",
                 "sk-secret-scheme",
+            ],
+        );
+    }
+
+    #[test]
+    fn skos_collection_debug_redacts_labels_definitions_and_member_identifiers() {
+        let collection_id = Uuid::parse_str("aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa").unwrap();
+        let scheme_id = Uuid::parse_str("bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb").unwrap();
+        let concept_id = Uuid::parse_str("cccccccc-3333-4444-8555-cccccccccccc").unwrap();
+        let second_concept_id = Uuid::parse_str("dddddddd-4444-4555-8666-dddddddddddd").unwrap();
+        let now = Utc::now();
+
+        let collection = SkosCollection {
+            id: collection_id,
+            uri: Some("https://taxonomy.example.internal/collections?token=secret".to_string()),
+            pref_label: "Collection owner@example.internal sk-secret-label".to_string(),
+            definition: Some("Definition postgres://collection:secret@db.internal".to_string()),
+            is_ordered: true,
+            scheme_id: Some(scheme_id),
+            created_at: now,
+            updated_at: now,
+        };
+        let member = SkosCollectionMember {
+            concept_id,
+            pref_label: Some("Member label /srv/fortemi/private sk-secret-member".to_string()),
+            position: Some(7),
+            added_at: now,
+        };
+        let with_members = SkosCollectionWithMembers {
+            collection: collection.clone(),
+            members: vec![member.clone()],
+        };
+        let create_request = CreateSkosCollectionRequest {
+            pref_label: "Create label owner@example.internal".to_string(),
+            definition: Some("Create definition /srv/fortemi/private".to_string()),
+            is_ordered: true,
+            scheme_id: Some(scheme_id),
+            concept_ids: Some(vec![concept_id, second_concept_id]),
+        };
+        let update_request = UpdateSkosCollectionRequest {
+            pref_label: Some("Update label sk-secret-update".to_string()),
+            definition: Some("Update definition postgres://update:secret@db.internal".to_string()),
+            is_ordered: Some(false),
+        };
+        let members_request = UpdateCollectionMembersRequest {
+            concept_ids: vec![concept_id, second_concept_id],
+        };
+
+        let collection_debug = format!("{collection:?}");
+        assert!(collection_debug.contains("SkosCollection"));
+        assert!(collection_debug.contains("pref_label_len"));
+        assert!(collection_debug.contains("scheme_id_set"));
+        assert_debug_excludes(
+            &collection_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "https://taxonomy.example.internal/collections?token=secret",
+                "owner@example.internal",
+                "sk-secret-label",
+                "postgres://collection:secret@db.internal",
+            ],
+        );
+
+        let member_debug = format!("{member:?}");
+        assert!(member_debug.contains("SkosCollectionMember"));
+        assert!(member_debug.contains("concept_id_set"));
+        assert_debug_excludes(
+            &member_debug,
+            &[
+                "cccccccc-3333-4444-8555-cccccccccccc",
+                "/srv/fortemi/private",
+                "sk-secret-member",
+            ],
+        );
+
+        let with_members_debug = format!("{with_members:?}");
+        assert!(with_members_debug.contains("SkosCollectionWithMembers"));
+        assert!(with_members_debug.contains("member_count"));
+        assert_debug_excludes(
+            &with_members_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "cccccccc-3333-4444-8555-cccccccccccc",
+                "owner@example.internal",
+                "sk-secret-member",
+            ],
+        );
+
+        let create_debug = format!("{create_request:?}");
+        assert!(create_debug.contains("CreateSkosCollectionRequest"));
+        assert!(create_debug.contains("concept_id_count"));
+        assert_debug_excludes(
+            &create_debug,
+            &[
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "cccccccc-3333-4444-8555-cccccccccccc",
+                "dddddddd-4444-4555-8666-dddddddddddd",
+                "owner@example.internal",
+                "/srv/fortemi/private",
+            ],
+        );
+
+        let update_debug = format!("{update_request:?}");
+        assert!(update_debug.contains("UpdateSkosCollectionRequest"));
+        assert!(update_debug.contains("definition_len"));
+        assert_debug_excludes(
+            &update_debug,
+            &["sk-secret-update", "postgres://update:secret@db.internal"],
+        );
+
+        let members_request_debug = format!("{members_request:?}");
+        assert!(members_request_debug.contains("UpdateCollectionMembersRequest"));
+        assert!(members_request_debug.contains("concept_id_count"));
+        assert_debug_excludes(
+            &members_request_debug,
+            &[
+                "cccccccc-3333-4444-8555-cccccccccccc",
+                "dddddddd-4444-4555-8666-dddddddddddd",
             ],
         );
     }
