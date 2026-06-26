@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use reqwest::Client;
-use std::time::Duration;
+use std::{fmt, time::Duration};
 use tracing::{debug, info, warn};
 
 use matric_core::{EmbeddingBackend, Error, GenerationBackend, InferenceBackend, Result, Vector};
@@ -26,7 +26,7 @@ pub const DEFAULT_DIMENSION: usize = 1536;
 pub const DEFAULT_TIMEOUT_SECS: u64 = 300;
 
 /// Configuration for OpenAI-compatible backend.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OpenAIConfig {
     /// Base URL for the API endpoint.
     pub base_url: String,
@@ -46,6 +46,26 @@ pub struct OpenAIConfig {
     pub http_referer: Option<String>,
     /// X-Title header for app name on OpenRouter.ai (optional).
     pub x_title: Option<String>,
+}
+
+impl fmt::Debug for OpenAIConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OpenAIConfig")
+            .field("base_url_len", &self.base_url.len())
+            .field("api_key_present", &self.api_key.is_some())
+            .field("api_key_len", &self.api_key.as_ref().map(String::len))
+            .field("embed_model_len", &self.embed_model.len())
+            .field("gen_model_len", &self.gen_model.len())
+            .field("embed_dimension", &self.embed_dimension)
+            .field("timeout_seconds", &self.timeout_seconds)
+            .field("skip_tls_verify", &self.skip_tls_verify)
+            .field(
+                "http_referer_len",
+                &self.http_referer.as_ref().map(String::len),
+            )
+            .field("x_title_len", &self.x_title.as_ref().map(String::len))
+            .finish()
+    }
 }
 
 impl Default for OpenAIConfig {
@@ -85,8 +105,13 @@ impl OpenAIBackend {
             .map_err(|e| Error::Inference(format!("Failed to create HTTP client: {}", e)))?;
 
         info!(
-            "Initializing OpenAI backend: url={}, embed={}, gen={}",
-            config.base_url, config.embed_model, config.gen_model
+            base_url_len = config.base_url.len(),
+            embed_model_len = config.embed_model.len(),
+            gen_model_len = config.gen_model.len(),
+            api_key_present = config.api_key.is_some(),
+            http_referer_present = config.http_referer.is_some(),
+            x_title_present = config.x_title.is_some(),
+            "Initializing OpenAI backend"
         );
 
         Ok(Self { client, config })
@@ -172,9 +197,9 @@ impl EmbeddingBackend for OpenAIBackend {
         }
 
         debug!(
-            "Embedding {} texts with model {}",
-            texts.len(),
-            self.config.embed_model
+            text_count = texts.len(),
+            embed_model_len = self.config.embed_model.len(),
+            "Embedding texts with OpenAI-compatible backend"
         );
 
         let request = EmbeddingRequest {
@@ -240,9 +265,10 @@ impl GenerationBackend for OpenAIBackend {
 
     async fn generate_with_system(&self, system: &str, prompt: &str) -> Result<String> {
         debug!(
-            "Generating with model {}, prompt length: {}",
-            self.config.gen_model,
-            prompt.len()
+            gen_model_len = self.config.gen_model.len(),
+            prompt_len = prompt.len(),
+            system_len = system.len(),
+            "Generating with OpenAI-compatible backend"
         );
 
         let mut messages = Vec::new();
@@ -311,9 +337,10 @@ impl GenerationBackend for OpenAIBackend {
 
     async fn generate_json_with_system(&self, system: &str, prompt: &str) -> Result<String> {
         debug!(
-            "Generating JSON with model {}, prompt length: {}",
-            self.config.gen_model,
-            prompt.len()
+            gen_model_len = self.config.gen_model.len(),
+            prompt_len = prompt.len(),
+            system_len = system.len(),
+            "Generating JSON with OpenAI-compatible backend"
         );
 
         let mut messages = Vec::new();
@@ -420,9 +447,10 @@ impl StreamingGeneration for OpenAIBackend {
 
     async fn generate_with_system_stream(&self, system: &str, prompt: &str) -> Result<TokenStream> {
         debug!(
-            "Streaming generation with model {}, prompt length: {}",
-            self.config.gen_model,
-            prompt.len()
+            gen_model_len = self.config.gen_model.len(),
+            prompt_len = prompt.len(),
+            system_len = system.len(),
+            "Streaming generation with OpenAI-compatible backend"
         );
 
         let mut messages = Vec::new();
@@ -554,6 +582,40 @@ mod tests {
         let cloned = config.clone();
         assert_eq!(config.base_url, cloned.base_url);
         assert_eq!(config.api_key, cloned.api_key);
+    }
+
+    #[test]
+    fn test_openai_config_debug_redacts_urls_keys_models_and_headers() {
+        let config = OpenAIConfig {
+            base_url: "https://tenant.example.com/v1?token=secret".to_string(),
+            api_key: Some("sk-private-api-key".to_string()),
+            embed_model: "tenant/private-embedding-model".to_string(),
+            gen_model: "tenant/private-generation-model".to_string(),
+            embed_dimension: 768,
+            timeout_seconds: 60,
+            skip_tls_verify: true,
+            http_referer: Some("https://app.example.com/user@example.com".to_string()),
+            x_title: Some("Private Workspace".to_string()),
+        };
+
+        let debug = format!("{config:?}");
+
+        assert!(debug.contains("OpenAIConfig"));
+        assert!(debug.contains("base_url_len"));
+        assert!(debug.contains("api_key_present"));
+        assert!(debug.contains("api_key_len"));
+        assert!(debug.contains("embed_model_len"));
+        assert!(debug.contains("gen_model_len"));
+        assert!(debug.contains("http_referer_len"));
+        assert!(debug.contains("x_title_len"));
+        assert!(!debug.contains("tenant.example.com"));
+        assert!(!debug.contains("token=secret"));
+        assert!(!debug.contains("sk-private-api-key"));
+        assert!(!debug.contains("private-embedding-model"));
+        assert!(!debug.contains("private-generation-model"));
+        assert!(!debug.contains("app.example.com"));
+        assert!(!debug.contains("user@example.com"));
+        assert!(!debug.contains("Private Workspace"));
     }
 
     #[test]
