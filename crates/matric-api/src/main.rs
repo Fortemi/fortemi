@@ -10700,7 +10700,7 @@ async fn get_note(
     Ok(Json(note))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct UpdateNoteBody {
     content: Option<String>,
     starred: Option<bool>,
@@ -10721,6 +10721,32 @@ struct UpdateNoteBody {
     /// Character overlap between adjacent revision chunks. See CreateNoteBody for details.
     #[serde(default)]
     chunk_overlap: Option<usize>,
+}
+
+impl fmt::Debug for UpdateNoteBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateNoteBody")
+            .field("content_len", &self.content.as_ref().map(String::len))
+            .field("starred", &self.starred)
+            .field("archived", &self.archived)
+            .field(
+                "revision_mode_len",
+                &self.revision_mode.as_ref().map(String::len),
+            )
+            .field("metadata_set", &self.metadata.is_some())
+            .field("tags_count", &self.tags.as_ref().map(Vec::len))
+            .field(
+                "tag_lens",
+                &self
+                    .tags
+                    .as_ref()
+                    .map(|tags| tags.iter().map(String::len).collect::<Vec<_>>()),
+            )
+            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("chunk_max_chars", &self.chunk_max_chars)
+            .field("chunk_overlap", &self.chunk_overlap)
+            .finish()
+    }
 }
 
 #[utoipa::path(
@@ -26073,6 +26099,58 @@ mod tests {
             "bulk-private-document-type",
             "markdown-private-bulk",
             "bulk-import",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn update_note_body_debug_redacts_content_metadata_tags_and_model_fields() {
+        let body = UpdateNoteBody {
+            content: Some(
+                "Updated note contains postgres://user:pass@db.internal/app and sk-live-update"
+                    .to_string(),
+            ),
+            starred: Some(true),
+            archived: Some(false),
+            revision_mode: Some("contextual-private-update".to_string()),
+            metadata: Some(serde_json::json!({
+                "path": "/srv/private/update-note.md",
+                "token": "sk-live-update-metadata",
+                "email": "customer@example.com"
+            })),
+            tags: Some(vec![
+                "customer-update-secret-tag".to_string(),
+                "mm_key_update_tag".to_string(),
+            ]),
+            model: Some("qwen3-update-db.internal".to_string()),
+            chunk_max_chars: Some(2048),
+            chunk_overlap: Some(64),
+        };
+
+        let rendered = format!("{body:?}");
+
+        assert!(rendered.contains("UpdateNoteBody"));
+        assert!(rendered.contains("content_len"));
+        assert!(rendered.contains("revision_mode_len"));
+        assert!(rendered.contains("metadata_set"));
+        assert!(rendered.contains("tags_count"));
+        assert!(rendered.contains("tag_lens"));
+        assert!(rendered.contains("model_len"));
+        assert!(rendered.contains("chunk_max_chars"));
+
+        for raw in [
+            "Updated note contains",
+            "postgres://user:pass",
+            "db.internal",
+            "sk-live-update",
+            "contextual-private-update",
+            "/srv/private/update-note.md",
+            "sk-live-update-metadata",
+            "customer@example.com",
+            "customer-update-secret-tag",
+            "mm_key_update_tag",
+            "qwen3-update-db.internal",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
