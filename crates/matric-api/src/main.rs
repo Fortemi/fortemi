@@ -396,6 +396,34 @@ fn validate_chunking_params(
     Ok(())
 }
 
+fn tag_length_validation_error(index: Option<usize>) -> ApiError {
+    let detail = match index {
+        Some(i) => format!(
+            "Note at index {i}: tag exceeds {} character limit",
+            matric_core::defaults::TAG_NAME_MAX_LENGTH
+        ),
+        None => format!(
+            "Tag exceeds {} character limit",
+            matric_core::defaults::TAG_NAME_MAX_LENGTH
+        ),
+    };
+    ApiError::BadRequest(detail)
+}
+
+fn tag_depth_validation_error(index: Option<usize>) -> ApiError {
+    let detail = match index {
+        Some(i) => format!(
+            "Note at index {i}: tag exceeds maximum depth of {} levels",
+            matric_core::tags::MAX_TAG_PATH_DEPTH
+        ),
+        None => format!(
+            "Tag exceeds maximum depth of {} levels",
+            matric_core::tags::MAX_TAG_PATH_DEPTH
+        ),
+    };
+    ApiError::BadRequest(detail)
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -9573,11 +9601,7 @@ async fn create_note(
     if let Some(ref tags) = tags_for_skos {
         for tag in tags {
             if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
-                return Err(ApiError::BadRequest(format!(
-                    "Tag '{}...' exceeds {} character limit",
-                    &tag[..50.min(tag.len())],
-                    matric_core::defaults::TAG_NAME_MAX_LENGTH
-                )));
+                return Err(tag_length_validation_error(None));
             }
             let depth = tag
                 .split('/')
@@ -9585,11 +9609,7 @@ async fn create_note(
                 .filter(|s| !s.is_empty())
                 .count();
             if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
-                return Err(ApiError::BadRequest(format!(
-                    "Tag '{}' exceeds maximum depth of {} levels",
-                    tag,
-                    matric_core::tags::MAX_TAG_PATH_DEPTH
-                )));
+                return Err(tag_depth_validation_error(None));
             }
         }
     }
@@ -9788,12 +9808,7 @@ async fn bulk_create_notes(
         if let Some(ref tags) = note.tags {
             for tag in tags {
                 if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
-                    return Err(ApiError::BadRequest(format!(
-                        "Note at index {}: tag '{}...' exceeds {} character limit",
-                        i,
-                        &tag[..50.min(tag.len())],
-                        matric_core::defaults::TAG_NAME_MAX_LENGTH
-                    )));
+                    return Err(tag_length_validation_error(Some(i)));
                 }
                 let depth = tag
                     .split('/')
@@ -9801,12 +9816,7 @@ async fn bulk_create_notes(
                     .filter(|s| !s.is_empty())
                     .count();
                 if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
-                    return Err(ApiError::BadRequest(format!(
-                        "Note at index {}: tag '{}' exceeds maximum depth of {} levels",
-                        i,
-                        tag,
-                        matric_core::tags::MAX_TAG_PATH_DEPTH
-                    )));
+                    return Err(tag_depth_validation_error(Some(i)));
                 }
             }
         }
@@ -10035,11 +10045,7 @@ async fn update_note(
         // Validate tags
         for tag in &tags {
             if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
-                return Err(ApiError::BadRequest(format!(
-                    "Tag '{}...' exceeds {} character limit",
-                    &tag[..50.min(tag.len())],
-                    matric_core::defaults::TAG_NAME_MAX_LENGTH
-                )));
+                return Err(tag_length_validation_error(None));
             }
         }
         let repo = matric_db::PgTagRepository::new(pool.clone());
@@ -10801,11 +10807,7 @@ async fn set_note_tags(
     // Validate tag depth and length (fixes #193, #189)
     for tag in &body.tags {
         if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
-            return Err(ApiError::BadRequest(format!(
-                "Tag '{}...' exceeds {} character limit",
-                &tag[..50.min(tag.len())],
-                matric_core::defaults::TAG_NAME_MAX_LENGTH
-            )));
+            return Err(tag_length_validation_error(None));
         }
         let depth = tag
             .split('/')
@@ -10813,11 +10815,7 @@ async fn set_note_tags(
             .filter(|s| !s.is_empty())
             .count();
         if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
-            return Err(ApiError::BadRequest(format!(
-                "Tag '{}' exceeds maximum depth of {} levels",
-                tag,
-                matric_core::tags::MAX_TAG_PATH_DEPTH
-            )));
+            return Err(tag_depth_validation_error(None));
         }
     }
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
@@ -24378,6 +24376,52 @@ mod tests {
             "https://fortemi.com/problems/validation-error"
         );
         assert_eq!(problem["detail"], "Invalid multipart upload request.");
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn tag_validation_errors_do_not_echo_tag_content() {
+        let private_tag = "client-private/project-alpha/customer-notes";
+        let err = tag_length_validation_error(None);
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(
+            problem["detail"],
+            format!(
+                "Tag exceeds {} character limit",
+                matric_core::defaults::TAG_NAME_MAX_LENGTH
+            )
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains(private_tag));
+        assert!(!body.contains("client-private"));
+        assert!(!body.contains("customer-notes"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+
+        let err = tag_depth_validation_error(Some(7));
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["detail"],
+            format!(
+                "Note at index 7: tag exceeds maximum depth of {} levels",
+                matric_core::tags::MAX_TAG_PATH_DEPTH
+            )
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains(private_tag));
+        assert!(!body.contains("client-private"));
+        assert!(!body.contains("customer-notes"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
