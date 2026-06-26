@@ -501,6 +501,10 @@ fn inbound_source_not_found() -> ApiError {
     ApiError::NotFound("Inbound source not found.".to_string())
 }
 
+fn upload_not_found() -> ApiError {
+    ApiError::NotFound("Upload not found.".to_string())
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -19827,7 +19831,7 @@ async fn tus_head_upload(
         .get(&mut tx, upload_id)
         .await
         .map_err(|e| tus_operation_failed("load upload state", e))?
-        .ok_or_else(|| ApiError::NotFound(format!("Upload {} not found", upload_id)))?;
+        .ok_or_else(upload_not_found)?;
     drop(tx);
 
     if upload.expires_at < chrono::Utc::now() {
@@ -19927,7 +19931,7 @@ async fn tus_patch_upload(
         .get(&mut tx, upload_id)
         .await
         .map_err(|e| tus_operation_failed("load upload state", e))?
-        .ok_or_else(|| ApiError::NotFound(format!("Upload {} not found", upload_id)))?;
+        .ok_or_else(upload_not_found)?;
 
     // Validate not expired
     if upload.expires_at < chrono::Utc::now() {
@@ -20202,8 +20206,7 @@ async fn tus_get_upload(
         .map_err(|e| tus_operation_failed("load finalized upload", e))?;
     let _ = tx.commit().await;
 
-    let upload =
-        upload.ok_or_else(|| ApiError::NotFound(format!("Upload {} not found", upload_id)))?;
+    let upload = upload.ok_or_else(upload_not_found)?;
 
     // Extract attachment_id from finalized metadata
     let attachment_id: Uuid = upload
@@ -24380,6 +24383,24 @@ mod tests {
         assert!(!body.contains(submitted_name));
         assert!(!body.contains("tenant-alpha"));
         assert!(!body.contains("secret-token"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn upload_not_found_does_not_echo_upload_id() {
+        let submitted_upload_id = Uuid::parse_str("018ff7d2-1d90-7c88-9f44-abcdef123456").unwrap();
+        let err = upload_not_found();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Upload not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(&submitted_upload_id.to_string()));
+        assert!(!body.contains("018ff7d2"));
+        assert!(!body.contains("abcdef123456"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
