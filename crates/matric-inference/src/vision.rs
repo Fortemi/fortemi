@@ -4,6 +4,10 @@ use async_trait::async_trait;
 use matric_core::Result;
 use serde::{Deserialize, Serialize};
 
+fn diagnostic_len(value: &str) -> usize {
+    value.chars().count()
+}
+
 /// Backend for describing images using vision LLMs.
 #[async_trait]
 pub trait VisionBackend: Send + Sync {
@@ -152,7 +156,10 @@ impl VisionBackend for OllamaVisionBackend {
             "prompt": "",
             "keep_alive": "0"
         });
-        info!(model = %self.model, "Unloading vision model from VRAM");
+        info!(
+            model_len = diagnostic_len(&self.model),
+            "Unloading vision model from VRAM"
+        );
         let resp = self
             .client
             .post(&url)
@@ -164,7 +171,10 @@ impl VisionBackend for OllamaVisionBackend {
                 matric_core::Error::Internal(format!("Vision model unload failed: {}", e))
             })?;
         let _ = resp.bytes().await;
-        debug!(model = %self.model, "Vision model unloaded from VRAM");
+        debug!(
+            model_len = diagnostic_len(&self.model),
+            "Vision model unloaded from VRAM"
+        );
         Ok(())
     }
 }
@@ -172,6 +182,18 @@ impl VisionBackend for OllamaVisionBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostic_len_reports_length_without_model_content() {
+        let model = "tenant/private-vision:user@example.com-token=secret";
+        let len = diagnostic_len(model);
+
+        assert_eq!(len, model.chars().count());
+        let diagnostic = format!("model_len={len}");
+        assert!(!diagnostic.contains("tenant/private-vision"));
+        assert!(!diagnostic.contains("user@example.com"));
+        assert!(!diagnostic.contains("token=secret"));
+    }
 
     #[test]
     fn test_ollama_vision_backend_new() {

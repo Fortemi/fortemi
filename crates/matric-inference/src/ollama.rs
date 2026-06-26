@@ -14,6 +14,10 @@ use crate::embedding_models::{EmbeddingModelProfile, EmbeddingModelRegistry};
 use crate::model_config::requires_raw_mode;
 use crate::profiles::{ModelProfile, ModelRegistry};
 
+fn diagnostic_len(value: &str) -> usize {
+    value.chars().count()
+}
+
 /// Default Ollama endpoint.
 pub const DEFAULT_OLLAMA_URL: &str = matric_core::defaults::OLLAMA_URL;
 
@@ -80,8 +84,10 @@ impl OllamaBackend {
             .expect("Failed to create HTTP client");
 
         info!(
-            "Initializing Ollama backend: url={}, embed={}, gen={}",
-            base_url, embed_model, gen_model
+            base_url_len = diagnostic_len(&base_url),
+            embed_model_len = diagnostic_len(&embed_model),
+            gen_model_len = diagnostic_len(&gen_model),
+            "Initializing Ollama backend"
         );
 
         let embed_registry = EmbeddingModelRegistry::new();
@@ -171,8 +177,9 @@ impl OllamaBackend {
         backend.gen_timeout_secs = fast_timeout;
 
         info!(
-            "Fast model backend: model={}, timeout={}s",
-            backend.gen_model, backend.gen_timeout_secs
+            model_len = diagnostic_len(&backend.gen_model),
+            timeout_secs = backend.gen_timeout_secs,
+            "Fast model backend configured"
         );
         Some(backend)
     }
@@ -189,7 +196,10 @@ impl OllamaBackend {
             "prompt": "",
             "keep_alive": "10m"
         });
-        info!(model = %self.gen_model, "Warming up generation model");
+        info!(
+            model_len = diagnostic_len(&self.gen_model),
+            "Warming up generation model"
+        );
         let resp = tokio::time::timeout(
             std::time::Duration::from_secs(30),
             self.client.post(&url).json(&body).send(),
@@ -197,14 +207,17 @@ impl OllamaBackend {
         .await
         .map_err(|_| {
             matric_core::Error::Internal(format!(
-                "Warmup timed out after 30s for model {}",
-                self.gen_model
+                "Warmup timed out after 30s for model length {}",
+                diagnostic_len(&self.gen_model)
             ))
         })?
         .map_err(|e| matric_core::Error::Internal(format!("Warmup failed: {}", e)))?;
         // Consume the response body to release the connection
         let _ = resp.bytes().await;
-        debug!(model = %self.gen_model, "Model warmup complete");
+        debug!(
+            model_len = diagnostic_len(&self.gen_model),
+            "Model warmup complete"
+        );
         Ok(())
     }
 
@@ -220,7 +233,10 @@ impl OllamaBackend {
             "prompt": "",
             "keep_alive": "0"
         });
-        info!(model = %self.gen_model, "Unloading generation model from VRAM");
+        info!(
+            model_len = diagnostic_len(&self.gen_model),
+            "Unloading generation model from VRAM"
+        );
         let resp = tokio::time::timeout(
             std::time::Duration::from_secs(10),
             self.client.post(&url).json(&body).send(),
@@ -228,13 +244,16 @@ impl OllamaBackend {
         .await
         .map_err(|_| {
             matric_core::Error::Internal(format!(
-                "Unload timed out after 10s for model {}",
-                self.gen_model
+                "Unload timed out after 10s for model length {}",
+                diagnostic_len(&self.gen_model)
             ))
         })?
         .map_err(|e| matric_core::Error::Internal(format!("Unload failed: {}", e)))?;
         let _ = resp.bytes().await;
-        debug!(model = %self.gen_model, "Model unloaded from VRAM");
+        debug!(
+            model_len = diagnostic_len(&self.gen_model),
+            "Model unloaded from VRAM"
+        );
         Ok(())
     }
 
@@ -980,6 +999,18 @@ mod tests {
             "DEFAULT_DIMENSION {} should be a standard embedding dimension",
             DEFAULT_DIMENSION
         );
+    }
+
+    #[test]
+    fn diagnostic_len_reports_length_without_model_content() {
+        let model = "tenant/private-model:user@example.com-token=secret";
+        let len = diagnostic_len(model);
+
+        assert_eq!(len, model.chars().count());
+        let diagnostic = format!("model_len={len}");
+        assert!(!diagnostic.contains("tenant/private-model"));
+        assert!(!diagnostic.contains("user@example.com"));
+        assert!(!diagnostic.contains("token=secret"));
     }
 
     // ==========================================================================
