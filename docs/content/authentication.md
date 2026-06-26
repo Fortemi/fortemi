@@ -506,12 +506,12 @@ Fortémi uses OAuth2 scopes to control access levels.
 | `write`  | Create and update resources                      | `read` + create/update notes, tags            |
 | `delete` | Delete resources                                 | `read` `write` + delete notes, purge          |
 | `admin`  | Full administrative access                       | All permissions + API key management          |
-| `mcp`    | MCP server access (includes read + write)        | `read` `write` + MCP-specific operations      |
+| `mcp`    | MCP transport/session access                     | MCP-specific operations only                  |
 
 ### Scope Hierarchy
 
 - `admin` includes all other scopes
-- `mcp` includes `read` and `write`
+- MCP transport scope is separate from REST `read`/`write`; grant explicit resource scopes for operations that read or mutate data.
 - `delete` typically requires `write`
 - Scopes can be combined with spaces: `"read write delete"`
 

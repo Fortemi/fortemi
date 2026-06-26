@@ -122,7 +122,7 @@ INSERT INTO oauth_scope (name, description, is_default) VALUES
     ('write', 'Create and update notes and tags', FALSE),
     ('delete', 'Delete notes', FALSE),
     ('admin', 'Administrative access including job management', FALSE),
-    ('mcp', 'MCP server access (includes read and write)', FALSE)
+    ('mcp', 'MCP transport/session access', FALSE)
 ON CONFLICT (name) DO NOTHING;
 
 -- API keys (simpler alternative to OAuth for trusted integrations)

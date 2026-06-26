@@ -90,7 +90,7 @@ When MCP credentials are provided from multiple sources, the entrypoint uses thi
 - MCP credentials are stored in plaintext at `$PGDATA/.fortemi-mcp-credentials`
 - Security posture: Same as PostgreSQL data itself
 - If an attacker has access to the pgdata volume, they already have access to all knowledge base data
-- Credentials grant `mcp read write` scope, equivalent to full database access
+- Credentials grant explicit `mcp read write` scopes. The `mcp` scope enables MCP transport/session access; `read` and `write` grant the data operations.
 
 **Recommendation:** Secure the pgdata volume using Docker volume encryption or disk-level encryption.
 

@@ -2957,11 +2957,11 @@ pub enum AuthPrincipal {
 impl AuthPrincipal {
     /// Check if the principal has the required scope.
     ///
-    /// Scope hierarchy: admin > write > read > mcp
+    /// Scope hierarchy: admin > write > read; MCP transport is separate.
     /// - `admin`: all operations
     /// - `write`: create, update, delete + read
     /// - `read`: list, get, search
-    /// - `mcp`: MCP-specific operations + read + write
+    /// - `mcp`: MCP transport/session access only
     pub fn has_scope(&self, required: &str) -> bool {
         let scope = match self {
             AuthPrincipal::OAuthClient { scope, .. } => scope,
@@ -2973,10 +2973,7 @@ impl AuthPrincipal {
         for granted in scope.split_whitespace() {
             match granted {
                 "admin" => return true, // Admin has all permissions
-                "mcp" if required == "read" || required == "write" || required == "mcp" => {
-                    // MCP scope includes read and write.
-                    return true;
-                }
+                "mcp" if required == "mcp" => return true,
                 "write" if required == "read" || required == "write" => {
                     // Write scope includes read.
                     return true;
@@ -3824,14 +3821,15 @@ mod tests {
     }
 
     #[test]
-    fn test_auth_principal_has_scope_mcp() {
+    fn test_auth_principal_has_scope_mcp_transport_only() {
         let principal = AuthPrincipal::ApiKey {
             key_id: Uuid::new_v4(),
             scope: "mcp".to_string(),
         };
 
-        assert!(principal.has_scope("read"));
-        assert!(principal.has_scope("write"));
+        assert!(principal.has_scope("mcp"));
+        assert!(!principal.has_scope("read"));
+        assert!(!principal.has_scope("write"));
         assert!(!principal.has_scope("delete"));
     }
 
