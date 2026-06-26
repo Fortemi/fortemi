@@ -27,6 +27,56 @@ use matric_core::{
 use matric_inference::transcription::TranscriptionBackend;
 use matric_inference::vision::VisionBackend;
 
+fn video_path_len(path: &str) -> usize {
+    path.len()
+}
+
+fn video_io_error_kind(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => "not_found",
+        std::io::ErrorKind::PermissionDenied => "permission_denied",
+        std::io::ErrorKind::TimedOut => "timed_out",
+        std::io::ErrorKind::Interrupted => "interrupted",
+        std::io::ErrorKind::WouldBlock => "would_block",
+        _ => "io_error",
+    }
+}
+
+fn video_stderr_reason_code(stderr: &[u8]) -> &'static str {
+    let text = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("invalid data")
+        || text.contains("invalid argument")
+        || text.contains("could not find codec parameters")
+        || text.contains("moov atom not found")
+    {
+        "invalid_media"
+    } else if text.contains("not found") || text.contains("no such") {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else {
+        "command_failed"
+    }
+}
+
+fn video_command_failure_detail(
+    command: &'static str,
+    phase: &'static str,
+    status_code: Option<i32>,
+    stderr: &[u8],
+) -> String {
+    format!(
+        "{command} {phase} failed; status={}; stderr_len={}; stderr_reason={}",
+        status_code
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "signal".to_string()),
+        stderr.len(),
+        video_stderr_reason_code(stderr)
+    )
+}
+
 /// Maximum number of previous frame descriptions to include as temporal context.
 const TEMPORAL_CONTEXT_WINDOW: usize = 3;
 
@@ -1296,12 +1346,20 @@ async fn get_video_duration(video_path: &str) -> Result<f64> {
         ])
         .output()
         .await
-        .map_err(|e| matric_core::Error::Internal(format!("ffprobe failed: {}", e)))?;
+        .map_err(|e| {
+            matric_core::Error::Internal(format!(
+                "ffprobe duration failed to start; io_error_kind={}",
+                video_io_error_kind(&e)
+            ))
+        })?;
 
     if !output.status.success() {
-        return Err(matric_core::Error::Internal(
-            "ffprobe failed to get duration".to_string(),
-        ));
+        return Err(matric_core::Error::Internal(video_command_failure_detail(
+            "ffprobe",
+            "duration",
+            output.status.code(),
+            &output.stderr,
+        )));
     }
 
     let duration_str = String::from_utf8_lossy(&output.stdout);
@@ -1379,7 +1437,21 @@ async fn extract_keyframes_ffmpeg(
             EXTRACTION_CMD_TIMEOUT_SECS * 3
         ))
     })?
-    .map_err(|e| matric_core::Error::Internal(format!("Failed to execute ffmpeg: {}", e)))?;
+    .map_err(|e| {
+        matric_core::Error::Internal(format!(
+            "ffmpeg keyframe extraction failed to start; io_error_kind={}",
+            video_io_error_kind(&e)
+        ))
+    })?;
+
+    if !output.status.success() {
+        return Err(matric_core::Error::Internal(video_command_failure_detail(
+            "ffmpeg",
+            "keyframe_extract",
+            output.status.code(),
+            &output.stderr,
+        )));
+    }
 
     // Parse showinfo timestamps from stderr
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1389,12 +1461,20 @@ async fn extract_keyframes_ffmpeg(
 
     // Collect all extracted frames
     let mut frame_paths = Vec::new();
-    let entries = fs::read_dir(work_dir.path())
-        .map_err(|e| matric_core::Error::Internal(format!("Failed to read work dir: {}", e)))?;
+    let entries = fs::read_dir(work_dir.path()).map_err(|e| {
+        matric_core::Error::Internal(format!(
+            "Failed to read work dir; path_len={}; io_error_kind={}",
+            work_dir.path().display().to_string().len(),
+            video_io_error_kind(&e)
+        ))
+    })?;
 
     for entry in entries {
         let entry = entry.map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to read dir entry: {}", e))
+            matric_core::Error::Internal(format!(
+                "Failed to read dir entry; io_error_kind={}",
+                video_io_error_kind(&e)
+            ))
         })?;
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) == Some("jpg") {
@@ -1551,7 +1631,12 @@ pub async fn is_faststart(video_path: &str) -> Result<bool> {
     )
     .await
     .map_err(|_| matric_core::Error::Internal("ffprobe timed out".to_string()))?
-    .map_err(|e| matric_core::Error::Internal(format!("ffprobe failed: {}", e)))?;
+    .map_err(|e| {
+        matric_core::Error::Internal(format!(
+            "ffprobe faststart check failed to start; io_error_kind={}",
+            video_io_error_kind(&e)
+        ))
+    })?;
 
     if !output.status.success() {
         return Ok(true); // If we can't probe, assume it's fine
@@ -1596,24 +1681,35 @@ pub async fn optimize_faststart(video_path: &str, work_dir: &TempDir) -> Result<
 
     match result {
         Ok(Ok(output)) if output.status.success() => {
-            debug!(video_path, "MP4 faststart optimization succeeded");
+            debug!(
+                video_path_len = video_path_len(video_path),
+                "MP4 faststart optimization succeeded"
+            );
             Ok(output_path)
         }
         Ok(Ok(output)) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
             warn!(
-                video_path,
-                error = %stderr.trim(),
+                video_path_len = video_path_len(video_path),
+                status_code = ?output.status.code(),
+                stderr_len = output.stderr.len(),
+                stderr_reason = video_stderr_reason_code(&output.stderr),
                 "MP4 faststart optimization failed, using original"
             );
             Ok(video_path.to_string())
         }
         Ok(Err(e)) => {
-            warn!(video_path, error = %e, "Failed to run ffmpeg for faststart");
+            warn!(
+                video_path_len = video_path_len(video_path),
+                io_error_kind = video_io_error_kind(&e),
+                "Failed to run ffmpeg for faststart"
+            );
             Ok(video_path.to_string())
         }
         Err(_) => {
-            warn!(video_path, "ffmpeg faststart timed out, using original");
+            warn!(
+                video_path_len = video_path_len(video_path),
+                "ffmpeg faststart timed out, using original"
+            );
             Ok(video_path.to_string())
         }
     }
@@ -1639,7 +1735,12 @@ pub async fn probe_media_info(video_path: &str) -> Result<JsonValue> {
     )
     .await
     .map_err(|_| matric_core::Error::Internal("ffprobe timed out".to_string()))?
-    .map_err(|e| matric_core::Error::Internal(format!("ffprobe failed: {}", e)))?;
+    .map_err(|e| {
+        matric_core::Error::Internal(format!(
+            "ffprobe media info failed to start; io_error_kind={}",
+            video_io_error_kind(&e)
+        ))
+    })?;
 
     if !output.status.success() {
         return Ok(json!({}));
@@ -1844,6 +1945,50 @@ pub async fn generate_audio_waveform(audio_path: &str, work_dir: &TempDir) -> Op
 mod tests {
     use super::*;
     use matric_inference::transcription::TranscriptionSegment;
+
+    #[test]
+    fn video_command_failure_detail_redacts_stderr() {
+        let stderr = b"Invalid data found at /srv/fortemi/video.mp4 token=mm_key_secret";
+        let detail = video_command_failure_detail("ffmpeg", "keyframe_extract", Some(1), stderr);
+
+        assert!(detail.contains("ffmpeg keyframe_extract failed"));
+        assert!(detail.contains("status=1"));
+        assert!(detail.contains("stderr_len="));
+        assert!(detail.contains("stderr_reason=invalid_media"));
+        assert!(!detail.contains("/srv/fortemi"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("Invalid data found"));
+    }
+
+    #[test]
+    fn video_stderr_reason_code_uses_stable_classes() {
+        assert_eq!(
+            video_stderr_reason_code(b"Permission denied while reading input"),
+            "permission_denied"
+        );
+        assert_eq!(
+            video_stderr_reason_code(b"moov atom not found"),
+            "invalid_media"
+        );
+        assert_eq!(video_stderr_reason_code(b"No such file"), "not_found");
+        assert_eq!(video_stderr_reason_code(b"request timed out"), "timed_out");
+        assert_eq!(
+            video_stderr_reason_code(b"opaque backend text"),
+            "command_failed"
+        );
+    }
+
+    #[test]
+    fn video_io_error_kind_uses_stable_classes() {
+        assert_eq!(
+            video_io_error_kind(&std::io::Error::from(std::io::ErrorKind::NotFound)),
+            "not_found"
+        );
+        assert_eq!(
+            video_io_error_kind(&std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+            "permission_denied"
+        );
+    }
 
     // ── Mock backends ──────────────────────────────────────────────────
 
