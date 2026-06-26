@@ -458,6 +458,14 @@ fn invalid_attachment_document_type_id() -> ApiError {
     )
 }
 
+fn attachment_variant_not_found() -> ApiError {
+    ApiError::NotFound("Attachment variant not found.".to_string())
+}
+
+fn attachment_sprite_not_found() -> ApiError {
+    ApiError::NotFound("Attachment sprite not found.".to_string())
+}
+
 fn incoming_webhook_schema_validation_failed() -> ApiError {
     ApiError::BadRequest(
         "Incoming webhook payload failed schema validation. Check the webhook schema contract."
@@ -18898,12 +18906,7 @@ async fn download_attachment(
         })?;
         drop(tx);
 
-        row.map(|r| r.0).ok_or_else(|| {
-            ApiError::NotFound(format!(
-                "No '{}' variant available for attachment {}",
-                variant, attachment_id
-            ))
-        })?
+        row.map(|r| r.0).ok_or_else(attachment_variant_not_found)?
     } else {
         attachment_id
     };
@@ -19467,12 +19470,9 @@ async fn get_sprite_sheet(
     .map_err(|e| attachment_media_operation_failed("Attachment sprite", "query sprite sheet", e))?;
     drop(tx);
 
-    let sprite_id = sprite_row.map(|r| r.0).ok_or_else(|| {
-        ApiError::NotFound(format!(
-            "Sprite sheet {} not found for attachment {}",
-            sprite_index, attachment_id
-        ))
-    })?;
+    let sprite_id = sprite_row
+        .map(|r| r.0)
+        .ok_or_else(attachment_sprite_not_found)?;
 
     let mut tx = ctx.begin_tx().await?;
     let info = file_storage
@@ -24557,6 +24557,44 @@ mod tests {
         assert!(!body.contains("postgres://"));
         assert!(!body.contains("secret"));
         assert!(!body.contains("permission denied"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn attachment_media_not_found_does_not_echo_variant_or_attachment_id() {
+        let submitted_variant = "tenant-alpha-secret-preview";
+        let submitted_sprite = "42-secret-token.jpg";
+        let submitted_attachment_id =
+            Uuid::parse_str("018ff7d2-1d90-7c88-9f44-abcdef123456").unwrap();
+
+        let err = attachment_variant_not_found();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Attachment variant not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_variant));
+        assert!(!body.contains(&submitted_attachment_id.to_string()));
+        assert!(!body.contains("tenant-alpha"));
+        assert!(!body.contains("abcdef123456"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+
+        let err = attachment_sprite_not_found();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Attachment sprite not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_sprite));
+        assert!(!body.contains(&submitted_attachment_id.to_string()));
+        assert!(!body.contains("secret-token"));
+        assert!(!body.contains("abcdef123456"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
