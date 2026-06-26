@@ -23312,7 +23312,7 @@ impl BackupMetadata {
 }
 
 /// Issue #242: Metadata echo in backup response
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct BackupMetadataEcho {
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<String>,
@@ -23321,7 +23321,20 @@ struct BackupMetadataEcho {
     metadata_file: String,
 }
 
-#[derive(Debug, Serialize)]
+impl fmt::Debug for BackupMetadataEcho {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BackupMetadataEcho")
+            .field("title_len", &self.title.as_ref().map(String::len))
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("metadata_file_len", &self.metadata_file.len())
+            .finish()
+    }
+}
+
+#[derive(Serialize)]
 struct DatabaseBackupResponse {
     success: bool,
     filename: String,
@@ -23333,6 +23346,21 @@ struct DatabaseBackupResponse {
     /// Issue #242: Echo metadata when title/description provided
     #[serde(skip_serializing_if = "Option::is_none")]
     metadata: Option<BackupMetadataEcho>,
+}
+
+impl fmt::Debug for DatabaseBackupResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DatabaseBackupResponse")
+            .field("success", &self.success)
+            .field("filename_len", &self.filename.len())
+            .field("path_len", &self.path.len())
+            .field("size_bytes", &self.size_bytes)
+            .field("size_human_len", &self.size_human.len())
+            .field("backup_type_len", &self.backup_type.len())
+            .field("created_at", &self.created_at)
+            .field("metadata_set", &self.metadata.is_some())
+            .finish()
+    }
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -25056,6 +25084,50 @@ mod tests {
             "tenant secret schema migration",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn database_backup_response_debug_redacts_paths_and_metadata_echo() {
+        let response = DatabaseBackupResponse {
+            success: true,
+            filename: "snapshot-customer-mm_key_secret.dump".to_string(),
+            path: "/srv/backups/customer/postgres://user:pass@db.internal/app.dump".to_string(),
+            size_bytes: 4096,
+            size_human: "4.0 KiB".to_string(),
+            backup_type: backup_prefix::SNAPSHOT.to_string(),
+            created_at: Utc::now(),
+            metadata: Some(BackupMetadataEcho {
+                title: Some("Customer payroll snapshot".to_string()),
+                description: Some("Contains private restore notes and sk-live-secret".to_string()),
+                metadata_file: "snapshot-customer-mm_key_secret.dump.meta.json".to_string(),
+            }),
+        };
+
+        let rendered = format!("{response:?}");
+        let metadata_rendered = format!("{:?}", response.metadata.as_ref().unwrap());
+
+        assert!(rendered.contains("DatabaseBackupResponse"));
+        assert!(rendered.contains("filename_len"));
+        assert!(rendered.contains("path_len"));
+        assert!(rendered.contains("metadata_set"));
+        assert!(metadata_rendered.contains("BackupMetadataEcho"));
+        assert!(metadata_rendered.contains("title_len"));
+        assert!(metadata_rendered.contains("description_len"));
+        assert!(metadata_rendered.contains("metadata_file_len"));
+
+        let combined = format!("{rendered}\n{metadata_rendered}");
+        for raw in [
+            "snapshot-customer-mm_key_secret.dump",
+            "/srv/backups",
+            "postgres://user:pass",
+            "db.internal",
+            "Customer payroll snapshot",
+            "private restore notes",
+            "sk-live-secret",
+            "meta.json",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
     }
 
