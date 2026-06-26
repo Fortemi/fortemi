@@ -15375,7 +15375,7 @@ async fn get_memory_provenance_handler(
 // EXPORT HANDLERS
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ExportQuery {
     /// Include YAML frontmatter with metadata (default: true)
     #[serde(default = "default_true")]
@@ -15383,6 +15383,18 @@ struct ExportQuery {
     /// Content version: "revised" (default) or "original"
     #[serde(default)]
     content: Option<String>,
+}
+
+impl fmt::Debug for ExportQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExportQuery")
+            .field("include_frontmatter", &self.include_frontmatter)
+            .field(
+                "content_len",
+                &self.content.as_deref().map(telemetry_text_len),
+            )
+            .finish()
+    }
 }
 
 fn default_true() -> bool {
@@ -15559,10 +15571,18 @@ async fn list_note_versions(
     })))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct GetVersionQuery {
     /// Track to get version from: "original" or "revision" (default: "original")
     track: Option<String>,
+}
+
+impl fmt::Debug for GetVersionQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GetVersionQuery")
+            .field("track_len", &self.track.as_deref().map(telemetry_text_len))
+            .finish()
+    }
 }
 
 /// Get a specific version of a note.
@@ -18695,7 +18715,7 @@ impl RequireAuth {
 // BACKUP HANDLERS
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct BackupExportQuery {
     /// Only export starred notes
     #[serde(default)]
@@ -18706,6 +18726,17 @@ struct BackupExportQuery {
     created_after: Option<chrono::DateTime<chrono::Utc>>,
     /// Filter: notes created before this timestamp (ISO 8601)
     created_before: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl fmt::Debug for BackupExportQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BackupExportQuery")
+            .field("starred_only", &self.starred_only)
+            .field("tags_len", &self.tags.as_deref().map(telemetry_text_len))
+            .field("created_after_set", &self.created_after.is_some())
+            .field("created_before_set", &self.created_before.is_some())
+            .finish()
+    }
 }
 
 #[derive(Serialize)]
@@ -19880,11 +19911,22 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
 // ARCHIVE EXPORT (Full backup with all components)
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ShardExportQuery {
     /// Components to include (comma-separated): notes,collections,tags,templates,links,embedding_sets,embeddings
     /// Default: notes,collections,tags,templates,links,embedding_sets
     include: Option<String>,
+}
+
+impl fmt::Debug for ShardExportQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ShardExportQuery")
+            .field(
+                "include_len",
+                &self.include.as_deref().map(telemetry_text_len),
+            )
+            .finish()
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -20455,7 +20497,7 @@ async fn knowledge_shard_import(
 }
 
 /// Query parameters for multipart shard upload.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ShardUploadQuery {
     /// Components to import (comma-separated). If not specified, imports all available.
     include: Option<String>,
@@ -20468,6 +20510,20 @@ struct ShardUploadQuery {
     /// Whether to skip embedding regeneration
     #[serde(default)]
     skip_embedding_regen: bool,
+}
+
+impl fmt::Debug for ShardUploadQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ShardUploadQuery")
+            .field(
+                "include_len",
+                &self.include.as_deref().map(telemetry_text_len),
+            )
+            .field("dry_run", &self.dry_run)
+            .field("on_conflict", &self.on_conflict)
+            .field("skip_embedding_regen", &self.skip_embedding_regen)
+            .finish()
+    }
 }
 
 /// Import a knowledge shard via multipart file upload.
@@ -20598,7 +20654,7 @@ async fn list_attachments(
 }
 
 /// Query parameters for the global attachments listing.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ListGlobalAttachmentsQuery {
     /// Page size (default: 50)
     limit: Option<i64>,
@@ -20612,6 +20668,31 @@ struct ListGlobalAttachmentsQuery {
     content_type: Option<String>,
     /// Filter by filename substring (case-insensitive)
     filename: Option<String>,
+}
+
+impl fmt::Debug for ListGlobalAttachmentsQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ListGlobalAttachmentsQuery")
+            .field("limit", &self.limit)
+            .field("offset", &self.offset)
+            .field(
+                "sort_by_len",
+                &self.sort_by.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "sort_order_len",
+                &self.sort_order.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "content_type_len",
+                &self.content_type.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "filename_len",
+                &self.filename.as_deref().map(telemetry_text_len),
+            )
+            .finish()
+    }
 }
 
 /// List all attachments across all notes with pagination, sorting, and filtering
@@ -21193,12 +21274,23 @@ async fn get_attachment(
 }
 
 /// Query parameters for attachment download.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct DownloadAttachmentQuery {
     /// Request a pre-generated media variant instead of the original file.
     /// Valid values: `faststart`, `web_compatible`, `audio_only`, `preview_720p`,
     /// `web_audio`, `audio_preview`. Requires media optimization to have run (#506).
     variant: Option<String>,
+}
+
+impl fmt::Debug for DownloadAttachmentQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DownloadAttachmentQuery")
+            .field(
+                "variant_len",
+                &self.variant.as_deref().map(telemetry_text_len),
+            )
+            .finish()
+    }
 }
 
 fn attachment_media_operation_failed(
@@ -21965,12 +22057,25 @@ fn tus_operation_failed(context: &'static str, error: impl std::fmt::Display) ->
 }
 
 /// Query parameters for tus upload creation.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct TusCreateQuery {
     document_type_id: Option<Uuid>,
     media_optimize: Option<bool>,
     /// Vision analysis depth: "standard" (scene only) or "full" (scene + characters + setting) (#550)
     vision_mode: Option<String>,
+}
+
+impl fmt::Debug for TusCreateQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TusCreateQuery")
+            .field("document_type_id_set", &self.document_type_id.is_some())
+            .field("media_optimize", &self.media_optimize)
+            .field(
+                "vision_mode_len",
+                &self.vision_mode.as_deref().map(telemetry_text_len),
+            )
+            .finish()
+    }
 }
 
 /// OPTIONS handler: tus capability discovery.
@@ -28072,6 +28177,85 @@ mod tests {
         assert!(debug.contains("payload_len"));
         assert!(debug.contains("payload_secret_candidate"));
         assert!(debug.contains("status_len"));
+    }
+
+    #[test]
+    fn export_attachment_and_shard_query_debug_redacts_operator_strings() {
+        let document_type_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000801").unwrap();
+        let backup = BackupExportQuery {
+            starred_only: true,
+            tags: Some("secret/tag,postgres://user:secret@db.internal/app".to_string()),
+            created_after: Some(
+                "2026-01-01T00:00:00Z"
+                    .parse::<chrono::DateTime<chrono::Utc>>()
+                    .unwrap(),
+            ),
+            created_before: None,
+        };
+        let export = ExportQuery {
+            include_frontmatter: true,
+            content: Some("original token=should-not-appear".to_string()),
+        };
+        let version = GetVersionQuery {
+            track: Some("revision /home/operator/private.md".to_string()),
+        };
+        let shard_export = ShardExportQuery {
+            include: Some("notes,templates,/srv/fortemi/private".to_string()),
+        };
+        let shard_upload = ShardUploadQuery {
+            include: Some("links,embeddings,sk-live-should-not-appear".to_string()),
+            dry_run: true,
+            on_conflict: ConflictStrategy::Merge,
+            skip_embedding_regen: true,
+        };
+        let attachments = ListGlobalAttachmentsQuery {
+            limit: Some(25),
+            offset: Some(5),
+            sort_by: Some("filename bearer=should-not-appear".to_string()),
+            sort_order: Some("desc".to_string()),
+            content_type: Some("image/png; token=should-not-appear".to_string()),
+            filename: Some("operator@example.com-private.wav".to_string()),
+        };
+        let download = DownloadAttachmentQuery {
+            variant: Some("preview_720p?token=should-not-appear".to_string()),
+        };
+        let tus = TusCreateQuery {
+            document_type_id: Some(document_type_id),
+            media_optimize: Some(true),
+            vision_mode: Some("full /tmp/private-frame.png".to_string()),
+        };
+
+        let debug = format!(
+            "{backup:?}{export:?}{version:?}{shard_export:?}{shard_upload:?}{attachments:?}{download:?}{tus:?}"
+        );
+
+        for forbidden in [
+            "secret/tag",
+            "postgres://user:secret@db.internal/app",
+            "token=should-not-appear",
+            "/home/operator/private.md",
+            "/srv/fortemi/private",
+            "sk-live-should-not-appear",
+            "bearer=should-not-appear",
+            "image/png",
+            "operator@example.com",
+            "preview_720p",
+            "018fd1a0-0000-7000-8000-000000000801",
+            "/tmp/private-frame.png",
+        ] {
+            assert!(
+                !debug.contains(forbidden),
+                "export/download query debug leaked {forbidden}"
+            );
+        }
+        assert!(debug.contains("tags_len"));
+        assert!(debug.contains("content_len"));
+        assert!(debug.contains("track_len"));
+        assert!(debug.contains("include_len"));
+        assert!(debug.contains("filename_len"));
+        assert!(debug.contains("variant_len"));
+        assert!(debug.contains("vision_mode_len"));
+        assert!(debug.contains("document_type_id_set"));
     }
 
     #[tokio::test]
