@@ -18109,12 +18109,23 @@ struct BackupExportQuery {
     created_before: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct BackupExportManifest {
     version: String,
     format: String,
     created_at: chrono::DateTime<chrono::Utc>,
     counts: BackupCounts,
+}
+
+impl std::fmt::Debug for BackupExportManifest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackupExportManifest")
+            .field("version_len", &self.version.len())
+            .field("format_len", &self.format.len())
+            .field("created_at", &self.created_at)
+            .field("counts", &self.counts)
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -18125,13 +18136,25 @@ struct BackupCounts {
     templates: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct BackupExportResponse {
     manifest: BackupExportManifest,
     notes: Vec<serde_json::Value>,
     collections: Vec<serde_json::Value>,
     tags: Vec<String>,
     templates: Vec<serde_json::Value>,
+}
+
+impl std::fmt::Debug for BackupExportResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackupExportResponse")
+            .field("manifest", &self.manifest)
+            .field("notes_count", &self.notes.len())
+            .field("collections_count", &self.collections.len())
+            .field("tags_count", &self.tags.len())
+            .field("templates_count", &self.templates.len())
+            .finish()
+    }
 }
 
 /// Export all notes as a JSON export.
@@ -25464,6 +25487,64 @@ mod tests {
             "bearer token",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn backup_export_response_debug_redacts_exported_records_and_tags() {
+        let response = BackupExportResponse {
+            manifest: BackupExportManifest {
+                version: "2026.6.0-private".to_string(),
+                format: "fortemi-json-export-private".to_string(),
+                created_at: Utc::now(),
+                counts: BackupCounts {
+                    notes: 1,
+                    collections: 1,
+                    tags: 2,
+                    templates: 1,
+                },
+            },
+            notes: vec![serde_json::json!({
+                "title": "Customer payroll export",
+                "content": "note body contains sk-live-secret-token and customer@example.com"
+            })],
+            collections: vec![serde_json::json!({
+                "name": "customer-private-collection"
+            })],
+            tags: vec![
+                "customer-private".to_string(),
+                "mm_key_backup_secret".to_string(),
+            ],
+            templates: vec![serde_json::json!({
+                "name": "Private restore template",
+                "content": "template has bearer-token-shaped value"
+            })],
+        };
+
+        let rendered = format!("{response:?}");
+
+        assert!(rendered.contains("BackupExportResponse"));
+        assert!(rendered.contains("BackupExportManifest"));
+        assert!(rendered.contains("version_len"));
+        assert!(rendered.contains("format_len"));
+        assert!(rendered.contains("notes_count"));
+        assert!(rendered.contains("collections_count"));
+        assert!(rendered.contains("tags_count"));
+        assert!(rendered.contains("templates_count"));
+
+        for raw in [
+            "2026.6.0-private",
+            "fortemi-json-export-private",
+            "Customer payroll export",
+            "sk-live-secret-token",
+            "customer@example.com",
+            "customer-private-collection",
+            "customer-private",
+            "mm_key_backup_secret",
+            "Private restore template",
+            "bearer-token-shaped",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 
