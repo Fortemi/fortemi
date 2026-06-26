@@ -18989,6 +18989,14 @@ fn tus_headers() -> axum::http::HeaderMap {
     headers
 }
 
+fn tus_operation_failed(context: &'static str, error: impl std::fmt::Display) -> ApiError {
+    let diagnostic = error.to_string();
+    ApiError::OperationFailed {
+        operation: "TUS upload",
+        detail: format!("{context}; error_len={}", diagnostic.len()),
+    }
+}
+
 /// Query parameters for tus upload creation.
 #[derive(Debug, Deserialize)]
 struct TusCreateQuery {
@@ -19130,7 +19138,7 @@ async fn tus_create_upload(
         .bind(note_id)
         .fetch_one(&mut *tx)
         .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
+        .map_err(|e| tus_operation_failed("verify note exists", e))?;
 
     if !note_exists {
         return Err(ApiError::NotFound(format!("Note {} not found", note_id)));
@@ -19150,7 +19158,7 @@ async fn tus_create_upload(
     let storage_path = format!("{}/{}.part", state.tus_staging_path, upload_id);
     tokio::fs::File::create(&storage_path)
         .await
-        .map_err(|e| ApiError::Internal(format!("Failed to create staging file: {}", e)))?;
+        .map_err(|e| tus_operation_failed("create staging file", e))?;
 
     // Calculate expiry (default 24 hours)
     let expiry_hours: i64 = std::env::var("TUS_UPLOAD_EXPIRY_HOURS")
@@ -19174,11 +19182,11 @@ async fn tus_create_upload(
             serde_json::Value::Object(extra_metadata),
         )
         .await
-        .map_err(|e| ApiError::Internal(format!("Failed to create tus upload record: {}", e)))?;
+        .map_err(|e| tus_operation_failed("create upload record", e))?;
 
     tx.commit()
         .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
+        .map_err(|e| tus_operation_failed("commit upload create", e))?;
 
     // Build Location header
     let location = format!("/api/v1/notes/{}/attachments/tus/{}", note_id, upload.id);
@@ -19223,7 +19231,7 @@ async fn tus_head_upload(
         .tus
         .get(&mut tx, upload_id)
         .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?
+        .map_err(|e| tus_operation_failed("load upload state", e))?
         .ok_or_else(|| ApiError::NotFound(format!("Upload {} not found", upload_id)))?;
     drop(tx);
 
@@ -19323,7 +19331,7 @@ async fn tus_patch_upload(
         .tus
         .get(&mut tx, upload_id)
         .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?
+        .map_err(|e| tus_operation_failed("load upload state", e))?
         .ok_or_else(|| ApiError::NotFound(format!("Upload {} not found", upload_id)))?;
 
     // Validate not expired
@@ -19361,10 +19369,10 @@ async fn tus_patch_upload(
         .append(true)
         .open(&upload.storage_path)
         .await
-        .map_err(|e| ApiError::Internal(format!("Failed to open staging file: {}", e)))?;
+        .map_err(|e| tus_operation_failed("open staging file", e))?;
     file.write_all(&body)
         .await
-        .map_err(|e| ApiError::Internal(format!("Failed to write chunk: {}", e)))?;
+        .map_err(|e| tus_operation_failed("write upload chunk", e))?;
     drop(file);
 
     // Update offset in DB
@@ -19373,19 +19381,19 @@ async fn tus_patch_upload(
         .tus
         .update_offset(&mut tx, upload_id, new_offset)
         .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
+        .map_err(|e| tus_operation_failed("update upload offset", e))?;
 
     // Check if upload is complete
     if new_offset == upload.total_size {
         // Finalize: read staging file, store via attachment pipeline
         let file_data = tokio::fs::read(&upload.storage_path)
             .await
-            .map_err(|e| ApiError::Internal(format!("Failed to read staging file: {}", e)))?;
+            .map_err(|e| tus_operation_failed("read staging file", e))?;
 
         // Commit offset update before finalization
         tx.commit()
             .await
-            .map_err(|e| ApiError::Internal(e.to_string()))?;
+            .map_err(|e| tus_operation_failed("commit upload offset", e))?;
         // Remove staging file (pipeline takes ownership of the data)
         let _ = tokio::fs::remove_file(&upload.storage_path).await;
 
@@ -19434,7 +19442,7 @@ async fn tus_patch_upload(
 
         tx2.commit()
             .await
-            .map_err(|e| ApiError::Internal(e.to_string()))?;
+            .map_err(|e| tus_operation_failed("commit finalized attachment", e))?;
 
         // Emit event and queue extraction
         state.event_bus.emit_with_context(
@@ -19514,7 +19522,7 @@ async fn tus_patch_upload(
 
     tx.commit()
         .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
+        .map_err(|e| tus_operation_failed("commit upload offset", e))?;
 
     let mut resp_headers = tus_headers();
     resp_headers.insert("Upload-Offset", new_offset.to_string().parse().unwrap());
@@ -19556,11 +19564,11 @@ async fn tus_delete_upload(
         .tus
         .delete(&mut tx, upload_id)
         .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
+        .map_err(|e| tus_operation_failed("delete upload record", e))?;
 
     tx.commit()
         .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
+        .map_err(|e| tus_operation_failed("commit upload delete", e))?;
 
     if let Some(upload) = deleted {
         let _ = tokio::fs::remove_file(&upload.storage_path).await;
@@ -19596,7 +19604,7 @@ async fn tus_get_upload(
         .tus
         .get(&mut tx, upload_id)
         .await
-        .map_err(|e| ApiError::Internal(e.to_string()))?;
+        .map_err(|e| tus_operation_failed("load finalized upload", e))?;
     let _ = tx.commit().await;
 
     let upload =
@@ -23081,6 +23089,33 @@ mod tests {
         assert!(!body.contains("token=secret"));
         assert!(!body.contains("permission denied"));
         assert!(problem.get("error").is_none());
+    }
+
+    #[tokio::test]
+    async fn tus_operation_failed_returns_generic_problem_without_raw_detail() {
+        let err = tus_operation_failed(
+            "open staging file",
+            "permission denied for /tmp/matric-tus-staging/upload.part with postgres://user:secret@db.internal/app",
+        );
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/operation-failed"
+        );
+        assert_eq!(
+            problem["detail"],
+            "TUS upload failed. Check server logs for diagnostics."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains("/tmp/matric-tus-staging"));
+        assert!(!body.contains("postgres://"));
+        assert!(!body.contains("secret"));
+        assert!(!body.contains("permission denied"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
     }
 
     #[test]
