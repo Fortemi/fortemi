@@ -497,6 +497,10 @@ fn embedding_config_not_found() -> ApiError {
     ApiError::NotFound("Embedding config not found.".to_string())
 }
 
+fn inbound_source_not_found() -> ApiError {
+    ApiError::NotFound("Inbound source not found.".to_string())
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -5135,9 +5139,7 @@ async fn delete_inbound_source(
     if removed {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(ApiError::NotFound(format!(
-            "Inbound source {name} not found"
-        )))
+        Err(inbound_source_not_found())
     }
 }
 
@@ -24360,6 +24362,24 @@ mod tests {
         assert!(!body.contains(&submitted_config_id.to_string()));
         assert!(!body.contains("018ff7d2"));
         assert!(!body.contains("abcdef123456"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn inbound_source_not_found_does_not_echo_source_name() {
+        let submitted_name = "tenant-alpha-private-source-secret-token";
+        let err = inbound_source_not_found();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Inbound source not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_name));
+        assert!(!body.contains("tenant-alpha"));
+        assert!(!body.contains("secret-token"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
