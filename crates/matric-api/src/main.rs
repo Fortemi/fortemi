@@ -49,8 +49,8 @@ use matric_core::{
     ClientRegistrationRequest, CreateApiKeyRequest, CreateNoteRequest, Decision, DenyReason,
     DocumentTypeRepository, EventBus, EventContext, EventEnvelope, ExtractionAdapter,
     ExtractionStrategy, JobRepository, JobType, ListNotesRequest, NoteRepository, OAuthError,
-    RevisionMode, RoleBasedPolicy, ServerEvent, StrictTagFilterInput, TagInput, TagRepository,
-    TokenRequest, TracingSink, UpdateNoteStatusRequest,
+    ResourceKind, RevisionMode, RoleBasedPolicy, ServerEvent, StrictTagFilterInput, TagInput,
+    TagRepository, TokenRequest, TracingSink, UpdateNoteStatusRequest,
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_db::{Database, FileSource, FilesystemBackend};
@@ -5203,10 +5203,65 @@ async fn authorize_middleware(
         return next.run(request).await;
     };
 
+    let input = normalize_route_policy_input_for_authorization(&state, input).await;
+
     match authorize_policy_input(state.authorization_policy.as_ref(), &auth, &input).await {
         Ok(()) => next.run(request).await,
         Err(response) => response,
     }
+}
+
+async fn normalize_route_policy_input_for_authorization(
+    state: &AppState,
+    input: route_policy::RoutePolicyInput,
+) -> route_policy::RoutePolicyInput {
+    normalize_note_route_policy_input(input, |note_id| state.db.notes.exists(note_id)).await
+}
+
+async fn normalize_note_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    note_exists: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(Uuid) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<bool>>,
+{
+    if input.resource.kind != ResourceKind::Note
+        || !input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        return input;
+    }
+
+    let Some(resource_id) = input.resource.id.as_deref() else {
+        return input;
+    };
+    let Ok(note_id) = Uuid::parse_str(resource_id) else {
+        tracing::warn!("authorization resource normalization skipped: invalid note id");
+        return input;
+    };
+
+    match note_exists(note_id).await {
+        Ok(true) => route_policy::mark_resource_id_normalized(&mut input),
+        Ok(false) => {
+            tracing::warn!("authorization resource normalization skipped: note does not exist");
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "authorization resource normalization lookup failed");
+        }
+    }
+
+    input
 }
 
 async fn authorize_policy_input(
@@ -21520,6 +21575,69 @@ mod tests {
         assert!(!hosted_policy_requires_normalized_resource(
             &AllowAllPolicy,
             &input
+        ));
+    }
+
+    #[tokio::test]
+    async fn existing_note_route_id_is_marked_normalized_after_backing_lookup() {
+        let note_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000001").unwrap();
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001",
+            Some("tenant-a"),
+        )
+        .expect("note route has policy input");
+
+        let normalized = normalize_note_route_policy_input(input, |lookup_id| async move {
+            assert_eq!(lookup_id, note_id);
+            Ok(true)
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_note_route_id_stays_unnormalized_after_backing_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001",
+            Some("tenant-a"),
+        )
+        .expect("note route has policy input");
+
+        let normalized =
+            normalize_note_route_policy_input(input, |_lookup_id| async move { Ok(false) }).await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn note_normalization_lookup_error_preserves_fail_closed_guard() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001",
+            Some("tenant-a"),
+        )
+        .expect("note route has policy input");
+
+        let normalized = normalize_note_route_policy_input(input, |_lookup_id| async move {
+            Err(matric_core::Error::Internal("lookup failed".to_string()))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
         ));
     }
 

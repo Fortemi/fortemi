@@ -1549,6 +1549,13 @@ pub fn authorization_input_for_request(
     })
 }
 
+pub fn mark_resource_id_normalized(input: &mut RoutePolicyInput) {
+    input
+        .resource
+        .attrs
+        .insert("resource_id_normalized".to_string(), json!(true));
+}
+
 fn route_action_name(policy: &RoutePolicy, method: &Method) -> String {
     format!(
         "{}:{}",
@@ -1810,6 +1817,24 @@ mod tests {
         );
         assert_eq!(input.resource.tenant_id.as_deref(), Some("tenant-a"));
         assert_eq!(input.context.tenant_id.as_deref(), Some("tenant-a"));
+    }
+
+    #[test]
+    fn mark_resource_id_normalized_sets_backing_lookup_result() {
+        let mut input = authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001",
+            Some("tenant-a"),
+        )
+        .expect("note route should be inventoried");
+
+        mark_resource_id_normalized(&mut input);
+
+        assert_eq!(input.resource.attrs["resource_id_normalized"], json!(true));
+        assert_eq!(
+            input.resource.attrs["requires_backing_resource_normalization"],
+            json!(true)
+        );
     }
 
     #[test]
