@@ -1341,7 +1341,7 @@ impl fmt::Debug for CreateMappingRelationRequest {
 // =============================================================================
 
 /// A note-to-concept tagging relationship with provenance.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NoteSkosConceptTag {
     pub note_id: Uuid,
     pub concept_id: Uuid,
@@ -1355,8 +1355,26 @@ pub struct NoteSkosConceptTag {
     pub created_by: Option<String>,
 }
 
+impl fmt::Debug for NoteSkosConceptTag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NoteSkosConceptTag")
+            .field("note_id_set", &true)
+            .field("concept_id_set", &true)
+            .field("source_len", &self.source.len())
+            .field("confidence", &self.confidence)
+            .field("relevance_score", &self.relevance_score)
+            .field("is_primary", &self.is_primary)
+            .field("created_at", &self.created_at)
+            .field(
+                "created_by_len",
+                &self.created_by.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
+}
+
 /// Request to tag a note with a concept.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TagNoteRequest {
     pub note_id: Uuid,
     pub concept_id: Uuid,
@@ -1372,6 +1390,23 @@ pub struct TagNoteRequest {
     pub created_by: Option<String>,
 }
 
+impl fmt::Debug for TagNoteRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TagNoteRequest")
+            .field("note_id_set", &true)
+            .field("concept_id_set", &true)
+            .field("source_len", &self.source.len())
+            .field("confidence", &self.confidence)
+            .field("relevance_score", &self.relevance_score)
+            .field("is_primary", &self.is_primary)
+            .field(
+                "created_by_len",
+                &self.created_by.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
+}
+
 fn default_source() -> String {
     "manual".to_string()
 }
@@ -1381,7 +1416,7 @@ fn default_relevance() -> f32 {
 }
 
 /// Batch tag request for tagging a note with multiple concepts.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct BatchTagNoteRequest {
     pub note_id: Uuid,
     pub concept_ids: Vec<Uuid>,
@@ -1393,12 +1428,27 @@ pub struct BatchTagNoteRequest {
     pub created_by: Option<String>,
 }
 
+impl fmt::Debug for BatchTagNoteRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BatchTagNoteRequest")
+            .field("note_id_set", &true)
+            .field("concept_id_count", &self.concept_ids.len())
+            .field("source_len", &self.source.len())
+            .field("confidence", &self.confidence)
+            .field(
+                "created_by_len",
+                &self.created_by.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
+}
+
 // =============================================================================
 // GOVERNANCE AND AUDIT
 // =============================================================================
 
 /// Audit log entry for taxonomy changes.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosAuditLogEntry {
     pub id: Uuid,
     pub entity_type: String,
@@ -1411,8 +1461,33 @@ pub struct SkosAuditLogEntry {
     pub created_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for SkosAuditLogEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosAuditLogEntry")
+            .field("id_set", &true)
+            .field("entity_type_len", &self.entity_type.len())
+            .field("entity_id_set", &true)
+            .field("action_len", &self.action.len())
+            .field(
+                "changes_class",
+                &self.changes.as_ref().map(json_value_class),
+            )
+            .field(
+                "changes_len",
+                &self
+                    .changes
+                    .as_ref()
+                    .map(|value| serde_json::to_string(value).map_or(0, |json| json.len())),
+            )
+            .field("actor_len", &self.actor.len())
+            .field("actor_type_len", &self.actor_type.len())
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
 /// Record of merged concepts.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptMerge {
     pub id: Uuid,
     pub source_ids: Vec<Uuid>,
@@ -1424,8 +1499,24 @@ pub struct SkosConceptMerge {
     pub created_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for SkosConceptMerge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosConceptMerge")
+            .field("id_set", &true)
+            .field("source_id_count", &self.source_ids.len())
+            .field("target_id_set", &true)
+            .field("reason_len", &self.reason.as_ref().map(|value| value.len()))
+            .field(
+                "performed_by_len",
+                &self.performed_by.as_ref().map(|value| value.len()),
+            )
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
 /// Request to merge concepts.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MergeConceptsRequest {
     /// Concepts to merge (will be deprecated).
     pub source_ids: Vec<Uuid>,
@@ -1435,6 +1526,31 @@ pub struct MergeConceptsRequest {
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub performed_by: Option<String>,
+}
+
+impl fmt::Debug for MergeConceptsRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MergeConceptsRequest")
+            .field("source_id_count", &self.source_ids.len())
+            .field("target_id_set", &true)
+            .field("reason_len", &self.reason.as_ref().map(|value| value.len()))
+            .field(
+                "performed_by_len",
+                &self.performed_by.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
+}
+
+fn json_value_class(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "bool",
+        JsonValue::Number(_) => "number",
+        JsonValue::String(_) => "string",
+        JsonValue::Array(_) => "array",
+        JsonValue::Object(_) => "object",
+    }
 }
 
 // =============================================================================
@@ -2647,6 +2763,157 @@ mod tests {
                 "postgres://mapping:secret@db.internal/vocab",
                 "file:///srv/fortemi/private/scheme",
                 "bearer-secret",
+            ],
+        );
+    }
+
+    #[test]
+    fn skos_tagging_audit_and_merge_debug_redacts_ids_sources_and_changes() {
+        let note_id = Uuid::parse_str("aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa").unwrap();
+        let concept_id = Uuid::parse_str("bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb").unwrap();
+        let source_id = Uuid::parse_str("cccccccc-3333-4444-8555-cccccccccccc").unwrap();
+        let target_id = Uuid::parse_str("dddddddd-4444-4555-8666-dddddddddddd").unwrap();
+        let audit_id = Uuid::parse_str("eeeeeeee-5555-4666-8777-eeeeeeeeeeee").unwrap();
+        let now = Utc::now();
+
+        let tag = NoteSkosConceptTag {
+            note_id,
+            concept_id,
+            source: "import source postgres://tag:secret@db.internal".to_string(),
+            confidence: Some(0.89),
+            relevance_score: 0.94,
+            is_primary: true,
+            created_at: now,
+            created_by: Some("tagger-secret@example.internal".to_string()),
+        };
+        let tag_request = TagNoteRequest {
+            note_id,
+            concept_id,
+            source: "request source /srv/fortemi/private/tag".to_string(),
+            confidence: Some(0.77),
+            relevance_score: 0.81,
+            is_primary: false,
+            created_by: Some("request-tagger sk-secret-tag".to_string()),
+        };
+        let batch_request = BatchTagNoteRequest {
+            note_id,
+            concept_ids: vec![concept_id, source_id, target_id],
+            source: "batch source https://batch.example.internal?token=secret".to_string(),
+            confidence: Some(0.66),
+            created_by: Some("batch-tagger-secret@example.internal".to_string()),
+        };
+        let audit = SkosAuditLogEntry {
+            id: audit_id,
+            entity_type: "concept-secret@example.internal".to_string(),
+            entity_id: concept_id,
+            action: "merge-action sk-secret-audit".to_string(),
+            changes: Some(serde_json::json!({
+                "before": "postgres://audit:secret@db.internal",
+                "after": "/srv/fortemi/private/audit",
+                "token": "bearer-secret-audit"
+            })),
+            actor: "audit-actor-secret@example.internal".to_string(),
+            actor_type: "operator-secret".to_string(),
+            created_at: now,
+        };
+        let merge = SkosConceptMerge {
+            id: audit_id,
+            source_ids: vec![source_id, concept_id],
+            target_id,
+            reason: Some("merge reason postgres://merge:secret@db.internal".to_string()),
+            performed_by: Some("merge-operator-secret@example.internal".to_string()),
+            created_at: now,
+        };
+        let merge_request = MergeConceptsRequest {
+            source_ids: vec![source_id, concept_id],
+            target_id,
+            reason: Some("request reason /srv/fortemi/private/merge".to_string()),
+            performed_by: Some("request-merge sk-secret-merge".to_string()),
+        };
+
+        let tag_debug = format!("{tag:?}");
+        assert!(tag_debug.contains("NoteSkosConceptTag"));
+        assert!(tag_debug.contains("source_len"));
+        assert_debug_excludes(
+            &tag_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "postgres://tag:secret@db.internal",
+                "tagger-secret@example.internal",
+            ],
+        );
+
+        let tag_request_debug = format!("{tag_request:?}");
+        assert!(tag_request_debug.contains("TagNoteRequest"));
+        assert_debug_excludes(
+            &tag_request_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "/srv/fortemi/private/tag",
+                "sk-secret-tag",
+            ],
+        );
+
+        let batch_debug = format!("{batch_request:?}");
+        assert!(batch_debug.contains("BatchTagNoteRequest"));
+        assert!(batch_debug.contains("concept_id_count"));
+        assert_debug_excludes(
+            &batch_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "cccccccc-3333-4444-8555-cccccccccccc",
+                "dddddddd-4444-4555-8666-dddddddddddd",
+                "https://batch.example.internal?token=secret",
+                "batch-tagger-secret@example.internal",
+            ],
+        );
+
+        let audit_debug = format!("{audit:?}");
+        assert!(audit_debug.contains("SkosAuditLogEntry"));
+        assert!(audit_debug.contains("changes_class"));
+        assert!(audit_debug.contains("changes_len"));
+        assert_debug_excludes(
+            &audit_debug,
+            &[
+                "eeeeeeee-5555-4666-8777-eeeeeeeeeeee",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "concept-secret@example.internal",
+                "sk-secret-audit",
+                "postgres://audit:secret@db.internal",
+                "/srv/fortemi/private/audit",
+                "bearer-secret-audit",
+                "audit-actor-secret@example.internal",
+                "operator-secret",
+            ],
+        );
+
+        let merge_debug = format!("{merge:?}");
+        assert!(merge_debug.contains("SkosConceptMerge"));
+        assert_debug_excludes(
+            &merge_debug,
+            &[
+                "eeeeeeee-5555-4666-8777-eeeeeeeeeeee",
+                "cccccccc-3333-4444-8555-cccccccccccc",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "dddddddd-4444-4555-8666-dddddddddddd",
+                "postgres://merge:secret@db.internal",
+                "merge-operator-secret@example.internal",
+            ],
+        );
+
+        let merge_request_debug = format!("{merge_request:?}");
+        assert!(merge_request_debug.contains("MergeConceptsRequest"));
+        assert_debug_excludes(
+            &merge_request_debug,
+            &[
+                "cccccccc-3333-4444-8555-cccccccccccc",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "dddddddd-4444-4555-8666-dddddddddddd",
+                "/srv/fortemi/private/merge",
+                "sk-secret-merge",
             ],
         );
     }
