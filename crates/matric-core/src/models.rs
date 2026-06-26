@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
+use std::fmt;
 use uuid::Uuid;
 
 // =============================================================================
@@ -3140,7 +3141,7 @@ impl std::fmt::Debug for CreateApiKeyResponse {
 }
 
 /// Authenticated principal (either OAuth client or API key).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum AuthPrincipal {
     OAuthClient {
         client_id: String,
@@ -3152,6 +3153,35 @@ pub enum AuthPrincipal {
         scope: String,
     },
     Anonymous,
+}
+
+impl fmt::Debug for AuthPrincipal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AuthPrincipal::OAuthClient {
+                client_id,
+                scope,
+                user_id,
+            } => f
+                .debug_struct("AuthPrincipal::OAuthClient")
+                .field("client_id_len", &client_id.chars().count())
+                .field("scope_count", &scope.split_whitespace().count())
+                .field("scope_len", &scope.chars().count())
+                .field(
+                    "user_id_len",
+                    &user_id.as_ref().map(|value| value.chars().count()),
+                )
+                .finish(),
+            AuthPrincipal::ApiKey { key_id, scope } => f
+                .debug_struct("AuthPrincipal::ApiKey")
+                .field("key_id_set", &true)
+                .field("scope_count", &scope.split_whitespace().count())
+                .field("scope_len", &scope.chars().count())
+                .field("key_id_version", &key_id.get_version_num())
+                .finish(),
+            AuthPrincipal::Anonymous => f.debug_struct("AuthPrincipal::Anonymous").finish(),
+        }
+    }
 }
 
 impl AuthPrincipal {
@@ -4435,6 +4465,40 @@ mod tests {
 
         let anon = AuthPrincipal::Anonymous;
         assert!(!anon.is_authenticated());
+    }
+
+    #[test]
+    fn auth_principal_debug_redacts_identity_and_scope_values() {
+        let key_id = Uuid::now_v7();
+        let oauth = AuthPrincipal::OAuthClient {
+            client_id: "oauth-client-secret-shaped@example.internal".to_string(),
+            scope: "read write tenant:secret admin".to_string(),
+            user_id: Some("user@example.internal/path/token-secret".to_string()),
+        };
+        let api_key = AuthPrincipal::ApiKey {
+            key_id,
+            scope: "mcp api-key-secret-scope".to_string(),
+        };
+        let anonymous = AuthPrincipal::Anonymous;
+
+        let debug = format!("{oauth:?} {api_key:?} {anonymous:?}");
+
+        assert!(debug.contains("AuthPrincipal::OAuthClient"));
+        assert!(debug.contains("client_id_len"));
+        assert!(debug.contains("scope_count"));
+        assert!(debug.contains("scope_len"));
+        assert!(debug.contains("user_id_len"));
+        assert!(debug.contains("AuthPrincipal::ApiKey"));
+        assert!(debug.contains("key_id_set"));
+        assert!(debug.contains("key_id_version"));
+        assert!(debug.contains("AuthPrincipal::Anonymous"));
+        assert!(!debug.contains("oauth-client-secret-shaped"));
+        assert!(!debug.contains("example.internal"));
+        assert!(!debug.contains("tenant:secret"));
+        assert!(!debug.contains("admin"));
+        assert!(!debug.contains("token-secret"));
+        assert!(!debug.contains("api-key-secret-scope"));
+        assert!(!debug.contains(&key_id.to_string()));
     }
 
     #[test]

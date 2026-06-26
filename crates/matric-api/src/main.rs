@@ -18988,9 +18988,17 @@ use axum::http::request::Parts;
 ///     // ... handler logic
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Auth {
     pub principal: AuthPrincipal,
+}
+
+impl fmt::Debug for Auth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Auth")
+            .field("principal", &self.principal)
+            .finish()
+    }
 }
 
 impl FromRequestParts<AppState> for Auth {
@@ -19021,9 +19029,17 @@ impl FromRequestParts<AppState> for Auth {
 /// Extractor that requires authentication.
 ///
 /// Use this for endpoints that must have a valid token.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RequireAuth {
     pub principal: AuthPrincipal,
+}
+
+impl fmt::Debug for RequireAuth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RequireAuth")
+            .field("principal", &self.principal)
+            .finish()
+    }
 }
 
 impl FromRequestParts<AppState> for RequireAuth {
@@ -30613,6 +30629,39 @@ mod tests {
         assert_eq!(problem["detail"], "Authorization denied.");
         assert!(problem.get("error").is_none());
         assert!(!problem.to_string().contains("tenant:secret"));
+    }
+
+    #[test]
+    fn auth_extractors_debug_redacts_principal_identity_and_scope_values() {
+        let auth = Auth {
+            principal: AuthPrincipal::OAuthClient {
+                client_id: "client-secret-shaped@example.internal".to_string(),
+                scope: "read write tenant:secret admin".to_string(),
+                user_id: Some("user@example.internal/private/path".to_string()),
+            },
+        };
+        let require_auth = RequireAuth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::now_v7(),
+                scope: "mcp api-key-secret-scope".to_string(),
+            },
+        };
+
+        let debug = format!("{auth:?} {require_auth:?}");
+
+        assert!(debug.contains("Auth"));
+        assert!(debug.contains("RequireAuth"));
+        assert!(debug.contains("AuthPrincipal::OAuthClient"));
+        assert!(debug.contains("AuthPrincipal::ApiKey"));
+        assert!(debug.contains("client_id_len"));
+        assert!(debug.contains("scope_count"));
+        assert!(debug.contains("key_id_set"));
+        assert!(!debug.contains("client-secret-shaped"));
+        assert!(!debug.contains("example.internal"));
+        assert!(!debug.contains("tenant:secret"));
+        assert!(!debug.contains("admin"));
+        assert!(!debug.contains("private/path"));
+        assert!(!debug.contains("api-key-secret-scope"));
     }
 
     #[test]
