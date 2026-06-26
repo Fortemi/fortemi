@@ -159,7 +159,7 @@ impl fmt::Debug for NoteFull {
 /// Lightweight SKOS concept summary for note responses.
 /// Preserves the richness of the SKOS tagging data while being
 /// suitable for inclusion in note detail responses.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NoteConceptSummary {
     pub concept_id: Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -173,8 +173,22 @@ pub struct NoteConceptSummary {
     pub is_primary: bool,
 }
 
+impl fmt::Debug for NoteConceptSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NoteConceptSummary")
+            .field("concept_id_set", &true)
+            .field("notation_len", &self.notation.as_ref().map(String::len))
+            .field("pref_label_len", &self.pref_label.as_ref().map(String::len))
+            .field("source_len", &self.source.len())
+            .field("confidence", &self.confidence)
+            .field("relevance_score", &self.relevance_score)
+            .field("is_primary", &self.is_primary)
+            .finish()
+    }
+}
+
 /// A revision version entry from note_revision table (AI-enhanced content track).
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct RevisionVersion {
     pub id: Uuid,
     pub note_id: Uuid,
@@ -190,8 +204,25 @@ pub struct RevisionVersion {
     pub is_user_edited: bool,
 }
 
+impl fmt::Debug for RevisionVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RevisionVersion")
+            .field("id_set", &true)
+            .field("note_id_set", &true)
+            .field("revision_number", &self.revision_number)
+            .field("content_len", &self.content.len())
+            .field("revision_type_len", &self.revision_type.len())
+            .field("summary_len", &self.summary.as_ref().map(String::len))
+            .field("rationale_len", &self.rationale.as_ref().map(String::len))
+            .field("created_at_utc", &self.created_at_utc)
+            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("is_user_edited", &self.is_user_edited)
+            .finish()
+    }
+}
+
 /// Summary view of a note for listing.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NoteSummary {
     pub id: Uuid,
     pub title: String,
@@ -212,6 +243,30 @@ pub struct NoteSummary {
     /// Human-readable document type name (convenience field)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub document_type_name: Option<String>,
+}
+
+impl fmt::Debug for NoteSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NoteSummary")
+            .field("id_set", &true)
+            .field("title_len", &self.title.len())
+            .field("snippet_len", &self.snippet.len())
+            .field("embedding_status", &self.embedding_status)
+            .field("created_at_utc", &self.created_at_utc)
+            .field("updated_at_utc", &self.updated_at_utc)
+            .field("starred", &self.starred)
+            .field("archived", &self.archived)
+            .field("tags_count", &self.tags.len())
+            .field("has_revision", &self.has_revision)
+            .field("metadata_class", &json_value_class(&self.metadata))
+            .field("metadata_len", &json_serialized_len(&self.metadata))
+            .field("document_type_id_set", &self.document_type_id.is_some())
+            .field(
+                "document_type_name_len",
+                &self.document_type_name.as_ref().map(String::len),
+            )
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -3823,6 +3878,109 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "Note Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn note_revision_and_summary_debug_redacts_content_labels_and_metadata() {
+        let now = Utc::now();
+        let concept = NoteConceptSummary {
+            concept_id: Uuid::new_v4(),
+            notation: Some("secret-concept-notation-private@example.test".to_string()),
+            pref_label: Some("Sensitive concept label 555-1212".to_string()),
+            source: "https://taxonomy.example.test/private?token=secret-token".to_string(),
+            confidence: Some(0.97),
+            relevance_score: 0.86,
+            is_primary: true,
+        };
+        let revision = RevisionVersion {
+            id: Uuid::new_v4(),
+            note_id: Uuid::new_v4(),
+            revision_number: 4,
+            content: "Revised note content includes sk-live-secret and /tmp/customer/file.md"
+                .to_string(),
+            revision_type: "ai-private-rewrite".to_string(),
+            summary: Some("Private summary for private@example.test".to_string()),
+            rationale: Some(
+                "Rationale mentions https://provider.example.test/?token=secret".to_string(),
+            ),
+            created_at_utc: now,
+            model: Some("private-model-name".to_string()),
+            is_user_edited: true,
+        };
+        let summary = NoteSummary {
+            id: Uuid::new_v4(),
+            title: "Secret note title private@example.test".to_string(),
+            snippet: "Snippet exposes 555-1212 and sk-live-secret".to_string(),
+            embedding_status: Some(EmbeddingStatus::Ready),
+            created_at_utc: now,
+            updated_at_utc: now,
+            starred: true,
+            archived: false,
+            tags: vec![
+                "secret-tag-private@example.test".to_string(),
+                "https://tags.example.test/?token=secret".to_string(),
+            ],
+            has_revision: true,
+            metadata: json!({
+                "provider_url": "https://provider.example.test/v1?token=secret-token",
+                "path": "/tmp/customer/private-note.md",
+                "api_key": "sk-live-secret"
+            }),
+            document_type_id: Some(Uuid::new_v4()),
+            document_type_name: Some("Private document type".to_string()),
+        };
+
+        let debug = format!("{concept:?}{revision:?}{summary:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "secret-concept-notation",
+                "Sensitive concept label",
+                "taxonomy.example.test",
+                "secret-token",
+                "Revised note content",
+                "sk-live-secret",
+                "/tmp/customer/file.md",
+                "ai-private-rewrite",
+                "Private summary",
+                "private@example.test",
+                "Rationale mentions",
+                "provider.example.test",
+                "private-model-name",
+                "Secret note title",
+                "Snippet exposes",
+                "555-1212",
+                "secret-tag-private@example.test",
+                "tags.example.test",
+                "/tmp/customer/private-note.md",
+                "Private document type",
+            ],
+        );
+
+        for expected in [
+            "concept_id_set",
+            "notation_len",
+            "pref_label_len",
+            "source_len",
+            "content_len",
+            "revision_type_len",
+            "summary_len",
+            "rationale_len",
+            "model_len",
+            "title_len",
+            "snippet_len",
+            "tags_count",
+            "metadata_class",
+            "metadata_len",
+            "document_type_id_set",
+            "document_type_name_len",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Note revision/summary Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
