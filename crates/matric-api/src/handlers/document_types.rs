@@ -11,7 +11,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::{ApiError, AppState};
+use crate::{document_type_not_found, ApiError, AppState};
 use matric_core::DocumentTypeRepository;
 
 // NOTE: These types must be defined in matric-core before handlers will compile.
@@ -88,7 +88,7 @@ pub async fn get_document_type(
         .document_types
         .get_by_name(&name)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Document type '{}' not found", name)))?;
+        .ok_or_else(document_type_not_found)?;
     Ok(Json(doc_type))
 }
 

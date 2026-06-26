@@ -458,6 +458,10 @@ fn invalid_attachment_document_type_id() -> ApiError {
     )
 }
 
+fn document_type_not_found() -> ApiError {
+    ApiError::NotFound("Document type not found.".to_string())
+}
+
 fn attachment_variant_not_found() -> ApiError {
     ApiError::NotFound("Attachment variant not found.".to_string())
 }
@@ -24358,6 +24362,24 @@ mod tests {
 
         let body = problem.to_string();
         assert!(!body.contains(&submitted_revision.to_string()));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn document_type_not_found_does_not_echo_name() {
+        let submitted_name = "tenant-alpha-private-document-type-secret-token";
+        let err = document_type_not_found();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Document type not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_name));
+        assert!(!body.contains("tenant-alpha"));
+        assert!(!body.contains("secret-token"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
