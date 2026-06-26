@@ -18873,6 +18873,19 @@ async fn upload_attachment(
     let validation =
         matric_core::validate_file(&body.filename, &data, state.max_upload_size as u64);
     if !validation.allowed {
+        emit_attachment_upload_audit_event(attachment_upload_audit_event(
+            id,
+            None,
+            &body.filename,
+            &body.content_type,
+            data.len(),
+            AuditOutcome::Denied,
+            "json",
+            Some(attachment_validation_reason(&validation)),
+            validation.detected_type.as_deref(),
+            Some(&archive_ctx.schema),
+        ))
+        .await;
         return Err(ApiError::BadRequest(
             validation
                 .block_reason
@@ -18882,6 +18895,19 @@ async fn upload_attachment(
 
     // Validate MIME content type format (issue #308)
     if !matric_core::is_valid_mime_type(&body.content_type) {
+        emit_attachment_upload_audit_event(attachment_upload_audit_event(
+            id,
+            None,
+            &body.filename,
+            &body.content_type,
+            data.len(),
+            AuditOutcome::Denied,
+            "json",
+            Some("invalid_content_type"),
+            None,
+            Some(&archive_ctx.schema),
+        ))
+        .await;
         return Err(invalid_attachment_content_type());
     }
 
@@ -18934,6 +18960,19 @@ async fn upload_attachment(
         },
         event_context_for(&archive_ctx),
     );
+    emit_attachment_upload_audit_event(attachment_upload_audit_event(
+        id,
+        Some(attachment.id),
+        &body.filename,
+        &content_type,
+        data.len(),
+        AuditOutcome::Success,
+        "json",
+        Some("accepted"),
+        validation.detected_type.as_deref(),
+        Some(&archive_ctx.schema),
+    ))
+    .await;
 
     // Queue background extraction job for the uploaded attachment
     let vision_mode = body
@@ -19056,12 +19095,38 @@ async fn upload_attachment_multipart(
 
     // Validate MIME content type format (issue #308)
     if !matric_core::is_valid_mime_type(&content_type) {
+        emit_attachment_upload_audit_event(attachment_upload_audit_event(
+            id,
+            None,
+            &filename,
+            &content_type,
+            data.len(),
+            AuditOutcome::Denied,
+            "multipart",
+            Some("invalid_content_type"),
+            None,
+            Some(&archive_ctx.schema),
+        ))
+        .await;
         return Err(invalid_attachment_content_type());
     }
 
     // Validate file safety — block executables and dangerous file types (fixes #241)
     let validation = matric_core::validate_file(&filename, &data, state.max_upload_size as u64);
     if !validation.allowed {
+        emit_attachment_upload_audit_event(attachment_upload_audit_event(
+            id,
+            None,
+            &filename,
+            &content_type,
+            data.len(),
+            AuditOutcome::Denied,
+            "multipart",
+            Some(attachment_validation_reason(&validation)),
+            validation.detected_type.as_deref(),
+            Some(&archive_ctx.schema),
+        ))
+        .await;
         return Err(ApiError::BadRequest(
             validation
                 .block_reason
@@ -19117,6 +19182,19 @@ async fn upload_attachment_multipart(
         },
         event_context_for(&archive_ctx),
     );
+    emit_attachment_upload_audit_event(attachment_upload_audit_event(
+        id,
+        Some(attachment.id),
+        &filename,
+        &content_type,
+        data.len(),
+        AuditOutcome::Success,
+        "multipart",
+        Some("accepted"),
+        validation.detected_type.as_deref(),
+        Some(&archive_ctx.schema),
+    ))
+    .await;
 
     // Queue background extraction job for the uploaded attachment
     queue_extraction_job(
@@ -19159,6 +19237,122 @@ async fn upload_attachment_multipart(
     }
 
     Ok(Json(attachment))
+}
+
+async fn emit_attachment_upload_audit_event(event: AuditEvent) {
+    if let Err(err) = TracingSink.emit(event).await {
+        warn!(
+            error_len = telemetry_text_len(&err.to_string()),
+            detail = API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "emit_attachment_upload_audit_event",
+            "failed to emit attachment upload audit event"
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn attachment_upload_audit_event(
+    note_id: Uuid,
+    attachment_id: Option<Uuid>,
+    filename: &str,
+    content_type: &str,
+    size_bytes: usize,
+    outcome: AuditOutcome,
+    source_surface: &str,
+    reason: Option<&str>,
+    detected_type: Option<&str>,
+    archive_schema: Option<&str>,
+) -> AuditEvent {
+    let mut event = AuditEvent::new("attachment", "upload", outcome)
+        .with_resource(
+            if attachment_id.is_some() {
+                "attachment"
+            } else {
+                "note"
+            },
+            attachment_id.unwrap_or(note_id).to_string(),
+        )
+        .with_attr("note_id", note_id.to_string())
+        .with_attr("upload_source", source_surface.to_string())
+        .with_attr("filename_len", filename.chars().count() as i64)
+        .with_attr("extension_present", attachment_extension_present(filename))
+        .with_attr("extension_len", attachment_extension_len(filename) as i64)
+        .with_attr("content_type_class", content_type_class(content_type))
+        .with_attr("size_bytes", size_bytes as i64)
+        .with_attr("archive_schema_present", archive_schema.is_some());
+
+    if let Some(schema) = archive_schema {
+        event = event.with_attr("archive_schema_len", schema.chars().count() as i64);
+    }
+    if let Some(reason) = reason {
+        event.reason = Some(reason.to_string());
+        event = event.with_attr("reason_code", reason.to_string());
+    }
+    if let Some(detected_type) = detected_type {
+        event = event.with_attr(
+            "detected_type_class",
+            attachment_detected_type_class(detected_type),
+        );
+    }
+
+    event.source = AuditSource::Api;
+    event.visibility = AuditVisibilityClass::SecurityRestricted;
+    event.failure_policy = AuditFailurePolicy::BestEffort;
+    event.severity = match outcome {
+        AuditOutcome::Success => AuditSeverity::Info,
+        AuditOutcome::Denied => AuditSeverity::Warn,
+        AuditOutcome::Failure | AuditOutcome::Error => AuditSeverity::Error,
+        AuditOutcome::Unknown => AuditSeverity::Warn,
+    };
+    event.sanitized()
+}
+
+fn attachment_validation_reason(validation: &matric_core::ValidationResult) -> &'static str {
+    match validation.detected_type.as_deref() {
+        Some("oversized") => "size_exceeded",
+        Some(detected) if detected.starts_with("blocked_extension:") => "blocked_extension",
+        Some(detected) if detected.starts_with("executable:") => "executable_detected",
+        Some("java_or_macho") => "executable_detected",
+        Some(_) => "blocked_by_safety_policy",
+        None => "blocked_by_safety_policy",
+    }
+}
+
+fn attachment_detected_type_class(detected_type: &str) -> &'static str {
+    if detected_type == "oversized" {
+        "oversized"
+    } else if detected_type.starts_with("blocked_extension:") {
+        "blocked_extension"
+    } else if detected_type.starts_with("executable:") || detected_type == "java_or_macho" {
+        "executable"
+    } else {
+        "other"
+    }
+}
+
+fn attachment_extension_present(filename: &str) -> bool {
+    std::path::Path::new(filename).extension().is_some()
+}
+
+fn attachment_extension_len(filename: &str) -> usize {
+    std::path::Path::new(filename)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.chars().count())
+        .unwrap_or(0)
+}
+
+fn content_type_class(content_type: &str) -> String {
+    let top_level = content_type.split('/').next().unwrap_or("unknown").trim();
+    if !top_level.is_empty()
+        && top_level
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '+')
+    {
+        top_level.to_ascii_lowercase()
+    } else {
+        "unknown".to_string()
+    }
 }
 
 /// Get attachment metadata
@@ -20351,6 +20545,45 @@ async fn tus_patch_upload(
             .as_ref()
             .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
 
+        if !matric_core::is_valid_mime_type(&upload.content_type) {
+            emit_attachment_upload_audit_event(attachment_upload_audit_event(
+                note_id,
+                None,
+                &upload.filename,
+                &upload.content_type,
+                file_data.len(),
+                AuditOutcome::Denied,
+                "tus",
+                Some("invalid_content_type"),
+                None,
+                Some(&archive_ctx.schema),
+            ))
+            .await;
+            return Err(invalid_attachment_content_type());
+        }
+        let validation =
+            matric_core::validate_file(&upload.filename, &file_data, state.max_upload_size as u64);
+        if !validation.allowed {
+            emit_attachment_upload_audit_event(attachment_upload_audit_event(
+                note_id,
+                None,
+                &upload.filename,
+                &upload.content_type,
+                file_data.len(),
+                AuditOutcome::Denied,
+                "tus",
+                Some(attachment_validation_reason(&validation)),
+                validation.detected_type.as_deref(),
+                Some(&archive_ctx.schema),
+            ))
+            .await;
+            return Err(ApiError::BadRequest(
+                validation
+                    .block_reason
+                    .unwrap_or_else(|| "File blocked by safety policy".to_string()),
+            ));
+        }
+
         let content_type =
             matric_core::detect_content_type(&upload.filename, &file_data, &upload.content_type);
         let ctx2 = state.db.for_schema(&archive_ctx.schema)?;
@@ -20400,6 +20633,19 @@ async fn tus_patch_upload(
             },
             event_context_for(&archive_ctx),
         );
+        emit_attachment_upload_audit_event(attachment_upload_audit_event(
+            note_id,
+            Some(attachment.id),
+            &upload.filename,
+            &content_type,
+            file_data.len(),
+            AuditOutcome::Success,
+            "tus",
+            Some("accepted"),
+            validation.detected_type.as_deref(),
+            Some(&archive_ctx.schema),
+        ))
+        .await;
 
         let media_optimize = upload
             .metadata
@@ -26836,6 +27082,105 @@ mod tests {
 
         let serialized = serde_json::to_string(&event).expect("serialize audit event");
         assert!(!serialized.contains("client-secret-should-redact"));
+    }
+
+    #[test]
+    fn attachment_upload_audit_event_uses_metadata_only() {
+        let note_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000601").unwrap();
+        let attachment_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000602").unwrap();
+
+        let event = attachment_upload_audit_event(
+            note_id,
+            Some(attachment_id),
+            "customer-secret-passport.png",
+            "image/png; token=should-not-appear",
+            4096,
+            AuditOutcome::Success,
+            "multipart",
+            Some("accepted"),
+            None,
+            Some("tenant-secret-archive"),
+        );
+
+        assert_eq!(event.category, "attachment");
+        assert_eq!(event.action, "upload");
+        assert_eq!(event.outcome, AuditOutcome::Success);
+        assert_eq!(event.source, AuditSource::Api);
+        assert_eq!(event.visibility, AuditVisibilityClass::SecurityRestricted);
+        assert_eq!(event.severity, AuditSeverity::Info);
+        assert_eq!(event.resource_kind.as_deref(), Some("attachment"));
+        assert_eq!(
+            event.resource_id.as_deref(),
+            Some("018fd1a0-0000-7000-8000-000000000602")
+        );
+        assert_eq!(
+            event.attrs["note_id"],
+            "018fd1a0-0000-7000-8000-000000000601"
+        );
+        assert_eq!(event.attrs["upload_source"], "multipart");
+        assert_eq!(event.attrs["filename_len"], 28);
+        assert_eq!(event.attrs["extension_present"], true);
+        assert_eq!(event.attrs["extension_len"], 3);
+        assert_eq!(event.attrs["content_type_class"], "image");
+        assert_eq!(event.attrs["size_bytes"], 4096);
+        assert_eq!(event.attrs["archive_schema_present"], true);
+        assert_eq!(event.attrs["archive_schema_len"], 21);
+        assert_eq!(event.attrs["reason_code"], "accepted");
+
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("customer-secret-passport.png"));
+        assert!(!serialized.contains("passport"));
+        assert!(!serialized.contains("png"));
+        assert!(!serialized.contains("token=should-not-appear"));
+        assert!(!serialized.contains("tenant-secret-archive"));
+        assert!(!serialized.contains("filename\":"));
+        assert!(!serialized.contains("path"));
+        assert!(!serialized.contains("payload"));
+    }
+
+    #[test]
+    fn attachment_upload_blocked_audit_event_uses_reason_classes() {
+        let note_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000603").unwrap();
+        let validation = matric_core::ValidationResult::blocked(
+            "File extension .exe is not allowed",
+            "blocked_extension:exe",
+        );
+
+        let event = attachment_upload_audit_event(
+            note_id,
+            None,
+            "installer-secret-api-key.exe",
+            "application/x-msdownload",
+            2048,
+            AuditOutcome::Denied,
+            "json",
+            Some(attachment_validation_reason(&validation)),
+            validation.detected_type.as_deref(),
+            None,
+        );
+
+        assert_eq!(event.outcome, AuditOutcome::Denied);
+        assert_eq!(event.severity, AuditSeverity::Warn);
+        assert_eq!(event.resource_kind.as_deref(), Some("note"));
+        assert_eq!(
+            event.resource_id.as_deref(),
+            Some("018fd1a0-0000-7000-8000-000000000603")
+        );
+        assert_eq!(event.attrs["upload_source"], "json");
+        assert_eq!(event.attrs["filename_len"], 28);
+        assert_eq!(event.attrs["extension_len"], 3);
+        assert_eq!(event.attrs["content_type_class"], "application");
+        assert_eq!(event.attrs["reason_code"], "blocked_extension");
+        assert_eq!(event.attrs["detected_type_class"], "blocked_extension");
+        assert_eq!(event.attrs["archive_schema_present"], false);
+        assert!(event.attrs.get("archive_schema_len").is_none());
+
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("installer-secret-api-key.exe"));
+        assert!(!serialized.contains("api-key"));
+        assert!(!serialized.contains("blocked_extension:exe"));
+        assert!(!serialized.contains("x-msdownload"));
+        assert!(!serialized.contains("File extension"));
     }
 
     #[test]
