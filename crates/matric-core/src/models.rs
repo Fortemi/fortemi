@@ -15,7 +15,7 @@ use uuid::Uuid;
 // =============================================================================
 
 /// Metadata for a note (without content).
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NoteMeta {
     pub id: Uuid,
     pub collection_id: Option<Uuid>,
@@ -38,8 +38,37 @@ pub struct NoteMeta {
     pub document_type_id: Option<Uuid>,
 }
 
+impl fmt::Debug for NoteMeta {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NoteMeta")
+            .field("id_set", &(!self.id.is_nil()))
+            .field("collection_id_set", &self.collection_id.is_some())
+            .field("format_len", &self.format.len())
+            .field("source_len", &self.source.len())
+            .field("created_at_utc", &self.created_at_utc)
+            .field("updated_at_utc", &self.updated_at_utc)
+            .field("starred", &self.starred)
+            .field("archived", &self.archived)
+            .field("last_accessed_at_set", &self.last_accessed_at.is_some())
+            .field("access_count", &self.access_count)
+            .field("title_len", &self.title.as_ref().map(String::len))
+            .field("metadata_class", &json_value_class(&self.metadata))
+            .field("metadata_len", &json_serialized_len(&self.metadata))
+            .field(
+                "chunk_metadata_class",
+                &self.chunk_metadata.as_ref().map(json_value_class),
+            )
+            .field(
+                "chunk_metadata_len",
+                &self.chunk_metadata.as_ref().map(json_serialized_len),
+            )
+            .field("document_type_id_set", &self.document_type_id.is_some())
+            .finish()
+    }
+}
+
 /// Original immutable content of a note.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NoteOriginal {
     pub content: String,
     pub hash: String,
@@ -47,8 +76,22 @@ pub struct NoteOriginal {
     pub user_last_edited_at: Option<DateTime<Utc>>,
 }
 
+impl fmt::Debug for NoteOriginal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NoteOriginal")
+            .field("content_len", &self.content.len())
+            .field("hash_len", &self.hash.len())
+            .field("user_created_at_set", &self.user_created_at.is_some())
+            .field(
+                "user_last_edited_at_set",
+                &self.user_last_edited_at.is_some(),
+            )
+            .finish()
+    }
+}
+
 /// Current revised/working version of a note.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NoteRevised {
     pub content: String,
     pub last_revision_id: Option<Uuid>,
@@ -60,8 +103,33 @@ pub struct NoteRevised {
     pub model: Option<String>,
 }
 
+impl fmt::Debug for NoteRevised {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NoteRevised")
+            .field("content_len", &self.content.len())
+            .field("last_revision_id_set", &self.last_revision_id.is_some())
+            .field(
+                "ai_metadata_class",
+                &self.ai_metadata.as_ref().map(json_value_class),
+            )
+            .field(
+                "ai_metadata_len",
+                &self.ai_metadata.as_ref().map(json_serialized_len),
+            )
+            .field("ai_generated_at_set", &self.ai_generated_at.is_some())
+            .field(
+                "user_last_edited_at_set",
+                &self.user_last_edited_at.is_some(),
+            )
+            .field("is_user_edited", &self.is_user_edited)
+            .field("generation_count", &self.generation_count)
+            .field("model_len", &self.model.as_ref().map(String::len))
+            .finish()
+    }
+}
+
 /// Complete note with all components.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NoteFull {
     pub note: NoteMeta,
     pub original: NoteOriginal,
@@ -73,6 +141,19 @@ pub struct NoteFull {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub concepts: Vec<NoteConceptSummary>,
     pub links: Vec<Link>,
+}
+
+impl fmt::Debug for NoteFull {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NoteFull")
+            .field("note", &self.note)
+            .field("original", &self.original)
+            .field("revised", &self.revised)
+            .field("tags_count", &self.tags.len())
+            .field("concepts_count", &self.concepts.len())
+            .field("links_count", &self.links.len())
+            .finish()
+    }
 }
 
 /// Lightweight SKOS concept summary for note responses.
@@ -3646,6 +3727,102 @@ mod tests {
             assert!(
                 !debug.contains(secret),
                 "debug output leaked secret `{secret}`: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn note_models_debug_redacts_content_metadata_and_tags() {
+        let now = Utc::now();
+        let meta = NoteMeta {
+            id: Uuid::new_v4(),
+            collection_id: Some(Uuid::new_v4()),
+            format: "markdown-private-format".to_string(),
+            source: "https://source.example.test/private?token=secret-token".to_string(),
+            created_at_utc: now,
+            updated_at_utc: now,
+            starred: true,
+            archived: false,
+            last_accessed_at: Some(now),
+            access_count: 7,
+            title: Some("Private title private@example.test".to_string()),
+            metadata: json!({
+                "provider_url": "https://provider.example.test/v1?token=secret-token",
+                "api_key": "sk-live-secret"
+            }),
+            chunk_metadata: Some(json!({
+                "path": "/tmp/customer/chunk.json",
+                "snippet": "Patient said 555-1212"
+            })),
+            document_type_id: Some(Uuid::new_v4()),
+        };
+        let original = NoteOriginal {
+            content: "Original note content private@example.test sk-live-secret".to_string(),
+            hash: "sha256-secret-hash-value".to_string(),
+            user_created_at: Some(now),
+            user_last_edited_at: Some(now),
+        };
+        let revised = NoteRevised {
+            content: "Revised generated content contains 555-1212".to_string(),
+            last_revision_id: Some(Uuid::new_v4()),
+            ai_metadata: Some(json!({
+                "model": "private-model-name",
+                "response": "generated private@example.test"
+            })),
+            ai_generated_at: Some(now),
+            user_last_edited_at: Some(now),
+            is_user_edited: true,
+            generation_count: 3,
+            model: Some("private-model-name".to_string()),
+        };
+        let full = NoteFull {
+            note: meta.clone(),
+            original: original.clone(),
+            revised: revised.clone(),
+            tags: vec!["secret-tag-private@example.test".to_string()],
+            concepts: Vec::new(),
+            links: Vec::new(),
+        };
+
+        let debug = format!("{meta:?}{original:?}{revised:?}{full:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "markdown-private-format",
+                "source.example.test",
+                "secret-token",
+                "Private title",
+                "provider.example.test",
+                "sk-live-secret",
+                "/tmp/customer/chunk.json",
+                "Patient said",
+                "private@example.test",
+                "Original note content",
+                "sha256-secret-hash-value",
+                "Revised generated content",
+                "555-1212",
+                "private-model-name",
+                "generated private@example.test",
+                "secret-tag-private@example.test",
+            ],
+        );
+
+        for expected in [
+            "title_len",
+            "metadata_class",
+            "chunk_metadata_len",
+            "content_len",
+            "hash_len",
+            "ai_metadata_class",
+            "model_len",
+            "tags_count",
+            "concepts_count",
+            "links_count",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Note Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
