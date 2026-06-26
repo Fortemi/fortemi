@@ -2572,7 +2572,7 @@ pub struct DetectedCapabilities {
 }
 
 /// Connection test response — successful or not.
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct TestConnectionResponse {
     pub reachable: bool,
     /// Protocol detected: "ollama" or "openai". Null when unreachable.
@@ -2596,6 +2596,39 @@ pub struct TestConnectionResponse {
     /// Actionable recovery suggestions when `reachable` is false.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestions: Option<Vec<String>>,
+}
+
+impl std::fmt::Debug for TestConnectionResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TestConnectionResponse")
+            .field("reachable", &self.reachable)
+            .field(
+                "detected_provider_len",
+                &self
+                    .detected_provider
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
+            )
+            .field(
+                "ollama_version_len",
+                &self
+                    .ollama_version
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
+            )
+            .field(
+                "available_model_count",
+                &self.available_models.as_ref().map(Vec::len),
+            )
+            .field("latency_ms", &self.latency_ms)
+            .field("capabilities_present", &self.capabilities.is_some())
+            .field(
+                "error_len",
+                &self.error.as_ref().map(|value| telemetry_text_len(value)),
+            )
+            .field("suggestion_count", &self.suggestions.as_ref().map(Vec::len))
+            .finish()
+    }
 }
 
 // Internal detection result — not serialized directly.
@@ -3512,15 +3545,46 @@ mod tests_connection {
             api_key: Some("sk-secret-test-connection".to_string()),
             timeout_secs: 15,
         };
+        let response = TestConnectionResponse {
+            reachable: false,
+            detected_provider: Some("secret-provider-protocol".to_string()),
+            ollama_version: Some("secret-version-0.0.1".to_string()),
+            available_models: Some(vec![
+                "gpt-secret-model".to_string(),
+                "embedding-secret-model".to_string(),
+            ]),
+            latency_ms: Some(123),
+            capabilities: Some(DetectedCapabilities {
+                generation: true,
+                embedding: false,
+                vision: false,
+            }),
+            error: Some(
+                "provider https://user:pass@provider.example.com/v1?token=secret failed"
+                    .to_string(),
+            ),
+            suggestions: Some(vec![
+                "Check https://provider.example.com/secret-console".to_string(),
+                "Rotate sk-secret-test-connection".to_string(),
+            ]),
+        };
 
-        let rendered = format!("{req:?}");
+        let rendered = format!("{req:?}{response:?}");
         assert!(rendered.contains("base_url_class: \"external\""));
         assert!(rendered.contains("api_key_present: true"));
         assert!(rendered.contains("timeout_secs: 15"));
+        assert!(rendered.contains("available_model_count"));
+        assert!(rendered.contains("capabilities_present: true"));
+        assert!(rendered.contains("suggestion_count"));
         assert!(!rendered.contains("sk-secret-test-connection"));
+        assert!(!rendered.contains("secret-provider-protocol"));
+        assert!(!rendered.contains("secret-version"));
+        assert!(!rendered.contains("gpt-secret-model"));
+        assert!(!rendered.contains("embedding-secret-model"));
         assert!(!rendered.contains("user:pass"));
         assert!(!rendered.contains("provider.example.com"));
         assert!(!rendered.contains("token=secret"));
+        assert!(!rendered.contains("secret-console"));
         assert!(!rendered.contains(&req.base_url));
     }
 
