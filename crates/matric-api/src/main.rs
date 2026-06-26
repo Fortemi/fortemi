@@ -5217,7 +5217,7 @@ async fn normalize_route_policy_input_for_authorization(
 ) -> route_policy::RoutePolicyInput {
     let input =
         normalize_note_route_policy_input(input, |note_id| state.db.notes.exists(note_id)).await;
-    normalize_attachment_route_policy_input(input, |attachment_id| async move {
+    let input = normalize_attachment_route_policy_input(input, |attachment_id| async move {
         let Some(file_storage) = state.db.file_storage.as_ref() else {
             return Err(matric_core::Error::Config(
                 "file storage not configured".to_string(),
@@ -5229,6 +5229,10 @@ async fn normalize_route_policy_input_for_authorization(
             Err(matric_core::Error::NotFound(_)) => Ok(None),
             Err(err) => Err(err),
         }
+    })
+    .await;
+    normalize_archive_route_policy_input(input, |archive_name| async move {
+        state.db.archives.get_archive_by_name(&archive_name).await
     })
     .await
 }
@@ -5337,6 +5341,68 @@ where
         }
         Err(err) => {
             tracing::warn!(error = %err, "authorization attachment normalization lookup failed");
+        }
+    }
+
+    input
+}
+
+async fn normalize_archive_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    archive_lookup: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<matric_core::ArchiveInfo>>>,
+{
+    if input.resource.kind != ResourceKind::Archive
+        || input
+            .resource
+            .attrs
+            .get("resource_id_param")
+            .and_then(|value| value.as_str())
+            != Some("name")
+        || !input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        return input;
+    }
+
+    let Some(archive_name) = input.resource.id.clone() else {
+        return input;
+    };
+
+    match archive_lookup(archive_name).await {
+        Ok(Some(archive)) => {
+            route_policy::mark_resource_id_normalized(&mut input);
+            input
+                .resource
+                .attrs
+                .insert("archive_id".to_string(), serde_json::json!(archive.id));
+            input.resource.attrs.insert(
+                "archive_schema".to_string(),
+                serde_json::json!(archive.schema_name),
+            );
+            input.resource.attrs.insert(
+                "archive_is_default".to_string(),
+                serde_json::json!(archive.is_default),
+            );
+        }
+        Ok(None) => {
+            tracing::warn!("authorization resource normalization skipped: archive does not exist");
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "authorization archive normalization lookup failed");
         }
     }
 
@@ -21811,6 +21877,113 @@ mod tests {
             &RoleBasedPolicy,
             &normalized
         ));
+    }
+
+    fn test_archive_info(name: &str) -> matric_core::ArchiveInfo {
+        matric_core::ArchiveInfo {
+            id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000003").unwrap(),
+            name: name.to_string(),
+            schema_name: format!("archive_{name}"),
+            description: None,
+            created_at: chrono::Utc::now(),
+            last_accessed: None,
+            note_count: Some(0),
+            size_bytes: Some(0),
+            is_default: false,
+            schema_version: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn existing_archive_route_name_is_marked_normalized_with_registry_metadata() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/archives/research/stats",
+            Some("tenant-a"),
+        )
+        .expect("archive route has policy input");
+
+        let normalized = normalize_archive_route_policy_input(input, |lookup_name| async move {
+            assert_eq!(lookup_name, "research");
+            Ok(Some(test_archive_info("research")))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert_eq!(
+            normalized.resource.attrs["archive_id"],
+            serde_json::json!(Uuid::parse_str("018fd1a0-0000-7000-8000-000000000003").unwrap())
+        );
+        assert_eq!(
+            normalized.resource.attrs["archive_schema"],
+            "archive_research"
+        );
+        assert_eq!(normalized.resource.attrs["archive_is_default"], false);
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_archive_route_name_stays_unnormalized_after_registry_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/memories/research/set-default",
+            Some("tenant-a"),
+        )
+        .expect("memory route has policy input");
+
+        let normalized =
+            normalize_archive_route_policy_input(input, |_lookup_name| async move { Ok(None) })
+                .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("archive_id").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn archive_normalization_lookup_error_preserves_fail_closed_guard() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/archives/research/clone",
+            Some("tenant-a"),
+        )
+        .expect("archive route has policy input");
+
+        let normalized = normalize_archive_route_policy_input(input, |_lookup_name| async move {
+            Err(matric_core::Error::Internal("lookup failed".to_string()))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn archive_collection_routes_do_not_run_name_registry_lookup() {
+        let input =
+            route_policy::authorization_input_for_request(&Method::GET, "/api/v1/archives", None)
+                .expect("archive collection route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Archive);
+        assert_eq!(input.resource.attrs["resource_id_source"], "route_template");
+
+        let normalized = normalize_archive_route_policy_input(input, |_lookup_name| async move {
+            panic!("archive collection routes must not perform name lookups");
+            #[allow(unreachable_code)]
+            Ok(Some(test_archive_info("unused")))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert!(normalized.resource.attrs.get("archive_id").is_none());
     }
 
     #[tokio::test]
