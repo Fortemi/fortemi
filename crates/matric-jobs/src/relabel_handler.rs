@@ -91,6 +91,32 @@ fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResul
         .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
 }
 
+fn relabel_error_reason_code(error: &str) -> &'static str {
+    let text = error.to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("not found")
+        || text.contains("no such")
+        || text.contains("missing")
+        || text.contains("unknown")
+    {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else if text.contains("connection refused")
+        || text.contains("cannot connect")
+        || text.contains("connection")
+    {
+        "connection_failed"
+    } else if text.contains("database") || text.contains("sql") || text.contains("postgres") {
+        "database_error"
+    } else if text.contains("storage") || text.contains("file") {
+        "storage_error"
+    } else {
+        "operation_failed"
+    }
+}
+
 pub struct SpeakerRelabelHandler {
     db: Database,
 }
@@ -319,7 +345,12 @@ impl JobHandler for SpeakerRelabelHandler {
                         .delete_derived_captions_tx(&mut tx, attachment_id)
                         .await
                     {
-                        warn!(error = %e, "Failed to delete existing caption attachments");
+                        let error_text = e.to_string();
+                        warn!(
+                            error_len = error_text.len(),
+                            error_reason = relabel_error_reason_code(&error_text),
+                            "Failed to delete existing caption attachments"
+                        );
                     }
 
                     // VTT file
@@ -336,7 +367,12 @@ impl JobHandler for SpeakerRelabelHandler {
                         )
                         .await
                     {
-                        warn!(error = %e, "Failed to store relabeled VTT attachment");
+                        let error_text = e.to_string();
+                        warn!(
+                            error_len = error_text.len(),
+                            error_reason = relabel_error_reason_code(&error_text),
+                            "Failed to store relabeled VTT attachment"
+                        );
                     }
 
                     // SRT file
@@ -353,7 +389,12 @@ impl JobHandler for SpeakerRelabelHandler {
                         )
                         .await
                     {
-                        warn!(error = %e, "Failed to store relabeled SRT attachment");
+                        let error_text = e.to_string();
+                        warn!(
+                            error_len = error_text.len(),
+                            error_reason = relabel_error_reason_code(&error_text),
+                            "Failed to store relabeled SRT attachment"
+                        );
                     }
 
                     // Plain text transcript with speaker labels
@@ -380,14 +421,24 @@ impl JobHandler for SpeakerRelabelHandler {
                         )
                         .await
                     {
-                        warn!(error = %e, "Failed to store relabeled transcript attachment");
+                        let error_text = e.to_string();
+                        warn!(
+                            error_len = error_text.len(),
+                            error_reason = relabel_error_reason_code(&error_text),
+                            "Failed to store relabeled transcript attachment"
+                        );
                     }
 
                     if let Err(e) = tx.commit().await {
-                        error!(error = %e, "Failed to commit relabeled caption files");
+                        let error_text = e.to_string();
+                        error!(
+                            error_len = error_text.len(),
+                            error_reason = relabel_error_reason_code(&error_text),
+                            "Failed to commit relabeled caption files"
+                        );
                     } else {
                         info!(
-                            attachment_id = %attachment_id,
+                            attachment_present = true,
                             mappings = speaker_map.len(),
                             "Caption files re-rendered with relabeled speakers"
                         );
@@ -404,7 +455,7 @@ impl JobHandler for SpeakerRelabelHandler {
         });
 
         info!(
-            attachment_id = %attachment_id,
+            attachment_present = true,
             mappings = speaker_map.len(),
             "Speaker relabel completed"
         );
@@ -501,5 +552,25 @@ Edit speaker names below to re-label the transcript.
     fn test_speaker_config_empty_speakers() {
         let config = SpeakerConfig { speakers: vec![] };
         assert!(config.name_map().is_empty());
+    }
+
+    #[test]
+    fn relabel_error_reason_code_uses_stable_classes() {
+        assert_eq!(
+            relabel_error_reason_code("database sql failed while writing captions"),
+            "database_error"
+        );
+        assert_eq!(
+            relabel_error_reason_code("file storage denied during transcript write"),
+            "permission_denied"
+        );
+        assert_eq!(
+            relabel_error_reason_code("Cannot connect to caption storage backend"),
+            "connection_failed"
+        );
+        assert_eq!(
+            relabel_error_reason_code("opaque backend diagnostic text"),
+            "operation_failed"
+        );
     }
 }
