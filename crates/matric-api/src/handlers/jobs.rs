@@ -3203,7 +3203,10 @@ impl JobHandler for LinkingHandler {
                     }
                 }
             } else {
-                debug!(target = %link_title, "Wiki-link target not found");
+                debug!(
+                    target_len = diagnostic_len(link_title),
+                    "Wiki-link target not found"
+                );
             }
         }
 
@@ -5660,7 +5663,12 @@ If no meaningful related pairs exist, output an empty array: []"#
             // Clamp confidence to valid range
             let confidence = pair.confidence.clamp(0.0, 1.0);
             if confidence < 0.5 {
-                debug!(concept_a = %pair.concept_a, concept_b = %pair.concept_b, confidence, "Skipping low-confidence pair");
+                debug!(
+                    concept_a_len = diagnostic_len(&pair.concept_a),
+                    concept_b_len = diagnostic_len(&pair.concept_b),
+                    confidence,
+                    "Skipping low-confidence pair"
+                );
                 continue;
             }
 
@@ -5672,8 +5680,8 @@ If no meaningful related pairs exist, output an empty array: []"#
                 (Some(a), Some(b)) => (a, b),
                 _ => {
                     debug!(
-                        concept_a = %pair.concept_a,
-                        concept_b = %pair.concept_b,
+                        concept_a_len = diagnostic_len(&pair.concept_a),
+                        concept_b_len = diagnostic_len(&pair.concept_b),
                         "Skipping pair: concept not found in note's tagged concepts"
                     );
                     continue;
@@ -5687,7 +5695,11 @@ If no meaningful related pairs exist, output an empty array: []"#
 
             // Skip if relation already exists
             if existing_set.contains(&(a.id, b.id)) {
-                debug!(a_notation = %a.notation, b_notation = %b.notation, "Skipping existing related pair");
+                debug!(
+                    a_notation_len = diagnostic_len(&a.notation),
+                    b_notation_len = diagnostic_len(&b.notation),
+                    "Skipping existing related pair"
+                );
                 continue;
             }
 
@@ -5708,8 +5720,8 @@ If no meaningful related pairs exist, output an empty array: []"#
                 Ok(_) => {
                     relations_created += 1;
                     debug!(
-                        a_notation = %a.notation,
-                        b_notation = %b.notation,
+                        a_notation_len = diagnostic_len(&a.notation),
+                        b_notation_len = diagnostic_len(&b.notation),
                         confidence,
                         "Created related concept relation"
                     );
@@ -6992,7 +7004,12 @@ impl JobHandler for ExifExtractionHandler {
                     .await
                 {
                     Ok(id) => {
-                        info!(location_id = %id, lat, lon, "Created provenance location from EXIF GPS");
+                        info!(
+                            location_id_present = true,
+                            latitude_present = true,
+                            longitude_present = true,
+                            "Created provenance location from EXIF GPS"
+                        );
                         location_id = Some(id);
                     }
                     Err(e) => {
@@ -7043,7 +7060,13 @@ impl JobHandler for ExifExtractionHandler {
                 .await
             {
                 Ok(device) => {
-                    info!(device_id = %device.id, make, model, "Created/updated provenance device from EXIF");
+                    info!(
+                        device_id_present = true,
+                        make_len = diagnostic_len(make),
+                        model_len = diagnostic_len(model),
+                        software_len = software.map(diagnostic_len),
+                        "Created/updated provenance device from EXIF"
+                    );
                     device_id = Some(device.id);
                 }
                 Err(e) => {
@@ -7103,7 +7126,10 @@ impl JobHandler for ExifExtractionHandler {
             .await
         {
             Ok(id) => {
-                info!(provenance_id = %id, "Created file provenance record from EXIF");
+                info!(
+                    provenance_id_present = true,
+                    "Created file provenance record from EXIF"
+                );
                 Some(id)
             }
             Err(e) => {
@@ -7396,6 +7422,17 @@ impl JobHandler for GraphMaintenanceHandler {
 mod tests {
     use super::*;
     use matric_db::embeddings::utils::chunk_text;
+
+    #[test]
+    fn job_telemetry_lengths_cover_private_content_like_values() {
+        let wiki_target = "Project Secret user@example.com token=sk-secret";
+        let concept_label = "Sensitive Concept /srv/fortemi/private";
+        let camera_model = "Camera Model with operator@example.com token=secret";
+
+        assert_eq!(diagnostic_len(wiki_target), wiki_target.chars().count());
+        assert_eq!(diagnostic_len(concept_label), concept_label.chars().count());
+        assert_eq!(diagnostic_len(camera_model), camera_model.chars().count());
+    }
 
     #[test]
     fn test_clean_enhanced_content_removes_system_prompt() {
