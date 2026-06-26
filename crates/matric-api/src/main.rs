@@ -15741,7 +15741,7 @@ async fn diff_note_versions(
 // SEARCH HANDLERS
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct SearchQuery {
     q: String,
     limit: Option<i64>,
@@ -15770,6 +15770,32 @@ struct SearchQuery {
     /// When set, applies Maximal Marginal Relevance re-ranking after RRF fusion
     /// to balance relevance with result diversity.
     diversity: Option<f32>,
+}
+
+impl fmt::Debug for SearchQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SearchQuery")
+            .field("q_len", &self.q.len())
+            .field("limit", &self.limit)
+            .field("filters_len", &self.filters.as_ref().map(String::len))
+            .field("mode_len", &self.mode.as_ref().map(String::len))
+            .field(
+                "embedding_set_len",
+                &self.embedding_set.as_ref().map(String::len),
+            )
+            .field("created_after_set", &self.created_after.is_some())
+            .field("created_before_set", &self.created_before.is_some())
+            .field("updated_after_set", &self.updated_after.is_some())
+            .field("updated_before_set", &self.updated_before.is_some())
+            .field("since_len", &self.since.as_ref().map(String::len))
+            .field("tags_len", &self.tags.as_ref().map(String::len))
+            .field(
+                "strict_filter_len",
+                &self.strict_filter.as_ref().map(String::len),
+            )
+            .field("diversity", &self.diversity)
+            .finish()
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -25916,6 +25942,57 @@ fn get_db_size_via_psql(expr: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_query_debug_redacts_query_filters_tags_and_embedding_set() {
+        let query = SearchQuery {
+            q: "customer@example.com payroll postgres://user:pass@db.internal/app".to_string(),
+            limit: Some(25),
+            filters: Some("{\"path\":\"/srv/private/search\",\"token\":\"mm_key_search\"}".to_string()),
+            mode: Some("hybrid-sk-live-search".to_string()),
+            embedding_set: Some("tenant-alpha/private-embedding-set".to_string()),
+            created_after: None,
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+            since: Some("7d-customer-secret".to_string()),
+            tags: Some("customer/private,token/sk-live-tag".to_string()),
+            strict_filter: Some(
+                "{\"required_tags\":[\"customer@example.com\"],\"excluded_tags\":[\"mm_key_filter\"]}"
+                    .to_string(),
+            ),
+            diversity: Some(0.25),
+        };
+
+        let rendered = format!("{query:?}");
+
+        assert!(rendered.contains("SearchQuery"));
+        assert!(rendered.contains("q_len"));
+        assert!(rendered.contains("filters_len"));
+        assert!(rendered.contains("mode_len"));
+        assert!(rendered.contains("embedding_set_len"));
+        assert!(rendered.contains("since_len"));
+        assert!(rendered.contains("tags_len"));
+        assert!(rendered.contains("strict_filter_len"));
+        assert!(rendered.contains("diversity"));
+
+        for raw in [
+            "customer@example.com",
+            "postgres://user:pass",
+            "db.internal",
+            "/srv/private/search",
+            "mm_key_search",
+            "hybrid-sk-live-search",
+            "tenant-alpha",
+            "private-embedding-set",
+            "7d-customer-secret",
+            "customer/private",
+            "sk-live-tag",
+            "mm_key_filter",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
 
     #[test]
     fn search_response_debug_redacts_query_and_hit_content() {
