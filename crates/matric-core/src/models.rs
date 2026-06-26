@@ -3675,7 +3675,7 @@ pub struct ExtractionStats {
 // =============================================================================
 
 /// A collection of notes (folder/hierarchy).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Collection {
     pub id: Uuid,
     pub name: String,
@@ -3689,8 +3689,24 @@ pub struct Collection {
     pub note_count: i64,
 }
 
+impl fmt::Debug for Collection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Collection")
+            .field("id_set", &true)
+            .field("name_len", &self.name.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("parent_id_set", &self.parent_id.is_some())
+            .field("created_at_utc", &self.created_at_utc)
+            .field("note_count", &self.note_count)
+            .finish()
+    }
+}
+
 /// A tag definition.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Tag {
     pub name: String,
     pub created_at_utc: DateTime<Utc>,
@@ -3699,12 +3715,22 @@ pub struct Tag {
     pub note_count: i64,
 }
 
+impl fmt::Debug for Tag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Tag")
+            .field("name_len", &self.name.len())
+            .field("created_at_utc", &self.created_at_utc)
+            .field("note_count", &self.note_count)
+            .finish()
+    }
+}
+
 /// Archive schema information for parallel memory archives.
 ///
 /// Part of Epic #441: Parallel Memory Archives. Each archive maintains
 /// an isolated PostgreSQL schema with its own tables for notes, embeddings,
 /// collections, and tags.
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ArchiveInfo {
     pub id: Uuid,
     pub name: String,
@@ -3727,12 +3753,32 @@ pub struct ArchiveInfo {
     pub schema_version: i32,
 }
 
+impl fmt::Debug for ArchiveInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ArchiveInfo")
+            .field("id_set", &true)
+            .field("name_len", &self.name.len())
+            .field("schema_name_len", &self.schema_name.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("created_at", &self.created_at)
+            .field("last_accessed_set", &self.last_accessed.is_some())
+            .field("note_count", &self.note_count)
+            .field("size_bytes", &self.size_bytes)
+            .field("is_default", &self.is_default)
+            .field("schema_version", &self.schema_version)
+            .finish()
+    }
+}
+
 // =============================================================================
 // USER METADATA TYPES
 // =============================================================================
 
 /// Custom user-defined label on a note.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct UserMetadataLabel {
     pub id: Uuid,
     pub note_id: Uuid,
@@ -3741,12 +3787,35 @@ pub struct UserMetadataLabel {
     pub created_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for UserMetadataLabel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UserMetadataLabel")
+            .field("id_set", &true)
+            .field("note_id_set", &true)
+            .field("label_len", &self.label.len())
+            .field("color_len", &self.color.as_ref().map(String::len))
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
 /// User configuration entry.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct UserConfig {
     pub key: String,
     pub value: JsonValue,
     pub updated_at: DateTime<Utc>,
+}
+
+impl fmt::Debug for UserConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UserConfig")
+            .field("key_len", &self.key.len())
+            .field("value_class", &json_value_class(&self.value))
+            .field("value_len", &json_serialized_len(&self.value))
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -5994,6 +6063,99 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "Document-type Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn collection_archive_and_user_metadata_debug_redacts_names_and_config() {
+        let now = Utc::now();
+        let collection = Collection {
+            id: Uuid::new_v4(),
+            name: "Private collection private@example.test".to_string(),
+            description: Some(
+                "Collection description includes /tmp/customer/collection.md".to_string(),
+            ),
+            parent_id: Some(Uuid::new_v4()),
+            created_at_utc: now,
+            note_count: 42,
+        };
+        let tag = Tag {
+            name: "secret-tag/private@example.test/sk-live-secret".to_string(),
+            created_at_utc: now,
+            note_count: 7,
+        };
+        let archive = ArchiveInfo {
+            id: Uuid::new_v4(),
+            name: "Private archive private@example.test".to_string(),
+            schema_name: "tenant_secret_schema_sk_live_secret".to_string(),
+            description: Some(
+                "Archive description https://archive.example.test/?token=secret".to_string(),
+            ),
+            created_at: now,
+            last_accessed: Some(now),
+            note_count: Some(11),
+            size_bytes: Some(4096),
+            is_default: false,
+            schema_version: 3,
+        };
+        let label = UserMetadataLabel {
+            id: Uuid::new_v4(),
+            note_id: Uuid::new_v4(),
+            label: "Private label private@example.test 555-1212".to_string(),
+            color: Some("color-secret-sk-live-secret".to_string()),
+            created_at: now,
+        };
+        let config = UserConfig {
+            key: "private.config.key.sk-live-secret".to_string(),
+            value: json!({
+                "provider_url": "https://provider.example.test/?token=secret",
+                "path": "/tmp/customer/user-config.json",
+                "email": "private@example.test",
+                "api_key": "sk-live-secret"
+            }),
+            updated_at: now,
+        };
+
+        let debug = format!("{collection:?}{tag:?}{archive:?}{label:?}{config:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "Private collection",
+                "private@example.test",
+                "/tmp/customer/collection.md",
+                "secret-tag",
+                "sk-live-secret",
+                "Private archive",
+                "tenant_secret_schema",
+                "Archive description",
+                "archive.example.test",
+                "Private label",
+                "555-1212",
+                "color-secret",
+                "private.config.key",
+                "provider.example.test",
+                "/tmp/customer/user-config.json",
+                "api_key",
+            ],
+        );
+
+        for expected in [
+            "name_len",
+            "description_len",
+            "parent_id_set",
+            "schema_name_len",
+            "last_accessed_set",
+            "label_len",
+            "color_len",
+            "key_len",
+            "value_class",
+            "value_len",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Collection/archive/user metadata Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
