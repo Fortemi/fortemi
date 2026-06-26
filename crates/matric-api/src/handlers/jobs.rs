@@ -1927,7 +1927,7 @@ impl JobHandler for EmbeddingHandler {
         .unwrap_or_default();
 
         if let Err(e) = tx.commit().await {
-            return JobResult::Failed(format!("Commit failed: {}", e));
+            return embedding_job_failure(e, "fetch_note_commit");
         }
 
         // Use revised content if available, otherwise original
@@ -8066,6 +8066,24 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("/srv/fortemi"));
                 assert!(!message.contains("SQLSTATE"));
                 assert!(!message.contains("failed to fetch note"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+
+        let result = embedding_job_failure(
+            "commit failed for postgres://user:secret@db.internal/app at /srv/fortemi SQLSTATE 40001",
+            "fetch_note_commit",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, EMBEDDING_JOB_FAILURE);
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("commit failed"));
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
