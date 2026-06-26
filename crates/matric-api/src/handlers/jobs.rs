@@ -59,6 +59,15 @@ const REEMBED_ALL_JOB_FAILURE: &str =
     "Bulk re-embedding failed. Check server logs for diagnostics.";
 const REFRESH_EMBEDDING_SET_JOB_FAILURE: &str =
     "Embedding set refresh failed. Check server logs for diagnostics.";
+const JOB_CHUNK_MERGE_PARSE_FAILURE_DETAIL: &str = "job_chunk_merge_parse_failed";
+const JOB_PROVENANCE_WRITE_FAILURE_DETAIL: &str = "job_provenance_write_failed";
+const JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL: &str = "job_queue_followup_failed";
+const JOB_REVISION_NOTE_UPDATE_FAILURE_DETAIL: &str = "job_revision_note_update_failed";
+const JOB_CONTEXT_DISCOVERY_FAILURE_DETAIL: &str = "job_context_discovery_failed";
+
+fn diagnostic_len(error: impl std::fmt::Display) -> usize {
+    error.to_string().chars().count()
+}
 
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
@@ -548,7 +557,11 @@ fn merge_json_arrays(results: Vec<String>) -> Vec<String> {
                 }
             }
             Err(e) => {
-                info!(error = %e, "Skipping unparseable chunk result in merge");
+                info!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_CHUNK_MERGE_PARSE_FAILURE_DETAIL,
+                    "Skipping unparseable chunk result in merge"
+                );
             }
         }
     }
@@ -1211,7 +1224,11 @@ impl JobHandler for AiRevisionHandler {
                     .complete_activity(act_id, Some(rev_id), Some(metadata))
                     .await
                 {
-                    warn!(error = %e, "Failed to complete provenance activity");
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_PROVENANCE_WRITE_FAILURE_DETAIL,
+                        "Failed to complete provenance activity"
+                    );
                 }
             }
         }
@@ -1255,7 +1272,11 @@ impl JobHandler for AiRevisionHandler {
                 }
                 Ok(None) => {} // Deduplicated
                 Err(e) => {
-                    warn!(error = %e, "Failed to queue contextual re-revision phase 2");
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
+                        "Failed to queue contextual re-revision phase 2"
+                    );
                 }
             }
         } else {
@@ -1292,7 +1313,11 @@ impl JobHandler for AiRevisionHandler {
                 }
                 Ok(None) => {} // Deduplicated
                 Err(e) => {
-                    warn!(error = %e, "Failed to queue ConceptTagging after revision");
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
+                        "Failed to queue ConceptTagging after revision"
+                    );
                 }
             }
         }
@@ -1382,7 +1407,11 @@ impl AiRevisionContextualHandler {
             }
             Ok(None) => {} // Deduplicated
             Err(e) => {
-                warn!(error = %e, "Failed to queue ConceptTagging after contextual revision");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
+                    "Failed to queue ConceptTagging after contextual revision"
+                );
             }
         }
     }
@@ -1402,7 +1431,11 @@ impl AiRevisionContextualHandler {
                 .update_revision_note_tx(&mut tx, note_id, revision_note)
                 .await
             {
-                warn!(error = %e, "Failed to update revision note for skipped Phase 2");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_REVISION_NOTE_UPDATE_FAILURE_DETAIL,
+                    "Failed to update revision note for skipped Phase 2"
+                );
             }
             let _ = tx.commit().await;
         }
@@ -1516,7 +1549,11 @@ impl JobHandler for AiRevisionContextualHandler {
         let vectors = match embed_backend.embed_texts(&chunks).await {
             Ok(v) => v,
             Err(e) => {
-                warn!(error = %e, "Failed to embed Phase 1 content for context discovery");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_CONTEXT_DISCOVERY_FAILURE_DETAIL,
+                    "Failed to embed Phase 1 content for context discovery"
+                );
                 // Fall back: skip contextual revision, Phase 1 output stands as final.
                 // Update the revision note so users know contextual enrichment was skipped.
                 self.update_revision_note(
@@ -1578,7 +1615,11 @@ impl JobHandler for AiRevisionContextualHandler {
                     .take(MAX_CONTEXT_NOTES)
                     .collect::<Vec<_>>(),
                 Err(e) => {
-                    warn!(error = %e, "Filtered similarity search failed");
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_CONTEXT_DISCOVERY_FAILURE_DETAIL,
+                        "Filtered similarity search failed"
+                    );
                     vec![]
                 }
             }
@@ -1599,7 +1640,11 @@ impl JobHandler for AiRevisionContextualHandler {
                     .take(MAX_CONTEXT_NOTES)
                     .collect::<Vec<_>>(),
                 Err(e) => {
-                    warn!(error = %e, "Similarity search failed");
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_CONTEXT_DISCOVERY_FAILURE_DETAIL,
+                        "Similarity search failed"
+                    );
                     vec![]
                 }
             }
@@ -1853,7 +1898,11 @@ Output the revised note in clean markdown format. Do not add any labels, markers
                     .record_edges_batch(rev_id, &related_note_ids, &ProvRelation::Used)
                     .await
                 {
-                    warn!(error = %e, "Failed to record provenance edges");
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_PROVENANCE_WRITE_FAILURE_DETAIL,
+                        "Failed to record provenance edges"
+                    );
                 }
             }
 
@@ -1870,7 +1919,11 @@ Output the revised note in clean markdown format. Do not add any labels, markers
                     .complete_activity(act_id, Some(rev_id), Some(metadata))
                     .await
                 {
-                    warn!(error = %e, "Failed to complete provenance activity");
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_PROVENANCE_WRITE_FAILURE_DETAIL,
+                        "Failed to complete provenance activity"
+                    );
                 }
             }
         }
@@ -8028,6 +8081,28 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("provider resolution failed"));
             }
             other => panic!("expected failed job result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn job_ancillary_diagnostic_classes_are_fixed_and_redacted() {
+        let raw =
+            "failed at https://token:secret@provider.internal/v1 from /srv/fortemi SQLSTATE 08006";
+
+        assert_eq!(diagnostic_len(raw), raw.chars().count());
+
+        for detail in [
+            JOB_CHUNK_MERGE_PARSE_FAILURE_DETAIL,
+            JOB_PROVENANCE_WRITE_FAILURE_DETAIL,
+            JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
+            JOB_REVISION_NOTE_UPDATE_FAILURE_DETAIL,
+            JOB_CONTEXT_DISCOVERY_FAILURE_DETAIL,
+        ] {
+            assert!(!detail.contains("token:secret"));
+            assert!(!detail.contains("provider.internal"));
+            assert!(!detail.contains("/srv/fortemi"));
+            assert!(!detail.contains("SQLSTATE"));
+            assert!(!detail.contains("failed at"));
         }
     }
 
