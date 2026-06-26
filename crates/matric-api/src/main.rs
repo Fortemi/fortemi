@@ -19922,7 +19922,7 @@ async fn knowledge_shard_import_upload(
 // =============================================================================
 
 /// Query parameters for attachment upload endpoints
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct UploadAttachmentQuery {
     /// Optional explicit document type override via query parameter
     document_type_id: Option<Uuid>,
@@ -19932,8 +19932,21 @@ struct UploadAttachmentQuery {
     vision_mode: Option<String>,
 }
 
+impl fmt::Debug for UploadAttachmentQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UploadAttachmentQuery")
+            .field("document_type_id_set", &self.document_type_id.is_some())
+            .field("media_optimize", &self.media_optimize)
+            .field(
+                "vision_mode_len",
+                &self.vision_mode.as_ref().map(String::len),
+            )
+            .finish()
+    }
+}
+
 /// Request body for uploading file attachments
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct UploadAttachmentBody {
     filename: String,
     content_type: String,
@@ -19945,6 +19958,22 @@ struct UploadAttachmentBody {
     media_optimize: Option<bool>,
     /// Vision analysis depth: "standard" (scene only) or "full" (scene + characters + setting) (#550)
     vision_mode: Option<String>,
+}
+
+impl fmt::Debug for UploadAttachmentBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UploadAttachmentBody")
+            .field("filename_len", &self.filename.len())
+            .field("content_type_len", &self.content_type.len())
+            .field("data_len", &self.data.len())
+            .field("document_type_id_set", &self.document_type_id.is_some())
+            .field("media_optimize", &self.media_optimize)
+            .field(
+                "vision_mode_len",
+                &self.vision_mode.as_ref().map(String::len),
+            )
+            .finish()
+    }
 }
 
 /// List all attachments for a note
@@ -25798,6 +25827,49 @@ mod tests {
             "sk-live-hardware",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn attachment_upload_debug_redacts_filename_payload_and_options() {
+        let query = UploadAttachmentQuery {
+            document_type_id: Some(Uuid::new_v4()),
+            media_optimize: Some(true),
+            vision_mode: Some("full-private-customer-mode".to_string()),
+        };
+        let body = UploadAttachmentBody {
+            filename: "customer-postgres-secret-mm_key_attachment.pdf".to_string(),
+            content_type: "application/pdf; token=sk-live-content-type".to_string(),
+            data: "cG9zdGdyZXM6Ly91c2VyOnBhc3NAZGIuaW50ZXJuYWwvYXBw".to_string(),
+            document_type_id: Some(Uuid::new_v4()),
+            media_optimize: Some(true),
+            vision_mode: Some("full-private-customer-mode".to_string()),
+        };
+
+        let rendered_query = format!("{query:?}");
+        let rendered_body = format!("{body:?}");
+        let combined = format!("{rendered_query}\n{rendered_body}");
+
+        assert!(rendered_query.contains("UploadAttachmentQuery"));
+        assert!(rendered_query.contains("document_type_id_set"));
+        assert!(rendered_query.contains("vision_mode_len"));
+        assert!(rendered_body.contains("UploadAttachmentBody"));
+        assert!(rendered_body.contains("filename_len"));
+        assert!(rendered_body.contains("content_type_len"));
+        assert!(rendered_body.contains("data_len"));
+        assert!(rendered_body.contains("vision_mode_len"));
+
+        for raw in [
+            "full-private-customer-mode",
+            "customer-postgres-secret",
+            "mm_key_attachment",
+            "application/pdf",
+            "sk-live-content-type",
+            "cG9zdGdyZXM6Ly91c2VyOnBhc3NAZGIuaW50ZXJuYWwvYXBw",
+            "postgres://user:pass",
+            "db.internal",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
     }
 
