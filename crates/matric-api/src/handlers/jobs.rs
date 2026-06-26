@@ -48,6 +48,7 @@ const TITLE_GENERATION_JOB_FAILURE: &str =
 const CONTEXT_UPDATE_JOB_FAILURE: &str =
     "Context update failed. Check server logs for diagnostics.";
 const LINKING_JOB_FAILURE: &str = "Linking job failed. Check server logs for diagnostics.";
+const PURGE_JOB_FAILURE: &str = "Purge job failed. Check server logs for diagnostics.";
 
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
@@ -173,6 +174,12 @@ fn linking_job_failure(error: impl std::fmt::Display, operation: &'static str) -
         operation, "Linking job failed"
     );
     JobResult::Failed(LINKING_JOB_FAILURE.to_string())
+}
+
+fn purge_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(error_len = diagnostic.len(), operation, "Purge job failed");
+    JobResult::Failed(PURGE_JOB_FAILURE.to_string())
 }
 
 /// Extract the target schema from a job's payload.
@@ -3132,7 +3139,7 @@ impl JobHandler for PurgeNoteHandler {
         // Get embedding sets this note is a member of (to update stats after deletion)
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return purge_job_failure(e, "affected_sets_begin_tx"),
         };
         let affected_sets = match self
             .db
@@ -3153,7 +3160,7 @@ impl JobHandler for PurgeNoteHandler {
         // Verify note exists before attempting deletion
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return purge_job_failure(e, "verify_note_begin_tx"),
         };
         let exists = self
             .db
@@ -3180,13 +3187,13 @@ impl JobHandler for PurgeNoteHandler {
         // - job_queue (for this note)
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return purge_job_failure(e, "delete_begin_tx"),
         };
         if let Err(e) = self.db.notes.hard_delete_tx(&mut tx, note_id).await {
-            return JobResult::Failed(format!("Failed to delete note: {}", e));
+            return purge_job_failure(e, "delete_note");
         }
         if let Err(e) = tx.commit().await {
-            return JobResult::Failed(format!("Commit failed: {}", e));
+            return purge_job_failure(e, "delete_commit");
         }
 
         ctx.report_progress(80, Some("Updating embedding set statistics..."));
@@ -8142,6 +8149,28 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("/srv/fortemi"));
                 assert!(!message.contains("SQLSTATE"));
                 assert!(!message.contains("linking note fetch failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn purge_job_failure_uses_generic_stored_message() {
+        let result = purge_job_failure(
+            "purge delete failed for note 018f8d6d-1111-7222-8333-c44444444444 at postgres://user:secret@db.internal/app /srv/fortemi SQLSTATE 23503",
+            "delete_note",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, PURGE_JOB_FAILURE);
+                assert!(!message.contains("018f8d6d"));
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("purge delete failed"));
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
