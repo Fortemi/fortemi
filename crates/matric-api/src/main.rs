@@ -1185,7 +1185,7 @@ pub struct ListResponse<T> {
     pub pagination: PaginationMeta,
 }
 
-#[derive(Serialize, Deserialize, Debug, utoipa::ToSchema)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 struct CallDetailResponse {
     call_id: Uuid,
     provider: String,
@@ -1201,6 +1201,39 @@ struct CallDetailResponse {
     segment_count: usize,
     segments: Vec<matric_core::TranscriptSegment>,
     pagination: PaginationMeta,
+}
+
+impl std::fmt::Debug for CallDetailResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CallDetailResponse")
+            .field("call_id", &self.call_id)
+            .field("provider_len", &self.provider.len())
+            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field("started_at", &self.started_at)
+            .field("ended_at", &self.ended_at)
+            .field(
+                "end_reason_len",
+                &self.end_reason.as_ref().map(|value| value.len()),
+            )
+            .field("duration_secs", &self.duration_secs)
+            .field(
+                "asr_backend_len",
+                &self.asr_backend.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "remote_party_len",
+                &self.remote_party.as_ref().map(|value| value.len()),
+            )
+            .field("archive_id", &self.archive_id)
+            .field(
+                "metadata_class",
+                &webhook_delivery_json_class(&self.metadata),
+            )
+            .field("segment_count", &self.segment_count)
+            .field("segments_count", &self.segments.len())
+            .field("pagination", &self.pagination)
+            .finish()
+    }
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -25182,6 +25215,74 @@ mod tests {
             "bearer-token-shaped",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn call_detail_response_debug_redacts_provider_metadata_and_transcripts() {
+        let call_id = Uuid::nil();
+        let response = CallDetailResponse {
+            call_id,
+            provider: "twilio-private-provider".to_string(),
+            provider_call_id: "CA-secret-provider-call-id".to_string(),
+            started_at: Utc::now(),
+            ended_at: Some(Utc::now()),
+            end_reason: Some("customer disclosed private reason".to_string()),
+            duration_secs: Some(42.0),
+            asr_backend: Some("deepgram-secret-backend".to_string()),
+            remote_party: Some("+15551234567".to_string()),
+            archive_id: Some(Uuid::nil()),
+            metadata: serde_json::json!({
+                "recording_url": "https://api.twilio.com/recording?token=secret",
+                "customer": "customer@example.com"
+            }),
+            segment_count: 1,
+            segments: vec![matric_core::TranscriptSegment {
+                id: Uuid::nil(),
+                call_id,
+                speaker_label: Some("agent-private".to_string()),
+                text: "transcript contains sk-live-secret-token and customer SSN".to_string(),
+                start_ts: Some(0.0),
+                end_ts: Some(1.0),
+                confidence: Some(0.99),
+                sequence: 0,
+                created_at: Utc::now(),
+            }],
+            pagination: PaginationMeta {
+                total: 1,
+                limit: 10,
+                offset: 0,
+                has_more: false,
+            },
+        };
+
+        let rendered = format!("{response:?}");
+
+        assert!(rendered.contains("CallDetailResponse"));
+        assert!(rendered.contains("provider_len"));
+        assert!(rendered.contains("provider_call_id_len"));
+        assert!(rendered.contains("end_reason_len"));
+        assert!(rendered.contains("asr_backend_len"));
+        assert!(rendered.contains("remote_party_len"));
+        assert!(rendered.contains("metadata_class"));
+        assert!(rendered.contains("segments_count"));
+
+        for raw in [
+            "twilio-private-provider",
+            "CA-secret-provider-call-id",
+            "customer disclosed private reason",
+            "deepgram-secret-backend",
+            "+15551234567",
+            "recording_url",
+            "api.twilio.com",
+            "token=secret",
+            "customer@example.com",
+            "agent-private",
+            "transcript contains",
+            "sk-live-secret-token",
+            "customer SSN",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 
