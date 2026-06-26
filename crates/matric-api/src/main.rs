@@ -493,6 +493,10 @@ fn incoming_webhook_schema_validation_failed() -> ApiError {
     )
 }
 
+fn incoming_webhook_idempotency_conflict() -> ApiError {
+    ApiError::Conflict("Idempotency key was already used for a different request.".to_string())
+}
+
 fn memory_not_found() -> ApiError {
     ApiError::NotFound("Memory not found.".to_string())
 }
@@ -4982,9 +4986,7 @@ async fn receive_incoming_webhook(
                 true,
             ))
             .await;
-            return Err(ApiError::Conflict(format!(
-                "Idempotency-Key '{key}' was already used for a different request body"
-            )));
+            return Err(incoming_webhook_idempotency_conflict());
         }
     }
 
@@ -24958,6 +24960,28 @@ mod tests {
         assert!(!body.contains("$.customer.email"));
         assert!(!body.contains("secret@example.com"));
         assert!(!body.contains("failed pattern"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn incoming_webhook_idempotency_conflict_does_not_echo_key() {
+        let submitted_idempotency_key = "tenant-alpha-secret-idempotency-key-token";
+        let err = incoming_webhook_idempotency_conflict();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/conflict");
+        assert_eq!(
+            problem["detail"],
+            "Idempotency key was already used for a different request."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_idempotency_key));
+        assert!(!body.contains("tenant-alpha"));
+        assert!(!body.contains("secret-idempotency-key"));
+        assert!(!body.contains("token"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
