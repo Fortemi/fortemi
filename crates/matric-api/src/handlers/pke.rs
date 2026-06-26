@@ -50,7 +50,7 @@ impl std::fmt::Debug for PkeKeygenResponse {
                 "encrypted_private_key_len",
                 &self.encrypted_private_key.chars().count(),
             )
-            .field("address", &self.address)
+            .field("address_len", &self.address.chars().count())
             .field("label_len", &optional_text_len(&self.label))
             .finish()
     }
@@ -69,9 +69,17 @@ impl std::fmt::Debug for PkeAddressRequest {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct PkeAddressResponse {
     pub address: String,
+}
+
+impl std::fmt::Debug for PkeAddressResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PkeAddressResponse")
+            .field("address_len", &self.address.chars().count())
+            .finish()
+    }
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -161,16 +169,34 @@ impl std::fmt::Debug for PkeRecipientsRequest {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct PkeRecipientsResponse {
     pub recipients: Vec<String>, // mm:... addresses
 }
 
-#[derive(Debug, Serialize)]
+impl std::fmt::Debug for PkeRecipientsResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PkeRecipientsResponse")
+            .field("recipient_count", &self.recipients.len())
+            .finish()
+    }
+}
+
+#[derive(Serialize)]
 pub struct PkeVerifyResponse {
     pub address: String,
     pub valid: bool,
     pub version: Option<u8>,
+}
+
+impl std::fmt::Debug for PkeVerifyResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PkeVerifyResponse")
+            .field("address_len", &self.address.chars().count())
+            .field("valid", &self.valid)
+            .field("version", &self.version)
+            .finish()
+    }
 }
 
 fn optional_text_len(value: &Option<String>) -> Option<usize> {
@@ -436,7 +462,7 @@ impl std::fmt::Debug for CreateKeysetApiRequest {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct KeysetResponse {
     pub id: Uuid,
     pub name: String,
@@ -446,10 +472,32 @@ pub struct KeysetResponse {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Debug, Serialize)]
+impl std::fmt::Debug for KeysetResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeysetResponse")
+            .field("id_present", &true)
+            .field("name_len", &self.name.chars().count())
+            .field("address_len", &self.address.chars().count())
+            .field("label_len", &optional_text_len(&self.label))
+            .field("is_active", &self.is_active)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
+#[derive(Serialize)]
 pub struct ActiveKeysetResponse {
     pub active: bool,
     pub keyset: Option<KeysetResponse>,
+}
+
+impl std::fmt::Debug for ActiveKeysetResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ActiveKeysetResponse")
+            .field("active", &self.active)
+            .field("keyset_present", &self.keyset.is_some())
+            .finish()
+    }
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -462,7 +510,24 @@ impl std::fmt::Debug for ImportKeysetRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ImportKeysetRequest")
             .field("name_len", &self.name.chars().count())
-            .field("exported", &self.exported)
+            .field("exported_name_len", &self.exported.name.chars().count())
+            .field(
+                "exported_public_key_len",
+                &self.exported.public_key_base64.chars().count(),
+            )
+            .field(
+                "exported_encrypted_private_key_len",
+                &self.exported.encrypted_private_key_base64.chars().count(),
+            )
+            .field(
+                "exported_address_len",
+                &self.exported.address.chars().count(),
+            )
+            .field(
+                "exported_label_len",
+                &optional_text_len(&self.exported.label),
+            )
+            .field("exported_at", &self.exported.exported_at)
             .finish()
     }
 }
@@ -940,6 +1005,9 @@ mod tests {
         let address = PkeAddressRequest {
             public_key: "public-key-bytes".to_string(),
         };
+        let address_response = PkeAddressResponse {
+            address: "mm:address-response-secret".to_string(),
+        };
         let encrypt = PkeEncryptRequest {
             plaintext: "secret-plaintext-base64".to_string(),
             recipients: vec!["recipient-public-key-secret".to_string()],
@@ -961,10 +1029,33 @@ mod tests {
         let recipients = PkeRecipientsRequest {
             ciphertext: "secret-ciphertext-base64".to_string(),
         };
+        let recipients_response = PkeRecipientsResponse {
+            recipients: vec![
+                "mm:recipient-address-one".to_string(),
+                "mm:recipient-address-two".to_string(),
+            ],
+        };
+        let verify_response = PkeVerifyResponse {
+            address: "mm:verified-address-secret".to_string(),
+            valid: true,
+            version: Some(1),
+        };
         let create_keyset = CreateKeysetApiRequest {
             name: "tenant-secret-keyset".to_string(),
             passphrase: "secret-passphrase".to_string(),
             label: Some("private label".to_string()),
+        };
+        let keyset_response = KeysetResponse {
+            id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000201").unwrap(),
+            name: "tenant-secret-keyset".to_string(),
+            address: "mm:keyset-address-secret".to_string(),
+            label: Some("private label".to_string()),
+            is_active: true,
+            created_at: chrono::Utc::now(),
+        };
+        let active_keyset_response = ActiveKeysetResponse {
+            active: true,
+            keyset: Some(keyset_response),
         };
         let import_keyset = ImportKeysetRequest {
             name: "tenant-secret-keyset".to_string(),
@@ -979,14 +1070,16 @@ mod tests {
         };
 
         let rendered = format!(
-            "{keygen:?}\n{keygen_response:?}\n{address:?}\n{encrypt:?}\n{encrypt_response:?}\n{decrypt:?}\n{decrypt_response:?}\n{recipients:?}\n{create_keyset:?}\n{import_keyset:?}"
+            "{keygen:?}\n{keygen_response:?}\n{address:?}\n{address_response:?}\n{encrypt:?}\n{encrypt_response:?}\n{decrypt:?}\n{decrypt_response:?}\n{recipients:?}\n{recipients_response:?}\n{verify_response:?}\n{create_keyset:?}\n{active_keyset_response:?}\n{import_keyset:?}"
         );
 
         assert!(rendered.contains("passphrase_present: true"));
         assert!(rendered.contains("encrypted_private_key_len"));
+        assert!(rendered.contains("address_len"));
         assert!(rendered.contains("plaintext_len"));
         assert!(rendered.contains("ciphertext_len"));
         assert!(rendered.contains("recipient_count"));
+        assert!(rendered.contains("keyset_present: true"));
         assert!(!rendered.contains("secret-passphrase"));
         assert!(!rendered.contains("encrypted-private-key-secret"));
         assert!(!rendered.contains("secret-plaintext-base64"));
@@ -997,6 +1090,12 @@ mod tests {
         assert!(!rendered.contains("export-secret-name"));
         assert!(!rendered.contains("private label"));
         assert!(!rendered.contains("public-key-bytes"));
+        assert!(!rendered.contains("mm:example-address"));
+        assert!(!rendered.contains("mm:address-response-secret"));
+        assert!(!rendered.contains("mm:recipient-address-one"));
+        assert!(!rendered.contains("mm:recipient-address-two"));
+        assert!(!rendered.contains("mm:verified-address-secret"));
+        assert!(!rendered.contains("mm:keyset-address-secret"));
     }
 
     #[test]
