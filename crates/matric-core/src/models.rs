@@ -3610,8 +3610,43 @@ mod tests {
             is_active: true,
             schema_doc: Some(json!({"secret": "schema-doc-secret"})),
         };
+        let receiver = IncomingWebhookReceiver {
+            id: Uuid::new_v4(),
+            slug: "stored-sensitive-slug".to_string(),
+            provider: "stored-sensitive-provider".to_string(),
+            schema_ref: "stored.custom.secret.schema".to_string(),
+            signature_header: "X-Stored-Secret-Signature".to_string(),
+            secret_set: true,
+            is_active: true,
+            schema_doc: Some(json!({"stored_secret": "stored-schema-doc-secret"})),
+            created_at: now,
+            updated_at: now,
+        };
+        let update = UpdateIncomingWebhookReceiverRequest {
+            schema_ref: Some("updated.custom.secret.schema".to_string()),
+            schema_doc: Some(json!({"updated_secret": "updated-schema-doc-secret"})),
+            signature_header: Some("X-Updated-Secret-Signature".to_string()),
+            is_active: Some(false),
+        };
+        let validation_request = ValidateIncomingWebhookPayloadRequest {
+            schema_ref: "validate.custom.secret.schema".to_string(),
+            payload: json!({
+                "token": "validation-payload-secret",
+                "url": "https://provider.example/validate?api_key=validation-secret"
+            }),
+        };
+        let validation_response = IncomingWebhookValidationResponse {
+            valid: false,
+            schema_ref: "response.custom.secret.schema".to_string(),
+            errors: vec![
+                "validation error leaked token validation-response-secret".to_string(),
+                "payload.url contained https://provider.example/error?api_key=secret".to_string(),
+            ],
+        };
 
-        let debug = format!("{webhook:?}{delivery:?}{create:?}{incoming:?}");
+        let debug = format!(
+            "{webhook:?}{delivery:?}{create:?}{incoming:?}{receiver:?}{update:?}{validation_request:?}{validation_response:?}"
+        );
 
         assert_debug_excludes(
             &debug,
@@ -3631,6 +3666,19 @@ mod tests {
                 "incoming-hmac-secret",
                 "X-Secret-Signature",
                 "schema-doc-secret",
+                "stored-sensitive-slug",
+                "stored-sensitive-provider",
+                "stored.custom.secret.schema",
+                "X-Stored-Secret-Signature",
+                "stored-schema-doc-secret",
+                "updated.custom.secret.schema",
+                "updated-schema-doc-secret",
+                "X-Updated-Secret-Signature",
+                "validate.custom.secret.schema",
+                "validation-payload-secret",
+                "validation-secret",
+                "response.custom.secret.schema",
+                "validation-response-secret",
                 "https://hooks.example",
                 "https://provider.example",
             ],
@@ -3640,6 +3688,10 @@ mod tests {
         assert!(debug.contains("payload_class"));
         assert!(debug.contains("response_body_len"));
         assert!(debug.contains("schema_doc_class"));
+        assert!(debug.contains("schema_doc_len"));
+        assert!(debug.contains("schema_ref_len"));
+        assert!(debug.contains("error_count"));
+        assert!(debug.contains("error_lens"));
     }
 
     #[test]
@@ -5817,7 +5869,7 @@ fn default_max_retries() -> i32 {
 }
 
 /// Registration for an incoming webhook receiver.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct IncomingWebhookReceiver {
     pub id: Uuid,
     pub slug: String,
@@ -5833,6 +5885,36 @@ pub struct IncomingWebhookReceiver {
     pub schema_doc: Option<JsonValue>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl std::fmt::Debug for IncomingWebhookReceiver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IncomingWebhookReceiver")
+            .field("id", &self.id)
+            .field("slug_len", &self.slug.chars().count())
+            .field("provider_len", &self.provider.chars().count())
+            .field("schema_ref_len", &self.schema_ref.chars().count())
+            .field(
+                "signature_header_len",
+                &self.signature_header.chars().count(),
+            )
+            .field("secret_set", &self.secret_set)
+            .field("is_active", &self.is_active)
+            .field(
+                "schema_doc_class",
+                &self.schema_doc.as_ref().map(json_value_class),
+            )
+            .field(
+                "schema_doc_len",
+                &self
+                    .schema_doc
+                    .as_ref()
+                    .map(|schema_doc| schema_doc.to_string().chars().count()),
+            )
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
 }
 
 /// Request to register an incoming webhook receiver.
@@ -5877,7 +5959,7 @@ impl std::fmt::Debug for CreateIncomingWebhookReceiverRequest {
 ///
 /// All fields are optional; only the provided fields change. The receiver's
 /// slug, provider, and HMAC secret are preserved across updates.
-#[derive(Debug, Clone, Default, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Default, Deserialize, utoipa::ToSchema)]
 pub struct UpdateIncomingWebhookReceiverRequest {
     #[serde(default)]
     pub schema_ref: Option<String>,
@@ -5891,19 +5973,77 @@ pub struct UpdateIncomingWebhookReceiverRequest {
     pub is_active: Option<bool>,
 }
 
+impl std::fmt::Debug for UpdateIncomingWebhookReceiverRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UpdateIncomingWebhookReceiverRequest")
+            .field(
+                "schema_ref_len",
+                &self.schema_ref.as_ref().map(|value| value.chars().count()),
+            )
+            .field(
+                "schema_doc_class",
+                &self.schema_doc.as_ref().map(json_value_class),
+            )
+            .field(
+                "schema_doc_len",
+                &self
+                    .schema_doc
+                    .as_ref()
+                    .map(|schema_doc| schema_doc.to_string().chars().count()),
+            )
+            .field(
+                "signature_header_len",
+                &self
+                    .signature_header
+                    .as_ref()
+                    .map(|value| value.chars().count()),
+            )
+            .field("is_active", &self.is_active)
+            .finish()
+    }
+}
+
 /// Request to validate a payload against a registered incoming webhook schema.
-#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Deserialize, utoipa::ToSchema)]
 pub struct ValidateIncomingWebhookPayloadRequest {
     pub schema_ref: String,
     pub payload: JsonValue,
 }
 
+impl std::fmt::Debug for ValidateIncomingWebhookPayloadRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ValidateIncomingWebhookPayloadRequest")
+            .field("schema_ref_len", &self.schema_ref.chars().count())
+            .field("payload_class", &json_value_class(&self.payload))
+            .field("payload_len", &self.payload.to_string().chars().count())
+            .finish()
+    }
+}
+
 /// Response returned by incoming webhook schema validation.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct IncomingWebhookValidationResponse {
     pub valid: bool,
     pub schema_ref: String,
     pub errors: Vec<String>,
+}
+
+impl std::fmt::Debug for IncomingWebhookValidationResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IncomingWebhookValidationResponse")
+            .field("valid", &self.valid)
+            .field("schema_ref_len", &self.schema_ref.chars().count())
+            .field("error_count", &self.errors.len())
+            .field(
+                "error_lens",
+                &self
+                    .errors
+                    .iter()
+                    .map(|error| error.chars().count())
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 fn default_incoming_webhook_signature_header() -> String {
