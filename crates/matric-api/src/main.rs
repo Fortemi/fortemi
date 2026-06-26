@@ -4530,6 +4530,44 @@ struct UpdateWebhookBody {
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
+struct WebhookResponse {
+    id: Uuid,
+    url_class: &'static str,
+    url_len: usize,
+    url_secret_candidate: bool,
+    secret_set: bool,
+    event_count: usize,
+    is_active: bool,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+    last_triggered_at: Option<DateTime<Utc>>,
+    failure_count: i32,
+    max_retries: i32,
+}
+
+impl From<matric_core::Webhook> for WebhookResponse {
+    fn from(webhook: matric_core::Webhook) -> Self {
+        Self {
+            id: webhook.id,
+            url_class: telemetry_url_class(&webhook.url),
+            url_len: telemetry_text_len(&webhook.url),
+            url_secret_candidate: webhook_delivery_text_has_secret_candidate(&webhook.url),
+            secret_set: webhook
+                .secret
+                .as_ref()
+                .is_some_and(|secret| !secret.is_empty()),
+            event_count: webhook.events.len(),
+            is_active: webhook.is_active,
+            created_at: webhook.created_at,
+            updated_at: webhook.updated_at,
+            last_triggered_at: webhook.last_triggered_at,
+            failure_count: webhook.failure_count,
+            max_retries: webhook.max_retries,
+        }
+    }
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
 struct WebhookDeliveryResponse {
     id: Uuid,
     webhook_id: Uuid,
@@ -4634,7 +4672,8 @@ async fn create_webhook(
     responses((status = 200, description = "Success")))]
 async fn list_webhooks(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let webhooks = state.db.webhooks.list().await?;
-    Ok(Json(webhooks))
+    let response: Vec<WebhookResponse> = webhooks.into_iter().map(Into::into).collect();
+    Ok(Json(response))
 }
 
 #[utoipa::path(get, path = "/api/v1/webhooks/{id}", tag = "Webhooks",
@@ -4650,7 +4689,7 @@ async fn get_webhook(
         .get(id)
         .await?
         .ok_or_else(webhook_not_found)?;
-    Ok(Json(webhook))
+    Ok(Json(WebhookResponse::from(webhook)))
 }
 
 #[utoipa::path(patch, path = "/api/v1/webhooks/{id}", tag = "Webhooks",
@@ -4699,7 +4738,7 @@ async fn update_webhook(
         None,
     ))
     .await;
-    Ok(Json(webhook))
+    Ok(Json(WebhookResponse::from(webhook)))
 }
 
 #[utoipa::path(delete, path = "/api/v1/webhooks/{id}", tag = "Webhooks",
@@ -31594,20 +31633,26 @@ mod tests {
         let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
         let client = reqwest::Client::new();
         let suffix = Uuid::new_v4();
+        let mut created_ids = Vec::new();
 
         // Create 2 webhooks
         for i in 0..2 {
-            client
+            let resp = client
                 .post(format!("{}/api/v1/webhooks", base_url))
                 .json(&serde_json::json!({
-                    "url": format!("https://list-test-{}-{}.example.com", suffix, i),
-                    "secret": "my-secret",
+                    "url": format!("https://list-test-{}-{}.example.com/path?token=list-token-secret-{}", suffix, i, i),
+                    "secret": format!("my-secret-{}", i),
                     "events": ["JobCompleted"],
                     "max_retries": 3
                 }))
                 .send()
                 .await
                 .unwrap();
+            let id = resp.json::<serde_json::Value>().await.unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            created_ids.push(id);
         }
 
         let response = client
@@ -31620,18 +31665,35 @@ mod tests {
         let body: Vec<serde_json::Value> = response.json().await.unwrap();
         let ours: Vec<_> = body
             .iter()
-            .filter(|w| {
-                w["url"]
-                    .as_str()
-                    .unwrap_or("")
-                    .contains(&suffix.to_string())
-            })
+            .filter(|w| created_ids.iter().any(|id| w["id"].as_str() == Some(id)))
             .collect();
         assert_eq!(ours.len(), 2);
 
-        // Verify secret is NOT exposed in list response
         for w in &ours {
-            assert!(w.get("secret").is_none() || w["secret"].is_null());
+            assert_eq!(w["url_class"], "external");
+            assert_eq!(w["url_secret_candidate"], true);
+            assert_eq!(w["secret_set"], true);
+            assert_eq!(w["event_count"], 1);
+            assert!(w["url_len"].as_u64().unwrap() > 0);
+        }
+
+        let serialized = serde_json::to_string(&ours).unwrap();
+        let suffix_text = suffix.to_string();
+        for forbidden in [
+            suffix_text.as_str(),
+            "list-token-secret",
+            "my-secret",
+            "JobCompleted",
+            "https://list-test",
+            "token=",
+            "\"url\"",
+            "\"secret\"",
+            "\"events\"",
+        ] {
+            assert!(
+                !serialized.contains(forbidden),
+                "webhook list response leaked {forbidden}: {serialized}"
+            );
         }
     }
 
@@ -31658,7 +31720,8 @@ mod tests {
         let create_resp = client
             .post(format!("{}/api/v1/webhooks", base_url))
             .json(&serde_json::json!({
-                "url": format!("https://update-test-{}.example.com", chrono::Utc::now().timestamp_millis()),
+                "url": format!("https://update-test-{}.example.com/path?token=create-token-secret", chrono::Utc::now().timestamp_millis()),
+                "secret": "create-webhook-secret",
                 "events": ["JobCompleted", "NoteUpdated"],
                 "max_retries": 3
             }))
@@ -31674,7 +31737,7 @@ mod tests {
         let update_resp = client
             .patch(format!("{}/api/v1/webhooks/{}", base_url, id))
             .json(&serde_json::json!({
-                "url": "https://updated.example.com"
+                "url": "https://updated.example.com/path?api_key=updated-token-secret"
             }))
             .send()
             .await
@@ -31682,10 +31745,29 @@ mod tests {
 
         assert_eq!(update_resp.status(), 200);
         let webhook: serde_json::Value = update_resp.json().await.unwrap();
-        assert_eq!(webhook["url"], "https://updated.example.com");
-        // Events should be unchanged
-        let events: Vec<String> = serde_json::from_value(webhook["events"].clone()).unwrap();
-        assert_eq!(events, vec!["JobCompleted", "NoteUpdated"]);
+        assert_eq!(webhook["url_class"], "external");
+        assert_eq!(webhook["url_secret_candidate"], true);
+        assert_eq!(webhook["secret_set"], true);
+        assert_eq!(webhook["event_count"], 2);
+        assert!(webhook["url_len"].as_u64().unwrap() > 0);
+
+        let serialized = serde_json::to_string(&webhook).unwrap();
+        for forbidden in [
+            "updated-token-secret",
+            "create-webhook-secret",
+            "JobCompleted",
+            "NoteUpdated",
+            "https://updated.example.com",
+            "api_key",
+            "\"url\"",
+            "\"secret\"",
+            "\"events\"",
+        ] {
+            assert!(
+                !serialized.contains(forbidden),
+                "webhook update response leaked {forbidden}: {serialized}"
+            );
+        }
     }
 
     #[tokio::test]
