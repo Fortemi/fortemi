@@ -24887,6 +24887,10 @@ impl fmt::Debug for DatabaseBackupResponse {
     }
 }
 
+fn backup_response_path_metadata(path: &std::path::Path) -> String {
+    format!("path_len:{}", telemetry_text_len(&path.to_string_lossy()))
+}
+
 #[derive(Deserialize, utoipa::ToSchema)]
 struct SnapshotRequest {
     /// Optional name for the snapshot (will be sanitized for filename)
@@ -25145,7 +25149,7 @@ async fn database_backup_snapshot(
     Ok(Json(DatabaseBackupResponse {
         success: true,
         filename,
-        path: path.to_string_lossy().to_string(),
+        path: backup_response_path_metadata(&path),
         size_bytes: size,
         size_human: format_size(size),
         backup_type: "snapshot".to_string(),
@@ -25262,7 +25266,7 @@ async fn database_backup_upload(
     Ok(Json(DatabaseBackupResponse {
         success: true,
         filename,
-        path: path.to_string_lossy().to_string(),
+        path: backup_response_path_metadata(&path),
         size_bytes: data.len() as u64,
         size_human: format_size(data.len() as u64),
         backup_type: "upload".to_string(),
@@ -27903,6 +27907,36 @@ mod tests {
             "meta.json",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn database_backup_response_path_uses_metadata_only() {
+        let backup_path = std::path::Path::new(
+            "/srv/backups/customer/postgres://user:pass@db.internal/mm_key_backup.sql.gz",
+        );
+        let response = DatabaseBackupResponse {
+            success: true,
+            filename: "snapshot_database_20260626.sql.gz".to_string(),
+            path: backup_response_path_metadata(backup_path),
+            size_bytes: 4096,
+            size_human: "4.0 KiB".to_string(),
+            backup_type: backup_prefix::SNAPSHOT.to_string(),
+            created_at: Utc::now(),
+            metadata: None,
+        };
+
+        let rendered = serde_json::to_string(&response).unwrap();
+
+        assert!(rendered.contains("\"path\":\"path_len:"));
+        for raw in [
+            "/srv/backups",
+            "postgres://user:pass",
+            "db.internal",
+            "mm_key_backup",
+            "customer",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 
