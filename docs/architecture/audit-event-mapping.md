@@ -34,7 +34,7 @@ oversized strings are truncated.
 | `file_upload_audit` | Upload validation/security outcomes. | Keep as upload security/domain history. Mirror blocked/quarantined/accepted outcomes as `category=file_upload` with sanitized filename/content type/user agent/source-IP classification. Do not emit payloads, full paths, or untrusted headers raw. |
 | `skos_audit_log` | Taxonomy governance history. | Keep as domain governance history. Mirror hosted taxonomy mutations as `category=taxonomy`, with entity type/id as structured resource fields where safe and sanitized change summaries in attrs. |
 | `note_access_log` | Access-frequency analytics for note reads/search/traversal. | Do not treat as security audit proof. If hosted note-read audit is required, add a separate producer with principal, tenant, purpose, outcome, and retention fields. |
-| OAuth token cleanup / revoked-token retention comments | Token lifecycle retention guidance. | Future OAuth producers should emit `category=oauth` events for token issue/revoke/introspect cleanup decisions, using token/client ids or hashes only. Never emit bearer token values or raw client secrets. |
+| OAuth token cleanup / revoked-token retention comments | Token lifecycle retention guidance. | Token issue, introspection, and revocation success paths emit `category=oauth` events with credential lengths/classes, scope counts, response flags/counts, and persisted token refs where safe. Never emit bearer token values, refresh token values, authorization codes, redirect URIs, code verifiers, raw scopes, token hashes, raw client IDs, raw user IDs, or client secrets. |
 | Process startup | Low-risk runtime lifecycle signal. | Current first producer emits `category=process`, `action=startup`, safe logging destination mode, and build metadata through `TracingSink`. |
 
 ## Failure Policy
@@ -64,3 +64,17 @@ for hosted mandatory audit behavior:
 
 This keeps KMS/key-provider startup able to emit through a bootstrap path while
 still giving post-ready hosted operations a deterministic fail-closed contract.
+
+## CE Operator Routing
+
+Operator-facing routing guidance lives in
+`docs/content/operators-guide.md#audit-routing`. In CE, `TracingSink` writes
+`fortemi.audit` records to the normal structured log stream. Operators are
+responsible for filtering that target into their log collector or SIEM and for
+enforcing audit-log access, retention, export, and legal-hold policy outside the
+application.
+
+CE does not provide local durable audit spooling, WORM retention, tamper
+evidence, delivery acknowledgement, or hosted fail-closed enforcement. Those
+guarantees require hosted/EE sink and health wiring built on the shared
+`AuditEvent` contract.

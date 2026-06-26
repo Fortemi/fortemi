@@ -68,6 +68,36 @@ docker compose -f docker-compose.bundle.yml down -v
 docker compose -f docker-compose.bundle.yml up -d
 ```
 
+## Audit Routing
+
+Fortemi CE emits normalized security audit events through the Rust tracing
+pipeline with target `fortemi.audit`. The default CE sink is `TracingSink`, so
+audit records appear in the same container log stream as other structured API
+logs.
+
+Route these records by filtering for the `fortemi.audit` target in your log
+collector:
+
+```bash
+docker compose -f docker-compose.bundle.yml logs -f matric | grep 'fortemi.audit'
+```
+
+For production CE deployments, configure the platform log collector to ship
+`fortemi.audit` records to the operator's audit destination, such as a managed
+log service or SIEM. Apply retention, access control, export, and legal-hold
+policy in that destination.
+
+CE guarantees:
+
+- Audit attributes are sanitized before buffering or tracing output.
+- The default sink is best-effort and does not provide local disk durability,
+  WORM retention, tamper evidence, delivery acknowledgement, or hosted
+  fail-closed enforcement.
+- `fortemi.audit` records are security-sensitive. Restrict access to operators
+  who are authorized to read audit data.
+- Domain history tables can remain available for local workflows, but
+  `fortemi.audit` is the normalized stream for shared security-audit routing.
+
 ## Health Checks
 
 | Endpoint | Expected | Purpose |
