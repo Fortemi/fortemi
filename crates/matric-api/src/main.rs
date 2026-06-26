@@ -24720,18 +24720,18 @@ impl BackupMetadata {
     fn prerestore(restoring_from: &str, note_count: Option<i64>) -> Self {
         Self {
             title: "Pre-restore backup".to_string(),
-            description: Some(format!(
-                "Auto-created before restoring from: {}",
-                restoring_from
-            )),
+            description: Some("Auto-created before database restore".to_string()),
             backup_type: backup_prefix::PRERESTORE.to_string(),
             created_at: chrono::Utc::now(),
             note_count,
             db_size_bytes: None,
             source: "system".to_string(),
-            extra: [("restoring_from".to_string(), restoring_from.to_string())]
-                .into_iter()
-                .collect(),
+            extra: [(
+                "restoring_from_len".to_string(),
+                telemetry_text_len(restoring_from).to_string(),
+            )]
+            .into_iter()
+            .collect(),
             matric_version: None,
             matric_version_min: None,
             matric_version_max: None,
@@ -24744,7 +24744,7 @@ impl BackupMetadata {
     /// Create metadata for an uploaded backup
     fn upload(title: Option<String>, description: Option<String>, original_filename: &str) -> Self {
         Self {
-            title: title.unwrap_or_else(|| format!("Uploaded: {}", original_filename)),
+            title: title.unwrap_or_else(|| "Uploaded backup".to_string()),
             description,
             backup_type: backup_prefix::UPLOAD.to_string(),
             created_at: chrono::Utc::now(),
@@ -24752,8 +24752,8 @@ impl BackupMetadata {
             db_size_bytes: None,
             source: "user".to_string(),
             extra: [(
-                "original_filename".to_string(),
-                original_filename.to_string(),
+                "original_filename_len".to_string(),
+                telemetry_text_len(original_filename).to_string(),
             )]
             .into_iter()
             .collect(),
@@ -27964,6 +27964,37 @@ mod tests {
             "sk-live-upload-secret",
             "postgres://user:pass",
             "db.internal",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn generated_backup_metadata_does_not_persist_source_filenames() {
+        let restore_source = "customer-postgres-secret-mm_key_restore-/srv/backups/private.sql.gz";
+        let upload_source = "customer-postgres-secret-mm_key_upload.sql.gz";
+
+        let prerestore = BackupMetadata::prerestore(restore_source, Some(7));
+        let upload = BackupMetadata::upload(None, None, upload_source);
+        let rendered = format!(
+            "{}\n{}",
+            serde_json::to_string(&prerestore).unwrap(),
+            serde_json::to_string(&upload).unwrap()
+        );
+
+        assert!(rendered.contains("Auto-created before database restore"));
+        assert!(rendered.contains("Uploaded backup"));
+        assert!(rendered.contains("restoring_from_len"));
+        assert!(rendered.contains("original_filename_len"));
+
+        for raw in [
+            "customer-postgres-secret",
+            "mm_key_restore",
+            "mm_key_upload",
+            "/srv/backups",
+            "private.sql.gz",
+            "restoring_from\":\"",
+            "original_filename\":\"",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
