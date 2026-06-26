@@ -11,6 +11,8 @@ use serde_json::Value;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
+const INBOUND_TELEMETRY_TEXT_LEN_CAP: usize = 512;
+
 /// Opaque upstream cursor (e.g. a Redis Stream id, Kafka offset, SSE
 /// `Last-Event-ID`). Stored as text; interpreted by the owning connector.
 pub type Offset = String;
@@ -52,7 +54,7 @@ pub type InboundResult<T> = std::result::Result<T, InboundError>;
 
 /// Bounded length helper for user/backend-originated diagnostic strings.
 pub(crate) fn telemetry_text_len(value: &str) -> usize {
-    value.chars().count()
+    value.chars().take(INBOUND_TELEMETRY_TEXT_LEN_CAP).count()
 }
 
 /// Coarse destination class for connector endpoints.
@@ -218,5 +220,31 @@ mod tests {
         assert!(!code.contains("secret"));
         assert!(!code.contains("example"));
         assert!(!code.contains("https://"));
+    }
+
+    #[test]
+    fn telemetry_text_len_is_bounded_and_metadata_only() {
+        let raw = format!(
+            "mm_key_inbound\r\npostgres://user:pass@db.internal/app{}",
+            "x".repeat(INBOUND_TELEMETRY_TEXT_LEN_CAP + 128)
+        );
+
+        let rendered = format!("source_name_len={}", telemetry_text_len(&raw));
+
+        assert_eq!(telemetry_text_len(&raw), INBOUND_TELEMETRY_TEXT_LEN_CAP);
+        assert!(rendered.contains("source_name_len=512"));
+
+        for raw_fragment in [
+            "mm_key_inbound",
+            "postgres://user:pass",
+            "db.internal",
+            "\r",
+            "\n",
+        ] {
+            assert!(
+                !rendered.contains(raw_fragment),
+                "raw value leaked: {raw_fragment:?}"
+            );
+        }
     }
 }
