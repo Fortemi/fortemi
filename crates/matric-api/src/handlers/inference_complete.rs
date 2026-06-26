@@ -43,7 +43,7 @@ pub struct ChatMessage {
 /// forwarded — the underlying `GenerationBackend` trait doesn't take them.
 /// When the trait grows a richer API these become effective; kept in the
 /// wire format now to avoid a breaking change later.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 #[allow(dead_code)]
 pub struct CompleteRequest {
     /// Provider id — `ollama`, `openai`, `openrouter`, `llamacpp`. If absent
@@ -78,6 +78,74 @@ pub struct CompleteRequest {
     /// Reserved for reasoning models — currently a hint, not enforced.
     #[serde(default)]
     pub think: Option<bool>,
+}
+
+impl std::fmt::Debug for CompleteRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let base_url_class = self
+            .base_url
+            .as_deref()
+            .map(complete_request_url_class)
+            .unwrap_or("absent");
+        let base_url_len = self
+            .base_url
+            .as_deref()
+            .map(|value| value.chars().count())
+            .unwrap_or(0);
+        let message_content_chars: usize = self
+            .messages
+            .iter()
+            .map(|message| message.content.chars().count())
+            .sum();
+
+        f.debug_struct("CompleteRequest")
+            .field("provider_id_present", &self.provider_id.is_some())
+            .field("api_key_present", &self.api_key.is_some())
+            .field("base_url_class", &base_url_class)
+            .field("base_url_len", &base_url_len)
+            .field("model_len", &self.model.chars().count())
+            .field("message_count", &self.messages.len())
+            .field("message_content_chars", &message_content_chars)
+            .field("temperature", &self.temperature)
+            .field("max_tokens", &self.max_tokens)
+            .field("think", &self.think)
+            .finish()
+    }
+}
+
+fn complete_request_url_class(raw: &str) -> &'static str {
+    let Ok(url) = reqwest::Url::parse(raw) else {
+        return "invalid_url";
+    };
+    let Some(host) = url.host_str() else {
+        return "unknown_host";
+    };
+    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
+    if host == "api.openai.com"
+        || host.ends_with(".openai.com")
+        || host == "openrouter.ai"
+        || host.ends_with(".openrouter.ai")
+    {
+        return "managed_provider";
+    }
+    if host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|addr| match addr {
+                std::net::IpAddr::V4(addr) => {
+                    addr.is_loopback()
+                        || addr.is_private()
+                        || addr.is_link_local()
+                        || addr.is_unspecified()
+                }
+                std::net::IpAddr::V6(addr) => addr.is_loopback() || addr.is_unspecified(),
+            })
+    {
+        return "local_or_private";
+    }
+    "external"
 }
 
 /// Response body for `/complete`.
@@ -455,5 +523,34 @@ mod tests {
         assert!(!payload.contains("user:pass"));
         assert!(!payload.contains("sk-secret"));
         assert!(!payload.contains("/tmp/x"));
+    }
+
+    #[test]
+    fn complete_request_debug_redacts_byok_secret_and_prompt_fields() {
+        let req = CompleteRequest {
+            provider_id: Some("openai".to_string()),
+            api_key: Some("sk-secret-provider-key".to_string()),
+            base_url: Some("https://user:pass@api.openai.com/v1?token=secret".to_string()),
+            model: "gpt-secret-model".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "patient prompt with secret transcript".to_string(),
+            }],
+            temperature: Some(0.2),
+            max_tokens: Some(128),
+            think: Some(false),
+        };
+
+        let rendered = format!("{req:?}");
+        assert!(rendered.contains("api_key_present: true"));
+        assert!(rendered.contains("base_url_class: \"managed_provider\""));
+        assert!(rendered.contains("message_count: 1"));
+        assert!(!rendered.contains("sk-secret-provider-key"));
+        assert!(!rendered.contains("user:pass"));
+        assert!(!rendered.contains("token=secret"));
+        assert!(!rendered.contains("api.openai.com"));
+        assert!(!rendered.contains("gpt-secret-model"));
+        assert!(!rendered.contains("patient prompt"));
+        assert!(!rendered.contains("secret transcript"));
     }
 }

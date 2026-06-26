@@ -118,7 +118,7 @@ pub struct InferenceConfigResponse {
 // =============================================================================
 
 /// Partial update request body (all fields optional).
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct UpdateInferenceConfigRequest {
     pub ollama: Option<PartialOllamaConfig>,
     pub openai: Option<PartialOpenAIConfig>,
@@ -135,6 +135,21 @@ pub struct UpdateInferenceConfigRequest {
     pub embedding_backend: Option<Option<String>>,
 }
 
+impl std::fmt::Debug for UpdateInferenceConfigRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UpdateInferenceConfigRequest")
+            .field("ollama_present", &self.ollama.is_some())
+            .field("openai_present", &self.openai.is_some())
+            .field("llamacpp_present", &self.llamacpp.is_some())
+            .field("openrouter_present", &self.openrouter.is_some())
+            .field(
+                "embedding_backend_state",
+                &debug_nested_option_state(&self.embedding_backend),
+            )
+            .finish()
+    }
+}
+
 /// Custom deserializer that distinguishes "field absent" (`None`) from
 /// "field present and null" (`Some(None)`). Lets clients explicitly clear
 /// the embedding override without touching other fields.
@@ -147,15 +162,32 @@ where
 }
 
 /// Partial Ollama config (all fields optional).
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PartialOllamaConfig {
     pub base_url: Option<String>,
     pub generation_model: Option<String>,
     pub embedding_model: Option<String>,
 }
 
+impl std::fmt::Debug for PartialOllamaConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PartialOllamaConfig")
+            .field("base_url_class", &debug_optional_url_class(&self.base_url))
+            .field("base_url_len", &debug_optional_text_len(&self.base_url))
+            .field(
+                "generation_model_len",
+                &debug_optional_text_len(&self.generation_model),
+            )
+            .field(
+                "embedding_model_len",
+                &debug_optional_text_len(&self.embedding_model),
+            )
+            .finish()
+    }
+}
+
 /// Partial OpenAI config (all fields optional).
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PartialOpenAIConfig {
     pub base_url: Option<String>,
     pub api_key: Option<String>,
@@ -163,13 +195,49 @@ pub struct PartialOpenAIConfig {
     pub embedding_model: Option<String>,
 }
 
+impl std::fmt::Debug for PartialOpenAIConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PartialOpenAIConfig")
+            .field("base_url_class", &debug_optional_url_class(&self.base_url))
+            .field("base_url_len", &debug_optional_text_len(&self.base_url))
+            .field("api_key_present", &self.api_key.is_some())
+            .field(
+                "generation_model_len",
+                &debug_optional_text_len(&self.generation_model),
+            )
+            .field(
+                "embedding_model_len",
+                &debug_optional_text_len(&self.embedding_model),
+            )
+            .finish()
+    }
+}
+
 /// Partial llama.cpp config (all fields optional).
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PartialLlamaCppConfig {
     pub base_url: Option<String>,
     pub api_key: Option<String>,
     pub generation_model: Option<String>,
     pub embedding_model: Option<String>,
+}
+
+impl std::fmt::Debug for PartialLlamaCppConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PartialLlamaCppConfig")
+            .field("base_url_class", &debug_optional_url_class(&self.base_url))
+            .field("base_url_len", &debug_optional_text_len(&self.base_url))
+            .field("api_key_present", &self.api_key.is_some())
+            .field(
+                "generation_model_len",
+                &debug_optional_text_len(&self.generation_model),
+            )
+            .field(
+                "embedding_model_len",
+                &debug_optional_text_len(&self.embedding_model),
+            )
+            .finish()
+    }
 }
 
 /// Partial OpenRouter config (all fields optional).
@@ -178,13 +246,55 @@ pub struct PartialLlamaCppConfig {
 /// (`https://fortemi.io` / `Fortemi`) used in OpenRouter's `HTTP-Referer`
 /// and `X-Title` headers. Embeddings are unsupported by OpenRouter so no
 /// embedding-model field is offered.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PartialOpenRouterConfig {
     pub base_url: Option<String>,
     pub api_key: Option<String>,
     pub generation_model: Option<String>,
     pub http_referer: Option<String>,
     pub app_name: Option<String>,
+}
+
+impl std::fmt::Debug for PartialOpenRouterConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PartialOpenRouterConfig")
+            .field("base_url_class", &debug_optional_url_class(&self.base_url))
+            .field("base_url_len", &debug_optional_text_len(&self.base_url))
+            .field("api_key_present", &self.api_key.is_some())
+            .field(
+                "generation_model_len",
+                &debug_optional_text_len(&self.generation_model),
+            )
+            .field(
+                "http_referer_class",
+                &debug_optional_url_class(&self.http_referer),
+            )
+            .field(
+                "http_referer_len",
+                &debug_optional_text_len(&self.http_referer),
+            )
+            .field("app_name_len", &debug_optional_text_len(&self.app_name))
+            .finish()
+    }
+}
+
+fn debug_optional_text_len(value: &Option<String>) -> Option<usize> {
+    value.as_deref().map(telemetry_text_len)
+}
+
+fn debug_optional_url_class(value: &Option<String>) -> &'static str {
+    value
+        .as_deref()
+        .map(telemetry_url_class)
+        .unwrap_or("absent")
+}
+
+fn debug_nested_option_state<T>(value: &Option<Option<T>>) -> &'static str {
+    match value {
+        None => "absent",
+        Some(None) => "clear",
+        Some(Some(_)) => "set",
+    }
 }
 
 /// Query parameters for POST /api/v1/inference/config.
@@ -1964,7 +2074,7 @@ pub async fn get_inference_config_audit(
 // =============================================================================
 
 /// Request body for the connection test endpoint.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct TestConnectionRequest {
     /// Base URL to probe (e.g. "http://gpu-server:11434").
     pub base_url: String,
@@ -1977,6 +2087,18 @@ pub struct TestConnectionRequest {
     /// Request timeout in seconds (default: 10, clamped to 1–120).
     #[serde(default = "default_test_timeout")]
     pub timeout_secs: u64,
+}
+
+impl std::fmt::Debug for TestConnectionRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TestConnectionRequest")
+            .field("base_url_class", &telemetry_url_class(&self.base_url))
+            .field("base_url_len", &telemetry_text_len(&self.base_url))
+            .field("provider_len", &telemetry_text_len(&self.provider))
+            .field("api_key_present", &self.api_key.is_some())
+            .field("timeout_secs", &self.timeout_secs)
+            .finish()
+    }
 }
 
 fn default_test_provider() -> String {
@@ -2663,6 +2785,78 @@ mod tests_connection {
             probe_failure_reason("secret backend message"),
             "probe_failed"
         );
+    }
+
+    #[test]
+    fn inference_config_request_debug_redacts_secret_fields() {
+        let req = UpdateInferenceConfigRequest {
+            ollama: Some(PartialOllamaConfig {
+                base_url: Some("http://localhost:11434?token=secret".to_string()),
+                generation_model: Some("qwen-secret-model".to_string()),
+                embedding_model: None,
+            }),
+            openai: Some(PartialOpenAIConfig {
+                base_url: Some("https://user:pass@api.openai.com/v1?api_key=secret".to_string()),
+                api_key: Some("sk-secret-openai-key".to_string()),
+                generation_model: Some("gpt-secret-model".to_string()),
+                embedding_model: Some("text-secret-embedding".to_string()),
+            }),
+            llamacpp: Some(PartialLlamaCppConfig {
+                base_url: Some("http://10.0.0.4:8080/v1?token=secret".to_string()),
+                api_key: Some("llamacpp-secret-key".to_string()),
+                generation_model: Some("local-secret-model".to_string()),
+                embedding_model: None,
+            }),
+            openrouter: Some(PartialOpenRouterConfig {
+                base_url: Some("https://openrouter.ai/api/v1?token=secret".to_string()),
+                api_key: Some("sk-or-secret-openrouter-key".to_string()),
+                generation_model: Some("anthropic/secret-model".to_string()),
+                http_referer: Some("https://tenant-secret.example/app".to_string()),
+                app_name: Some("secret tenant app".to_string()),
+            }),
+            embedding_backend: Some(Some("secret-embedding-backend".to_string())),
+        };
+
+        let rendered = format!("{req:?}");
+        assert!(rendered.contains("openai_present: true"));
+        assert!(rendered.contains("openrouter_present: true"));
+        assert!(rendered.contains("embedding_backend_state: \"set\""));
+        assert!(!rendered.contains("sk-secret-openai-key"));
+        assert!(!rendered.contains("llamacpp-secret-key"));
+        assert!(!rendered.contains("sk-or-secret-openrouter-key"));
+        assert!(!rendered.contains("user:pass"));
+        assert!(!rendered.contains("api_key=secret"));
+        assert!(!rendered.contains("token=secret"));
+        assert!(!rendered.contains("api.openai.com"));
+        assert!(!rendered.contains("openrouter.ai"));
+        assert!(!rendered.contains("tenant-secret.example"));
+        assert!(!rendered.contains("qwen-secret-model"));
+        assert!(!rendered.contains("gpt-secret-model"));
+        assert!(!rendered.contains("text-secret-embedding"));
+        assert!(!rendered.contains("local-secret-model"));
+        assert!(!rendered.contains("anthropic/secret-model"));
+        assert!(!rendered.contains("secret tenant app"));
+        assert!(!rendered.contains("secret-embedding-backend"));
+    }
+
+    #[test]
+    fn test_connection_request_debug_redacts_url_and_api_key() {
+        let req = TestConnectionRequest {
+            base_url: "https://user:pass@provider.example.com:8443/v1?token=secret".to_string(),
+            provider: "openai".to_string(),
+            api_key: Some("sk-secret-test-connection".to_string()),
+            timeout_secs: 15,
+        };
+
+        let rendered = format!("{req:?}");
+        assert!(rendered.contains("base_url_class: \"external\""));
+        assert!(rendered.contains("api_key_present: true"));
+        assert!(rendered.contains("timeout_secs: 15"));
+        assert!(!rendered.contains("sk-secret-test-connection"));
+        assert!(!rendered.contains("user:pass"));
+        assert!(!rendered.contains("provider.example.com"));
+        assert!(!rendered.contains("token=secret"));
+        assert!(!rendered.contains(&req.base_url));
     }
 
     // -----------------------------------------------------------------------
