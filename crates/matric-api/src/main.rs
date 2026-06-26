@@ -5246,8 +5246,12 @@ async fn normalize_route_policy_input_for_authorization(
         })
         .await;
     let input = normalize_job_route_policy_input(input, |job_id| state.db.jobs.get(job_id)).await;
-    normalize_webhook_control_route_policy_input(input, |webhook_id| {
+    let input = normalize_webhook_control_route_policy_input(input, |webhook_id| {
         state.db.webhooks.get(webhook_id)
+    })
+    .await;
+    normalize_inbound_source_route_policy_input(input, |source_name| async move {
+        state.db.inbound_sources.get_by_name(&source_name).await
     })
     .await
 }
@@ -5666,6 +5670,75 @@ where
         }
         Err(err) => {
             tracing::warn!(error = %err, "authorization webhook normalization lookup failed");
+        }
+    }
+
+    input
+}
+
+async fn normalize_inbound_source_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    inbound_source_lookup: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<matric_core::InboundSource>>>,
+{
+    if input.resource.kind != ResourceKind::Webhook
+        || input.policy.action_family != "inbound_connector"
+        || input
+            .resource
+            .attrs
+            .get("resource_id_param")
+            .and_then(|value| value.as_str())
+            != Some("name")
+        || !input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        return input;
+    }
+
+    let Some(source_name) = input.resource.id.clone() else {
+        return input;
+    };
+
+    match inbound_source_lookup(source_name).await {
+        Ok(Some(source)) => {
+            route_policy::mark_resource_id_normalized(&mut input);
+            input.resource.attrs.insert(
+                "inbound_source_id".to_string(),
+                serde_json::json!(source.id),
+            );
+            input.resource.attrs.insert(
+                "inbound_source_name".to_string(),
+                serde_json::json!(source.name),
+            );
+            input.resource.attrs.insert(
+                "inbound_source_kind".to_string(),
+                serde_json::json!(source.kind),
+            );
+            input.resource.attrs.insert(
+                "inbound_source_enabled".to_string(),
+                serde_json::json!(source.enabled),
+            );
+        }
+        Ok(None) => {
+            tracing::warn!(
+                "authorization resource normalization skipped: inbound source does not exist"
+            );
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "authorization inbound source normalization lookup failed");
         }
     }
 
@@ -22669,6 +22742,154 @@ mod tests {
         assert_eq!(normalized.policy.action_family, "webhook_receiver");
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
         assert!(normalized.resource.attrs.get("webhook_id").is_none());
+    }
+
+    fn test_inbound_source(name: &str) -> matric_core::InboundSource {
+        matric_core::InboundSource {
+            id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000007").unwrap(),
+            name: name.to_string(),
+            kind: "redis-stream".to_string(),
+            config: serde_json::json!({
+                "secret": "not-for-policy-metadata",
+                "stream": "events"
+            }),
+            enabled: true,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn existing_inbound_source_route_name_is_marked_normalized_with_safe_metadata() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/inbound-sources/redis-events",
+            Some("tenant-a"),
+        )
+        .expect("inbound source route has policy input");
+
+        let normalized =
+            normalize_inbound_source_route_policy_input(input, |lookup_name| async move {
+                assert_eq!(lookup_name, "redis-events");
+                Ok(Some(test_inbound_source("redis-events")))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert_eq!(
+            normalized.resource.attrs["inbound_source_id"],
+            serde_json::json!(Uuid::parse_str("018fd1a0-0000-7000-8000-000000000007").unwrap())
+        );
+        assert_eq!(
+            normalized.resource.attrs["inbound_source_name"],
+            "redis-events"
+        );
+        assert_eq!(
+            normalized.resource.attrs["inbound_source_kind"],
+            "redis-stream"
+        );
+        assert_eq!(normalized.resource.attrs["inbound_source_enabled"], true);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("inbound_source_config")
+            .is_none());
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_inbound_source_route_name_stays_unnormalized_after_backing_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/inbound-sources/missing",
+            Some("tenant-a"),
+        )
+        .expect("inbound source route has policy input");
+
+        let normalized = normalize_inbound_source_route_policy_input(
+            input,
+            |_lookup_name| async move { Ok(None) },
+        )
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("inbound_source_id").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn inbound_source_normalization_lookup_error_preserves_fail_closed_guard() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/inbound-sources/redis-events",
+            Some("tenant-a"),
+        )
+        .expect("inbound source route has policy input");
+
+        let normalized =
+            normalize_inbound_source_route_policy_input(input, |_lookup_name| async move {
+                Err(matric_core::Error::Internal("lookup failed".to_string()))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn inbound_source_collection_routes_do_not_run_name_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/inbound-sources",
+            None,
+        )
+        .expect("inbound source collection route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Webhook);
+        assert_eq!(input.policy.action_family, "inbound_connector");
+        assert_eq!(input.resource.attrs["resource_id_source"], "route_template");
+
+        let normalized =
+            normalize_inbound_source_route_policy_input(input, |_lookup_name| async move {
+                panic!("inbound source collection routes must not perform source lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_inbound_source("unused")))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert!(normalized.resource.attrs.get("inbound_source_id").is_none());
+    }
+
+    #[tokio::test]
+    async fn webhook_control_routes_do_not_run_inbound_source_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/webhooks/018fd1a0-0000-7000-8000-000000000006",
+            Some("tenant-a"),
+        )
+        .expect("webhook control route has policy input");
+        assert_eq!(input.policy.action_family, "webhook_control");
+
+        let normalized =
+            normalize_inbound_source_route_policy_input(input, |_lookup_name| async move {
+                panic!("webhook-control routes must not perform inbound source lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_inbound_source("unused")))
+            })
+            .await;
+
+        assert_eq!(normalized.policy.action_family, "webhook_control");
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("inbound_source_id").is_none());
     }
 
     #[tokio::test]
