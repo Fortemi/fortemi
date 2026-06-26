@@ -4685,6 +4685,30 @@ fn webhook_delivery_text_has_secret_candidate(value: &str) -> bool {
         || lower.contains("authorization")
         || lower.contains("client_secret")
 }
+
+fn incoming_webhook_accepted_response(
+    receiver: &matric_core::IncomingWebhookReceiver,
+    payload: &serde_json::Value,
+    side_effect: &serde_json::Value,
+    idempotency_replay: bool,
+    idempotency_key_present: bool,
+) -> serde_json::Value {
+    serde_json::json!({
+        "status": "accepted",
+        "receiver_id": receiver.id,
+        "slug_len": telemetry_text_len(&receiver.slug),
+        "provider_len": telemetry_text_len(&receiver.provider),
+        "schema_ref_len": telemetry_text_len(&receiver.schema_ref),
+        "payload_class": webhook_delivery_json_class(payload),
+        "payload_len": payload.to_string().chars().count(),
+        "payload_secret_candidate": webhook_delivery_json_has_secret_candidate(payload),
+        "side_effect_class": webhook_delivery_json_class(side_effect),
+        "side_effect_len": side_effect.to_string().chars().count(),
+        "side_effect_secret_candidate": webhook_delivery_json_has_secret_candidate(side_effect),
+        "idempotency_key_present": idempotency_key_present,
+        "idempotency_replay": idempotency_replay,
+    })
+}
 #[utoipa::path(post, path = "/api/v1/webhooks", tag = "Webhooks",
     request_body = matric_core::CreateWebhookRequest,
     responses((status = 201, description = "Created")))]
@@ -5308,7 +5332,11 @@ async fn receive_incoming_webhook(
                 ))
                 .await;
                 let status = StatusCode::from_u16(cached.response_status).unwrap_or(StatusCode::OK);
-                return Ok((status, Json(cached.response_body)).into_response());
+                let mut response_body = cached.response_body;
+                if let serde_json::Value::Object(ref mut map) = response_body {
+                    map.insert("idempotency_replay".to_string(), serde_json::json!(true));
+                }
+                return Ok((status, Json(response_body)).into_response());
             }
             emit_incoming_webhook_audit_event(incoming_webhook_decision_audit_event(
                 &receiver,
@@ -5383,7 +5411,7 @@ async fn receive_incoming_webhook(
     if let Err(e) = state.db.outbox.emit_event(outbox_event).await {
         // Outbox capture failure must not lose the accepted webhook for the
         // caller — the side effect already applied. Log and continue; the
-        // caller still receives 200 with the parsed payload.
+        // caller still receives a metadata-only 200 acknowledgement.
         tracing::warn!(
             error_len = telemetry_text_len(&e.to_string()),
             detail = API_WEBHOOK_DIAGNOSTIC_FAILURE_DETAIL,
@@ -5393,14 +5421,13 @@ async fn receive_incoming_webhook(
         );
     }
 
-    let response = serde_json::json!({
-        "status": "accepted",
-        "slug": receiver.slug,
-        "provider": receiver.provider,
-        "schema_ref": receiver.schema_ref,
-        "payload": payload,
-        "side_effect": side_effect,
-    });
+    let response = incoming_webhook_accepted_response(
+        &receiver,
+        &payload,
+        &side_effect,
+        false,
+        idempotency_key.is_some(),
+    );
 
     // Cache the accepted outcome for replay within the idempotency window.
     if let Some(ref key) = idempotency_key {
@@ -30981,6 +31008,7 @@ mod tests {
             .route(
                 "/api/v1/webhooks/incoming/{slug}",
                 get(get_incoming_webhook_receiver)
+                    .post(receive_incoming_webhook)
                     .patch(update_incoming_webhook_receiver)
                     .delete(delete_incoming_webhook_receiver),
             )
@@ -31936,6 +31964,92 @@ mod tests {
                 "incoming receiver response leaked {forbidden}: {serialized}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_incoming_webhook_accept_response_is_metadata_only() {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        type HmacSha256 = Hmac<Sha256>;
+
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+        let client = reqwest::Client::new();
+        let slug = format!("accept-secret-slug-{}", Uuid::new_v4().simple());
+        let secret = "accept-hmac-secret-value";
+
+        let create_resp = client
+            .post(format!("{}/api/v1/webhooks/incoming", base_url))
+            .json(&serde_json::json!({
+                "slug": slug.clone(),
+                "provider": "accept-provider-secret",
+                "schema_ref": "accept.schema.secret.v1",
+                "hmac_secret": secret,
+                "signature_header": "X-Fortemi-Signature",
+                "is_active": true,
+                "schema_doc": {"type": "object"}
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(create_resp.status(), 201);
+
+        let body = br#"{"token":"payload-secret-token","callback":"https://provider.example/hook?api_key=payload-secret-token"}"#.to_vec();
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(&body);
+        let signature = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
+
+        let resp = client
+            .post(format!("{}/api/v1/webhooks/incoming/{}", base_url, slug))
+            .header("X-Fortemi-Signature", signature)
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("Idempotency-Key", "accept-idempotency-secret-key")
+            .body(body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let accepted: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(accepted["status"], "accepted");
+        assert_eq!(accepted["payload_class"], "object");
+        assert_eq!(accepted["payload_secret_candidate"], true);
+        assert_eq!(accepted["side_effect_class"], "object");
+        assert_eq!(accepted["idempotency_key_present"], true);
+        assert_eq!(accepted["idempotency_replay"], false);
+        assert!(accepted["slug_len"].as_u64().unwrap() > 0);
+        assert!(accepted["provider_len"].as_u64().unwrap() > 0);
+        assert!(accepted["schema_ref_len"].as_u64().unwrap() > 0);
+        assert!(accepted["payload_len"].as_u64().unwrap() > 0);
+        assert!(accepted["side_effect_len"].as_u64().unwrap() > 0);
+
+        let serialized = serde_json::to_string(&accepted).unwrap();
+        for forbidden in [
+            "accept-secret-slug",
+            "accept-provider-secret",
+            "accept.schema.secret.v1",
+            "accept-hmac-secret-value",
+            "payload-secret-token",
+            "https://provider.example",
+            "api_key",
+            "callback",
+            "accept-idempotency-secret-key",
+            "\"slug\"",
+            "\"provider\"",
+            "\"schema_ref\"",
+            "\"payload\"",
+            "\"side_effect\"",
+        ] {
+            assert!(
+                !serialized.contains(forbidden),
+                "incoming webhook accepted response leaked {forbidden}: {serialized}"
+            );
+        }
+
+        let delete_resp = client
+            .delete(format!("{}/api/v1/webhooks/incoming/{}", base_url, slug))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(delete_resp.status(), 204);
     }
 
     #[tokio::test]
