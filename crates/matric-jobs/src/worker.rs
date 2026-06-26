@@ -43,6 +43,32 @@ impl Default for WorkerConfig {
     }
 }
 
+fn worker_error_reason_code(error: &str) -> &'static str {
+    let text = error.to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("not found")
+        || text.contains("no such")
+        || text.contains("missing")
+        || text.contains("unknown")
+    {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else if text.contains("connection refused")
+        || text.contains("cannot connect")
+        || text.contains("connection")
+    {
+        "connection_failed"
+    } else if text.contains("database") || text.contains("sql") || text.contains("postgres") {
+        "database_error"
+    } else if text.contains("model") || text.contains("ollama") || text.contains("inference") {
+        "model_backend_error"
+    } else {
+        "operation_failed"
+    }
+}
+
 impl WorkerConfig {
     /// Create config from environment variables (with defaults).
     ///
@@ -281,7 +307,14 @@ impl JobWorker {
         match self.db.jobs.reap_stale_running(stale_threshold).await {
             Ok(0) => debug!("No stale running jobs to reap"),
             Ok(n) => warn!(count = n, "Reaped stale running jobs from previous worker"),
-            Err(e) => error!(error = %e, "Failed to reap stale running jobs"),
+            Err(e) => {
+                let error_text = e.to_string();
+                error!(
+                    error_len = error_text.len(),
+                    error_reason = worker_error_reason_code(&error_text),
+                    "Failed to reap stale running jobs"
+                );
+            }
         }
 
         let job_notify = self.db.jobs.job_notify();
@@ -389,7 +422,12 @@ impl JobWorker {
                 if tier1_pending > 0 {
                     if let Some(ref fast) = self.fast_backend {
                         if let Err(e) = fast.warmup().await {
-                            warn!(error = %e, "Fast model warmup failed, proceeding anyway");
+                            let error_text = e.to_string();
+                            warn!(
+                                error_len = error_text.len(),
+                                error_reason = worker_error_reason_code(&error_text),
+                                "Fast model warmup failed, proceeding anyway"
+                            );
                         }
                     }
                     let drained = self
@@ -400,7 +438,12 @@ impl JobWorker {
                         // Unload fast model — free VRAM before the next tier loads its model
                         if let Some(ref fast) = self.fast_backend {
                             if let Err(e) = fast.unload().await {
-                                warn!(error = %e, "Fast model unload failed");
+                                let error_text = e.to_string();
+                                warn!(
+                                    error_len = error_text.len(),
+                                    error_reason = worker_error_reason_code(&error_text),
+                                    "Fast model unload failed"
+                                );
                             }
                         }
                     }
@@ -416,7 +459,12 @@ impl JobWorker {
                 if tier2_pending > 0 {
                     if let Some(ref standard) = self.standard_backend {
                         if let Err(e) = standard.warmup().await {
-                            warn!(error = %e, "Standard model warmup failed, proceeding anyway");
+                            let error_text = e.to_string();
+                            warn!(
+                                error_len = error_text.len(),
+                                error_reason = worker_error_reason_code(&error_text),
+                                "Standard model warmup failed, proceeding anyway"
+                            );
                         }
                     }
                     let drained = self
@@ -427,7 +475,12 @@ impl JobWorker {
                         // Unload standard model — free VRAM before vision/render tiers
                         if let Some(ref standard) = self.standard_backend {
                             if let Err(e) = standard.unload().await {
-                                warn!(error = %e, "Standard model unload failed");
+                                let error_text = e.to_string();
+                                warn!(
+                                    error_len = error_text.len(),
+                                    error_reason = worker_error_reason_code(&error_text),
+                                    "Standard model unload failed"
+                                );
                             }
                         }
                     }
@@ -471,12 +524,22 @@ impl JobWorker {
                     // loop, so the after-drain unloads above may not have fired.
                     if let Some(ref fast) = self.fast_backend {
                         if let Err(e) = fast.unload().await {
-                            warn!(error = %e, "Pre-vision fast model unload failed");
+                            let error_text = e.to_string();
+                            warn!(
+                                error_len = error_text.len(),
+                                error_reason = worker_error_reason_code(&error_text),
+                                "Pre-vision fast model unload failed"
+                            );
                         }
                     }
                     if let Some(ref standard) = self.standard_backend {
                         if let Err(e) = standard.unload().await {
-                            warn!(error = %e, "Pre-vision standard model unload failed");
+                            let error_text = e.to_string();
+                            warn!(
+                                error_len = error_text.len(),
+                                error_reason = worker_error_reason_code(&error_text),
+                                "Pre-vision standard model unload failed"
+                            );
                         }
                     }
 
@@ -492,7 +555,12 @@ impl JobWorker {
                         // Unload vision model — free VRAM for next cycle's models
                         if let Some(ref vision) = self.vision_backend {
                             if let Err(e) = vision.unload().await {
-                                warn!(error = %e, "Vision model unload failed");
+                                let error_text = e.to_string();
+                                warn!(
+                                    error_len = error_text.len(),
+                                    error_reason = worker_error_reason_code(&error_text),
+                                    "Vision model unload failed"
+                                );
                             }
                         }
                     }
@@ -798,6 +866,28 @@ mod tests {
         assert_eq!(config.poll_interval_ms, 1000);
         assert_eq!(config.max_concurrent_jobs, 8);
         assert!(!config.enabled);
+    }
+
+    #[test]
+    fn worker_error_reason_code_uses_stable_classes() {
+        assert_eq!(
+            worker_error_reason_code(
+                "Ollama model backend failed for /home/operator/mm_key_secret"
+            ),
+            "model_backend_error"
+        );
+        assert_eq!(
+            worker_error_reason_code("postgres://user:secret@db/app sql failed"),
+            "database_error"
+        );
+        assert_eq!(
+            worker_error_reason_code("Cannot connect to backend"),
+            "connection_failed"
+        );
+        assert_eq!(
+            worker_error_reason_code("opaque backend text with token mm_key_secret"),
+            "operation_failed"
+        );
     }
 
     // ========== NEW COMPREHENSIVE TESTS ==========

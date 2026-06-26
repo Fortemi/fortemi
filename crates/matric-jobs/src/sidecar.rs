@@ -272,6 +272,33 @@ fn sidecar_stderr_reason_code(stderr: &[u8]) -> &'static str {
     }
 }
 
+fn sidecar_lifecycle_error_reason_code(error: &str) -> &'static str {
+    let text = error.to_ascii_lowercase();
+    if text.contains("permission_denied") || text.contains("permission") || text.contains("denied")
+    {
+        "permission_denied"
+    } else if text.contains("not_found")
+        || text.contains("not found")
+        || text.contains("no such")
+        || text.contains("unknown service")
+    {
+        "not_found"
+    } else if text.contains("timed_out") || text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else if text.contains("connection_failed")
+        || text.contains("connection refused")
+        || text.contains("cannot connect")
+    {
+        "connection_failed"
+    } else if text.contains("io_error_kind") || text.contains("io_error") {
+        "io_error"
+    } else if text.contains("stderr_reason=") || text.contains("status=") {
+        "command_failed"
+    } else {
+        "operation_failed"
+    }
+}
+
 fn sidecar_command_failure_detail(
     command: &'static str,
     action: &str,
@@ -309,7 +336,12 @@ impl SidecarController for NoOpSidecarController {
 pub async fn start_all_sidecars(controller: &dyn SidecarController) {
     for sidecar in ALL_SIDECARS {
         if let Err(e) = controller.start(*sidecar).await {
-            warn!(sidecar = ?sidecar, error = %e, "Failed to start sidecar — audio jobs may fail");
+            warn!(
+                sidecar = ?sidecar,
+                error_len = e.len(),
+                error_reason = sidecar_lifecycle_error_reason_code(&e),
+                "Failed to start sidecar — audio jobs may fail"
+            );
         }
     }
 }
@@ -318,7 +350,12 @@ pub async fn start_all_sidecars(controller: &dyn SidecarController) {
 pub async fn stop_all_sidecars(controller: &dyn SidecarController) {
     for sidecar in ALL_SIDECARS {
         if let Err(e) = controller.stop(*sidecar).await {
-            warn!(sidecar = ?sidecar, error = %e, "Failed to stop sidecar — VRAM may not be freed");
+            warn!(
+                sidecar = ?sidecar,
+                error_len = e.len(),
+                error_reason = sidecar_lifecycle_error_reason_code(&e),
+                "Failed to stop sidecar — VRAM may not be freed"
+            );
         }
     }
 }
@@ -359,6 +396,32 @@ mod tests {
         assert_eq!(
             sidecar_stderr_reason_code(b"opaque backend text"),
             "command_failed"
+        );
+    }
+
+    #[test]
+    fn sidecar_lifecycle_error_reason_code_uses_stable_classes() {
+        assert_eq!(
+            sidecar_lifecycle_error_reason_code(
+                "docker compose start whisper failed; status=1; stderr_len=72; stderr_reason=permission_denied"
+            ),
+            "permission_denied"
+        );
+        assert_eq!(
+            sidecar_lifecycle_error_reason_code(
+                "Sidecar Whisper health check timed out after 30s for /home/operator/mm_key_secret"
+            ),
+            "timed_out"
+        );
+        assert_eq!(
+            sidecar_lifecycle_error_reason_code(
+                "docker compose failed to start; io_error_kind=not_found"
+            ),
+            "not_found"
+        );
+        assert_eq!(
+            sidecar_lifecycle_error_reason_code("opaque backend text with token mm_key_secret"),
+            "operation_failed"
         );
     }
 }
