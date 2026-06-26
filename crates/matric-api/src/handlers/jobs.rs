@@ -186,6 +186,15 @@ fn linking_job_failure(error: impl std::fmt::Display, operation: &'static str) -
     JobResult::Failed(LINKING_JOB_FAILURE.to_string())
 }
 
+fn linking_step_failure(error: impl std::fmt::Display, operation: &'static str) -> String {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "Linking step failed"
+    );
+    LINKING_JOB_FAILURE.to_string()
+}
+
 fn purge_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     let diagnostic = error.to_string();
     warn!(error_len = diagnostic.len(), operation, "Purge job failed");
@@ -2675,7 +2684,7 @@ impl LinkingHandler {
             let mut tx = schema_ctx
                 .begin_tx()
                 .await
-                .map_err(|e| format!("Schema tx failed: {}", e))?;
+                .map_err(|e| linking_step_failure(e, "hnsw_candidate_tx"))?;
             let c = self
                 .db
                 .embeddings
@@ -2684,7 +2693,7 @@ impl LinkingHandler {
             tx.commit().await.ok();
             match c {
                 Ok(c) => c,
-                Err(e) => return Err(format!("Failed to find similar: {}", e)),
+                Err(e) => return Err(linking_step_failure(e, "hnsw_find_candidates")),
             }
         };
 
@@ -2724,7 +2733,7 @@ impl LinkingHandler {
                 let mut tx = schema_ctx
                     .begin_tx()
                     .await
-                    .map_err(|e| format!("Schema tx failed: {}", e))?;
+                    .map_err(|e| linking_step_failure(e, "hnsw_create_link_tx"))?;
                 let res = self
                     .db
                     .links
@@ -2756,7 +2765,7 @@ impl LinkingHandler {
                 let mut tx = schema_ctx
                     .begin_tx()
                     .await
-                    .map_err(|e| format!("Schema tx failed: {}", e))?;
+                    .map_err(|e| linking_step_failure(e, "hnsw_fallback_candidate_tx"))?;
                 let c = self
                     .db
                     .embeddings
@@ -2781,7 +2790,7 @@ impl LinkingHandler {
                     let mut tx = schema_ctx
                         .begin_tx()
                         .await
-                        .map_err(|e| format!("Schema tx failed: {}", e))?;
+                        .map_err(|e| linking_step_failure(e, "hnsw_fallback_link_tx"))?;
                     let res = self
                         .db
                         .links
@@ -2823,16 +2832,16 @@ impl LinkingHandler {
             let mut tx = schema_ctx
                 .begin_tx()
                 .await
-                .map_err(|e| format!("Schema tx failed: {}", e))?;
+                .map_err(|e| linking_step_failure(e, "threshold_candidate_tx"))?;
             let s = self
                 .db
                 .embeddings
                 .find_similar_tx(&mut tx, source_vec, 10, true)
                 .await
-                .map_err(|e| format!("Failed to find similar: {}", e))?;
+                .map_err(|e| linking_step_failure(e, "threshold_find_candidates"))?;
             tx.commit()
                 .await
-                .map_err(|e| format!("Commit failed: {}", e))?;
+                .map_err(|e| linking_step_failure(e, "threshold_candidate_commit"))?;
             s
         };
 
@@ -2877,7 +2886,7 @@ impl LinkingHandler {
                 let mut tx = schema_ctx
                     .begin_tx()
                     .await
-                    .map_err(|e| format!("Schema tx failed: {}", e))?;
+                    .map_err(|e| linking_step_failure(e, "threshold_forward_link_tx"))?;
                 let res = self
                     .db
                     .links
@@ -2896,7 +2905,7 @@ impl LinkingHandler {
                 let mut tx = schema_ctx
                     .begin_tx()
                     .await
-                    .map_err(|e| format!("Schema tx failed: {}", e))?;
+                    .map_err(|e| linking_step_failure(e, "threshold_backward_link_tx"))?;
                 let res = self
                     .db
                     .links
@@ -8251,6 +8260,21 @@ Quick note about the meeting discussion and action items."#;
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn linking_step_failure_uses_generic_stored_message() {
+        let message = linking_step_failure(
+            "Schema tx failed: postgres://user:secret@db.internal/app SQLSTATE 40001",
+            "threshold_candidate_tx",
+        );
+
+        assert_eq!(message, LINKING_JOB_FAILURE);
+        assert!(!message.contains("Schema tx failed"));
+        assert!(!message.contains("postgres://"));
+        assert!(!message.contains("user:secret"));
+        assert!(!message.contains("db.internal"));
+        assert!(!message.contains("SQLSTATE"));
     }
 
     #[test]
