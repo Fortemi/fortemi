@@ -1609,6 +1609,47 @@ fn startup_issuer_telemetry(issuer: &str) -> StartupIssuerTelemetry {
     }
 }
 
+#[derive(Clone, Copy)]
+struct StartupModelTelemetry {
+    model_len: usize,
+}
+
+impl fmt::Debug for StartupModelTelemetry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StartupModelTelemetry")
+            .field("model_len", &self.model_len)
+            .finish()
+    }
+}
+
+fn startup_model_telemetry(model: &str) -> StartupModelTelemetry {
+    StartupModelTelemetry {
+        model_len: telemetry_text_len(model),
+    }
+}
+
+#[derive(Clone, Copy)]
+struct StartupBindTelemetry {
+    host_len: usize,
+    port: u16,
+}
+
+impl fmt::Debug for StartupBindTelemetry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StartupBindTelemetry")
+            .field("host_len", &self.host_len)
+            .field("port", &self.port)
+            .finish()
+    }
+}
+
+fn startup_bind_telemetry(addr: SocketAddr) -> StartupBindTelemetry {
+    StartupBindTelemetry {
+        host_len: telemetry_text_len(&addr.ip().to_string()),
+        port: addr.port(),
+    }
+}
+
 fn preload_diagnostic_reason(value: &str) -> &'static str {
     let value = value.to_ascii_lowercase();
     if value.contains("timeout") || value.contains("timed out") {
@@ -2086,7 +2127,8 @@ async fn main() -> anyhow::Result<()> {
     let vision_backend: Option<Arc<dyn VisionBackend>> =
         OllamaVisionBackend::from_env().map(|b| Arc::new(b) as Arc<dyn VisionBackend>);
     if let Some(ref backend) = vision_backend {
-        info!("Vision backend available: model={}", backend.model_name());
+        let model_meta = startup_model_telemetry(backend.model_name());
+        info!(model_len = model_meta.model_len, "Vision backend available");
     } else {
         info!("Vision backend disabled: OLLAMA_VISION_MODEL set to empty");
     }
@@ -2097,9 +2139,10 @@ async fn main() -> anyhow::Result<()> {
     let transcription_backend: Option<Arc<dyn TranscriptionBackend>> =
         WhisperBackend::from_env().map(|b| Arc::new(b) as Arc<dyn TranscriptionBackend>);
     if let Some(ref backend) = transcription_backend {
+        let model_meta = startup_model_telemetry(backend.model_name());
         info!(
-            "Transcription backend available: model={}",
-            backend.model_name()
+            model_len = model_meta.model_len,
+            "Transcription backend available"
         );
     } else {
         info!("Transcription backend disabled: WHISPER_BASE_URL set to empty");
@@ -2132,7 +2175,8 @@ async fn main() -> anyhow::Result<()> {
         matric_inference::GlinerBackend::from_env()
             .map(|b| Arc::new(b) as Arc<dyn matric_inference::NerBackend>);
     if let Some(ref backend) = ner_backend {
-        info!("NER backend available: model={}", backend.model_name());
+        let model_meta = startup_model_telemetry(backend.model_name());
+        info!(model_len = model_meta.model_len, "NER backend available");
     } else {
         info!("NER backend disabled: GLINER_BASE_URL not set");
     }
@@ -2142,9 +2186,10 @@ async fn main() -> anyhow::Result<()> {
     let diarization_backend: Option<Arc<dyn DiarizationBackend>> =
         PyAnnoteBackend::from_env().map(|b| Arc::new(b) as Arc<dyn DiarizationBackend>);
     if let Some(ref backend) = diarization_backend {
+        let model_meta = startup_model_telemetry(backend.model_name());
         info!(
-            "Diarization backend available: model={}",
-            backend.model_name()
+            model_len = model_meta.model_len,
+            "Diarization backend available"
         );
     } else {
         info!("Diarization backend disabled: DIARIZATION_BASE_URL not set");
@@ -3365,7 +3410,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Start server
     let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
-    info!("Starting server on {}", addr);
+    let bind_meta = startup_bind_telemetry(addr);
+    info!(
+        bind_host_len = bind_meta.host_len,
+        bind_port = bind_meta.port,
+        "Starting server"
+    );
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
 
@@ -37776,6 +37826,33 @@ mod tests {
         assert!(!debug.contains("token:secret"));
         assert!(!debug.contains("auth.example.com"));
         assert!(!debug.contains("operator@example.com"));
+    }
+
+    #[test]
+    fn startup_model_telemetry_debug_redacts_raw_model_names() {
+        let model = "tenant/operator@example.com/private/sk-live-secret-model";
+        let meta = startup_model_telemetry(model);
+
+        let debug = format!("{meta:?}");
+
+        assert_eq!(meta.model_len, telemetry_text_len(model));
+        assert!(debug.contains("model_len"));
+        assert!(!debug.contains("operator@example.com"));
+        assert!(!debug.contains("sk-live-secret-model"));
+    }
+
+    #[test]
+    fn startup_bind_telemetry_debug_redacts_raw_bind_hosts() {
+        let addr = "10.42.7.19:8443".parse::<SocketAddr>().unwrap();
+        let meta = startup_bind_telemetry(addr);
+
+        let debug = format!("{meta:?}");
+
+        assert_eq!(meta.host_len, telemetry_text_len("10.42.7.19"));
+        assert_eq!(meta.port, 8443);
+        assert!(debug.contains("host_len"));
+        assert!(debug.contains("port"));
+        assert!(!debug.contains("10.42.7.19"));
     }
 
     #[test]
