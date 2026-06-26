@@ -1968,7 +1968,7 @@ impl fmt::Debug for GlobalAttachmentSummary {
 /// Each row maps to a staging file on disk at `storage_path`. When the final
 /// chunk is received (`current_offset == total_size`), the upload is finalized
 /// into the standard attachment pipeline and this row is deleted.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, sqlx::FromRow)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema, sqlx::FromRow)]
 pub struct TusUpload {
     pub id: Uuid,
     pub note_id: Uuid,
@@ -1982,6 +1982,25 @@ pub struct TusUpload {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
+}
+
+impl fmt::Debug for TusUpload {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TusUpload")
+            .field("id_set", &true)
+            .field("note_id_set", &true)
+            .field("filename_len", &self.filename.len())
+            .field("content_type_len", &self.content_type.len())
+            .field("total_size", &self.total_size)
+            .field("current_offset", &self.current_offset)
+            .field("storage_path_len", &self.storage_path.len())
+            .field("metadata_class", &json_value_class(&self.metadata))
+            .field("metadata_len", &json_serialized_len(&self.metadata))
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -4392,6 +4411,69 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "Attachment Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn tus_upload_debug_redacts_paths_filenames_and_metadata() {
+        let now = Utc::now();
+        let upload = TusUpload {
+            id: Uuid::new_v4(),
+            note_id: Uuid::new_v4(),
+            filename: "private-upload-sk-live-secret.pdf".to_string(),
+            content_type: "application/private-upload".to_string(),
+            total_size: 8192,
+            current_offset: 4096,
+            storage_path: "/tmp/customer/uploads/private@example.test/sk-live-secret.part"
+                .to_string(),
+            metadata: json!({
+                "original_filename": "customer-private-file.pdf",
+                "callback_url": "https://provider.example.test/upload?token=secret-token",
+                "api_key": "sk-live-secret",
+                "phone": "555-1212",
+                "storage_path": "/tmp/customer/uploads/raw.bin"
+            }),
+            created_at: now,
+            updated_at: now,
+            expires_at: now,
+        };
+
+        let debug = format!("{upload:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "private-upload",
+                "sk-live-secret",
+                "application/private-upload",
+                "/tmp/customer/uploads",
+                "private@example.test",
+                "customer-private-file",
+                "provider.example.test",
+                "secret-token",
+                "555-1212",
+                "raw.bin",
+            ],
+        );
+
+        for expected in [
+            "id_set",
+            "note_id_set",
+            "filename_len",
+            "content_type_len",
+            "total_size",
+            "current_offset",
+            "storage_path_len",
+            "metadata_class",
+            "metadata_len",
+            "created_at",
+            "updated_at",
+            "expires_at",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "TusUpload Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
