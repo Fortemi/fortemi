@@ -19900,6 +19900,10 @@ impl std::fmt::Debug for BackupTriggerResponse {
     }
 }
 
+fn backup_trigger_dry_run_output(filename: &str) -> String {
+    format!("Would create backup: {filename}")
+}
+
 /// Trigger an immediate database backup using native pg_dump.
 ///
 /// This replaces the previous shell-script-based approach. The backup is created
@@ -19932,7 +19936,7 @@ async fn backup_trigger(
     if body.dry_run {
         return Ok(Json(BackupTriggerResponse {
             status: "dry_run".to_string(),
-            output: format!("Would create backup: {}", path.display()),
+            output: backup_trigger_dry_run_output(&filename),
             timestamp,
         }));
     }
@@ -28271,6 +28275,32 @@ mod tests {
             "mm_key_backup_secret",
         ] {
             assert!(!status.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn backup_trigger_dry_run_output_omits_backup_directory() {
+        let backup_dir =
+            "/srv/backups/customer/postgres://user:pass@db.internal/mm_key_backup_secret";
+        let filename = "auto_database_20260626_181500.sql.gz";
+        let unsafe_path = std::path::Path::new(backup_dir).join(filename);
+        let unsafe_path = unsafe_path.to_string_lossy().to_string();
+
+        let output = backup_trigger_dry_run_output(filename);
+
+        assert_eq!(
+            output,
+            "Would create backup: auto_database_20260626_181500.sql.gz"
+        );
+        for raw in [
+            unsafe_path.as_str(),
+            backup_dir,
+            "/srv/backups/customer",
+            "postgres://user:pass",
+            "db.internal",
+            "mm_key_backup_secret",
+        ] {
+            assert!(!output.contains(raw), "raw value leaked: {raw}");
         }
     }
 
