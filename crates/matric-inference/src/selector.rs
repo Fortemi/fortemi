@@ -13,6 +13,7 @@ use crate::capabilities::{known_model_capabilities, Capability, ModelCapabilitie
 use crate::hardware::{tier_model_recommendations, HardwareTier};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 
 /// Knowledge management operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -82,7 +83,7 @@ impl KmOperation {
 }
 
 /// Model selection result.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ModelSelection {
     /// Selected model name.
     pub model: String,
@@ -98,8 +99,29 @@ pub struct ModelSelection {
     pub alternatives: Vec<String>,
 }
 
+impl fmt::Debug for ModelSelection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ModelSelection")
+            .field("model_len", &self.model.chars().count())
+            .field("operation", &self.operation)
+            .field("quality_tier", &self.quality_tier)
+            .field("expected_latency_ms", &self.expected_latency_ms)
+            .field("rationale_len", &self.rationale.chars().count())
+            .field("alternative_count", &self.alternatives.len())
+            .field(
+                "alternative_lens",
+                &self
+                    .alternatives
+                    .iter()
+                    .map(|value| value.chars().count())
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
+}
+
 /// Model selector for knowledge management tasks.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ModelSelector {
     /// Available model capabilities.
     model_capabilities: HashMap<String, ModelCapabilities>,
@@ -107,6 +129,24 @@ pub struct ModelSelector {
     hardware_tier: HardwareTier,
     /// Prefer speed over quality.
     prefer_speed: bool,
+}
+
+impl fmt::Debug for ModelSelector {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ModelSelector")
+            .field("model_capability_count", &self.model_capabilities.len())
+            .field(
+                "model_name_lens",
+                &self
+                    .model_capabilities
+                    .keys()
+                    .map(|value| value.chars().count())
+                    .collect::<Vec<_>>(),
+            )
+            .field("hardware_tier", &self.hardware_tier)
+            .field("prefer_speed", &self.prefer_speed)
+            .finish()
+    }
 }
 
 impl ModelSelector {
@@ -336,7 +376,7 @@ impl ModelSelector {
 }
 
 /// Recommended model configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct RecommendedConfig {
     /// Model for embeddings.
     pub embedding_model: String,
@@ -346,6 +386,26 @@ pub struct RecommendedConfig {
     pub fast_generation_model: Option<String>,
     /// Hardware tier these recommendations are for.
     pub hardware_tier: HardwareTier,
+}
+
+impl fmt::Debug for RecommendedConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RecommendedConfig")
+            .field("embedding_model_len", &self.embedding_model.chars().count())
+            .field(
+                "generation_model_len",
+                &self.generation_model.chars().count(),
+            )
+            .field(
+                "fast_generation_model_len",
+                &self
+                    .fast_generation_model
+                    .as_ref()
+                    .map(|value| value.chars().count()),
+            )
+            .field("hardware_tier", &self.hardware_tier)
+            .finish()
+    }
 }
 
 impl RecommendedConfig {
@@ -367,6 +427,15 @@ impl RecommendedConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_text_excludes(text: &str, secrets: &[&str]) {
+        for secret in secrets {
+            assert!(
+                !text.contains(secret),
+                "text leaked secret `{secret}`: {text}"
+            );
+        }
+    }
 
     #[test]
     fn test_km_operation_required_capabilities() {
@@ -439,6 +508,60 @@ mod tests {
         assert!(!config.embedding_model.is_empty());
         assert!(!config.generation_model.is_empty());
         assert_eq!(config.hardware_tier, HardwareTier::Mainstream);
+    }
+
+    #[test]
+    fn model_selection_debug_redacts_model_names_and_rationale() {
+        let selection = ModelSelection {
+            model: "private-provider/gpt-secret-owner@example.internal".to_string(),
+            operation: KmOperation::AiRevision,
+            quality_tier: QualityTier::Excellent,
+            expected_latency_ms: Some(1234),
+            rationale: "selected because /srv/fortemi/private contained sk-secret".to_string(),
+            alternatives: vec![
+                "tenant-private/model-a".to_string(),
+                "postgres://model:secret@db.internal/model-b".to_string(),
+            ],
+        };
+        let config = RecommendedConfig {
+            embedding_model: "embed-owner@example.internal".to_string(),
+            generation_model: "gen-/srv/fortemi/private".to_string(),
+            fast_generation_model: Some("fast-sk-secret-model".to_string()),
+            hardware_tier: HardwareTier::Mainstream,
+        };
+        let selector = ModelSelector::new(HardwareTier::Mainstream);
+
+        let selection_debug = format!("{selection:?}");
+        assert!(selection_debug.contains("ModelSelection"));
+        assert!(selection_debug.contains("model_len"));
+        assert!(selection_debug.contains("rationale_len"));
+        assert_text_excludes(
+            &selection_debug,
+            &[
+                "private-provider/gpt-secret-owner@example.internal",
+                "/srv/fortemi/private",
+                "sk-secret",
+                "tenant-private/model-a",
+                "postgres://model:secret@db.internal/model-b",
+            ],
+        );
+
+        let config_debug = format!("{config:?}");
+        assert!(config_debug.contains("RecommendedConfig"));
+        assert!(config_debug.contains("embedding_model_len"));
+        assert_text_excludes(
+            &config_debug,
+            &[
+                "embed-owner@example.internal",
+                "gen-/srv/fortemi/private",
+                "fast-sk-secret-model",
+            ],
+        );
+
+        let selector_debug = format!("{selector:?}");
+        assert!(selector_debug.contains("ModelSelector"));
+        assert!(selector_debug.contains("model_capability_count"));
+        assert_text_excludes(&selector_debug, &["nomic-embed-text", "qwen2.5"]);
     }
 
     #[test]
