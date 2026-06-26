@@ -28,11 +28,54 @@ use matric_core::{
     GlobalAttachmentSummary, Result,
 };
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, warn};
 use uuid::Uuid;
+
+fn storage_path_len(path: &Path) -> usize {
+    path.as_os_str().to_string_lossy().chars().count()
+}
+
+fn storage_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn storage_io_error_kind(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => "not_found",
+        std::io::ErrorKind::PermissionDenied => "permission_denied",
+        std::io::ErrorKind::AlreadyExists => "already_exists",
+        std::io::ErrorKind::InvalidInput => "invalid_input",
+        std::io::ErrorKind::InvalidData => "invalid_data",
+        std::io::ErrorKind::TimedOut => "timed_out",
+        std::io::ErrorKind::WriteZero => "write_zero",
+        std::io::ErrorKind::Interrupted => "interrupted",
+        std::io::ErrorKind::UnexpectedEof => "unexpected_eof",
+        std::io::ErrorKind::OutOfMemory => "out_of_memory",
+        _ => "io_error",
+    }
+}
+
+fn storage_error_class(error: &Error) -> &'static str {
+    match error {
+        Error::Database(_) => "database",
+        Error::NotFound(_) | Error::NoteNotFound(_) | Error::CollectionNotFound(_) => "not_found",
+        Error::Embedding(_) => "embedding",
+        Error::Inference(_) => "inference",
+        Error::Search(_) => "search",
+        Error::Job(_) => "job",
+        Error::Serialization(_) => "serialization",
+        Error::Config(_) => "config",
+        Error::InvalidInput(_) => "invalid_input",
+        Error::Request(_) => "request",
+        Error::Internal(_) => "internal",
+        Error::Unauthorized(_) => "unauthorized",
+        Error::Forbidden(_) => "forbidden",
+        Error::Io(error) => storage_io_error_kind(error),
+    }
+}
 
 /// Metadata about a file download, separating DB metadata from file content.
 ///
@@ -120,7 +163,11 @@ impl FilesystemBackend {
             let mut entries = match tokio::fs::read_dir(&dir).await {
                 Ok(e) => e,
                 Err(e) => {
-                    warn!(dir = %dir.display(), error = %e, "file_storage: sweep read_dir failed");
+                    warn!(
+                        dir_len = storage_path_len(&dir),
+                        error_kind = storage_io_error_kind(&e),
+                        "file_storage: sweep read_dir failed"
+                    );
                     continue;
                 }
             };
@@ -129,7 +176,11 @@ impl FilesystemBackend {
                     Ok(Some(e)) => e,
                     Ok(None) => break,
                     Err(e) => {
-                        warn!(dir = %dir.display(), error = %e, "file_storage: sweep next_entry failed");
+                        warn!(
+                            dir_len = storage_path_len(&dir),
+                            error_kind = storage_io_error_kind(&e),
+                            "file_storage: sweep next_entry failed"
+                        );
                         break;
                     }
                 };
@@ -162,10 +213,17 @@ impl FilesystemBackend {
                     continue;
                 }
                 if let Err(e) = tokio::fs::remove_file(&path).await {
-                    warn!(path = %path.display(), error = %e, "file_storage: sweep remove failed");
+                    warn!(
+                        path_len = storage_path_len(&path),
+                        error_kind = storage_io_error_kind(&e),
+                        "file_storage: sweep remove failed"
+                    );
                     continue;
                 }
-                debug!(path = %path.display(), "file_storage: swept stale temp file");
+                debug!(
+                    path_len = storage_path_len(&path),
+                    "file_storage: swept stale temp file"
+                );
                 removed += 1;
             }
         }
@@ -217,12 +275,21 @@ impl FilesystemBackend {
 impl StorageBackend for FilesystemBackend {
     async fn write(&self, path: &str, data: &[u8]) -> Result<()> {
         let full_path = self.full_path(path);
-        debug!(storage_path = %path, full_path = %full_path.display(), size = data.len(), "file_storage: write");
+        debug!(
+            storage_path_len = storage_text_len(path),
+            full_path_len = storage_path_len(&full_path),
+            size = data.len(),
+            "file_storage: write"
+        );
 
         // Create parent directories
         if let Some(parent) = full_path.parent() {
             fs::create_dir_all(parent).await.map_err(|e| {
-                warn!(parent = %parent.display(), error = %e, "file_storage: create_dir_all failed");
+                warn!(
+                    parent_len = storage_path_len(parent),
+                    error_kind = storage_io_error_kind(&e),
+                    "file_storage: create_dir_all failed"
+                );
                 e
             })?;
         }
@@ -246,18 +313,30 @@ impl StorageBackend for FilesystemBackend {
             p
         };
         let mut file = fs::File::create(&temp_path).await.map_err(|e| {
-            warn!(temp_path = %temp_path.display(), error = %e, "file_storage: File::create failed");
+            warn!(
+                temp_path_len = storage_path_len(&temp_path),
+                error_kind = storage_io_error_kind(&e),
+                "file_storage: File::create failed"
+            );
             e
         })?;
         file.write_all(data).await.map_err(|e| {
-            warn!(error = %e, "file_storage: write_all failed");
+            warn!(
+                error_kind = storage_io_error_kind(&e),
+                "file_storage: write_all failed"
+            );
             e
         })?;
         file.sync_all().await?;
         drop(file);
 
         fs::rename(&temp_path, &full_path).await.map_err(|e| {
-            warn!(from = %temp_path.display(), to = %full_path.display(), error = %e, "file_storage: rename failed");
+            warn!(
+                from_path_len = storage_path_len(&temp_path),
+                to_path_len = storage_path_len(&full_path),
+                error_kind = storage_io_error_kind(&e),
+                "file_storage: rename failed"
+            );
             e
         })?;
 
@@ -276,11 +355,19 @@ impl StorageBackend for FilesystemBackend {
             match fs::File::open(parent).await {
                 Ok(dir_file) => {
                     if let Err(e) = dir_file.sync_all().await {
-                        warn!(parent = %parent.display(), error = %e, "file_storage: parent dir fsync failed (rename may not survive crash)");
+                        warn!(
+                            parent_len = storage_path_len(parent),
+                            error_kind = storage_io_error_kind(&e),
+                            "file_storage: parent dir fsync failed (rename may not survive crash)"
+                        );
                     }
                 }
                 Err(e) => {
-                    warn!(parent = %parent.display(), error = %e, "file_storage: parent dir open failed for fsync");
+                    warn!(
+                        parent_len = storage_path_len(parent),
+                        error_kind = storage_io_error_kind(&e),
+                        "file_storage: parent dir open failed for fsync"
+                    );
                 }
             }
         }
@@ -574,8 +661,8 @@ impl PgFileStorageRepository {
                         if let Err(e) = self.backend.delete(&path).await {
                             warn!(
                                 blob_id = %blob_id,
-                                path = %path,
-                                error = %e,
+                                path_len = storage_text_len(&path),
+                                error_class = storage_error_class(&e),
                                 "Failed to delete orphaned blob file (blob row already removed)"
                             );
                         }
@@ -1157,8 +1244,8 @@ impl PgFileStorageRepository {
                         if let Err(e) = self.backend.delete(&path).await {
                             warn!(
                                 blob_id = %blob_id,
-                                path = %path,
-                                error = %e,
+                                path_len = storage_text_len(&path),
+                                error_class = storage_error_class(&e),
                                 "Failed to delete orphaned blob file (blob row already removed)"
                             );
                         }
@@ -1646,6 +1733,34 @@ fn attachment_from_row(row: &sqlx::postgres::PgRow) -> Result<Attachment> {
 mod sweep_tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn file_storage_telemetry_helpers_report_lengths_and_classes() {
+        let raw_path = Path::new("/srv/fortemi/private/user@example.com/token=sk-secret/blob.bin");
+        let raw_storage_path = "blobs/private/user@example.com/token=sk-secret/blob.bin";
+        let permission_error = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "denied /srv/fortemi/private/token=sk-secret/blob.bin",
+        );
+        let storage_error = Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "missing /srv/fortemi/private/token=sk-secret/blob.bin",
+        ));
+
+        assert_eq!(
+            storage_path_len(raw_path),
+            raw_path.display().to_string().chars().count()
+        );
+        assert_eq!(
+            storage_text_len(raw_storage_path),
+            raw_storage_path.chars().count()
+        );
+        assert_eq!(
+            storage_io_error_kind(&permission_error),
+            "permission_denied"
+        );
+        assert_eq!(storage_error_class(&storage_error), "not_found");
+    }
 
     /// Atomic-write produces a `.bin.tmp` -> renamed `.bin` and the rename
     /// is durable (best we can verify in-process: the file exists at the
