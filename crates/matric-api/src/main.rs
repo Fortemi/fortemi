@@ -25904,7 +25904,7 @@ async fn knowledge_archive_download(
             "unknown"
         };
         BackupMetadata {
-            title: filename.clone(),
+            title: "Backup metadata".to_string(),
             description: None,
             backup_type: backup_type.to_string(),
             created_at: chrono::Utc::now(),
@@ -26136,6 +26136,32 @@ impl fmt::Debug for UpdateMetadataRequest {
     }
 }
 
+fn default_backup_metadata_for_path(
+    backup_path: &std::path::Path,
+    backup_type: &str,
+) -> BackupMetadata {
+    BackupMetadata {
+        title: "Backup metadata".to_string(),
+        description: None,
+        backup_type: backup_type.to_string(),
+        created_at: std::fs::metadata(backup_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .map(chrono::DateTime::from)
+            .unwrap_or_else(chrono::Utc::now),
+        note_count: None,
+        db_size_bytes: None,
+        source: "user".to_string(),
+        extra: Default::default(),
+        matric_version: None,
+        matric_version_min: None,
+        matric_version_max: None,
+        pg_version: None,
+        schema_migration_count: None,
+        last_migration: None,
+    }
+}
+
 /// Get metadata for a specific backup file.
 #[utoipa::path(get, path = "/api/v1/backup/metadata/{filename}", tag = "Backup",
     params(("filename" = String, Path, description = "Backup filename")),
@@ -26158,7 +26184,7 @@ async fn get_backup_metadata(Path(filename): Path<String>) -> Result<impl IntoRe
     match BackupMetadata::load(&backup_path) {
         Some(meta) => Ok(Json(serde_json::json!({
             "has_metadata": true,
-            "filename": filename,
+            "filename": backup_response_filename_metadata(&filename),
             "metadata": meta
         }))),
         None => {
@@ -26177,7 +26203,7 @@ async fn get_backup_metadata(Path(filename): Path<String>) -> Result<impl IntoRe
 
             Ok(Json(serde_json::json!({
                 "has_metadata": false,
-                "filename": filename,
+                "filename": backup_response_filename_metadata(&filename),
                 "backup_type": backup_type,
                 "message": "No metadata file found. Use PUT to add metadata."
             })))
@@ -26220,26 +26246,8 @@ async fn update_backup_metadata(
     };
 
     // Load existing metadata or create new
-    let mut metadata = BackupMetadata::load(&backup_path).unwrap_or_else(|| BackupMetadata {
-        title: filename.clone(),
-        description: None,
-        backup_type: backup_type.to_string(),
-        created_at: std::fs::metadata(&backup_path)
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .map(chrono::DateTime::from)
-            .unwrap_or_else(chrono::Utc::now),
-        note_count: None,
-        db_size_bytes: None,
-        source: "user".to_string(),
-        extra: Default::default(),
-        matric_version: None,
-        matric_version_min: None,
-        matric_version_max: None,
-        pg_version: None,
-        schema_migration_count: None,
-        last_migration: None,
-    });
+    let mut metadata = BackupMetadata::load(&backup_path)
+        .unwrap_or_else(|| default_backup_metadata_for_path(&backup_path, backup_type));
 
     // Update fields if provided
     if let Some(title) = req.title {
@@ -26256,7 +26264,7 @@ async fn update_backup_metadata(
 
     Ok(Json(serde_json::json!({
         "success": true,
-        "filename": filename,
+        "filename": backup_response_filename_metadata(&filename),
         "metadata": metadata
     })))
 }
@@ -27020,6 +27028,38 @@ mod tests {
             "sk-live-metadata",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn backup_metadata_response_filename_and_default_title_use_metadata_only() {
+        let filename =
+            "snapshot-customer-private-mm_key_metadata-postgres://user:pass@db.internal.sql.gz";
+        let rendered_response = serde_json::json!({
+            "has_metadata": false,
+            "filename": backup_response_filename_metadata(filename),
+            "backup_type": backup_prefix::SNAPSHOT,
+            "message": "No metadata file found. Use PUT to add metadata."
+        })
+        .to_string();
+        let fallback_metadata = default_backup_metadata_for_path(
+            std::path::Path::new("/tmp/nonexistent-customer-private-mm_key_metadata.sql.gz"),
+            backup_prefix::SNAPSHOT,
+        );
+        let rendered_metadata = serde_json::to_string(&fallback_metadata).unwrap();
+        let combined = format!("{rendered_response}\n{rendered_metadata}");
+
+        assert!(rendered_response.contains("\"filename\":\"filename_len:"));
+        assert!(rendered_metadata.contains("\"title\":\"Backup metadata\""));
+        for raw in [
+            "snapshot-customer-private",
+            "mm_key_metadata",
+            "postgres://user:pass",
+            "db.internal",
+            "/tmp/nonexistent-customer-private",
+            filename,
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
     }
 
