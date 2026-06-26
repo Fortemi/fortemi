@@ -5336,11 +5336,21 @@ impl RelatedConceptHandler {
 }
 
 /// A single related concept pair inferred by the LLM.
-#[derive(Debug, serde::Deserialize)]
+#[derive(serde::Deserialize)]
 struct RelatedPair {
     concept_a: String,
     concept_b: String,
     confidence: f32,
+}
+
+impl std::fmt::Debug for RelatedPair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RelatedPair")
+            .field("concept_a_len", &diagnostic_len(&self.concept_a))
+            .field("concept_b_len", &diagnostic_len(&self.concept_b))
+            .field("confidence", &self.confidence)
+            .finish()
+    }
 }
 
 #[async_trait]
@@ -8875,6 +8885,32 @@ Quick note about the meeting discussion and action items."#;
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn related_pair_debug_redacts_llm_generated_concepts() {
+        let pair = RelatedPair {
+            concept_a: "operator@example.com postgres://user:secret@db.internal/app".to_string(),
+            concept_b: "/srv/fortemi/private sk-live-should-not-appear".to_string(),
+            confidence: 0.87,
+        };
+
+        let debug = format!("{pair:?}");
+
+        for forbidden in [
+            "operator@example.com",
+            "postgres://user:secret@db.internal/app",
+            "/srv/fortemi/private",
+            "sk-live-should-not-appear",
+        ] {
+            assert!(
+                !debug.contains(forbidden),
+                "related pair debug leaked {forbidden}"
+            );
+        }
+        assert!(debug.contains("concept_a_len"));
+        assert!(debug.contains("concept_b_len"));
+        assert!(debug.contains("confidence"));
     }
 
     #[test]
