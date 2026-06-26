@@ -432,7 +432,7 @@ impl InferenceBackend for OpenAIBackend {
                 }
             }
             Err(e) => {
-                warn!("OpenAI health check error: {}", e);
+                warn!(error_len = e.to_string().len(), "OpenAI health check error");
                 Ok(false)
             }
         }

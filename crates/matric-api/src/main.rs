@@ -2352,7 +2352,10 @@ async fn main() -> anyhow::Result<()> {
             .ok()
             .filter(|s| !s.is_empty());
         if let Some(ref model) = fast_backend_model {
-            info!(model = %model, "Fast generation model configured for cascaded routing");
+            info!(
+                model_len = model.chars().count(),
+                "Fast generation model configured for cascaded routing"
+            );
         }
 
         worker

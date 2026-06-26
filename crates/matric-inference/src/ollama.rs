@@ -960,7 +960,7 @@ impl InferenceBackend for OllamaBackend {
                 }
             }
             Err(e) => {
-                warn!("Ollama health check error: {}", e);
+                warn!(error_len = e.to_string().len(), "Ollama health check error");
                 Ok(false)
             }
         }

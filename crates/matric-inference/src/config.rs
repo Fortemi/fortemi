@@ -28,6 +28,10 @@ use std::str::FromStr;
 use thiserror::Error;
 use tracing::{debug, info};
 
+fn path_diagnostic_len(path: &std::path::Path) -> usize {
+    path.as_os_str().to_string_lossy().chars().count()
+}
+
 /// Configuration errors.
 #[derive(Error)]
 pub enum ConfigError {
@@ -441,12 +445,15 @@ impl InferenceConfig {
         let path = Self::default_config_path();
 
         if path.exists() {
-            info!("Loading inference config from: {}", path.display());
+            info!(
+                path_len = path_diagnostic_len(&path),
+                "Loading inference config from project path"
+            );
             Self::from_file(&path)
         } else {
             debug!(
-                "Config file not found at {}, using environment variables",
-                path.display()
+                path_len = path_diagnostic_len(&path),
+                "Config file not found at project path, using environment variables"
             );
             Ok(Self::from_env())
         }
@@ -812,6 +819,20 @@ mod tests {
         assert!(missing_debug.contains("MissingBackend"));
         assert!(missing_debug.contains("backend_len"));
         assert_text_excludes(&missing_debug, &["tenant/private-backend"]);
+    }
+
+    #[test]
+    fn config_path_diagnostic_len_redacts_raw_path() {
+        let path =
+            std::path::Path::new("/srv/private/user@example.com/token=secret/inference.toml");
+        let len = path_diagnostic_len(path);
+
+        assert_eq!(len, path.as_os_str().to_string_lossy().chars().count());
+        let diagnostic = format!("path_len={len}");
+        assert_text_excludes(
+            &diagnostic,
+            &["/srv/private", "user@example.com", "token=secret"],
+        );
     }
 
     #[test]
