@@ -41,6 +41,32 @@ pub(crate) fn schema_context(db: &Database, schema: &str) -> Result<SchemaContex
         .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
 }
 
+fn audio_transcription_error_reason_code(error: &str) -> &'static str {
+    let text = error.to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("not found")
+        || text.contains("no such")
+        || text.contains("missing")
+        || text.contains("unknown")
+    {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else if text.contains("connection refused")
+        || text.contains("cannot connect")
+        || text.contains("connection")
+    {
+        "connection_failed"
+    } else if text.contains("database") || text.contains("sql") || text.contains("postgres") {
+        "database_error"
+    } else if text.contains("storage") || text.contains("file") {
+        "storage_error"
+    } else {
+        "operation_failed"
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers used by both AudioTranscriptionHandler (short path) and
 // AudioChunkTranscriptionHandler (fan-in merge path).
@@ -138,14 +164,16 @@ pub(crate) async fn store_transcript_and_captions(
                         Ok(_) => {
                             debug!(
                                 parent = %parent_attachment_id,
-                                filename = %filename,
+                                filename_len = filename.len(),
                                 "Caption file persisted"
                             );
                         }
                         Err(e) => {
+                            let error_text = e.to_string();
                             warn!(
-                                error = %e,
-                                filename = %filename,
+                                error_len = error_text.len(),
+                                error_reason = audio_transcription_error_reason_code(&error_text),
+                                filename_len = filename.len(),
                                 "Failed to store caption file"
                             );
                         }
@@ -201,14 +229,19 @@ pub(crate) async fn queue_diarization(
             Ok(Some(job_id)) => {
                 ctx.emit_job_queued(job_id, JobType::SpeakerDiarization, Some(note_id));
                 info!(
-                    note_id = %note_id,
+                    note_present = true,
                     parent = %parent_attachment_id,
                     "SpeakerDiarization queued"
                 );
             }
             Ok(None) => {} // Deduplicated
             Err(e) => {
-                warn!(error = %e, "Failed to queue SpeakerDiarization");
+                let error_text = e.to_string();
+                warn!(
+                    error_len = error_text.len(),
+                    error_reason = audio_transcription_error_reason_code(&error_text),
+                    "Failed to queue SpeakerDiarization"
+                );
             }
         }
     }
@@ -229,7 +262,12 @@ pub(crate) async fn check_video_fan_in(
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
             Err(e) => {
-                warn!(error = %e, "Fan-in metadata read failed");
+                let error_text = e.to_string();
+                warn!(
+                    error_len = error_text.len(),
+                    error_reason = audio_transcription_error_reason_code(&error_text),
+                    "Fan-in metadata read failed"
+                );
                 return;
             }
         };
@@ -341,7 +379,12 @@ pub(crate) async fn check_video_fan_in(
                 debug!("KeyframeAssembly already queued (deduplicated)");
             }
             Err(e) => {
-                error!(error = %e, "Failed to queue KeyframeAssembly");
+                let error_text = e.to_string();
+                error!(
+                    error_len = error_text.len(),
+                    error_reason = audio_transcription_error_reason_code(&error_text),
+                    "Failed to queue KeyframeAssembly"
+                );
             }
         }
     }
@@ -473,7 +516,12 @@ impl JobHandler for AudioTranscriptionHandler {
         {
             Ok(p) => p,
             Err(e) => {
-                warn!(error = %e, "Audio transcode failed, using original input");
+                let error_text = e.to_string();
+                warn!(
+                    error_len = error_text.len(),
+                    error_reason = audio_transcription_error_reason_code(&error_text),
+                    "Audio transcode failed, using original input"
+                );
                 input_path.clone()
             }
         };
@@ -685,7 +733,13 @@ impl AudioTranscriptionHandler {
             let chunk_data = match std::fs::read(chunk_path) {
                 Ok(d) => d,
                 Err(e) => {
-                    warn!(chunk = i, error = %e, "Failed to read chunk file, skipping");
+                    let error_text = e.to_string();
+                    warn!(
+                        chunk = i,
+                        error_len = error_text.len(),
+                        error_reason = audio_transcription_error_reason_code(&error_text),
+                        "Failed to read chunk file, skipping"
+                    );
                     continue;
                 }
             };
@@ -695,7 +749,13 @@ impl AudioTranscriptionHandler {
                 let mut tx = match schema_ctx.begin_tx().await {
                     Ok(t) => t,
                     Err(e) => {
-                        warn!(chunk = i, error = %e, "Schema tx failed for chunk storage");
+                        let error_text = e.to_string();
+                        warn!(
+                            chunk = i,
+                            error_len = error_text.len(),
+                            error_reason = audio_transcription_error_reason_code(&error_text),
+                            "Schema tx failed for chunk storage"
+                        );
                         continue;
                     }
                 };
@@ -714,7 +774,13 @@ impl AudioTranscriptionHandler {
                 match result {
                     Ok(att) => att.id,
                     Err(e) => {
-                        warn!(chunk = i, error = %e, "Failed to store chunk attachment");
+                        let error_text = e.to_string();
+                        warn!(
+                            chunk = i,
+                            error_len = error_text.len(),
+                            error_reason = audio_transcription_error_reason_code(&error_text),
+                            "Failed to store chunk attachment"
+                        );
                         continue;
                     }
                 }
@@ -769,7 +835,13 @@ impl AudioTranscriptionHandler {
                     queued += 1;
                 }
                 Err(e) => {
-                    warn!(chunk = i, error = %e, "Failed to queue AudioChunkTranscription job");
+                    let error_text = e.to_string();
+                    warn!(
+                        chunk = i,
+                        error_len = error_text.len(),
+                        error_reason = audio_transcription_error_reason_code(&error_text),
+                        "Failed to queue AudioChunkTranscription job"
+                    );
                 }
             }
         }
@@ -793,5 +865,30 @@ impl AudioTranscriptionHandler {
             "queued": queued,
             "duration_secs": duration,
         })))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audio_transcription_error_reason_code_uses_stable_classes() {
+        assert_eq!(
+            audio_transcription_error_reason_code("database sql failed while writing chunk"),
+            "database_error"
+        );
+        assert_eq!(
+            audio_transcription_error_reason_code("file storage denied during caption write"),
+            "permission_denied"
+        );
+        assert_eq!(
+            audio_transcription_error_reason_code("Cannot connect to transcription queue"),
+            "connection_failed"
+        );
+        assert_eq!(
+            audio_transcription_error_reason_code("opaque backend diagnostic text"),
+            "operation_failed"
+        );
     }
 }
