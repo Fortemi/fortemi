@@ -626,7 +626,7 @@ impl fmt::Debug for UpdateConceptSchemeRequest {
 ///
 /// Represents a single concept in the knowledge organization system,
 /// with full support for SKOS properties and PMEST facets.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConcept {
     pub id: Uuid,
 
@@ -724,8 +724,59 @@ pub struct SkosConcept {
     pub embedded_at: Option<DateTime<Utc>>,
 }
 
+impl fmt::Debug for SkosConcept {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosConcept")
+            .field("id_set", &true)
+            .field("primary_scheme_id_set", &true)
+            .field("uri_len", &self.uri.as_ref().map(|value| value.len()))
+            .field(
+                "notation_len",
+                &self.notation.as_ref().map(|value| value.len()),
+            )
+            .field("facet_type", &self.facet_type)
+            .field(
+                "facet_source_len",
+                &self.facet_source.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "facet_domain_len",
+                &self.facet_domain.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "facet_scope_len",
+                &self.facet_scope.as_ref().map(|value| value.len()),
+            )
+            .field("status", &self.status)
+            .field("promoted_at", &self.promoted_at)
+            .field("deprecated_at", &self.deprecated_at)
+            .field(
+                "deprecation_reason_len",
+                &self.deprecation_reason.as_ref().map(|value| value.len()),
+            )
+            .field("replaced_by_id_set", &self.replaced_by_id.is_some())
+            .field("note_count", &self.note_count)
+            .field("first_used_at", &self.first_used_at)
+            .field("last_used_at", &self.last_used_at)
+            .field("depth", &self.depth)
+            .field("broader_count", &self.broader_count)
+            .field("narrower_count", &self.narrower_count)
+            .field("related_count", &self.related_count)
+            .field("antipattern_count", &self.antipatterns.len())
+            .field("antipattern_checked_at", &self.antipattern_checked_at)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .field(
+                "embedding_model_len",
+                &self.embedding_model.as_ref().map(|value| value.len()),
+            )
+            .field("embedded_at", &self.embedded_at)
+            .finish()
+    }
+}
+
 /// Concept with its preferred label for display.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptWithLabel {
     #[serde(flatten)]
     pub concept: SkosConcept,
@@ -747,8 +798,32 @@ pub struct SkosConceptWithLabel {
     pub scheme_title: Option<String>,
 }
 
+impl fmt::Debug for SkosConceptWithLabel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosConceptWithLabel")
+            .field("concept", &self.concept)
+            .field(
+                "pref_label_len",
+                &self.pref_label.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "label_language_len",
+                &self.label_language.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "scheme_notation_len",
+                &self.scheme_notation.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "scheme_title_len",
+                &self.scheme_title.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
+}
+
 /// Full concept with all labels, notes, and relations.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptFull {
     #[serde(flatten)]
     pub concept: SkosConcept,
@@ -775,8 +850,23 @@ pub struct SkosConceptFull {
     pub schemes: Vec<SkosConceptSchemeSummary>,
 }
 
+impl fmt::Debug for SkosConceptFull {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosConceptFull")
+            .field("concept", &self.concept)
+            .field("label_count", &self.labels.len())
+            .field("note_count", &self.notes.len())
+            .field("broader_count", &self.broader.len())
+            .field("narrower_count", &self.narrower.len())
+            .field("related_count", &self.related.len())
+            .field("mapping_count", &self.mappings.len())
+            .field("scheme_count", &self.schemes.len())
+            .finish()
+    }
+}
+
 /// Summary view of a concept for listings and relations.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptSummary {
     pub id: Uuid,
     pub notation: Option<String>,
@@ -788,8 +878,31 @@ pub struct SkosConceptSummary {
     pub scheme_notation: Option<String>,
 }
 
+impl fmt::Debug for SkosConceptSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkosConceptSummary")
+            .field("id_set", &true)
+            .field(
+                "notation_len",
+                &self.notation.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "pref_label_len",
+                &self.pref_label.as_ref().map(|value| value.len()),
+            )
+            .field("status", &self.status)
+            .field("note_count", &self.note_count)
+            .field("depth", &self.depth)
+            .field(
+                "scheme_notation_len",
+                &self.scheme_notation.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
+}
+
 /// Concept in hierarchy view with path information.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptHierarchy {
     pub id: Uuid,
     pub notation: Option<String>,
@@ -799,8 +912,25 @@ pub struct SkosConceptHierarchy {
     pub label_path: Vec<String>,
 }
 
+impl fmt::Debug for SkosConceptHierarchy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label_path_lens: Vec<usize> = self.label_path.iter().map(String::len).collect();
+        f.debug_struct("SkosConceptHierarchy")
+            .field("id_set", &true)
+            .field(
+                "notation_len",
+                &self.notation.as_ref().map(|value| value.len()),
+            )
+            .field("label_len", &self.label.as_ref().map(|value| value.len()))
+            .field("level", &self.level)
+            .field("path_count", &self.path.len())
+            .field("label_path_lens", &label_path_lens)
+            .finish()
+    }
+}
+
 /// Request to create a new concept.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateConceptRequest {
     /// Scheme to create the concept in.
     pub scheme_id: Uuid,
@@ -851,8 +981,48 @@ fn default_language() -> String {
     "en".to_string()
 }
 
+impl fmt::Debug for CreateConceptRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let alt_label_lens: Vec<usize> = self.alt_labels.iter().map(String::len).collect();
+        f.debug_struct("CreateConceptRequest")
+            .field("scheme_id_set", &true)
+            .field(
+                "notation_len",
+                &self.notation.as_ref().map(|value| value.len()),
+            )
+            .field("pref_label_len", &self.pref_label.len())
+            .field("language_len", &self.language.len())
+            .field("status", &self.status)
+            .field("facet_type", &self.facet_type)
+            .field(
+                "facet_source_len",
+                &self.facet_source.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "facet_domain_len",
+                &self.facet_domain.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "facet_scope_len",
+                &self.facet_scope.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "definition_len",
+                &self.definition.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "scope_note_len",
+                &self.scope_note.as_ref().map(|value| value.len()),
+            )
+            .field("broader_id_count", &self.broader_ids.len())
+            .field("related_id_count", &self.related_ids.len())
+            .field("alt_label_lens", &alt_label_lens)
+            .finish()
+    }
+}
+
 /// Request to update a concept.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateConceptRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notation: Option<String>,
@@ -870,6 +1040,36 @@ pub struct UpdateConceptRequest {
     pub facet_domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub facet_scope: Option<String>,
+}
+
+impl fmt::Debug for UpdateConceptRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateConceptRequest")
+            .field(
+                "notation_len",
+                &self.notation.as_ref().map(|value| value.len()),
+            )
+            .field("status", &self.status)
+            .field(
+                "deprecation_reason_len",
+                &self.deprecation_reason.as_ref().map(|value| value.len()),
+            )
+            .field("replaced_by_id_set", &self.replaced_by_id.is_some())
+            .field("facet_type", &self.facet_type)
+            .field(
+                "facet_source_len",
+                &self.facet_source.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "facet_domain_len",
+                &self.facet_domain.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "facet_scope_len",
+                &self.facet_scope.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -2011,6 +2211,257 @@ mod tests {
                 "es-secret-note",
                 "request-author@example.internal",
                 "https://source.example.internal/path?token=secret",
+            ],
+        );
+    }
+
+    #[test]
+    fn skos_concept_debug_redacts_metadata_labels_and_identifiers() {
+        let concept_id = Uuid::parse_str("aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa").unwrap();
+        let scheme_id = Uuid::parse_str("bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb").unwrap();
+        let parent_id = Uuid::parse_str("cccccccc-3333-4444-8555-cccccccccccc").unwrap();
+        let related_id = Uuid::parse_str("dddddddd-4444-4555-8666-dddddddddddd").unwrap();
+        let mapping_id = Uuid::parse_str("eeeeeeee-5555-4666-8777-eeeeeeeeeeee").unwrap();
+        let now = Utc::now();
+
+        let concept = SkosConcept {
+            id: concept_id,
+            primary_scheme_id: scheme_id,
+            uri: Some("https://concept.example.internal/path?token=secret".to_string()),
+            notation: Some("concept-owner@example.internal".to_string()),
+            facet_type: Some(PmestFacet::Personality),
+            facet_source: Some("facet source postgres://facet:secret@db.internal".to_string()),
+            facet_domain: Some("facet domain /srv/fortemi/private/domain".to_string()),
+            facet_scope: Some("facet scope sk-secret-scope".to_string()),
+            status: TagStatus::Candidate,
+            promoted_at: Some(now),
+            deprecated_at: Some(now),
+            deprecation_reason: Some("deprecated because bearer-secret appeared".to_string()),
+            replaced_by_id: Some(parent_id),
+            note_count: 7,
+            first_used_at: Some(now),
+            last_used_at: Some(now),
+            depth: 2,
+            broader_count: 1,
+            narrower_count: 2,
+            related_count: 3,
+            antipatterns: Vec::new(),
+            antipattern_checked_at: Some(now),
+            created_at: now,
+            updated_at: now,
+            embedding_model: Some("embedding-model-secret@example.internal".to_string()),
+            embedded_at: Some(now),
+        };
+        let summary = SkosConceptSummary {
+            id: concept_id,
+            notation: Some("summary-notation-secret".to_string()),
+            pref_label: Some("Summary label postgres://summary:secret@db.internal".to_string()),
+            status: TagStatus::Approved,
+            note_count: 4,
+            depth: 1,
+            scheme_notation: Some("scheme-notation-secret".to_string()),
+        };
+        let with_label = SkosConceptWithLabel {
+            concept: concept.clone(),
+            pref_label: Some("Preferred label /srv/fortemi/private/pref".to_string()),
+            label_language: Some("en-secret-pref".to_string()),
+            scheme_notation: Some("with-label-scheme-secret".to_string()),
+            scheme_title: Some("Scheme title sk-secret-title".to_string()),
+        };
+        let full = SkosConceptFull {
+            concept: concept.clone(),
+            labels: vec![SkosConceptLabel {
+                id: parent_id,
+                concept_id,
+                label_type: SkosLabelType::AltLabel,
+                value: "Nested label owner@example.internal".to_string(),
+                language: "en-secret-nested".to_string(),
+                created_at: now,
+            }],
+            notes: vec![SkosConceptNote {
+                id: related_id,
+                concept_id,
+                note_type: SkosNoteType::Definition,
+                value: "Nested note postgres://note:secret@db.internal".to_string(),
+                language: "en-secret-note".to_string(),
+                author: Some("nested-author@example.internal".to_string()),
+                source: Some("https://nested.example.internal/source?token=secret".to_string()),
+                created_at: now,
+                updated_at: now,
+            }],
+            broader: vec![summary.clone()],
+            narrower: vec![summary.clone()],
+            related: vec![summary.clone()],
+            mappings: vec![SkosMappingRelationEdge {
+                id: mapping_id,
+                concept_id,
+                target_uri: "https://external.example.internal/vocab?token=secret".to_string(),
+                target_scheme_uri: Some("https://scheme.example.internal/secret".to_string()),
+                target_label: Some("Target label secret@example.internal".to_string()),
+                relation_type: SkosMappingRelation::ExactMatch,
+                confidence: Some(0.9),
+                is_validated: true,
+                created_at: now,
+                validated_at: Some(now),
+                validated_by: Some("validator-secret@example.internal".to_string()),
+            }],
+            schemes: vec![SkosConceptSchemeSummary {
+                id: scheme_id,
+                notation: "nested-scheme-secret".to_string(),
+                title: "Nested scheme title sk-secret".to_string(),
+                description: Some("Nested scheme postgres://scheme:secret@db.internal".to_string()),
+                is_active: true,
+                is_system: false,
+                concept_count: 1,
+                updated_at: now,
+            }],
+        };
+        let hierarchy = SkosConceptHierarchy {
+            id: concept_id,
+            notation: Some("hierarchy-notation-secret".to_string()),
+            label: Some("Hierarchy label owner@example.internal".to_string()),
+            level: 2,
+            path: vec![parent_id, concept_id],
+            label_path: vec![
+                "Parent label /srv/fortemi/private/parent".to_string(),
+                "Child label sk-secret-child".to_string(),
+            ],
+        };
+        let create = CreateConceptRequest {
+            scheme_id,
+            notation: Some("create-notation-secret".to_string()),
+            pref_label: "Create label secret@example.internal".to_string(),
+            language: "en-secret-create".to_string(),
+            status: TagStatus::Candidate,
+            facet_type: Some(PmestFacet::Energy),
+            facet_source: Some("create facet source sk-secret".to_string()),
+            facet_domain: Some("create domain postgres://domain:secret@db.internal".to_string()),
+            facet_scope: Some("create scope /srv/fortemi/private/scope".to_string()),
+            definition: Some("definition includes bearer-secret".to_string()),
+            scope_note: Some("scope note https://scope.example.internal?token=secret".to_string()),
+            broader_ids: vec![parent_id],
+            related_ids: vec![related_id],
+            alt_labels: vec![
+                "alternate label owner@example.internal".to_string(),
+                "alternate label sk-secret-alt".to_string(),
+            ],
+        };
+        let update = UpdateConceptRequest {
+            notation: Some("update-notation-secret".to_string()),
+            status: Some(TagStatus::Deprecated),
+            deprecation_reason: Some(
+                "update deprecation postgres://update:secret@db.internal".to_string(),
+            ),
+            replaced_by_id: Some(related_id),
+            facet_type: Some(PmestFacet::Time),
+            facet_source: Some("update facet source owner@example.internal".to_string()),
+            facet_domain: Some("update domain /srv/fortemi/private/update".to_string()),
+            facet_scope: Some("update scope sk-secret-update".to_string()),
+        };
+
+        let concept_debug = format!("{concept:?}");
+        assert!(concept_debug.contains("SkosConcept"));
+        assert!(concept_debug.contains("notation_len"));
+        assert!(concept_debug.contains("replaced_by_id_set"));
+        assert_debug_excludes(
+            &concept_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "cccccccc-3333-4444-8555-cccccccccccc",
+                "https://concept.example.internal/path?token=secret",
+                "concept-owner@example.internal",
+                "postgres://facet:secret@db.internal",
+                "/srv/fortemi/private/domain",
+                "sk-secret-scope",
+                "bearer-secret",
+                "embedding-model-secret@example.internal",
+            ],
+        );
+
+        let summary_debug = format!("{summary:?}");
+        assert!(summary_debug.contains("SkosConceptSummary"));
+        assert_debug_excludes(
+            &summary_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "summary-notation-secret",
+                "postgres://summary:secret@db.internal",
+                "scheme-notation-secret",
+            ],
+        );
+
+        let with_label_debug = format!("{with_label:?}");
+        assert!(with_label_debug.contains("SkosConceptWithLabel"));
+        assert_debug_excludes(
+            &with_label_debug,
+            &[
+                "/srv/fortemi/private/pref",
+                "en-secret-pref",
+                "with-label-scheme-secret",
+                "sk-secret-title",
+            ],
+        );
+
+        let full_debug = format!("{full:?}");
+        assert!(full_debug.contains("SkosConceptFull"));
+        assert!(full_debug.contains("label_count"));
+        assert_debug_excludes(
+            &full_debug,
+            &[
+                "Nested label owner@example.internal",
+                "postgres://note:secret@db.internal",
+                "https://external.example.internal/vocab?token=secret",
+                "Target label secret@example.internal",
+                "nested-scheme-secret",
+                "postgres://scheme:secret@db.internal",
+            ],
+        );
+
+        let hierarchy_debug = format!("{hierarchy:?}");
+        assert!(hierarchy_debug.contains("SkosConceptHierarchy"));
+        assert_debug_excludes(
+            &hierarchy_debug,
+            &[
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "cccccccc-3333-4444-8555-cccccccccccc",
+                "hierarchy-notation-secret",
+                "owner@example.internal",
+                "/srv/fortemi/private/parent",
+                "sk-secret-child",
+            ],
+        );
+
+        let create_debug = format!("{create:?}");
+        assert!(create_debug.contains("CreateConceptRequest"));
+        assert_debug_excludes(
+            &create_debug,
+            &[
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "create-notation-secret",
+                "secret@example.internal",
+                "en-secret-create",
+                "sk-secret",
+                "postgres://domain:secret@db.internal",
+                "/srv/fortemi/private/scope",
+                "bearer-secret",
+                "https://scope.example.internal?token=secret",
+                "cccccccc-3333-4444-8555-cccccccccccc",
+                "dddddddd-4444-4555-8666-dddddddddddd",
+            ],
+        );
+
+        let update_debug = format!("{update:?}");
+        assert!(update_debug.contains("UpdateConceptRequest"));
+        assert_debug_excludes(
+            &update_debug,
+            &[
+                "update-notation-secret",
+                "postgres://update:secret@db.internal",
+                "dddddddd-4444-4555-8666-dddddddddddd",
+                "owner@example.internal",
+                "/srv/fortemi/private/update",
+                "sk-secret-update",
             ],
         );
     }
