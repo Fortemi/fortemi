@@ -183,6 +183,7 @@ const PKE_ENCRYPTION_FAILURE_DETAIL: &str =
     "PKE encryption failed. Check server logs for diagnostics.";
 const PKE_KEYSET_CREATION_FAILURE_DETAIL: &str =
     "PKE keyset creation failed. Check server logs for diagnostics.";
+const PKE_KEYSET_AUDIT_EMIT_FAILURE_DETAIL: &str = "pke_keyset_audit_emit_failed";
 
 fn invalid_pke_public_key_length() -> ApiError {
     ApiError::BadRequest("Public key must be 32 bytes.".to_string())
@@ -778,7 +779,12 @@ pub async fn import_keyset(
 
 async fn emit_pke_keyset_audit_event(event: AuditEvent) {
     if let Err(err) = TracingSink.emit(event).await {
-        warn!(error = %err, "failed to emit PKE keyset audit event");
+        let diagnostic = err.to_string();
+        warn!(
+            error_len = diagnostic.chars().count(),
+            detail = PKE_KEYSET_AUDIT_EMIT_FAILURE_DETAIL,
+            "failed to emit PKE keyset audit event"
+        );
     }
 }
 
@@ -888,6 +894,7 @@ mod tests {
             PKE_KEY_GENERATION_FAILURE_DETAIL,
             PKE_ENCRYPTION_FAILURE_DETAIL,
             PKE_KEYSET_CREATION_FAILURE_DETAIL,
+            PKE_KEYSET_AUDIT_EMIT_FAILURE_DETAIL,
         ];
 
         assert_eq!(
@@ -901,6 +908,10 @@ mod tests {
         assert_eq!(
             PKE_KEYSET_CREATION_FAILURE_DETAIL,
             "PKE keyset creation failed. Check server logs for diagnostics."
+        );
+        assert_eq!(
+            PKE_KEYSET_AUDIT_EMIT_FAILURE_DETAIL,
+            "pke_keyset_audit_emit_failed"
         );
 
         for detail in details {
