@@ -177,6 +177,13 @@ fn optional_text_len(value: &Option<String>) -> Option<usize> {
     value.as_deref().map(|value| value.chars().count())
 }
 
+const PKE_KEY_GENERATION_FAILURE_DETAIL: &str =
+    "PKE key generation failed. Check server logs for diagnostics.";
+const PKE_ENCRYPTION_FAILURE_DETAIL: &str =
+    "PKE encryption failed. Check server logs for diagnostics.";
+const PKE_KEYSET_CREATION_FAILURE_DETAIL: &str =
+    "PKE keyset creation failed. Check server logs for diagnostics.";
+
 fn invalid_pke_public_key_length() -> ApiError {
     ApiError::BadRequest("Public key must be 32 bytes.".to_string())
 }
@@ -205,9 +212,16 @@ pub async fn pke_keygen(Json(req): Json<PkeKeygenRequest>) -> Result<impl IntoRe
     // Encrypt private key with passphrase
     let encrypted_private =
         key_storage::encrypt_private_key(keypair.private.as_bytes(), &req.passphrase).map_err(
-            |e| ApiError::OperationFailed {
-                operation: "PKE key generation",
-                detail: e.to_string(),
+            |e| {
+                let diagnostic = e.to_string();
+                warn!(
+                    error_len = diagnostic.chars().count(),
+                    "PKE key generation failed"
+                );
+                ApiError::OperationFailed {
+                    operation: "PKE key generation",
+                    detail: PKE_KEY_GENERATION_FAILURE_DETAIL.to_string(),
+                }
             },
         )?;
     let encrypted_private_b64 = BASE64.encode(&encrypted_private);
@@ -301,9 +315,14 @@ pub async fn pke_encrypt(
 
     let ciphertext =
         encrypt_pke(&plaintext, &recipient_keys, req.original_filename).map_err(|e| {
+            let diagnostic = e.to_string();
+            warn!(
+                error_len = diagnostic.chars().count(),
+                "PKE encryption failed"
+            );
             ApiError::OperationFailed {
                 operation: "PKE encryption",
-                detail: e.to_string(),
+                detail: PKE_ENCRYPTION_FAILURE_DETAIL.to_string(),
             }
         })?;
 
@@ -493,9 +512,16 @@ pub async fn create_keyset(
     // Encrypt private key with passphrase
     let encrypted_private_key =
         key_storage::encrypt_private_key(keypair.private.as_bytes(), &req.passphrase).map_err(
-            |e| ApiError::OperationFailed {
-                operation: "PKE keyset creation",
-                detail: e.to_string(),
+            |e| {
+                let diagnostic = e.to_string();
+                warn!(
+                    error_len = diagnostic.chars().count(),
+                    "PKE keyset creation failed"
+                );
+                ApiError::OperationFailed {
+                    operation: "PKE keyset creation",
+                    detail: PKE_KEYSET_CREATION_FAILURE_DETAIL.to_string(),
+                }
             },
         )?;
 
@@ -848,6 +874,44 @@ mod tests {
         assert!(!body.contains(&submitted_recipient_key_len.to_string()));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
+    }
+
+    #[test]
+    fn pke_operation_failure_details_are_fixed_and_redacted() {
+        let raw_diagnostics = [
+            "postgres://fortemi:secret@db.internal/fortemi",
+            "Bearer pke-token-secret",
+            "/srv/fortemi/private/keyset.bin",
+            "crypto backend failed: passphrase=top-secret",
+        ];
+        let details = [
+            PKE_KEY_GENERATION_FAILURE_DETAIL,
+            PKE_ENCRYPTION_FAILURE_DETAIL,
+            PKE_KEYSET_CREATION_FAILURE_DETAIL,
+        ];
+
+        assert_eq!(
+            PKE_KEY_GENERATION_FAILURE_DETAIL,
+            "PKE key generation failed. Check server logs for diagnostics."
+        );
+        assert_eq!(
+            PKE_ENCRYPTION_FAILURE_DETAIL,
+            "PKE encryption failed. Check server logs for diagnostics."
+        );
+        assert_eq!(
+            PKE_KEYSET_CREATION_FAILURE_DETAIL,
+            "PKE keyset creation failed. Check server logs for diagnostics."
+        );
+
+        for detail in details {
+            for raw in raw_diagnostics {
+                assert!(!detail.contains(raw));
+            }
+            assert!(!detail.contains("postgres://"));
+            assert!(!detail.contains("Bearer "));
+            assert!(!detail.contains("/srv/"));
+            assert!(!detail.contains("passphrase="));
+        }
     }
 
     #[test]
