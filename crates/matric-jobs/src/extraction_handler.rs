@@ -105,6 +105,13 @@ fn extraction_job_failure(message: &str, error: impl std::fmt::Display) -> JobRe
     ))
 }
 
+fn extraction_failure_message(error: &str) -> String {
+    format!(
+        "Extraction failed ({})",
+        extraction_error_reason_code(error)
+    )
+}
+
 pub struct ExtractionHandler {
     db: Database,
     registry: Arc<ExtractionRegistry>,
@@ -1746,8 +1753,8 @@ impl JobHandler for ExtractionHandler {
                 JobResult::Success(Some(result_json))
             }
             Err(e) => {
-                let error_msg = format!("Extraction failed: {}", e);
                 let error_text = e.to_string();
+                let error_msg = extraction_failure_message(&error_text);
                 error!(
                     strategy = %strategy,
                     filename_len = telemetry_text_len(filename),
@@ -1882,6 +1889,20 @@ mod tests {
         let rendered = format!("{failure:?}");
 
         assert!(rendered.contains("Failed to download attachment"));
+        assert!(rendered.contains("operation_failed"));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("postgres://"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("/srv/private"));
+    }
+
+    #[test]
+    fn extraction_failure_message_redacts_adapter_error_details() {
+        let rendered = extraction_failure_message(
+            "adapter failed for postgres://user:mm_key_secret@db.internal/app at /srv/private/input.pdf",
+        );
+
+        assert!(rendered.contains("Extraction failed"));
         assert!(rendered.contains("operation_failed"));
         assert!(!rendered.contains("mm_key_secret"));
         assert!(!rendered.contains("postgres://"));
