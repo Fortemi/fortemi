@@ -6,6 +6,7 @@
 use axum::extract::State;
 use axum::Json;
 use serde::Serialize;
+use std::fmt;
 use tracing::warn;
 
 use crate::{ApiError, AppState};
@@ -15,7 +16,7 @@ const VISION_ANALYSIS_PROVIDER_DETAIL: &str =
     "Vision analysis backend failed. Check server logs for diagnostics.";
 
 /// Response from image description.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct DescribeImageResponse {
     /// AI-generated description of the image.
     pub description: String,
@@ -23,6 +24,16 @@ pub struct DescribeImageResponse {
     pub model: String,
     /// Size of the uploaded image in bytes.
     pub image_size: usize,
+}
+
+impl fmt::Debug for DescribeImageResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DescribeImageResponse")
+            .field("description_len", &self.description.len())
+            .field("model_len", &self.model.len())
+            .field("image_size", &self.image_size)
+            .finish()
+    }
 }
 
 /// Describe an image using the configured vision model.
@@ -150,5 +161,32 @@ mod tests {
         assert!(!VISION_ANALYSIS_PROVIDER_DETAIL.contains("https://"));
         assert!(!VISION_ANALYSIS_PROVIDER_DETAIL.contains("token"));
         assert!(!VISION_ANALYSIS_PROVIDER_DETAIL.contains("/srv/fortemi"));
+    }
+
+    #[test]
+    fn describe_image_response_debug_redacts_generated_description_and_model() {
+        let response = DescribeImageResponse {
+            description: "Generated description mentions customer@example.com, /srv/private/image.png, and sk-live-vision".to_string(),
+            model: "llava-private-model-db.internal".to_string(),
+            image_size: 8192,
+        };
+
+        let rendered = format!("{response:?}");
+
+        assert!(rendered.contains("DescribeImageResponse"));
+        assert!(rendered.contains("description_len"));
+        assert!(rendered.contains("model_len"));
+        assert!(rendered.contains("image_size"));
+
+        for raw in [
+            "Generated description",
+            "customer@example.com",
+            "/srv/private/image.png",
+            "sk-live-vision",
+            "llava-private-model",
+            "db.internal",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
     }
 }

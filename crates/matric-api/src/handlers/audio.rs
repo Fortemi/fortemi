@@ -6,6 +6,7 @@
 use axum::extract::State;
 use axum::Json;
 use serde::Serialize;
+use std::fmt;
 use tracing::warn;
 
 use crate::{ApiError, AppState};
@@ -15,7 +16,7 @@ const AUDIO_TRANSCRIPTION_PROVIDER_DETAIL: &str =
     "Audio transcription backend failed. Check server logs for diagnostics.";
 
 /// Response from audio transcription.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct TranscribeAudioResponse {
     /// Full transcribed text.
     pub text: String,
@@ -29,6 +30,38 @@ pub struct TranscribeAudioResponse {
     pub model: String,
     /// Size of the uploaded audio in bytes.
     pub audio_size: usize,
+}
+
+impl fmt::Debug for TranscribeAudioResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let segment_text_lens: Vec<usize> = self
+            .segments
+            .iter()
+            .map(|segment| segment.text.len())
+            .collect();
+        let speaker_id_lens: Vec<Option<usize>> = self
+            .segments
+            .iter()
+            .map(|segment| segment.speaker_id.as_ref().map(String::len))
+            .collect();
+        let word_counts: Vec<usize> = self
+            .segments
+            .iter()
+            .map(|segment| segment.words.as_ref().map_or(0, Vec::len))
+            .collect();
+
+        f.debug_struct("TranscribeAudioResponse")
+            .field("text_len", &self.text.len())
+            .field("segments_count", &self.segments.len())
+            .field("segment_text_lens", &segment_text_lens)
+            .field("speaker_id_lens", &speaker_id_lens)
+            .field("segment_word_counts", &word_counts)
+            .field("language_len", &self.language.as_ref().map(String::len))
+            .field("duration_secs", &self.duration_secs)
+            .field("model_len", &self.model.len())
+            .field("audio_size", &self.audio_size)
+            .finish()
+    }
 }
 
 /// Transcribe audio using the configured Whisper-compatible backend.
@@ -157,5 +190,55 @@ mod tests {
         assert!(!AUDIO_TRANSCRIPTION_PROVIDER_DETAIL.contains("https://"));
         assert!(!AUDIO_TRANSCRIPTION_PROVIDER_DETAIL.contains("token"));
         assert!(!AUDIO_TRANSCRIPTION_PROVIDER_DETAIL.contains("/srv/fortemi"));
+    }
+
+    #[test]
+    fn transcribe_audio_response_debug_redacts_transcript_text_and_model() {
+        let response = TranscribeAudioResponse {
+            text: "customer@example.com transcript postgres://user:pass@db.internal/app"
+                .to_string(),
+            segments: vec![TranscriptionSegment {
+                start_secs: 0.0,
+                end_secs: 2.5,
+                text: "segment text has /srv/private/audio.wav and sk-live-audio".to_string(),
+                speaker_id: Some("speaker-customer@example.com".to_string()),
+                words: Some(vec![matric_inference::transcription::WordTimestamp {
+                    word: "secret-word-token".to_string(),
+                    start_secs: 0.1,
+                    end_secs: 0.2,
+                    confidence: Some(0.9),
+                }]),
+            }],
+            language: Some("en-private-customer".to_string()),
+            duration_secs: Some(2.5),
+            model: "whisper-private-model-db.internal".to_string(),
+            audio_size: 4096,
+        };
+
+        let rendered = format!("{response:?}");
+
+        assert!(rendered.contains("TranscribeAudioResponse"));
+        assert!(rendered.contains("text_len"));
+        assert!(rendered.contains("segments_count"));
+        assert!(rendered.contains("segment_text_lens"));
+        assert!(rendered.contains("speaker_id_lens"));
+        assert!(rendered.contains("segment_word_counts"));
+        assert!(rendered.contains("language_len"));
+        assert!(rendered.contains("model_len"));
+
+        for raw in [
+            "customer@example.com",
+            "postgres://user:pass",
+            "db.internal",
+            "segment text",
+            "/srv/private/audio.wav",
+            "sk-live-audio",
+            "speaker-customer",
+            "secret-word-token",
+            "en-private-customer",
+            "whisper-private-model",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
     }
 }
