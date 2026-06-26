@@ -16971,7 +16971,7 @@ impl fmt::Debug for CreateJobBody {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct JobResponse {
     id: Uuid,
     note_id: Option<Uuid>,
@@ -16989,6 +16989,55 @@ struct JobResponse {
     started_at: Option<DateTime<Utc>>,
     completed_at: Option<DateTime<Utc>>,
     cost_tier: Option<i16>,
+}
+
+impl fmt::Debug for JobResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JobResponse")
+            .field("id_present", &true)
+            .field("note_id_present", &self.note_id.is_some())
+            .field("job_type", &self.job_type)
+            .field("status", &self.status)
+            .field("priority", &self.priority)
+            .field(
+                "payload_class",
+                &self.payload.as_ref().map(webhook_delivery_json_class),
+            )
+            .field(
+                "payload_len",
+                &self
+                    .payload
+                    .as_ref()
+                    .map(|payload| telemetry_text_len(&payload.to_string())),
+            )
+            .field(
+                "result_class",
+                &self.result.as_ref().map(webhook_delivery_json_class),
+            )
+            .field(
+                "result_len",
+                &self
+                    .result
+                    .as_ref()
+                    .map(|result| telemetry_text_len(&result.to_string())),
+            )
+            .field(
+                "error_message_len",
+                &self.error_message.as_deref().map(telemetry_text_len),
+            )
+            .field("progress_percent", &self.progress_percent)
+            .field(
+                "progress_message_len",
+                &self.progress_message.as_deref().map(telemetry_text_len),
+            )
+            .field("retry_count", &self.retry_count)
+            .field("max_retries", &self.max_retries)
+            .field("created_at", &self.created_at)
+            .field("started_at_present", &self.started_at.is_some())
+            .field("completed_at_present", &self.completed_at.is_some())
+            .field("cost_tier", &self.cost_tier)
+            .finish()
+    }
 }
 
 impl From<Job> for JobResponse {
@@ -28296,8 +28345,8 @@ mod tests {
     #[test]
     fn job_response_redacts_payload_result_and_error_message() {
         let job = Job {
-            id: Uuid::new_v4(),
-            note_id: Some(Uuid::new_v4()),
+            id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000801").unwrap(),
+            note_id: Some(Uuid::parse_str("018fd1a0-0000-7000-8000-000000000802").unwrap()),
             job_type: JobType::AiRevision,
             status: JobStatus::Failed,
             priority: 10,
@@ -28332,7 +28381,9 @@ mod tests {
             cost_tier: Some(1),
         };
 
-        let response = serde_json::to_value(JobResponse::from(job)).unwrap();
+        let response = JobResponse::from(job);
+        let debug = format!("{response:?}");
+        let response = serde_json::to_value(response).unwrap();
 
         assert_eq!(response["payload"]["input"], "[redacted]");
         assert_eq!(response["payload"]["provider_url"], "[redacted]");
@@ -28349,6 +28400,23 @@ mod tests {
 
         let serialized = response.to_string();
         for forbidden in [
+            "018fd1a0-0000-7000-8000-000000000801",
+            "018fd1a0-0000-7000-8000-000000000802",
+            "uploaded note body",
+            "token:secret",
+            "postgres://",
+            "/srv/fortemi",
+            "/home/operator",
+            "Cannot reach",
+            "Generation failed",
+        ] {
+            assert!(
+                !debug.contains(forbidden),
+                "job response debug leaked {forbidden}"
+            );
+        }
+
+        for forbidden in [
             "uploaded note body",
             "token:secret",
             "postgres://",
@@ -28362,6 +28430,15 @@ mod tests {
                 "job response leaked {forbidden}"
             );
         }
+
+        assert!(debug.contains("id_present"));
+        assert!(debug.contains("note_id_present"));
+        assert!(debug.contains("payload_class"));
+        assert!(debug.contains("payload_len"));
+        assert!(debug.contains("result_class"));
+        assert!(debug.contains("result_len"));
+        assert!(debug.contains("error_message_len"));
+        assert!(debug.contains("progress_message_len"));
     }
 
     #[test]
