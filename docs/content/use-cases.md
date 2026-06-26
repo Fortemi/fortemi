@@ -610,7 +610,7 @@ EMBEDDING_DIMENSION=768
 
 # Cloud API for generation
 OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=<OPENAI_API_KEY>
 GENERATION_MODEL=gpt-4o-mini
 
 # Fallback to local generation

@@ -281,11 +281,11 @@ OLLAMA_EMBED_MODEL=nomic-embed-text
 OLLAMA_VISION_MODEL=qwen3.5:9b
 
 # OpenAI provider (opt-in via feature flag + env vars)
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=<OPENAI_API_KEY>
 OPENAI_BASE_URL=https://api.openai.com/v1    # default
 
 # OpenRouter provider (uses OpenAI-compatible API)
-OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_API_KEY=<OPENROUTER_API_KEY>
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 ```
 

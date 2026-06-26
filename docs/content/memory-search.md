@@ -116,7 +116,7 @@ GET /api/v1/memories/search?lat={latitude}&lon={longitude}&radius={meters}
 ```bash
 # Find photos within 5km of the Louvre Museum
 curl "http://localhost:3000/api/v1/memories/search?lat=48.8606&lon=2.3376&radius=5000" \
-  -H "Authorization: Bearer your_token"
+  -H "Authorization: Bearer <ACCESS_TOKEN>"
 ```
 
 ### Search by Time Range
@@ -165,7 +165,7 @@ GET /api/v1/memories/search?start={iso8601_start}&end={iso8601_end}
 ```bash
 # Find all memories from January 2026
 curl "http://localhost:3000/api/v1/memories/search?start=2026-01-01T00:00:00Z&end=2026-02-01T00:00:00Z" \
-  -H "Authorization: Bearer your_token"
+  -H "Authorization: Bearer <ACCESS_TOKEN>"
 ```
 
 ### Search by Location and Time
@@ -187,7 +187,7 @@ GET /api/v1/memories/search?lat={latitude}&lon={longitude}&radius={meters}&start
 ```bash
 # Find photos taken in Paris during January 2025
 curl "http://localhost:3000/api/v1/memories/search?lat=48.8584&lon=2.2945&radius=10000&start=2025-01-01T00:00:00Z&end=2025-02-01T00:00:00Z" \
-  -H "Authorization: Bearer your_token"
+  -H "Authorization: Bearer <ACCESS_TOKEN>"
 ```
 
 ### Create Note Provenance
@@ -320,7 +320,7 @@ GET /api/v1/notes/{note_id}/memory-provenance
 ```bash
 # Get provenance for a note
 curl "http://localhost:3000/api/v1/notes/550e8400-e29b-41d4-a716-446655440000/memory-provenance" \
-  -H "Authorization: Bearer your_token"
+  -H "Authorization: Bearer <ACCESS_TOKEN>"
 ```
 
 ## Memory Provenance Fields
@@ -425,7 +425,7 @@ Find all photos captured within 5km of central Paris during January 2025:
 
 ```bash
 curl -X GET "http://localhost:3000/api/v1/memories/search" \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -G \
   --data-urlencode "lat=48.8566" \
   --data-urlencode "lon=2.3522" \
@@ -481,7 +481,7 @@ Find all memories captured within 1km of your home location:
 
 ```bash
 curl -X GET "http://localhost:3000/api/v1/memories/search" \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -G \
   --data-urlencode "lat=37.7749" \
   --data-urlencode "lon=-122.4194" \
@@ -498,7 +498,7 @@ START_DATE=$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)
 END_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 curl -X GET "http://localhost:3000/api/v1/memories/search" \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -G \
   --data-urlencode "start=$START_DATE" \
   --data-urlencode "end=$END_DATE"
@@ -512,7 +512,7 @@ Get complete provenance information for a note with attachments:
 NOTE_ID="550e8400-e29b-41d4-a716-446655440000"
 
 curl -X GET "http://localhost:3000/api/v1/notes/$NOTE_ID/memory-provenance" \
-  -H "Authorization: Bearer your_token"
+  -H "Authorization: Bearer <ACCESS_TOKEN>"
 ```
 
 **Response:**
@@ -561,7 +561,7 @@ Find photos from a specific camera within a region and format results:
 
 ```bash
 curl -X GET "http://localhost:3000/api/v1/memories/search" \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -G \
   --data-urlencode "lat=40.7128" \
   --data-urlencode "lon=-74.0060" \

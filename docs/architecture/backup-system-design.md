@@ -1019,7 +1019,7 @@ ExecStart=/usr/local/bin/matric-backup.sh -v
 User=matric
 Group=matric
 Environment=MATRIC_BACKUP_CONFIG=/etc/matric-memory/backup.yaml
-Environment=MATRIC_MEMORY_API_KEY=mm_key_xxxxx
+Environment=MATRIC_MEMORY_API_KEY=<API_KEY>
 
 # Logging
 StandardOutput=journal

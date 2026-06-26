@@ -244,7 +244,7 @@ If `REQUIRE_AUTH=true`, include your Bearer token:
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/jobs/pause \
-  -H "Authorization: Bearer mm_at_xxxx"
+  -H "Authorization: Bearer <ACCESS_TOKEN>"
 ```
 
 #### Summary of Endpoints

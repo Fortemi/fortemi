@@ -564,7 +564,7 @@ All environment variables are optional unless marked as required. The API reads 
 
 | Variable | Default | Description | Example |
 |----------|---------|-------------|---------|
-| `OPENAI_API_KEY` | (none) | OpenAI API key | `sk-proj-...` |
+| `OPENAI_API_KEY` | (none) | OpenAI API key | `<OPENAI_API_KEY>` |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI API base URL | `https://api.openai.com/v1` |
 | `OPENAI_EMBED_MODEL` | `text-embedding-3-small` | OpenAI embedding model | `text-embedding-3-large` |
 | `OPENAI_GEN_MODEL` | `gpt-4o-mini` | OpenAI generation model | `gpt-4o` |
@@ -583,7 +583,7 @@ All environment variables are optional unless marked as required. The API reads 
 | `MATRIC_OLLAMA_GENERATION_MODEL` | `qwen3.5:27b` | Ollama generation model | `llama3.2` |
 | `MATRIC_OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | Ollama embedding model | `mxbai-embed-large` |
 | `MATRIC_OPENAI_URL` | `https://api.openai.com/v1` | OpenAI URL | `https://custom-proxy.example.com/v1` |
-| `MATRIC_OPENAI_API_KEY` | (none) | OpenAI API key | `sk-proj-...` |
+| `MATRIC_OPENAI_API_KEY` | (none) | OpenAI API key | `<OPENAI_API_KEY>` |
 | `MATRIC_OPENAI_GENERATION_MODEL` | `gpt-4o-mini` | OpenAI generation model | `gpt-4o` |
 | `MATRIC_OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model | `text-embedding-3-large` |
 | `MATRIC_GEN_TIMEOUT_SECS` | `120` | Generation request timeout (seconds) | `180` |
@@ -688,7 +688,7 @@ AI features (embedding generation, auto-titling, AI revision) require either Oll
 
 Add to `.env`:
 ```
-OPENAI_API_KEY=sk-proj-...your-key...
+OPENAI_API_KEY=<OPENAI_API_KEY>your-key...
 OPENAI_EMBED_MODEL=text-embedding-3-small
 OPENAI_GEN_MODEL=gpt-4o-mini
 ```

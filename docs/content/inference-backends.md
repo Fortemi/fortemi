@@ -106,7 +106,7 @@ The OpenAI backend works with:
 
 ```bash
 # Environment variables
-export OPENAI_API_KEY=sk-...                          # Required for OpenAI cloud
+export OPENAI_API_KEY=<OPENAI_API_KEY>                          # Required for OpenAI cloud
 export OPENAI_BASE_URL=https://api.openai.com/v1      # Default
 export OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 export OPENAI_GENERATION_MODEL=gpt-4o-mini
@@ -129,7 +129,7 @@ embedding_dimension = 1536
 For OpenAI's cloud API:
 
 ```bash
-export OPENAI_API_KEY=sk-proj-...
+export OPENAI_API_KEY=<OPENAI_API_KEY>
 export OPENAI_BASE_URL=https://api.openai.com/v1
 export OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 export OPENAI_GENERATION_MODEL=gpt-4o-mini

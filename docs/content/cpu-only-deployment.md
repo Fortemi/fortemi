@@ -275,7 +275,7 @@ If you need GPU-quality results without GPU hardware, use a cloud inference prov
 ```bash
 # In .env
 MATRIC_INFERENCE_DEFAULT=openai
-OPENAI_API_KEY=sk-xxx
+OPENAI_API_KEY=<OPENAI_API_KEY>
 OPENAI_EMBED_MODEL=text-embedding-3-small
 OPENAI_GEN_MODEL=gpt-4o-mini
 OPENAI_EMBED_DIM=1536
@@ -289,7 +289,7 @@ Access to 100+ models (Llama, Mistral, Claude, GPT) through a single API:
 
 ```bash
 # In .env
-OPENROUTER_API_KEY=sk-or-v1-xxx
+OPENROUTER_API_KEY=<OPENROUTER_API_KEY>
 ```
 
 OpenRouter is configured as an additional provider — you can use it alongside local Ollama.
@@ -304,7 +304,7 @@ MATRIC_INFERENCE_DEFAULT=ollama
 OLLAMA_EMBED_MODEL=nomic-embed-text
 
 # Cloud generation via OpenAI for quality-sensitive tasks
-OPENAI_API_KEY=sk-xxx
+OPENAI_API_KEY=<OPENAI_API_KEY>
 OPENAI_GEN_MODEL=gpt-4o-mini
 ```
 
@@ -443,7 +443,7 @@ MAX_MEMORIES=20
 # Local embeddings only — generation via cloud
 OLLAMA_EMBED_MODEL=nomic-embed-text
 MATRIC_INFERENCE_DEFAULT=ollama
-OPENAI_API_KEY=sk-xxx
+OPENAI_API_KEY=<OPENAI_API_KEY>
 OPENAI_GEN_MODEL=gpt-4o-mini
 WHISPER_BASE_URL=http://whisper:8000   # with --profile whisper-cpu
 MAX_MEMORIES=50

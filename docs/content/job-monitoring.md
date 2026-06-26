@@ -757,7 +757,7 @@ tracker.callbacks.onPipelineComplete = (status) => {
 tracker.callbacks.onError = (jobId, error) => {
   console.error(`Job ${jobId} failed: ${error}`);
 };
-tracker.start(/* 'mm_at_xxx' */);
+tracker.start(/* '<ACCESS_TOKEN>' */);
 ```
 
 ### Tier Escalation Events

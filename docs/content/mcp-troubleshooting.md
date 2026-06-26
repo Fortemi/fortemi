@@ -221,8 +221,8 @@ Structure:
       "serverUrl": "http://localhost:3001",
       "clientId": "mm_xxxxx",
       "clientSecret": "xxxxx",
-      "accessToken": "mm_at_xxxxx",
-      "refreshToken": "mm_rt_xxxxx",
+      "accessToken": "<ACCESS_TOKEN>",
+      "refreshToken": "<REFRESH_TOKEN>",
       "expiresAt": 1234567890
     }
   }

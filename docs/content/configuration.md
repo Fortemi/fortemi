@@ -347,7 +347,7 @@ The OpenAI backend supports OpenAI's cloud API and any OpenAI-compatible endpoin
 **Example (OpenAI Cloud):**
 ```bash
 INFERENCE_BACKEND=openai
-OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxx
+OPENAI_API_KEY=<OPENAI_API_KEY>
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_EMBED_MODEL=text-embedding-3-small
 OPENAI_GEN_MODEL=gpt-4o-mini
@@ -653,7 +653,7 @@ OpenRouter provides access to 100+ LLMs via a single API. It is opt-in: the `OPE
 
 **Example:**
 ```bash
-OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxxx
+OPENROUTER_API_KEY=<OPENROUTER_API_KEY>
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_TIMEOUT=300
 OPENROUTER_HTTP_REFERER=https://memory.example.com
@@ -741,7 +741,7 @@ embedding_dimension = 768
 base_url = "https://api.openai.com/v1"
 
 # API key (can use environment variable reference)
-# For cloud: sk-proj-xxxxx
+# For cloud: <OPENAI_API_KEY>
 # For local servers: any value (usually ignored)
 api_key = "${OPENAI_API_KEY}"
 
@@ -1082,7 +1082,7 @@ OLLAMA_BASE=http://ollama-cluster.internal:11434
 OLLAMA_EMBED_MODEL=nomic-embed-text
 OLLAMA_EMBED_DIM=768
 
-OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxx
+OPENAI_API_KEY=<OPENAI_API_KEY>
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_GEN_MODEL=gpt-4o
 OPENAI_TIMEOUT=180

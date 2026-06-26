@@ -195,7 +195,7 @@ When enabling authentication on an existing deployment:
 - [ ] Distribute credentials to all clients/users
 - [ ] Test authentication with a sample request:
   ```bash
-  curl -H "Authorization: Bearer mm_at_xxxx" http://localhost:3000/api/v1/notes
+  curl -H "Authorization: Bearer <ACCESS_TOKEN>" http://localhost:3000/api/v1/notes
   ```
 
 ### Enable Authentication

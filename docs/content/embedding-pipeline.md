@@ -502,7 +502,7 @@ export EMBEDDING_MODEL=nomic-embed-text
 
 # Use OpenAI
 export EMBEDDING_PROVIDER=openai
-export OPENAI_API_KEY=sk-...
+export OPENAI_API_KEY=<OPENAI_API_KEY>
 export EMBEDDING_MODEL=text-embedding-3-small
 ```
 

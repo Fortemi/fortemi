@@ -89,7 +89,7 @@ OLLAMA_HOST=0.0.0.0 ollama serve
 
 ```bash
 MATRIC_INFERENCE_DEFAULT=openai
-MATRIC_OPENAI_API_KEY=sk-proj-...
+MATRIC_OPENAI_API_KEY=<OPENAI_API_KEY>
 # MATRIC_OPENAI_URL defaults to https://api.openai.com/v1
 MATRIC_OPENAI_GENERATION_MODEL=gpt-4o-mini
 MATRIC_OPENAI_EMBEDDING_MODEL=text-embedding-3-small
@@ -105,11 +105,11 @@ OpenRouter provides access to cloud models (Anthropic, Google, Meta, etc.) throu
 # Use as primary backend
 MATRIC_INFERENCE_DEFAULT=openai
 MATRIC_OPENAI_URL=https://openrouter.ai/api/v1
-MATRIC_OPENAI_API_KEY=sk-or-...
+MATRIC_OPENAI_API_KEY=<OPENROUTER_API_KEY>
 MATRIC_OPENAI_GENERATION_MODEL=anthropic/claude-sonnet-4-20250514
 
 # Or set OPENROUTER_API_KEY to enable it for per-request model overrides only
-OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_API_KEY=<OPENROUTER_API_KEY>
 ```
 
 With `OPENROUTER_API_KEY` set, you can route individual operations to OpenRouter using provider-qualified slugs:
@@ -163,7 +163,7 @@ LiteLLM is an OpenAI-compatible proxy that can front multiple upstream providers
 ```bash
 MATRIC_INFERENCE_DEFAULT=openai
 MATRIC_OPENAI_URL=http://host:4000/v1
-MATRIC_OPENAI_API_KEY=sk-litellm-master-key
+MATRIC_OPENAI_API_KEY=<API_KEY>
 MATRIC_OPENAI_GENERATION_MODEL=your-model-alias
 ```
 
