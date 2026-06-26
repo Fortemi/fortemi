@@ -12529,9 +12529,17 @@ async fn get_related(
     Ok(Json(relations))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct AddRelationBody {
     target_id: Uuid,
+}
+
+impl fmt::Debug for AddRelationBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AddRelationBody")
+            .field("target_id_set", &true)
+            .finish()
+    }
 }
 
 #[utoipa::path(post, path = "/api/v1/concepts/{id}/broader", tag = "SKOS",
@@ -26545,6 +26553,7 @@ mod tests {
     #[test]
     fn tag_mutation_debug_redacts_tag_values_and_concept_ids() {
         let concept_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
         let set_tags = SetTagsBody {
             tags: vec![
                 "customer/private/payroll".to_string(),
@@ -26556,10 +26565,12 @@ mod tests {
             concept_id,
             is_primary: Some(true),
         };
+        let relation = AddRelationBody { target_id };
 
         let rendered_tags = format!("{set_tags:?}");
         let rendered_concept = format!("{tag_note:?}");
-        let combined = format!("{rendered_tags}\n{rendered_concept}");
+        let rendered_relation = format!("{relation:?}");
+        let combined = format!("{rendered_tags}\n{rendered_concept}\n{rendered_relation}");
 
         assert!(rendered_tags.contains("SetTagsBody"));
         assert!(rendered_tags.contains("tags_count"));
@@ -26567,12 +26578,15 @@ mod tests {
         assert!(rendered_concept.contains("TagNoteBody"));
         assert!(rendered_concept.contains("concept_id_set"));
         assert!(rendered_concept.contains("is_primary"));
+        assert!(rendered_relation.contains("AddRelationBody"));
+        assert!(rendered_relation.contains("target_id_set"));
 
         for raw in [
             "customer/private/payroll",
             "customer@example.com",
             "sk-live-tag-secret",
             &concept_id.to_string(),
+            &target_id.to_string(),
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
