@@ -132,6 +132,27 @@ fn media_io_error_kind(error: &std::io::Error) -> &'static str {
     }
 }
 
+fn media_text_len(text: &str) -> usize {
+    text.chars().count()
+}
+
+fn media_error_reason_code(error: &str) -> &'static str {
+    let text = error.to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("not found") || text.contains("no such") || text.contains("missing") {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else if text.contains("database") || text.contains("sql") || text.contains("postgres") {
+        "database_error"
+    } else if text.contains("invalid") || text.contains("codec") || text.contains("ffprobe") {
+        "invalid_media"
+    } else {
+        "operation_failed"
+    }
+}
+
 fn media_stderr_reason_code(stderr: &[u8]) -> &'static str {
     let text = String::from_utf8_lossy(stderr).to_ascii_lowercase();
     if text.contains("permission") || text.contains("denied") {
@@ -367,7 +388,11 @@ impl MediaOptimizeHandler {
                         derivation_type: "faststart".into(),
                     });
                 }
-                Err(e) => warn!("Faststart remux failed: {}", e),
+                Err(e) => warn!(
+                    error_len = media_text_len(&e),
+                    error_reason = media_error_reason_code(&e),
+                    "Faststart remux failed"
+                ),
             }
         }
 
@@ -397,7 +422,11 @@ impl MediaOptimizeHandler {
                         derivation_type: "web_compatible".into(),
                     });
                 }
-                Err(e) => warn!("MKV/MOV→MP4 remux failed: {}", e),
+                Err(e) => warn!(
+                    error_len = media_text_len(&e),
+                    error_reason = media_error_reason_code(&e),
+                    "MKV/MOV remux failed"
+                ),
             }
         }
 
@@ -421,7 +450,11 @@ impl MediaOptimizeHandler {
                 }
                 Err(e) => {
                     // Fallback: try encoding to AAC if copy fails (incompatible codec)
-                    debug!("Audio copy failed, trying AAC encode: {}", e);
+                    debug!(
+                        error_len = media_text_len(&e),
+                        error_reason = media_error_reason_code(&e),
+                        "Audio copy failed, trying AAC encode"
+                    );
                     let out2 = work_dir.join("audio_enc.m4a");
                     let out2_str = out2.to_string_lossy().to_string();
                     match run_ffmpeg(
@@ -440,7 +473,11 @@ impl MediaOptimizeHandler {
                                 derivation_type: "audio_only".into(),
                             });
                         }
-                        Err(e2) => warn!("Audio extraction failed: {}", e2),
+                        Err(e2) => warn!(
+                            error_len = media_text_len(&e2),
+                            error_reason = media_error_reason_code(&e2),
+                            "Audio extraction failed"
+                        ),
                     }
                 }
             }
@@ -487,7 +524,11 @@ impl MediaOptimizeHandler {
                                 derivation_type: "preview_720p".into(),
                             });
                         }
-                        Err(e) => warn!("720p preview generation failed: {}", e),
+                        Err(e) => warn!(
+                            error_len = media_text_len(&e),
+                            error_reason = media_error_reason_code(&e),
+                            "720p preview generation failed"
+                        ),
                     }
                 }
             }
@@ -526,7 +567,11 @@ impl MediaOptimizeHandler {
                         derivation_type: "web_audio".into(),
                     });
                 }
-                Err(e) => warn!("Lossless→AAC conversion failed: {}", e),
+                Err(e) => warn!(
+                    error_len = media_text_len(&e),
+                    error_reason = media_error_reason_code(&e),
+                    "Lossless AAC conversion failed"
+                ),
             }
         }
 
@@ -551,7 +596,11 @@ impl MediaOptimizeHandler {
                         derivation_type: "audio_preview".into(),
                     });
                 }
-                Err(e) => warn!("Audio preview generation failed: {}", e),
+                Err(e) => warn!(
+                    error_len = media_text_len(&e),
+                    error_reason = media_error_reason_code(&e),
+                    "Audio preview generation failed"
+                ),
             }
         }
 
@@ -648,7 +697,12 @@ impl JobHandler for MediaOptimizeHandler {
         let probe = match ffprobe(&input_path).await {
             Ok(p) => p,
             Err(e) => {
-                warn!(%attachment_id, "ffprobe failed, skipping optimization: {}", e);
+                warn!(
+                    attachment_id_present = true,
+                    error_len = media_text_len(&e),
+                    error_reason = media_error_reason_code(&e),
+                    "ffprobe failed, skipping optimization"
+                );
                 return JobResult::Success(Some(json!({
                     "skipped": true,
                     "reason": format!("ffprobe failed: {}", e),
@@ -657,10 +711,10 @@ impl JobHandler for MediaOptimizeHandler {
         };
 
         info!(
-            %attachment_id,
-            format = %probe.format_name,
-            video_codec = ?probe.video_codec,
-            audio_codec = ?probe.audio_codec,
+            attachment_id_present = true,
+            format_len = media_text_len(&probe.format_name),
+            video_codec_len = probe.video_codec.as_deref().map(media_text_len),
+            audio_codec_len = probe.audio_codec.as_deref().map(media_text_len),
             duration = probe.duration_secs,
             size = probe.size_bytes,
             "Media probe complete"
@@ -683,7 +737,10 @@ impl JobHandler for MediaOptimizeHandler {
         };
 
         if variants.is_empty() {
-            info!(%attachment_id, "No optimization needed for this file");
+            info!(
+                attachment_id_present = true,
+                "No optimization needed for this file"
+            );
             return JobResult::Success(Some(json!({
                 "variants_created": 0,
                 "reason": "No applicable optimizations for this format/size",
@@ -707,9 +764,12 @@ impl JobHandler for MediaOptimizeHandler {
             let data = match tokio::fs::read(&variant.path).await {
                 Ok(d) => d,
                 Err(e) => {
+                    let error_text = e.to_string();
                     error!(
-                        derivation_type = %variant.derivation_type,
-                        "Failed to read generated variant: {}", e
+                        derivation_type_len = media_text_len(&variant.derivation_type),
+                        error_len = media_text_len(&error_text),
+                        error_reason = media_error_reason_code(&error_text),
+                        "Failed to read generated variant"
                     );
                     continue;
                 }
@@ -721,7 +781,12 @@ impl JobHandler for MediaOptimizeHandler {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(tx) => tx,
                 Err(e) => {
-                    error!("Failed to start transaction for variant storage: {}", e);
+                    let error_text = e.to_string();
+                    error!(
+                        error_len = media_text_len(&error_text),
+                        error_reason = media_error_reason_code(&error_text),
+                        "Failed to start transaction for variant storage"
+                    );
                     continue;
                 }
             };
@@ -740,9 +805,12 @@ impl JobHandler for MediaOptimizeHandler {
             {
                 Ok(att) => {
                     if let Err(e) = tx.commit().await {
+                        let error_text = e.to_string();
                         error!(
-                            "Failed to commit variant {}: {}",
-                            variant.derivation_type, e
+                            derivation_type_len = media_text_len(&variant.derivation_type),
+                            error_len = media_text_len(&error_text),
+                            error_reason = media_error_reason_code(&error_text),
+                            "Failed to commit variant"
                         );
                         continue;
                     }
@@ -754,17 +822,20 @@ impl JobHandler for MediaOptimizeHandler {
                         "size_bytes": file_size,
                     }));
                     info!(
-                        parent = %attachment_id,
-                        variant = %variant.derivation_type,
-                        derived_id = %att.id,
+                        parent_attachment_id_present = true,
+                        derivation_type_len = media_text_len(&variant.derivation_type),
+                        derived_attachment_id_present = true,
                         size = file_size,
                         "Stored media variant"
                     );
                 }
                 Err(e) => {
+                    let error_text = e.to_string();
                     error!(
-                        derivation_type = %variant.derivation_type,
-                        "Failed to store variant: {}", e
+                        derivation_type_len = media_text_len(&variant.derivation_type),
+                        error_len = media_text_len(&error_text),
+                        error_reason = media_error_reason_code(&error_text),
+                        "Failed to store variant"
                     );
                     let _ = tx.rollback().await;
                 }
@@ -774,7 +845,7 @@ impl JobHandler for MediaOptimizeHandler {
         ctx.report_progress(100, Some("Media optimization complete"));
 
         info!(
-            %attachment_id,
+            attachment_id_present = true,
             variants_created = stored_count,
             "Media optimization complete"
         );
@@ -848,6 +919,25 @@ mod tests {
             media_stderr_reason_code(b"opaque backend text"),
             "command_failed"
         );
+    }
+
+    #[test]
+    fn media_runtime_telemetry_helpers_redact_private_values() {
+        let raw_error =
+            "postgres://user:pass@db.internal/media failed for /srv/private/mm_key_media";
+        let rendered = format!(
+            "attachment_id_present=true; error_len={}; error_reason={}",
+            media_text_len(raw_error),
+            media_error_reason_code(raw_error)
+        );
+
+        assert!(rendered.contains("attachment_id_present=true"));
+        assert!(rendered.contains("error_len="));
+        assert!(rendered.contains("error_reason=database_error"));
+        assert!(!rendered.contains("postgres://user:pass"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("/srv/private"));
+        assert!(!rendered.contains("mm_key_media"));
     }
 
     // ── extension_for_content_type ────────────────────────────────────
