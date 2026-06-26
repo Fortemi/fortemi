@@ -1215,7 +1215,7 @@ struct CallDetailResponse {
 impl std::fmt::Debug for CallDetailResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CallDetailResponse")
-            .field("call_id", &self.call_id)
+            .field("call_id_set", &true)
             .field("provider_len", &self.provider.len())
             .field("provider_call_id_len", &self.provider_call_id.len())
             .field("started_at", &self.started_at)
@@ -1233,7 +1233,7 @@ impl std::fmt::Debug for CallDetailResponse {
                 "remote_party_len",
                 &self.remote_party.as_ref().map(|value| value.len()),
             )
-            .field("archive_id", &self.archive_id)
+            .field("archive_id_set", &self.archive_id.is_some())
             .field(
                 "metadata_class",
                 &webhook_delivery_json_class(&self.metadata),
@@ -26777,7 +26777,12 @@ mod tests {
 
     #[test]
     fn call_detail_response_debug_redacts_provider_metadata_and_transcripts() {
-        let call_id = Uuid::nil();
+        let call_id =
+            Uuid::parse_str("018fd1a0-0000-7000-8000-000000000701").expect("valid call uuid");
+        let archive_id =
+            Uuid::parse_str("018fd1a0-0000-7000-8000-000000000702").expect("valid archive uuid");
+        let segment_id =
+            Uuid::parse_str("018fd1a0-0000-7000-8000-000000000703").expect("valid segment uuid");
         let response = CallDetailResponse {
             call_id,
             provider: "twilio-private-provider".to_string(),
@@ -26788,14 +26793,14 @@ mod tests {
             duration_secs: Some(42.0),
             asr_backend: Some("deepgram-secret-backend".to_string()),
             remote_party: Some("+15551234567".to_string()),
-            archive_id: Some(Uuid::nil()),
+            archive_id: Some(archive_id),
             metadata: serde_json::json!({
                 "recording_url": "https://api.twilio.com/recording?token=secret",
                 "customer": "customer@example.com"
             }),
             segment_count: 1,
             segments: vec![matric_core::TranscriptSegment {
-                id: Uuid::nil(),
+                id: segment_id,
                 call_id,
                 speaker_label: Some("agent-private".to_string()),
                 text: "transcript contains sk-live-secret-token and customer SSN".to_string(),
@@ -26816,11 +26821,13 @@ mod tests {
         let rendered = format!("{response:?}");
 
         assert!(rendered.contains("CallDetailResponse"));
+        assert!(rendered.contains("call_id_set"));
         assert!(rendered.contains("provider_len"));
         assert!(rendered.contains("provider_call_id_len"));
         assert!(rendered.contains("end_reason_len"));
         assert!(rendered.contains("asr_backend_len"));
         assert!(rendered.contains("remote_party_len"));
+        assert!(rendered.contains("archive_id_set"));
         assert!(rendered.contains("metadata_class"));
         assert!(rendered.contains("segments_count"));
 
@@ -26838,6 +26845,9 @@ mod tests {
             "transcript contains",
             "sk-live-secret-token",
             "customer SSN",
+            &call_id.to_string(),
+            &archive_id.to_string(),
+            &segment_id.to_string(),
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
