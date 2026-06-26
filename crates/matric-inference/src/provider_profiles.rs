@@ -41,6 +41,7 @@
 //! `manage_inference` MCP tool); PR 3 updates docs.
 
 use crate::provider::ProviderCapability;
+use std::fmt;
 
 /// Wire protocol family used by a provider profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,7 +54,7 @@ pub enum BackendKind {
 }
 
 /// How a profile sources the value for an extra HTTP header.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ProfileHeaderSource {
     /// Constant default value, overridable by the named env var if it is set
     /// and non-empty. The header is always emitted (default takes effect when
@@ -68,12 +69,28 @@ pub enum ProfileHeaderSource {
     EnvOnly { env_var: &'static str },
 }
 
+impl fmt::Debug for ProfileHeaderSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Default { value, env_var } => f
+                .debug_struct("Default")
+                .field("value_len", &value.chars().count())
+                .field("env_var_len", &env_var.map(|value| value.chars().count()))
+                .finish(),
+            Self::EnvOnly { env_var } => f
+                .debug_struct("EnvOnly")
+                .field("env_var_len", &env_var.chars().count())
+                .finish(),
+        }
+    }
+}
+
 /// Env var name conventions for a provider profile's credential lookup.
 ///
 /// These names are documented in `.env.example` and the README; profiles
 /// declare them here so the runtime knows which variables to consult when
 /// constructing a live backend.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct ProfileEnvVars {
     /// Env var holding the API key. `None` for providers that don't require
     /// auth (Ollama, sometimes llama.cpp).
@@ -88,10 +105,37 @@ pub struct ProfileEnvVars {
     pub embedding_model: Option<&'static str>,
 }
 
+impl fmt::Debug for ProfileEnvVars {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProfileEnvVars")
+            .field(
+                "api_key_env_len",
+                &self.api_key.map(|value| value.chars().count()),
+            )
+            .field(
+                "base_url_env_len",
+                &self.base_url.map(|value| value.chars().count()),
+            )
+            .field(
+                "timeout_env_len",
+                &self.timeout.map(|value| value.chars().count()),
+            )
+            .field(
+                "generation_model_env_len",
+                &self.generation_model.map(|value| value.chars().count()),
+            )
+            .field(
+                "embedding_model_env_len",
+                &self.embedding_model.map(|value| value.chars().count()),
+            )
+            .finish()
+    }
+}
+
 /// Static metadata describing a well-known inference provider.
 ///
 /// One entry per id; lookups by id via [`lookup`] are stable.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct ProviderProfile {
     /// Stable identifier (e.g. `"ollama"`, `"openai"`, `"openrouter"`,
     /// `"llamacpp"`). This is the value the operator uses in
@@ -147,6 +191,62 @@ pub struct ProviderProfile {
     /// Models-listing endpoint relative to `base_url`. `None` means the
     /// profile does not expose a documented enumerable model list.
     pub models_endpoint: Option<&'static str>,
+}
+
+impl fmt::Debug for ProviderProfile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProviderProfile")
+            .field("id_len", &self.id.chars().count())
+            .field("display_name_len", &self.display_name.chars().count())
+            .field("backend", &self.backend)
+            .field(
+                "default_base_url_len",
+                &self.default_base_url.map(|value| value.chars().count()),
+            )
+            .field("requires_api_key", &self.requires_api_key)
+            .field("capability_count", &self.capabilities.len())
+            .field("capabilities", &self.capabilities)
+            .field("default_timeout_secs", &self.default_timeout_secs)
+            .field("env", &self.env)
+            .field(
+                "default_generation_model_len",
+                &self
+                    .default_generation_model
+                    .map(|value| value.chars().count()),
+            )
+            .field(
+                "default_embedding_model_len",
+                &self
+                    .default_embedding_model
+                    .map(|value| value.chars().count()),
+            )
+            .field("extra_header_count", &self.extra_headers.len())
+            .field(
+                "extra_header_name_lens",
+                &self
+                    .extra_headers
+                    .iter()
+                    .map(|(name, _)| name.chars().count())
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "extra_header_sources",
+                &self
+                    .extra_headers
+                    .iter()
+                    .map(|(_, source)| source)
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "health_endpoint_len",
+                &self.health_endpoint.map(|value| value.chars().count()),
+            )
+            .field(
+                "models_endpoint_len",
+                &self.models_endpoint.map(|value| value.chars().count()),
+            )
+            .finish()
+    }
 }
 
 impl ProviderProfile {
@@ -566,5 +666,73 @@ mod tests {
             Some("https://fortemi.io")
         );
         assert_eq!(by_name.get("X-Title").map(String::as_str), Some("Fortemi"));
+    }
+
+    #[test]
+    fn provider_profile_debug_redacts_urls_env_models_and_headers() {
+        let profile = ProviderProfile {
+            id: "private-provider-jane@example.com",
+            display_name: "Private Provider sk-private",
+            backend: BackendKind::OpenAICompatible,
+            default_base_url: Some("https://token:sk-private@tenant.example/v1"),
+            requires_api_key: true,
+            capabilities: &[ProviderCapability::Generation],
+            default_timeout_secs: 60,
+            env: ProfileEnvVars {
+                api_key: Some("PRIVATE_API_KEY"),
+                base_url: Some("PRIVATE_BASE_URL"),
+                timeout: Some("PRIVATE_TIMEOUT"),
+                generation_model: Some("PRIVATE_GEN_MODEL"),
+                embedding_model: Some("PRIVATE_EMBED_MODEL"),
+            },
+            default_generation_model: Some("tenant/private-model:sk-private"),
+            default_embedding_model: Some("tenant/private-embed:jane@example.com"),
+            extra_headers: &[
+                (
+                    "X-Private-Header",
+                    ProfileHeaderSource::Default {
+                        value: "https://tenant.example/referer?token=sk-private",
+                        env_var: Some("PRIVATE_REFERER"),
+                    },
+                ),
+                (
+                    "X-Debug-Route",
+                    ProfileHeaderSource::EnvOnly {
+                        env_var: "PRIVATE_DEBUG_ROUTE",
+                    },
+                ),
+            ],
+            health_endpoint: Some("/health/private/sk-private"),
+            models_endpoint: Some("/models/private/jane@example.com"),
+        };
+
+        let debug = format!(
+            "{:?}\n{:?}\n{:?}",
+            profile, profile.env, profile.extra_headers[0].1
+        );
+
+        for raw in [
+            "private-provider",
+            "jane@example.com",
+            "sk-private",
+            "tenant.example",
+            "PRIVATE_API_KEY",
+            "PRIVATE_BASE_URL",
+            "PRIVATE_GEN_MODEL",
+            "tenant/private-model",
+            "X-Private-Header",
+            "/health/private",
+            "/models/private",
+        ] {
+            assert!(!debug.contains(raw), "debug output leaked {raw}: {debug}");
+        }
+
+        assert!(debug.contains("id_len"));
+        assert!(debug.contains("default_base_url_len"));
+        assert!(debug.contains("api_key_env_len"));
+        assert!(debug.contains("default_generation_model_len"));
+        assert!(debug.contains("extra_header_count"));
+        assert!(debug.contains("value_len"));
+        assert!(debug.contains("env_var_len"));
     }
 }
