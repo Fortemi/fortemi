@@ -1539,6 +1539,10 @@ const API_OAUTH_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_oauth_diagnostic_failed";
 const API_ATTACHMENT_MEDIA_DIAGNOSTIC_FAILURE_DETAIL: &str =
     "api_attachment_media_diagnostic_failed";
 const API_DATABASE_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_database_diagnostic_failed";
+const API_INTERNAL_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_internal_diagnostic_failed";
+const API_OPERATION_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_operation_diagnostic_failed";
+const API_PROVIDER_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_provider_diagnostic_failed";
+const API_BLOB_MISSING_DIAGNOSTIC_FAILURE_DETAIL: &str = "api_blob_missing_diagnostic_failed";
 
 fn telemetry_url_class(raw: &str) -> &'static str {
     let Ok(url) = reqwest::Url::parse(raw) else {
@@ -20805,7 +20809,12 @@ impl IntoResponse for ApiError {
             }
             ApiError::Conflict(msg) => (StatusCode::CONFLICT, ProblemType::Conflict, msg, None),
             ApiError::Internal(msg) => {
-                error!(error = %msg, "internal error mapped to problem response");
+                error!(
+                    error_len = telemetry_text_len(&msg),
+                    detail = API_INTERNAL_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "map_api_internal_error",
+                    "internal error mapped to problem response"
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     ProblemType::Internal,
@@ -20816,7 +20825,8 @@ impl IntoResponse for ApiError {
             ApiError::OperationFailed { operation, detail } => {
                 error!(
                     operation,
-                    error = %detail,
+                    error_len = telemetry_text_len(&detail),
+                    detail = API_OPERATION_DIAGNOSTIC_FAILURE_DETAIL,
                     "operation failure mapped to problem response"
                 );
                 (
@@ -20829,7 +20839,8 @@ impl IntoResponse for ApiError {
             ApiError::ProviderFailure { capability, detail } => {
                 error!(
                     capability,
-                    error = %detail,
+                    error_len = telemetry_text_len(&detail),
+                    detail = API_PROVIDER_DIAGNOSTIC_FAILURE_DETAIL,
                     "provider failure mapped to problem response"
                 );
                 (
@@ -20851,9 +20862,11 @@ impl IntoResponse for ApiError {
                 storage_backend,
             } => {
                 error!(
-                    attachment_id = %attachment_id,
-                    expected_path = %expected_path,
-                    storage_backend = %storage_backend,
+                    attachment_id_present = true,
+                    expected_path_len = telemetry_text_len(&expected_path),
+                    storage_backend_len = telemetry_text_len(&storage_backend),
+                    detail = API_BLOB_MISSING_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "map_attachment_blob_missing",
                     "attachment blob missing"
                 );
                 (
@@ -26344,6 +26357,10 @@ mod tests {
             API_OAUTH_DIAGNOSTIC_FAILURE_DETAIL,
             API_ATTACHMENT_MEDIA_DIAGNOSTIC_FAILURE_DETAIL,
             API_DATABASE_DIAGNOSTIC_FAILURE_DETAIL,
+            API_INTERNAL_DIAGNOSTIC_FAILURE_DETAIL,
+            API_OPERATION_DIAGNOSTIC_FAILURE_DETAIL,
+            API_PROVIDER_DIAGNOSTIC_FAILURE_DETAIL,
+            API_BLOB_MISSING_DIAGNOSTIC_FAILURE_DETAIL,
         ] {
             assert!(!detail.contains("token:secret"));
             assert!(!detail.contains("postgres://"));
