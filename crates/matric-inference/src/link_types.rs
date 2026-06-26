@@ -46,7 +46,7 @@ impl fmt::Display for SemanticLinkType {
 }
 
 /// Classification result containing link type, confidence, and reasoning.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct LinkClassification {
     /// The classified link type
     pub link_type: SemanticLinkType,
@@ -54,6 +54,16 @@ pub struct LinkClassification {
     pub confidence: f32,
     /// Human-readable reasoning for the classification
     pub reasoning: String,
+}
+
+impl fmt::Debug for LinkClassification {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LinkClassification")
+            .field("link_type", &self.link_type)
+            .field("confidence", &self.confidence)
+            .field("reasoning_len", &self.reasoning.len())
+            .finish()
+    }
 }
 
 impl LinkClassification {
@@ -280,5 +290,22 @@ mod tests {
         assert_eq!(deserialized.link_type, SemanticLinkType::Extends);
         assert_eq!(deserialized.confidence, 0.85);
         assert_eq!(deserialized.reasoning, "Builds upon the concept");
+    }
+
+    #[test]
+    fn link_classification_debug_redacts_generated_reasoning() {
+        let classification = LinkClassification::new(
+            SemanticLinkType::References,
+            0.9,
+            "Mentions account jane@example.com and token sk-private-token".to_string(),
+        );
+
+        let debug = format!("{:?}", classification);
+
+        assert!(debug.contains("reasoning_len"));
+        assert!(debug.contains("References"));
+        assert!(!debug.contains("jane@example.com"));
+        assert!(!debug.contains("sk-private-token"));
+        assert!(!debug.contains("Mentions account"));
     }
 }

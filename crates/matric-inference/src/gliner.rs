@@ -12,9 +12,10 @@
 use async_trait::async_trait;
 use matric_core::Result;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// A named entity extracted by GLiNER.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct NerEntity {
     /// The entity text as it appears in the source.
     pub text: String,
@@ -28,8 +29,20 @@ pub struct NerEntity {
     pub end: usize,
 }
 
+impl fmt::Debug for NerEntity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NerEntity")
+            .field("text_len", &self.text.len())
+            .field("label_len", &self.label.len())
+            .field("score", &self.score)
+            .field("start", &self.start)
+            .field("end", &self.end)
+            .finish()
+    }
+}
+
 /// Result of NER extraction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct NerResult {
     /// Extracted entities.
     pub entities: Vec<NerEntity>,
@@ -37,6 +50,16 @@ pub struct NerResult {
     pub model: String,
     /// Length of the text that was processed.
     pub text_length: usize,
+}
+
+impl fmt::Debug for NerResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NerResult")
+            .field("entity_count", &self.entities.len())
+            .field("model_len", &self.model.len())
+            .field("text_length", &self.text_length)
+            .finish()
+    }
 }
 
 /// Backend trait for named entity recognition.
@@ -231,6 +254,32 @@ mod tests {
         assert_eq!(deserialized.text, entity.text);
         assert_eq!(deserialized.label, entity.label);
         assert!((deserialized.score - entity.score).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn ner_debug_redacts_entity_text_labels_and_model_name() {
+        let result = NerResult {
+            entities: vec![NerEntity {
+                text: "Jane Private <jane@example.com>".to_string(),
+                label: "person-secret-label".to_string(),
+                score: 0.95,
+                start: 0,
+                end: 12,
+            }],
+            model: "gliner-private-model-2026".to_string(),
+            text_length: 512,
+        };
+
+        let debug = format!("{:?} {:?}", result.entities[0], result);
+
+        assert!(debug.contains("text_len"));
+        assert!(debug.contains("label_len"));
+        assert!(debug.contains("entity_count"));
+        assert!(debug.contains("model_len"));
+        assert!(!debug.contains("Jane Private"));
+        assert!(!debug.contains("jane@example.com"));
+        assert!(!debug.contains("person-secret-label"));
+        assert!(!debug.contains("gliner-private-model-2026"));
     }
 
     #[test]
