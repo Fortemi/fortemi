@@ -7766,6 +7766,14 @@ fn health_dependency_error_code(kind: &str) -> &'static str {
     }
 }
 
+fn set_health_service_reason_code(
+    services: &mut serde_json::Value,
+    service_name: &str,
+    reason_code: &str,
+) {
+    services[service_name]["reason_code"] = serde_json::Value::String(reason_code.to_string());
+}
+
 fn provider_url_configured(url: &str) -> bool {
     !url.trim().is_empty()
 }
@@ -8205,27 +8213,28 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
         },
     });
 
-    // Add error details where present
+    // Add stable dependency reason codes where present. These are client-safe
+    // classifiers, not raw backend error messages.
     if let Some(err) = &db_result.1 {
-        services["postgresql"]["error"] = serde_json::Value::String((*err).to_string());
+        set_health_service_reason_code(&mut services, "postgresql", err);
     }
     if let Some(err) = &redis_result.1 {
-        services["redis"]["error"] = serde_json::Value::String((*err).to_string());
+        set_health_service_reason_code(&mut services, "redis", err);
     }
     if let Some(err) = &inference_result.1 {
-        services["inference"]["error"] = serde_json::Value::String((*err).to_string());
+        set_health_service_reason_code(&mut services, "inference", err);
     }
     if let Some(err) = &vision_result.1 {
-        services["vision"]["error"] = serde_json::Value::String((*err).to_string());
+        set_health_service_reason_code(&mut services, "vision", err);
     }
     if let Some(err) = &transcription_result.1 {
-        services["transcription"]["error"] = serde_json::Value::String((*err).to_string());
+        set_health_service_reason_code(&mut services, "transcription", err);
     }
     if let Some(err) = &ner_result.1 {
-        services["ner"]["error"] = serde_json::Value::String((*err).to_string());
+        set_health_service_reason_code(&mut services, "ner", err);
     }
     if let Some(err) = &diarization_result.1 {
-        services["diarization"]["error"] = serde_json::Value::String((*err).to_string());
+        set_health_service_reason_code(&mut services, "diarization", err);
     }
 
     let body = serde_json::json!({
@@ -23307,6 +23316,32 @@ mod tests {
             health_dependency_error_code("postgres://user:pass@db.local/app"),
             "dependency_check_failed"
         );
+    }
+
+    #[test]
+    fn health_service_reason_codes_do_not_use_legacy_error_fields() {
+        let mut services = serde_json::json!({
+            "postgresql": {
+                "status": "error"
+            }
+        });
+
+        set_health_service_reason_code(
+            &mut services,
+            "postgresql",
+            health_dependency_error_code("postgres://user:pass@db.local/app"),
+        );
+
+        assert_eq!(
+            services["postgresql"]["reason_code"],
+            "dependency_check_failed"
+        );
+        assert!(services["postgresql"].get("error").is_none());
+
+        let serialized = services.to_string();
+        assert!(!serialized.contains("postgres://"));
+        assert!(!serialized.contains("user:pass"));
+        assert!(!serialized.contains("db.local"));
     }
 
     #[test]
