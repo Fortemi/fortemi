@@ -3236,7 +3236,7 @@ impl AuthPrincipal {
 // =============================================================================
 
 /// A reusable note template.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct NoteTemplate {
     pub id: Uuid,
     pub name: String,
@@ -3250,6 +3250,33 @@ pub struct NoteTemplate {
     pub collection_id: Option<Uuid>,
     pub created_at_utc: DateTime<Utc>,
     pub updated_at_utc: DateTime<Utc>,
+}
+
+impl fmt::Debug for NoteTemplate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NoteTemplate")
+            .field("id_set", &true)
+            .field("name_len", &self.name.chars().count())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(|value| value.chars().count()),
+            )
+            .field("content_len", &self.content.chars().count())
+            .field("format_len", &self.format.chars().count())
+            .field("default_tags_count", &self.default_tags.len())
+            .field(
+                "default_tag_lens",
+                &self
+                    .default_tags
+                    .iter()
+                    .map(|tag| tag.chars().count())
+                    .collect::<Vec<_>>(),
+            )
+            .field("collection_id_set", &self.collection_id.is_some())
+            .field("created_at_utc", &self.created_at_utc)
+            .field("updated_at_utc", &self.updated_at_utc)
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -4499,6 +4526,48 @@ mod tests {
         assert!(!debug.contains("token-secret"));
         assert!(!debug.contains("api-key-secret-scope"));
         assert!(!debug.contains(&key_id.to_string()));
+    }
+
+    #[test]
+    fn note_template_debug_redacts_content_tags_and_identifiers() {
+        let template_id = Uuid::now_v7();
+        let collection_id = Uuid::now_v7();
+        let template = NoteTemplate {
+            id: template_id,
+            name: "incident-template@example.internal".to_string(),
+            description: Some("uses postgres://user:secret@db.internal/template".to_string()),
+            content: "private template body with /srv/fortemi/path and bearer-secret".to_string(),
+            format: "markdown-private".to_string(),
+            default_tags: vec![
+                "customer/email@example.internal".to_string(),
+                "token/sk-secret-template".to_string(),
+            ],
+            collection_id: Some(collection_id),
+            created_at_utc: Utc::now(),
+            updated_at_utc: Utc::now(),
+        };
+
+        let debug = format!("{template:?}");
+
+        assert!(debug.contains("NoteTemplate"));
+        assert!(debug.contains("id_set"));
+        assert!(debug.contains("name_len"));
+        assert!(debug.contains("description_len"));
+        assert!(debug.contains("content_len"));
+        assert!(debug.contains("format_len"));
+        assert!(debug.contains("default_tags_count"));
+        assert!(debug.contains("default_tag_lens"));
+        assert!(debug.contains("collection_id_set"));
+        assert!(!debug.contains("incident-template"));
+        assert!(!debug.contains("postgres://"));
+        assert!(!debug.contains("db.internal"));
+        assert!(!debug.contains("/srv/fortemi"));
+        assert!(!debug.contains("bearer-secret"));
+        assert!(!debug.contains("markdown-private"));
+        assert!(!debug.contains("email@example.internal"));
+        assert!(!debug.contains("sk-secret-template"));
+        assert!(!debug.contains(&template_id.to_string()));
+        assert!(!debug.contains(&collection_id.to_string()));
     }
 
     #[test]
