@@ -4780,6 +4780,17 @@ async fn emit_twilio_call_event_outbox(
     Ok(())
 }
 
+fn twilio_recording_provider_failure(
+    context: &'static str,
+    error: impl std::fmt::Display,
+) -> ApiError {
+    let diagnostic = error.to_string();
+    ApiError::ProviderFailure {
+        capability: "Twilio recording",
+        detail: format!("{context}; error_len={}", diagnostic.len()),
+    }
+}
+
 async fn queue_twilio_recording_transcription(
     state: &AppState,
     session: &matric_core::CallSession,
@@ -4793,17 +4804,17 @@ async fn queue_twilio_recording_transcription(
     let response = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
-        .map_err(|err| ApiError::Internal(format!("recording HTTP client failed: {err}")))?
+        .map_err(|err| twilio_recording_provider_failure("build HTTP client", err))?
         .get(recording_url)
         .send()
         .await
-        .map_err(|err| ApiError::ServiceUnavailable(format!("recording download failed: {err}")))?;
+        .map_err(|err| twilio_recording_provider_failure("download recording", err))?;
 
     if !response.status().is_success() {
-        return Err(ApiError::ServiceUnavailable(format!(
-            "recording download returned HTTP {}",
-            response.status()
-        )));
+        return Err(twilio_recording_provider_failure(
+            "download recording",
+            format!("status={}", response.status().as_u16()),
+        ));
     }
 
     let content_type = response
@@ -4816,9 +4827,10 @@ async fn queue_twilio_recording_transcription(
         .unwrap_or("audio/wav")
         .trim()
         .to_string();
-    let audio_bytes = response.bytes().await.map_err(|err| {
-        ApiError::ServiceUnavailable(format!("recording body read failed: {err}"))
-    })?;
+    let audio_bytes = response
+        .bytes()
+        .await
+        .map_err(|err| twilio_recording_provider_failure("read recording body", err))?;
     if audio_bytes.is_empty() {
         return Err(ApiError::BadRequest(
             "recording download was empty".to_string(),
@@ -23254,6 +23266,34 @@ mod tests {
         assert!(!body.contains("http://"));
         assert!(!body.contains("secret"));
         assert!(!body.contains("/srv/fortemi"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn twilio_recording_failure_returns_generic_problem_without_raw_detail() {
+        let err = twilio_recording_provider_failure(
+            "download recording",
+            "request failed for https://api.twilio.com/recordings/secret-token.wav at /srv/fortemi/tmp",
+        );
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/provider-failure"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Twilio recording provider failed. Check server logs for diagnostics."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains("api.twilio.com"));
+        assert!(!body.contains("secret-token"));
+        assert!(!body.contains("/recordings/"));
+        assert!(!body.contains("/srv/fortemi"));
+        assert!(!body.contains("request failed"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
