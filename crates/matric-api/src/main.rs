@@ -469,6 +469,14 @@ fn memory_not_found() -> ApiError {
     ApiError::NotFound("Memory not found.".to_string())
 }
 
+fn webhook_not_found() -> ApiError {
+    ApiError::NotFound("Webhook not found.".to_string())
+}
+
+fn incoming_webhook_receiver_not_found() -> ApiError {
+    ApiError::NotFound("Incoming webhook receiver not found.".to_string())
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -4340,7 +4348,7 @@ async fn get_webhook(
         .webhooks
         .get(id)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Webhook {} not found", id)))?;
+        .ok_or_else(webhook_not_found)?;
     Ok(Json(webhook))
 }
 
@@ -4360,7 +4368,7 @@ async fn update_webhook(
         .webhooks
         .get(id)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Webhook {} not found", id)))?;
+        .ok_or_else(webhook_not_found)?;
 
     state
         .db
@@ -4406,7 +4414,7 @@ async fn delete_webhook_handler(
         .webhooks
         .get(id)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Webhook {} not found", id)))?;
+        .ok_or_else(webhook_not_found)?;
     state.db.webhooks.delete(id).await?;
     emit_webhook_control_audit_event(webhook_control_audit_event(
         &auth,
@@ -4455,7 +4463,7 @@ async fn test_webhook(
         .webhooks
         .get(id)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Webhook {} not found", id)))?;
+        .ok_or_else(webhook_not_found)?;
 
     let webhook_timeout = std::env::var("MATRIC_WEBHOOK_TIMEOUT_SECS")
         .ok()
@@ -4785,7 +4793,7 @@ async fn get_incoming_webhook_receiver(
         .incoming_webhooks
         .get_by_slug(&slug)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Incoming webhook receiver {slug} not found")))?;
+        .ok_or_else(incoming_webhook_receiver_not_found)?;
     Ok(Json(receiver))
 }
 
@@ -4810,7 +4818,7 @@ async fn receive_incoming_webhook(
         .incoming_webhooks
         .get_by_slug(&slug)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Incoming webhook receiver {slug} not found")))?;
+        .ok_or_else(incoming_webhook_receiver_not_found)?;
     if !receiver.is_active {
         emit_incoming_webhook_audit_event(incoming_webhook_decision_audit_event(
             &receiver,
@@ -4821,9 +4829,7 @@ async fn receive_incoming_webhook(
             headers.get("idempotency-key").is_some(),
         ))
         .await;
-        return Err(ApiError::NotFound(format!(
-            "Incoming webhook receiver {slug} not found"
-        )));
+        return Err(incoming_webhook_receiver_not_found());
     }
 
     let secret = match state
@@ -4843,9 +4849,7 @@ async fn receive_incoming_webhook(
                 headers.get("idempotency-key").is_some(),
             ))
             .await;
-            return Err(ApiError::NotFound(format!(
-                "Incoming webhook receiver {slug} not found"
-            )));
+            return Err(incoming_webhook_receiver_not_found());
         }
     };
     if let Err(err) = verify_incoming_signature(
@@ -5040,9 +5044,7 @@ async fn delete_incoming_webhook_receiver(
     if removed {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(ApiError::NotFound(format!(
-            "Incoming webhook receiver {slug} not found"
-        )))
+        Err(incoming_webhook_receiver_not_found())
     }
 }
 
@@ -5065,16 +5067,14 @@ async fn update_incoming_webhook_receiver(
         .update_by_slug(&slug, body)
         .await?;
     if !updated {
-        return Err(ApiError::NotFound(format!(
-            "Incoming webhook receiver {slug} not found"
-        )));
+        return Err(incoming_webhook_receiver_not_found());
     }
     let receiver = state
         .db
         .incoming_webhooks
         .get_by_slug(&slug)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Incoming webhook receiver {slug} not found")))?;
+        .ok_or_else(incoming_webhook_receiver_not_found)?;
     Ok(Json(receiver))
 }
 
@@ -24214,6 +24214,42 @@ mod tests {
         assert!(!body.contains(submitted_memory_name));
         assert!(!body.contains("tenant-alpha"));
         assert!(!body.contains("client-private-memory"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn webhook_not_found_does_not_echo_webhook_id() {
+        let submitted_webhook_id = Uuid::parse_str("018ff7d2-1d90-7c88-9f44-abcdef123456").unwrap();
+        let err = webhook_not_found();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Webhook not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(&submitted_webhook_id.to_string()));
+        assert!(!body.contains("018ff7d2"));
+        assert!(!body.contains("abcdef123456"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn incoming_webhook_not_found_does_not_echo_slug() {
+        let submitted_slug = "tenant-alpha-private-receiver-secret-token";
+        let err = incoming_webhook_receiver_not_found();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Incoming webhook receiver not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_slug));
+        assert!(!body.contains("tenant-alpha"));
+        assert!(!body.contains("secret-token"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
