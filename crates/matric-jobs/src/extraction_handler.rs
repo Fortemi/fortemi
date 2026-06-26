@@ -1568,9 +1568,11 @@ impl JobHandler for ExtractionHandler {
                             {
                                 Ok(note) => note.original.content.len() < MIN_CONTENT_LEN,
                                 Err(e) => {
+                                    let error = e.to_string();
                                     warn!(
-                                        note_id = %note_id,
-                                        error = %e,
+                                        note_present = true,
+                                        error_len = telemetry_text_len(&error),
+                                        error_reason = extraction_error_reason_code(&error),
                                         "Could not fetch note for content propagation"
                                     );
                                     false
@@ -1586,9 +1588,11 @@ impl JobHandler for ExtractionHandler {
                                 {
                                     Ok(()) => content_updated = true,
                                     Err(e) => {
+                                        let error = e.to_string();
                                         error!(
-                                            note_id = %note_id,
-                                            error = %e,
+                                            note_present = true,
+                                            error_len = telemetry_text_len(&error),
+                                            error_reason = extraction_error_reason_code(&error),
                                             "Failed to propagate extraction content to note"
                                         );
                                     }
@@ -1596,18 +1600,22 @@ impl JobHandler for ExtractionHandler {
                             }
 
                             if let Err(e) = tx.commit().await {
+                                let error = e.to_string();
                                 error!(
-                                    note_id = %note_id,
-                                    error = %e,
+                                    note_present = true,
+                                    error_len = telemetry_text_len(&error),
+                                    error_reason = extraction_error_reason_code(&error),
                                     "Failed to commit note content propagation"
                                 );
                                 content_updated = false;
                             }
                         }
                         Err(e) => {
+                            let error = e.to_string();
                             error!(
-                                note_id = %note_id,
-                                error = %e,
+                                note_present = true,
+                                error_len = telemetry_text_len(&error),
+                                error_reason = extraction_error_reason_code(&error),
                                 "Failed to begin tx for note content propagation"
                             );
                         }
@@ -1669,9 +1677,11 @@ impl JobHandler for ExtractionHandler {
                             }
                             Ok(None) => {} // Deduplicated
                             Err(e) => {
+                                let error = e.to_string();
                                 error!(
-                                    note_id = %note_id,
-                                    error = %e,
+                                    note_present = true,
+                                    error_len = telemetry_text_len(&error),
+                                    error_reason = extraction_error_reason_code(&error),
                                     "Failed to re-queue AiRevision after extraction"
                                 );
                             }
@@ -1695,10 +1705,12 @@ impl JobHandler for ExtractionHandler {
                                 }
                                 Ok(None) => {} // Deduplicated
                                 Err(e) => {
+                                    let error = e.to_string();
                                     error!(
-                                        note_id = %note_id,
+                                        note_present = true,
                                         job_type = ?job_type,
-                                        error = %e,
+                                        error_len = telemetry_text_len(&error),
+                                        error_reason = extraction_error_reason_code(&error),
                                         "Failed to re-queue downstream job after extraction"
                                     );
                                 }
@@ -1706,13 +1718,13 @@ impl JobHandler for ExtractionHandler {
                         }
 
                         info!(
-                            note_id = %note_id,
+                            note_present = true,
                             content_len = content.len(),
                             "Propagated extraction content and re-queued downstream jobs"
                         );
                     } else if content_updated && uses_fanout {
                         info!(
-                            note_id = %note_id,
+                            note_present = true,
                             strategy = %strategy,
                             content_len = content.len(),
                             "Propagated extraction content but deferred downstream NLP \
