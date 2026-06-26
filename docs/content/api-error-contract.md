@@ -29,6 +29,11 @@ x-request-id: <request id>
 context is available. Operators should use it to correlate client reports with
 server logs, traces, and audit records.
 
+Operational logs and diagnostics linked from `request_id` follow the hosted
+telemetry classes in
+`docs/architecture/hosted-telemetry-classification.md`; problem responses remain
+public-safe interface errors, not a diagnostic sink.
+
 ## Stable Problem Types
 
 The current public catalog is generated from the API `ProblemType` registry:

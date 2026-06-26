@@ -20,6 +20,10 @@
 //! Blank lines are ignored. Unknown `type` values, malformed JSON, empty
 //! content, and schema-invalid fields (tag too long/deep, non-object metadata)
 //! produce a per-line `error` ack — they never abort the stream.
+//! Logs, metrics, and retained outbox/DLQ payloads for stream ingestion follow
+//! `docs/architecture/hosted-telemetry-classification.md`: operational
+//! telemetry records bounded counts/classes, while raw line payloads remain
+//! content-bearing data rather than support-safe log fields.
 //!
 //! Response: `text/event-stream`:
 //! - `ack` — `{"line":N,"status":"ok","note_id":"..."}` or

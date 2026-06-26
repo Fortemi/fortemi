@@ -1,7 +1,9 @@
 # Audit Event Mapping
 
 This note records the #910 baseline mapping from existing localized audit-like
-surfaces to the shared `AuditEvent` contract in `matric-core`.
+surfaces to the shared `AuditEvent` contract in `matric-core`. Operational
+logs, health output, and retained event payload sinks are classified separately
+in `docs/architecture/hosted-telemetry-classification.md`.
 
 The first implementation keeps domain tables in place. They remain useful for
 local query workflows, but security-relevant actions should also emit sanitized

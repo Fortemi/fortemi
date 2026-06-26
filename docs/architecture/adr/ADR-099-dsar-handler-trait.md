@@ -5,6 +5,12 @@
 **Deciders:** roctinam, privacy/legal review TBD
 **Related:** ADR-088, ADR-090 (tenancy), ADR-091 (audit)
 
+Operational logs, retained event payloads, DLQ entries, and protected
+diagnostics use the hosted telemetry classes in
+`docs/architecture/hosted-telemetry-classification.md`. DSAR implementations
+must map those classes into retention, beyond-use, export, and legal-hold
+behavior instead of treating broad logs as a single undifferentiated store.
+
 ## Context
 
 GDPR (EU 2016/679 Articles 15-22), CCPA (Cal. Civ. Code §1798.100 et seq.), and emerging laws (UK GDPR, LGPD, Quebec Law 25) grant data subjects rights to:

@@ -98,6 +98,10 @@ CE guarantees:
 - Domain history tables can remain available for local workflows, but
   `fortemi.audit` is the normalized stream for shared security-audit routing.
 
+Operational logs, public health metrics, retained event payloads, and protected
+diagnostics use the separate hosted telemetry classes in
+`docs/architecture/hosted-telemetry-classification.md`.
+
 ## Health Checks
 
 | Endpoint | Expected | Purpose |
