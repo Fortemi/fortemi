@@ -5231,8 +5231,17 @@ async fn normalize_route_policy_input_for_authorization(
         }
     })
     .await;
-    normalize_archive_route_policy_input(input, |archive_name| async move {
+    let input = normalize_archive_route_policy_input(input, |archive_name| async move {
         state.db.archives.get_archive_by_name(&archive_name).await
+    })
+    .await;
+    normalize_document_type_route_policy_input(input, |document_type_name| async move {
+        state
+            .db
+            .document_types
+            .get_by_name(&document_type_name)
+            .await
+            .map(|document_type| document_type.map(DocumentTypeResourceMetadata::from))
     })
     .await
 }
@@ -5403,6 +5412,105 @@ where
         }
         Err(err) => {
             tracing::warn!(error = %err, "authorization archive normalization lookup failed");
+        }
+    }
+
+    input
+}
+
+#[derive(Clone, Debug)]
+struct DocumentTypeResourceMetadata {
+    id: Uuid,
+    name: String,
+    category: String,
+    is_system: bool,
+    is_active: bool,
+    requires_attachment: bool,
+}
+
+impl From<matric_core::DocumentType> for DocumentTypeResourceMetadata {
+    fn from(document_type: matric_core::DocumentType) -> Self {
+        Self {
+            id: document_type.id,
+            name: document_type.name,
+            category: document_type.category.to_string(),
+            is_system: document_type.is_system,
+            is_active: document_type.is_active,
+            requires_attachment: document_type.requires_attachment,
+        }
+    }
+}
+
+async fn normalize_document_type_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    document_type_lookup: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<DocumentTypeResourceMetadata>>>,
+{
+    if input.resource.kind != ResourceKind::DocumentType
+        || input
+            .resource
+            .attrs
+            .get("resource_id_param")
+            .and_then(|value| value.as_str())
+            != Some("name")
+        || !input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        return input;
+    }
+
+    let Some(document_type_name) = input.resource.id.clone() else {
+        return input;
+    };
+
+    match document_type_lookup(document_type_name).await {
+        Ok(Some(document_type)) => {
+            route_policy::mark_resource_id_normalized(&mut input);
+            input.resource.attrs.insert(
+                "document_type_id".to_string(),
+                serde_json::json!(document_type.id),
+            );
+            input.resource.attrs.insert(
+                "document_type_name".to_string(),
+                serde_json::json!(document_type.name),
+            );
+            input.resource.attrs.insert(
+                "document_type_category".to_string(),
+                serde_json::json!(document_type.category),
+            );
+            input.resource.attrs.insert(
+                "document_type_is_system".to_string(),
+                serde_json::json!(document_type.is_system),
+            );
+            input.resource.attrs.insert(
+                "document_type_is_active".to_string(),
+                serde_json::json!(document_type.is_active),
+            );
+            input.resource.attrs.insert(
+                "document_type_requires_attachment".to_string(),
+                serde_json::json!(document_type.requires_attachment),
+            );
+        }
+        Ok(None) => {
+            tracing::warn!(
+                "authorization resource normalization skipped: document type does not exist"
+            );
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "authorization document type normalization lookup failed");
         }
     }
 
@@ -21984,6 +22092,120 @@ mod tests {
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
         assert!(normalized.resource.attrs.get("archive_id").is_none());
+    }
+
+    fn test_document_type_metadata(name: &str) -> DocumentTypeResourceMetadata {
+        DocumentTypeResourceMetadata {
+            id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000004").unwrap(),
+            name: name.to_string(),
+            category: "prose".to_string(),
+            is_system: true,
+            is_active: true,
+            requires_attachment: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn existing_document_type_route_name_is_marked_normalized_with_catalog_metadata() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/document-types/markdown",
+            Some("tenant-a"),
+        )
+        .expect("document type route has policy input");
+
+        let normalized =
+            normalize_document_type_route_policy_input(input, |lookup_name| async move {
+                assert_eq!(lookup_name, "markdown");
+                Ok(Some(test_document_type_metadata("markdown")))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert_eq!(
+            normalized.resource.attrs["document_type_id"],
+            serde_json::json!(Uuid::parse_str("018fd1a0-0000-7000-8000-000000000004").unwrap())
+        );
+        assert_eq!(normalized.resource.attrs["document_type_name"], "markdown");
+        assert_eq!(normalized.resource.attrs["document_type_category"], "prose");
+        assert_eq!(normalized.resource.attrs["document_type_is_system"], true);
+        assert_eq!(normalized.resource.attrs["document_type_is_active"], true);
+        assert_eq!(
+            normalized.resource.attrs["document_type_requires_attachment"],
+            false
+        );
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_document_type_route_name_stays_unnormalized_after_catalog_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/document-types/missing",
+            Some("tenant-a"),
+        )
+        .expect("document type route has policy input");
+
+        let normalized = normalize_document_type_route_policy_input(
+            input,
+            |_lookup_name| async move { Ok(None) },
+        )
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("document_type_id").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn document_type_normalization_lookup_error_preserves_fail_closed_guard() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/document-types/markdown",
+            Some("tenant-a"),
+        )
+        .expect("document type route has policy input");
+
+        let normalized =
+            normalize_document_type_route_policy_input(input, |_lookup_name| async move {
+                Err(matric_core::Error::Internal("lookup failed".to_string()))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn document_type_collection_routes_do_not_run_name_catalog_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/document-types",
+            None,
+        )
+        .expect("document type collection route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::DocumentType);
+        assert_eq!(input.resource.attrs["resource_id_source"], "route_template");
+
+        let normalized =
+            normalize_document_type_route_policy_input(input, |_lookup_name| async move {
+                panic!("document type collection routes must not perform name lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_document_type_metadata("unused")))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert!(normalized.resource.attrs.get("document_type_id").is_none());
     }
 
     #[tokio::test]
