@@ -180,6 +180,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-26 continuation: Inference config audit/readback slice replaces API-key prefix masks with metadata-only length sentinels and defensively sanitizes audit JSON on diagnostic reads.
   - 2026-06-26 continuation: Inference config audit Debug slice replaces raw localized audit rows and audit-query filters with metadata-only actor/action lengths, JSON classes/lengths, source-IP classes, and limits.
   - 2026-06-26 continuation: Inference test-connection response Debug slice replaces raw detected providers, Ollama versions, model names, provider error text, and recovery suggestions with metadata-only lengths/counts/booleans.
+  - 2026-06-26 continuation: Inference config update/reset response Debug slice replaces raw previous/current/effective config JSON, status strings, and warning text with metadata-only JSON classes, lengths, and warning counts.
   - 2026-06-26 continuation: API-key management list slice replaces raw key prefixes, labels, descriptions, and scopes with metadata-only lengths while preserving one-time create display.
   - 2026-06-26 continuation: OAuth client readback Debug slice replaces derived output on post-creation client records with metadata-only lengths/counts for ids, labels, URLs, contacts, software fields, and scopes.
   - 2026-06-26 continuation: Inbound connector config Debug slice replaces raw SSE/Redis/Kafka config output with metadata-only destination classes, lengths, counts, and presence flags for credential-bearing URLs, headers, SASL credentials, topics, and extra config.
@@ -527,6 +528,7 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-26 — #968/#974 inference config API-key readback and audit JSON now use metadata-only secret sentinels instead of raw or prefix-masked key values.
 - 2026-06-26 — #968/#974 inference config audit row/query Debug output now redacts raw audit JSON snapshots, actor filters, action filters, source IPs, URLs, model names, and API keys.
 - 2026-06-26 — #968/#974 inference test-connection response Debug output now redacts raw provider detection details, model lists, backend errors, and recovery suggestions.
+- 2026-06-26 — #968/#974 inference config update/reset response Debug output now redacts raw config snapshots, status strings, warnings, URLs, model names, API keys, referers, and app names.
 - 2026-06-26 — #968/#974 API-key management list responses now return metadata-only key records after one-time create display, without key prefixes, labels, descriptions, scopes, hashes, or raw keys.
 - 2026-06-26 — #968/#974 OAuth client post-creation Debug output now reports metadata-only lengths/counts instead of raw client ids, labels, URLs, contacts, software fields, or scopes.
 - 2026-06-26 — #968/#974 inbound SSE, Redis Stream, and Kafka connector config Debug output now redacts credential-bearing URLs, headers, SASL credentials, topics, event fields, and extra config values.

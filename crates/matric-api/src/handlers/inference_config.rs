@@ -454,7 +454,7 @@ pub struct UpdateConfigQuery {
 }
 
 /// Response from POST /api/v1/inference/config.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct UpdateInferenceConfigResponse {
     pub status: String,
     pub previous: Value,
@@ -462,11 +462,51 @@ pub struct UpdateInferenceConfigResponse {
     pub warnings: Vec<String>,
 }
 
+impl std::fmt::Debug for UpdateInferenceConfigResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UpdateInferenceConfigResponse")
+            .field("status_len", &telemetry_text_len(&self.status))
+            .field("previous_class", &inference_json_class(&self.previous))
+            .field(
+                "previous_len",
+                &telemetry_text_len(&self.previous.to_string()),
+            )
+            .field("current_class", &inference_json_class(&self.current))
+            .field(
+                "current_len",
+                &telemetry_text_len(&self.current.to_string()),
+            )
+            .field("warning_count", &self.warnings.len())
+            .field(
+                "warning_lens",
+                &self
+                    .warnings
+                    .iter()
+                    .map(|warning| telemetry_text_len(warning))
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
+}
+
 /// Response from DELETE /api/v1/inference/config.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct ResetInferenceConfigResponse {
     pub status: String,
     pub effective: Value,
+}
+
+impl std::fmt::Debug for ResetInferenceConfigResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResetInferenceConfigResponse")
+            .field("status_len", &telemetry_text_len(&self.status))
+            .field("effective_class", &inference_json_class(&self.effective))
+            .field(
+                "effective_len",
+                &telemetry_text_len(&self.effective.to_string()),
+            )
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -3535,6 +3575,64 @@ mod tests_connection {
         assert!(!rendered.contains("secret-embedding-backend"));
         assert!(!rendered.contains("openai-secret-provider"));
         assert!(!rendered.contains("openrouter-secret-provider"));
+    }
+
+    #[test]
+    fn inference_config_response_debug_redacts_secret_fields() {
+        let previous = serde_json::json!({
+            "openai": {
+                "base_url": "https://user:pass@api.openai.com/v1?api_key=previous-secret",
+                "api_key": "sk-previous-secret",
+                "generation_model": "gpt-previous-secret"
+            }
+        });
+        let current = serde_json::json!({
+            "openrouter": {
+                "base_url": "https://openrouter.ai/api/v1?token=current-secret",
+                "api_key": {
+                    "value": "sk-or-current-secret",
+                    "source": "db_override"
+                },
+                "generation_model": "anthropic/current-secret-model",
+                "http_referer": "https://tenant-secret.example/app",
+                "app_name": "secret tenant app"
+            }
+        });
+        let update = UpdateInferenceConfigResponse {
+            status: "updated secret config".to_string(),
+            previous: previous.clone(),
+            current: current.clone(),
+            warnings: vec![
+                "warning with https://provider.example/v1?token=secret".to_string(),
+                "warning with sk-warning-secret".to_string(),
+            ],
+        };
+        let reset = ResetInferenceConfigResponse {
+            status: "reset secret config".to_string(),
+            effective: current,
+        };
+
+        let rendered = format!("{update:?}{reset:?}");
+
+        assert!(rendered.contains("previous_class"));
+        assert!(rendered.contains("current_class"));
+        assert!(rendered.contains("effective_class"));
+        assert!(rendered.contains("warning_count: 2"));
+        assert!(!rendered.contains("updated secret config"));
+        assert!(!rendered.contains("reset secret config"));
+        assert!(!rendered.contains("user:pass"));
+        assert!(!rendered.contains("api_key=previous-secret"));
+        assert!(!rendered.contains("token=current-secret"));
+        assert!(!rendered.contains("api.openai.com"));
+        assert!(!rendered.contains("openrouter.ai"));
+        assert!(!rendered.contains("tenant-secret.example"));
+        assert!(!rendered.contains("provider.example"));
+        assert!(!rendered.contains("sk-previous-secret"));
+        assert!(!rendered.contains("sk-or-current-secret"));
+        assert!(!rendered.contains("sk-warning-secret"));
+        assert!(!rendered.contains("gpt-previous-secret"));
+        assert!(!rendered.contains("anthropic/current-secret-model"));
+        assert!(!rendered.contains("secret tenant app"));
     }
 
     #[test]
