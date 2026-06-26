@@ -12,6 +12,7 @@ use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::net::IpAddr;
 use std::time::Instant;
 use tracing::{debug, info, warn};
 
@@ -247,6 +248,62 @@ fn redact_api_key(key: &str) -> String {
         key.to_string()
     } else {
         format!("{}...", &key[..8])
+    }
+}
+
+fn telemetry_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn telemetry_url_class(raw: &str) -> &'static str {
+    let Ok(url) = reqwest::Url::parse(raw) else {
+        return "invalid_url";
+    };
+    let Some(host) = url.host_str() else {
+        return "unknown_host";
+    };
+    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
+    if host == "api.openai.com"
+        || host.ends_with(".openai.com")
+        || host == "openrouter.ai"
+        || host.ends_with(".openrouter.ai")
+    {
+        return "managed_provider";
+    }
+    if is_local_or_private_telemetry_host(&host) {
+        return "local_or_private";
+    }
+    "external"
+}
+
+fn is_local_or_private_telemetry_host(host: &str) -> bool {
+    let lower = host.to_ascii_lowercase();
+    if lower == "localhost" || lower.ends_with(".localhost") || lower.ends_with(".local") {
+        return true;
+    }
+    match lower.parse::<IpAddr>() {
+        Ok(IpAddr::V4(addr)) => {
+            addr.is_loopback() || addr.is_private() || addr.is_link_local() || addr.is_unspecified()
+        }
+        Ok(IpAddr::V6(addr)) => addr.is_loopback() || addr.is_unspecified(),
+        Err(_) => false,
+    }
+}
+
+fn probe_failure_reason(error: &str) -> &'static str {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("timed out") || lower.contains("timeout") {
+        "timeout"
+    } else if lower.contains("connection refused") || lower.contains("connect") {
+        "connect_failed"
+    } else if lower.contains("http ") || lower.contains("status") {
+        "http_status"
+    } else if lower.contains("json") || lower.contains("missing") {
+        "invalid_response"
+    } else if lower.contains("unknown provider") {
+        "unknown_provider"
+    } else {
+        "probe_failed"
     }
 }
 
@@ -903,7 +960,15 @@ pub async fn update_inference_config(
                     .into_response();
                 }
                 Err(e) => {
-                    warn!(error = %e, "Ollama inference configuration probe failed");
+                    let error_text = e.to_string();
+                    warn!(
+                        provider = "ollama",
+                        base_url_class = telemetry_url_class(&merged_base),
+                        base_url_len = telemetry_text_len(&merged_base),
+                        reason_code = probe_failure_reason(&error_text),
+                        error_len = telemetry_text_len(&error_text),
+                        "Ollama inference configuration probe failed"
+                    );
                     return ApiError::ProviderFailure {
                         capability: "Ollama inference configuration",
                         detail: "Ollama health check request failed".to_string(),
@@ -1267,7 +1332,14 @@ pub async fn update_inference_config(
                     .trim_end_matches('/');
                 if !url.is_empty() {
                     if let Err(e) = probe_ollama(&probe_client, url).await {
-                        warn!(error = %e, provider = "ollama", "Atomic inference probe failed");
+                        warn!(
+                            provider = "ollama",
+                            base_url_class = telemetry_url_class(url),
+                            base_url_len = telemetry_text_len(url),
+                            reason_code = probe_failure_reason(&e),
+                            error_len = telemetry_text_len(&e),
+                            "Atomic inference probe failed"
+                        );
                         probe_failures.push("ollama".to_string());
                     }
                 }
@@ -1284,7 +1356,14 @@ pub async fn update_inference_config(
                 let api_key = o.get("api_key").and_then(|v| v.as_str());
                 if !url.is_empty() {
                     if let Err(e) = probe_openai(&probe_client, url, api_key).await {
-                        warn!(error = %e, provider = "openai", "Atomic inference probe failed");
+                        warn!(
+                            provider = "openai",
+                            base_url_class = telemetry_url_class(url),
+                            base_url_len = telemetry_text_len(url),
+                            reason_code = probe_failure_reason(&e),
+                            error_len = telemetry_text_len(&e),
+                            "Atomic inference probe failed"
+                        );
                         probe_failures.push("openai".to_string());
                     }
                 }
@@ -1303,7 +1382,14 @@ pub async fn update_inference_config(
                     // llama-server speaks OpenAI-compatible, so probe via
                     // /v1/models like any other OpenAI-compat endpoint.
                     if let Err(e) = probe_openai(&probe_client, url, api_key).await {
-                        warn!(error = %e, provider = "llamacpp", "Atomic inference probe failed");
+                        warn!(
+                            provider = "llamacpp",
+                            base_url_class = telemetry_url_class(url),
+                            base_url_len = telemetry_text_len(url),
+                            reason_code = probe_failure_reason(&e),
+                            error_len = telemetry_text_len(&e),
+                            "Atomic inference probe failed"
+                        );
                         probe_failures.push("llamacpp".to_string());
                     }
                 }
@@ -1321,7 +1407,14 @@ pub async fn update_inference_config(
                 if !url.is_empty() {
                     // OpenRouter speaks OpenAI-compatible — same probe path.
                     if let Err(e) = probe_openai(&probe_client, url, api_key).await {
-                        warn!(error = %e, provider = "openrouter", "Atomic inference probe failed");
+                        warn!(
+                            provider = "openrouter",
+                            base_url_class = telemetry_url_class(url),
+                            base_url_len = telemetry_text_len(url),
+                            reason_code = probe_failure_reason(&e),
+                            error_len = telemetry_text_len(&e),
+                            "Atomic inference probe failed"
+                        );
                         probe_failures.push("openrouter".to_string());
                     }
                 }
@@ -1330,7 +1423,8 @@ pub async fn update_inference_config(
 
         if !probe_failures.is_empty() {
             warn!(
-                failures = ?probe_failures,
+                failure_count = probe_failures.len(),
+                failed_providers = %probe_failures.join(","),
                 "Atomic probe failed; aborting config swap"
             );
             return ApiError::ProviderFailure {
@@ -1999,7 +2093,8 @@ pub async fn test_connection(
     };
 
     info!(
-        base_url = %base_url,
+        base_url_class = telemetry_url_class(&base_url),
+        base_url_len = telemetry_text_len(&base_url),
         provider = %req.provider,
         "Testing inference endpoint connection"
     );
@@ -2055,13 +2150,23 @@ pub async fn test_connection(
                 );
             }
             Err(e) => {
-                debug!(provider = %provider, error = %e, "Provider probe failed");
+                debug!(
+                    provider = %provider,
+                    reason_code = probe_failure_reason(&e),
+                    error_len = telemetry_text_len(&e),
+                    "Provider probe failed"
+                );
             }
         }
     }
 
     let (error_msg, suggestions) = classify_connection_error(&base_url);
-    warn!(base_url = %base_url, error = %error_msg, "Inference endpoint unreachable");
+    warn!(
+        base_url_class = telemetry_url_class(&base_url),
+        base_url_len = telemetry_text_len(&base_url),
+        reason_code = "endpoint_unreachable",
+        "Inference endpoint unreachable"
+    );
 
     (
         StatusCode::OK,
@@ -2266,7 +2371,7 @@ fn classify_reqwest_error(e: &reqwest::Error) -> String {
     } else if e.is_connect() {
         "connection refused".to_string()
     } else {
-        format!("{e}")
+        "request failed".to_string()
     }
 }
 
@@ -2276,7 +2381,7 @@ fn classify_connection_error(base_url: &str) -> (String, Vec<String>) {
     let error_msg = "Could not connect to the inference endpoint".to_string();
 
     let mut suggestions = vec![
-        format!("Verify the endpoint is reachable: curl {base_url}/api/tags"),
+        "Verify the endpoint is reachable from the Fortemi host".to_string(),
         "Check that the inference server is running".to_string(),
     ];
 
@@ -2512,6 +2617,52 @@ mod tests_connection {
     fn error_for_url_with_port_no_redundant_hint() {
         let (_, suggestions) = classify_connection_error("http://myserver:11434");
         assert!(!suggestions.iter().any(|s| s.contains("port number")));
+    }
+
+    #[test]
+    fn inference_probe_telemetry_url_class_avoids_raw_url_parts() {
+        assert_eq!(
+            telemetry_url_class("https://sk-secret@example.com/v1?api_key=token"),
+            "external"
+        );
+        assert_eq!(
+            telemetry_url_class("https://user:pass@10.0.0.5/internal?token=secret"),
+            "local_or_private"
+        );
+        assert_eq!(
+            telemetry_url_class("https://api.openai.com/v1/models?key=secret"),
+            "managed_provider"
+        );
+        assert_eq!(telemetry_url_class("not a url with secret"), "invalid_url");
+    }
+
+    #[test]
+    fn inference_connection_suggestions_do_not_echo_raw_base_url() {
+        let secret_url = "https://user:pass@provider.example.com:8443/v1?token=secret";
+        let (_, suggestions) = classify_connection_error(secret_url);
+        let rendered = suggestions.join("\n");
+        assert!(!rendered.contains("user:pass"));
+        assert!(!rendered.contains("provider.example.com"));
+        assert!(!rendered.contains("token=secret"));
+        assert!(!rendered.contains(secret_url));
+    }
+
+    #[test]
+    fn inference_probe_failure_reason_uses_stable_codes() {
+        assert_eq!(probe_failure_reason("request timed out"), "timeout");
+        assert_eq!(probe_failure_reason("connection refused"), "connect_failed");
+        assert_eq!(
+            probe_failure_reason("GET /v1/models returned HTTP 401"),
+            "http_status"
+        );
+        assert_eq!(
+            probe_failure_reason("Invalid JSON from /api/tags"),
+            "invalid_response"
+        );
+        assert_eq!(
+            probe_failure_reason("secret backend message"),
+            "probe_failed"
+        );
     }
 
     // -----------------------------------------------------------------------

@@ -1625,21 +1625,28 @@ async fn main() -> anyhow::Result<()> {
         let backend = OllamaBackend::from_env();
         let base_url = backend.base_url().to_string();
         info!(
-            base_url = %base_url,
+            base_url_class = telemetry_url_class(&base_url),
+            base_url_len = telemetry_text_len(&base_url),
             embed_model = %EmbeddingBackend::model_name(&backend),
             gen_model = %GenerationBackend::model_name(&backend),
             "Inference backend configured"
         );
         match backend.health_check().await {
-            Ok(true) => info!(base_url = %base_url, "Inference backend reachable"),
+            Ok(true) => info!(
+                base_url_class = telemetry_url_class(&base_url),
+                base_url_len = telemetry_text_len(&base_url),
+                "Inference backend reachable"
+            ),
             Ok(false) => warn!(
-                base_url = %base_url,
+                base_url_class = telemetry_url_class(&base_url),
+                base_url_len = telemetry_text_len(&base_url),
                 "Inference backend unreachable — embedding, generation, and AI revision will fail. \
-                 Check that Ollama is running at {base_url} or set OLLAMA_BASE / OLLAMA_HOST"
+                 Check that Ollama is running or set OLLAMA_BASE / OLLAMA_HOST"
             ),
             Err(e) => warn!(
-                base_url = %base_url,
-                error = %e,
+                base_url_class = telemetry_url_class(&base_url),
+                base_url_len = telemetry_text_len(&base_url),
+                error_len = telemetry_text_len(&e.to_string()),
                 "Inference backend health check failed — check OLLAMA_BASE / OLLAMA_HOST configuration"
             ),
         }
