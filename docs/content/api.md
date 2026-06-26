@@ -3340,7 +3340,7 @@ Content-Type: application/json
 {
   "url": "https://example.com/webhook",
   "events": ["NoteUpdated", "JobCompleted", "JobFailed"],
-  "secret": "optional-hmac-secret"
+  "secret": "<WEBHOOK_SECRET>"
 }
 ```
 

@@ -43,7 +43,7 @@ The encryption system provides:
 
 ```bash
 # Using CLI
-matric-pke keygen -p "your-secure-passphrase-123" -o ~/.matric-keys
+matric-pke keygen -p "<PKE_PASSPHRASE>" -o ~/.matric-keys
 
 # Output:
 # {
@@ -76,7 +76,7 @@ matric-pke decrypt \
   -i document.pdf.mmpke \
   -o document.pdf \
   -k ~/.matric-keys/private.key.enc \
-  -p "your-secure-passphrase-123"
+  -p "<PKE_PASSPHRASE>"
 ```
 
 ## File Format (MMPKE01)
@@ -117,7 +117,7 @@ Generate a new X25519 keypair.
 
 ```javascript
 pke_generate_keypair({
-  passphrase: "secure-passphrase-123",
+  passphrase: "<PKE_PASSPHRASE>",
   output_dir: "/path/to/keys",
   label: "My Key"  // optional
 })
@@ -144,7 +144,7 @@ pke_decrypt({
   input: "/path/to/file.pdf.mmpke",
   output: "/path/to/file.pdf",
   private_key: "/path/to/private.key.enc",
-  passphrase: "your-passphrase"
+  passphrase: "<PKE_PASSPHRASE>"
 })
 ```
 

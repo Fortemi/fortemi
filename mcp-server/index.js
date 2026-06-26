@@ -4529,7 +4529,7 @@ Validate with: \`pke_verify_address({ address: "mm:..." })\`
 
 \`\`\`
 // Create keyset (min 12 char passphrase)
-pke_create_keyset({ name: "personal", passphrase: "secure-pass-12chars" })
+pke_create_keyset({ name: "personal", passphrase: "<PKE_PASSPHRASE>" })
 
 // List keysets
 pke_list_keysets()
@@ -4574,7 +4574,7 @@ pke_encrypt({
 pke_decrypt({
   input_path: "/file.txt.enc",
   output_path: "/file.txt",
-  passphrase: "secure-pass-12chars"
+  passphrase: "<PKE_PASSPHRASE>"
 })
 
 // List recipients of encrypted file

@@ -335,7 +335,7 @@ curl -X POST http://localhost:3000/api/v1/webhooks \
   -d '{
     "url": "https://your-alerting-service.com/webhook",
     "events": ["JobFailed"],
-    "secret": "your-hmac-secret"
+    "secret": "<WEBHOOK_SECRET>"
   }'
 ```
 

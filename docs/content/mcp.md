@@ -1050,7 +1050,7 @@ PKE (Public Key Encryption) operations — keypair generation, encrypt/decrypt p
 // Generate a keypair
 {
   "action": "generate_keypair",
-  "passphrase": "my-secure-passphrase",
+  "passphrase": "<PKE_PASSPHRASE>",
   "output_dir": "/home/user/.matric/keys/my-key"
 }
 

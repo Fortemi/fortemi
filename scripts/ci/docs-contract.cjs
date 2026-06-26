@@ -111,6 +111,24 @@ const RULES = [
     remediation: "Use <MCP_CLIENT_SECRET> for OAuth/MCP client-secret examples.",
   },
   {
+    id: "docs-passphrase-placeholder",
+    issue: "#999",
+    severity: "high",
+    category: "passphrase_or_webhook_secret_placeholder",
+    appliesTo(relativePath) {
+      return relativePath.startsWith("docs/") || relativePath === "mcp-server/index.js";
+    },
+    detect(line) {
+      return (
+        /\bpassphrase["']?\s*[:=]\s*["'](?!(?:<PKE_PASSPHRASE>|\.\.\.))[^"']{6,}["']/i.test(line) ||
+        /\bsecret["']?\s*[:=]\s*["'](?!(?:<WEBHOOK_SECRET>|<MCP_CLIENT_SECRET>|\.\.\.))[^"']{6,}["']/i.test(line) ||
+        /(?:^|\s)(?<!mkdir\s)-p\s+["'](?!(?:<PKE_PASSPHRASE>|\.\.\.))[^"']{6,}["']/.test(line)
+      );
+    },
+    remediation:
+      "Use <PKE_PASSPHRASE> or <WEBHOOK_SECRET> instead of realistic passphrase/secret examples.",
+  },
+  {
     id: "docs-default-pgpassword",
     issue: "#1001",
     severity: "high",
@@ -204,6 +222,9 @@ function fingerprint(ruleId, relativePath, lineNumber, line) {
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer <TOKEN>")
     .replace(/[?&]token=[A-Za-z0-9._~+/=-]+/gi, "token=<TOKEN>")
     .replace(/postgres(?:ql)?:\/\/[^/\s"'`:@]+:[^@\s"'`]+@/gi, "postgres://<USER>:<PASSWORD>@")
+    .replace(/\bpassphrase["']?\s*[:=]\s*["'][^"']+["']/gi, "passphrase: <PKE_PASSPHRASE>")
+    .replace(/\bsecret["']?\s*[:=]\s*["'][^"']+["']/gi, "secret: <SECRET>")
+    .replace(/(?:^|\s)-p\s+["'][^"']+["']/g, " -p <PKE_PASSPHRASE>")
     .replace(/\b(?:PGPASSWORD|POSTGRES_PASSWORD)\s*=\s*\S+/g, "<DB_PASSWORD_ASSIGNMENT>");
   return crypto
     .createHash("sha256")
@@ -220,6 +241,7 @@ function scan(root) {
     const lines = content.split(/\r?\n/);
     lines.forEach((line, index) => {
       for (const rule of RULES) {
+        if (rule.appliesTo && !rule.appliesTo(relativePath)) continue;
         if (!rule.detect(line)) continue;
         findings.push({
           rule: rule.id,
@@ -403,6 +425,9 @@ function runSelfTest() {
         'curl "https://example.test/events?token=mm_key_realisticExample"',
         "OPENAI_API_KEY=sk-proj-realisticExample",
         "MCP_CLIENT_SECRET=secret_xyz789",
+        'passphrase: "secure-passphrase-123"',
+        '-p "your-secure-passphrase-123"',
+        '"secret": "my-webhook-secret"',
         "PGPASSWORD=matric",
         "DATABASE_URL=postgres://matric:matric@localhost/matric",
       ].join("\n")
@@ -414,6 +439,9 @@ function runSelfTest() {
         "Use token=<STREAM_TOKEN>",
         "OPENAI_API_KEY=<OPENAI_API_KEY>",
         "MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>",
+        'passphrase: "<PKE_PASSPHRASE>"',
+        '-p "<PKE_PASSPHRASE>"',
+        '"secret": "<WEBHOOK_SECRET>"',
         "client_secret_basic is an OAuth auth method name",
         "secret_set: true",
         "task-specific embeddings",
@@ -423,8 +451,8 @@ function runSelfTest() {
     const findings = scan(tmp);
     const positiveFindings = findings.filter((finding) => finding.file.endsWith("positive.md"));
     const negativeFindings = findings.filter((finding) => finding.file.endsWith("negative.md"));
-    if (positiveFindings.length < 6) {
-      throw new Error(`expected at least 6 positive findings, got ${positiveFindings.length}`);
+    if (positiveFindings.length < 9) {
+      throw new Error(`expected at least 9 positive findings, got ${positiveFindings.length}`);
     }
     if (negativeFindings.length !== 0) {
       throw new Error(`expected zero negative findings, got ${negativeFindings.length}`);

@@ -52,7 +52,7 @@ POST /api/v1/pke/keygen
 Content-Type: application/json
 
 {
-  "passphrase": "strong-passphrase-123",
+  "passphrase": "<PKE_PASSPHRASE>",
   "label": "Work Key"  // optional
 }
 
@@ -118,7 +118,7 @@ Content-Type: application/json
 {
   "ciphertext": "base64-encoded-ciphertext",
   "encrypted_private_key": "base64-encoded-encrypted-private-key",
-  "passphrase": "strong-passphrase-123"
+  "passphrase": "<PKE_PASSPHRASE>"
 }
 
 Response 200:
@@ -378,7 +378,7 @@ CREATE TABLE pke_public_keys (
        let client = reqwest::Client::new();
        let resp = client.post("http://localhost:3000/api/v1/pke/keygen")
            .json(&json!({
-               "passphrase": "test-passphrase-123"
+               "passphrase": "<PKE_PASSPHRASE>"
            }))
            .send()
            .await

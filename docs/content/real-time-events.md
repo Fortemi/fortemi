@@ -500,7 +500,7 @@ curl -X POST http://localhost:3000/api/v1/webhooks \
     "url": "https://example.com/fortemi-webhook",
     "events": ["JobCompleted", "JobFailed", "NoteUpdated"],
     "active": true,
-    "secret": "my-webhook-secret"
+    "secret": "<WEBHOOK_SECRET>"
   }'
 ```
 
