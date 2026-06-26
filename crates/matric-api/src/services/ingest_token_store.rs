@@ -52,7 +52,7 @@ const DEFAULT_RATE_LIMIT: u64 = 0;
 /// The persisted record for a stream token (value under `mm:ingesttoken:{token}`).
 /// Holds no secret beyond its own key; the `token_id` is a non-secret handle for
 /// revocation.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IngestTokenData {
     /// Non-secret revocation handle.
     pub token_id: String,
@@ -60,6 +60,16 @@ pub struct IngestTokenData {
     pub schema: String,
     /// Per-token rate limit in lines/sec; 0 = unlimited.
     pub rate_limit: u64,
+}
+
+impl std::fmt::Debug for IngestTokenData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IngestTokenData")
+            .field("token_id_len", &ingest_token_text_len(&self.token_id))
+            .field("schema_len", &ingest_token_text_len(&self.schema))
+            .field("rate_limit", &self.rate_limit)
+            .finish()
+    }
 }
 
 /// The result of [`IngestTokenStore::mint`]. The secret `token` is returned to
@@ -356,6 +366,26 @@ mod tests {
         let json = serde_json::to_string(&data).unwrap();
         let back: IngestTokenData = serde_json::from_str(&json).unwrap();
         assert_eq!(data, back);
+    }
+
+    #[test]
+    fn token_data_debug_redacts_identifiers_and_schema() {
+        let data = IngestTokenData {
+            token_id: "token-id-secret-tenant-alpha".to_string(),
+            schema: "private_schema_with_token_secret".to_string(),
+            rate_limit: 250,
+        };
+
+        let rendered = format!("{data:?}");
+
+        assert!(rendered.contains("IngestTokenData"));
+        assert!(rendered.contains("token_id_len"));
+        assert!(rendered.contains("schema_len"));
+        assert!(rendered.contains("rate_limit"));
+        assert!(!rendered.contains("token-id-secret"));
+        assert!(!rendered.contains("tenant-alpha"));
+        assert!(!rendered.contains("private_schema"));
+        assert!(!rendered.contains("token_secret"));
     }
 
     #[test]

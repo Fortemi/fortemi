@@ -194,6 +194,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-26 continuation: Backup metadata and memory-restore warning slice replaces raw metadata, schema-sync, and restore-recovery diagnostics with stable operation/phase/reason metadata, error lengths, and memory-name lengths.
   - 2026-06-26 continuation: CORS and archive-routing warning slice replaces raw invalid-origin, archive-name, and archive schema-sync diagnostics with URL classes, bounded lengths, stable reason codes, and error lengths.
   - 2026-06-26 continuation: Search-cache Redis telemetry slice replaces raw Redis URLs, backend errors, and query-derived cache keys with URL classes, bounded lengths, stable reason codes, and key lengths.
+  - 2026-06-26 continuation: Ingest-token data Debug slice replaces raw token revocation ids and archive schema names with metadata-only lengths while preserving JSON persistence.
 - [x] **#926 / #928 / #933** fail-closed startup: require issuer in multi-tenant; reject invalid security booleans; validate rate-limit env before constructing limiter. (2026-06-26: startup-config slice added strict parsing for auth/tenant/local-issuer/rate-limit/realtime-consent booleans, hosted-safe issuer validation reused by AsyncAPI metadata, deterministic process-local rate-limit numeric validation before limiter construction, and operator/env docs for accepted forms, local issuer override, and hosted issuer requirements. Issues closed after focused regression tests and docs audit.)
 
 ## Phase 1 — Open BSL desktop GA  `tier/open-build`
@@ -550,3 +551,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-26 — #968/#974 backup metadata and memory-restore warnings now report stable operation/phase/reason metadata, error lengths, and memory-name lengths instead of raw DB, filesystem, schema, path, or secret-shaped diagnostics.
 - 2026-06-26 — #968/#974 CORS and archive-routing warnings now report URL classes, bounded lengths, stable reason codes, and error lengths instead of raw invalid origins, archive names, schema names, topology URLs, or backend diagnostics.
 - 2026-06-26 — #968/#974 search-cache Redis telemetry now reports URL classes, bounded lengths, stable reason codes, and key lengths instead of raw Redis URLs, backend errors, or query-derived cache keys.
+- 2026-06-26 — #968/#974 ingest-token data Debug output now reports token-id and schema lengths instead of raw revocation ids or archive schema names while preserving Redis JSON persistence.
