@@ -34,8 +34,8 @@ curl -X POST http://localhost:3000/api/v1/api-keys \
 # Response (save the api_key value - shown only once!)
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
-  "api_key": "mm_key_abcdefghijklmnopqrstuvwxyz123456",
-  "key_prefix": "mm_key_abcde",
+  "api_key": "<API_KEY>",
+  "key_prefix": "<API_KEY_PREFIX>",
   "name": "My Script",
   "scope": "read write",
   "expires_at": "2024-04-15T10:00:00Z",
@@ -87,8 +87,8 @@ API keys are ideal for:
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
-  "api_key": "mm_key_xYz9Q4rTp2Lm8vBn3HjK6WcE1DfG5sA7",
-  "key_prefix": "mm_key_xYz9Q",
+  "api_key": "<API_KEY>",
+  "key_prefix": "<API_KEY_PREFIX>",
   "name": "Production Integration",
   "scope": "read write",
   "expires_at": "2025-01-15T10:00:00Z",
@@ -104,7 +104,7 @@ Include the key in the `Authorization` header with the `Bearer` scheme:
 
 ```bash
 curl http://localhost:3000/api/v1/notes \
-  -H "Authorization: Bearer mm_key_xYz9Q4rTp2Lm8vBn3HjK6WcE1DfG5sA7"
+  -H "Authorization: Bearer <API_KEY>"
 ```
 
 **Python Example:**
@@ -112,7 +112,7 @@ curl http://localhost:3000/api/v1/notes \
 import requests
 
 API_BASE = "http://localhost:3000"
-API_KEY = "mm_key_xYz9Q4rTp2Lm8vBn3HjK6WcE1DfG5sA7"
+API_KEY = "<API_KEY>"
 
 headers = {
     "Authorization": f"Bearer {API_KEY}",
@@ -134,7 +134,7 @@ print(response.json())
 **JavaScript Example:**
 ```javascript
 const API_BASE = "http://localhost:3000";
-const API_KEY = "mm_key_xYz9Q4rTp2Lm8vBn3HjK6WcE1DfG5sA7";
+const API_KEY = "<API_KEY>";
 
 async function createNote(content, tags = []) {
   const response = await fetch(`${API_BASE}/api/v1/notes`, {
@@ -165,7 +165,7 @@ GET /api/v1/api-keys
   "api_keys": [
     {
       "id": "550e8400-e29b-41d4-a716-446655440000",
-      "key_prefix": "mm_key_xYz9Q",
+      "key_prefix": "<API_KEY_PREFIX>",
       "name": "Production Integration",
       "description": "API access for production app",
       "scope": "read write",
@@ -189,7 +189,7 @@ DELETE /api/v1/api-keys/{id}
 ### API Key Format
 
 - **Format:** `mm_key_{32_random_chars}`
-- **Prefix:** First 12 characters (e.g., `mm_key_xYz9Q`) shown in listings
+- **Prefix:** First 12 characters (e.g., `<API_KEY_PREFIX>`) shown in listings
 - **Storage:** SHA256 hash stored in database
 - **Expiration:** Optional, defaults to no expiration
 
@@ -264,7 +264,7 @@ GET /.well-known/oauth-authorization-server
 ```json
 {
   "client_id": "mm_AbCdEfGh12345678901234",
-  "client_secret": "sEcReT_xYz9Q4rTp2Lm8vBn3HjK6WcE1DfG5sA7UiO0pN",
+  "client_secret": "<MCP_CLIENT_SECRET>",
   "client_id_issued_at": 1705320000,
   "client_secret_expires_at": 0,
   "client_name": "My Application",
@@ -341,10 +341,10 @@ curl -X POST http://localhost:3000/oauth/token \
 **Response:**
 ```json
 {
-  "access_token": "mm_at_xYz9Q4rTp2Lm8vBn3HjK6WcE1DfG5sA7UiO0pN9qR",
+  "access_token": "<ACCESS_TOKEN>",
   "token_type": "Bearer",
   "expires_in": 3600,
-  "refresh_token": "mm_rt_AbCdEfGh12345678901234567890123456789012",
+  "refresh_token": "<REFRESH_TOKEN>",
   "scope": "read write"
 }
 ```
@@ -355,7 +355,7 @@ import requests
 import base64
 
 client_id = "mm_AbCdEfGh12345678901234"
-client_secret = "sEcReT_xYz9Q4rTp2Lm8vBn3HjK6WcE1DfG5sA7UiO0pN"
+client_secret = "<MCP_CLIENT_SECRET>"
 auth_code = "AUTH_CODE_FROM_REDIRECT"
 redirect_uri = "https://myapp.example.com/callback"
 code_verifier = "VERIFIER_FROM_STEP1"
@@ -389,7 +389,7 @@ Include the access token in the `Authorization` header:
 
 ```bash
 curl http://localhost:3000/api/v1/notes \
-  -H "Authorization: Bearer mm_at_xYz9Q4rTp2Lm8vBn3HjK6WcE1DfG5sA7UiO0pN9qR"
+  -H "Authorization: Bearer <ACCESS_TOKEN>"
 ```
 
 ### 4. Refreshing Tokens
@@ -404,16 +404,16 @@ curl -X POST http://localhost:3000/oauth/token \
   -H "Authorization: Basic $(echo -n 'client_id:client_secret' | base64)" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "grant_type=refresh_token" \
-  -d "refresh_token=mm_rt_AbCdEfGh12345678901234567890123456789012"
+  -d "refresh_token=<REFRESH_TOKEN>"
 ```
 
 **Response:**
 ```json
 {
-  "access_token": "mm_at_NewAccessToken123456789",
+  "access_token": "<ACCESS_TOKEN>",
   "token_type": "Bearer",
   "expires_in": 3600,
-  "refresh_token": "mm_rt_NewRefreshToken987654321",
+  "refresh_token": "<REFRESH_TOKEN>",
   "scope": "read write"
 }
 ```
@@ -436,7 +436,7 @@ curl -X POST http://localhost:3000/oauth/token \
 **Response:**
 ```json
 {
-  "access_token": "mm_at_ClientAccessToken123456789",
+  "access_token": "<ACCESS_TOKEN>",
   "token_type": "Bearer",
   "expires_in": 3600,
   "scope": "read write"
@@ -454,7 +454,7 @@ Check if a token is active and retrieve its metadata (requires client authentica
 curl -X POST http://localhost:3000/oauth/introspect \
   -H "Authorization: Basic $(echo -n 'client_id:client_secret' | base64)" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "token=mm_at_xYz9Q4rTp2Lm8vBn3HjK6WcE1DfG5sA7UiO0pN9qR"
+  -d "token=<ACCESS_TOKEN>"
 ```
 
 **Response (active token):**
@@ -488,7 +488,7 @@ Revoke access or refresh tokens when they're no longer needed.
 curl -X POST http://localhost:3000/oauth/revoke \
   -H "Authorization: Basic $(echo -n 'client_id:client_secret' | base64)" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "token=mm_at_xYz9Q4rTp2Lm8vBn3HjK6WcE1DfG5sA7UiO0pN9qR" \
+  -d "token=<ACCESS_TOKEN>" \
   -d "token_type_hint=access_token"
 ```
 
@@ -755,7 +755,7 @@ Revoke tokens immediately when:
 ```bash
 # .env.development
 MATRIC_MEMORY_URL=http://localhost:3000
-MATRIC_MEMORY_API_KEY=mm_key_dev_test_only_12345
+MATRIC_MEMORY_API_KEY=<API_KEY>
 ```
 
 **Production:**
@@ -775,7 +775,7 @@ The MCP server supports both authentication modes:
 
 ```bash
 # Set environment variable
-export MATRIC_MEMORY_API_KEY="mm_key_xYz9Q4rTp2Lm8vBn3HjK6WcE1DfG5sA7"
+export MATRIC_MEMORY_API_KEY="<API_KEY>"
 
 # Run MCP server
 cd mcp-server
@@ -930,7 +930,7 @@ class MatricMemoryClient:
 if __name__ == "__main__":
     client = MatricMemoryClient(
         client_id="mm_AbCdEfGh12345678901234",
-        client_secret="sEcReT_xYz9Q4rTp2Lm8vBn3HjK6WcE1DfG5sA7UiO0pN",
+        client_secret="<MCP_CLIENT_SECRET>",
         redirect_uri="http://localhost:3000/callback"
     )
 

@@ -22,7 +22,7 @@ The Fortemi MCP server provides AI agents (Claude Code, Claude Desktop, etc.) wi
 ### Authentication Flow
 
 1. **Client authentication**: Claude Code obtains an OAuth2 access token via authorization code flow
-2. **MCP request**: Client sends tool call to MCP server with `Authorization: Bearer <token>` header
+2. **MCP request**: Client sends tool call to MCP server with `Authorization: Bearer <ACCESS_TOKEN>` header
 3. **Token introspection**: MCP server validates the bearer token by calling the API's introspection endpoint
 4. **Introspection authentication**: MCP uses its own OAuth client credentials to authenticate the introspection request
 5. **Response**: API returns `{"active": true}` if token is valid, MCP processes the request
@@ -203,7 +203,7 @@ curl -X POST http://localhost:3000/oauth/register \
 ```json
 {
   "client_id": "mm_abc123def456",
-  "client_secret": "secret_xyz789",
+  "client_secret": "<MCP_CLIENT_SECRET>",
   "client_name": "MCP Server",
   "grant_types": ["client_credentials"],
   "scope": "mcp read write"
@@ -218,7 +218,7 @@ Add credentials to `.env`:
 # .env
 ISSUER_URL=http://localhost:3000
 MCP_CLIENT_ID=mm_abc123def456
-MCP_CLIENT_SECRET=secret_xyz789
+MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>
 ```
 
 **Why `ISSUER_URL` is required:** The API uses `ISSUER_URL` to generate OAuth2 discovery metadata (`.well-known/oauth-authorization-server`). Claude Code uses this metadata to discover the authorization and token endpoints.
@@ -314,7 +314,7 @@ docker compose -f docker-compose.bundle.yml logs matric | grep -E "MCP|credentia
   ================================================================
   NOTE: To persist across volume wipes, update your .env file:
     MCP_CLIENT_ID=mm_abc123def456
-    MCP_CLIENT_SECRET=secret_xyz789
+    MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>
   ================================================================
 
 >>> Starting MCP Server...

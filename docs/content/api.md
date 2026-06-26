@@ -45,7 +45,7 @@ curl -X POST http://localhost:3000/oauth/token \
 For trusted integrations, use API key authentication:
 
 ```bash
-curl -H "Authorization: Bearer mm_key_xxx" \
+curl -H "Authorization: Bearer <API_KEY>" \
   http://localhost:3000/api/v1/notes
 ```
 
@@ -75,7 +75,7 @@ DELETE /api/v1/api-keys/{id}
 ```http
 POST /api/v1/notes
 Content-Type: application/json
-Authorization: Bearer <token>
+Authorization: Bearer <ACCESS_TOKEN>
 
 {
   "content": "# My Note\n\nNote content in markdown...",
@@ -251,7 +251,7 @@ Queues NLP pipeline jobs for multiple notes at once. Useful after model changes 
 ```bash
 # Reprocess all notes with embedding only
 curl -X POST http://localhost:3000/api/v1/notes/reprocess \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{"steps": ["embedding"]}'
 ```
@@ -374,7 +374,7 @@ Returns the W3C PROV provenance chain showing the full AI processing history.
 ```http
 POST /api/v1/notes/{id}/attachments
 Content-Type: multipart/form-data
-Authorization: Bearer <token>
+Authorization: Bearer <ACCESS_TOKEN>
 
 file=@photo.jpg
 ```
@@ -399,7 +399,7 @@ Upload a file attachment to a note. Supported file types include images (JPEG, P
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/notes/550e8400-e29b-41d4-a716-446655440000/attachments \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -F "file=@vacation-photo.jpg"
 ```
 
@@ -408,7 +408,7 @@ curl -X POST http://localhost:3000/api/v1/notes/550e8400-e29b-41d4-a716-44665544
 ```http
 POST /api/v1/notes/{id}/attachments/upload
 Content-Type: multipart/form-data
-Authorization: Bearer <token>
+Authorization: Bearer <ACCESS_TOKEN>
 
 file=@photo.jpg
 ```
@@ -419,7 +419,7 @@ Alternative multipart upload endpoint that supports larger files. Uses the same 
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/notes/550e8400-e29b-41d4-a716-446655440000/attachments/upload \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -F "file=@large-document.pdf"
 ```
 
@@ -462,7 +462,7 @@ Returns all attachments for a specific note.
 
 ```bash
 curl http://localhost:3000/api/v1/notes/550e8400-e29b-41d4-a716-446655440000/attachments \
-  -H "Authorization: Bearer mm_key_xxx"
+  -H "Authorization: Bearer <API_KEY>"
 ```
 
 ### Get Attachment
@@ -477,7 +477,7 @@ Returns the attachment record as JSON (metadata, not the binary file).
 
 ```bash
 curl http://localhost:3000/api/v1/attachments/660e8400-e29b-41d4-a716-446655440000 \
-  -H "Authorization: Bearer mm_key_xxx"
+  -H "Authorization: Bearer <API_KEY>"
 ```
 
 ### Download Attachment
@@ -498,7 +498,7 @@ Downloads the raw binary file content with appropriate Content-Type and Content-
 
 ```bash
 curl -O http://localhost:3000/api/v1/attachments/660e8400-e29b-41d4-a716-446655440000/download \
-  -H "Authorization: Bearer mm_key_xxx"
+  -H "Authorization: Bearer <API_KEY>"
 ```
 
 ### Get Attachment Metadata
@@ -554,7 +554,7 @@ Returns comprehensive metadata including EXIF data, location provenance, and pro
 
 ```bash
 curl http://localhost:3000/api/v1/attachments/660e8400-e29b-41d4-a716-446655440000/metadata \
-  -H "Authorization: Bearer mm_key_xxx"
+  -H "Authorization: Bearer <API_KEY>"
 ```
 
 ### Delete Attachment
@@ -571,7 +571,7 @@ Permanently deletes an attachment and its associated file from storage.
 
 ```bash
 curl -X DELETE http://localhost:3000/api/v1/attachments/660e8400-e29b-41d4-a716-446655440000 \
-  -H "Authorization: Bearer mm_key_xxx"
+  -H "Authorization: Bearer <API_KEY>"
 ```
 
 ## Memory Search
@@ -637,15 +637,15 @@ At least one search dimension is required: `lat`+`lon` for location, `start`+`en
 ```bash
 # Location search: memories within 1km of a point
 curl "http://localhost:3000/api/v1/memories/search?lat=37.7749&lon=-122.4194&radius=1000" \
-  -H "Authorization: Bearer mm_key_xxx"
+  -H "Authorization: Bearer <API_KEY>"
 
 # Temporal search: memories from January 2026
 curl "http://localhost:3000/api/v1/memories/search?start=2026-01-01&end=2026-02-01" \
-  -H "Authorization: Bearer mm_key_xxx"
+  -H "Authorization: Bearer <API_KEY>"
 
 # Combined search: near a location during a specific week
 curl "http://localhost:3000/api/v1/memories/search?lat=37.7749&lon=-122.4194&radius=5000&start=2026-01-15&end=2026-01-20" \
-  -H "Authorization: Bearer mm_key_xxx"
+  -H "Authorization: Bearer <API_KEY>"
 ```
 
 ### Get Memory Provenance
@@ -690,7 +690,7 @@ Returns the complete file provenance chain for a note's attachments, including l
 
 ```bash
 curl http://localhost:3000/api/v1/notes/550e8400-e29b-41d4-a716-446655440000/memory-provenance \
-  -H "Authorization: Bearer mm_key_xxx"
+  -H "Authorization: Bearer <API_KEY>"
 ```
 
 ### Create Provenance Location
@@ -1039,7 +1039,7 @@ Pass the `strict_filter` parameter as a URL-encoded JSON string:
 
 ```bash
 curl "http://localhost:3000/api/v1/search?q=authentication" \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   --data-urlencode "strict_filter={\"required_tags\":[\"project:matric\"],\"any_tags\":[\"priority:high\"],\"excluded_tags\":[\"status:archived\"]}"
 ```
 
@@ -1391,7 +1391,7 @@ Exports all concept schemes in a single RDF Turtle document.
 
 ```bash
 curl http://localhost:3000/api/v1/concepts/schemes/export/turtle \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -o all-schemes.ttl
 ```
 
@@ -1725,7 +1725,7 @@ Exports all notes in a collection as a single concatenated Markdown document wit
 
 ```bash
 curl "http://localhost:3000/api/v1/collections/550e8400-e29b-41d4-a716-446655440000/export" \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -o collection-export.md
 ```
 
@@ -1890,7 +1890,7 @@ Returns graph topology statistics for the current memory archive.
 
 ```bash
 curl http://localhost:3000/api/v1/graph/topology/stats \
-  -H "Authorization: Bearer mm_key_xxx"
+  -H "Authorization: Bearer <API_KEY>"
 ```
 
 ### Graph Diagnostics
@@ -1911,7 +1911,7 @@ Returns graph quality diagnostics by sampling embedding pairs.
 
 ```bash
 curl "http://localhost:3000/api/v1/graph/diagnostics?sample_size=500" \
-  -H "Authorization: Bearer mm_key_xxx"
+  -H "Authorization: Bearer <API_KEY>"
 ```
 
 ### Capture Diagnostics Snapshot
@@ -2074,13 +2074,13 @@ Queues a graph maintenance job. Jobs are deduplicated — if one is already pend
 ```bash
 # Run full maintenance pipeline
 curl -X POST http://localhost:3000/api/v1/graph/maintenance \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{}'
 
 # Run only SNN and PFNET steps
 curl -X POST http://localhost:3000/api/v1/graph/maintenance \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{"steps": ["snn", "pfnet"]}'
 ```
@@ -2565,7 +2565,7 @@ Downloads a gzip-compressed `pg_dump` of a single memory archive schema. Unlike 
 
 ```bash
 curl http://localhost:3000/api/v1/backup/memory/work-notes \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -o work-notes-backup.sql.gz
 ```
 
@@ -2864,7 +2864,7 @@ Ad-hoc image description using the configured vision LLM. Requires `OLLAMA_VISIO
 ```http
 POST /api/v1/vision/describe
 Content-Type: multipart/form-data
-Authorization: Bearer <token>
+Authorization: Bearer <ACCESS_TOKEN>
 
 file=@image.jpg
 ```
@@ -2898,7 +2898,7 @@ Analyzes an uploaded image and returns an AI-generated description. No attachmen
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/vision/describe \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -F "file=@sunset.jpg" \
   -F "prompt=Describe the colors and mood of this image"
 ```
@@ -2912,7 +2912,7 @@ Ad-hoc audio transcription using a Whisper-compatible backend. Requires `WHISPER
 ```http
 POST /api/v1/audio/transcribe
 Content-Type: multipart/form-data
-Authorization: Bearer <token>
+Authorization: Bearer <ACCESS_TOKEN>
 
 file=@recording.mp3
 ```
@@ -2960,7 +2960,7 @@ Transcribes an uploaded audio file and returns timestamped text segments. No att
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/audio/transcribe \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -F "file=@meeting-recording.mp3" \
   -F "language=en"
 ```
@@ -2974,7 +2974,7 @@ Synchronous LLM conversation endpoint. Bypasses the job queue and calls Ollama d
 ```http
 POST /api/v1/chat
 Content-Type: application/json
-Authorization: Bearer <token>
+Authorization: Bearer <ACCESS_TOKEN>
 
 {
   "input": "What are the key themes across my recent notes?",
@@ -3066,13 +3066,13 @@ When busy, the 503 response includes:
 # Simple chat
 curl -X POST http://localhost:3000/api/v1/chat \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -d '{"input": "Summarize my recent notes about Rust"}'
 
 # With model selection and conversation history
 curl -X POST http://localhost:3000/api/v1/chat \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Authorization: Bearer <API_KEY>" \
   -d '{
     "input": "Tell me more about the async patterns",
     "model": "qwen3.5:9b",
@@ -3089,7 +3089,7 @@ curl -X POST http://localhost:3000/api/v1/chat \
 
 ```http
 GET /api/v1/chat/models
-Authorization: Bearer <token>
+Authorization: Bearer <ACCESS_TOKEN>
 ```
 
 Returns all installed Ollama models capable of chat (excludes embedding-only models), enriched with metadata from the model registry.
@@ -3136,7 +3136,7 @@ Models without a registry profile return zeroed defaults for numeric fields and 
 
 ```bash
 curl http://localhost:3000/api/v1/chat/models \
-  -H "Authorization: Bearer mm_key_xxx"
+  -H "Authorization: Bearer <API_KEY>"
 ```
 
 ## Inference
@@ -3174,7 +3174,7 @@ Returns all models available through the configured inference providers (Ollama,
 
 ```bash
 curl http://localhost:3000/api/v1/models \
-  -H "Authorization: Bearer mm_key_xxx"
+  -H "Authorization: Bearer <API_KEY>"
 ```
 
 ### Extraction Stats
@@ -3206,7 +3206,7 @@ Returns analytics for extraction jobs including counts, durations, and breakdown
 
 ```bash
 curl http://localhost:3000/api/v1/extraction/stats \
-  -H "Authorization: Bearer mm_key_xxx"
+  -H "Authorization: Bearer <API_KEY>"
 ```
 
 ## PKE (Public Key Encryption)

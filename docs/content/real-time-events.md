@@ -217,8 +217,8 @@ Browser `EventSource` cannot set custom headers, so authentication is supported 
 
 | Method | Example |
 |--------|---------|
-| Query param (preferred for browsers) | `?token=mm_at_xxx` or `?token=mm_key_xxx` |
-| Authorization header | `Authorization: Bearer mm_at_xxx` |
+| Query param (preferred for browsers) | `?token=<STREAM_TOKEN>` or `?token=<ACCESS_TOKEN>` |
+| Authorization header | `Authorization: Bearer <ACCESS_TOKEN>` |
 
 When `REQUIRE_AUTH=true` (default), one of the above is required. When explicitly running local sidecar/dev mode with `REQUIRE_AUTH=false` and `I_UNDERSTAND_NO_AUTH=true`, authentication is optional.
 
@@ -265,7 +265,7 @@ Only events where `envelope.entity_id` matches are delivered.
 All filters can be combined:
 
 ```
-GET /api/v1/events?token=mm_at_xxx&memory=research&types=note&entity_id=abc-123
+GET /api/v1/events?token=<STREAM_TOKEN>&memory=research&types=note&entity_id=abc-123
 ```
 
 ### Replay (Last-Event-ID)
@@ -309,7 +309,7 @@ Keep-alive messages are sent every 15 seconds to prevent connection timeouts:
 curl -N http://localhost:3000/api/v1/events
 
 # With auth and memory scope
-curl -N "http://localhost:3000/api/v1/events?token=mm_at_xxx&memory=research"
+curl -N "http://localhost:3000/api/v1/events?token=<STREAM_TOKEN>&memory=research"
 
 # Filtered to note events only
 curl -N "http://localhost:3000/api/v1/events?types=note"
@@ -322,7 +322,7 @@ curl -N "http://localhost:3000/api/v1/events?types=note"
 const url = new URL('http://localhost:3000/api/v1/events');
 url.searchParams.set('types', 'note,collection');
 url.searchParams.set('memory', 'research');
-// url.searchParams.set('token', 'mm_at_xxx');  // if auth required
+// url.searchParams.set('token', '<STREAM_TOKEN>');  // if auth required
 
 const eventSource = new EventSource(url);
 
