@@ -46,6 +46,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-26 continuation: OpenAPI problem-contract slice adds `ProblemDetails`/catalog schemas and a generated `x-fortemi-error-contract` extension carrying the public problem-type catalog.
   - 2026-06-26 continuation: MCP upstream-error parsing slice teaches the MCP server to summarize Fortemi RFC 9457 problem details while suppressing raw legacy JSON/text upstream bodies in tool errors.
   - 2026-06-26 continuation: TUS resumable-upload slice routes staging-file, upload-record, offset, delete, and finalize internal failures through redacted operation-failed problem responses instead of raw filesystem or database diagnostics.
+  - 2026-06-26 continuation: query datetime validation now returns fixed invalid-date and relative-time-unit problem details without echoing submitted date strings.
   - 2026-06-26 continuation: attachment media/download slice routes variant, thumbnail, sprite, streaming open/seek, and non-missing file-read internals through generic operation-failed problems while preserving blob-missing and protocol validation behavior.
   - 2026-06-26 continuation: Twilio recording download slice routes HTTP client, download, status, and body-read failures through generic provider-failure problems without exposing recording URLs, provider hosts, tokens, local paths, or raw network diagnostics.
   - 2026-06-26 continuation: archive-routing middleware slice routes invalid memory headers, missing memories, and lookup failures through RFC 9457 problem responses instead of legacy `{error}` JSON, and stops echoing requested memory names.
@@ -372,3 +373,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-26 — #967 inference-config database failures now avoid constructing raw database error response strings in RFC 9457 responses.
 - 2026-06-26 — #967 linking job schema/search/commit step failures now store fixed diagnostics instead of raw transaction or database details.
 - 2026-06-26 — #967 ingest-stream NDJSON parser failures now avoid raw serde line/column diagnostics in stream validation errors.
+- 2026-06-26 — #967 query datetime validation now avoids echoing submitted date strings or relative time units in client-visible validation errors.

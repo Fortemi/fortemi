@@ -8,6 +8,13 @@ use serde::{de, Deserialize, Deserializer};
 use std::fmt;
 use std::ops::Deref;
 
+const DATE_VALUE_EMPTY_MESSAGE: &str =
+    "Date value cannot be empty. Expected ISO 8601 format or natural language.";
+const INVALID_RELATIVE_TIME_UNIT_MESSAGE: &str =
+    "Invalid relative time unit. Supported units: hour, day, week, month, minute.";
+const INVALID_DATE_FORMAT_MESSAGE: &str =
+    "Invalid date format. Expected ISO 8601 format or natural language. Examples: '2024-01-15T10:30:00Z', '2024-01-15', '7d', 'yesterday', 'last week', '3 days ago'.";
+
 /// A DateTime type that provides helpful error messages when parsing fails.
 ///
 /// Accepts:
@@ -76,10 +83,7 @@ fn parse_flexible_datetime(s: &str) -> Result<FlexibleDateTime, String> {
     let s = s.trim();
 
     if s.is_empty() {
-        return Err(
-            "Date value cannot be empty. Expected ISO 8601 format (e.g., '2024-01-15T10:30:00Z') or natural language (e.g., 'now', '7d', 'yesterday')"
-                .to_string(),
-        );
+        return Err(DATE_VALUE_EMPTY_MESSAGE.to_string());
     }
 
     let s_lower = s.to_lowercase();
@@ -180,12 +184,7 @@ fn parse_flexible_datetime(s: &str) -> Result<FlexibleDateTime, String> {
                     "week" | "weeks" => Duration::weeks(num),
                     "month" | "months" => Duration::days(num * 30),
                     "minute" | "minutes" => Duration::minutes(num),
-                    _ => {
-                        return Err(format!(
-                            "Unrecognized time unit in '{}'. Supported units: hour, day, week, month, minute",
-                            s
-                        ));
-                    }
+                    _ => return Err(INVALID_RELATIVE_TIME_UNIT_MESSAGE.to_string()),
                 };
                 return Ok(FlexibleDateTime(Utc::now() - duration));
             }
@@ -232,14 +231,7 @@ fn parse_flexible_datetime(s: &str) -> Result<FlexibleDateTime, String> {
     }
 
     // None of the formats worked - provide helpful error message
-    Err(format!(
-        "Invalid date format: '{}'. Expected ISO 8601 format or natural language. \
-        Examples: '2024-01-15T10:30:00Z' (with timezone), \
-        '2024-01-15T10:30:00' (assumes UTC), \
-        '2024-01-15' (date only, midnight UTC), \
-        '7d' (7 days ago), 'yesterday', 'last week', '3 days ago'",
-        s
-    ))
+    Err(INVALID_DATE_FORMAT_MESSAGE.to_string())
 }
 
 /// Parse relative time shorthand (e.g., "7d", "1w", "2h", "30min") into a DateTime.
@@ -323,11 +315,15 @@ mod tests {
 
     #[test]
     fn test_invalid_format() {
-        let result = parse_flexible_datetime("invalid-date");
+        let submitted = "invalid-date token=secret@example.internal";
+        let result = parse_flexible_datetime(submitted);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.contains("Invalid date format"));
+        assert_eq!(err, INVALID_DATE_FORMAT_MESSAGE);
         assert!(err.contains("Examples:"));
+        assert!(!err.contains(submitted));
+        assert!(!err.contains("token=secret"));
+        assert!(!err.contains("example.internal"));
     }
 
     #[test]
@@ -672,5 +668,17 @@ mod tests {
             diff < 2,
             "Parsed '6 months ago' should be within 2 seconds of expected"
         );
+    }
+
+    #[test]
+    fn test_invalid_relative_time_unit_does_not_echo_input() {
+        let submitted = "3 secrets-token@example.internal ago";
+        let result = parse_flexible_datetime(submitted);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err, INVALID_RELATIVE_TIME_UNIT_MESSAGE);
+        assert!(!err.contains(submitted));
+        assert!(!err.contains("secrets-token"));
+        assert!(!err.contains("example.internal"));
     }
 }
