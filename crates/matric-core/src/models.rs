@@ -274,7 +274,7 @@ impl fmt::Debug for NoteSummary {
 // =============================================================================
 
 /// Link between notes or to external URLs.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Link {
     pub id: Uuid,
     pub from_note_id: Uuid,
@@ -287,12 +287,35 @@ pub struct Link {
     pub metadata: Option<JsonValue>,
 }
 
+impl fmt::Debug for Link {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Link")
+            .field("id_set", &true)
+            .field("from_note_id_set", &true)
+            .field("to_note_id_set", &self.to_note_id.is_some())
+            .field("to_url_len", &self.to_url.as_ref().map(String::len))
+            .field("kind_len", &self.kind.len())
+            .field("score", &self.score)
+            .field("created_at_utc", &self.created_at_utc)
+            .field("snippet_len", &self.snippet.as_ref().map(String::len))
+            .field(
+                "metadata_class",
+                &self.metadata.as_ref().map(json_value_class),
+            )
+            .field(
+                "metadata_len",
+                &self.metadata.as_ref().map(json_serialized_len),
+            )
+            .finish()
+    }
+}
+
 // =============================================================================
 // SEARCH TYPES
 // =============================================================================
 
 /// A search result hit.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SearchHit {
     pub note_id: Uuid,
     pub score: f32,
@@ -308,8 +331,21 @@ pub struct SearchHit {
     pub embedding_status: Option<EmbeddingStatus>,
 }
 
+impl fmt::Debug for SearchHit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SearchHit")
+            .field("note_id_set", &true)
+            .field("score", &self.score)
+            .field("snippet_len", &self.snippet.as_ref().map(String::len))
+            .field("title_len", &self.title.as_ref().map(String::len))
+            .field("tags_count", &self.tags.len())
+            .field("embedding_status", &self.embedding_status)
+            .finish()
+    }
+}
+
 /// Search results response.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SearchResponse {
     pub notes: Vec<SearchHit>,
     /// Whether semantic search was available for this query
@@ -320,10 +356,28 @@ pub struct SearchResponse {
     pub warnings: Vec<String>,
 }
 
+impl fmt::Debug for SearchResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SearchResponse")
+            .field("notes_count", &self.notes.len())
+            .field("semantic_available", &self.semantic_available)
+            .field("warnings_count", &self.warnings.len())
+            .finish()
+    }
+}
+
 /// Semantic search response.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SemanticResponse {
     pub similar: Vec<SearchHit>,
+}
+
+impl fmt::Debug for SemanticResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SemanticResponse")
+            .field("similar_count", &self.similar.len())
+            .finish()
+    }
 }
 
 /// Search mode for queries.
@@ -3981,6 +4035,87 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "Note revision/summary Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn link_and_search_debug_redacts_urls_snippets_tags_and_warnings() {
+        let now = Utc::now();
+        let link = Link {
+            id: Uuid::new_v4(),
+            from_note_id: Uuid::new_v4(),
+            to_note_id: Some(Uuid::new_v4()),
+            to_url: Some("https://links.example.test/private?token=secret-token".to_string()),
+            kind: "private-reference-kind".to_string(),
+            score: 0.74,
+            created_at_utc: now,
+            snippet: Some("Linked snippet includes private@example.test and 555-1212".to_string()),
+            metadata: Some(json!({
+                "path": "/tmp/customer/link.md",
+                "api_key": "sk-live-secret",
+                "source_url": "https://provider.example.test/?token=secret"
+            })),
+        };
+        let hit = SearchHit {
+            note_id: Uuid::new_v4(),
+            score: 0.93,
+            snippet: Some(
+                "Search snippet includes sk-live-secret and /tmp/customer/result.md".to_string(),
+            ),
+            title: Some("Private search title private@example.test".to_string()),
+            tags: vec![
+                "secret-tag-private@example.test".to_string(),
+                "https://tags.example.test/?token=secret".to_string(),
+            ],
+            embedding_status: Some(EmbeddingStatus::Ready),
+        };
+        let response = SearchResponse {
+            notes: vec![hit.clone()],
+            semantic_available: Some(true),
+            warnings: vec![
+                "Search warning includes https://warn.example.test/?token=secret".to_string(),
+            ],
+        };
+        let semantic = SemanticResponse { similar: vec![hit] };
+
+        let debug = format!("{link:?}{response:?}{semantic:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "links.example.test",
+                "secret-token",
+                "private-reference-kind",
+                "Linked snippet",
+                "private@example.test",
+                "555-1212",
+                "/tmp/customer/link.md",
+                "sk-live-secret",
+                "provider.example.test",
+                "Search snippet",
+                "/tmp/customer/result.md",
+                "Private search title",
+                "secret-tag-private@example.test",
+                "tags.example.test",
+                "Search warning",
+                "warn.example.test",
+            ],
+        );
+
+        for expected in [
+            "to_url_len",
+            "kind_len",
+            "snippet_len",
+            "metadata_class",
+            "metadata_len",
+            "notes_count",
+            "warnings_count",
+            "similar_count",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Link/search Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
