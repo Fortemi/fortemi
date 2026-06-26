@@ -14363,7 +14363,7 @@ async fn get_note_backlinks(
 // =============================================================================
 
 /// A single related note with score and relationship source.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct RelatedNote {
     note_id: Uuid,
     score: f32,
@@ -14372,6 +14372,22 @@ struct RelatedNote {
     tags: Vec<String>,
     /// How this note was discovered: "semantic", "link_outgoing", or "link_incoming".
     source: String,
+}
+
+impl std::fmt::Debug for RelatedNote {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RelatedNote")
+            .field("note_id", &self.note_id)
+            .field("score", &self.score)
+            .field(
+                "snippet_len",
+                &self.snippet.as_ref().map(|value| value.len()),
+            )
+            .field("title_len", &self.title.as_ref().map(|value| value.len()))
+            .field("tags_count", &self.tags.len())
+            .field("source_len", &self.source.len())
+            .finish()
+    }
 }
 
 /// Query parameters for the related-notes endpoint.
@@ -14387,7 +14403,7 @@ struct RelatedNotesQuery {
 }
 
 /// Response from the related-notes endpoint.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct RelatedNotesResponse {
     note_id: Uuid,
     related: Vec<RelatedNote>,
@@ -14395,6 +14411,19 @@ struct RelatedNotesResponse {
     /// Only present when `context_summary=true` and inference is available.
     #[serde(skip_serializing_if = "Option::is_none")]
     context_summary: Option<String>,
+}
+
+impl std::fmt::Debug for RelatedNotesResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RelatedNotesResponse")
+            .field("note_id", &self.note_id)
+            .field("related_count", &self.related.len())
+            .field(
+                "context_summary_len",
+                &self.context_summary.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
 }
 
 /// Get related notes via semantic similarity and graph links.
@@ -25101,6 +25130,56 @@ mod tests {
             "Sensitive cross memory title",
             "customer-private",
             "token-shaped-tag",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn related_notes_debug_redacts_snippets_titles_tags_and_summary() {
+        let related = RelatedNote {
+            note_id: Uuid::nil(),
+            score: 0.87,
+            snippet: Some("related note snippet with sk-live-secret-token".to_string()),
+            title: Some("Private related-note payroll title".to_string()),
+            tags: vec![
+                "customer-private".to_string(),
+                "mm_key_related_secret".to_string(),
+            ],
+            source: "semantic-private-source".to_string(),
+        };
+        let response = RelatedNotesResponse {
+            note_id: Uuid::nil(),
+            related: vec![related],
+            context_summary: Some(
+                "LLM summary mentions customer@example.com and bearer-token-shaped content"
+                    .to_string(),
+            ),
+        };
+
+        let rendered_response = format!("{response:?}");
+        let rendered_related = format!("{:?}", response.related[0]);
+        let combined = format!("{rendered_response}\n{rendered_related}");
+
+        assert!(rendered_response.contains("RelatedNotesResponse"));
+        assert!(rendered_response.contains("related_count"));
+        assert!(rendered_response.contains("context_summary_len"));
+        assert!(rendered_related.contains("RelatedNote"));
+        assert!(rendered_related.contains("snippet_len"));
+        assert!(rendered_related.contains("title_len"));
+        assert!(rendered_related.contains("tags_count"));
+        assert!(rendered_related.contains("source_len"));
+
+        for raw in [
+            "related note snippet",
+            "sk-live-secret-token",
+            "Private related-note payroll title",
+            "customer-private",
+            "mm_key_related_secret",
+            "semantic-private-source",
+            "LLM summary",
+            "customer@example.com",
+            "bearer-token-shaped",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
