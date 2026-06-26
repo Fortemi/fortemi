@@ -32,7 +32,7 @@ This guide consolidates findings from the API consistency audit (Issue #307) and
 
 ### Key Findings
 
-1. **Error Responses**: Consistent `{"error": "message"}` format across all endpoints
+1. **Error Responses**: RFC 9457 `application/problem+json` with stable Fortemi problem type URIs
 2. **Pagination**: Most operations use `offset` + `limit`, search uses `limit` only
 3. **ID Naming**: Simple `id` for single resources, qualified names for multi-resource ops
 4. **Boolean Patterns**: Prefix-based conventions (`include_*`, `exclude_*`, `skip_*`, `*_only`)
@@ -40,61 +40,80 @@ This guide consolidates findings from the API consistency audit (Issue #307) and
 
 ## Error Responses
 
-All API errors return JSON with a consistent structure.
+HTTP API errors use RFC 9457 Problem Details. See the
+[API Error Contract](./api-error-contract.md) for the full catalog and redaction
+rules.
 
 ### Error Format
 
 ```json
 {
-  "error": "Human-readable error message"
+  "type": "https://fortemi.com/problems/validation-error",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Invalid request.",
+  "request_id": "018f4f5d-..."
 }
 ```
 
+The legacy `{ "error": "..." }` shape is not the current API contract. Clients
+should use `type` as the machine-readable error code and include `request_id`
+when reporting failures.
+
 ### HTTP Status Codes
 
-| Code | Meaning | When Used |
-|------|---------|-----------|
-| 400 | Bad Request | Invalid parameters, validation errors, parameter bounds errors |
-| 401 | Unauthorized | Missing or invalid authentication token |
-| 403 | Forbidden | Valid authentication but insufficient permissions |
-| 404 | Not Found | Requested resource doesn't exist |
-| 409 | Conflict | Duplicate key violation, constraint violation, state conflict |
-| 429 | Too Many Requests | Rate limit exceeded |
-| 500 | Internal Server Error | Unexpected server error (report to maintainers) |
+| Code | Problem type | When Used |
+|------|--------------|-----------|
+| 400 | `validation-error` | Invalid parameters, validation errors, parameter bounds errors |
+| 401 | `unauthorized` | Missing or invalid authentication token |
+| 403 | `forbidden` | Valid authentication but insufficient permissions |
+| 404 | `not-found`, `blob-missing` | Requested resource or attachment blob does not exist |
+| 409 | `conflict` | Duplicate key violation, constraint violation, state conflict |
+| 410 | `gone` | Expired or no-longer-usable cursor/token state |
+| 429 | `rate-limit-exceeded` | Rate limit exceeded |
+| 500 | `internal-error`, `operation-failed` | Unexpected server error or failed command/storage operation |
+| 502 | `provider-failure` | AI, media, or inference provider failure |
+| 503 | `service-unavailable` | Required service or capacity unavailable |
 
-### Common Error Patterns
+### Redaction Boundary
 
-The error message field contains these patterns:
-
-| Pattern | Status Code | Meaning |
-|---------|-------------|---------|
-| "not found" | 404 | Resource doesn't exist |
-| "duplicate key" | 409 | Unique constraint violation |
-| "validation error" | 400 | Invalid input data |
-| "limit must be" | 400 | Parameter outside allowed range |
-| "required parameter" | 400 | Missing required parameter |
-| "invalid format" | 400 | Malformed UUID, date, or other typed value |
+Problem responses must not expose raw SQL/database errors, filesystem paths,
+command stderr, provider URLs, bearer/API tokens, private keys, stack traces, or
+backend exception strings. Internal diagnostics belong in server logs, traces,
+or audit records correlated by `request_id`.
 
 ### Examples
 
 **404 Not Found:**
 ```json
 {
-  "error": "Note not found"
+  "type": "https://fortemi.com/problems/not-found",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "Note not found",
+  "request_id": "018f4f5d-..."
 }
 ```
 
 **400 Bad Request:**
 ```json
 {
-  "error": "limit must be between 1 and 1000"
+  "type": "https://fortemi.com/problems/validation-error",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "limit must be between 1 and 1000",
+  "request_id": "018f4f5d-..."
 }
 ```
 
 **409 Conflict:**
 ```json
 {
-  "error": "duplicate key value violates unique constraint"
+  "type": "https://fortemi.com/problems/conflict",
+  "title": "Conflict",
+  "status": 409,
+  "detail": "A record with this value already exists",
+  "request_id": "018f4f5d-..."
 }
 ```
 

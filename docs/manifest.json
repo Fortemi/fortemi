@@ -45,6 +45,7 @@
       "summary": "API reference and developer integration tools.",
       "sections": [
         { "id": "developers-api", "title": "API Reference", "summary": "REST API endpoints with request/response examples.", "file": "api.md" },
+        { "id": "developers-api-errors", "title": "API Error Contract", "summary": "RFC 9457 Problem Details, stable problem types, and redaction rules.", "file": "api-error-contract.md" },
         { "id": "developers-mcp", "title": "MCP Server", "summary": "Model Context Protocol server for AI agent integration.", "file": "mcp.md" },
         { "id": "developers-mcp-deployment", "title": "MCP Deployment", "summary": "Advanced MCP credential management, security, and deployment configuration.", "file": "mcp-deployment.md" },
         { "id": "developers-mcp-troubleshooting", "title": "MCP Troubleshooting", "summary": "Diagnostic commands and common MCP connection issues.", "file": "mcp-troubleshooting.md" },

@@ -6,6 +6,8 @@ Fortémi provides a RESTful API for AI-enhanced note management with semantic se
 
 **OpenAPI Spec**: [openapi.yaml](../../crates/matric-api/src/openapi.yaml)
 
+**Error Contract**: [RFC 9457 Problem Details](./api-error-contract.md)
+
 ## Authentication
 
 ### OAuth2 (Recommended)
