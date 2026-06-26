@@ -4310,6 +4310,12 @@ async fn emit_webhook_control_audit_event(event: AuditEvent) {
     }
 }
 
+async fn emit_incoming_webhook_audit_event(event: AuditEvent) {
+    if let Err(err) = TracingSink.emit(event).await {
+        warn!(error = %err, "failed to emit incoming webhook audit event");
+    }
+}
+
 fn webhook_control_audit_event(
     auth: &Auth,
     action: &str,
@@ -4346,6 +4352,95 @@ fn webhook_control_audit_event(
         AuditOutcome::Unknown => AuditSeverity::Warn,
     };
     event.sanitized()
+}
+
+fn incoming_webhook_signature_header_class(signature_header: &str) -> &'static str {
+    if signature_header.eq_ignore_ascii_case("X-Twilio-Signature") {
+        "twilio"
+    } else {
+        "hmac_sha256"
+    }
+}
+
+fn incoming_webhook_decision_audit_event(
+    receiver: &matric_core::IncomingWebhookReceiver,
+    action: &str,
+    outcome: AuditOutcome,
+    reason: Option<&str>,
+    body_len: usize,
+    idempotency_key_present: bool,
+) -> AuditEvent {
+    let mut event = AuditEvent::new("webhook", action, outcome)
+        .with_resource("incoming_webhook_receiver", receiver.id.to_string())
+        .with_attr("receiver_slug_len", receiver.slug.chars().count() as i64)
+        .with_attr("provider", receiver.provider.clone())
+        .with_attr("schema_ref", receiver.schema_ref.clone())
+        .with_attr(
+            "signature_header_class",
+            incoming_webhook_signature_header_class(&receiver.signature_header),
+        )
+        .with_attr("receiver_is_active", receiver.is_active)
+        .with_attr("receiver_secret_set", receiver.secret_set)
+        .with_attr("request_body_len", body_len as i64)
+        .with_attr("idempotency_key_present", idempotency_key_present);
+
+    if let Some(reason) = reason {
+        event.reason = Some(reason.to_string());
+        event = event.with_attr("reason_code", reason.to_string());
+    }
+
+    event.source = AuditSource::Api;
+    event.visibility = AuditVisibilityClass::SecurityRestricted;
+    event.failure_policy = AuditFailurePolicy::BestEffort;
+    event.severity = match outcome {
+        AuditOutcome::Success => AuditSeverity::Info,
+        AuditOutcome::Denied => AuditSeverity::Warn,
+        AuditOutcome::Failure | AuditOutcome::Error => AuditSeverity::Error,
+        AuditOutcome::Unknown => AuditSeverity::Warn,
+    };
+    event.sanitized()
+}
+
+fn incoming_webhook_signature_error_reason(err: &ApiError) -> &'static str {
+    match err {
+        ApiError::Unauthorized(message)
+            if message.contains("missing incoming webhook signature") =>
+        {
+            "signature_missing"
+        }
+        ApiError::Unauthorized(message)
+            if message.contains("unsupported incoming webhook signature format") =>
+        {
+            "signature_format_unsupported"
+        }
+        ApiError::Unauthorized(message)
+            if message.contains("invalid incoming webhook signature encoding") =>
+        {
+            "signature_encoding_invalid"
+        }
+        ApiError::Unauthorized(message)
+            if message.contains("invalid incoming webhook signature secret") =>
+        {
+            "signature_secret_invalid"
+        }
+        ApiError::Unauthorized(message)
+            if message.contains("missing incoming webhook request URL") =>
+        {
+            "request_url_missing"
+        }
+        ApiError::Unauthorized(message)
+            if message.contains("invalid Twilio webhook form parameters") =>
+        {
+            "twilio_form_invalid"
+        }
+        ApiError::Unauthorized(message)
+            if message.contains("invalid incoming webhook signature") =>
+        {
+            "signature_invalid"
+        }
+        ApiError::Unauthorized(_) => "signature_denied",
+        _ => "signature_error",
+    }
 }
 
 fn verify_incoming_signature(
@@ -4527,24 +4622,69 @@ async fn receive_incoming_webhook(
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("Incoming webhook receiver {slug} not found")))?;
     if !receiver.is_active {
+        emit_incoming_webhook_audit_event(incoming_webhook_decision_audit_event(
+            &receiver,
+            "receiver_active_check",
+            AuditOutcome::Denied,
+            Some("receiver_inactive"),
+            body.len(),
+            headers.get("idempotency-key").is_some(),
+        ))
+        .await;
         return Err(ApiError::NotFound(format!(
             "Incoming webhook receiver {slug} not found"
         )));
     }
 
-    let secret = state
+    let secret = match state
         .db
         .incoming_webhooks
         .get_active_secret_by_slug(&slug)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Incoming webhook receiver {slug} not found")))?;
-    verify_incoming_signature(
+    {
+        Some(secret) => secret,
+        None => {
+            emit_incoming_webhook_audit_event(incoming_webhook_decision_audit_event(
+                &receiver,
+                "receiver_secret_lookup",
+                AuditOutcome::Denied,
+                Some("active_secret_missing"),
+                body.len(),
+                headers.get("idempotency-key").is_some(),
+            ))
+            .await;
+            return Err(ApiError::NotFound(format!(
+                "Incoming webhook receiver {slug} not found"
+            )));
+        }
+    };
+    if let Err(err) = verify_incoming_signature(
         &headers,
         &receiver.signature_header,
         &secret,
         &body,
         Some(&uri),
-    )?;
+    ) {
+        emit_incoming_webhook_audit_event(incoming_webhook_decision_audit_event(
+            &receiver,
+            "receiver_signature_verify",
+            AuditOutcome::Denied,
+            Some(incoming_webhook_signature_error_reason(&err)),
+            body.len(),
+            headers.get("idempotency-key").is_some(),
+        ))
+        .await;
+        return Err(err);
+    }
+    emit_incoming_webhook_audit_event(incoming_webhook_decision_audit_event(
+        &receiver,
+        "receiver_signature_verify",
+        AuditOutcome::Success,
+        Some("signature_valid"),
+        body.len(),
+        headers.get("idempotency-key").is_some(),
+    ))
+    .await;
 
     // Idempotency-Key dedupe (#822): opt-in via header. A repeat of the same
     // key + body replays the cached accepted response without re-processing
@@ -4563,26 +4703,67 @@ async fn receive_incoming_webhook(
     if let Some(ref key) = idempotency_key {
         if let Some(cached) = state.idempotency_store.get(&receiver.slug, key).await {
             if cached.body_hash == body_hash {
+                emit_incoming_webhook_audit_event(incoming_webhook_decision_audit_event(
+                    &receiver,
+                    "receiver_idempotency",
+                    AuditOutcome::Success,
+                    Some("idempotency_replay"),
+                    body.len(),
+                    true,
+                ))
+                .await;
                 let status = StatusCode::from_u16(cached.response_status).unwrap_or(StatusCode::OK);
                 return Ok((status, Json(cached.response_body)).into_response());
             }
+            emit_incoming_webhook_audit_event(incoming_webhook_decision_audit_event(
+                &receiver,
+                "receiver_idempotency",
+                AuditOutcome::Denied,
+                Some("idempotency_conflict"),
+                body.len(),
+                true,
+            ))
+            .await;
             return Err(ApiError::Conflict(format!(
                 "Idempotency-Key '{key}' was already used for a different request body"
             )));
         }
     }
 
-    let payload = incoming_payload_from_body(
+    let payload = match incoming_payload_from_body(
         &receiver.schema_ref,
         headers.get(header::CONTENT_TYPE),
         &body,
-    )?;
+    ) {
+        Ok(payload) => payload,
+        Err(err) => {
+            emit_incoming_webhook_audit_event(incoming_webhook_decision_audit_event(
+                &receiver,
+                "receiver_payload_parse",
+                AuditOutcome::Failure,
+                Some("payload_parse_failed"),
+                body.len(),
+                idempotency_key.is_some(),
+            ))
+            .await;
+            return Err(err);
+        }
+    };
     let validation = matric_db::validate_incoming_webhook_payload(
         &receiver.schema_ref,
         receiver.schema_doc.as_ref(),
         &payload,
     )?;
     if !validation.valid {
+        emit_incoming_webhook_audit_event(incoming_webhook_decision_audit_event(
+            &receiver,
+            "receiver_schema_validation",
+            AuditOutcome::Denied,
+            Some("schema_validation_failed"),
+            body.len(),
+            idempotency_key.is_some(),
+        ))
+        .await;
         return Err(ApiError::BadRequest(format!(
             "incoming webhook schema validation failed: {}",
             validation.errors.join("; ")
@@ -4644,6 +4825,16 @@ async fn receive_incoming_webhook(
             )
             .await;
     }
+
+    emit_incoming_webhook_audit_event(incoming_webhook_decision_audit_event(
+        &receiver,
+        "receiver_accept",
+        AuditOutcome::Success,
+        Some("accepted"),
+        body.len(),
+        idempotency_key.is_some(),
+    ))
+    .await;
 
     Ok(Json(response).into_response())
 }
@@ -24417,6 +24608,69 @@ mod tests {
         assert!(!serialized.contains("secret-not-for-audit"));
         assert!(!serialized.contains("payload"));
         assert!(!serialized.contains("response_body"));
+    }
+
+    #[test]
+    fn incoming_webhook_decision_audit_event_uses_metadata_only() {
+        let receiver = matric_core::IncomingWebhookReceiver {
+            id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000301").unwrap(),
+            slug: "payments-secret-slug".to_string(),
+            provider: "twilio".to_string(),
+            schema_ref: "twilio.voice.v1".to_string(),
+            signature_header: "X-Twilio-Signature".to_string(),
+            secret_set: true,
+            is_active: true,
+            schema_doc: Some(serde_json::json!({
+                "properties": {
+                    "CallSid": "do-not-copy-schema-payload"
+                }
+            })),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        let event = incoming_webhook_decision_audit_event(
+            &receiver,
+            "receiver_signature_verify",
+            AuditOutcome::Denied,
+            Some("signature_invalid"),
+            512,
+            true,
+        );
+
+        assert_eq!(event.category, "webhook");
+        assert_eq!(event.action, "receiver_signature_verify");
+        assert_eq!(event.outcome, AuditOutcome::Denied);
+        assert_eq!(event.source, AuditSource::Api);
+        assert_eq!(event.visibility, AuditVisibilityClass::SecurityRestricted);
+        assert_eq!(event.severity, AuditSeverity::Warn);
+        assert_eq!(
+            event.resource_kind.as_deref(),
+            Some("incoming_webhook_receiver")
+        );
+        assert_eq!(
+            event.resource_id.as_deref(),
+            Some("018fd1a0-0000-7000-8000-000000000301")
+        );
+        assert_eq!(event.attrs["receiver_slug_len"], 20);
+        assert_eq!(event.attrs["provider"], "twilio");
+        assert_eq!(event.attrs["schema_ref"], "twilio.voice.v1");
+        assert_eq!(event.attrs["signature_header_class"], "twilio");
+        assert_eq!(event.attrs["receiver_is_active"], true);
+        assert_eq!(event.attrs["receiver_secret_set"], true);
+        assert_eq!(event.attrs["request_body_len"], 512);
+        assert_eq!(event.attrs["idempotency_key_present"], true);
+        assert_eq!(event.attrs["reason_code"], "signature_invalid");
+
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("payments-secret-slug"));
+        assert!(!serialized.contains("do-not-copy-schema-payload"));
+        assert!(!serialized.contains("X-Twilio-Signature"));
+        assert!(!serialized.contains("sha256=secret-signature"));
+        assert!(!serialized.contains("hmac-secret"));
+        assert!(!serialized.contains("idempotency-key-value"));
+        assert!(!serialized.contains("CallSid=CA123"));
+        assert!(!serialized.contains("https://"));
     }
 
     #[test]
