@@ -39,6 +39,50 @@ fn renderer_url() -> String {
     std::env::var("RENDERER_URL").unwrap_or_else(|_| DEFAULT_RENDERER_URL.to_string())
 }
 
+fn glb_text_len(text: &str) -> usize {
+    text.len()
+}
+
+fn renderer_destination_class(url: &str) -> &'static str {
+    let lower = url.to_ascii_lowercase();
+    if lower.contains('@')
+        || lower.contains("token=")
+        || lower.contains("api_key")
+        || lower.contains("apikey")
+        || lower.contains("password")
+        || lower.contains("secret")
+    {
+        "credentialed_url"
+    } else if lower.starts_with("http://localhost")
+        || lower.starts_with("https://localhost")
+        || lower.starts_with("http://127.")
+        || lower.starts_with("https://127.")
+        || lower.starts_with("http://[::1]")
+        || lower.starts_with("https://[::1]")
+    {
+        "local_http"
+    } else if lower.starts_with("http://") || lower.starts_with("https://") {
+        "http"
+    } else {
+        "other"
+    }
+}
+
+fn glb_error_reason_code(error: &str) -> &'static str {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("timeout") || lower.contains("timed out") {
+        "timed_out"
+    } else if lower.contains("connect") || lower.contains("connection") {
+        "connection_failed"
+    } else if lower.contains("decode") || lower.contains("json") || lower.contains("invalid") {
+        "invalid_response"
+    } else if lower.contains("permission") || lower.contains("denied") {
+        "permission_denied"
+    } else {
+        "operation_failed"
+    }
+}
+
 /// Health check response from renderer.
 #[derive(Deserialize)]
 struct RendererHealthResponse {
@@ -102,18 +146,22 @@ impl Glb3DModelAdapter {
             .await
             .map_err(|e| {
                 format!(
-                    "3D model renderer unreachable at {} ({}). \
+                    "3D model renderer unreachable; destination_class={}; url_len={}; error_len={}; error_reason={}. \
                      Ensure the Open3D renderer is running — in Docker bundle it starts \
                      automatically; for standalone, set RENDERER_URL.",
-                    base_url, e
+                    renderer_destination_class(&base_url),
+                    glb_text_len(&base_url),
+                    glb_text_len(&e.to_string()),
+                    glb_error_reason_code(&e.to_string())
                 )
             })?;
 
         if !response.status().is_success() {
             return Err(format!(
-                "3D model renderer at {} returned HTTP {} — check renderer logs",
-                base_url,
-                response.status()
+                "3D model renderer returned non-success; destination_class={}; url_len={}; status={} — check renderer logs",
+                renderer_destination_class(&base_url),
+                glb_text_len(&base_url),
+                response.status().as_u16()
             ));
         }
 
@@ -137,19 +185,26 @@ impl Glb3DModelAdapter {
                     .map(|t| format!(" (test render: {})", t.status))
                     .unwrap_or_default();
                 Err(format!(
-                    "3D model renderer at {} is degraded{} — renders may produce blank/grey images. \
+                    "3D model renderer is degraded; destination_class={}; url_len={}; test_status_len={} — renders may produce blank/grey images. \
                      Check GPU availability or set OPEN3D_CPU_RENDERING=true",
-                    base_url, test_detail
+                    renderer_destination_class(&base_url),
+                    glb_text_len(&base_url),
+                    glb_text_len(&test_detail)
                 ))
             }
             Ok(health) => Err(format!(
-                "3D model renderer at {} reports status '{}' — \
+                "3D model renderer reports unexpected status; destination_class={}; url_len={}; status_len={} — \
                  GPU or CPU rendering may not be available (try setting OPEN3D_CPU_RENDERING=true)",
-                base_url, health.status
+                renderer_destination_class(&base_url),
+                glb_text_len(&base_url),
+                glb_text_len(&health.status)
             )),
             Err(e) => Err(format!(
-                "3D model renderer at {} returned invalid health response: {}",
-                base_url, e
+                "3D model renderer returned invalid health response; destination_class={}; url_len={}; error_len={}; error_reason={}",
+                renderer_destination_class(&base_url),
+                glb_text_len(&base_url),
+                glb_text_len(&e.to_string()),
+                glb_error_reason_code(&e.to_string())
             )),
         }
     }
@@ -167,14 +222,24 @@ impl Glb3DModelAdapter {
         let client = reqwest::Client::new();
         let render_url = format!("{}/render", base_url.trim_end_matches('/'));
 
-        debug!(render_url = %render_url, filename, num_views, "Calling Open3D renderer");
+        debug!(
+            render_destination_class = renderer_destination_class(&render_url),
+            render_url_len = glb_text_len(&render_url),
+            filename_len = glb_text_len(filename),
+            num_views,
+            "Calling Open3D renderer"
+        );
 
         // Build multipart form with model data
         let model_part = multipart::Part::bytes(data.to_vec())
             .file_name(filename.to_string())
             .mime_str("application/octet-stream")
             .map_err(|e| {
-                matric_core::Error::Internal(format!("Failed to create model part: {}", e))
+                matric_core::Error::Internal(format!(
+                    "Failed to create model part; error_len={}; error_reason={}",
+                    glb_text_len(&e.to_string()),
+                    glb_error_reason_code(&e.to_string())
+                ))
             })?;
 
         let form = multipart::Form::new()
@@ -188,14 +253,24 @@ impl Glb3DModelAdapter {
             .timeout(std::time::Duration::from_secs(EXTRACTION_CMD_TIMEOUT_SECS))
             .send()
             .await
-            .map_err(|e| matric_core::Error::Internal(format!("Failed to call renderer: {}", e)))?;
+            .map_err(|e| {
+                matric_core::Error::Internal(format!(
+                    "Failed to call renderer; destination_class={}; url_len={}; error_len={}; error_reason={}",
+                    renderer_destination_class(&render_url),
+                    glb_text_len(&render_url),
+                    glb_text_len(&e.to_string()),
+                    glb_error_reason_code(&e.to_string())
+                ))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
             return Err(matric_core::Error::Internal(format!(
-                "Renderer error {}: {}",
-                status, error_text
+                "Renderer error; status={}; body_len={}; body_reason={}",
+                status.as_u16(),
+                glb_text_len(&error_text),
+                glb_error_reason_code(&error_text)
             )));
         }
 
@@ -223,7 +298,7 @@ impl Glb3DModelAdapter {
 
         if blank_views > 0 {
             warn!(
-                filename,
+                filename_len = glb_text_len(filename),
                 blank_views,
                 "Renderer reports blank views — model may not be visible. \
                  Check GPU availability or software rendering configuration."
@@ -248,7 +323,11 @@ impl Glb3DModelAdapter {
 
         // Now consume response to get body
         let body = response.bytes().await.map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to read renderer response: {}", e))
+            matric_core::Error::Internal(format!(
+                "Failed to read renderer response; error_len={}; error_reason={}",
+                glb_text_len(&e.to_string()),
+                glb_error_reason_code(&e.to_string())
+            ))
         })?;
 
         // Parse multipart body to extract PNG images
@@ -263,7 +342,7 @@ impl Glb3DModelAdapter {
             if view.image_data.len() < 10_000 {
                 blank_by_size += 1;
                 warn!(
-                    filename,
+                    filename_len = glb_text_len(filename),
                     view = view.index,
                     png_bytes = view.image_data.len(),
                     "Rendered view PNG is suspiciously small — likely blank/grey"
@@ -272,13 +351,13 @@ impl Glb3DModelAdapter {
         }
         if blank_by_size > 0 && blank_views == 0 {
             warn!(
-                filename,
+                filename_len = glb_text_len(filename),
                 blank_by_size, "PNG size heuristic detected blank views not caught by renderer"
             );
         }
 
         info!(
-            filename,
+            filename_len = glb_text_len(filename),
             num_views = rendered_views.len(),
             blank_views,
             blank_by_size,
@@ -322,7 +401,7 @@ impl ExtractionAdapter for Glb3DModelAdapter {
         let custom_prompt = config.get("prompt").and_then(|v| v.as_str());
 
         debug!(
-            filename,
+            filename_len = glb_text_len(filename),
             num_views, "Rendering 3D model from multiple angles"
         );
 
@@ -330,7 +409,7 @@ impl ExtractionAdapter for Glb3DModelAdapter {
         let rendered_views = self.render_via_renderer(data, filename, num_views).await?;
 
         debug!(
-            filename,
+            filename_len = glb_text_len(filename),
             rendered = rendered_views.len(),
             "Describing rendered views"
         );
@@ -379,7 +458,12 @@ impl ExtractionAdapter for Glb3DModelAdapter {
                         }));
                     }
                     Err(e) => {
-                        warn!(view = view.index, error = %e, "View description failed");
+                        warn!(
+                            view = view.index,
+                            error_len = glb_text_len(&e.to_string()),
+                            error_reason = glb_error_reason_code(&e.to_string()),
+                            "View description failed"
+                        );
                     }
                 }
             }
@@ -416,7 +500,11 @@ impl ExtractionAdapter for Glb3DModelAdapter {
                 {
                     Ok(synthesis) => Some(synthesis),
                     Err(e) => {
-                        warn!(error = %e, "Synthesis failed, using concatenated descriptions");
+                        warn!(
+                            error_len = glb_text_len(&e.to_string()),
+                            error_reason = glb_error_reason_code(&e.to_string()),
+                            "Synthesis failed, using concatenated descriptions"
+                        );
                         Some(views_text)
                     }
                 }
@@ -425,7 +513,7 @@ impl ExtractionAdapter for Glb3DModelAdapter {
             };
         } else {
             debug!(
-                filename,
+                filename_len = glb_text_len(filename),
                 total_views,
                 "Vision deferred — ViewVision jobs will be queued by extraction handler"
             );
@@ -752,6 +840,33 @@ mod tests {
         let mock = MockVisionBackend::new("test");
         let adapter = Glb3DModelAdapter::new(Arc::new(mock));
         assert_eq!(adapter.name(), "glb_3d_model");
+    }
+
+    #[test]
+    fn renderer_destination_class_avoids_raw_url_parts() {
+        let url = "https://token=mm_key_secret@renderer.internal/render?api_key=secret";
+        assert_eq!(renderer_destination_class(url), "credentialed_url");
+        assert_eq!(glb_text_len(url), url.len());
+    }
+
+    #[test]
+    fn glb_error_reason_code_uses_stable_classes() {
+        assert_eq!(
+            glb_error_reason_code("connection refused for /srv/fortemi/private/model.glb"),
+            "connection_failed"
+        );
+        assert_eq!(
+            glb_error_reason_code("request timed out with token=mm_key_secret"),
+            "timed_out"
+        );
+        assert_eq!(
+            glb_error_reason_code("invalid json body"),
+            "invalid_response"
+        );
+        assert_eq!(
+            glb_error_reason_code("opaque backend text /srv/fortemi/model.glb"),
+            "operation_failed"
+        );
     }
 
     #[tokio::test]
