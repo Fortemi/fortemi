@@ -197,6 +197,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-26 continuation: Ingest-token data Debug slice replaces raw token revocation ids and archive schema names with metadata-only lengths while preserving JSON persistence.
   - 2026-06-26 continuation: Idempotency replay-record Debug slice replaces raw body hashes and cached webhook response bodies with body-hash length, response status, JSON class, and response length while preserving replay persistence.
   - 2026-06-26 continuation: Reconstruction response Debug slice replaces raw reconstructed note content, document titles, tags, and chunk titles with metadata-only lengths/counts while preserving API serialization.
+  - 2026-06-26 continuation: Speaker relabel config Debug slice replaces raw speaker ids, user-assigned names, roles, and transcript-derived labels with metadata-only lengths/counts while preserving config serialization/rendering.
 - [x] **#926 / #928 / #933** fail-closed startup: require issuer in multi-tenant; reject invalid security booleans; validate rate-limit env before constructing limiter. (2026-06-26: startup-config slice added strict parsing for auth/tenant/local-issuer/rate-limit/realtime-consent booleans, hosted-safe issuer validation reused by AsyncAPI metadata, deterministic process-local rate-limit numeric validation before limiter construction, and operator/env docs for accepted forms, local issuer override, and hosted issuer requirements. Issues closed after focused regression tests and docs audit.)
 
 ## Phase 1 — Open BSL desktop GA  `tier/open-build`
@@ -556,3 +557,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-26 — #968/#974 ingest-token data Debug output now reports token-id and schema lengths instead of raw revocation ids or archive schema names while preserving Redis JSON persistence.
 - 2026-06-26 — #968/#974 idempotency replay-record Debug output now reports body-hash length, response status, JSON class, and response length instead of raw request hashes, cached webhook response bodies, URLs, tokens, or payload fields.
 - 2026-06-26 — #968/#974 reconstruction response Debug output now reports content/title/tag/chunk metadata lengths and counts instead of raw reconstructed note content, titles, tags, or chunk titles.
+- 2026-06-26 — #968/#974 speaker relabel config Debug output now reports speaker counts and field lengths instead of raw speaker ids, names, roles, transcript-derived labels, or secret-shaped fragments.

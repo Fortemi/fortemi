@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
+use std::fmt;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -19,7 +20,7 @@ use matric_db::{Database, SchemaContext};
 use crate::handler::{JobContext, JobHandler, JobResult};
 
 /// A speaker mapping entry from the user's config block.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SpeakerMapping {
     /// The diarization speaker ID (e.g., "SPEAKER_00").
     pub id: String,
@@ -30,10 +31,28 @@ pub struct SpeakerMapping {
     pub role: Option<String>,
 }
 
+impl fmt::Debug for SpeakerMapping {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SpeakerMapping")
+            .field("id_len", &self.id.len())
+            .field("name_len", &self.name.len())
+            .field("role_len", &self.role.as_ref().map(String::len))
+            .finish()
+    }
+}
+
 /// The speaker configuration block parsed from note content.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SpeakerConfig {
     pub speakers: Vec<SpeakerMapping>,
+}
+
+impl fmt::Debug for SpeakerConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SpeakerConfig")
+            .field("speakers_count", &self.speakers.len())
+            .finish()
+    }
 }
 
 impl SpeakerConfig {
@@ -552,6 +571,54 @@ Edit speaker names below to re-label the transcript.
     fn test_speaker_config_empty_speakers() {
         let config = SpeakerConfig { speakers: vec![] };
         assert!(config.name_map().is_empty());
+    }
+
+    #[test]
+    fn speaker_mapping_debug_redacts_user_assigned_labels() {
+        let mapping = SpeakerMapping {
+            id: "SPEAKER_00_internal-session".to_string(),
+            name: "Alice Example bearer-token-fragment".to_string(),
+            role: Some("Host sk-live-secret-role".to_string()),
+        };
+
+        let rendered = format!("{mapping:?}");
+
+        assert!(rendered.contains("SpeakerMapping"));
+        assert!(rendered.contains("id_len"));
+        assert!(rendered.contains("name_len"));
+        assert!(rendered.contains("role_len"));
+        assert!(!rendered.contains("SPEAKER_00_internal-session"));
+        assert!(!rendered.contains("Alice Example"));
+        assert!(!rendered.contains("bearer-token-fragment"));
+        assert!(!rendered.contains("sk-live-secret-role"));
+    }
+
+    #[test]
+    fn speaker_config_debug_redacts_all_speaker_content() {
+        let config = SpeakerConfig {
+            speakers: vec![
+                SpeakerMapping {
+                    id: "SPEAKER_00".to_string(),
+                    name: "Alice customer@example.com".to_string(),
+                    role: Some("Host".to_string()),
+                },
+                SpeakerMapping {
+                    id: "SPEAKER_01".to_string(),
+                    name: "Bob mm_key_secret".to_string(),
+                    role: None,
+                },
+            ],
+        };
+
+        let rendered = format!("{config:?}");
+
+        assert!(rendered.contains("SpeakerConfig"));
+        assert!(rendered.contains("speakers_count"));
+        assert!(!rendered.contains("SPEAKER_00"));
+        assert!(!rendered.contains("Alice"));
+        assert!(!rendered.contains("customer@example.com"));
+        assert!(!rendered.contains("Bob"));
+        assert!(!rendered.contains("mm_key_secret"));
     }
 
     #[test]
