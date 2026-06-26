@@ -50,3 +50,17 @@ classes that must degrade or fail closed:
 
 `AuditBuffer` drops oldest best-effort events on overflow and tracks the drop.
 Fail-closed events return an overflow error instead of silently dropping.
+
+`AuditFailurePolicy::disposition_when_unavailable()` is the code-level bridge
+for hosted mandatory audit behavior:
+
+- During `Bootstrap`, fail-closed events degrade with an alertable audit-health
+  condition instead of deadlocking startup on a sink that may depend on services
+  still initializing.
+- After hosted audit is `Ready`, fail-closed events map to
+  `RejectOperation`. Hosted producers should use that disposition to reject the
+  initiating security-sensitive operation when mandatory audit cannot be
+  accepted.
+
+This keeps KMS/key-provider startup able to emit through a bootstrap path while
+still giving post-ready hosted operations a deterministic fail-closed contract.

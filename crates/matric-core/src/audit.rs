@@ -152,6 +152,37 @@ pub enum AuditFailurePolicy {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum AuditAvailabilityPhase {
+    Bootstrap,
+    Ready,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum AuditFailureDisposition {
+    Continue,
+    DegradeWithAlert,
+    RejectOperation,
+}
+
+impl AuditFailurePolicy {
+    pub fn disposition_when_unavailable(
+        self,
+        phase: AuditAvailabilityPhase,
+    ) -> AuditFailureDisposition {
+        match (self, phase) {
+            (AuditFailurePolicy::BestEffort, _) => AuditFailureDisposition::Continue,
+            (AuditFailurePolicy::DegradeWithAlert, _) => AuditFailureDisposition::DegradeWithAlert,
+            (AuditFailurePolicy::FailClosed, AuditAvailabilityPhase::Bootstrap) => {
+                AuditFailureDisposition::DegradeWithAlert
+            }
+            (AuditFailurePolicy::FailClosed, AuditAvailabilityPhase::Ready) => {
+                AuditFailureDisposition::RejectOperation
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum AuditVisibilityClass {
     TenantAudit,
     PrivacyAudit,
@@ -596,5 +627,29 @@ mod tests {
 
         assert_eq!(low_risk.failure_policy, AuditFailurePolicy::BestEffort);
         assert_eq!(sensitive.failure_policy, AuditFailurePolicy::FailClosed);
+    }
+
+    #[test]
+    fn audit_failure_policy_distinguishes_bootstrap_from_ready_unavailable() {
+        assert_eq!(
+            AuditFailurePolicy::BestEffort
+                .disposition_when_unavailable(AuditAvailabilityPhase::Ready),
+            AuditFailureDisposition::Continue
+        );
+        assert_eq!(
+            AuditFailurePolicy::DegradeWithAlert
+                .disposition_when_unavailable(AuditAvailabilityPhase::Ready),
+            AuditFailureDisposition::DegradeWithAlert
+        );
+        assert_eq!(
+            AuditFailurePolicy::FailClosed
+                .disposition_when_unavailable(AuditAvailabilityPhase::Bootstrap),
+            AuditFailureDisposition::DegradeWithAlert
+        );
+        assert_eq!(
+            AuditFailurePolicy::FailClosed
+                .disposition_when_unavailable(AuditAvailabilityPhase::Ready),
+            AuditFailureDisposition::RejectOperation
+        );
     }
 }
