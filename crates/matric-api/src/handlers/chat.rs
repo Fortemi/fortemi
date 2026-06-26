@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -23,7 +23,7 @@ use tracing::{debug, info, warn};
 use matric_api::services::chat_stream_store::{ResumeCursor, StoredFrame};
 use matric_api::services::ChatStreamStore;
 
-use crate::AppState;
+use crate::{ApiError, AppState};
 use matric_inference::discovery::ModelDiscovery;
 use matric_inference::profiles::ModelRegistry;
 use matric_inference::OllamaBackend;
@@ -33,6 +33,8 @@ use uuid::Uuid;
 /// Large enough that a reasonably-paced client never sees drops, small enough
 /// to bound memory if a client stalls.
 const CHAT_STREAM_CHANNEL_CAPACITY: usize = 256;
+const CHAT_GENERATION_FAILURE_MESSAGE: &str =
+    "Chat generation failed. Check server logs for diagnostics.";
 
 // =============================================================================
 // REQUEST / RESPONSE TYPES
@@ -177,25 +179,14 @@ pub async fn chat_handler(
     // 1. Validate input
     let input = req.input.trim();
     if input.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "input must not be empty"})),
-        )
-            .into_response();
+        return ApiError::BadRequest("input must not be empty".to_string()).into_response();
     }
 
     // 2. Check backend is configured
     let backend = match state.generation_backend() {
         Some(b) => b,
         None => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "Chat not configured — Ollama generation backend is not available",
-                    "retry_after": 30
-                })),
-            )
-                .into_response();
+            return chat_service_unavailable("Chat generation backend is not available", 30);
         }
     };
 
@@ -204,42 +195,21 @@ pub async fn chat_handler(
     // Ollama) is down or not yet started, fail fast with a retry hint rather
     // than blocking on a generation request that will time out.
     if !state.inference_available.load(Ordering::Relaxed) {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": "Chat provider not reachable — retry after inference provider starts",
-                "retry_after": 30
-            })),
-        )
-            .into_response();
+        return chat_service_unavailable("Chat provider is not reachable", 30);
     }
 
     // 3. Try to acquire a semaphore permit (non-blocking)
     let semaphore = match &state.chat_semaphore {
         Some(s) => s,
         None => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "Chat not configured",
-                    "retry_after": 30
-                })),
-            )
-                .into_response();
+            return chat_service_unavailable("Chat generation backend is not available", 30);
         }
     };
 
     let _permit = match semaphore.try_acquire() {
         Ok(permit) => permit,
         Err(_) => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "Chat service is currently at capacity. All GPU inference threads are busy processing requests. Please retry shortly.",
-                    "retry_after": 5
-                })),
-            )
-                .into_response();
+            return chat_service_unavailable("Chat service is currently at capacity", 5);
         }
     };
 
@@ -315,13 +285,11 @@ pub async fn chat_handler(
         }
         Err(e) => {
             warn!(error = %e, model = model_name, "Chat generation failed");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "error": format!("Generation failed: {}", e),
-                })),
-            )
-                .into_response()
+            ApiError::ProviderFailure {
+                capability: "Chat generation",
+                detail: "chat generation request failed".to_string(),
+            }
+            .into_response()
         }
     }
     // _permit dropped here — semaphore slot released
@@ -354,14 +322,10 @@ async fn validate_chat_model(
     // Check model is installed
     let found = models.models.iter().any(|m| m.name == model_slug);
     if !found {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!("Model '{}' is not installed on Ollama", model_slug),
-                "available_models": models.generation_models,
-            })),
-        )
-            .into_response());
+        return Err(ApiError::BadRequest(format!(
+            "Requested chat model '{model_slug}' is not available"
+        ))
+        .into_response());
     }
 
     // Check it's not an embedding-only model
@@ -373,14 +337,10 @@ async fn validate_chat_model(
         .unwrap_or(false);
 
     if is_embed_only {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!("Model '{}' is an embedding model and cannot be used for chat", model_slug),
-                "available_models": models.generation_models,
-            })),
-        )
-            .into_response());
+        return Err(ApiError::BadRequest(format!(
+            "Requested chat model '{model_slug}' cannot be used for chat"
+        ))
+        .into_response());
     }
 
     Ok(())
@@ -488,12 +448,12 @@ fn chat_stream_send_timeout() -> Duration {
     Duration::from_secs(secs)
 }
 
-fn service_unavailable(msg: &str, retry_after: u64) -> Response {
-    (
-        StatusCode::SERVICE_UNAVAILABLE,
-        Json(serde_json::json!({ "error": msg, "retry_after": retry_after })),
-    )
-        .into_response()
+fn chat_service_unavailable(msg: &str, retry_after: u64) -> Response {
+    let mut response = ApiError::ServiceUnavailable(msg.to_string()).into_response();
+    if let Ok(value) = retry_after.to_string().parse() {
+        response.headers_mut().insert(header::RETRY_AFTER, value);
+    }
+    response
 }
 
 /// One Server-Sent Event frame produced by the streaming chat pump.
@@ -538,6 +498,10 @@ impl ChatStreamFrame {
             data: serde_json::json!({ "error": message, "code": "GENERATION_FAILED" }).to_string(),
             id: None,
         }
+    }
+
+    fn generation_failed() -> Self {
+        Self::error(CHAT_GENERATION_FAILURE_MESSAGE.to_string())
     }
 
     /// An `error` frame signalling that a resumed stream's buffer ended before a
@@ -702,8 +666,9 @@ async fn pump_chat_stream<S>(
                 }
             }
             Err(e) => {
+                warn!(error = %e, "Streaming chat generation failed");
                 seq += 1;
-                let frame = ChatStreamFrame::error(e.to_string());
+                let frame = ChatStreamFrame::generation_failed();
                 store.append(&session, &frame.to_stored(seq)).await;
                 let _ = tx.send(frame.with_id(format!("{session}-{seq}"))).await;
                 metrics.streams_errored.fetch_add(1, Ordering::Relaxed);
@@ -780,45 +745,28 @@ pub async fn chat_stream_handler(
     // 1. Validate input
     let input = req.input.trim();
     if input.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "input must not be empty"})),
-        )
-            .into_response();
+        return ApiError::BadRequest("input must not be empty".to_string()).into_response();
     }
 
     // 2. Backend configured?
     let backend = match state.generation_backend() {
         Some(b) => b,
-        None => {
-            return service_unavailable(
-                "Chat not configured — Ollama generation backend is not available",
-                30,
-            )
-        }
+        None => return chat_service_unavailable("Chat generation backend is not available", 30),
     };
 
     // 2b. Provider reachable? (#630)
     if !state.inference_available.load(Ordering::Relaxed) {
-        return service_unavailable(
-            "Chat provider not reachable — retry after inference provider starts",
-            30,
-        );
+        return chat_service_unavailable("Chat provider is not reachable", 30);
     }
 
     // 3. Acquire an OWNED permit — held for the full stream lifetime.
     let semaphore = match &state.chat_semaphore {
         Some(s) => s.clone(),
-        None => return service_unavailable("Chat not configured", 30),
+        None => return chat_service_unavailable("Chat generation backend is not available", 30),
     };
     let permit = match semaphore.try_acquire_owned() {
         Ok(p) => p,
-        Err(_) => {
-            return service_unavailable(
-                "Chat service is currently at capacity. All GPU inference threads are busy processing requests. Please retry shortly.",
-                5,
-            )
-        }
+        Err(_) => return chat_service_unavailable("Chat service is currently at capacity", 5),
     };
 
     // 4. Resolve model — requested or server default.
@@ -886,7 +834,7 @@ pub async fn chat_stream_handler(
             }
             Err(e) => {
                 warn!(error = %e, model = %model_name, "Streaming chat failed to start");
-                let frame = ChatStreamFrame::error(format!("Generation failed: {}", e));
+                let frame = ChatStreamFrame::generation_failed();
                 store.append(&session, &frame.to_stored(1)).await;
                 let _ = tx.send(frame.with_id(format!("{session}-1"))).await;
                 metrics.streams_errored.fetch_add(1, Ordering::Relaxed);
@@ -937,14 +885,12 @@ pub async fn list_chat_models(State(state): State<AppState>) -> impl IntoRespons
     let discovered = match discovery.discover_models().await {
         Ok(result) => result,
         Err(e) => {
-            warn!(error = %e, "Failed to discover Ollama models for chat");
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": format!("Cannot reach Ollama: {}", e),
-                })),
-            )
-                .into_response();
+            warn!(error = %e, "Failed to discover chat models");
+            return ApiError::ProviderFailure {
+                capability: "Chat model discovery",
+                detail: "chat model discovery request failed".to_string(),
+            }
+            .into_response();
         }
     };
 
@@ -1025,6 +971,41 @@ mod tests {
         assert_eq!(info.estimated_available_context, 0);
         assert!(!info.supports_thinking);
         assert_eq!(info.thinking_type, "unknown");
+    }
+
+    #[tokio::test]
+    async fn chat_service_unavailable_returns_problem_without_legacy_error_shape() {
+        let response = chat_service_unavailable("Chat provider is not reachable", 30);
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|v| v.to_str().ok()),
+            Some("30")
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("application/problem+json")
+        );
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let problem: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/service-unavailable"
+        );
+        assert_eq!(problem["detail"], "Chat provider is not reachable");
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+        assert!(problem.get("retry_after").is_none());
     }
 
     #[test]
@@ -1561,6 +1542,12 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&err.data).unwrap();
         assert_eq!(v["error"], "boom");
         assert_eq!(v["code"], "GENERATION_FAILED");
+
+        let generic_err = ChatStreamFrame::generation_failed();
+        assert_eq!(generic_err.event, "error");
+        let v: serde_json::Value = serde_json::from_str(&generic_err.data).unwrap();
+        assert_eq!(v["error"], CHAT_GENERATION_FAILURE_MESSAGE);
+        assert_eq!(v["code"], "GENERATION_FAILED");
     }
 
     /// #816: a clean stream emits one `delta` per non-empty chunk followed by a
@@ -1640,7 +1627,9 @@ mod tests {
         assert_eq!(frames[0].event, "delta");
         assert_eq!(frames[1].event, "error");
         let v: serde_json::Value = serde_json::from_str(&frames[1].data).unwrap();
-        assert!(v["error"].as_str().unwrap().contains("upstream exploded"));
+        assert_eq!(v["error"], CHAT_GENERATION_FAILURE_MESSAGE);
+        assert_eq!(v["code"], "GENERATION_FAILED");
+        assert!(!frames[1].data.contains("upstream exploded"));
 
         assert_eq!(metrics.streams_errored.load(Ordering::Relaxed), 1);
         assert_eq!(metrics.streams_completed.load(Ordering::Relaxed), 0);

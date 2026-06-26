@@ -77,10 +77,13 @@ async fn test_chat_empty_input_returns_400() {
 
     assert_eq!(resp.status(), 400, "Empty input should return 400");
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(
-        body.get("error").is_some(),
-        "Error response should contain 'error' field"
+    assert_eq!(
+        body["type"],
+        "https://fortemi.com/problems/validation-error"
     );
+    assert_eq!(body["status"], 400);
+    assert!(body.get("error").is_none());
+    assert!(body.get("error_description").is_none());
 }
 
 /// Issue #549 test case #9 variant: Whitespace-only input returns 400.
