@@ -10395,7 +10395,7 @@ async fn create_note(
     ))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct BulkCreateNoteItem {
     content: String,
     /// Optional explicit title. See CreateNoteBody for semantics. (#675)
@@ -10432,9 +10432,50 @@ struct BulkCreateNoteItem {
     chunk_overlap: Option<usize>,
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+impl fmt::Debug for BulkCreateNoteItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BulkCreateNoteItem")
+            .field("content_len", &self.content.len())
+            .field("title_len", &self.title.as_ref().map(String::len))
+            .field("tags_count", &self.tags.as_ref().map(Vec::len))
+            .field(
+                "tag_lens",
+                &self
+                    .tags
+                    .as_ref()
+                    .map(|tags| tags.iter().map(String::len).collect::<Vec<_>>()),
+            )
+            .field("metadata_set", &self.metadata.is_some())
+            .field(
+                "revision_mode_len",
+                &self.revision_mode.as_ref().map(String::len),
+            )
+            .field("document_type_id_set", &self.document_type_id.is_some())
+            .field(
+                "document_type_len",
+                &self.document_type.as_ref().map(String::len),
+            )
+            .field("collection_id_set", &self.collection_id.is_some())
+            .field("format_len", &self.format.as_ref().map(String::len))
+            .field("source_len", &self.source.as_ref().map(String::len))
+            .field("chunk_max_chars", &self.chunk_max_chars)
+            .field("chunk_overlap", &self.chunk_overlap)
+            .finish()
+    }
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
 struct BulkCreateNotesBody {
     notes: Vec<BulkCreateNoteItem>,
+}
+
+impl fmt::Debug for BulkCreateNotesBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BulkCreateNotesBody")
+            .field("notes_count", &self.notes.len())
+            .field("notes", &self.notes)
+            .finish()
+    }
 }
 
 #[utoipa::path(
@@ -25973,6 +26014,65 @@ mod tests {
             "qwen3-private-db.internal",
             "metadata_extraction_private",
             "concept_tagging_secret",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn bulk_create_debug_redacts_note_content_metadata_tags_and_routing_fields() {
+        let body = BulkCreateNotesBody {
+            notes: vec![BulkCreateNoteItem {
+                content: "Bulk note contains postgres://user:pass@db.internal/app and sk-live-bulk"
+                    .to_string(),
+                title: Some("Customer bulk payroll note".to_string()),
+                tags: Some(vec![
+                    "customer-bulk-secret-tag".to_string(),
+                    "mm_key_bulk_tag".to_string(),
+                ]),
+                metadata: Some(serde_json::json!({
+                    "path": "/srv/private/bulk-note.md",
+                    "token": "sk-live-bulk-metadata",
+                    "email": "customer@example.com"
+                })),
+                revision_mode: Some("full-private-bulk-revision".to_string()),
+                document_type_id: Some(Uuid::new_v4()),
+                document_type: Some("bulk-private-document-type".to_string()),
+                collection_id: Some(Uuid::new_v4()),
+                format: Some("markdown-private-bulk".to_string()),
+                source: Some("customer@example.com/bulk-import".to_string()),
+                chunk_max_chars: Some(4096),
+                chunk_overlap: Some(128),
+            }],
+        };
+
+        let rendered = format!("{body:?}");
+
+        assert!(rendered.contains("BulkCreateNotesBody"));
+        assert!(rendered.contains("notes_count"));
+        assert!(rendered.contains("BulkCreateNoteItem"));
+        assert!(rendered.contains("content_len"));
+        assert!(rendered.contains("tags_count"));
+        assert!(rendered.contains("tag_lens"));
+        assert!(rendered.contains("metadata_set"));
+        assert!(rendered.contains("document_type_len"));
+        assert!(rendered.contains("source_len"));
+
+        for raw in [
+            "Bulk note contains",
+            "postgres://user:pass",
+            "db.internal",
+            "sk-live-bulk",
+            "Customer bulk payroll note",
+            "customer-bulk-secret-tag",
+            "mm_key_bulk_tag",
+            "/srv/private/bulk-note.md",
+            "sk-live-bulk-metadata",
+            "customer@example.com",
+            "full-private-bulk-revision",
+            "bulk-private-document-type",
+            "markdown-private-bulk",
+            "bulk-import",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
