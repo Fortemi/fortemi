@@ -18478,7 +18478,7 @@ async fn backup_download(
     Ok((StatusCode::OK, headers, json_content))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct BackupImportBody {
     /// The backup data to import
     backup: BackupImportData,
@@ -18496,7 +18496,18 @@ struct BackupImportBody {
     defer_inference: bool,
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+impl std::fmt::Debug for BackupImportBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackupImportBody")
+            .field("backup", &self.backup)
+            .field("dry_run", &self.dry_run)
+            .field("on_conflict", &self.on_conflict)
+            .field("defer_inference", &self.defer_inference)
+            .finish()
+    }
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
 #[allow(dead_code)] // Fields validated during deserialization, used for future features
 struct BackupImportData {
     manifest: Option<serde_json::Value>,
@@ -18509,7 +18520,19 @@ struct BackupImportData {
     templates: Vec<serde_json::Value>,
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+impl std::fmt::Debug for BackupImportData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackupImportData")
+            .field("manifest_set", &self.manifest.is_some())
+            .field("notes_count", &self.notes.len())
+            .field("collections_count", &self.collections.len())
+            .field("tags_count", &self.tags.len())
+            .field("templates_count", &self.templates.len())
+            .finish()
+    }
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
 struct BackupNoteData {
     id: Option<Uuid>,
     title: Option<String>,
@@ -18524,6 +18547,33 @@ struct BackupNoteData {
     tags: Option<Vec<String>>,
 }
 
+impl std::fmt::Debug for BackupNoteData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackupNoteData")
+            .field("id", &self.id)
+            .field("title_len", &self.title.as_ref().map(|value| value.len()))
+            .field(
+                "original_content_len",
+                &self.original_content.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "revised_content_len",
+                &self.revised_content.as_ref().map(|value| value.len()),
+            )
+            .field(
+                "content_len",
+                &self.content.as_ref().map(|value| value.len()),
+            )
+            .field("format_len", &self.format.as_ref().map(|value| value.len()))
+            .field("source_len", &self.source.as_ref().map(|value| value.len()))
+            .field("starred", &self.starred)
+            .field("archived", &self.archived)
+            .field("collection_id", &self.collection_id)
+            .field("tags_count", &self.tags.as_ref().map(|tags| tags.len()))
+            .finish()
+    }
+}
+
 #[derive(Debug, Deserialize, Default, Clone, Copy, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 enum ConflictStrategy {
@@ -18536,13 +18586,25 @@ enum ConflictStrategy {
     Merge,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct BackupImportResponse {
     status: String,
     dry_run: bool,
     imported: ImportCounts,
     skipped: ImportCounts,
     errors: Vec<String>,
+}
+
+impl std::fmt::Debug for BackupImportResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackupImportResponse")
+            .field("status_len", &self.status.len())
+            .field("dry_run", &self.dry_run)
+            .field("imported", &self.imported)
+            .field("skipped", &self.skipped)
+            .field("errors_count", &self.errors.len())
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize, Default)]
@@ -25545,6 +25607,97 @@ mod tests {
             "bearer-token-shaped",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn backup_import_debug_redacts_imported_records_tags_and_errors() {
+        let body = BackupImportBody {
+            backup: BackupImportData {
+                manifest: Some(serde_json::json!({
+                    "source": "customer-private-manifest",
+                    "token": "sk-live-manifest-secret"
+                })),
+                notes: vec![BackupNoteData {
+                    id: Some(Uuid::nil()),
+                    title: Some("Customer payroll import".to_string()),
+                    original_content: Some(
+                        "original note body contains sk-live-secret-token".to_string(),
+                    ),
+                    revised_content: Some(
+                        "revised note body contains customer@example.com".to_string(),
+                    ),
+                    content: Some("fallback import content bearer-token-shaped".to_string()),
+                    format: Some("markdown-private".to_string()),
+                    source: Some("mailbox/customer/private".to_string()),
+                    starred: Some(true),
+                    archived: Some(false),
+                    collection_id: Some(Uuid::nil()),
+                    tags: Some(vec![
+                        "customer-private".to_string(),
+                        "mm_key_import_secret".to_string(),
+                    ]),
+                }],
+                collections: vec![serde_json::json!({
+                    "name": "customer-private-collection"
+                })],
+                tags: vec!["archive-secret-tag".to_string()],
+                templates: vec![serde_json::json!({
+                    "name": "Private restore template",
+                    "content": "template has bearer-token-shaped value"
+                })],
+            },
+            dry_run: true,
+            on_conflict: ConflictStrategy::Merge,
+            defer_inference: true,
+        };
+        let response = BackupImportResponse {
+            status: "partial-with-private-detail".to_string(),
+            dry_run: true,
+            imported: ImportCounts {
+                notes: 1,
+                collections: 1,
+                templates: 1,
+            },
+            skipped: ImportCounts::default(),
+            errors: vec!["failed note customer@example.com with sk-live-secret-token".to_string()],
+        };
+
+        let rendered_body = format!("{body:?}");
+        let rendered_note = format!("{:?}", body.backup.notes[0]);
+        let rendered_response = format!("{response:?}");
+        let combined = format!("{rendered_body}\n{rendered_note}\n{rendered_response}");
+
+        assert!(rendered_body.contains("BackupImportBody"));
+        assert!(rendered_body.contains("BackupImportData"));
+        assert!(rendered_body.contains("manifest_set"));
+        assert!(rendered_body.contains("notes_count"));
+        assert!(rendered_note.contains("BackupNoteData"));
+        assert!(rendered_note.contains("title_len"));
+        assert!(rendered_note.contains("original_content_len"));
+        assert!(rendered_note.contains("revised_content_len"));
+        assert!(rendered_note.contains("tags_count"));
+        assert!(rendered_response.contains("BackupImportResponse"));
+        assert!(rendered_response.contains("status_len"));
+        assert!(rendered_response.contains("errors_count"));
+
+        for raw in [
+            "customer-private-manifest",
+            "sk-live-manifest-secret",
+            "Customer payroll import",
+            "sk-live-secret-token",
+            "customer@example.com",
+            "bearer-token-shaped",
+            "markdown-private",
+            "mailbox/customer/private",
+            "customer-private",
+            "mm_key_import_secret",
+            "customer-private-collection",
+            "archive-secret-tag",
+            "Private restore template",
+            "partial-with-private-detail",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
     }
 
