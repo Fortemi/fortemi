@@ -17,7 +17,7 @@ const MODEL_DISCOVERY_FAILURE_DETAIL: &str =
     "Model discovery failed. Check server logs for diagnostics.";
 
 /// A single model entry with capability metadata.
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, utoipa::ToSchema)]
 pub struct ModelInfo {
     /// Model slug used in API parameters (e.g. "qwen3:8b", "nomic-embed-text").
     pub slug: String,
@@ -42,8 +42,29 @@ pub struct ModelInfo {
     pub family: Option<String>,
 }
 
+impl std::fmt::Debug for ModelInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ModelInfo")
+            .field("slug_len", &debug_text_len(&self.slug))
+            .field("provider_len", &debug_text_len(&self.provider))
+            .field("capability_count", &self.capabilities.len())
+            .field("default_for_count", &self.default_for.len())
+            .field(
+                "parameter_size_len",
+                &debug_optional_text_len(&self.parameter_size),
+            )
+            .field(
+                "quantization_len",
+                &debug_optional_text_len(&self.quantization),
+            )
+            .field("size_bytes", &self.size_bytes)
+            .field("family_len", &debug_optional_text_len(&self.family))
+            .finish()
+    }
+}
+
 /// Summary of a registered inference provider.
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, utoipa::ToSchema)]
 pub struct ProviderInfo {
     /// Provider identifier (e.g. "ollama", "openai", "openrouter").
     pub id: String,
@@ -55,8 +76,19 @@ pub struct ProviderInfo {
     pub health: String,
 }
 
+impl std::fmt::Debug for ProviderInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderInfo")
+            .field("id_len", &debug_text_len(&self.id))
+            .field("capability_count", &self.capabilities.len())
+            .field("is_default", &self.is_default)
+            .field("health_len", &debug_text_len(&self.health))
+            .finish()
+    }
+}
+
 /// Response from the model discovery endpoint.
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct ListModelsResponse {
     /// All available models with capability metadata.
     pub models: Vec<ModelInfo>,
@@ -66,8 +98,18 @@ pub struct ListModelsResponse {
     pub providers: Vec<ProviderInfo>,
 }
 
+impl std::fmt::Debug for ListModelsResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ListModelsResponse")
+            .field("model_count", &self.models.len())
+            .field("defaults", &self.defaults)
+            .field("provider_count", &self.providers.len())
+            .finish()
+    }
+}
+
 /// Default model slugs from server configuration.
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct ModelDefaults {
     /// Default language/generation model slug.
     pub language: String,
@@ -79,6 +121,28 @@ pub struct ModelDefaults {
     /// Default transcription model slug, if configured.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transcription: Option<String>,
+}
+
+impl std::fmt::Debug for ModelDefaults {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ModelDefaults")
+            .field("language_len", &debug_text_len(&self.language))
+            .field("embedding_len", &debug_text_len(&self.embedding))
+            .field("vision_len", &debug_optional_text_len(&self.vision))
+            .field(
+                "transcription_len",
+                &debug_optional_text_len(&self.transcription),
+            )
+            .finish()
+    }
+}
+
+fn debug_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn debug_optional_text_len(value: &Option<String>) -> Option<usize> {
+    value.as_deref().map(debug_text_len)
 }
 
 /// Check if a model name matches known vision model patterns.
@@ -303,5 +367,66 @@ mod tests {
         assert!(!MODEL_DISCOVERY_FAILURE_DETAIL.contains("Bearer "));
         assert!(!MODEL_DISCOVERY_FAILURE_DETAIL.contains("/srv/"));
         assert!(!MODEL_DISCOVERY_FAILURE_DETAIL.contains("api_key="));
+    }
+
+    #[test]
+    fn model_discovery_response_debug_redacts_model_and_provider_identifiers() {
+        let model = ModelInfo {
+            slug: "qwen-secret@example.com postgres://user:secret@db.internal/model".to_string(),
+            provider: "openrouter-sk-live-provider".to_string(),
+            capabilities: vec!["language".to_string(), "vision".to_string()],
+            default_for: vec!["language".to_string()],
+            parameter_size: Some("14B-private-profile".to_string()),
+            quantization: Some("Q4_K_M-/srv/fortemi/models".to_string()),
+            size_bytes: Some(42),
+            family: Some("family-token-shaped-value".to_string()),
+        };
+        let provider = ProviderInfo {
+            id: "provider-with-token-sk-live".to_string(),
+            capabilities: vec!["language".to_string()],
+            is_default: true,
+            health: "healthy-internal-cluster-a".to_string(),
+        };
+        let response = ListModelsResponse {
+            models: vec![model],
+            defaults: ModelDefaults {
+                language: "operator@example.com/default-language".to_string(),
+                embedding: "postgres://user:secret@db.internal/default-embedding".to_string(),
+                vision: Some("/srv/fortemi/private/vision-model".to_string()),
+                transcription: Some("sk-live-transcription-model".to_string()),
+            },
+            providers: vec![provider],
+        };
+
+        let rendered = format!("{response:?}");
+        let rendered_model = format!("{:?}", response.models[0]);
+        let rendered_provider = format!("{:?}", response.providers[0]);
+        let combined = format!("{rendered}\n{rendered_model}\n{rendered_provider}");
+        for forbidden in [
+            "qwen-secret@example.com",
+            "postgres://user:secret@db.internal/model",
+            "openrouter-sk-live-provider",
+            "14B-private-profile",
+            "Q4_K_M-/srv/fortemi/models",
+            "family-token-shaped-value",
+            "operator@example.com/default-language",
+            "postgres://user:secret@db.internal/default-embedding",
+            "/srv/fortemi/private/vision-model",
+            "sk-live-transcription-model",
+            "provider-with-token-sk-live",
+            "healthy-internal-cluster-a",
+        ] {
+            assert!(
+                !combined.contains(forbidden),
+                "model discovery Debug leaked {forbidden}: {combined}"
+            );
+        }
+
+        assert!(rendered.contains("model_count"));
+        assert!(rendered.contains("provider_count"));
+        assert!(rendered.contains("language_len"));
+        assert!(rendered_model.contains("slug_len"));
+        assert!(rendered_model.contains("capability_count"));
+        assert!(rendered_provider.contains("id_len"));
     }
 }
