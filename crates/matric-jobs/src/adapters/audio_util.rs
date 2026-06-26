@@ -43,6 +43,24 @@ fn audio_stderr_reason_code(stderr: &[u8]) -> &'static str {
     }
 }
 
+fn audio_error_reason_code(error: &str) -> &'static str {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("permission denied") || lower.contains("access denied") {
+        "permission_denied"
+    } else if lower.contains("no such file")
+        || lower.contains("not found")
+        || lower.contains("does not exist")
+    {
+        "not_found"
+    } else if lower.contains("timeout") || lower.contains("timed out") {
+        "timed_out"
+    } else if lower.contains("invalid") || lower.contains("parse") || lower.contains("decode") {
+        "invalid_input"
+    } else {
+        "operation_failed"
+    }
+}
+
 fn audio_command_failure_detail(
     command: &'static str,
     phase: &'static str,
@@ -388,8 +406,10 @@ pub async fn transcribe_with_chunking(
     let duration = match probe_duration(wav_path).await {
         Ok(d) => d,
         Err(e) => {
+            let error = e.to_string();
             warn!(
-                error = %e,
+                error_len = error.len(),
+                error_reason = audio_error_reason_code(&error),
                 "Failed to probe audio duration, falling back to single-pass transcription"
             );
             return transcribe_single_pass(backend, wav_path, language).await;
@@ -536,6 +556,26 @@ mod tests {
         assert_eq!(
             audio_stderr_reason_code(b"opaque backend text"),
             "command_failed"
+        );
+    }
+
+    #[test]
+    fn audio_error_reason_code_uses_stable_classes() {
+        assert_eq!(
+            audio_error_reason_code("permission denied reading /srv/private/audio.wav"),
+            "permission_denied"
+        );
+        assert_eq!(
+            audio_error_reason_code("No such file token=mm_key_secret"),
+            "not_found"
+        );
+        assert_eq!(
+            audio_error_reason_code("decode failed for generated output"),
+            "invalid_input"
+        );
+        assert_eq!(
+            audio_error_reason_code("opaque backend text /srv/private/audio.wav"),
+            "operation_failed"
         );
     }
 
