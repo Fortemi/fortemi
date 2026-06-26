@@ -77,27 +77,39 @@ impl SearchCache {
                     {
                         Ok(Ok(conn)) => {
                             info!(
-                                "Redis search cache enabled (TTL: {}s, URL: {})",
                                 ttl_seconds,
-                                redis_url.replace(|c: char| c.is_ascii_alphanumeric(), "*")
+                                redis_url_class = search_cache_url_class(&redis_url),
+                                redis_url_len = search_cache_text_len(&redis_url),
+                                "Redis search cache enabled"
                             );
                             Some(conn)
                         }
                         Ok(Err(e)) => {
-                            warn!("Failed to connect to Redis, cache disabled: {}", e);
+                            let diagnostic = e.to_string();
+                            warn!(
+                                reason_code = search_cache_diagnostic_reason(&diagnostic),
+                                error_len = search_cache_text_len(&diagnostic),
+                                "Redis search cache connect failed; cache disabled"
+                            );
                             None
                         }
                         Err(_) => {
                             warn!(
-                                "Redis connection timed out after 5s ({}), cache disabled",
-                                redis_url
+                                redis_url_class = search_cache_url_class(&redis_url),
+                                redis_url_len = search_cache_text_len(&redis_url),
+                                "Redis search cache connect timed out; cache disabled"
                             );
                             None
                         }
                     }
                 }
                 Err(e) => {
-                    warn!("Invalid Redis URL, cache disabled: {}", e);
+                    let diagnostic = e.to_string();
+                    warn!(
+                        reason_code = search_cache_diagnostic_reason(&diagnostic),
+                        error_len = search_cache_text_len(&diagnostic),
+                        "Redis search cache URL rejected; cache disabled"
+                    );
                     None
                 }
             }
@@ -171,20 +183,32 @@ impl SearchCache {
         match conn.get::<_, Option<String>>(key).await {
             Ok(Some(data)) => match serde_json::from_str(&data) {
                 Ok(result) => {
-                    debug!("Cache HIT: {}", key);
+                    debug!(key_len = search_cache_text_len(key), "Search cache hit");
                     Some(result)
                 }
                 Err(e) => {
-                    warn!("Cache deserialization error: {}", e);
+                    let diagnostic = e.to_string();
+                    warn!(
+                        key_len = search_cache_text_len(key),
+                        reason_code = search_cache_diagnostic_reason(&diagnostic),
+                        error_len = search_cache_text_len(&diagnostic),
+                        "Search cache deserialization failed"
+                    );
                     None
                 }
             },
             Ok(None) => {
-                debug!("Cache MISS: {}", key);
+                debug!(key_len = search_cache_text_len(key), "Search cache miss");
                 None
             }
             Err(e) => {
-                error!("Redis GET error: {}", e);
+                let diagnostic = e.to_string();
+                error!(
+                    key_len = search_cache_text_len(key),
+                    reason_code = search_cache_diagnostic_reason(&diagnostic),
+                    error_len = search_cache_text_len(&diagnostic),
+                    "Search cache Redis GET failed"
+                );
                 None
             }
         }
@@ -201,7 +225,13 @@ impl SearchCache {
         let serialized = match serde_json::to_string(value) {
             Ok(s) => s,
             Err(e) => {
-                error!("Cache serialization error: {}", e);
+                let diagnostic = e.to_string();
+                error!(
+                    key_len = search_cache_text_len(key),
+                    reason_code = search_cache_diagnostic_reason(&diagnostic),
+                    error_len = search_cache_text_len(&diagnostic),
+                    "Search cache serialization failed"
+                );
                 return false;
             }
         };
@@ -211,11 +241,21 @@ impl SearchCache {
             .await
         {
             Ok(_) => {
-                debug!("Cache SET: {} (TTL: {}s)", key, self.inner.ttl_seconds);
+                debug!(
+                    key_len = search_cache_text_len(key),
+                    ttl_seconds = self.inner.ttl_seconds,
+                    "Search cache set"
+                );
                 true
             }
             Err(e) => {
-                error!("Redis SET error: {}", e);
+                let diagnostic = e.to_string();
+                error!(
+                    key_len = search_cache_text_len(key),
+                    reason_code = search_cache_diagnostic_reason(&diagnostic),
+                    error_len = search_cache_text_len(&diagnostic),
+                    "Search cache Redis SET failed"
+                );
                 false
             }
         }
@@ -231,11 +271,20 @@ impl SearchCache {
 
         match conn.del::<_, ()>(key).await {
             Ok(_) => {
-                debug!("Cache INVALIDATE: {}", key);
+                debug!(
+                    key_len = search_cache_text_len(key),
+                    "Search cache invalidate"
+                );
                 true
             }
             Err(e) => {
-                error!("Redis DEL error: {}", e);
+                let diagnostic = e.to_string();
+                error!(
+                    key_len = search_cache_text_len(key),
+                    reason_code = search_cache_diagnostic_reason(&diagnostic),
+                    error_len = search_cache_text_len(&diagnostic),
+                    "Search cache Redis DEL failed"
+                );
                 false
             }
         }
@@ -260,20 +309,34 @@ impl SearchCache {
         {
             Ok(keys) if !keys.is_empty() => match conn.del::<_, ()>(&keys[..]).await {
                 Ok(_) => {
-                    info!("Cache FLUSH: removed {} keys", keys.len());
+                    info!(
+                        removed_count = keys.len(),
+                        "Search cache flush removed keys"
+                    );
                     true
                 }
                 Err(e) => {
-                    error!("Redis flush error: {}", e);
+                    let diagnostic = e.to_string();
+                    error!(
+                        key_count = keys.len(),
+                        reason_code = search_cache_diagnostic_reason(&diagnostic),
+                        error_len = search_cache_text_len(&diagnostic),
+                        "Search cache Redis flush failed"
+                    );
                     false
                 }
             },
             Ok(_) => {
-                debug!("Cache FLUSH: no keys to remove");
+                debug!("Search cache flush found no keys");
                 true
             }
             Err(e) => {
-                error!("Redis KEYS error: {}", e);
+                let diagnostic = e.to_string();
+                error!(
+                    reason_code = search_cache_diagnostic_reason(&diagnostic),
+                    error_len = search_cache_text_len(&diagnostic),
+                    "Search cache Redis KEYS failed"
+                );
                 false
             }
         }
@@ -282,6 +345,84 @@ impl SearchCache {
     /// Get cache TTL setting.
     pub fn ttl(&self) -> Duration {
         Duration::from_secs(self.inner.ttl_seconds)
+    }
+}
+
+fn search_cache_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn search_cache_url_class(value: &str) -> &'static str {
+    let lower = value.to_ascii_lowercase();
+    if lower.starts_with("redis://localhost")
+        || lower.starts_with("rediss://localhost")
+        || lower.contains("@localhost")
+        || lower.contains("://127.")
+        || lower.contains("@127.")
+        || lower.contains("://10.")
+        || lower.contains("@10.")
+        || lower.contains("://192.168.")
+        || lower.contains("@192.168.")
+        || lower.contains("://172.16.")
+        || lower.contains("@172.16.")
+        || lower.contains("://172.17.")
+        || lower.contains("@172.17.")
+        || lower.contains("://172.18.")
+        || lower.contains("@172.18.")
+        || lower.contains("://172.19.")
+        || lower.contains("@172.19.")
+        || lower.contains("://172.20.")
+        || lower.contains("@172.20.")
+        || lower.contains("://172.21.")
+        || lower.contains("@172.21.")
+        || lower.contains("://172.22.")
+        || lower.contains("@172.22.")
+        || lower.contains("://172.23.")
+        || lower.contains("@172.23.")
+        || lower.contains("://172.24.")
+        || lower.contains("@172.24.")
+        || lower.contains("://172.25.")
+        || lower.contains("@172.25.")
+        || lower.contains("://172.26.")
+        || lower.contains("@172.26.")
+        || lower.contains("://172.27.")
+        || lower.contains("@172.27.")
+        || lower.contains("://172.28.")
+        || lower.contains("@172.28.")
+        || lower.contains("://172.29.")
+        || lower.contains("@172.29.")
+        || lower.contains("://172.30.")
+        || lower.contains("@172.30.")
+        || lower.contains("://172.31.")
+        || lower.contains("@172.31.")
+        || lower.contains(".internal")
+    {
+        "local_or_private"
+    } else if lower.starts_with("redis://") || lower.starts_with("rediss://") {
+        "redis"
+    } else {
+        "invalid_url"
+    }
+}
+
+fn search_cache_diagnostic_reason(value: &str) -> &'static str {
+    let value = value.to_ascii_lowercase();
+    if value.contains("timeout") || value.contains("timed out") {
+        "timeout"
+    } else if value.contains("invalid") || value.contains("url") {
+        "invalid_config"
+    } else if value.contains("connect") || value.contains("connection") {
+        "connection_failed"
+    } else if value.contains("noauth")
+        || value.contains("auth")
+        || value.contains("permission")
+        || value.contains("denied")
+    {
+        "auth_failed"
+    } else if value.contains("json") || value.contains("parse") || value.contains("serde") {
+        "serialization_failed"
+    } else {
+        "operation_failed"
     }
 }
 
@@ -320,5 +461,82 @@ mod tests {
         let cache = SearchCache::disabled();
         let key = cache.cache_key("test", None, None);
         assert!(key.starts_with("mm:search:"));
+    }
+
+    #[test]
+    fn search_cache_url_class_uses_stable_classes() {
+        let cases = [
+            (
+                "redis://user:pass@localhost:6379/0?token=secret",
+                "local_or_private",
+            ),
+            (
+                "rediss://user:pass@10.0.0.8:6379/0?api_key=secret",
+                "local_or_private",
+            ),
+            (
+                "redis://user:pass@cache.internal:6379/0?token=secret",
+                "local_or_private",
+            ),
+            (
+                "rediss://user:pass@redis.example.com:6379/0?token=secret",
+                "redis",
+            ),
+            ("not a redis url with token=secret", "invalid_url"),
+        ];
+
+        for (url, expected) in cases {
+            assert_eq!(search_cache_url_class(url), expected);
+            assert!(!expected.contains("redis://"));
+            assert!(!expected.contains("rediss://"));
+            assert!(!expected.contains("user:pass"));
+            assert!(!expected.contains("cache.internal"));
+            assert!(!expected.contains("redis.example.com"));
+            assert!(!expected.contains("token=secret"));
+            assert!(!expected.contains("api_key=secret"));
+        }
+    }
+
+    #[test]
+    fn search_cache_diagnostic_reason_uses_stable_codes() {
+        let cases = [
+            (
+                "invalid redis url redis://user:pass@cache.internal:6379/0?token=secret",
+                "invalid_config",
+            ),
+            (
+                "connection refused at redis://cache.internal:6379 with token=secret",
+                "connection_failed",
+            ),
+            (
+                "NOAUTH Authentication required for mm:search:key-secret",
+                "auth_failed",
+            ),
+            (
+                "json parser failed at line 1 column 7 with sk-search-secret",
+                "serialization_failed",
+            ),
+            (
+                "backend returned provider.example token=secret",
+                "operation_failed",
+            ),
+        ];
+
+        for (diagnostic, expected) in cases {
+            assert_eq!(search_cache_diagnostic_reason(diagnostic), expected);
+            assert!(!expected.contains("redis://"));
+            assert!(!expected.contains("user:pass"));
+            assert!(!expected.contains("cache.internal"));
+            assert!(!expected.contains("provider.example"));
+            assert!(!expected.contains("token=secret"));
+            assert!(!expected.contains("key-secret"));
+            assert!(!expected.contains("sk-search-secret"));
+        }
+    }
+
+    #[test]
+    fn search_cache_text_len_counts_without_exposing_content() {
+        let key = "mm:search:query-derived-secret-key";
+        assert_eq!(search_cache_text_len(key), key.chars().count());
     }
 }
