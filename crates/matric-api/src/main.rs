@@ -7636,6 +7636,23 @@ async fn rate_limit_status(State(state): State<AppState>) -> impl IntoResponse {
 // HEALTH CHECK
 // =============================================================================
 
+fn health_dependency_error_code(kind: &str) -> &'static str {
+    match kind {
+        "database_query" => "database_query_failed",
+        "dependency_timeout" => "dependency_timeout",
+        "cache_unavailable" => "cache_unavailable",
+        "provider_unreachable" => "provider_unreachable",
+        "provider_check" => "provider_check_failed",
+        "provider_unhealthy" => "provider_unhealthy",
+        "backend_not_initialized" => "backend_not_initialized",
+        _ => "dependency_check_failed",
+    }
+}
+
+fn provider_url_configured(url: &str) -> bool {
+    !url.trim().is_empty()
+}
+
 #[utoipa::path(
     get,
     path = "/health",
@@ -7665,7 +7682,7 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
         Some(backend) => serde_json::json!({
             "configured": true,
             "available": inference_reachable,
-            "base_url": backend.base_url(),
+            "provider_url_configured": provider_url_configured(backend.base_url()),
             "gen_model": GenerationBackend::model_name(backend.as_ref()),
             "embed_model": EmbeddingBackend::model_name(backend.as_ref()),
         }),
@@ -7924,8 +7941,14 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
             {
                 Ok(Ok(1)) => ("ok", None),
                 Ok(Ok(_)) => ("ok", None),
-                Ok(Err(e)) => ("error", Some(format!("{e}"))),
-                Err(_) => ("error", Some("timeout (5s)".to_string())),
+                Ok(Err(_)) => (
+                    "error",
+                    Some(health_dependency_error_code("database_query")),
+                ),
+                Err(_) => (
+                    "error",
+                    Some(health_dependency_error_code("dependency_timeout")),
+                ),
             }
         },
         // Redis: connection check
@@ -7933,7 +7956,10 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
             if state.search_cache.is_connected().await {
                 ("ok", None)
             } else {
-                ("unavailable", Some("not connected".to_string()))
+                (
+                    "unavailable",
+                    Some(health_dependency_error_code("cache_unavailable")),
+                )
             }
         },
         // Inference backend (Ollama generation/embedding) (#568)
@@ -7943,13 +7969,16 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
                     Ok(true) => ("ok", None),
                     Ok(false) => (
                         "error",
-                        Some(format!("unreachable at {}", backend.base_url())),
+                        Some(health_dependency_error_code("provider_unreachable")),
                     ),
-                    Err(e) => ("error", Some(format!("{e}"))),
+                    Err(_) => (
+                        "error",
+                        Some(health_dependency_error_code("provider_check")),
+                    ),
                 },
                 None => (
                     "error",
-                    Some("not initialized (Ollama unreachable at startup)".to_string()),
+                    Some(health_dependency_error_code("backend_not_initialized")),
                 ),
             }
         },
@@ -7958,7 +7987,10 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
             match &state.vision_backend {
                 Some(backend) => match backend.health_check().await {
                     Ok(_) => ("ok", None),
-                    Err(e) => ("error", Some(format!("{e}"))),
+                    Err(_) => (
+                        "error",
+                        Some(health_dependency_error_code("provider_check")),
+                    ),
                 },
                 None => ("not_configured", None),
             }
@@ -7968,7 +8000,10 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
             match &state.transcription_backend {
                 Some(backend) => match backend.health_check().await {
                     Ok(_) => ("ok", None),
-                    Err(e) => ("error", Some(format!("{e}"))),
+                    Err(_) => (
+                        "error",
+                        Some(health_dependency_error_code("provider_check")),
+                    ),
                 },
                 None => ("not_configured", None),
             }
@@ -7978,8 +8013,14 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
             match &state.ner_backend {
                 Some(backend) => match backend.health_check().await {
                     Ok(true) => ("ok", None),
-                    Ok(false) => ("error", Some("unhealthy".to_string())),
-                    Err(e) => ("error", Some(format!("{e}"))),
+                    Ok(false) => (
+                        "error",
+                        Some(health_dependency_error_code("provider_unhealthy")),
+                    ),
+                    Err(_) => (
+                        "error",
+                        Some(health_dependency_error_code("provider_check")),
+                    ),
                 },
                 None => ("not_configured", None),
             }
@@ -7989,8 +8030,14 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
             match &state.diarization_backend {
                 Some(backend) => match backend.health_check().await {
                     Ok(true) => ("ok", None),
-                    Ok(false) => ("error", Some("unhealthy".to_string())),
-                    Err(e) => ("error", Some(format!("{e}"))),
+                    Ok(false) => (
+                        "error",
+                        Some(health_dependency_error_code("provider_unhealthy")),
+                    ),
+                    Err(_) => (
+                        "error",
+                        Some(health_dependency_error_code("provider_check")),
+                    ),
                 },
                 None => ("not_configured", None),
             }
@@ -8043,25 +8090,25 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
 
     // Add error details where present
     if let Some(err) = &db_result.1 {
-        services["postgresql"]["error"] = serde_json::Value::String(err.clone());
+        services["postgresql"]["error"] = serde_json::Value::String((*err).to_string());
     }
     if let Some(err) = &redis_result.1 {
-        services["redis"]["error"] = serde_json::Value::String(err.clone());
+        services["redis"]["error"] = serde_json::Value::String((*err).to_string());
     }
     if let Some(err) = &inference_result.1 {
-        services["inference"]["error"] = serde_json::Value::String(err.clone());
+        services["inference"]["error"] = serde_json::Value::String((*err).to_string());
     }
     if let Some(err) = &vision_result.1 {
-        services["vision"]["error"] = serde_json::Value::String(err.clone());
+        services["vision"]["error"] = serde_json::Value::String((*err).to_string());
     }
     if let Some(err) = &transcription_result.1 {
-        services["transcription"]["error"] = serde_json::Value::String(err.clone());
+        services["transcription"]["error"] = serde_json::Value::String((*err).to_string());
     }
     if let Some(err) = &ner_result.1 {
-        services["ner"]["error"] = serde_json::Value::String(err.clone());
+        services["ner"]["error"] = serde_json::Value::String((*err).to_string());
     }
     if let Some(err) = &diarization_result.1 {
-        services["diarization"]["error"] = serde_json::Value::String(err.clone());
+        services["diarization"]["error"] = serde_json::Value::String((*err).to_string());
     }
 
     let body = serde_json::json!({
@@ -23011,6 +23058,40 @@ fn get_db_size_via_psql(expr: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn health_dependency_error_codes_are_stable_and_redacted() {
+        assert_eq!(
+            health_dependency_error_code("database_query"),
+            "database_query_failed"
+        );
+        assert_eq!(
+            health_dependency_error_code("dependency_timeout"),
+            "dependency_timeout"
+        );
+        assert_eq!(
+            health_dependency_error_code("provider_unreachable"),
+            "provider_unreachable"
+        );
+        assert_eq!(
+            health_dependency_error_code("provider_check"),
+            "provider_check_failed"
+        );
+        assert_eq!(
+            health_dependency_error_code("backend_not_initialized"),
+            "backend_not_initialized"
+        );
+        assert_eq!(
+            health_dependency_error_code("postgres://user:pass@db.local/app"),
+            "dependency_check_failed"
+        );
+    }
+
+    #[test]
+    fn health_provider_url_status_does_not_return_url() {
+        assert!(provider_url_configured("https://provider.example/v1"));
+        assert!(!provider_url_configured("   "));
+    }
 
     async fn read_problem_response(error: ApiError) -> (StatusCode, HeaderMap, serde_json::Value) {
         let response = error.into_response();
