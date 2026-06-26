@@ -17880,7 +17880,7 @@ async fn oauth_revoke(
 // =============================================================================
 
 /// Authorization request query parameters.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct AuthorizationRequest {
     response_type: String,
     client_id: String,
@@ -17893,6 +17893,32 @@ struct AuthorizationRequest {
     code_challenge: Option<String>,
     #[serde(default)]
     code_challenge_method: Option<String>,
+}
+
+impl fmt::Debug for AuthorizationRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthorizationRequest")
+            .field(
+                "response_type_len",
+                &telemetry_text_len(&self.response_type),
+            )
+            .field("client_id_len", &telemetry_text_len(&self.client_id))
+            .field("redirect_uri_len", &telemetry_text_len(&self.redirect_uri))
+            .field("scope_len", &self.scope.as_deref().map(telemetry_text_len))
+            .field("state_len", &self.state.as_deref().map(telemetry_text_len))
+            .field(
+                "code_challenge_len",
+                &self.code_challenge.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "code_challenge_method_len",
+                &self
+                    .code_challenge_method
+                    .as_deref()
+                    .map(telemetry_text_len),
+            )
+            .finish()
+    }
 }
 
 /// GET /oauth/authorize - Display authorization consent page.
@@ -18135,7 +18161,7 @@ async fn oauth_authorize_get(
 }
 
 /// Authorization form submission.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct AuthorizationForm {
     response_type: String,
     client_id: String,
@@ -18149,6 +18175,33 @@ struct AuthorizationForm {
     #[serde(default)]
     code_challenge_method: Option<String>,
     action: String,
+}
+
+impl fmt::Debug for AuthorizationForm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthorizationForm")
+            .field(
+                "response_type_len",
+                &telemetry_text_len(&self.response_type),
+            )
+            .field("client_id_len", &telemetry_text_len(&self.client_id))
+            .field("redirect_uri_len", &telemetry_text_len(&self.redirect_uri))
+            .field("scope_len", &self.scope.as_deref().map(telemetry_text_len))
+            .field("state_len", &self.state.as_deref().map(telemetry_text_len))
+            .field(
+                "code_challenge_len",
+                &self.code_challenge.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "code_challenge_method_len",
+                &self
+                    .code_challenge_method
+                    .as_deref()
+                    .map(telemetry_text_len),
+            )
+            .field("action_len", &telemetry_text_len(&self.action))
+            .finish()
+    }
 }
 
 /// POST /oauth/authorize - Process authorization and redirect with code.
@@ -27805,13 +27858,48 @@ mod tests {
             token: "mm_rt_revocation_secret".to_string(),
             token_type_hint: Some("refresh_token".to_string()),
         };
+        let authorization = AuthorizationRequest {
+            response_type: "code".to_string(),
+            client_id: "client_secret=oauth-client-should-redact".to_string(),
+            redirect_uri: "https://oauth.example/callback?token=should-redact".to_string(),
+            scope: Some("read write email=operator@example.com".to_string()),
+            state: Some("state-postgres://user:secret@db.internal/app".to_string()),
+            code_challenge: Some("pkce_challenge_secret_should_redact".to_string()),
+            code_challenge_method: Some("S256-with-/srv/fortemi/private".to_string()),
+        };
+        let authorization_form = AuthorizationForm {
+            response_type: "code".to_string(),
+            client_id: "client_secret=form-client-should-redact".to_string(),
+            redirect_uri: "https://oauth.example/form?registration_access_token=secret".to_string(),
+            scope: Some("admin bearer=should-redact".to_string()),
+            state: Some("state-mm_key_should_redact".to_string()),
+            code_challenge: Some("form_pkce_secret_should_redact".to_string()),
+            code_challenge_method: Some("plain-with-/home/operator/private".to_string()),
+            action: "approve-for-email=operator@example.com".to_string(),
+        };
 
-        let debug = format!("{introspect:?}{revoke:?}");
+        let debug = format!("{introspect:?}{revoke:?}{authorization:?}{authorization_form:?}");
 
         assert!(!debug.contains("mm_at_introspection_secret"));
         assert!(!debug.contains("mm_rt_revocation_secret"));
+        assert!(!debug.contains("oauth-client-should-redact"));
+        assert!(!debug.contains("form-client-should-redact"));
+        assert!(!debug.contains("oauth.example"));
+        assert!(!debug.contains("token=should-redact"));
+        assert!(!debug.contains("registration_access_token=secret"));
+        assert!(!debug.contains("operator@example.com"));
+        assert!(!debug.contains("postgres://user:secret@db.internal/app"));
+        assert!(!debug.contains("pkce_challenge_secret_should_redact"));
+        assert!(!debug.contains("form_pkce_secret_should_redact"));
+        assert!(!debug.contains("/srv/fortemi/private"));
+        assert!(!debug.contains("/home/operator/private"));
+        assert!(!debug.contains("mm_key_should_redact"));
         assert!(debug.contains("token_set"));
         assert!(debug.contains("token_len"));
+        assert!(debug.contains("client_id_len"));
+        assert!(debug.contains("redirect_uri_len"));
+        assert!(debug.contains("code_challenge_len"));
+        assert!(debug.contains("action_len"));
     }
 
     #[test]
