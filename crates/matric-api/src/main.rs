@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use chrono::Datelike;
+use chrono::{DateTime, Datelike, Utc};
 use query_types::FlexibleDateTime;
 
 use axum::{
@@ -48,10 +48,10 @@ use matric_core::{
     AuthorizationPolicy, AuthorizationServerMetadata, BatchTagNoteRequest,
     ClientRegistrationRequest, CollectionRepository, CreateApiKeyRequest, CreateNoteRequest,
     Decision, DenyReason, DocumentTypeRepository, EventBus, EventContext, EventEnvelope,
-    ExtractionAdapter, ExtractionStrategy, JobRepository, JobType, ListNotesRequest,
-    NoteRepository, OAuthError, ResourceKind, RevisionMode, RoleBasedPolicy, ServerEvent,
-    StrictTagFilterInput, TagInput, TagRepository, TemplateRepository, TokenRequest, TracingSink,
-    UpdateNoteStatusRequest,
+    ExtractionAdapter, ExtractionStrategy, Job, JobRepository, JobStatus, JobType,
+    ListNotesRequest, NoteRepository, OAuthError, ResourceKind, RevisionMode, RoleBasedPolicy,
+    ServerEvent, StrictTagFilterInput, TagInput, TagRepository, TemplateRepository, TokenRequest,
+    TracingSink, UpdateNoteStatusRequest,
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_db::{
@@ -14499,6 +14499,125 @@ struct CreateJobBody {
     deduplicate: bool,
 }
 
+#[derive(Debug, Serialize)]
+struct JobResponse {
+    id: Uuid,
+    note_id: Option<Uuid>,
+    job_type: JobType,
+    status: JobStatus,
+    priority: i32,
+    payload: Option<serde_json::Value>,
+    result: Option<serde_json::Value>,
+    error_message: Option<String>,
+    progress_percent: i32,
+    progress_message: Option<String>,
+    retry_count: i32,
+    max_retries: i32,
+    created_at: DateTime<Utc>,
+    started_at: Option<DateTime<Utc>>,
+    completed_at: Option<DateTime<Utc>>,
+    cost_tier: Option<i16>,
+}
+
+impl From<Job> for JobResponse {
+    fn from(job: Job) -> Self {
+        let error_message = job
+            .error_message
+            .map(|_| "Job failed. Check server logs for diagnostics.".to_string());
+
+        Self {
+            id: job.id,
+            note_id: job.note_id,
+            job_type: job.job_type,
+            status: job.status,
+            priority: job.priority,
+            payload: job.payload.as_ref().map(sanitize_job_value),
+            result: job.result.as_ref().map(sanitize_job_value),
+            error_message,
+            progress_percent: job.progress_percent,
+            progress_message: job.progress_message,
+            retry_count: job.retry_count,
+            max_retries: job.max_retries,
+            created_at: job.created_at,
+            started_at: job.started_at,
+            completed_at: job.completed_at,
+            cost_tier: job.cost_tier,
+        }
+    }
+}
+
+fn sanitize_job_value(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => serde_json::Value::Object(
+            map.iter()
+                .map(|(key, value)| {
+                    let sanitized = if is_sensitive_job_key(key) {
+                        serde_json::Value::String("[redacted]".to_string())
+                    } else {
+                        sanitize_job_value(value)
+                    };
+                    (key.clone(), sanitized)
+                })
+                .collect(),
+        ),
+        serde_json::Value::Array(values) => {
+            serde_json::Value::Array(values.iter().map(sanitize_job_value).collect())
+        }
+        serde_json::Value::String(value) if looks_sensitive_job_string(value) => {
+            serde_json::Value::String("[redacted]".to_string())
+        }
+        _ => value.clone(),
+    }
+}
+
+fn is_sensitive_job_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    [
+        "api_key",
+        "authorization",
+        "bearer",
+        "content",
+        "dsn",
+        "error",
+        "exception",
+        "file",
+        "filename",
+        "input",
+        "message",
+        "password",
+        "path",
+        "prompt",
+        "raw",
+        "stderr",
+        "stdout",
+        "secret",
+        "text",
+        "token",
+        "transcript",
+        "uri",
+        "url",
+    ]
+    .iter()
+    .any(|needle| key == *needle || key.ends_with(&format!("_{needle}")))
+}
+
+fn looks_sensitive_job_string(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains("://")
+        || lower.contains("postgres")
+        || lower.contains("sql")
+        || lower.contains("bearer ")
+        || lower.contains("api_key")
+        || lower.contains("token")
+        || lower.contains("secret")
+        || lower.contains("generation failed:")
+        || lower.contains("ai generation failed:")
+        || value.starts_with("/srv/")
+        || value.starts_with("/home/")
+        || value.starts_with("/var/")
+        || value.starts_with("/tmp/")
+}
+
 #[utoipa::path(post, path = "/api/v1/jobs", tag = "Jobs",
     responses((status = 201, description = "Success")))]
 async fn create_job(
@@ -14616,7 +14735,7 @@ async fn get_job(
         .get(id)
         .await?
         .ok_or_else(|| ApiError::NotFound("Job not found".to_string()))?;
-    Ok(Json(job))
+    Ok(Json(JobResponse::from(job)))
 }
 
 #[utoipa::path(get, path = "/api/v1/jobs/pending", tag = "Jobs",
@@ -14658,6 +14777,8 @@ async fn list_jobs(
 
     // Get stats for summary
     let stats = state.db.jobs.queue_stats().await?;
+
+    let jobs: Vec<JobResponse> = jobs.into_iter().map(JobResponse::from).collect();
 
     Ok(Json(serde_json::json!({
         "jobs": jobs,
@@ -22220,6 +22341,77 @@ mod tests {
             .await
             .unwrap();
         serde_json::from_slice(&body).unwrap()
+    }
+
+    #[test]
+    fn job_response_redacts_payload_result_and_error_message() {
+        let job = Job {
+            id: Uuid::new_v4(),
+            note_id: Some(Uuid::new_v4()),
+            job_type: JobType::AiRevision,
+            status: JobStatus::Failed,
+            priority: 10,
+            payload: Some(serde_json::json!({
+                "input": "uploaded note body with private content",
+                "provider_url": "https://token:secret@provider.internal/v1",
+                "safe_flag": true,
+                "nested": {
+                    "prompt": "summarize /home/operator/private.md",
+                    "model": "qwen3:8b"
+                }
+            })),
+            result: Some(serde_json::json!({
+                "stderr": "pg_dump: connection failed for postgres://user:secret@db/app",
+                "summary": "Generated output",
+                "items": [
+                    {"path": "/srv/fortemi/storage/private.wav"},
+                    {"label": "safe"}
+                ]
+            })),
+            error_message: Some(
+                "Generation failed: Cannot reach https://token:secret@ollama.internal:11434"
+                    .to_string(),
+            ),
+            progress_percent: 50,
+            progress_message: Some("failed".to_string()),
+            retry_count: 1,
+            max_retries: 3,
+            created_at: Utc::now(),
+            started_at: Some(Utc::now()),
+            completed_at: Some(Utc::now()),
+            cost_tier: Some(1),
+        };
+
+        let response = serde_json::to_value(JobResponse::from(job)).unwrap();
+
+        assert_eq!(response["payload"]["input"], "[redacted]");
+        assert_eq!(response["payload"]["provider_url"], "[redacted]");
+        assert_eq!(response["payload"]["nested"]["prompt"], "[redacted]");
+        assert_eq!(response["payload"]["nested"]["model"], "qwen3:8b");
+        assert_eq!(response["payload"]["safe_flag"], true);
+        assert_eq!(response["result"]["stderr"], "[redacted]");
+        assert_eq!(response["result"]["items"][0]["path"], "[redacted]");
+        assert_eq!(response["result"]["items"][1]["label"], "safe");
+        assert_eq!(
+            response["error_message"],
+            "Job failed. Check server logs for diagnostics."
+        );
+
+        let serialized = response.to_string();
+        for forbidden in [
+            "uploaded note body",
+            "token:secret",
+            "postgres://",
+            "/srv/fortemi",
+            "/home/operator",
+            "Cannot reach",
+            "Generation failed",
+        ] {
+            assert!(
+                !serialized.contains(forbidden),
+                "job response leaked {forbidden}"
+            );
+        }
     }
 
     #[tokio::test]
