@@ -50,8 +50,8 @@ use matric_core::{
     Decision, DenyReason, DocumentTypeRepository, EventBus, EventContext, EventEnvelope,
     ExtractionAdapter, ExtractionStrategy, Job, JobRepository, JobStatus, JobType,
     ListNotesRequest, NoteRepository, OAuthError, ResourceKind, RevisionMode, RoleBasedPolicy,
-    ServerEvent, StrictTagFilterInput, TagInput, TagRepository, TemplateRepository, TokenRequest,
-    TracingSink, UpdateNoteStatusRequest,
+    ServerEvent, StrictTagFilterInput, TagInput, TagRepository, TemplateRepository,
+    TokenIntrospectionResponse, TokenRequest, TracingSink, UpdateNoteStatusRequest,
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_db::{
@@ -16450,6 +16450,141 @@ async fn extraction_stats(State(state): State<AppState>) -> Result<impl IntoResp
 // OAUTH2 HANDLERS
 // =============================================================================
 
+async fn emit_oauth_lifecycle_audit_event(event: AuditEvent) {
+    if let Err(err) = TracingSink.emit(event).await {
+        warn!(
+            error_len = telemetry_text_len(&err.to_string()),
+            detail = API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "emit_oauth_lifecycle_audit_event",
+            "failed to emit OAuth lifecycle audit event"
+        );
+    }
+}
+
+fn oauth_principal_audit_id(client_id: &str, user_id: Option<&str>) -> String {
+    if user_id.is_some() {
+        "oauth_user".to_string()
+    } else {
+        format!("oauth_client_len:{}", client_id.chars().count())
+    }
+}
+
+fn oauth_grant_type_class(grant_type: &str) -> &'static str {
+    match grant_type {
+        "authorization_code" => "authorization_code",
+        "client_credentials" => "client_credentials",
+        "refresh_token" => "refresh_token",
+        _ => "unknown",
+    }
+}
+
+fn oauth_token_hint_class(token_type_hint: Option<&str>) -> &'static str {
+    match token_type_hint {
+        Some("access_token") => "access_token",
+        Some("refresh_token") => "refresh_token",
+        Some("") | None => "none",
+        Some(_) => "unknown",
+    }
+}
+
+fn oauth_scope_count(scope: &str) -> i64 {
+    scope
+        .split_whitespace()
+        .filter(|part| !part.is_empty())
+        .count() as i64
+}
+
+fn oauth_token_issue_audit_event(
+    client_id: &str,
+    grant_type: &str,
+    token: &matric_core::OAuthToken,
+    refresh_token_issued: bool,
+    expires_in: i64,
+) -> AuditEvent {
+    let mut event = AuditEvent::new("oauth", "token_issue", AuditOutcome::Success)
+        .with_principal(oauth_principal_audit_id(
+            client_id,
+            token.user_id.as_deref(),
+        ))
+        .with_resource("oauth_token", token.id.to_string())
+        .with_attr("client_id_len", client_id.chars().count() as i64)
+        .with_attr("grant_type", oauth_grant_type_class(grant_type))
+        .with_attr("scope_count", oauth_scope_count(&token.scope))
+        .with_attr("scope_len", token.scope.chars().count() as i64)
+        .with_attr("refresh_credential_issued", refresh_token_issued)
+        .with_attr("expires_in_secs", expires_in)
+        .with_attr("user_id_present", token.user_id.is_some());
+
+    event.source = AuditSource::Api;
+    event.visibility = AuditVisibilityClass::SecurityRestricted;
+    event.failure_policy = AuditFailurePolicy::BestEffort;
+    event.severity = AuditSeverity::Info;
+    event.sanitized()
+}
+
+fn oauth_introspection_audit_event(
+    client_id: &str,
+    request: &IntrospectRequest,
+    response: &TokenIntrospectionResponse,
+) -> AuditEvent {
+    let mut event = AuditEvent::new("oauth", "token_introspect", AuditOutcome::Success)
+        .with_principal(oauth_principal_audit_id(client_id, None))
+        .with_attr("client_id_len", client_id.chars().count() as i64)
+        .with_attr("credential_present", !request.token.is_empty())
+        .with_attr("credential_len", request.token.chars().count() as i64)
+        .with_attr(
+            "credential_type_hint",
+            oauth_token_hint_class(request.token_type_hint.as_deref()),
+        )
+        .with_attr("active", response.active)
+        .with_attr("response_client_id_present", response.client_id.is_some())
+        .with_attr(
+            "response_user_id_present",
+            response.username.is_some() || response.sub.is_some(),
+        )
+        .with_attr(
+            "response_scope_count",
+            response
+                .scope
+                .as_deref()
+                .map(oauth_scope_count)
+                .unwrap_or(0),
+        )
+        .with_attr(
+            "response_credential_type",
+            oauth_token_hint_class(response.token_type.as_deref()),
+        );
+
+    event.source = AuditSource::Api;
+    event.visibility = AuditVisibilityClass::SecurityRestricted;
+    event.failure_policy = AuditFailurePolicy::BestEffort;
+    event.severity = AuditSeverity::Info;
+    event.sanitized()
+}
+
+fn oauth_revocation_audit_event(
+    client_id: &str,
+    request: &RevokeRequest,
+    revoked: bool,
+) -> AuditEvent {
+    let mut event = AuditEvent::new("oauth", "token_revoke", AuditOutcome::Success)
+        .with_principal(oauth_principal_audit_id(client_id, None))
+        .with_attr("client_id_len", client_id.chars().count() as i64)
+        .with_attr("credential_present", !request.token.is_empty())
+        .with_attr("credential_len", request.token.chars().count() as i64)
+        .with_attr(
+            "credential_type_hint",
+            oauth_token_hint_class(request.token_type_hint.as_deref()),
+        )
+        .with_attr("revoked", revoked);
+
+    event.source = AuditSource::Api;
+    event.visibility = AuditVisibilityClass::SecurityRestricted;
+    event.failure_policy = AuditFailurePolicy::BestEffort;
+    event.severity = AuditSeverity::Info;
+    event.sanitized()
+}
+
 /// OAuth2 authorization server metadata (RFC 8414).
 #[utoipa::path(get, path = "/.well-known/oauth-authorization-server", tag = "OAuth",
     responses((status = 200, description = "Success")))]
@@ -16657,6 +16792,14 @@ async fn oauth_token(
                 .oauth
                 .create_token_with_lifetime(&client_id, &scope, None, false, lifetime)
                 .await?;
+            emit_oauth_lifecycle_audit_event(oauth_token_issue_audit_event(
+                &client_id,
+                "client_credentials",
+                &token,
+                false,
+                lifetime.num_seconds(),
+            ))
+            .await;
 
             let response = matric_core::TokenResponse {
                 access_token,
@@ -16707,6 +16850,14 @@ async fn oauth_token(
                     lifetime,
                 )
                 .await?;
+            emit_oauth_lifecycle_audit_event(oauth_token_issue_audit_event(
+                &client_id,
+                "authorization_code",
+                &token,
+                refresh_token.is_some(),
+                lifetime.num_seconds(),
+            ))
+            .await;
 
             let response = matric_core::TokenResponse {
                 access_token,
@@ -16733,6 +16884,14 @@ async fn oauth_token(
                 })?;
 
             let lifetime = state.token_lifetime_for_scope(&token.scope);
+            emit_oauth_lifecycle_audit_event(oauth_token_issue_audit_event(
+                &client_id,
+                "refresh_token",
+                &token,
+                new_refresh_token.is_some(),
+                lifetime.num_seconds(),
+            ))
+            .await;
             let response = matric_core::TokenResponse {
                 access_token,
                 token_type: "Bearer".to_string(),
@@ -16795,6 +16954,8 @@ async fn oauth_introspect(
 
     let mut response = state.db.oauth.introspect_token(&req.token).await?;
     response.iss = Some(state.issuer.clone());
+    emit_oauth_lifecycle_audit_event(oauth_introspection_audit_event(&client_id, &req, &response))
+        .await;
 
     Ok(Json(response))
 }
@@ -16843,11 +17004,13 @@ async fn oauth_revoke(
     }
 
     // Revoke the token (always returns 200 per RFC 7009)
-    let _ = state
+    let revoked = state
         .db
         .oauth
         .revoke_token(&req.token, req.token_type_hint.as_deref())
-        .await;
+        .await
+        .unwrap_or(false);
+    emit_oauth_lifecycle_audit_event(oauth_revocation_audit_event(&client_id, &req, revoked)).await;
 
     Ok(StatusCode::OK)
 }
@@ -27218,6 +27381,119 @@ mod tests {
         assert_eq!(event.attrs["scope_family"], "Admin");
         assert!(event.reason.is_none());
         let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("client_secret=should-redact"));
+    }
+
+    #[test]
+    fn oauth_token_issue_audit_event_uses_metadata_only() {
+        let token = matric_core::OAuthToken {
+            id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000401").unwrap(),
+            access_token_hash: "access_hash_should_not_appear".to_string(),
+            refresh_token_hash: Some("refresh_hash_should_not_appear".to_string()),
+            token_type: "Bearer".to_string(),
+            scope: "read write token=should-not-appear".to_string(),
+            client_id: "client_secret=should-redact".to_string(),
+            user_id: Some("user_secret=should-redact".to_string()),
+            access_token_expires_at: Utc::now(),
+            refresh_token_expires_at: Some(Utc::now()),
+            revoked: false,
+            created_at: Utc::now(),
+        };
+
+        let event = oauth_token_issue_audit_event(
+            "client_secret=should-redact",
+            "authorization_code",
+            &token,
+            true,
+            3600,
+        );
+
+        assert_eq!(event.category, "oauth");
+        assert_eq!(event.action, "token_issue");
+        assert_eq!(event.outcome, AuditOutcome::Success);
+        assert_eq!(event.visibility, AuditVisibilityClass::SecurityRestricted);
+        assert_eq!(event.source, AuditSource::Api);
+        assert_eq!(event.resource_kind.as_deref(), Some("oauth_token"));
+        assert_eq!(
+            event.resource_id.as_deref(),
+            Some("018fd1a0-0000-7000-8000-000000000401")
+        );
+        assert_eq!(event.attrs["grant_type"], "authorization_code");
+        assert_eq!(event.attrs["scope_count"], 3);
+        assert_eq!(event.attrs["refresh_credential_issued"], true);
+        assert_eq!(event.attrs["user_id_present"], true);
+        assert_eq!(event.principal_id.as_deref(), Some("oauth_user"));
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("access_hash_should_not_appear"));
+        assert!(!serialized.contains("refresh_hash_should_not_appear"));
+        assert!(!serialized.contains("token=should-not-appear"));
+        assert!(!serialized.contains("client_secret=should-redact"));
+        assert!(!serialized.contains("user_secret=should-redact"));
+    }
+
+    #[test]
+    fn oauth_introspection_and_revocation_audit_events_avoid_token_values() {
+        let introspect = IntrospectRequest {
+            token: "mm_at_raw_token_should_not_appear".to_string(),
+            token_type_hint: Some("access_token".to_string()),
+        };
+        let response = TokenIntrospectionResponse {
+            active: true,
+            scope: Some("read write refresh_token=should-not-appear".to_string()),
+            client_id: Some("mm_client_should_not_appear".to_string()),
+            username: Some("user_should_not_appear".to_string()),
+            token_type: Some("Bearer".to_string()),
+            exp: Some(1),
+            iat: Some(1),
+            sub: Some("subject_should_not_appear".to_string()),
+            aud: Some("aud_should_not_appear".to_string()),
+            iss: Some("issuer_should_not_appear".to_string()),
+        };
+
+        let event = oauth_introspection_audit_event(
+            "oauth_client:client_secret=should-redact",
+            &introspect,
+            &response,
+        );
+
+        assert_eq!(event.category, "oauth");
+        assert_eq!(event.action, "token_introspect");
+        assert_eq!(event.attrs["credential_present"], true);
+        assert_eq!(event.attrs["credential_len"], 33);
+        assert_eq!(event.attrs["credential_type_hint"], "access_token");
+        assert_eq!(event.attrs["active"], true);
+        assert_eq!(event.attrs["response_client_id_present"], true);
+        assert_eq!(event.attrs["response_user_id_present"], true);
+        assert_eq!(event.attrs["response_scope_count"], 3);
+        assert_eq!(event.attrs["response_credential_type"], "unknown");
+        assert_eq!(event.principal_id.as_deref(), Some("oauth_client_len:40"));
+
+        let revoke = RevokeRequest {
+            token: "mm_rt_raw_token_should_not_appear".to_string(),
+            token_type_hint: Some("refresh_token".to_string()),
+        };
+        let revoke_event =
+            oauth_revocation_audit_event("client_secret=should-redact", &revoke, true);
+
+        assert_eq!(revoke_event.category, "oauth");
+        assert_eq!(revoke_event.action, "token_revoke");
+        assert_eq!(revoke_event.attrs["credential_present"], true);
+        assert_eq!(revoke_event.attrs["credential_type_hint"], "refresh_token");
+        assert_eq!(revoke_event.attrs["revoked"], true);
+        assert_eq!(
+            revoke_event.principal_id.as_deref(),
+            Some("oauth_client_len:27")
+        );
+
+        let serialized = serde_json::to_string(&(event, revoke_event)).expect("serialize events");
+        assert!(!serialized.contains("mm_at_raw_token_should_not_appear"));
+        assert!(!serialized.contains("mm_rt_raw_token_should_not_appear"));
+        assert!(!serialized.contains("refresh_token=should-not-appear"));
+        assert!(!serialized.contains("mm_client_should_not_appear"));
+        assert!(!serialized.contains("user_should_not_appear"));
+        assert!(!serialized.contains("subject_should_not_appear"));
+        assert!(!serialized.contains("aud_should_not_appear"));
+        assert!(!serialized.contains("issuer_should_not_appear"));
         assert!(!serialized.contains("client_secret=should-redact"));
     }
 
