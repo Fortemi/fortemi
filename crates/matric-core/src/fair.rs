@@ -12,6 +12,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use uuid::Uuid;
 
 // =============================================================================
@@ -21,7 +22,7 @@ use uuid::Uuid;
 /// Dublin Core metadata export following ISO 15836.
 ///
 /// All 15 core Dublin Core elements mapped from matric-memory note fields.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DublinCoreExport {
     /// DC.identifier - Globally unique persistent identifier (URN:UUID format)
     pub identifier: String,
@@ -54,6 +55,64 @@ pub struct DublinCoreExport {
     pub coverage: Option<String>,
     /// DC.rights - License or access rights
     pub rights: Option<String>,
+}
+
+impl fmt::Debug for DublinCoreExport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DublinCoreExport")
+            .field("identifier_len", &self.identifier.len())
+            .field("title_len", &self.title.len())
+            .field(
+                "creator_len",
+                &self.creator.as_ref().map(|value| value.len()),
+            )
+            .field("subject_count", &self.subject.len())
+            .field(
+                "subject_lens",
+                &self
+                    .subject
+                    .iter()
+                    .map(|value| value.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "description_len",
+                &self.description.as_ref().map(|value| value.len()),
+            )
+            .field("publisher_len", &self.publisher.len())
+            .field("contributor_count", &self.contributor.len())
+            .field(
+                "contributor_lens",
+                &self
+                    .contributor
+                    .iter()
+                    .map(|value| value.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("date", &self.date)
+            .field("dc_type_len", &self.dc_type.len())
+            .field("format_len", &self.format.len())
+            .field("source_len", &self.source.as_ref().map(|value| value.len()))
+            .field(
+                "language_len",
+                &self.language.as_ref().map(|value| value.len()),
+            )
+            .field("relation_count", &self.relation.len())
+            .field(
+                "relation_lens",
+                &self
+                    .relation
+                    .iter()
+                    .map(|value| value.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "coverage_len",
+                &self.coverage.as_ref().map(|value| value.len()),
+            )
+            .field("rights_len", &self.rights.as_ref().map(|value| value.len()))
+            .finish()
+    }
 }
 
 impl DublinCoreExport {
@@ -158,7 +217,7 @@ impl Default for JsonLdContext {
 }
 
 /// JSON-LD metadata export with linked data context.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct JsonLdExport {
     /// JSON-LD context declaring namespaces
     #[serde(rename = "@context")]
@@ -181,6 +240,39 @@ pub struct JsonLdExport {
     /// W3C PROV generation activity
     #[serde(rename = "prov:wasGeneratedBy")]
     pub prov_generated_by: Option<String>,
+}
+
+impl fmt::Debug for JsonLdExport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JsonLdExport")
+            .field("context_namespace_count", &4)
+            .field("id_len", &self.id.len())
+            .field("ld_type_len", &self.ld_type.len())
+            .field("dublin_core", &self.dublin_core)
+            .field("skos_concepts_count", &self.skos_concepts.len())
+            .field(
+                "skos_concept_lens",
+                &self
+                    .skos_concepts
+                    .iter()
+                    .map(|value| value.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("prov_derived_from_count", &self.prov_derived_from.len())
+            .field(
+                "prov_derived_from_lens",
+                &self
+                    .prov_derived_from
+                    .iter()
+                    .map(|value| value.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "prov_generated_by_len",
+                &self.prov_generated_by.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
 }
 
 impl JsonLdExport {
@@ -309,6 +401,15 @@ impl FairScore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_debug_excludes(debug: &str, secrets: &[&str]) {
+        for secret in secrets {
+            assert!(
+                !debug.contains(secret),
+                "debug output leaked secret `{secret}`: {debug}"
+            );
+        }
+    }
 
     // =========================================================================
     // Dublin Core Tests
@@ -511,6 +612,90 @@ mod tests {
         assert!(json.contains("@id"));
         assert!(json.contains("@type"));
         assert!(json.contains("schema:DigitalDocument"));
+    }
+
+    #[test]
+    fn fair_export_debug_redacts_note_metadata_and_identifiers() {
+        let note_id = Uuid::parse_str("aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa").unwrap();
+        let linked_id = Uuid::parse_str("bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb").unwrap();
+        let source_id = Uuid::parse_str("cccccccc-3333-4444-8555-cccccccccccc").unwrap();
+        let now = Utc::now();
+
+        let dc = DublinCoreExport::from_note(
+            note_id,
+            Some("Secret roadmap title for owner@example.internal"),
+            &[
+                "postgres://user:secret@db.internal/fortemi".to_string(),
+                "sk-secret-fair-tag".to_string(),
+            ],
+            now,
+            Some("/srv/fortemi/private/collection"),
+            &[linked_id],
+            true,
+        )
+        .with_description("Private paragraph with bearer-secret and host internal.example")
+        .with_creator("creator-secret@example.internal".to_string())
+        .with_language("en-secret-locale".to_string())
+        .with_rights("rights-secret-value".to_string())
+        .with_source(source_id);
+
+        let dc_debug = format!("{dc:?}");
+        assert!(dc_debug.contains("DublinCoreExport"));
+        assert!(dc_debug.contains("title_len"));
+        assert!(dc_debug.contains("subject_count"));
+        assert!(dc_debug.contains("description_len"));
+        assert!(dc_debug.contains("relation_count"));
+        assert_debug_excludes(
+            &dc_debug,
+            &[
+                "Secret roadmap title",
+                "owner@example.internal",
+                "postgres://user:secret@db.internal/fortemi",
+                "sk-secret-fair-tag",
+                "/srv/fortemi/private/collection",
+                "bearer-secret",
+                "internal.example",
+                "creator-secret@example.internal",
+                "en-secret-locale",
+                "rights-secret-value",
+                "aaaaaaaa-1111-4222-8333-aaaaaaaaaaaa",
+                "bbbbbbbb-2222-4333-8444-bbbbbbbbbbbb",
+                "cccccccc-3333-4444-8555-cccccccccccc",
+            ],
+        );
+
+        let ld = JsonLdExport::from_dublin_core(
+            dc,
+            vec![
+                "concept-secret@example.internal".to_string(),
+                "postgres://skos:secret@db.internal/skos".to_string(),
+            ],
+            vec!["urn:uuid:dddddddd-4444-4555-8666-dddddddddddd".to_string()],
+            Some("activity-secret-token".to_string()),
+        );
+
+        let ld_debug = format!("{ld:?}");
+        assert!(ld_debug.contains("JsonLdExport"));
+        assert!(ld_debug.contains("dublin_core"));
+        assert!(ld_debug.contains("skos_concepts_count"));
+        assert!(ld_debug.contains("prov_derived_from_count"));
+        assert_debug_excludes(
+            &ld_debug,
+            &[
+                "Secret roadmap title",
+                "owner@example.internal",
+                "postgres://user:secret@db.internal/fortemi",
+                "sk-secret-fair-tag",
+                "/srv/fortemi/private/collection",
+                "bearer-secret",
+                "internal.example",
+                "creator-secret@example.internal",
+                "concept-secret@example.internal",
+                "postgres://skos:secret@db.internal/skos",
+                "dddddddd-4444-4555-8666-dddddddddddd",
+                "activity-secret-token",
+            ],
+        );
     }
 
     // =========================================================================
