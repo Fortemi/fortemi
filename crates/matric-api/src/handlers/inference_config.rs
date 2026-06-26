@@ -501,6 +501,28 @@ fn telemetry_text_len(value: &str) -> usize {
     value.chars().count()
 }
 
+fn inference_json_class(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+fn inference_source_ip_class(value: &str) -> &'static str {
+    match value.parse::<IpAddr>() {
+        Ok(IpAddr::V4(addr)) if addr.is_loopback() => "loopback_v4",
+        Ok(IpAddr::V4(addr)) if addr.is_private() => "private_v4",
+        Ok(IpAddr::V4(_)) => "public_v4",
+        Ok(IpAddr::V6(addr)) if addr.is_loopback() => "loopback_v6",
+        Ok(IpAddr::V6(_)) => "public_v6",
+        Err(_) => "invalid",
+    }
+}
+
 fn redacted_secret_metadata(len: usize) -> String {
     format!("<secret_present_len:{len}>")
 }
@@ -2336,7 +2358,7 @@ pub async fn delete_inference_config(
 
 /// One row from `inference_config_audit`. JSON blobs are sanitized again at
 /// read time so the diagnostic endpoint never depends solely on writer hygiene.
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Serialize, Deserialize, sqlx::FromRow)]
 pub struct AuditRow {
     pub id: i64,
     pub changed_at: chrono::DateTime<chrono::Utc>,
@@ -2350,6 +2372,43 @@ pub struct AuditRow {
     pub source_ip: Option<String>,
 }
 
+impl std::fmt::Debug for AuditRow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuditRow")
+            .field("id", &self.id)
+            .field("changed_at", &self.changed_at)
+            .field("changed_by_len", &telemetry_text_len(&self.changed_by))
+            .field("action_len", &telemetry_text_len(&self.action))
+            .field(
+                "before_json_class",
+                &self.before_json.as_ref().map(inference_json_class),
+            )
+            .field(
+                "before_json_len",
+                &self
+                    .before_json
+                    .as_ref()
+                    .map(|value| telemetry_text_len(&value.to_string())),
+            )
+            .field(
+                "after_json_class",
+                &self.after_json.as_ref().map(inference_json_class),
+            )
+            .field(
+                "after_json_len",
+                &self
+                    .after_json
+                    .as_ref()
+                    .map(|value| telemetry_text_len(&value.to_string())),
+            )
+            .field(
+                "source_ip_class",
+                &self.source_ip.as_deref().map(inference_source_ip_class),
+            )
+            .finish()
+    }
+}
+
 impl AuditRow {
     fn redacted(mut self) -> Self {
         self.before_json = self.before_json.as_ref().map(redact_inference_config_json);
@@ -2359,7 +2418,7 @@ impl AuditRow {
 }
 
 /// Query parameters for the audit log endpoint.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct AuditQuery {
     /// Maximum entries to return. Capped at 200 to bound payload size.
     #[serde(default = "default_audit_limit")]
@@ -2368,6 +2427,25 @@ pub struct AuditQuery {
     pub changed_by: Option<String>,
     /// Filter to a specific action ("set", "reset", etc.).
     pub action: Option<String>,
+}
+
+impl std::fmt::Debug for AuditQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuditQuery")
+            .field("limit", &self.limit)
+            .field(
+                "changed_by_len",
+                &self
+                    .changed_by
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
+            )
+            .field(
+                "action_len",
+                &self.action.as_ref().map(|value| telemetry_text_len(value)),
+            )
+            .finish()
+    }
 }
 
 fn default_audit_limit() -> i64 {
@@ -3211,6 +3289,59 @@ mod tests_connection {
         assert!(!rendered.contains("\"short\""));
         assert!(!rendered.contains("sk-"));
         assert!(!rendered.contains("secret-prefix"));
+    }
+
+    #[test]
+    fn inference_config_audit_debug_redacts_rows_and_queries() {
+        let row = AuditRow {
+            id: 42,
+            changed_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            changed_by: "api_key:secret-operator-key-id".to_string(),
+            action: "set-secret-provider".to_string(),
+            before_json: Some(serde_json::json!({
+                "openai": {
+                    "base_url": "https://user:pass@api.openai.com/v1?api_key=secret",
+                    "api_key": "sk-before-secret",
+                    "generation_model": "gpt-before-secret"
+                }
+            })),
+            after_json: Some(serde_json::json!({
+                "openrouter": {
+                    "base_url": "https://openrouter.ai/api/v1?token=secret",
+                    "api_key": {
+                        "value": "sk-or-after-secret",
+                        "source": "db_override"
+                    },
+                    "app_name": "secret tenant app"
+                }
+            })),
+            source_ip: Some("203.0.113.77".to_string()),
+        };
+        let query = AuditQuery {
+            limit: 10,
+            changed_by: Some("api_key:secret-operator-key-id".to_string()),
+            action: Some("set-secret-provider".to_string()),
+        };
+
+        let rendered = format!("{row:?}{query:?}");
+
+        assert!(rendered.contains("before_json_class"));
+        assert!(rendered.contains("after_json_class"));
+        assert!(rendered.contains("source_ip_class"));
+        assert!(rendered.contains("changed_by_len"));
+        assert!(rendered.contains("action_len"));
+        assert!(!rendered.contains("secret-operator-key-id"));
+        assert!(!rendered.contains("set-secret-provider"));
+        assert!(!rendered.contains("203.0.113.77"));
+        assert!(!rendered.contains("user:pass"));
+        assert!(!rendered.contains("api_key=secret"));
+        assert!(!rendered.contains("token=secret"));
+        assert!(!rendered.contains("api.openai.com"));
+        assert!(!rendered.contains("openrouter.ai"));
+        assert!(!rendered.contains("sk-before-secret"));
+        assert!(!rendered.contains("sk-or-after-secret"));
+        assert!(!rendered.contains("gpt-before-secret"));
+        assert!(!rendered.contains("secret tenant app"));
     }
 
     #[test]
