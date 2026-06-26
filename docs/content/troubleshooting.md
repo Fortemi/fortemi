@@ -102,7 +102,7 @@ docker compose -f docker-compose.bundle.yml logs | grep -i postgres
 **Wrong DATABASE_URL:**
 ```bash
 # Correct format should be:
-# postgres://matric:matric@localhost/matric
+# <DATABASE_URL>
 
 # Stop container
 docker compose -f docker-compose.bundle.yml down

@@ -782,10 +782,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE matric_admin IN SCHEMA archive_2024
 
 ```bash
 # Application connects as limited user
-DATABASE_URL=postgres://matric:password@localhost/matric_db
+DATABASE_URL=<DATABASE_URL>
 
 # Admin operations use privileged user
-ADMIN_DATABASE_URL=postgres://matric_admin:admin_pw@localhost/matric_db
+ADMIN_DATABASE_URL=<DATABASE_URL>
 ```
 
 ### 5.2 Performance Considerations

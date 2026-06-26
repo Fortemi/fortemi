@@ -690,7 +690,7 @@ BACKUP_ENCRYPT=/etc/Fortémi/backup-key.pub
 
 # Database
 PGUSER=matric
-PGPASSWORD=matric
+PGPASSWORD=<POSTGRES_PASSWORD>
 PGHOST=localhost
 PGPORT=5432
 PGDATABASE=matric
@@ -789,21 +789,21 @@ sudo systemctl stop matric-api
 ls -lh /var/backups/fortemi/
 
 # 3. Drop and recreate database
-PGPASSWORD=matric psql -U matric -h localhost -c "DROP DATABASE matric;"
-PGPASSWORD=matric psql -U matric -h localhost -c "CREATE DATABASE matric;"
+PGPASSWORD=<POSTGRES_PASSWORD> psql -U matric -h localhost -c "DROP DATABASE matric;"
+PGPASSWORD=<POSTGRES_PASSWORD> psql -U matric -h localhost -c "CREATE DATABASE matric;"
 
 # 4. Restore from backup
 # For .sql files:
-PGPASSWORD=matric psql -U matric -h localhost -d matric -f backup.sql
+PGPASSWORD=<POSTGRES_PASSWORD> psql -U matric -h localhost -d matric -f backup.sql
 
 # For .sql.gz files:
-gunzip -c matric_backup_YYYYMMDD.sql.gz | PGPASSWORD=matric psql -U matric -h localhost -d matric
+gunzip -c matric_backup_YYYYMMDD.sql.gz | PGPASSWORD=<POSTGRES_PASSWORD> psql -U matric -h localhost -d matric
 
 # For pg_dump custom format (.sql without compression):
-PGPASSWORD=matric pg_restore -U matric -h localhost -d matric backup.sql
+PGPASSWORD=<POSTGRES_PASSWORD> pg_restore -U matric -h localhost -d matric backup.sql
 
 # 5. Verify
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "SELECT COUNT(*) FROM note;"
+PGPASSWORD=<POSTGRES_PASSWORD> psql -U matric -h localhost -d matric -c "SELECT COUNT(*) FROM note;"
 
 # 6. Restart API
 sudo systemctl start matric-api
@@ -893,7 +893,7 @@ BACKUP_RETAIN=30 \
 ls -lh /var/backups/fortemi/migrations/
 
 # Now run migration
-PGPASSWORD=matric psql -U matric -h localhost -d matric -f migrations/new_migration.sql
+PGPASSWORD=<POSTGRES_PASSWORD> psql -U matric -h localhost -d matric -f migrations/new_migration.sql
 ```
 
 ## Monitoring

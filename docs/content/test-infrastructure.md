@@ -33,7 +33,7 @@ Comprehensive CI/CD test infrastructure for Fortémi with database fixtures, moc
 cargo test --lib --doc --workspace
 
 # Integration tests (requires PostgreSQL)
-export DATABASE_URL="postgres://matric:matric@localhost/matric_test"
+export DATABASE_URL="<DATABASE_URL>"
 cargo test --workspace --tests
 
 # Slow/ignored tests

@@ -44,7 +44,7 @@ cargo test --lib --doc --workspace
 docker run -d --name matric-test \
   -p 15432:5432 \
   -e POSTGRES_USER=matric \
-  -e POSTGRES_PASSWORD=matric \
+  -e POSTGRES_PASSWORD=<POSTGRES_PASSWORD> \
   -e POSTGRES_DB=matric_test \
   pgvector/pgvector:pg18
 
@@ -54,7 +54,7 @@ for f in migrations/*.sql; do
 done
 
 # 3. Run tests
-export DATABASE_URL="postgres://matric:matric@localhost:15432/matric_test"
+export DATABASE_URL="<DATABASE_URL>"
 cargo test --workspace --tests
 
 # 4. Cleanup

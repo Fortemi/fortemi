@@ -22,7 +22,7 @@ git clone https://github.com/fortemi/fortemi
 cargo build --release -p matric-api
 
 # Run
-DATABASE_URL="postgres://user:pass@localhost/matric" ./target/release/matric-api
+DATABASE_URL="<DATABASE_URL>" ./target/release/matric-api
 ```
 
 ### Option 2: As Rust Crate (Future)
@@ -47,7 +47,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 ```bash
 cd Fortémi
-DATABASE_URL="postgres://user:pass@localhost/matric" sqlx migrate run
+DATABASE_URL="<DATABASE_URL>" sqlx migrate run
 ```
 
 ### 3. Verify Setup

@@ -47,7 +47,7 @@ Integration tests require a PostgreSQL database with pgvector and PostGIS extens
 
 ```bash
 # Run integration tests
-export DATABASE_URL="postgres://matric:matric@localhost/matric_test"
+export DATABASE_URL="<DATABASE_URL>"
 cargo test --workspace --tests
 ```
 
@@ -253,7 +253,7 @@ cargo install cargo-llvm-cov
 
 ```bash
 # Full coverage report
-export DATABASE_URL="postgres://matric:matric@localhost/matric_test"
+export DATABASE_URL="<DATABASE_URL>"
 cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
 
 # HTML report
@@ -404,7 +404,7 @@ use sqlx::PgPool;
 /// Create a test database pool from environment or default.
 async fn setup_test_pool() -> PgPool {
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        .unwrap_or_else(|_| "<DATABASE_URL>".to_string());
     create_pool(&database_url)
         .await
         .expect("Failed to create test pool")
@@ -616,7 +616,7 @@ For tests using `#[sqlx::test]`, this is unsolvable - use `#[tokio::test]` inste
 pg_isready
 
 # Check connection string
-export DATABASE_URL="postgres://matric:matric@localhost/matric_test"
+export DATABASE_URL="<DATABASE_URL>"
 
 # Verify pgvector and PostGIS extensions
 psql $DATABASE_URL -c "CREATE EXTENSION IF NOT EXISTS vector;"

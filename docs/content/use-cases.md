@@ -31,7 +31,7 @@ Researchers, students, writers, and developers building a personal second brain.
 **Environment Variables:**
 ```bash
 # .env
-DATABASE_URL=postgres://matric:matric@localhost/matric
+DATABASE_URL=<DATABASE_URL>
 OLLAMA_BASE_URL=http://localhost:11434
 EMBEDDING_MODEL=nomic-embed-text
 EMBEDDING_DIMENSION=768
@@ -112,7 +112,7 @@ Engineering teams, product teams, and knowledge workers sharing documentation. Y
 **Environment Variables:**
 ```bash
 # .env
-DATABASE_URL=postgres://matric:matric@localhost/matric
+DATABASE_URL=<DATABASE_URL>
 OLLAMA_BASE_URL=http://localhost:11434
 EMBEDDING_MODEL=nomic-embed-text
 EMBEDDING_DIMENSION=768
@@ -236,7 +236,7 @@ AI engineers building RAG (Retrieval-Augmented Generation) pipelines and researc
 **Environment Variables:**
 ```bash
 # .env
-DATABASE_URL=postgres://matric:matric@localhost/matric
+DATABASE_URL=<DATABASE_URL>
 OLLAMA_BASE_URL=http://localhost:11434
 EMBEDDING_MODEL=mxbai-embed-large
 EMBEDDING_DIMENSION=1024
@@ -392,7 +392,7 @@ Organizations managing large document collections with compliance requirements. 
 **Environment Variables:**
 ```bash
 # .env
-DATABASE_URL=postgres://matric:matric@localhost/matric
+DATABASE_URL=<DATABASE_URL>
 OLLAMA_BASE_URL=http://localhost:11434
 EMBEDDING_MODEL=nomic-embed-text
 EMBEDDING_DIMENSION=768
@@ -601,7 +601,7 @@ Organizations wanting privacy-sensitive local processing (embeddings stay on-pre
 **Environment Variables:**
 ```bash
 # .env
-DATABASE_URL=postgres://matric:matric@localhost/matric
+DATABASE_URL=<DATABASE_URL>
 
 # Local Ollama for embeddings
 OLLAMA_BASE_URL=http://localhost:11434

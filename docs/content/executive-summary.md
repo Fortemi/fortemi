@@ -151,7 +151,7 @@ Build from source for development or custom deployments. Requires Rust toolchain
 cargo build --release --workspace
 
 # Run migrations
-export DATABASE_URL=postgres://matric:matric@localhost/matric
+export DATABASE_URL=<DATABASE_URL>
 sqlx migrate run
 
 # Start API server

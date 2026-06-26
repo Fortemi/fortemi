@@ -37,11 +37,11 @@ In Docker bundle deployments:
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `DATABASE_URL` | String | `postgres://matric:matric@localhost:5432/matric` | PostgreSQL connection URL with user, password, host, port, and database name |
+| `DATABASE_URL` | String | `<DATABASE_URL>` | PostgreSQL connection URL with user, password, host, port, and database name |
 
 **Example:**
 ```bash
-DATABASE_URL=postgres://myuser:mypass@db.example.com:5432/matric_prod
+DATABASE_URL=<DATABASE_URL>
 ```
 
 ### API Server
@@ -986,7 +986,7 @@ For personal use with local Ollama, no authentication:
 
 ```bash
 # .env
-DATABASE_URL=postgres://matric:matric@localhost/matric
+DATABASE_URL=<DATABASE_URL>
 OLLAMA_BASE=http://localhost:11434
 OLLAMA_EMBED_MODEL=nomic-embed-text
 OLLAMA_EMBED_DIM=768
@@ -1008,7 +1008,7 @@ For team deployment with authentication and rate limiting:
 
 ```bash
 # .env
-DATABASE_URL=postgres://matric:matric@db.internal:5432/matric_prod
+DATABASE_URL=<DATABASE_URL>
 HOST=0.0.0.0
 PORT=3000
 RUST_LOG=info
@@ -1057,7 +1057,7 @@ For large enterprise deployment with multilingual search, cloud AI, and monitori
 
 ```bash
 # .env
-DATABASE_URL=postgres://matric:matric@db-cluster.internal:5432/matric_prod
+DATABASE_URL=<DATABASE_URL>
 HOST=0.0.0.0
 PORT=3000
 RUST_LOG=matric_api=info,matric_db=warn,matric_inference=info

@@ -515,7 +515,7 @@ All environment variables are optional unless marked as required. The API reads 
 |----------|---------|-------------|---------|
 | `HOST` | `0.0.0.0` | HTTP server bind address | `127.0.0.1` |
 | `PORT` | `3000` | HTTP server port | `8080` |
-| `DATABASE_URL` | `postgres://localhost/matric` | PostgreSQL connection string | `postgres://user:pass@host:5432/db` |
+| `DATABASE_URL` | `<DATABASE_URL>` | PostgreSQL connection string | `<DATABASE_URL>` |
 | `FILE_STORAGE_PATH` | `/var/lib/matric/files` | Directory for file attachments | `/mnt/storage/files` |
 
 #### Rate Limiting
