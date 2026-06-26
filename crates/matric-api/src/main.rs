@@ -11785,6 +11785,55 @@ fn taxonomy_concept_update_attrs(
     changed_fields_attrs(changed)
 }
 
+fn taxonomy_collection_create_attrs(
+    body: &matric_core::CreateSkosCollectionRequest,
+) -> Vec<(&'static str, serde_json::Value)> {
+    vec![
+        (
+            "pref_label_len",
+            serde_json::json!(body.pref_label.chars().count() as i64),
+        ),
+        (
+            "definition_present",
+            serde_json::json!(body.definition.is_some()),
+        ),
+        ("is_ordered", serde_json::json!(body.is_ordered)),
+        (
+            "scheme_id_present",
+            serde_json::json!(body.scheme_id.is_some()),
+        ),
+        (
+            "initial_member_count",
+            serde_json::json!(body.concept_ids.as_ref().map(|ids| ids.len()).unwrap_or(0) as i64),
+        ),
+    ]
+}
+
+fn taxonomy_collection_update_attrs(
+    body: &matric_core::UpdateSkosCollectionRequest,
+) -> Vec<(&'static str, serde_json::Value)> {
+    let mut changed = Vec::new();
+    if body.pref_label.is_some() {
+        changed.push("pref_label");
+    }
+    if body.definition.is_some() {
+        changed.push("definition");
+    }
+    if body.is_ordered.is_some() {
+        changed.push("is_ordered");
+    }
+    changed_fields_attrs(changed)
+}
+
+fn taxonomy_collection_members_replace_attrs(
+    body: &matric_core::UpdateCollectionMembersRequest,
+) -> Vec<(&'static str, serde_json::Value)> {
+    vec![(
+        "member_count",
+        serde_json::json!(body.concept_ids.len() as i64),
+    )]
+}
+
 fn changed_fields_attrs(changed: Vec<&'static str>) -> Vec<(&'static str, serde_json::Value)> {
     vec![
         (
@@ -12484,11 +12533,21 @@ async fn create_skos_collection(
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<matric_core::CreateSkosCollectionRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let event_attrs = taxonomy_collection_create_attrs(&body);
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     let id = ctx
         .execute(move |tx| Box::pin(async move { skos.create_collection_tx(tx, body).await }))
         .await?;
+    emit_taxonomy_audit_event(taxonomy_audit_event(
+        "collection_create",
+        AuditOutcome::Success,
+        "taxonomy_collection",
+        id,
+        event_attrs,
+        Some(&archive_ctx.schema),
+    ))
+    .await;
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
 
@@ -12519,10 +12578,20 @@ async fn update_skos_collection(
     Path(id): Path<Uuid>,
     Json(body): Json<matric_core::UpdateSkosCollectionRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let event_attrs = taxonomy_collection_update_attrs(&body);
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| Box::pin(async move { skos.update_collection_tx(tx, id, body).await }))
         .await?;
+    emit_taxonomy_audit_event(taxonomy_audit_event(
+        "collection_update",
+        AuditOutcome::Success,
+        "taxonomy_collection",
+        id,
+        event_attrs,
+        Some(&archive_ctx.schema),
+    ))
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -12538,6 +12607,15 @@ async fn delete_skos_collection(
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| Box::pin(async move { skos.delete_collection_tx(tx, id).await }))
         .await?;
+    emit_taxonomy_audit_event(taxonomy_audit_event(
+        "collection_delete",
+        AuditOutcome::Success,
+        "taxonomy_collection",
+        id,
+        Vec::new(),
+        Some(&archive_ctx.schema),
+    ))
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -12552,12 +12630,22 @@ async fn replace_skos_collection_members(
     Path(id): Path<Uuid>,
     Json(body): Json<matric_core::UpdateCollectionMembersRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let event_attrs = taxonomy_collection_members_replace_attrs(&body);
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| {
         Box::pin(async move { skos.replace_collection_members_tx(tx, id, body).await })
     })
     .await?;
+    emit_taxonomy_audit_event(taxonomy_audit_event(
+        "collection_members_replace",
+        AuditOutcome::Success,
+        "taxonomy_collection",
+        id,
+        event_attrs,
+        Some(&archive_ctx.schema),
+    ))
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -12597,6 +12685,18 @@ async fn add_skos_collection_member(
         },
         event_context_for(&archive_ctx),
     );
+    emit_taxonomy_audit_event(taxonomy_audit_event(
+        "collection_member_add",
+        AuditOutcome::Success,
+        "taxonomy_collection",
+        collection_id,
+        vec![
+            ("concept_id", serde_json::json!(concept_id)),
+            ("position_present", serde_json::json!(position.is_some())),
+        ],
+        Some(&archive_ctx.schema),
+    ))
+    .await;
 
     Ok(StatusCode::CREATED)
 }
@@ -12630,6 +12730,15 @@ async fn remove_skos_collection_member(
         },
         event_context_for(&archive_ctx),
     );
+    emit_taxonomy_audit_event(taxonomy_audit_event(
+        "collection_member_remove",
+        AuditOutcome::Success,
+        "taxonomy_collection",
+        collection_id,
+        vec![("concept_id", serde_json::json!(concept_id))],
+        Some(&archive_ctx.schema),
+    ))
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -27550,6 +27659,91 @@ mod tests {
         assert!(!serialized.contains("Private publisher"));
         assert!(!serialized.contains("internal-v2"));
         assert!(!serialized.contains("tenant-secret-archive"));
+    }
+
+    #[test]
+    fn taxonomy_collection_audit_event_uses_metadata_only() {
+        let collection_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000706").unwrap();
+        let scheme_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000707").unwrap();
+        let first_concept = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000708").unwrap();
+        let second_concept = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000709").unwrap();
+        let body = matric_core::CreateSkosCollectionRequest {
+            pref_label: "Secret collection label".to_string(),
+            definition: Some("Do not serialize collection definition".to_string()),
+            is_ordered: true,
+            scheme_id: Some(scheme_id),
+            concept_ids: Some(vec![first_concept, second_concept]),
+        };
+
+        let event = taxonomy_audit_event(
+            "collection_create",
+            AuditOutcome::Success,
+            "taxonomy_collection",
+            collection_id,
+            taxonomy_collection_create_attrs(&body),
+            Some("tenant-secret-archive"),
+        );
+
+        assert_eq!(event.category, "taxonomy");
+        assert_eq!(event.action, "collection_create");
+        assert_eq!(event.resource_kind.as_deref(), Some("taxonomy_collection"));
+        assert_eq!(event.attrs["pref_label_len"], 23);
+        assert_eq!(event.attrs["definition_present"], true);
+        assert_eq!(event.attrs["is_ordered"], true);
+        assert_eq!(event.attrs["scheme_id_present"], true);
+        assert_eq!(event.attrs["initial_member_count"], 2);
+        assert_eq!(event.attrs["archive_schema_len"], 21);
+
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("Secret collection label"));
+        assert!(!serialized.contains("Do not serialize collection definition"));
+        assert!(!serialized.contains("tenant-secret-archive"));
+        assert!(!serialized.contains(&first_concept.to_string()));
+        assert!(!serialized.contains(&second_concept.to_string()));
+        assert!(!serialized.contains(&scheme_id.to_string()));
+    }
+
+    #[test]
+    fn taxonomy_collection_member_audit_event_uses_refs_and_counts_only() {
+        let collection_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000710").unwrap();
+        let concept_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000711").unwrap();
+
+        let add_event = taxonomy_audit_event(
+            "collection_member_add",
+            AuditOutcome::Success,
+            "taxonomy_collection",
+            collection_id,
+            vec![
+                ("concept_id", serde_json::json!(concept_id)),
+                ("position_present", serde_json::json!(true)),
+            ],
+            Some("tenant-secret-archive"),
+        );
+        let replace_event = taxonomy_audit_event(
+            "collection_members_replace",
+            AuditOutcome::Success,
+            "taxonomy_collection",
+            collection_id,
+            taxonomy_collection_members_replace_attrs(
+                &matric_core::UpdateCollectionMembersRequest {
+                    concept_ids: vec![concept_id],
+                },
+            ),
+            Some("tenant-secret-archive"),
+        );
+
+        assert_eq!(add_event.attrs["concept_id"], serde_json::json!(concept_id));
+        assert_eq!(add_event.attrs["position_present"], true);
+        assert_eq!(replace_event.attrs["member_count"], 1);
+
+        let serialized = format!(
+            "{}{}",
+            serde_json::to_string(&add_event).expect("serialize add event"),
+            serde_json::to_string(&replace_event).expect("serialize replace event")
+        );
+        assert!(!serialized.contains("tenant-secret-archive"));
+        assert!(!serialized.contains("position\":"));
+        assert!(!serialized.contains("concept_ids"));
     }
 
     #[test]
