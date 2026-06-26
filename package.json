@@ -5,7 +5,9 @@
   "description": "Documentation-site build tooling for Fortémi, using the pagenary publisher. Not part of the Rust workspace or the mcp-server package.",
   "license": "BUSL-1.1",
   "scripts": {
-    "docs:build": "pagenary build:tenants fortemi-docs"
+    "docs:build": "pagenary build:tenants fortemi-docs",
+    "docs:contract": "node scripts/ci/docs-contract.cjs --root=.",
+    "docs:contract:self-test": "node scripts/ci/docs-contract.cjs --self-test"
   },
   "devDependencies": {
     "@pagenary/publisher": "^2026.5.4"

@@ -76,6 +76,9 @@ jobs:
       - name: Check fail-closed auth defaults
         run: bash scripts/ci/forbid-insecure-auth-defaults.sh .
 
+      - name: Docs contract advisory scan
+        run: DOCS_CONTRACT_MODE=advisory bash scripts/ci/docs-contract.sh .
+
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
