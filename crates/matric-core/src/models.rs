@@ -1729,7 +1729,7 @@ pub struct DetectDocumentTypeResult {
 // =============================================================================
 
 /// Attachment blob for content-addressable storage.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AttachmentBlob {
     pub id: Uuid,
     pub content_hash: String,
@@ -1741,8 +1741,26 @@ pub struct AttachmentBlob {
     pub created_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for AttachmentBlob {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AttachmentBlob")
+            .field("id_set", &true)
+            .field("content_hash_len", &self.content_hash.len())
+            .field("content_type_len", &self.content_type.len())
+            .field("size_bytes", &self.size_bytes)
+            .field("storage_backend_len", &self.storage_backend.len())
+            .field(
+                "storage_path_len",
+                &self.storage_path.as_ref().map(String::len),
+            )
+            .field("reference_count", &self.reference_count)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
 /// File attachment metadata.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Attachment {
     pub id: Uuid,
     pub note_id: Uuid,
@@ -1765,6 +1783,54 @@ pub struct Attachment {
     pub detection_method: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl fmt::Debug for Attachment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Attachment")
+            .field("id_set", &true)
+            .field("note_id_set", &true)
+            .field("blob_id_set", &true)
+            .field("filename_len", &self.filename.len())
+            .field(
+                "original_filename_len",
+                &self.original_filename.as_ref().map(String::len),
+            )
+            .field("document_type_id_set", &self.document_type_id.is_some())
+            .field("status", &self.status)
+            .field("extraction_strategy", &self.extraction_strategy)
+            .field(
+                "extracted_text_len",
+                &self.extracted_text.as_ref().map(String::len),
+            )
+            .field(
+                "extracted_metadata_class",
+                &self.extracted_metadata.as_ref().map(json_value_class),
+            )
+            .field(
+                "extracted_metadata_len",
+                &self.extracted_metadata.as_ref().map(json_serialized_len),
+            )
+            .field(
+                "ai_description_len",
+                &self.ai_description.as_ref().map(String::len),
+            )
+            .field("ai_model_len", &self.ai_model.as_ref().map(String::len))
+            .field("has_preview", &self.has_preview)
+            .field("is_canonical_content", &self.is_canonical_content)
+            .field(
+                "detected_document_type_id_set",
+                &self.detected_document_type_id.is_some(),
+            )
+            .field("detection_confidence", &self.detection_confidence)
+            .field(
+                "detection_method_len",
+                &self.detection_method.as_ref().map(String::len),
+            )
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
 }
 
 /// Processing status for attachments.
@@ -1809,7 +1875,7 @@ impl std::str::FromStr for AttachmentStatus {
 }
 
 /// Summary for API responses.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AttachmentSummary {
     pub id: Uuid,
     pub note_id: Uuid,
@@ -1825,8 +1891,33 @@ pub struct AttachmentSummary {
     pub created_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for AttachmentSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AttachmentSummary")
+            .field("id_set", &true)
+            .field("note_id_set", &true)
+            .field("filename_len", &self.filename.len())
+            .field("content_type_len", &self.content_type.len())
+            .field("size_bytes", &self.size_bytes)
+            .field("status", &self.status)
+            .field(
+                "document_type_name_len",
+                &self.document_type_name.as_ref().map(String::len),
+            )
+            .field(
+                "detected_document_type_name_len",
+                &self.detected_document_type_name.as_ref().map(String::len),
+            )
+            .field("detection_confidence", &self.detection_confidence)
+            .field("has_preview", &self.has_preview)
+            .field("is_canonical_content", &self.is_canonical_content)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
 /// Summary for global attachment listing (includes note_title).
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct GlobalAttachmentSummary {
     pub id: Uuid,
     pub note_id: Uuid,
@@ -1841,6 +1932,32 @@ pub struct GlobalAttachmentSummary {
     pub has_preview: bool,
     pub is_canonical_content: bool,
     pub created_at: DateTime<Utc>,
+}
+
+impl fmt::Debug for GlobalAttachmentSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GlobalAttachmentSummary")
+            .field("id_set", &true)
+            .field("note_id_set", &true)
+            .field("note_title_len", &self.note_title.as_ref().map(String::len))
+            .field("filename_len", &self.filename.len())
+            .field("content_type_len", &self.content_type.len())
+            .field("size_bytes", &self.size_bytes)
+            .field("status", &self.status)
+            .field(
+                "document_type_name_len",
+                &self.document_type_name.as_ref().map(String::len),
+            )
+            .field(
+                "detected_document_type_name_len",
+                &self.detected_document_type_name.as_ref().map(String::len),
+            )
+            .field("detection_confidence", &self.detection_confidence)
+            .field("has_preview", &self.has_preview)
+            .field("is_canonical_content", &self.is_canonical_content)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
 }
 // =============================================================================
 // TUS RESUMABLE UPLOADS
@@ -4152,6 +4269,129 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "Link/search Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn attachment_debug_redacts_paths_filenames_text_and_metadata() {
+        let now = Utc::now();
+        let blob = AttachmentBlob {
+            id: Uuid::new_v4(),
+            content_hash: "sha256-secret-content-hash-private@example.test".to_string(),
+            content_type: "application/private-report".to_string(),
+            size_bytes: 4096,
+            storage_backend: "customer-storage-secret".to_string(),
+            storage_path: Some("/tmp/customer/private/sk-live-secret/report.pdf".to_string()),
+            reference_count: 2,
+            created_at: now,
+        };
+        let attachment = Attachment {
+            id: Uuid::new_v4(),
+            note_id: Uuid::new_v4(),
+            blob_id: Uuid::new_v4(),
+            filename: "private-report-sk-live-secret.pdf".to_string(),
+            original_filename: Some("original-private@example.test.pdf".to_string()),
+            document_type_id: Some(Uuid::new_v4()),
+            status: AttachmentStatus::Completed,
+            extraction_strategy: Some(ExtractionStrategy::PdfOcr),
+            extracted_text: Some(
+                "Extracted text includes 555-1212 and /tmp/customer/raw.txt".to_string(),
+            ),
+            extracted_metadata: Some(json!({
+                "provider_url": "https://provider.example.test/?token=secret",
+                "api_key": "sk-live-secret",
+                "path": "/tmp/customer/raw.txt"
+            })),
+            ai_description: Some("AI description includes private@example.test".to_string()),
+            ai_model: Some("private-model-name".to_string()),
+            has_preview: true,
+            is_canonical_content: true,
+            detected_document_type_id: Some(Uuid::new_v4()),
+            detection_confidence: Some(0.88),
+            detection_method: Some("private-filename-pattern".to_string()),
+            created_at: now,
+            updated_at: now,
+        };
+        let summary = AttachmentSummary {
+            id: Uuid::new_v4(),
+            note_id: Uuid::new_v4(),
+            filename: "summary-secret-file.pdf".to_string(),
+            content_type: "application/private-summary".to_string(),
+            size_bytes: 1024,
+            status: AttachmentStatus::Processing,
+            document_type_name: Some("Private document type".to_string()),
+            detected_document_type_name: Some("Detected private type".to_string()),
+            detection_confidence: Some(0.77),
+            has_preview: false,
+            is_canonical_content: false,
+            created_at: now,
+        };
+        let global = GlobalAttachmentSummary {
+            id: Uuid::new_v4(),
+            note_id: Uuid::new_v4(),
+            note_title: Some("Private note title private@example.test".to_string()),
+            filename: "global-secret-file.pdf".to_string(),
+            content_type: "application/private-global".to_string(),
+            size_bytes: 2048,
+            status: AttachmentStatus::Completed,
+            document_type_name: Some("Global private document type".to_string()),
+            detected_document_type_name: Some("Global detected private type".to_string()),
+            detection_confidence: Some(0.79),
+            has_preview: true,
+            is_canonical_content: false,
+            created_at: now,
+        };
+
+        let debug = format!("{blob:?}{attachment:?}{summary:?}{global:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "sha256-secret-content-hash",
+                "private@example.test",
+                "application/private-report",
+                "customer-storage-secret",
+                "/tmp/customer/private",
+                "sk-live-secret",
+                "private-report",
+                "original-private",
+                "Extracted text",
+                "555-1212",
+                "/tmp/customer/raw.txt",
+                "provider.example.test",
+                "AI description",
+                "private-model-name",
+                "private-filename-pattern",
+                "summary-secret-file",
+                "Private document type",
+                "Detected private type",
+                "Private note title",
+                "global-secret-file",
+                "Global private document type",
+                "Global detected private type",
+            ],
+        );
+
+        for expected in [
+            "content_hash_len",
+            "content_type_len",
+            "storage_backend_len",
+            "storage_path_len",
+            "filename_len",
+            "original_filename_len",
+            "extracted_text_len",
+            "extracted_metadata_class",
+            "extracted_metadata_len",
+            "ai_description_len",
+            "ai_model_len",
+            "document_type_name_len",
+            "detected_document_type_name_len",
+            "note_title_len",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Attachment Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
