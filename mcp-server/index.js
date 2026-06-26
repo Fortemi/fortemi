@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import tools from "./tools.js";
+import { formatFortemiApiError, formatMcpReauthorizationError } from "./lib/api-errors.js";
 // execSync removed — all PKE operations now use HTTP API instead of CLI binary
 import * as DEFAULTS from "./constants/defaults.js";
 
@@ -135,15 +136,22 @@ async function apiRequest(method, path, body = null) {
   const response = await fetch(url, options);
   if (!response.ok) {
     const error = await response.text();
+    const contentType = response.headers.get("content-type") || "";
     // Surface token expiry clearly so MCP clients can re-authenticate (fixes #239)
     if (response.status === 401) {
-      throw new Error(
-        "MCP server requires re-authorization (token expired). " +
-        "Please obtain a new access token and reconnect. " +
-        `Details: ${error}`
-      );
+      throw new Error(formatMcpReauthorizationError(
+        response.status,
+        response.statusText,
+        contentType,
+        error
+      ));
     }
-    throw new Error(`API error ${response.status}: ${error}`);
+    throw new Error(formatFortemiApiError(
+      response.status,
+      response.statusText,
+      contentType,
+      error
+    ));
   }
   if (response.status === 204) return null;
   const text = await response.text();
@@ -5781,10 +5789,8 @@ if (MCP_TRANSPORT === "http") {
         return { valid: false };
       }
 
-      // Check for MCP scope (includes read+write) or at minimum read scope.
-      // Tokens with "mcp" scope can perform all operations.
-      // Tokens with only "read" scope can list/get but mutations will be
-      // rejected by the Fortemi API's scope enforcement.
+      // Check for MCP transport scope or at minimum read scope. Mutations are
+      // still enforced by the Fortemi API's route/action policy.
       const scopes = (introspection.scope || "").split(" ");
       if (!scopes.includes("mcp") && !scopes.includes("read") && !scopes.includes("admin")) {
         return { valid: false };
