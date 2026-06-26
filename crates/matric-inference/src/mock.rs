@@ -20,6 +20,7 @@
 //! ```
 
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::{Arc, Mutex};
 
 /// Mock inference backend for testing.
@@ -29,7 +30,7 @@ pub struct MockInferenceBackend {
     call_log: Arc<Mutex<Vec<MockCall>>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct MockConfig {
     dimension: usize,
     fixed_responses: HashMap<String, String>,
@@ -38,11 +39,49 @@ struct MockConfig {
     failure_rate: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MockCall {
     pub operation: String,
     pub input: String,
     pub timestamp: std::time::Instant,
+}
+
+impl fmt::Debug for MockConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MockConfig")
+            .field("dimension", &self.dimension)
+            .field("fixed_response_count", &self.fixed_responses.len())
+            .field(
+                "fixed_response_key_lens",
+                &self
+                    .fixed_responses
+                    .keys()
+                    .map(String::len)
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "fixed_response_value_lens",
+                &self
+                    .fixed_responses
+                    .values()
+                    .map(String::len)
+                    .collect::<Vec<_>>(),
+            )
+            .field("default_response_len", &self.default_response.len())
+            .field("latency_ms", &self.latency_ms)
+            .field("failure_rate", &self.failure_rate)
+            .finish()
+    }
+}
+
+impl fmt::Debug for MockCall {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MockCall")
+            .field("operation_len", &self.operation.len())
+            .field("input_len", &self.input.len())
+            .field("timestamp", &self.timestamp)
+            .finish()
+    }
 }
 
 impl Default for MockConfig {
@@ -426,5 +465,55 @@ mod tests {
         let elapsed = start.elapsed();
 
         assert!(elapsed.as_millis() >= 50, "Should simulate latency");
+    }
+
+    #[test]
+    fn test_mock_config_debug_redacts_prompts_and_responses() {
+        let mut fixed_responses = HashMap::new();
+        fixed_responses.insert(
+            "private prompt for user@example.com".to_string(),
+            "generated answer with token=secret".to_string(),
+        );
+        let config = MockConfig {
+            dimension: 768,
+            fixed_responses,
+            default_response: "default generated response".to_string(),
+            latency_ms: 25,
+            failure_rate: 0.25,
+        };
+
+        let debug = format!("{config:?}");
+
+        assert!(debug.contains("MockConfig"));
+        assert!(debug.contains("dimension"));
+        assert!(debug.contains("fixed_response_count"));
+        assert!(debug.contains("fixed_response_key_lens"));
+        assert!(debug.contains("fixed_response_value_lens"));
+        assert!(debug.contains("default_response_len"));
+        assert!(!debug.contains("private prompt"));
+        assert!(!debug.contains("user@example.com"));
+        assert!(!debug.contains("generated answer"));
+        assert!(!debug.contains("token=secret"));
+        assert!(!debug.contains("default generated response"));
+    }
+
+    #[test]
+    fn test_mock_call_debug_redacts_input() {
+        let call = MockCall {
+            operation: "generate".to_string(),
+            input: "private prompt for user@example.com with token=secret".to_string(),
+            timestamp: std::time::Instant::now(),
+        };
+
+        let debug = format!("{call:?}");
+
+        assert!(debug.contains("MockCall"));
+        assert!(debug.contains("operation_len"));
+        assert!(debug.contains("input_len"));
+        assert!(debug.contains("timestamp"));
+        assert!(!debug.contains("generate"));
+        assert!(!debug.contains("private prompt"));
+        assert!(!debug.contains("user@example.com"));
+        assert!(!debug.contains("token=secret"));
     }
 }
