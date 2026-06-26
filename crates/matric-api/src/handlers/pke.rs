@@ -3,7 +3,12 @@
 use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
+use matric_core::{
+    AuditEvent, AuditFailurePolicy, AuditOutcome, AuditSeverity, AuditSink, AuditSource,
+    AuditVisibilityClass, AuthPrincipal, TracingSink,
+};
 use matric_crypto::pke::{
     decrypt_pke, encrypt_pke, get_pke_recipients, key_storage, Address, Keypair, PrivateKey,
     PublicKey,
@@ -294,7 +299,7 @@ pub async fn pke_verify(Path(address): Path<String>) -> Json<PkeVerifyResponse> 
 // KEYSET MANAGEMENT HANDLERS (Issues #328, #332)
 // =============================================================================
 
-use crate::{ApiError, AppState};
+use crate::{ApiError, AppState, Auth};
 use axum::extract::State;
 use matric_db::{CreateKeysetRequest, ExportedKeyset};
 use uuid::Uuid;
@@ -358,6 +363,7 @@ pub async fn list_keysets(State(state): State<AppState>) -> Result<impl IntoResp
     request_body = CreateKeysetApiRequest,
     responses((status = 201, description = "Created")))]
 pub async fn create_keyset(
+    auth: Auth,
     State(state): State<AppState>,
     Json(req): Json<CreateKeysetApiRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -397,6 +403,17 @@ pub async fn create_keyset(
             }
             _ => ApiError::from(e),
         })?;
+
+    emit_pke_keyset_audit_event(pke_keyset_audit_event(
+        &auth,
+        "keyset_create",
+        AuditOutcome::Success,
+        keyset.id,
+        &keyset.name,
+        &keyset.address,
+        None,
+    ))
+    .await;
 
     Ok((
         StatusCode::CREATED,
@@ -446,6 +463,7 @@ pub async fn get_active_keyset(
     params(("name_or_id" = String, Path, description = "Keyset name or UUID")),
     responses((status = 200, description = "Success")))]
 pub async fn set_active_keyset(
+    auth: Auth,
     State(state): State<AppState>,
     Path(name_or_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -466,6 +484,17 @@ pub async fn set_active_keyset(
         .await
         .map_err(ApiError::from)?;
 
+    emit_pke_keyset_audit_event(pke_keyset_audit_event(
+        &auth,
+        "keyset_activate",
+        AuditOutcome::Success,
+        keyset.id,
+        &keyset.name,
+        &keyset.address,
+        None,
+    ))
+    .await;
+
     Ok(Json(serde_json::json!({
         "success": true,
         "active_keyset": keyset.name
@@ -479,25 +508,42 @@ pub async fn set_active_keyset(
     params(("name_or_id" = String, Path, description = "Keyset name or UUID")),
     responses((status = 200, description = "Success")))]
 pub async fn delete_keyset(
+    auth: Auth,
     State(state): State<AppState>,
     Path(name_or_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Try to parse as UUID first, otherwise treat as name
-    let deleted = if let Ok(uuid) = Uuid::parse_str(&name_or_id) {
-        state.db.pke_keysets.delete(uuid).await
+    let keyset = if let Ok(uuid) = Uuid::parse_str(&name_or_id) {
+        state.db.pke_keysets.get_by_id(uuid).await
     } else {
-        state.db.pke_keysets.delete_by_name(&name_or_id).await
+        state.db.pke_keysets.get_by_name(&name_or_id).await
     }
     .map_err(ApiError::from)?;
 
-    if deleted {
-        Ok(Json(serde_json::json!({
-            "success": true,
-            "deleted": name_or_id
-        })))
-    } else {
-        Err(ApiError::NotFound("PKE keyset not found.".to_string()))
-    }
+    let keyset = keyset.ok_or_else(|| ApiError::NotFound("PKE keyset not found.".to_string()))?;
+
+    state
+        .db
+        .pke_keysets
+        .delete(keyset.id)
+        .await
+        .map_err(ApiError::from)?;
+
+    emit_pke_keyset_audit_event(pke_keyset_audit_event(
+        &auth,
+        "keyset_delete",
+        AuditOutcome::Success,
+        keyset.id,
+        &keyset.name,
+        &keyset.address,
+        None,
+    ))
+    .await;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "deleted": name_or_id
+    })))
 }
 
 /// Export a PKE keyset by name or ID.
@@ -507,6 +553,7 @@ pub async fn delete_keyset(
     params(("name_or_id" = String, Path, description = "Keyset name or UUID")),
     responses((status = 200, description = "Success")))]
 pub async fn export_keyset(
+    auth: Auth,
     State(state): State<AppState>,
     Path(name_or_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -528,6 +575,17 @@ pub async fn export_keyset(
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::NotFound("PKE keyset not found.".to_string()))?;
 
+    emit_pke_keyset_audit_event(pke_keyset_audit_event(
+        &auth,
+        "keyset_export",
+        AuditOutcome::Success,
+        keyset.id,
+        &keyset.name,
+        &keyset.address,
+        None,
+    ))
+    .await;
+
     Ok(Json(exported))
 }
 
@@ -538,6 +596,7 @@ pub async fn export_keyset(
     request_body = ImportKeysetRequest,
     responses((status = 201, description = "Created")))]
 pub async fn import_keyset(
+    auth: Auth,
     State(state): State<AppState>,
     Json(req): Json<ImportKeysetRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -553,6 +612,17 @@ pub async fn import_keyset(
             _ => ApiError::from(e),
         })?;
 
+    emit_pke_keyset_audit_event(pke_keyset_audit_event(
+        &auth,
+        "keyset_import",
+        AuditOutcome::Success,
+        keyset.id,
+        &keyset.name,
+        &keyset.address,
+        None,
+    ))
+    .await;
+
     Ok((
         StatusCode::CREATED,
         Json(KeysetResponse {
@@ -564,4 +634,105 @@ pub async fn import_keyset(
             created_at: keyset.created_at,
         }),
     ))
+}
+
+async fn emit_pke_keyset_audit_event(event: AuditEvent) {
+    if let Err(err) = TracingSink.emit(event).await {
+        warn!(error = %err, "failed to emit PKE keyset audit event");
+    }
+}
+
+fn pke_keyset_audit_event(
+    auth: &Auth,
+    action: &str,
+    outcome: AuditOutcome,
+    keyset_id: Uuid,
+    keyset_name: &str,
+    keyset_address: &str,
+    reason: Option<&str>,
+) -> AuditEvent {
+    let mut event = AuditEvent::new("pke", action, outcome)
+        .with_principal(pke_principal_audit_id(&auth.principal))
+        .with_resource("pke_keyset", keyset_id.to_string())
+        .with_attr("keyset_name", keyset_name.to_string())
+        .with_attr("keyset_address", keyset_address.to_string());
+
+    if let Some(reason) = reason {
+        event.reason = Some(reason.to_string());
+        event = event.with_attr("reason_code", reason.to_string());
+    }
+
+    event.source = AuditSource::Api;
+    event.visibility = AuditVisibilityClass::SecurityRestricted;
+    event.failure_policy = AuditFailurePolicy::BestEffort;
+    event.severity = match outcome {
+        AuditOutcome::Success => AuditSeverity::Info,
+        AuditOutcome::Denied => AuditSeverity::Warn,
+        AuditOutcome::Failure | AuditOutcome::Error => AuditSeverity::Error,
+        AuditOutcome::Unknown => AuditSeverity::Warn,
+    };
+    event.sanitized()
+}
+
+fn pke_principal_audit_id(principal: &AuthPrincipal) -> String {
+    match principal {
+        AuthPrincipal::OAuthClient {
+            client_id, user_id, ..
+        } => user_id
+            .as_ref()
+            .map(|user_id| format!("oauth_user:{user_id}"))
+            .unwrap_or_else(|| format!("oauth_client:{client_id}")),
+        AuthPrincipal::ApiKey { key_id, .. } => format!("api_key:{key_id}"),
+        AuthPrincipal::Anonymous => "anonymous".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pke_keyset_audit_event_uses_metadata_only() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000101").unwrap(),
+                scope: "admin passphrase=should-not-appear".to_string(),
+            },
+        };
+
+        let event = pke_keyset_audit_event(
+            &auth,
+            "keyset_export",
+            AuditOutcome::Success,
+            Uuid::parse_str("018fd1a0-0000-7000-8000-000000000102").unwrap(),
+            "primary\nkeyset|name",
+            "mm:example-address",
+            Some("exported"),
+        );
+
+        assert_eq!(event.category, "pke");
+        assert_eq!(event.action, "keyset_export");
+        assert_eq!(event.outcome, AuditOutcome::Success);
+        assert_eq!(event.source, AuditSource::Api);
+        assert_eq!(event.visibility, AuditVisibilityClass::SecurityRestricted);
+        assert_eq!(event.resource_kind.as_deref(), Some("pke_keyset"));
+        assert_eq!(
+            event.resource_id.as_deref(),
+            Some("018fd1a0-0000-7000-8000-000000000102")
+        );
+        assert_eq!(
+            event.principal_id.as_deref(),
+            Some("api_key:018fd1a0-0000-7000-8000-000000000101")
+        );
+        assert_eq!(event.attrs["keyset_name"], "primary keyset,name");
+        assert_eq!(event.attrs["keyset_address"], "mm:example-address");
+        assert_eq!(event.attrs["reason_code"], "exported");
+
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("passphrase=should-not-appear"));
+        assert!(!serialized.contains("public_key"));
+        assert!(!serialized.contains("private_key"));
+        assert!(!serialized.contains("encrypted_private_key"));
+        assert!(!serialized.contains("ciphertext"));
+    }
 }
