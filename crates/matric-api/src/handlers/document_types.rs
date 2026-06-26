@@ -10,6 +10,7 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use std::fmt;
 
 use crate::{document_type_not_found, ApiError, AppState};
 use matric_core::DocumentTypeRepository;
@@ -28,14 +29,22 @@ use matric_core::DocumentTypeRepository;
 // - PgDocumentTypeRepository implementing DocumentTypeRepository trait
 
 /// Query parameters for listing document types.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct ListDocumentTypesQuery {
     /// Filter by category: 'code', 'markup', 'config', 'prose', 'data'
     pub category: Option<String>,
 }
 
+impl fmt::Debug for ListDocumentTypesQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ListDocumentTypesQuery")
+            .field("category_len", &self.category.as_ref().map(String::len))
+            .finish()
+    }
+}
+
 /// Request body for document type detection.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct DetectDocumentTypeRequest {
     /// Optional filename to match against file extensions
     pub filename: Option<String>,
@@ -43,6 +52,16 @@ pub struct DetectDocumentTypeRequest {
     pub content: Option<String>,
     /// Optional MIME type for content-type based detection
     pub mime_type: Option<String>,
+}
+
+impl fmt::Debug for DetectDocumentTypeRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DetectDocumentTypeRequest")
+            .field("filename_len", &self.filename.as_ref().map(String::len))
+            .field("content_len", &self.content.as_ref().map(String::len))
+            .field("mime_type_len", &self.mime_type.as_ref().map(String::len))
+            .finish()
+    }
 }
 
 /// List all document types, optionally filtered by category.
@@ -204,6 +223,49 @@ pub async fn detect_document_type(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn document_type_request_debug_redacts_filters_filenames_and_content() {
+        let query = ListDocumentTypesQuery {
+            category: Some("private-config/customer@example.com".to_string()),
+        };
+        let detect = DetectDocumentTypeRequest {
+            filename: Some("/srv/private/customer-mm_key_secret.env".to_string()),
+            content: Some(
+                "DATABASE_URL=postgres://user:pass@db.internal/app\nOPENAI_API_KEY=sk-live-doc-type"
+                    .to_string(),
+            ),
+            mime_type: Some("application/x-private-env".to_string()),
+        };
+
+        let rendered_query = format!("{query:?}");
+        let rendered_detect = format!("{detect:?}");
+        let combined = format!("{rendered_query}\n{rendered_detect}");
+
+        assert!(rendered_query.contains("ListDocumentTypesQuery"));
+        assert!(rendered_query.contains("category_len"));
+        assert!(rendered_detect.contains("DetectDocumentTypeRequest"));
+        assert!(rendered_detect.contains("filename_len"));
+        assert!(rendered_detect.contains("content_len"));
+        assert!(rendered_detect.contains("mime_type_len"));
+
+        for raw in [
+            "private-config",
+            "customer@example.com",
+            "/srv/private",
+            "customer-mm_key_secret.env",
+            "DATABASE_URL",
+            "postgres://user:pass",
+            "db.internal",
+            "OPENAI_API_KEY",
+            "sk-live-doc-type",
+            "application/x-private-env",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
     // NOTE: Unit tests require the following to be implemented first:
     // 1. DocumentType models in matric-core
     // 2. PgDocumentTypeRepository in matric-db
