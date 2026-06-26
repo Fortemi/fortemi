@@ -2331,9 +2331,11 @@ impl JobHandler for EmbeddingHandler {
 
         ctx.report_progress(100, Some("Embeddings complete"));
         info!(
-            note_id = %note_id,
+            note_id_present = true,
             chunk_count = chunk_count,
             duration_ms = start.elapsed().as_millis() as u64,
+            detail = JOB_PROVENANCE_WRITE_FAILURE_DETAIL,
+            operation = "complete_embedding_generation",
             "Embeddings generated"
         );
 
@@ -2615,9 +2617,11 @@ Content:
         }
 
         info!(
-            note_id = %note_id,
-            title = %title,
+            note_id_present = true,
+            title_len = diagnostic_len(&title),
             duration_ms = start.elapsed().as_millis() as u64,
+            detail = JOB_PROVENANCE_WRITE_FAILURE_DETAIL,
+            operation = "complete_title_generation",
             "Title generated"
         );
 
@@ -3291,12 +3295,14 @@ impl JobHandler for LinkingHandler {
 
         ctx.report_progress(100, Some("Linking complete"));
         info!(
-            note_id = %note_id,
+            note_id_present = true,
             result_count = created,
             strategy = %graph_config.strategy,
             wiki_found = wiki_links_found,
             wiki_resolved = wiki_links_resolved,
             duration_ms = start.elapsed().as_millis() as u64,
+            detail = JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "complete_linking",
             "Linking completed"
         );
 
@@ -3483,10 +3489,12 @@ impl JobHandler for PurgeNoteHandler {
 
         ctx.report_progress(100, Some("Note permanently deleted"));
         info!(
-            note_id = %note_id,
+            note_id_present = true,
             affected_sets = affected_sets.len(),
             stats_updated = stats_updated,
             duration_ms = start.elapsed().as_millis() as u64,
+            detail = JOB_PURGE_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "complete_note_purge",
             "Note purged"
         );
 
