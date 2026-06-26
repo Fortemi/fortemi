@@ -38,6 +38,28 @@ telemetry:
 - External dead-letter sinks, such as Kafka DLQ topics, inherit the same
   classification and must not be treated as ordinary telemetry exports.
 
+## Localized Telemetry Stores
+
+Several existing tables look audit-like but are not interchangeable with the
+normalized `fortemi.audit` stream. Hosted mode must classify reads, retention,
+and redaction per store before exposing them to support tools, dashboards, or
+exports:
+
+| Store | Owner | Default class | Access boundary | Retention / DSAR handling | Safe broad telemetry | `fortemi.audit` mapping |
+|---|---|---|---|---|---|---|
+| `inference_config_audit` | Runtime model-provider configuration. | `diagnostic_sensitive` | Admin/operator only; route reads require the control-plane authorization path. | DSAR-relevant configuration history when tied to a user/tenant/provider record; retention follows the model-config history policy, not ordinary log retention. | Action, provider count, changed-field names/counts, source class, result, and bounded reason codes. | Config set/reset/test actions mirror as `category=model_config` with sanitized before/after summaries and no raw provider JSON. |
+| `file_upload_audit` | Upload validation and file-safety outcomes. | `security_audit` plus `diagnostic_sensitive` details | Admin/operator or owning-resource policy after hosted object authorization. | DSAR/security-retention relevant when rows identify a user, note, attachment, or quarantined object. | Outcome, file-size bucket, content-type class, extension length, reason code, and quarantine presence. | Accepted/denied/quarantined decisions mirror as `category=file_upload` without filenames, paths, payloads, or raw headers. |
+| `skos_audit_log` | Taxonomy governance history. | `security_audit` | Taxonomy governance authorization; not a broad support log. | Retain as governance history; include in tenant export/retention review when taxonomy labels or definitions are user-authored. | Entity type, relation/action class, counts, status class, archive presence/length, and reason code. | Hosted taxonomy mutations mirror as `category=taxonomy` with sanitized change summaries and safe resource refs. |
+| `note_access_log` | Access-frequency analytics for note reads/search/traversal. | `metrics_health` aggregated; raw rows are `diagnostic_sensitive`. | Public health may expose aggregates only; raw row reads require protected diagnostics or a future note-read audit path. | DSAR/retention relevant because rows can reveal content access patterns even without note bodies. | Aggregate counts, time buckets, and coarse access mode only. | Not security-audit proof. If hosted note-read audit is required, add a separate producer with principal, tenant, purpose, outcome, and retention fields. |
+| `event_outbox` non-inbound rows | Product event fan-out and replay. | `operational_event` or `diagnostic_sensitive` by entity type. | Support-safe metadata only unless a protected diagnostic read path authorizes payload inspection. | Retention follows product outbox/replay policy; payload-bearing rows must be mapped into DSAR/retention matrices. | Entity type, event type, publish status, age, retry count, size, and reason code. | Security-relevant product decisions should also emit `fortemi.audit`; outbox delivery alone is not audit proof. |
+| `inbound_dlq` | Failed inbound connector events. | `diagnostic_sensitive` or `content_prohibited` for raw payload/error. | Protected diagnostics only for raw rows; public/support views expose aggregate status. | Retained external/user payload sink; include in DSAR, retention, beyond-use, and legal-hold handling. | Source class/length, payload class, serialized length, secret-candidate flag, attempt count, age, and stable failure reason. | Privileged raw inspection should emit a future audit-read event once read producers are available. |
+
+This inventory complements `docs/architecture/audit-event-mapping.md`: that
+document defines which security-relevant actions should be mirrored into
+`fortemi.audit`; this document defines what can safely appear in operational
+logs, health, metrics, support views, and diagnostic exports for the same
+localized stores.
+
 ## Sink Rules
 
 - **stdout/file tracing:** support-safe by default. Do not emit
