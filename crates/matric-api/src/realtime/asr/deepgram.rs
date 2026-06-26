@@ -3,10 +3,10 @@
 //! This module contains Deepgram-specific wire protocol details behind the
 //! provider-agnostic [`StreamingASRBackend`] contract.
 
-use std::fs;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{fmt, fs};
 
 use async_trait::async_trait;
 use futures::{SinkExt, StreamExt};
@@ -412,7 +412,7 @@ impl AsrSession for DeepgramSession {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct DeepgramEnvelope {
     #[serde(rename = "type")]
     event_type: Option<String>,
@@ -423,23 +423,69 @@ struct DeepgramEnvelope {
     message: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+impl fmt::Debug for DeepgramEnvelope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeepgramEnvelope")
+            .field("event_type_len", &self.event_type.as_ref().map(String::len))
+            .field("channel_set", &self.channel.is_some())
+            .field("is_final", &self.is_final)
+            .field("speech_final", &self.speech_final)
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("message_len", &self.message.as_ref().map(String::len))
+            .finish()
+    }
+}
+
+#[derive(Deserialize)]
 struct DeepgramChannel {
     alternatives: Vec<DeepgramAlternative>,
 }
 
-#[derive(Debug, Deserialize)]
+impl fmt::Debug for DeepgramChannel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeepgramChannel")
+            .field("alternatives_count", &self.alternatives.len())
+            .field("alternatives", &self.alternatives)
+            .finish()
+    }
+}
+
+#[derive(Deserialize)]
 struct DeepgramAlternative {
     transcript: Option<String>,
     confidence: Option<f32>,
     words: Option<Vec<DeepgramWord>>,
 }
 
-#[derive(Debug, Deserialize)]
+impl fmt::Debug for DeepgramAlternative {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeepgramAlternative")
+            .field("transcript_len", &self.transcript.as_ref().map(String::len))
+            .field("confidence", &self.confidence)
+            .field("words_count", &self.words.as_ref().map(Vec::len))
+            .field("words", &self.words)
+            .finish()
+    }
+}
+
+#[derive(Deserialize)]
 struct DeepgramWord {
     start: Option<f64>,
     end: Option<f64>,
     speaker: Option<u32>,
+}
+
+impl fmt::Debug for DeepgramWord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeepgramWord")
+            .field("start_set", &self.start.is_some())
+            .field("end_set", &self.end.is_some())
+            .field("speaker_set", &self.speaker.is_some())
+            .finish()
+    }
 }
 
 fn parse_deepgram_message(
@@ -578,6 +624,80 @@ mod tests {
         assert!(url.contains("model=nova-3"));
         assert!(url.contains("language=en-US"));
         assert!(!url.contains("secret-token"));
+    }
+
+    #[test]
+    fn deepgram_wire_debug_redacts_transcripts_and_provider_messages() {
+        let envelope: DeepgramEnvelope = serde_json::from_str(
+            r#"{
+              "type": "Results",
+              "is_final": true,
+              "speech_final": true,
+              "channel": {"alternatives": [{
+                "transcript": "customer@example.com said sk-live-deepgram near /srv/private",
+                "confidence": 0.97,
+                "words": [
+                  {"start": 0.1, "end": 0.4, "speaker": 2},
+                  {"start": 0.4, "end": 0.9, "speaker": 2}
+                ]
+              }]},
+              "description": "postgres://user:pass@db.internal/app",
+              "message": "provider message with mm_key_deepgram"
+            }"#,
+        )
+        .unwrap();
+
+        let rendered_envelope = format!("{envelope:?}");
+        let rendered_channel = format!("{:?}", envelope.channel.as_ref().unwrap());
+        let rendered_alternative = format!(
+            "{:?}",
+            envelope
+                .channel
+                .as_ref()
+                .unwrap()
+                .alternatives
+                .first()
+                .unwrap()
+        );
+        let rendered_word = format!(
+            "{:?}",
+            envelope
+                .channel
+                .as_ref()
+                .unwrap()
+                .alternatives
+                .first()
+                .unwrap()
+                .words
+                .as_ref()
+                .unwrap()
+                .first()
+                .unwrap()
+        );
+        let combined = format!(
+            "{rendered_envelope}\n{rendered_channel}\n{rendered_alternative}\n{rendered_word}"
+        );
+
+        assert!(rendered_envelope.contains("DeepgramEnvelope"));
+        assert!(rendered_envelope.contains("description_len"));
+        assert!(rendered_envelope.contains("message_len"));
+        assert!(rendered_channel.contains("alternatives_count"));
+        assert!(rendered_alternative.contains("transcript_len"));
+        assert!(rendered_alternative.contains("words_count"));
+        assert!(rendered_word.contains("speaker_set"));
+
+        for raw in [
+            "customer@example.com",
+            "sk-live-deepgram",
+            "/srv/private",
+            "postgres://user:pass",
+            "db.internal",
+            "provider message",
+            "mm_key_deepgram",
+            "speaker_2",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
     }
 
     #[test]
