@@ -59,7 +59,7 @@ fn extract_schema(ctx: &JobContext) -> &str {
 
 fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResult> {
     db.for_schema(schema)
-        .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
+        .map_err(|e| media_job_failure("Invalid schema", media_error_reason_code(&e.to_string())))
 }
 
 /// Metadata returned by ffprobe.
@@ -151,6 +151,18 @@ fn media_error_reason_code(error: &str) -> &'static str {
     } else {
         "operation_failed"
     }
+}
+
+fn media_job_failure(action: &'static str, reason_code: &'static str) -> JobResult {
+    JobResult::Failed(format!("{action} ({reason_code})"))
+}
+
+fn media_job_failure_from_error(action: &'static str, error: &dyn std::fmt::Display) -> JobResult {
+    media_job_failure(action, media_error_reason_code(&error.to_string()))
+}
+
+fn media_job_failure_from_io(action: &'static str, error: &std::io::Error) -> JobResult {
+    media_job_failure(action, media_io_error_kind(error))
 }
 
 fn media_stderr_reason_code(stderr: &[u8]) -> &'static str {
@@ -662,7 +674,7 @@ impl JobHandler for MediaOptimizeHandler {
 
         let work_dir = match TempDir::new() {
             Ok(d) => d,
-            Err(e) => return JobResult::Failed(format!("Failed to create temp dir: {}", e)),
+            Err(e) => return media_job_failure_from_io("Failed to create temp dir", &e),
         };
 
         ctx.report_progress(10, Some("Downloading source file"));
@@ -670,24 +682,22 @@ impl JobHandler for MediaOptimizeHandler {
         // Download file data
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(tx) => tx,
-            Err(e) => return JobResult::Failed(format!("Failed to start transaction: {}", e)),
+            Err(e) => return media_job_failure_from_error("Failed to start transaction", &e),
         };
-        let (file_data, _ct, original_filename) = match file_storage
-            .download_file_tx(&mut tx, attachment_id)
-            .await
-        {
-            Ok(data) => data,
-            Err(e) => return JobResult::Failed(format!("Failed to download attachment: {}", e)),
-        };
+        let (file_data, _ct, original_filename) =
+            match file_storage.download_file_tx(&mut tx, attachment_id).await {
+                Ok(data) => data,
+                Err(e) => return media_job_failure_from_error("Failed to download attachment", &e),
+            };
         if let Err(e) = tx.commit().await {
-            return JobResult::Failed(format!("Transaction commit failed: {}", e));
+            return media_job_failure_from_error("Transaction commit failed", &e);
         }
 
         // Determine file extension from content type or filename
         let ext = extension_for_content_type(&content_type, &original_filename);
         let input_path = work_dir.path().join(format!("source.{}", ext));
         if let Err(e) = tokio::fs::write(&input_path, &file_data).await {
-            return JobResult::Failed(format!("Failed to write temp file: {}", e));
+            return media_job_failure_from_io("Failed to write temp file", &e);
         }
         drop(file_data); // Free memory
 
@@ -938,6 +948,39 @@ mod tests {
         assert!(!rendered.contains("db.internal"));
         assert!(!rendered.contains("/srv/private"));
         assert!(!rendered.contains("mm_key_media"));
+    }
+
+    #[test]
+    fn media_job_failures_use_stable_reason_codes() {
+        let raw_error =
+            "postgres://user:pass@db.internal/media failed for /srv/private/mm_key_media";
+        let failure = media_job_failure_from_error("Failed to download attachment", &raw_error);
+
+        match failure {
+            JobResult::Failed(message) => {
+                assert_eq!(message, "Failed to download attachment (database_error)");
+                assert!(!message.contains("postgres://user:pass"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/private"));
+                assert!(!message.contains("mm_key_media"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+
+        let io_error = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "denied for /srv/private/mm_key_media",
+        );
+        let failure = media_job_failure_from_io("Failed to write temp file", &io_error);
+
+        match failure {
+            JobResult::Failed(message) => {
+                assert_eq!(message, "Failed to write temp file (permission_denied)");
+                assert!(!message.contains("/srv/private"));
+                assert!(!message.contains("mm_key_media"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
     }
 
     // ── extension_for_content_type ────────────────────────────────────
