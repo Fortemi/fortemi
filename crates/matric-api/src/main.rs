@@ -17792,6 +17792,14 @@ struct ShardCounts {
     embedding_configs: usize,
 }
 
+fn shard_operation_failed(context: &'static str, error: impl std::fmt::Display) -> ApiError {
+    let diagnostic = error.to_string();
+    ApiError::OperationFailed {
+        operation: "Knowledge shard",
+        detail: format!("{context}; error_len={}", diagnostic.len()),
+    }
+}
+
 /// Create a knowledge shard (portable tar.gz export) with selected components.
 /// Respects X-Fortemi-Memory header for archive-scoped exports (#421).
 #[utoipa::path(get, path = "/api/v1/backup/knowledge-shard", tag = "Backup",
@@ -17896,9 +17904,8 @@ async fn knowledge_shard(
 
             counts.notes = notes_json.len();
             let notes_data = notes_json.join("\n").into_bytes();
-            add_json_file("notes.jsonl", &notes_data).map_err(|e| {
-                ApiError::BadRequest(format!("Failed to add notes to shard: {}", e))
-            })?;
+            add_json_file("notes.jsonl", &notes_data)
+                .map_err(|e| shard_operation_failed("add notes to shard", e))?;
         }
 
         // Export collections
@@ -17924,7 +17931,7 @@ async fn knowledge_shard(
                 .collect();
             let data = serde_json::to_vec_pretty(&collections_json).unwrap_or_default();
             add_json_file("collections.json", &data)
-                .map_err(|e| ApiError::BadRequest(format!("Failed to add collections: {}", e)))?;
+                .map_err(|e| shard_operation_failed("add collections to shard", e))?;
         }
 
         // Export tags
@@ -17943,7 +17950,7 @@ async fn knowledge_shard(
                 .collect();
             let data = serde_json::to_vec_pretty(&tags_json).unwrap_or_default();
             add_json_file("tags.json", &data)
-                .map_err(|e| ApiError::BadRequest(format!("Failed to add tags: {}", e)))?;
+                .map_err(|e| shard_operation_failed("add tags to shard", e))?;
         }
 
         // Export templates
@@ -17969,7 +17976,7 @@ async fn knowledge_shard(
                 .collect();
             let data = serde_json::to_vec_pretty(&templates_json).unwrap_or_default();
             add_json_file("templates.json", &data)
-                .map_err(|e| ApiError::BadRequest(format!("Failed to add templates: {}", e)))?;
+                .map_err(|e| shard_operation_failed("add templates to shard", e))?;
         }
 
         // Export links
@@ -17996,7 +18003,7 @@ async fn knowledge_shard(
             }
             let data = links_jsonl.join("\n").into_bytes();
             add_json_file("links.jsonl", &data)
-                .map_err(|e| ApiError::BadRequest(format!("Failed to add links: {}", e)))?;
+                .map_err(|e| shard_operation_failed("add links to shard", e))?;
         }
 
         // Export embedding sets
@@ -18024,9 +18031,8 @@ async fn knowledge_shard(
                 })
                 .collect();
             let data = serde_json::to_vec_pretty(&sets_json).unwrap_or_default();
-            add_json_file("embedding_sets.json", &data).map_err(|e| {
-                ApiError::BadRequest(format!("Failed to add embedding sets: {}", e))
-            })?;
+            add_json_file("embedding_sets.json", &data)
+                .map_err(|e| shard_operation_failed("add embedding sets to shard", e))?;
 
             // Export set members
             let members = sets_repo
@@ -18046,9 +18052,8 @@ async fn knowledge_shard(
                 members_jsonl.push(serde_json::to_string(&member_obj).unwrap_or_default());
             }
             let data = members_jsonl.join("\n").into_bytes();
-            add_json_file("embedding_set_members.jsonl", &data).map_err(|e| {
-                ApiError::BadRequest(format!("Failed to add embedding set members: {}", e))
-            })?;
+            add_json_file("embedding_set_members.jsonl", &data)
+                .map_err(|e| shard_operation_failed("add embedding set members to shard", e))?;
 
             // Export embedding configs
             let configs = sets_repo.list_configs_tx(&mut tx).await.unwrap_or_default();
@@ -18069,9 +18074,8 @@ async fn knowledge_shard(
                 })
                 .collect();
             let data = serde_json::to_vec_pretty(&configs_json).unwrap_or_default();
-            add_json_file("embedding_configs.json", &data).map_err(|e| {
-                ApiError::BadRequest(format!("Failed to add embedding configs: {}", e))
-            })?;
+            add_json_file("embedding_configs.json", &data)
+                .map_err(|e| shard_operation_failed("add embedding configs to shard", e))?;
         }
 
         // Export embeddings (optional, can be large)
@@ -18096,7 +18100,7 @@ async fn knowledge_shard(
             }
             let data = embeddings_jsonl.join("\n").into_bytes();
             add_json_file("embeddings.jsonl", &data)
-                .map_err(|e| ApiError::BadRequest(format!("Failed to add embeddings: {}", e)))?;
+                .map_err(|e| shard_operation_failed("add embeddings to shard", e))?;
         }
 
         // Create manifest (added last)
@@ -18121,11 +18125,11 @@ async fn knowledge_shard(
         header.set_mtime(chrono::Utc::now().timestamp() as u64);
         header.set_cksum();
         tar.append_data(&mut header, "manifest.json", manifest_data.as_slice())
-            .map_err(|e| ApiError::BadRequest(format!("Failed to add manifest: {}", e)))?;
+            .map_err(|e| shard_operation_failed("add manifest to shard", e))?;
 
         // Finalize tar
         tar.finish()
-            .map_err(|e| ApiError::BadRequest(format!("Failed to finalize shard: {}", e)))?;
+            .map_err(|e| shard_operation_failed("finalize shard archive", e))?;
     }
 
     // Commit the read-only transaction
@@ -18260,14 +18264,14 @@ async fn knowledge_shard_import_upload(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to read upload: {}", e)))?
+        .map_err(|_| ApiError::BadRequest("Invalid multipart upload request.".to_string()))?
     {
         if field.name() == Some("file") || field.name() == Some("shard") {
             shard_bytes = Some(
                 field
                     .bytes()
                     .await
-                    .map_err(|e| ApiError::BadRequest(format!("Failed to read file data: {}", e)))?
+                    .map_err(|_| ApiError::BadRequest("Invalid uploaded shard data.".to_string()))?
                     .to_vec(),
             );
             break;
@@ -23907,6 +23911,33 @@ mod tests {
         assert!(!body.contains("secret"));
         assert!(!body.contains("/srv/fortemi"));
         assert!(!body.contains("SQLSTATE"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn shard_operation_failed_returns_generic_problem_without_raw_detail() {
+        let err = shard_operation_failed(
+            "add embeddings to shard",
+            "tar append failed for /srv/fortemi/private/export.shard with postgres://user:secret@db.internal/app",
+        );
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/operation-failed"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Knowledge shard failed. Check server logs for diagnostics."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains("tar append"));
+        assert!(!body.contains("/srv/fortemi"));
+        assert!(!body.contains("postgres://"));
+        assert!(!body.contains("secret"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
