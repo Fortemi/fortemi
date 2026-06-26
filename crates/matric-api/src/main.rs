@@ -5215,7 +5215,22 @@ async fn normalize_route_policy_input_for_authorization(
     state: &AppState,
     input: route_policy::RoutePolicyInput,
 ) -> route_policy::RoutePolicyInput {
-    normalize_note_route_policy_input(input, |note_id| state.db.notes.exists(note_id)).await
+    let input =
+        normalize_note_route_policy_input(input, |note_id| state.db.notes.exists(note_id)).await;
+    normalize_attachment_route_policy_input(input, |attachment_id| async move {
+        let Some(file_storage) = state.db.file_storage.as_ref() else {
+            return Err(matric_core::Error::Config(
+                "file storage not configured".to_string(),
+            ));
+        };
+
+        match file_storage.get(attachment_id).await {
+            Ok(attachment) => Ok(Some(attachment.note_id)),
+            Err(matric_core::Error::NotFound(_)) => Ok(None),
+            Err(err) => Err(err),
+        }
+    })
+    .await
 }
 
 async fn normalize_note_route_policy_input<F, Fut>(
@@ -5258,6 +5273,70 @@ where
         }
         Err(err) => {
             tracing::warn!(error = %err, "authorization resource normalization lookup failed");
+        }
+    }
+
+    input
+}
+
+async fn normalize_attachment_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    attachment_parent_note: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(Uuid) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<Uuid>>>,
+{
+    if input.resource.kind != ResourceKind::Attachment
+        || input
+            .resource
+            .attrs
+            .get("resource_id_param")
+            .and_then(|value| value.as_str())
+            != Some("attachment_id")
+        || !input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        return input;
+    }
+
+    let Some(resource_id) = input.resource.id.as_deref() else {
+        return input;
+    };
+    let Ok(attachment_id) = Uuid::parse_str(resource_id) else {
+        tracing::warn!("authorization resource normalization skipped: invalid attachment id");
+        return input;
+    };
+
+    match attachment_parent_note(attachment_id).await {
+        Ok(Some(note_id)) => {
+            route_policy::mark_resource_id_normalized(&mut input);
+            input.resource.attrs.insert(
+                "parent_resource_kind".to_string(),
+                serde_json::json!("Note"),
+            );
+            input
+                .resource
+                .attrs
+                .insert("parent_note_id".to_string(), serde_json::json!(note_id));
+        }
+        Ok(None) => {
+            tracing::warn!(
+                "authorization resource normalization skipped: attachment does not exist"
+            );
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "authorization attachment normalization lookup failed");
         }
     }
 
@@ -21630,6 +21709,99 @@ mod tests {
         .expect("note route has policy input");
 
         let normalized = normalize_note_route_policy_input(input, |_lookup_id| async move {
+            Err(matric_core::Error::Internal("lookup failed".to_string()))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn existing_attachment_route_id_is_marked_normalized_with_parent_note() {
+        let attachment_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000002").unwrap();
+        let parent_note_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000001").unwrap();
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/attachments/018fd1a0-0000-7000-8000-000000000002/download",
+            Some("tenant-a"),
+        )
+        .expect("attachment route has policy input");
+
+        let normalized = normalize_attachment_route_policy_input(input, |lookup_id| async move {
+            assert_eq!(lookup_id, attachment_id);
+            Ok(Some(parent_note_id))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert_eq!(normalized.resource.attrs["parent_resource_kind"], "Note");
+        assert_eq!(
+            normalized.resource.attrs["parent_note_id"],
+            serde_json::json!(parent_note_id)
+        );
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_attachment_route_id_stays_unnormalized_after_backing_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/attachments/018fd1a0-0000-7000-8000-000000000002/download",
+            Some("tenant-a"),
+        )
+        .expect("attachment route has policy input");
+
+        let normalized =
+            normalize_attachment_route_policy_input(input, |_lookup_id| async move { Ok(None) })
+                .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("parent_note_id").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn note_scoped_attachment_routes_do_not_treat_note_id_as_attachment_id() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/attachments",
+            Some("tenant-a"),
+        )
+        .expect("note attachment route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Attachment);
+        assert_eq!(input.resource.attrs["resource_id_param"], "id");
+
+        let normalized = normalize_attachment_route_policy_input(input, |_lookup_id| async move {
+            panic!("note-scoped attachment routes must not perform attachment lookup");
+            #[allow(unreachable_code)]
+            Ok(Some(Uuid::new_v4()))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("parent_note_id").is_none());
+    }
+
+    #[tokio::test]
+    async fn attachment_normalization_lookup_error_preserves_fail_closed_guard() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/attachments/018fd1a0-0000-7000-8000-000000000002/download",
+            Some("tenant-a"),
+        )
+        .expect("attachment route has policy input");
+
+        let normalized = normalize_attachment_route_policy_input(input, |_lookup_id| async move {
             Err(matric_core::Error::Internal("lookup failed".to_string()))
         })
         .await;
