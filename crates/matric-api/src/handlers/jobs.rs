@@ -66,6 +66,8 @@ const JOB_REVISION_NOTE_UPDATE_FAILURE_DETAIL: &str = "job_revision_note_update_
 const JOB_CONTEXT_DISCOVERY_FAILURE_DETAIL: &str = "job_context_discovery_failed";
 const JOB_TITLE_ESCALATION_FAILURE_DETAIL: &str = "job_title_escalation_failed";
 const JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_linking_diagnostic_failed";
+const JOB_PURGE_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_purge_diagnostic_failed";
+const JOB_CONTEXT_UPDATE_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_context_update_diagnostic_failed";
 
 fn diagnostic_len(error: impl std::fmt::Display) -> usize {
     error.to_string().chars().count()
@@ -2652,7 +2654,13 @@ impl LinkingHandler {
         let concept_map = match self.db.skos.get_concept_ids_bulk(&note_ids).await {
             Ok(m) => m,
             Err(e) => {
-                debug!(error = %e, "Failed to fetch concepts for tag boost, using pure embedding similarity");
+                debug!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "tag_boost_concept_fetch",
+                    candidate_count = candidates.len(),
+                    "Failed to fetch concepts for tag boost, using pure embedding similarity"
+                );
                 return;
             }
         };
@@ -2982,7 +2990,12 @@ impl LinkingHandler {
                     .await;
                 tx.commit().await.ok();
                 if let Err(e) = res {
-                    debug!(error = %e, "Failed to create forward link (may already exist)");
+                    debug!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "threshold_create_forward_link",
+                        "Failed to create forward link"
+                    );
                 } else {
                     created += 1;
                 }
@@ -3001,7 +3014,12 @@ impl LinkingHandler {
                     .await;
                 tx.commit().await.ok();
                 if let Err(e) = res {
-                    debug!(error = %e, "Failed to create backward link (may already exist)");
+                    debug!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "threshold_create_backward_link",
+                        "Failed to create backward link"
+                    );
                 } else {
                     created += 1;
                 }
@@ -3099,7 +3117,13 @@ impl JobHandler for LinkingHandler {
                         .create(note_id, target_id, "wiki", 1.0, Some(metadata))
                         .await
                     {
-                        debug!(error = %e, target = %link_title, "Failed to create wiki link (may already exist)");
+                        debug!(
+                            error_len = diagnostic_len(&e),
+                            detail = JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
+                            operation = "create_wiki_link",
+                            title_len = link_title.chars().count(),
+                            "Failed to create wiki link"
+                        );
                     } else {
                         created += 1;
                         wiki_links_resolved += 1;
@@ -3324,7 +3348,12 @@ impl JobHandler for PurgeNoteHandler {
         {
             Ok(s) => s,
             Err(e) => {
-                warn!(error = %e, "Failed to get embedding sets for note, continuing with deletion");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_PURGE_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "get_embedding_sets_for_note",
+                    "Failed to get embedding sets for note, continuing with deletion"
+                );
                 vec![]
             }
         };
@@ -3377,7 +3406,12 @@ impl JobHandler for PurgeNoteHandler {
         let mut stats_updated = 0;
         for set_id in &affected_sets {
             if let Err(e) = self.db.embedding_sets.refresh_stats(*set_id).await {
-                warn!(error = %e, set_id = %set_id, "Failed to update embedding set stats");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_PURGE_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "refresh_embedding_set_stats",
+                    "Failed to update embedding set stats"
+                );
             } else {
                 stats_updated += 1;
             }
@@ -3464,7 +3498,12 @@ impl JobHandler for ContextUpdateHandler {
                 .take(MAX_PROMPT_SNIPPETS)
                 .collect::<Vec<_>>(),
             Err(e) => {
-                warn!(error = %e, "Failed to get links");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_CONTEXT_UPDATE_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "get_outgoing_links",
+                    "Failed to get links"
+                );
                 return JobResult::Success(Some(
                     serde_json::json!({"updated": false, "reason": "no_links"}),
                 ));
@@ -8146,6 +8185,8 @@ Quick note about the meeting discussion and action items."#;
             JOB_CONTEXT_DISCOVERY_FAILURE_DETAIL,
             JOB_TITLE_ESCALATION_FAILURE_DETAIL,
             JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
+            JOB_PURGE_DIAGNOSTIC_FAILURE_DETAIL,
+            JOB_CONTEXT_UPDATE_DIAGNOSTIC_FAILURE_DETAIL,
         ] {
             assert!(!detail.contains("token:secret"));
             assert!(!detail.contains("provider.internal"));
