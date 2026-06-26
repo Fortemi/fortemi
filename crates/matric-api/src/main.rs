@@ -20148,6 +20148,11 @@ impl std::fmt::Debug for BackupStatusResponse {
     }
 }
 
+fn backup_status_reason_status(status: &'static str, error: impl std::fmt::Display) -> String {
+    let diagnostic = error.to_string();
+    format!("{status}: {}", backup_diagnostic_reason(&diagnostic))
+}
+
 #[derive(Serialize)]
 struct LatestBackupInfo {
     path: String,
@@ -20197,7 +20202,7 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
                 response.status = "no_backups".to_string();
             }
             Err(e) => {
-                response.status = format!("cannot_create_directory: {}", e);
+                response.status = backup_status_reason_status("cannot_create_directory", e);
                 return Ok(Json(response));
             }
         }
@@ -28247,6 +28252,25 @@ mod tests {
             "healthy-private",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn backup_status_directory_failure_uses_stable_reason_code() {
+        let raw_error = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "permission denied for /srv/backups/customer/postgres://user:pass@db.internal/mm_key_backup_secret",
+        );
+        let status = backup_status_reason_status("cannot_create_directory", raw_error);
+
+        assert_eq!(status, "cannot_create_directory: permission_denied");
+        for raw in [
+            "/srv/backups/customer",
+            "postgres://user:pass",
+            "db.internal",
+            "mm_key_backup_secret",
+        ] {
+            assert!(!status.contains(raw), "raw value leaked: {raw}");
         }
     }
 
