@@ -49,6 +49,10 @@ const CONTEXT_UPDATE_JOB_FAILURE: &str =
     "Context update failed. Check server logs for diagnostics.";
 const LINKING_JOB_FAILURE: &str = "Linking job failed. Check server logs for diagnostics.";
 const PURGE_JOB_FAILURE: &str = "Purge job failed. Check server logs for diagnostics.";
+const CONCEPT_TAGGING_JOB_FAILURE: &str =
+    "Concept tagging failed. Check server logs for diagnostics.";
+const RELATED_CONCEPT_JOB_FAILURE: &str =
+    "Related concept inference failed. Check server logs for diagnostics.";
 
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
@@ -180,6 +184,30 @@ fn purge_job_failure(error: impl std::fmt::Display, operation: &'static str) -> 
     let diagnostic = error.to_string();
     warn!(error_len = diagnostic.len(), operation, "Purge job failed");
     JobResult::Failed(PURGE_JOB_FAILURE.to_string())
+}
+
+fn concept_tagging_job_failure(
+    error: impl std::fmt::Display,
+    operation: &'static str,
+) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "Concept tagging job failed"
+    );
+    JobResult::Failed(CONCEPT_TAGGING_JOB_FAILURE.to_string())
+}
+
+fn related_concept_job_failure(
+    error: impl std::fmt::Display,
+    operation: &'static str,
+) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "Related concept inference job failed"
+    );
+    JobResult::Failed(RELATED_CONCEPT_JOB_FAILURE.to_string())
 }
 
 /// Extract the target schema from a job's payload.
@@ -3971,11 +3999,11 @@ impl JobHandler for ConceptTaggingHandler {
         // Get the note and existing concepts in one transaction
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return concept_tagging_job_failure(e, "fetch_note_begin_tx"),
         };
         let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
-            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+            Err(e) => return concept_tagging_job_failure(e, "fetch_note"),
         };
         // Fetch existing SKOS concepts already tagged on this note so the LLM
         // can reuse them and fill in gaps rather than starting from scratch.
@@ -4138,7 +4166,7 @@ impl JobHandler for ConceptTaggingHandler {
             // Resolve or create the concept hierarchy in a single transaction
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => return concept_tagging_job_failure(e, "resolve_concept_begin_tx"),
             };
 
             let resolved = match self
@@ -4963,7 +4991,7 @@ impl JobHandler for RelatedConceptHandler {
                 if let Some(jid) = link_id {
                     ctx.emit_job_queued(jid, JobType::Linking, Some(note_id));
                 }
-                return JobResult::Failed(format!("Schema tx failed: {}", e));
+                return related_concept_job_failure(e, "fetch_concepts_begin_tx");
             }
         };
 
@@ -8189,6 +8217,48 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("/srv/fortemi"));
                 assert!(!message.contains("SQLSTATE"));
                 assert!(!message.contains("purge delete failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn concept_tagging_job_failure_uses_generic_stored_message() {
+        let result = concept_tagging_job_failure(
+            "concept tagging note fetch failed for postgres://user:secret@db.internal/app at /srv/fortemi SQLSTATE 42P01",
+            "fetch_note",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, CONCEPT_TAGGING_JOB_FAILURE);
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("note fetch failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn related_concept_job_failure_uses_generic_stored_message() {
+        let result = related_concept_job_failure(
+            "related concept lookup failed for postgres://user:secret@db.internal/app at /srv/fortemi SQLSTATE 08006",
+            "fetch_concepts_begin_tx",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, RELATED_CONCEPT_JOB_FAILURE);
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("lookup failed"));
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
