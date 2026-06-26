@@ -23190,6 +23190,34 @@ mod tests {
         ))
     }
 
+    async fn route_problem_contract_status_handler(
+        Path(status): Path<String>,
+    ) -> axum::response::Response {
+        match status.as_str() {
+            "400" => ApiError::BadRequest("invalid request shape".to_string()).into_response(),
+            "401" => {
+                ApiError::Unauthorized("missing or invalid credentials".to_string()).into_response()
+            }
+            "403" => ApiError::Forbidden("authorization denied".to_string()).into_response(),
+            "404" => ApiError::NotFound("resource not found".to_string()).into_response(),
+            "409" => ApiError::Conflict("resource conflict".to_string()).into_response(),
+            "429" => problem_response(
+                StatusCode::TOO_MANY_REQUESTS,
+                ProblemType::RateLimit,
+                "Too many requests. Please wait before retrying.".to_string(),
+                None,
+            ),
+            "500" => ApiError::Internal(
+                "postgres://user:secret@db.internal/app failed at /srv/fortemi/private".to_string(),
+            )
+            .into_response(),
+            "503" => {
+                ApiError::ServiceUnavailable("service unavailable".to_string()).into_response()
+            }
+            _ => ApiError::NotFound("unknown problem contract fixture".to_string()).into_response(),
+        }
+    }
+
     #[test]
     fn oauth_handler_request_debug_redacts_tokens() {
         let introspect = IntrospectRequest {
@@ -23403,6 +23431,74 @@ mod tests {
         assert!(!body.contains("secret"));
         assert!(!body.contains("db.internal"));
         assert!(!body.contains("/srv/fortemi"));
+    }
+
+    #[tokio::test]
+    async fn route_error_boundary_covers_representative_problem_statuses() {
+        let router = Router::new()
+            .route(
+                "/api/v1/problem-contract-status/{status}",
+                get(route_problem_contract_status_handler),
+            )
+            .layer(PropagateRequestIdLayer::x_request_id())
+            .layer(SetRequestIdLayer::x_request_id(MakeRequestUuidV7))
+            .layer(axum::middleware::from_fn(problem_request_id_middleware))
+            .layer(axum::middleware::from_fn(security_headers_middleware));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind problem status contract test server");
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        for (status, problem_type) in [
+            (400_u16, "https://fortemi.com/problems/validation-error"),
+            (401, "https://fortemi.com/problems/unauthorized"),
+            (403, "https://fortemi.com/problems/forbidden"),
+            (404, "https://fortemi.com/problems/not-found"),
+            (409, "https://fortemi.com/problems/conflict"),
+            (429, "https://fortemi.com/problems/rate-limit-exceeded"),
+            (500, "https://fortemi.com/problems/internal-error"),
+            (503, "https://fortemi.com/problems/service-unavailable"),
+        ] {
+            let request_id = format!("018fd1a0-status-{status}");
+            let response = client
+                .get(format!(
+                    "{base_url}/api/v1/problem-contract-status/{status}"
+                ))
+                .header("x-request-id", &request_id)
+                .send()
+                .await
+                .expect("send problem status route request");
+
+            assert_eq!(response.status().as_u16(), status);
+            let headers = response.headers().clone();
+            assert_eq!(
+                headers.get(reqwest::header::CONTENT_TYPE).unwrap(),
+                "application/problem+json"
+            );
+            assert_eq!(
+                headers.get(reqwest::header::CACHE_CONTROL).unwrap(),
+                "no-store"
+            );
+            assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
+            assert_eq!(headers.get("x-frame-options").unwrap(), "DENY");
+
+            let problem: serde_json::Value = response.json().await.expect("problem JSON body");
+            assert_eq!(problem["type"], problem_type);
+            assert_eq!(problem["status"], status);
+            assert_eq!(problem["request_id"], request_id);
+            assert!(problem.get("error").is_none());
+            assert!(problem.get("error_description").is_none());
+
+            let body = problem.to_string();
+            assert!(!body.contains("postgres://"));
+            assert!(!body.contains("secret"));
+            assert!(!body.contains("db.internal"));
+            assert!(!body.contains("/srv/fortemi"));
+        }
     }
 
     #[test]
