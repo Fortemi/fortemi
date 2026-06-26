@@ -157,6 +157,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-26 continuation: Speaker relabel broad logs now report error lengths, stable reason classes, and attachment presence flags instead of raw caption-storage backend error text and raw attachment IDs.
   - 2026-06-26 continuation: Audio transcription broad logs now report error lengths, stable reason classes, filename lengths, and note presence flags instead of raw caption filenames, queue/transcode/chunk backend errors, or raw note IDs.
   - 2026-06-26 continuation: Audio chunk fan-in broad logs now report error lengths and stable reason classes instead of raw fan-in count or merge backend error text.
+  - 2026-06-26 continuation: Extraction result, faststart, and thumbnail broad logs now report attachment/note presence flags, error lengths, and stable reason classes instead of raw attachment IDs, thumbnail IDs, or backend error text.
 - [x] **#926 / #928 / #933** fail-closed startup: require issuer in multi-tenant; reject invalid security booleans; validate rate-limit env before constructing limiter. (2026-06-26: startup-config slice added strict parsing for auth/tenant/local-issuer/rate-limit/realtime-consent booleans, hosted-safe issuer validation reused by AsyncAPI metadata, deterministic process-local rate-limit numeric validation before limiter construction, and operator/env docs for accepted forms, local issuer override, and hosted issuer requirements. Issues closed after focused regression tests and docs audit.)
 
 ## Phase 1 — Open BSL desktop GA  `tier/open-build`
@@ -476,3 +477,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-26 — #968/#974 speaker relabel logs now report error lengths, stable reason classes, and attachment presence flags instead of raw caption-storage backend error text and raw attachment IDs.
 - 2026-06-26 — #968/#974 audio transcription logs now report error lengths, stable reason classes, filename lengths, and note presence flags instead of raw caption filenames, queue/transcode/chunk backend errors, or raw note IDs.
 - 2026-06-26 — #968/#974 audio chunk fan-in logs now report error lengths and stable reason classes instead of raw fan-in count or merge backend error text.
+- 2026-06-26 — #968/#974 extraction result, faststart, and thumbnail logs now report attachment/note presence flags, error lengths, and stable reason classes instead of raw attachment IDs, thumbnail IDs, or backend error text.

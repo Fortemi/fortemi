@@ -447,9 +447,11 @@ impl JobHandler for ExtractionHandler {
                                     )
                                     .await
                                 {
+                                    let error_text = e.to_string();
                                     error!(
-                                        attachment_id = %att_id,
-                                        error = %e,
+                                        attachment_present = true,
+                                        error_len = telemetry_text_len(&error_text),
+                                        error_reason = extraction_error_reason_code(&error_text),
                                         "Failed to persist extracted content"
                                     );
                                 }
@@ -467,9 +469,12 @@ impl JobHandler for ExtractionHandler {
                                         )
                                         .await
                                     {
+                                        let error_text = e.to_string();
                                         error!(
-                                            attachment_id = %att_id,
-                                            error = %e,
+                                            attachment_present = true,
+                                            error_len = telemetry_text_len(&error_text),
+                                            error_reason =
+                                                extraction_error_reason_code(&error_text),
                                             "Failed to persist ai_description"
                                         );
                                     }
@@ -484,25 +489,31 @@ impl JobHandler for ExtractionHandler {
                                     )
                                     .await
                                 {
+                                    let error_text = e.to_string();
                                     error!(
-                                        attachment_id = %att_id,
-                                        error = %e,
+                                        attachment_present = true,
+                                        error_len = telemetry_text_len(&error_text),
+                                        error_reason = extraction_error_reason_code(&error_text),
                                         "Failed to update attachment status"
                                     );
                                 }
 
                                 if let Err(e) = tx.commit().await {
+                                    let error_text = e.to_string();
                                     error!(
-                                        attachment_id = %att_id,
-                                        error = %e,
+                                        attachment_present = true,
+                                        error_len = telemetry_text_len(&error_text),
+                                        error_reason = extraction_error_reason_code(&error_text),
                                         "Failed to commit extraction results"
                                     );
                                 }
                             }
                             Err(e) => {
+                                let error_text = e.to_string();
                                 error!(
-                                    attachment_id = %att_id,
-                                    error = %e,
+                                    attachment_present = true,
+                                    error_len = telemetry_text_len(&error_text),
+                                    error_reason = extraction_error_reason_code(&error_text),
                                     "Failed to begin schema tx for persisting results"
                                 );
                             }
@@ -541,9 +552,18 @@ impl JobHandler for ExtractionHandler {
                                                 Ok(optimized) if optimized != fs_str => {
                                                     // Replace original file with optimized version
                                                     if let Err(e) = tokio::fs::copy(&optimized, &fs_path).await {
-                                                        warn!(error = %e, "Failed to copy faststart-optimized file");
+                                                        let error_text = e.to_string();
+                                                        warn!(
+                                                            attachment_present = true,
+                                                            error_len = telemetry_text_len(&error_text),
+                                                            error_reason = extraction_error_reason_code(&error_text),
+                                                            "Failed to copy faststart-optimized file"
+                                                        );
                                                     } else {
-                                                        info!(attachment_id = %att_id, "MP4 faststart optimization applied");
+                                                        info!(
+                                                            attachment_present = true,
+                                                            "MP4 faststart optimization applied"
+                                                        );
                                                     }
                                                 }
                                                 _ => {} // Already optimized or failed gracefully
@@ -578,25 +598,48 @@ impl JobHandler for ExtractionHandler {
                                 )
                                 .await
                             {
-                                Ok(thumb_att) => {
+                                Ok(_thumb_att) => {
                                     // Mark parent as having a preview
                                     if let Err(e) =
                                         file_storage.set_has_preview_tx(&mut tx, att_id, true).await
                                     {
-                                        warn!(error = %e, "Failed to set has_preview on parent");
+                                        let error_text = e.to_string();
+                                        warn!(
+                                            attachment_present = true,
+                                            note_present = true,
+                                            error_len = telemetry_text_len(&error_text),
+                                            error_reason =
+                                                extraction_error_reason_code(&error_text),
+                                            "Failed to set has_preview on parent"
+                                        );
                                     }
                                     if let Err(e) = tx.commit().await {
-                                        error!(error = %e, "Failed to commit thumbnail");
+                                        let error_text = e.to_string();
+                                        error!(
+                                            attachment_present = true,
+                                            note_present = true,
+                                            error_len = telemetry_text_len(&error_text),
+                                            error_reason =
+                                                extraction_error_reason_code(&error_text),
+                                            "Failed to commit thumbnail"
+                                        );
                                     } else {
                                         info!(
-                                            parent = %att_id,
-                                            thumbnail = %thumb_att.id,
+                                            parent_attachment_present = true,
+                                            thumbnail_attachment_present = true,
                                             "Thumbnail persisted as derived attachment"
                                         );
                                     }
                                 }
                                 Err(e) => {
-                                    warn!(error = %e, "Failed to store thumbnail attachment");
+                                    let error_text = e.to_string();
+                                    warn!(
+                                        attachment_present = true,
+                                        note_present = true,
+                                        error_len = telemetry_text_len(&error_text),
+                                        error_reason = extraction_error_reason_code(&error_text),
+                                        "Failed to store thumbnail attachment"
+                                    );
                                     drop(tx);
                                 }
                             }
