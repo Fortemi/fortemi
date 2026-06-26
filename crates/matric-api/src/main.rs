@@ -363,11 +363,33 @@ fn parse_revision_mode(mode: Option<&str>) -> Result<RevisionMode, ApiError> {
         Some("contextual_filtered") => Ok(RevisionMode::ContextualFiltered),
         Some("none") => Ok(RevisionMode::None),
         None => Ok(RevisionMode::Standard),
-        Some(other) => Err(ApiError::BadRequest(format!(
-            "Invalid revision_mode '{}'. Must be one of: standard, light, full, contextual, contextual_filtered, none",
-            other
-        ))),
+        Some(_) => Err(invalid_revision_mode(None, REVISION_MODE_ALLOWED_FULL)),
     }
+}
+
+const REVISION_MODE_ALLOWED_FULL: &str =
+    "standard, light, full, contextual, contextual_filtered, none";
+const REVISION_MODE_ALLOWED_BULK: &str = "full, light, none";
+
+fn invalid_revision_mode(index: Option<usize>, allowed: &str) -> ApiError {
+    let detail = match index {
+        Some(i) => format!("Note at index {i}: invalid revision_mode. Must be one of: {allowed}"),
+        None => format!("Invalid revision_mode. Must be one of: {allowed}"),
+    };
+    ApiError::BadRequest(detail)
+}
+
+fn unknown_document_type(index: Option<usize>) -> ApiError {
+    let detail = match index {
+        Some(i) => format!(
+            "Note at index {i}: unknown document_type. Use GET /api/v1/document-types to list available types"
+        ),
+        None => {
+            "Unknown document_type. Use GET /api/v1/document-types to list available types"
+                .to_string()
+        }
+    };
+    ApiError::BadRequest(detail)
 }
 
 /// Validate optional chunking parameters for revision. (#572)
@@ -9556,12 +9578,7 @@ async fn create_note(
                     .unwrap_or(false);
                 Some(dt.id)
             }
-            None => {
-                return Err(ApiError::BadRequest(format!(
-                    "Unknown document_type '{}'. Use GET /api/v1/document-types to list available types",
-                    slug
-                )))
-            }
+            None => return Err(unknown_document_type(None)),
         }
     } else {
         body.document_type_id
@@ -9782,10 +9799,7 @@ async fn bulk_create_notes(
     for (i, note) in body.notes.iter().enumerate() {
         if let Some(ref mode) = note.revision_mode {
             if !matches!(mode.as_str(), "full" | "light" | "none") {
-                return Err(ApiError::BadRequest(format!(
-                    "Note at index {}: invalid revision_mode '{}'. Must be one of: full, light, none",
-                    i, mode
-                )));
+                return Err(invalid_revision_mode(Some(i), REVISION_MODE_ALLOWED_BULK));
             }
         }
     }
@@ -9796,12 +9810,7 @@ async fn bulk_create_notes(
         if let Some(ref slug) = note.document_type {
             match state.db.document_types.get_by_name(slug).await? {
                 Some(dt) => resolved_doc_type_ids.push(Some(dt.id)),
-                None => {
-                    return Err(ApiError::BadRequest(format!(
-                        "Note at index {}: unknown document_type '{}'. Use GET /api/v1/document-types to list available types",
-                        i, slug
-                    )))
-                }
+                None => return Err(unknown_document_type(Some(i))),
             }
         } else {
             resolved_doc_type_ids.push(note.document_type_id);
@@ -24447,6 +24456,47 @@ mod tests {
         assert!(!body.contains("token:secret"));
         assert!(!body.contains("provider.internal"));
         assert!(!body.contains("https://token:secret@provider.internal"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn note_mode_and_document_type_validation_do_not_echo_input() {
+        let submitted_revision_mode = "contextual://token:secret@provider.internal/private";
+        let err = invalid_revision_mode(None, REVISION_MODE_ALLOWED_FULL);
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(
+            problem["detail"],
+            format!("Invalid revision_mode. Must be one of: {REVISION_MODE_ALLOWED_FULL}")
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_revision_mode));
+        assert!(!body.contains("token:secret"));
+        assert!(!body.contains("provider.internal"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+
+        let submitted_document_type = "client-private/project-alpha";
+        let err = unknown_document_type(Some(3));
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["detail"],
+            "Note at index 3: unknown document_type. Use GET /api/v1/document-types to list available types"
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_document_type));
+        assert!(!body.contains("client-private"));
+        assert!(!body.contains("project-alpha"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
