@@ -33,6 +33,8 @@ const GRAPH_MAINTENANCE_STEP_FAILURE: &str =
     "Graph maintenance step failed. Check server logs for diagnostics.";
 const ATTACHMENT_PROCESSING_JOB_FAILURE: &str =
     "Attachment processing failed. Check server logs for diagnostics.";
+const SCHEMA_CONTEXT_JOB_FAILURE: &str =
+    "Job schema context failed. Check server logs for diagnostics.";
 
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
@@ -91,8 +93,15 @@ fn extract_schema(ctx: &JobContext) -> &str {
 
 /// Create a SchemaContext for the given schema, returning a JobResult error on failure.
 fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResult> {
-    db.for_schema(schema)
-        .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
+    db.for_schema(schema).map_err(|e| {
+        let diagnostic = e.to_string();
+        warn!(
+            schema_len = schema.len(),
+            error_len = diagnostic.len(),
+            "Job schema context failed"
+        );
+        JobResult::Failed(SCHEMA_CONTEXT_JOB_FAILURE.to_string())
+    })
 }
 
 /// Extract an optional model override from a job's payload.
@@ -7841,6 +7850,22 @@ Quick note about the meeting discussion and action items."#;
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn schema_context_job_failure_message_is_generic() {
+        let message = SCHEMA_CONTEXT_JOB_FAILURE.to_string();
+
+        assert_eq!(
+            message,
+            "Job schema context failed. Check server logs for diagnostics."
+        );
+        assert!(!message.contains("tenant_secret_schema"));
+        assert!(!message.contains("postgres://"));
+        assert!(!message.contains("user:secret"));
+        assert!(!message.contains("db.internal"));
+        assert!(!message.contains("/srv/fortemi"));
+        assert!(!message.contains("SQLSTATE"));
     }
 
     #[test]
