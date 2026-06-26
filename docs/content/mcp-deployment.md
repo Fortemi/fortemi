@@ -340,14 +340,16 @@ docker compose -f docker-compose.bundle.yml logs matric | grep -E "MCP|credentia
 ```
 >>> Auto-registering MCP OAuth client...
   WARNING: MCP client auto-registration failed
-  Response: {"error":"invalid_request"}
+  Response: application/problem+json invalid-request problem
   MCP server will start but token introspection will fail
   Fix: manually register via POST /oauth/register
 ```
 
-**Cause:** API not ready or database migration failed.
+**Cause:** API not ready, database migration failed, or registration validation
+returned a Problem Details response.
 
-**Fix:** Check API logs for errors, ensure migrations completed successfully.
+**Fix:** Check the problem `type` and `request_id`, inspect API logs for that
+request id, and ensure migrations completed successfully.
 
 ### Health Checks
 

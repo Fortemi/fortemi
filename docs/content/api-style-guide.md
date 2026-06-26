@@ -540,15 +540,15 @@ All IDs are UUIDs (version 4) unless otherwise specified:
 ### Response Design
 
 1. **Single Format**: Use consistent JSON structure across endpoints
-2. **Error Format**: Always use `{"error": "message"}` format
+2. **Error Format**: Use RFC 9457 Problem Details with stable Fortemi `type` URIs
 3. **Null Handling**: Use `null` for missing optional fields, omit or use empty array/object for collections
 4. **Timestamps**: Always ISO 8601 format with timezone (UTC)
 5. **Metadata**: Include metadata for search/list responses (scores, warnings, pagination info)
 
 ### Error Handling
 
-1. **User-Friendly**: Write error messages for developers (be specific)
-2. **Actionable**: Include what went wrong and how to fix it
+1. **Stable**: Use registered problem types and safe `detail` text
+2. **Actionable**: Include remediation only when it does not expose internals
 3. **Status Codes**: Use correct HTTP status codes
 4. **No Leaks**: Don't expose internal stack traces or database errors
 5. **Logging**: Log errors server-side for debugging
