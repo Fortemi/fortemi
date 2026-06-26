@@ -13085,9 +13085,17 @@ fn escape_turtle(s: &str) -> String {
 // SKOS COLLECTION HANDLERS (W3C SKOS Section 9)
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ListSkosCollectionsQuery {
     scheme_id: Option<Uuid>,
+}
+
+impl fmt::Debug for ListSkosCollectionsQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ListSkosCollectionsQuery")
+            .field("scheme_id_set", &self.scheme_id.is_some())
+            .finish()
+    }
 }
 
 #[utoipa::path(get, path = "/api/v1/concepts/collections", tag = "SKOS",
@@ -13328,9 +13336,17 @@ async fn remove_skos_collection_member(
 // COLLECTION HANDLERS
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ListCollectionsQuery {
     parent_id: Option<Uuid>,
+}
+
+impl fmt::Debug for ListCollectionsQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ListCollectionsQuery")
+            .field("parent_id_set", &self.parent_id.is_some())
+            .finish()
+    }
 }
 
 #[utoipa::path(get, path = "/api/v1/collections", tag = "Collections",
@@ -26610,11 +26626,16 @@ mod tests {
         let move_note = MoveNoteBody {
             collection_id: Some(collection_id),
         };
+        let list = ListCollectionsQuery {
+            parent_id: Some(parent_id),
+        };
 
         let rendered_create = format!("{create:?}");
         let rendered_update = format!("{update:?}");
         let rendered_move = format!("{move_note:?}");
-        let combined = format!("{rendered_create}\n{rendered_update}\n{rendered_move}");
+        let rendered_list = format!("{list:?}");
+        let combined =
+            format!("{rendered_create}\n{rendered_update}\n{rendered_move}\n{rendered_list}");
 
         assert!(rendered_create.contains("CreateCollectionBody"));
         assert!(rendered_create.contains("name_len"));
@@ -26623,6 +26644,8 @@ mod tests {
         assert!(rendered_update.contains("UpdateCollectionBody"));
         assert!(rendered_move.contains("MoveNoteBody"));
         assert!(rendered_move.contains("collection_id_set"));
+        assert!(rendered_list.contains("ListCollectionsQuery"));
+        assert!(rendered_list.contains("parent_id_set"));
 
         for raw in [
             "Customer Payroll",
@@ -26664,11 +26687,17 @@ mod tests {
         let governance = GovernanceQuery {
             scheme_id: Some(governance_scheme_id),
         };
+        let list_collections = ListSkosCollectionsQuery {
+            scheme_id: Some(scheme_id),
+        };
 
         let rendered_search = format!("{search:?}");
         let rendered_autocomplete = format!("{autocomplete:?}");
         let rendered_governance = format!("{governance:?}");
-        let combined = format!("{rendered_search}\n{rendered_autocomplete}\n{rendered_governance}");
+        let rendered_list_collections = format!("{list_collections:?}");
+        let combined = format!(
+            "{rendered_search}\n{rendered_autocomplete}\n{rendered_governance}\n{rendered_list_collections}"
+        );
 
         assert!(rendered_search.contains("SearchConceptsQuery"));
         assert!(rendered_search.contains("q_len"));
@@ -26678,6 +26707,8 @@ mod tests {
         assert!(rendered_autocomplete.contains("AutocompleteQuery"));
         assert!(rendered_autocomplete.contains("q_len"));
         assert!(rendered_governance.contains("GovernanceQuery"));
+        assert!(rendered_list_collections.contains("ListSkosCollectionsQuery"));
+        assert!(rendered_list_collections.contains("scheme_id_set"));
         assert!(rendered_governance.contains("scheme_id_set"));
 
         for raw in [
