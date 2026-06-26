@@ -31,6 +31,10 @@ fn video_path_len(path: &str) -> usize {
     path.len()
 }
 
+fn video_text_len(text: &str) -> usize {
+    text.len()
+}
+
 fn video_display_path_len(path: &Path) -> usize {
     path.display().to_string().len()
 }
@@ -62,6 +66,28 @@ fn video_stderr_reason_code(stderr: &[u8]) -> &'static str {
         "timed_out"
     } else {
         "command_failed"
+    }
+}
+
+fn video_error_reason_code(error: &str) -> &'static str {
+    let text = error.to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("not found") || text.contains("no such") {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else if text.contains("invalid")
+        || text.contains("decode")
+        || text.contains("parse")
+        || text.contains("codec")
+        || text.contains("moov")
+    {
+        "invalid_media"
+    } else if text.contains("unavailable") || text.contains("connection") {
+        "backend_unavailable"
+    } else {
+        "operation_failed"
     }
 }
 
@@ -378,7 +404,11 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             matric_core::Error::Internal(format!("Failed to create temp dir: {}", e))
         })?;
 
-        debug!(filename, ?keyframe_strategy, "Extracting video content");
+        debug!(
+            filename_len = video_text_len(filename),
+            ?keyframe_strategy,
+            "Extracting video content"
+        );
 
         // Get video duration and metadata via ffprobe
         let duration_secs = get_video_duration(&video_path).await.ok();
@@ -405,7 +435,10 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
 
         // Step 1: Extract and transcribe audio (if backend available and requested)
         if extract_audio && self.transcription.is_some() {
-            debug!(filename, "Extracting audio track");
+            debug!(
+                filename_len = video_text_len(filename),
+                "Extracting audio track"
+            );
             match extract_audio_track(&video_path, &work_dir).await {
                 Ok(audio_path) => {
                     has_audio = true;
@@ -439,16 +472,31 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                                     transcript_segments = result.segments;
                                 }
                                 Err(e) => {
-                                    warn!(filename, error = %e, "Audio transcription failed");
+                                    let error_text = e.to_string();
+                                    warn!(
+                                        filename_len = video_text_len(filename),
+                                        error_len = video_text_len(&error_text),
+                                        error_reason = video_error_reason_code(&error_text),
+                                        "Audio transcription failed"
+                                    );
                                 }
                             }
                         }
                     } else {
-                        debug!(filename, "Skipping inline transcription — deferred to AudioTranscription job (#542)");
+                        debug!(
+                            filename_len = video_text_len(filename),
+                            "Skipping inline transcription — deferred to AudioTranscription job (#542)"
+                        );
                     }
                 }
                 Err(e) => {
-                    debug!(filename, error = %e, "No audio track found or extraction failed");
+                    let error_text = e.to_string();
+                    debug!(
+                        filename_len = video_text_len(filename),
+                        error_len = video_text_len(&error_text),
+                        error_reason = video_error_reason_code(&error_text),
+                        "No audio track found or extraction failed"
+                    );
                 }
             }
         }
@@ -460,7 +508,7 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         // KeyframeVision jobs handle descriptions independently.
         if extract_keyframes {
             debug!(
-                filename,
+                filename_len = video_text_len(filename),
                 skip_vision,
                 vision_available = self.vision.is_some(),
                 "Extracting keyframes"
@@ -565,7 +613,13 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                                         "description": description,
                                     });
                                     if let Err(e) = desc_writer.write(&desc_json) {
-                                        warn!(frame = i, error = %e, "Failed to write description to disk");
+                                        let error_text = e.to_string();
+                                        warn!(
+                                            frame = i,
+                                            error_len = video_text_len(&error_text),
+                                            error_reason = video_error_reason_code(&error_text),
+                                            "Failed to write description to disk"
+                                        );
                                     }
 
                                     // Persist keyframe JPEG as derived attachment
@@ -604,19 +658,31 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                                     }
                                 }
                                 Err(e) => {
-                                    warn!(frame = i, error = %e, "Frame description failed");
+                                    let error_text = e.to_string();
+                                    warn!(
+                                        frame = i,
+                                        error_len = video_text_len(&error_text),
+                                        error_reason = video_error_reason_code(&error_text),
+                                        "Frame description failed"
+                                    );
                                 }
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    warn!(filename, error = %e, "Keyframe extraction failed");
+                    let error_text = e.to_string();
+                    warn!(
+                        filename_len = video_text_len(filename),
+                        error_len = video_text_len(&error_text),
+                        error_reason = video_error_reason_code(&error_text),
+                        "Keyframe extraction failed"
+                    );
                 }
             }
         } else {
             info!(
-                filename,
+                filename_len = video_text_len(filename),
                 "Keyframe extraction disabled (extract_keyframes=false)"
             );
         }
@@ -816,18 +882,33 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                                     progress(20, Some("Transcription complete"));
                                 }
                                 Err(e) => {
-                                    warn!(filename, error = %e, "Audio transcription failed");
+                                    let error_text = e.to_string();
+                                    warn!(
+                                        filename_len = video_text_len(filename),
+                                        error_len = video_text_len(&error_text),
+                                        error_reason = video_error_reason_code(&error_text),
+                                        "Audio transcription failed"
+                                    );
                                     progress(20, Some("Transcription failed, continuing"));
                                 }
                             }
                         }
                     } else {
-                        debug!(filename, "Skipping inline transcription — deferred to AudioTranscription job (#542)");
+                        debug!(
+                            filename_len = video_text_len(filename),
+                            "Skipping inline transcription — deferred to AudioTranscription job (#542)"
+                        );
                         progress(20, Some("Transcription deferred to async job"));
                     }
                 }
                 Err(e) => {
-                    debug!(filename, error = %e, "No audio track found");
+                    let error_text = e.to_string();
+                    debug!(
+                        filename_len = video_text_len(filename),
+                        error_len = video_text_len(&error_text),
+                        error_reason = video_error_reason_code(&error_text),
+                        "No audio track found"
+                    );
                     progress(20, Some("No audio track"));
                 }
             }
@@ -952,7 +1033,13 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                                             "description": description,
                                         });
                                         if let Err(e) = desc_writer.write(&desc_json) {
-                                            warn!(frame = i, error = %e, "Failed to write description to disk");
+                                            let error_text = e.to_string();
+                                            warn!(
+                                                frame = i,
+                                                error_len = video_text_len(&error_text),
+                                                error_reason = video_error_reason_code(&error_text),
+                                                "Failed to write description to disk"
+                                            );
                                         }
 
                                         // Persist keyframe JPEG as derived attachment
@@ -991,7 +1078,13 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                                         }
                                     }
                                     Err(e) => {
-                                        warn!(frame = i, error = %e, "Frame description failed");
+                                        let error_text = e.to_string();
+                                        warn!(
+                                            frame = i,
+                                            error_len = video_text_len(&error_text),
+                                            error_reason = video_error_reason_code(&error_text),
+                                            "Frame description failed"
+                                        );
                                     }
                                 }
                             }
@@ -999,7 +1092,13 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                     }
                 }
                 Err(e) => {
-                    warn!(filename, error = %e, "Keyframe extraction failed");
+                    let error_text = e.to_string();
+                    warn!(
+                        filename_len = video_text_len(filename),
+                        error_len = video_text_len(&error_text),
+                        error_reason = video_error_reason_code(&error_text),
+                        "Keyframe extraction failed"
+                    );
                 }
             }
         }
@@ -1993,6 +2092,46 @@ mod tests {
             video_display_path_len(&path),
             path.display().to_string().len()
         );
+    }
+
+    #[test]
+    fn video_error_reason_code_uses_stable_classes() {
+        assert_eq!(
+            video_error_reason_code("permission denied reading /srv/fortemi/private/video.mp4"),
+            "permission_denied"
+        );
+        assert_eq!(
+            video_error_reason_code("codec parse failed token=mm_key_secret"),
+            "invalid_media"
+        );
+        assert_eq!(
+            video_error_reason_code("backend unavailable"),
+            "backend_unavailable"
+        );
+        assert_eq!(
+            video_error_reason_code("opaque backend text /srv/fortemi/private/video.mp4"),
+            "operation_failed"
+        );
+    }
+
+    #[test]
+    fn video_adapter_telemetry_metadata_omits_raw_filename_and_error() {
+        let filename = "customer-token-mm_key_secret-video.mp4";
+        let error =
+            "permission denied at /srv/fortemi/private/customer-token-mm_key_secret-video.mp4";
+        let detail = format!(
+            "filename_len={}; error_len={}; error_reason={}",
+            video_text_len(filename),
+            video_text_len(error),
+            video_error_reason_code(error)
+        );
+
+        assert!(detail.contains("filename_len="));
+        assert!(detail.contains("error_len="));
+        assert!(detail.contains("permission_denied"));
+        assert!(!detail.contains("customer-token"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("/srv/fortemi"));
     }
 
     #[test]
