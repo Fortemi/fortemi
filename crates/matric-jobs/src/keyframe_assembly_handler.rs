@@ -34,6 +34,32 @@ fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResul
         .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
 }
 
+fn keyframe_assembly_error_reason_code(error: &str) -> &'static str {
+    let text = error.to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("not found")
+        || text.contains("no such")
+        || text.contains("missing")
+        || text.contains("unknown")
+    {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else if text.contains("connection refused")
+        || text.contains("cannot connect")
+        || text.contains("connection")
+    {
+        "connection_failed"
+    } else if text.contains("database") || text.contains("sql") || text.contains("postgres") {
+        "database_error"
+    } else if text.contains("storage") || text.contains("file") {
+        "storage_error"
+    } else {
+        "operation_failed"
+    }
+}
+
 pub struct KeyframeAssemblyHandler {
     db: Database,
 }
@@ -251,7 +277,12 @@ impl JobHandler for KeyframeAssemblyHandler {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
                 Err(e) => {
-                    warn!(error = %e, "Failed to store manifest, continuing");
+                    let error_text = e.to_string();
+                    warn!(
+                        error_len = error_text.len(),
+                        error_reason = keyframe_assembly_error_reason_code(&error_text),
+                        "Failed to store manifest, continuing"
+                    );
                     // Non-fatal — the markdown is already saved
                     return finish_propagation(
                         &self.db,
@@ -334,21 +365,33 @@ async fn finish_propagation(
                 match db.notes.update_original_tx(&mut tx, note_id, content).await {
                     Ok(()) => content_updated = true,
                     Err(e) => {
+                        let error_text = e.to_string();
                         error!(
-                            note_id = %note_id,
-                            error = %e,
+                            note_present = true,
+                            error_len = error_text.len(),
+                            error_reason = keyframe_assembly_error_reason_code(&error_text),
                             "Failed to propagate assembly content to note"
                         );
                     }
                 }
 
                 if let Err(e) = tx.commit().await {
-                    error!(error = %e, "Failed to commit note propagation");
+                    let error_text = e.to_string();
+                    error!(
+                        error_len = error_text.len(),
+                        error_reason = keyframe_assembly_error_reason_code(&error_text),
+                        "Failed to commit note propagation"
+                    );
                     content_updated = false;
                 }
             }
             Err(e) => {
-                warn!(error = %e, "Failed to begin tx for note propagation");
+                let error_text = e.to_string();
+                warn!(
+                    error_len = error_text.len(),
+                    error_reason = keyframe_assembly_error_reason_code(&error_text),
+                    "Failed to begin tx for note propagation"
+                );
             }
         }
 
@@ -394,7 +437,12 @@ async fn finish_propagation(
                 }
                 Ok(None) => {} // deduplicated
                 Err(e) => {
-                    warn!(error = %e, "Failed to queue AiRevision after keyframe assembly");
+                    let error_text = e.to_string();
+                    warn!(
+                        error_len = error_text.len(),
+                        error_reason = keyframe_assembly_error_reason_code(&error_text),
+                        "Failed to queue AiRevision after keyframe assembly"
+                    );
                 }
             }
 
@@ -415,13 +463,19 @@ async fn finish_propagation(
                     }
                     Ok(None) => {} // deduplicated
                     Err(e) => {
-                        warn!(error = %e, job_type = ?job_type, "Failed to queue downstream job");
+                        let error_text = e.to_string();
+                        warn!(
+                            error_len = error_text.len(),
+                            error_reason = keyframe_assembly_error_reason_code(&error_text),
+                            job_type = ?job_type,
+                            "Failed to queue downstream job"
+                        );
                     }
                 }
             }
 
             info!(
-                note_id = %note_id,
+                note_present = true,
                 "Queued AiRevision + downstream NLP after keyframe assembly"
             );
         }
@@ -432,4 +486,29 @@ async fn finish_propagation(
         "frame_count": frame_count,
         "content_updated": full_text.is_some(),
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keyframe_assembly_error_reason_code_uses_stable_classes() {
+        assert_eq!(
+            keyframe_assembly_error_reason_code("database sql failed while applying manifest"),
+            "database_error"
+        );
+        assert_eq!(
+            keyframe_assembly_error_reason_code("file storage denied during write"),
+            "permission_denied"
+        );
+        assert_eq!(
+            keyframe_assembly_error_reason_code("Cannot connect to queue backend"),
+            "connection_failed"
+        );
+        assert_eq!(
+            keyframe_assembly_error_reason_code("opaque backend diagnostic text"),
+            "operation_failed"
+        );
+    }
 }
