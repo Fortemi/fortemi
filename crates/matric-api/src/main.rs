@@ -11831,7 +11831,7 @@ async fn get_top_concepts(
 
 // --- Concept Handlers ---
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct SearchConceptsQuery {
     q: Option<String>,
     scheme_id: Option<Uuid>,
@@ -11841,6 +11841,21 @@ struct SearchConceptsQuery {
     include_deprecated: Option<bool>,
     limit: Option<i64>,
     offset: Option<i64>,
+}
+
+impl fmt::Debug for SearchConceptsQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SearchConceptsQuery")
+            .field("q_len", &self.q.as_ref().map(String::len))
+            .field("scheme_id_set", &self.scheme_id.is_some())
+            .field("status_len", &self.status.as_ref().map(String::len))
+            .field("facet_type_len", &self.facet_type.as_ref().map(String::len))
+            .field("top_only", &self.top_only)
+            .field("include_deprecated", &self.include_deprecated)
+            .field("limit", &self.limit)
+            .field("offset", &self.offset)
+            .finish()
+    }
 }
 
 #[utoipa::path(get, path = "/api/v1/concepts", tag = "SKOS",
@@ -11906,10 +11921,19 @@ async fn create_concept(
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct AutocompleteQuery {
     q: String,
     limit: Option<i64>,
+}
+
+impl fmt::Debug for AutocompleteQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AutocompleteQuery")
+            .field("q_len", &self.q.len())
+            .field("limit", &self.limit)
+            .finish()
+    }
 }
 
 #[utoipa::path(get, path = "/api/v1/concepts/autocomplete", tag = "SKOS",
@@ -12722,9 +12746,17 @@ async fn untag_note_concept(
 
 // --- Governance Handlers ---
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct GovernanceQuery {
     scheme_id: Option<Uuid>,
+}
+
+impl fmt::Debug for GovernanceQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GovernanceQuery")
+            .field("scheme_id_set", &self.scheme_id.is_some())
+            .finish()
+    }
 }
 
 #[utoipa::path(get, path = "/api/v1/concepts/governance", tag = "SKOS",
@@ -26391,6 +26423,62 @@ mod tests {
             "mm_key_collection",
             &parent_id.to_string(),
             &collection_id.to_string(),
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn skos_query_debug_redacts_search_text_and_scheme_ids() {
+        let scheme_id = Uuid::new_v4();
+        let governance_scheme_id = Uuid::new_v4();
+        let search = SearchConceptsQuery {
+            q: Some(
+                "customer@example.com postgres://user:pass@db.internal/app sk-live-concept"
+                    .to_string(),
+            ),
+            scheme_id: Some(scheme_id),
+            status: Some("private-status-value".to_string()),
+            facet_type: Some("customer-private-facet".to_string()),
+            top_only: Some(true),
+            include_deprecated: Some(false),
+            limit: Some(50),
+            offset: Some(10),
+        };
+        let autocomplete = AutocompleteQuery {
+            q: "autocomplete customer@example.com mm_key_concept".to_string(),
+            limit: Some(8),
+        };
+        let governance = GovernanceQuery {
+            scheme_id: Some(governance_scheme_id),
+        };
+
+        let rendered_search = format!("{search:?}");
+        let rendered_autocomplete = format!("{autocomplete:?}");
+        let rendered_governance = format!("{governance:?}");
+        let combined = format!("{rendered_search}\n{rendered_autocomplete}\n{rendered_governance}");
+
+        assert!(rendered_search.contains("SearchConceptsQuery"));
+        assert!(rendered_search.contains("q_len"));
+        assert!(rendered_search.contains("scheme_id_set"));
+        assert!(rendered_search.contains("status_len"));
+        assert!(rendered_search.contains("facet_type_len"));
+        assert!(rendered_autocomplete.contains("AutocompleteQuery"));
+        assert!(rendered_autocomplete.contains("q_len"));
+        assert!(rendered_governance.contains("GovernanceQuery"));
+        assert!(rendered_governance.contains("scheme_id_set"));
+
+        for raw in [
+            "customer@example.com",
+            "postgres://user:pass",
+            "db.internal",
+            "sk-live-concept",
+            "private-status-value",
+            "customer-private-facet",
+            "autocomplete customer",
+            "mm_key_concept",
+            &scheme_id.to_string(),
+            &governance_scheme_id.to_string(),
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
