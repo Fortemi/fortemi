@@ -1517,6 +1517,11 @@ pub fn authorization_input_for_request(
             json!(false),
         );
     }
+    for (param_name, param_value) in &params {
+        resource
+            .attrs
+            .insert(format!("route_param_{param_name}"), json!(param_value));
+    }
     if let Some(tenant_id) = tenant_id {
         resource = resource.with_tenant(tenant_id);
     }
