@@ -5,6 +5,7 @@ mod middleware;
 mod query_types;
 mod route_policy;
 
+use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -15236,11 +15237,21 @@ struct SearchQuery {
     diversity: Option<f32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct SearchResponse {
     results: Vec<EnhancedSearchHit>,
     query: String,
     total: usize,
+}
+
+impl fmt::Debug for SearchResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SearchResponse")
+            .field("results_count", &self.results.len())
+            .field("query_len", &self.query.len())
+            .field("total", &self.total)
+            .finish()
+    }
 }
 
 fn search_operation_failed(context: &'static str, error: impl std::fmt::Display) -> ApiError {
@@ -24837,6 +24848,41 @@ fn get_db_size_via_psql(expr: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_response_debug_redacts_query_and_hit_content() {
+        let response = SearchResponse {
+            results: vec![EnhancedSearchHit {
+                hit: matric_core::SearchHit {
+                    note_id: Uuid::nil(),
+                    score: 0.95,
+                    snippet: Some(
+                        "snippet with customer@example.com and sk-live-secret-token".to_string(),
+                    ),
+                    title: Some("Quarterly strategy for private tenant".to_string()),
+                    tags: vec!["customer-private".to_string(), "mm_key_secret".to_string()],
+                    embedding_status: None,
+                },
+                chain_info: None,
+            }],
+            query: "find payroll bearer token customer@example.com".to_string(),
+            total: 1,
+        };
+
+        let rendered = format!("{response:?}");
+
+        assert!(rendered.contains("SearchResponse"));
+        assert!(rendered.contains("results_count"));
+        assert!(rendered.contains("query_len"));
+        assert!(rendered.contains("total"));
+        assert!(!rendered.contains("find payroll"));
+        assert!(!rendered.contains("bearer token"));
+        assert!(!rendered.contains("customer@example.com"));
+        assert!(!rendered.contains("sk-live-secret-token"));
+        assert!(!rendered.contains("Quarterly strategy"));
+        assert!(!rendered.contains("customer-private"));
+        assert!(!rendered.contains("mm_key_secret"));
+    }
 
     #[test]
     fn health_dependency_error_codes_are_stable_and_redacted() {
