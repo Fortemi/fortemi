@@ -187,14 +187,26 @@ impl IngestTokenStore {
             .set_ex::<_, _, ()>(&self.key(&token), &json, self.inner.ttl_seconds)
             .await
         {
-            warn!("Ingest token store: SET failed: {e}");
+            let diagnostic = e.to_string();
+            warn!(
+                operation = "set_token",
+                reason_code = ingest_token_diagnostic_reason(&diagnostic),
+                error_len = ingest_token_text_len(&diagnostic),
+                "Ingest token store primary write failed"
+            );
             return None;
         }
         if let Err(e) = conn
             .set_ex::<_, _, ()>(&self.id_key(&token_id), &token, self.inner.ttl_seconds)
             .await
         {
-            warn!("Ingest token store: reverse-index SET failed: {e}");
+            let diagnostic = e.to_string();
+            warn!(
+                operation = "set_reverse_index",
+                reason_code = ingest_token_diagnostic_reason(&diagnostic),
+                error_len = ingest_token_text_len(&diagnostic),
+                "Ingest token store reverse-index write failed"
+            );
             // Best-effort rollback so a half-minted token cannot validate.
             let _ = conn.del::<_, u64>(&self.key(&token)).await;
             return None;
@@ -216,7 +228,13 @@ impl IngestTokenStore {
         let raw: Option<String> = match conn.get(self.key(token)).await {
             Ok(v) => v,
             Err(e) => {
-                warn!("Ingest token store: GET failed: {e}");
+                let diagnostic = e.to_string();
+                warn!(
+                    operation = "get",
+                    reason_code = ingest_token_diagnostic_reason(&diagnostic),
+                    error_len = ingest_token_text_len(&diagnostic),
+                    "Ingest token store lookup failed"
+                );
                 None
             }
         };
@@ -248,7 +266,13 @@ async fn connect(redis_url: &str, ttl_seconds: u64) -> Option<ConnectionManager>
     let client = match redis::Client::open(redis_url) {
         Ok(c) => c,
         Err(e) => {
-            warn!("Ingest token store: invalid Redis URL, token auth disabled: {e}");
+            let diagnostic = e.to_string();
+            warn!(
+                operation = "open",
+                reason_code = ingest_token_diagnostic_reason(&diagnostic),
+                error_len = ingest_token_text_len(&diagnostic),
+                "Ingest token store Redis URL rejected; token auth disabled"
+            );
             return None;
         }
     };
@@ -263,13 +287,44 @@ async fn connect(redis_url: &str, ttl_seconds: u64) -> Option<ConnectionManager>
             Some(conn)
         }
         Ok(Err(e)) => {
-            warn!("Ingest token store: Redis connect failed, token auth disabled: {e}");
+            let diagnostic = e.to_string();
+            warn!(
+                operation = "connect",
+                reason_code = ingest_token_diagnostic_reason(&diagnostic),
+                error_len = ingest_token_text_len(&diagnostic),
+                "Ingest token store Redis connect failed; token auth disabled"
+            );
             None
         }
         Err(_) => {
             warn!("Ingest token store: Redis connect timed out, token auth disabled");
             None
         }
+    }
+}
+
+fn ingest_token_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn ingest_token_diagnostic_reason(value: &str) -> &'static str {
+    let value = value.to_ascii_lowercase();
+    if value.contains("invalid") || value.contains("parse") {
+        "invalid_input"
+    } else if value.contains("timeout") || value.contains("timed out") {
+        "timeout"
+    } else if value.contains("connect") || value.contains("connection") {
+        "connection_failed"
+    } else if value.contains("auth")
+        || value.contains("permission")
+        || value.contains("denied")
+        || value.contains("unauthorized")
+    {
+        "authorization_failed"
+    } else if value.contains("serialize") || value.contains("json") {
+        "serialization_failed"
+    } else {
+        "operation_failed"
     }
 }
 
@@ -301,5 +356,43 @@ mod tests {
         let json = serde_json::to_string(&data).unwrap();
         let back: IngestTokenData = serde_json::from_str(&json).unwrap();
         assert_eq!(data, back);
+    }
+
+    #[test]
+    fn ingest_token_diagnostic_reason_uses_stable_codes() {
+        let cases = [
+            (
+                "invalid redis url redis://user:pass@cache.internal:6379/0?token=secret",
+                "invalid_input",
+            ),
+            (
+                "connection refused at redis://cache.internal:6379 with token=secret",
+                "connection_failed",
+            ),
+            ("operation timed out connecting to private-cache", "timeout"),
+            (
+                "NOAUTH Authentication required for mm:ingesttoken:mm_ist_secret",
+                "authorization_failed",
+            ),
+            (
+                "json parser failed at line 1 column 7 with sk-token-secret",
+                "invalid_input",
+            ),
+            (
+                "backend returned provider.example token=secret",
+                "operation_failed",
+            ),
+        ];
+
+        for (diagnostic, expected) in cases {
+            assert_eq!(ingest_token_diagnostic_reason(diagnostic), expected);
+            assert!(!expected.contains("redis://"));
+            assert!(!expected.contains("cache.internal"));
+            assert!(!expected.contains("provider.example"));
+            assert!(!expected.contains("token=secret"));
+            assert!(!expected.contains("user:pass"));
+            assert!(!expected.contains("mm_ist_secret"));
+            assert!(!expected.contains("sk-token-secret"));
+        }
     }
 }

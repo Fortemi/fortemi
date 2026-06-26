@@ -129,13 +129,26 @@ impl IdempotencyStore {
             Ok(Some(raw)) => match serde_json::from_str(&raw) {
                 Ok(rec) => Some(rec),
                 Err(e) => {
-                    warn!("Idempotency store: corrupt record at {key}: {e}");
+                    let diagnostic = e.to_string();
+                    warn!(
+                        operation = "deserialize_record",
+                        reason_code = idempotency_diagnostic_reason(&diagnostic),
+                        error_len = idempotency_text_len(&diagnostic),
+                        key_len = idempotency_text_len(&key),
+                        "Idempotency store cached record could not be decoded"
+                    );
                     None
                 }
             },
             Ok(None) => None,
             Err(e) => {
-                warn!("Idempotency store: GET failed: {e}");
+                let diagnostic = e.to_string();
+                warn!(
+                    operation = "get",
+                    reason_code = idempotency_diagnostic_reason(&diagnostic),
+                    error_len = idempotency_text_len(&diagnostic),
+                    "Idempotency store lookup failed"
+                );
                 None
             }
         }
@@ -150,7 +163,13 @@ impl IdempotencyStore {
         let payload = match serde_json::to_string(record) {
             Ok(p) => p,
             Err(e) => {
-                warn!("Idempotency store: serialize failed: {e}");
+                let diagnostic = e.to_string();
+                warn!(
+                    operation = "serialize_record",
+                    reason_code = idempotency_diagnostic_reason(&diagnostic),
+                    error_len = idempotency_text_len(&diagnostic),
+                    "Idempotency store cached record serialization failed"
+                );
                 return;
             }
         };
@@ -158,7 +177,14 @@ impl IdempotencyStore {
             .set_ex::<_, _, ()>(&key, payload, self.inner.ttl_seconds)
             .await
         {
-            warn!("Idempotency store: SET failed: {e}");
+            let diagnostic = e.to_string();
+            warn!(
+                operation = "set",
+                reason_code = idempotency_diagnostic_reason(&diagnostic),
+                error_len = idempotency_text_len(&diagnostic),
+                key_len = idempotency_text_len(&key),
+                "Idempotency store write failed"
+            );
         }
     }
 }
@@ -169,7 +195,13 @@ async fn connect(redis_url: &str, ttl_seconds: u64) -> Option<ConnectionManager>
     let client = match redis::Client::open(redis_url) {
         Ok(c) => c,
         Err(e) => {
-            warn!("Idempotency store: invalid Redis URL, dedup disabled: {e}");
+            let diagnostic = e.to_string();
+            warn!(
+                operation = "open",
+                reason_code = idempotency_diagnostic_reason(&diagnostic),
+                error_len = idempotency_text_len(&diagnostic),
+                "Idempotency store Redis URL rejected; dedup disabled"
+            );
             return None;
         }
     };
@@ -184,13 +216,44 @@ async fn connect(redis_url: &str, ttl_seconds: u64) -> Option<ConnectionManager>
             Some(conn)
         }
         Ok(Err(e)) => {
-            warn!("Idempotency store: Redis connect failed, dedup disabled: {e}");
+            let diagnostic = e.to_string();
+            warn!(
+                operation = "connect",
+                reason_code = idempotency_diagnostic_reason(&diagnostic),
+                error_len = idempotency_text_len(&diagnostic),
+                "Idempotency store Redis connect failed; dedup disabled"
+            );
             None
         }
         Err(_) => {
             warn!("Idempotency store: Redis connect timed out, dedup disabled");
             None
         }
+    }
+}
+
+fn idempotency_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn idempotency_diagnostic_reason(value: &str) -> &'static str {
+    let value = value.to_ascii_lowercase();
+    if value.contains("invalid") || value.contains("parse") {
+        "invalid_input"
+    } else if value.contains("timeout") || value.contains("timed out") {
+        "timeout"
+    } else if value.contains("connect") || value.contains("connection") {
+        "connection_failed"
+    } else if value.contains("auth")
+        || value.contains("permission")
+        || value.contains("denied")
+        || value.contains("unauthorized")
+    {
+        "authorization_failed"
+    } else if value.contains("serialize") || value.contains("json") {
+        "serialization_failed"
+    } else {
+        "operation_failed"
     }
 }
 
@@ -220,5 +283,43 @@ mod tests {
             store.key("twilio-voice", "abc-123"),
             "idem:twilio-voice:abc-123"
         );
+    }
+
+    #[test]
+    fn idempotency_diagnostic_reason_uses_stable_codes() {
+        let cases = [
+            (
+                "invalid redis url redis://user:pass@cache.internal:6379/0?token=secret",
+                "invalid_input",
+            ),
+            (
+                "connection refused at redis://cache.internal:6379 with token=secret",
+                "connection_failed",
+            ),
+            ("operation timed out connecting to private-cache", "timeout"),
+            (
+                "NOAUTH Authentication required for idem:tenant-secret:key-secret",
+                "authorization_failed",
+            ),
+            (
+                "json parser failed at line 1 column 7 with sk-idem-secret",
+                "invalid_input",
+            ),
+            (
+                "backend returned provider.example token=secret",
+                "operation_failed",
+            ),
+        ];
+
+        for (diagnostic, expected) in cases {
+            assert_eq!(idempotency_diagnostic_reason(diagnostic), expected);
+            assert!(!expected.contains("redis://"));
+            assert!(!expected.contains("cache.internal"));
+            assert!(!expected.contains("provider.example"));
+            assert!(!expected.contains("token=secret"));
+            assert!(!expected.contains("user:pass"));
+            assert!(!expected.contains("key-secret"));
+            assert!(!expected.contains("sk-idem-secret"));
+        }
     }
 }

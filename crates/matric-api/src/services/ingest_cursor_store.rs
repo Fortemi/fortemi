@@ -120,7 +120,14 @@ impl IngestCursorStore {
             .set_ex::<_, _, ()>(&key, last_line, self.inner.ttl_seconds)
             .await
         {
-            warn!("Ingest cursor store: SET failed: {e}");
+            let diagnostic = e.to_string();
+            warn!(
+                operation = "set",
+                reason_code = ingest_cursor_diagnostic_reason(&diagnostic),
+                error_len = ingest_cursor_text_len(&diagnostic),
+                key_len = ingest_cursor_text_len(&key),
+                "Ingest cursor store write failed"
+            );
         }
     }
 
@@ -133,7 +140,14 @@ impl IngestCursorStore {
         match conn.get::<_, Option<u64>>(&key).await {
             Ok(v) => v,
             Err(e) => {
-                warn!("Ingest cursor store: GET failed: {e}");
+                let diagnostic = e.to_string();
+                warn!(
+                    operation = "get",
+                    reason_code = ingest_cursor_diagnostic_reason(&diagnostic),
+                    error_len = ingest_cursor_text_len(&diagnostic),
+                    key_len = ingest_cursor_text_len(&key),
+                    "Ingest cursor store lookup failed"
+                );
                 None
             }
         }
@@ -146,7 +160,13 @@ async fn connect(redis_url: &str, ttl_seconds: u64) -> Option<ConnectionManager>
     let client = match redis::Client::open(redis_url) {
         Ok(c) => c,
         Err(e) => {
-            warn!("Ingest cursor store: invalid Redis URL, resumption disabled: {e}");
+            let diagnostic = e.to_string();
+            warn!(
+                operation = "open",
+                reason_code = ingest_cursor_diagnostic_reason(&diagnostic),
+                error_len = ingest_cursor_text_len(&diagnostic),
+                "Ingest cursor store Redis URL rejected; resumption disabled"
+            );
             return None;
         }
     };
@@ -161,13 +181,44 @@ async fn connect(redis_url: &str, ttl_seconds: u64) -> Option<ConnectionManager>
             Some(conn)
         }
         Ok(Err(e)) => {
-            warn!("Ingest cursor store: Redis connect failed, resumption disabled: {e}");
+            let diagnostic = e.to_string();
+            warn!(
+                operation = "connect",
+                reason_code = ingest_cursor_diagnostic_reason(&diagnostic),
+                error_len = ingest_cursor_text_len(&diagnostic),
+                "Ingest cursor store Redis connect failed; resumption disabled"
+            );
             None
         }
         Err(_) => {
             warn!("Ingest cursor store: Redis connect timed out, resumption disabled");
             None
         }
+    }
+}
+
+fn ingest_cursor_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn ingest_cursor_diagnostic_reason(value: &str) -> &'static str {
+    let value = value.to_ascii_lowercase();
+    if value.contains("invalid") || value.contains("parse") {
+        "invalid_input"
+    } else if value.contains("timeout") || value.contains("timed out") {
+        "timeout"
+    } else if value.contains("connect") || value.contains("connection") {
+        "connection_failed"
+    } else if value.contains("auth")
+        || value.contains("permission")
+        || value.contains("denied")
+        || value.contains("unauthorized")
+    {
+        "authorization_failed"
+    } else if value.contains("serialize") || value.contains("json") {
+        "serialization_failed"
+    } else {
+        "operation_failed"
     }
 }
 
@@ -183,5 +234,43 @@ mod tests {
         store.record("stream-abc", 42).await;
         assert!(store.get("stream-abc").await.is_none());
         assert_eq!(store.ttl_seconds(), DEFAULT_TTL_SECONDS);
+    }
+
+    #[test]
+    fn ingest_cursor_diagnostic_reason_uses_stable_codes() {
+        let cases = [
+            (
+                "invalid redis url redis://user:pass@cache.internal:6379/0?token=secret",
+                "invalid_input",
+            ),
+            (
+                "connection refused at redis://cache.internal:6379 with token=secret",
+                "connection_failed",
+            ),
+            ("operation timed out connecting to private-cache", "timeout"),
+            (
+                "NOAUTH Authentication required for mm:ingestcursor:stream-secret",
+                "authorization_failed",
+            ),
+            (
+                "json parser failed at line 1 column 7 with sk-cursor-secret",
+                "invalid_input",
+            ),
+            (
+                "backend returned provider.example token=secret",
+                "operation_failed",
+            ),
+        ];
+
+        for (diagnostic, expected) in cases {
+            assert_eq!(ingest_cursor_diagnostic_reason(diagnostic), expected);
+            assert!(!expected.contains("redis://"));
+            assert!(!expected.contains("cache.internal"));
+            assert!(!expected.contains("provider.example"));
+            assert!(!expected.contains("token=secret"));
+            assert!(!expected.contains("user:pass"));
+            assert!(!expected.contains("stream-secret"));
+            assert!(!expected.contains("sk-cursor-secret"));
+        }
     }
 }
