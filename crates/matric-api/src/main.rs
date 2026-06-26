@@ -43,10 +43,11 @@ use utoipa_swagger_ui::{Config, SwaggerUi};
 use uuid::Uuid;
 
 use matric_core::{
-    AllowAllPolicy, ArchiveRepository, AttachmentStatus, AuditEvent, AuditOutcome, AuditSink,
-    AuditSource, AuthPrincipal, AuthorizationPolicy, AuthorizationServerMetadata,
-    BatchTagNoteRequest, ClientRegistrationRequest, CreateApiKeyRequest, CreateNoteRequest,
-    Decision, DocumentTypeRepository, EventBus, EventContext, EventEnvelope, ExtractionAdapter,
+    AllowAllPolicy, ArchiveRepository, AttachmentStatus, AuditEvent, AuditFailurePolicy,
+    AuditOutcome, AuditSeverity, AuditSink, AuditSource, AuditVisibilityClass, AuthPrincipal,
+    AuthorizationPolicy, AuthorizationServerMetadata, BatchTagNoteRequest,
+    ClientRegistrationRequest, CreateApiKeyRequest, CreateNoteRequest, Decision, DenyReason,
+    DocumentTypeRepository, EventBus, EventContext, EventEnvelope, ExtractionAdapter,
     ExtractionStrategy, JobRepository, JobType, ListNotesRequest, NoteRepository, OAuthError,
     RevisionMode, RoleBasedPolicy, ServerEvent, StrictTagFilterInput, TagInput, TagRepository,
     TokenRequest, TracingSink, UpdateNoteStatusRequest,
@@ -5222,8 +5223,43 @@ async fn authorize_policy_input(
         )
         .await
     {
-        Ok(Decision::Allow { .. }) => Ok(()),
-        Ok(Decision::Deny { reason, .. } | Decision::Indeterminate { reason, .. }) => {
+        Ok(Decision::Allow {
+            policy_id,
+            policy_version,
+            ..
+        }) => {
+            emit_auth_decision_audit_event(auth_decision_audit_event(
+                auth,
+                input,
+                AuditOutcome::Success,
+                None,
+                &policy_id,
+                &policy_version,
+            ))
+            .await;
+            Ok(())
+        }
+        Ok(
+            Decision::Deny {
+                reason,
+                policy_id,
+                policy_version,
+            }
+            | Decision::Indeterminate {
+                reason,
+                policy_id,
+                policy_version,
+            },
+        ) => {
+            emit_auth_decision_audit_event(auth_decision_audit_event(
+                auth,
+                input,
+                AuditOutcome::Denied,
+                Some(reason.clone()),
+                &policy_id,
+                &policy_version,
+            ))
+            .await;
             tracing::warn!(reason = ?reason, "authorization denied");
             Err(problem_response(
                 StatusCode::FORBIDDEN,
@@ -5233,6 +5269,15 @@ async fn authorize_policy_input(
             ))
         }
         Err(err) => {
+            emit_auth_decision_audit_event(auth_decision_audit_event(
+                auth,
+                input,
+                AuditOutcome::Error,
+                None,
+                policy.policy_id(),
+                policy.policy_version(),
+            ))
+            .await;
             error!(error = %err, "authorization policy error");
             Err(problem_response(
                 StatusCode::FORBIDDEN,
@@ -5241,6 +5286,84 @@ async fn authorize_policy_input(
                 None,
             ))
         }
+    }
+}
+
+async fn emit_auth_decision_audit_event(event: AuditEvent) {
+    if let Err(err) = TracingSink.emit(event).await {
+        warn!(error = %err, "failed to emit authorization decision audit event");
+    }
+}
+
+fn auth_decision_audit_event(
+    auth: &Auth,
+    input: &route_policy::RoutePolicyInput,
+    outcome: AuditOutcome,
+    reason: Option<DenyReason>,
+    policy_id: &str,
+    policy_version: &str,
+) -> AuditEvent {
+    let action_name = if outcome == AuditOutcome::Denied {
+        "decision_deny"
+    } else {
+        "decision"
+    };
+    let mut event = AuditEvent::new("auth", action_name, outcome)
+        .with_principal(auth_principal_audit_id(&auth.principal))
+        .with_attr("policy_id", policy_id.to_string())
+        .with_attr("policy_version", policy_version.to_string())
+        .with_attr("action_name", input.action.name.clone())
+        .with_attr("scope_family", format!("{:?}", input.action.scope_family))
+        .with_attr("route_template", input.policy.path.to_string())
+        .with_attr("policy_class", format!("{:?}", input.policy.class))
+        .with_attr("resource_kind", format!("{:?}", input.resource.kind));
+
+    if let Some(tenant_id) = input
+        .resource
+        .tenant_id
+        .clone()
+        .or_else(|| input.context.tenant_id.clone())
+    {
+        event = event.with_tenant(tenant_id);
+    }
+    event.resource_kind = Some(format!("{:?}", input.resource.kind));
+    event.resource_id = input.resource.id.clone();
+    if let Some(reason) = reason {
+        event.reason = Some(format!("{reason:?}"));
+        event = event.with_attr("reason_code", format!("{reason:?}"));
+    }
+    if let Some(value) = input.resource.attrs.get("resource_id_normalized") {
+        event = event.with_attr("resource_id_normalized", value.clone());
+    }
+    if let Some(value) = input
+        .resource
+        .attrs
+        .get("requires_backing_resource_normalization")
+    {
+        event = event.with_attr("requires_backing_resource_normalization", value.clone());
+    }
+    event.source = AuditSource::Api;
+    event.visibility = AuditVisibilityClass::SecurityRestricted;
+    event.severity = match outcome {
+        AuditOutcome::Success => AuditSeverity::Info,
+        AuditOutcome::Denied => AuditSeverity::Warn,
+        AuditOutcome::Error | AuditOutcome::Failure => AuditSeverity::Error,
+        AuditOutcome::Unknown => AuditSeverity::Warn,
+    };
+    event.failure_policy = AuditFailurePolicy::BestEffort;
+    event.sanitized()
+}
+
+fn auth_principal_audit_id(principal: &AuthPrincipal) -> String {
+    match principal {
+        AuthPrincipal::OAuthClient {
+            client_id, user_id, ..
+        } => user_id
+            .as_ref()
+            .map(|user_id| format!("oauth_user:{user_id}"))
+            .unwrap_or_else(|| format!("oauth_client:{client_id}")),
+        AuthPrincipal::ApiKey { key_id, .. } => format!("api_key:{key_id}"),
+        AuthPrincipal::Anonymous => "anonymous".to_string(),
     }
 }
 
@@ -21228,6 +21351,119 @@ mod tests {
         assert_eq!(event.attrs["log_destination"], "file");
         assert_eq!(event.attrs["git_sha"], "abc123");
         assert_eq!(event.attrs["build_date"], "2026-06-25 bad,delimiter");
+    }
+
+    #[test]
+    fn auth_decision_audit_event_records_allow_without_scope_string() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "write tenant:secret".to_string(),
+            },
+        };
+        let input =
+            route_policy::authorization_input_for_request(&Method::POST, "/api/v1/notes", None)
+                .expect("notes route has policy input");
+
+        let event = auth_decision_audit_event(
+            &auth,
+            &input,
+            AuditOutcome::Success,
+            None,
+            "role_based",
+            "2026-06-25",
+        );
+
+        assert_eq!(event.category, "auth");
+        assert_eq!(event.action, "decision");
+        assert_eq!(event.outcome, AuditOutcome::Success);
+        assert_eq!(event.severity, AuditSeverity::Info);
+        assert_eq!(event.visibility, AuditVisibilityClass::SecurityRestricted);
+        assert_eq!(event.attrs["policy_id"], "role_based");
+        assert_eq!(event.attrs["policy_version"], "2026-06-25");
+        assert_eq!(event.attrs["action_name"], "note:post");
+        assert_eq!(event.attrs["scope_family"], "Rest");
+        assert_eq!(event.attrs["route_template"], "/api/v1/notes");
+        assert_eq!(event.attrs["policy_class"], "TenantObject");
+        assert_eq!(event.attrs["resource_kind"], "Note");
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("tenant:secret"));
+    }
+
+    #[test]
+    fn auth_decision_audit_event_records_deny_reason_and_resource_metadata() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "read".to_string(),
+            },
+        };
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001",
+            Some("tenant-a"),
+        )
+        .expect("note route has policy input");
+
+        let event = auth_decision_audit_event(
+            &auth,
+            &input,
+            AuditOutcome::Denied,
+            Some(DenyReason::MissingScope),
+            "role_based",
+            "2026-06-25",
+        );
+
+        assert_eq!(event.category, "auth");
+        assert_eq!(event.action, "decision_deny");
+        assert_eq!(event.outcome, AuditOutcome::Denied);
+        assert_eq!(event.reason.as_deref(), Some("MissingScope"));
+        assert_eq!(event.severity, AuditSeverity::Warn);
+        assert_eq!(event.tenant_id.as_deref(), Some("tenant-a"));
+        assert_eq!(event.resource_kind.as_deref(), Some("Note"));
+        assert_eq!(
+            event.resource_id.as_deref(),
+            Some("018fd1a0-0000-7000-8000-000000000001")
+        );
+        assert_eq!(event.attrs["reason_code"], "MissingScope");
+        assert_eq!(event.attrs["resource_id_normalized"], false);
+        assert_eq!(event.attrs["requires_backing_resource_normalization"], true);
+    }
+
+    #[test]
+    fn auth_decision_audit_event_records_policy_error_without_raw_error() {
+        let auth = Auth {
+            principal: AuthPrincipal::OAuthClient {
+                client_id: "client_secret=should-redact".to_string(),
+                scope: "admin".to_string(),
+                user_id: None,
+            },
+        };
+        let input = route_policy::authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/backup/database/restore",
+            None,
+        )
+        .expect("backup restore route has policy input");
+
+        let event = auth_decision_audit_event(
+            &auth,
+            &input,
+            AuditOutcome::Error,
+            None,
+            "role_based",
+            "2026-06-25",
+        );
+
+        assert_eq!(event.action, "decision");
+        assert_eq!(event.outcome, AuditOutcome::Error);
+        assert_eq!(event.severity, AuditSeverity::Error);
+        assert_eq!(event.principal_id.as_deref(), Some("[REDACTED]"));
+        assert_eq!(event.attrs["action_name"], "backup_restore:post");
+        assert_eq!(event.attrs["scope_family"], "Admin");
+        assert!(event.reason.is_none());
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("client_secret=should-redact"));
     }
 
     #[tokio::test]
