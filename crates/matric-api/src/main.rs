@@ -489,6 +489,14 @@ fn note_not_found() -> ApiError {
     ApiError::NotFound("Note not found.".to_string())
 }
 
+fn embedding_set_not_found() -> ApiError {
+    ApiError::NotFound("Embedding set not found.".to_string())
+}
+
+fn embedding_config_not_found() -> ApiError {
+    ApiError::NotFound("Embedding config not found.".to_string())
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -14463,7 +14471,7 @@ async fn search_notes(
             .embedding_sets
             .get_by_slug(set_slug)
             .await?
-            .ok_or_else(|| ApiError::NotFound(format!("Embedding set not found: {}", set_slug)))?;
+            .ok_or_else(embedding_set_not_found)?;
         request = request.with_embedding_set(set.id);
     }
 
@@ -15091,8 +15099,7 @@ async fn refresh_embedding_set(
         ctx.query(move |tx| Box::pin(async move { repo.get_by_slug_tx(tx, &slug_clone).await }))
             .await?
     };
-    let set =
-        set.ok_or_else(|| ApiError::NotFound(format!("Embedding set not found: {}", slug_or_id)))?;
+    let set = set.ok_or_else(embedding_set_not_found)?;
     let slug = set.slug.clone();
 
     if set.mode == matric_core::EmbeddingSetMode::Manual {
@@ -15161,7 +15168,7 @@ async fn get_embedding_config(
         .embedding_sets
         .get_config(id)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Embedding config {} not found", id)))?;
+        .ok_or_else(embedding_config_not_found)?;
     Ok(Json(config))
 }
 
@@ -24315,6 +24322,42 @@ mod tests {
 
         let body = problem.to_string();
         assert!(!body.contains(&submitted_note_id.to_string()));
+        assert!(!body.contains("018ff7d2"));
+        assert!(!body.contains("abcdef123456"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn embedding_set_not_found_does_not_echo_slug() {
+        let submitted_slug = "tenant-alpha-private-embedding-set-secret-token";
+        let err = embedding_set_not_found();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Embedding set not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_slug));
+        assert!(!body.contains("tenant-alpha"));
+        assert!(!body.contains("secret-token"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn embedding_config_not_found_does_not_echo_config_id() {
+        let submitted_config_id = Uuid::parse_str("018ff7d2-1d90-7c88-9f44-abcdef123456").unwrap();
+        let err = embedding_config_not_found();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Embedding config not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(&submitted_config_id.to_string()));
         assert!(!body.contains("018ff7d2"));
         assert!(!body.contains("abcdef123456"));
         assert!(problem.get("error").is_none());
