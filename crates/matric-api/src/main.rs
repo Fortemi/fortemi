@@ -481,6 +481,10 @@ fn call_session_not_found() -> ApiError {
     ApiError::NotFound("Call session not found.".to_string())
 }
 
+fn collection_not_found() -> ApiError {
+    ApiError::NotFound("Collection not found.".to_string())
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -12116,7 +12120,7 @@ async fn get_collection(
     let collection = ctx
         .query(move |tx| Box::pin(async move { repo.get_tx(tx, id).await }))
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Collection {} not found", id)))?;
+        .ok_or_else(collection_not_found)?;
     Ok(Json(collection))
 }
 
@@ -24270,6 +24274,25 @@ mod tests {
 
         let body = problem.to_string();
         assert!(!body.contains(&submitted_call_id.to_string()));
+        assert!(!body.contains("018ff7d2"));
+        assert!(!body.contains("abcdef123456"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn collection_not_found_does_not_echo_collection_id() {
+        let submitted_collection_id =
+            Uuid::parse_str("018ff7d2-1d90-7c88-9f44-abcdef123456").unwrap();
+        let err = collection_not_found();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/not-found");
+        assert_eq!(problem["detail"], "Collection not found.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(&submitted_collection_id.to_string()));
         assert!(!body.contains("018ff7d2"));
         assert!(!body.contains("abcdef123456"));
         assert!(problem.get("error").is_none());
