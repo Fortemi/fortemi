@@ -55,7 +55,8 @@ use matric_core::{
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_db::{
-    Database, FileSource, FilesystemBackend, SkosConceptRepository, SkosConceptSchemeRepository,
+    Database, FileSource, FilesystemBackend, SkosCollectionRepository, SkosConceptRepository,
+    SkosConceptSchemeRepository,
 };
 use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
@@ -5258,6 +5259,10 @@ async fn normalize_route_policy_input_for_authorization(
         state.db.skos.get_scheme(scheme_id)
     })
     .await;
+    let input = normalize_taxonomy_collection_route_policy_input(input, |collection_id| {
+        state.db.skos.get_collection(collection_id)
+    })
+    .await;
     let input =
         normalize_document_type_route_policy_input(input, |document_type_name| async move {
             state
@@ -6021,6 +6026,114 @@ where
         }
         Err(err) => {
             tracing::warn!(error = %err, "authorization taxonomy scheme normalization lookup failed");
+        }
+    }
+
+    input
+}
+
+#[derive(Clone, Debug)]
+struct TaxonomyCollectionResourceMetadata {
+    id: Uuid,
+    scheme_id: Option<Uuid>,
+    is_ordered: bool,
+    has_created_at: bool,
+    has_updated_at: bool,
+}
+
+impl From<matric_core::SkosCollection> for TaxonomyCollectionResourceMetadata {
+    fn from(collection: matric_core::SkosCollection) -> Self {
+        Self {
+            id: collection.id,
+            scheme_id: collection.scheme_id,
+            is_ordered: collection.is_ordered,
+            has_created_at: true,
+            has_updated_at: true,
+        }
+    }
+}
+
+async fn normalize_taxonomy_collection_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    collection_lookup: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(Uuid) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<matric_core::SkosCollection>>>,
+{
+    if input.resource.kind != ResourceKind::Taxonomy
+        || input.policy.action_family != "taxonomy"
+        || input
+            .resource
+            .attrs
+            .get("resource_id_param")
+            .and_then(|value| value.as_str())
+            != Some("id")
+        || !input
+            .resource
+            .attrs
+            .get("route_template")
+            .and_then(|value| value.as_str())
+            .is_some_and(|template| template.starts_with("/api/v1/concepts/collections/{id}"))
+        || !input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        return input;
+    }
+
+    let Some(collection_id) = input
+        .resource
+        .id
+        .as_deref()
+        .and_then(|id| Uuid::parse_str(id).ok())
+    else {
+        return input;
+    };
+
+    match collection_lookup(collection_id).await {
+        Ok(Some(collection)) => {
+            let collection = TaxonomyCollectionResourceMetadata::from(collection);
+            route_policy::mark_resource_id_normalized(&mut input);
+            input.resource.attrs.insert(
+                "taxonomy_collection_id".to_string(),
+                serde_json::json!(collection.id),
+            );
+            if let Some(scheme_id) = collection.scheme_id {
+                input.resource.attrs.insert(
+                    "taxonomy_collection_scheme_id".to_string(),
+                    serde_json::json!(scheme_id),
+                );
+            }
+            input.resource.attrs.insert(
+                "taxonomy_collection_is_ordered".to_string(),
+                serde_json::json!(collection.is_ordered),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_collection_has_created_at".to_string(),
+                serde_json::json!(collection.has_created_at),
+            );
+            input.resource.attrs.insert(
+                "taxonomy_collection_has_updated_at".to_string(),
+                serde_json::json!(collection.has_updated_at),
+            );
+        }
+        Ok(None) => {
+            tracing::warn!(
+                "authorization resource normalization skipped: taxonomy collection does not exist"
+            );
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "authorization taxonomy collection normalization lookup failed");
         }
     }
 
@@ -23988,6 +24101,236 @@ mod tests {
             .resource
             .attrs
             .get("taxonomy_scheme_id")
+            .is_none());
+    }
+
+    fn test_skos_collection(id: Uuid, scheme_id: Option<Uuid>) -> matric_core::SkosCollection {
+        matric_core::SkosCollection {
+            id,
+            uri: Some("https://example.test/collection".to_string()),
+            pref_label: "Research collection".to_string(),
+            definition: Some("not-for-policy-metadata".to_string()),
+            is_ordered: true,
+            scheme_id,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn existing_taxonomy_collection_route_id_is_marked_normalized_with_safe_metadata() {
+        let collection_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000015").unwrap();
+        let scheme_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000014").unwrap();
+        let input = route_policy::authorization_input_for_request(
+            &Method::PUT,
+            "/api/v1/concepts/collections/018fd1a0-0000-7000-8000-000000000015/members",
+            Some("tenant-a"),
+        )
+        .expect("SKOS collection route has policy input");
+
+        let normalized =
+            normalize_taxonomy_collection_route_policy_input(input, |lookup_id| async move {
+                assert_eq!(lookup_id, collection_id);
+                Ok(Some(test_skos_collection(collection_id, Some(scheme_id))))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_collection_id"],
+            serde_json::json!(collection_id)
+        );
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_collection_scheme_id"],
+            serde_json::json!(scheme_id)
+        );
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_collection_is_ordered"],
+            true
+        );
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_collection_has_created_at"],
+            true
+        );
+        assert_eq!(
+            normalized.resource.attrs["taxonomy_collection_has_updated_at"],
+            true
+        );
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_collection_uri")
+            .is_none());
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_collection_pref_label")
+            .is_none());
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_collection_definition")
+            .is_none());
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_taxonomy_collection_route_id_stays_unnormalized_after_backing_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/concepts/collections/018fd1a0-0000-7000-8000-000000000015",
+            Some("tenant-a"),
+        )
+        .expect("SKOS collection route has policy input");
+
+        let normalized =
+            normalize_taxonomy_collection_route_policy_input(input, |_lookup_id| async move {
+                Ok(None)
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_collection_id")
+            .is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn invalid_taxonomy_collection_route_id_stays_unnormalized_without_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/concepts/collections/not-a-uuid",
+            Some("tenant-a"),
+        )
+        .expect("SKOS collection route has policy input");
+
+        let normalized =
+            normalize_taxonomy_collection_route_policy_input(input, |_lookup_id| async move {
+                panic!("invalid taxonomy collection route IDs must not perform collection lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_skos_collection(Uuid::new_v4(), None)))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_collection_id")
+            .is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn taxonomy_collection_normalization_lookup_error_preserves_fail_closed_guard() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/concepts/collections/018fd1a0-0000-7000-8000-000000000015",
+            Some("tenant-a"),
+        )
+        .expect("SKOS collection route has policy input");
+
+        let normalized =
+            normalize_taxonomy_collection_route_policy_input(input, |_lookup_id| async move {
+                Err(matric_core::Error::Internal("lookup failed".to_string()))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn taxonomy_collection_root_routes_do_not_run_collection_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/concepts/collections",
+            None,
+        )
+        .expect("SKOS collection root route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Taxonomy);
+        assert_eq!(input.resource.attrs["resource_id_source"], "route_template");
+
+        let normalized =
+            normalize_taxonomy_collection_route_policy_input(input, |_lookup_id| async move {
+                panic!("SKOS collection root routes must not perform collection lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_skos_collection(Uuid::new_v4(), None)))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_collection_id")
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn taxonomy_concept_routes_do_not_run_collection_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/concepts/018fd1a0-0000-7000-8000-000000000013",
+            Some("tenant-a"),
+        )
+        .expect("taxonomy concept route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Taxonomy);
+
+        let normalized =
+            normalize_taxonomy_collection_route_policy_input(input, |_lookup_id| async move {
+                panic!("concept routes must not perform collection lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_skos_collection(Uuid::new_v4(), None)))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_collection_id")
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn taxonomy_scheme_routes_do_not_run_collection_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/concepts/schemes/018fd1a0-0000-7000-8000-000000000014",
+            Some("tenant-a"),
+        )
+        .expect("taxonomy scheme route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Taxonomy);
+
+        let normalized =
+            normalize_taxonomy_collection_route_policy_input(input, |_lookup_id| async move {
+                panic!("scheme routes must not perform collection lookups");
+                #[allow(unreachable_code)]
+                Ok(Some(test_skos_collection(Uuid::new_v4(), None)))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized
+            .resource
+            .attrs
+            .get("taxonomy_collection_id")
             .is_none());
     }
 
