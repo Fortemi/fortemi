@@ -45,7 +45,7 @@ const CHAT_MODEL_UNSUPPORTED_MESSAGE: &str = "Requested model cannot be used for
 // =============================================================================
 
 /// Chat request matching the HotM UI contract.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct ChatRequest {
     /// The user's message text.
     pub input: String,
@@ -58,11 +58,21 @@ pub struct ChatRequest {
     pub context: Option<ChatContext>,
 }
 
+impl std::fmt::Debug for ChatRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatRequest")
+            .field("input_len", &chat_text_len(&self.input))
+            .field("model_len", &chat_optional_text_len(&self.model))
+            .field("context_present", &self.context.is_some())
+            .finish()
+    }
+}
+
 /// Contextual information for grounding the chat response.
 ///
 /// Fields like `note_id`, `collection_id`, `search_query` are part of the HotM
 /// contract and deserialized for future RAG integration.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 #[allow(dead_code)]
 pub struct ChatContext {
     /// Note ID to ground the response in.
@@ -79,8 +89,28 @@ pub struct ChatContext {
     pub conversation_history: Option<Vec<ChatMessage>>,
 }
 
+impl std::fmt::Debug for ChatContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatContext")
+            .field("note_id_len", &chat_optional_text_len(&self.note_id))
+            .field(
+                "collection_id_len",
+                &chat_optional_text_len(&self.collection_id),
+            )
+            .field(
+                "search_query_len",
+                &chat_optional_text_len(&self.search_query),
+            )
+            .field(
+                "conversation_history_count",
+                &self.conversation_history.as_ref().map(Vec::len),
+            )
+            .finish()
+    }
+}
+
 /// A single message in the conversation.
-#[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema)]
+#[derive(Deserialize, Serialize, Clone, utoipa::ToSchema)]
 pub struct ChatMessage {
     /// Role: "system", "user", or "assistant".
     pub role: String,
@@ -91,8 +121,18 @@ pub struct ChatMessage {
     pub timestamp: Option<String>,
 }
 
+impl std::fmt::Debug for ChatMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatMessage")
+            .field("role_len", &chat_text_len(&self.role))
+            .field("content_len", &chat_text_len(&self.content))
+            .field("timestamp_len", &chat_optional_text_len(&self.timestamp))
+            .finish()
+    }
+}
+
 /// Chat response matching the HotM UI contract.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct ChatResponse {
     /// Response messages (typically one assistant message).
     pub messages: Vec<ChatMessage>,
@@ -102,17 +142,37 @@ pub struct ChatResponse {
     pub model_info: ChatModelInfo,
 }
 
+impl std::fmt::Debug for ChatResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatResponse")
+            .field("message_count", &self.messages.len())
+            .field("action_count", &self.actions.len())
+            .field("model_info", &self.model_info)
+            .finish()
+    }
+}
+
 /// Placeholder for future UI-driven actions.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct ChatAction {
     #[serde(rename = "type")]
     pub action_type: String,
     pub payload: serde_json::Value,
 }
 
+impl std::fmt::Debug for ChatAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatAction")
+            .field("action_type_len", &chat_text_len(&self.action_type))
+            .field("payload_class", &chat_json_class(&self.payload))
+            .field("payload_len", &chat_text_len(&self.payload.to_string()))
+            .finish()
+    }
+}
+
 /// Model metadata included in every chat response so clients can display
 /// context budget, thinking capability, and speed expectations.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct ChatModelInfo {
     /// Model slug used for this request (e.g., "qwen3:8b").
     pub model: String,
@@ -134,6 +194,47 @@ pub struct ChatModelInfo {
     /// Model family (e.g., "qwen3", "llama") if known.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
+}
+
+impl std::fmt::Debug for ChatModelInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatModelInfo")
+            .field("model_len", &chat_text_len(&self.model))
+            .field("context_window", &self.context_window)
+            .field(
+                "estimated_available_context",
+                &self.estimated_available_context,
+            )
+            .field("max_output_tokens", &self.max_output_tokens)
+            .field("supports_thinking", &self.supports_thinking)
+            .field("thinking_type_len", &chat_text_len(&self.thinking_type))
+            .field("speed_tok_s", &self.speed_tok_s)
+            .field(
+                "parameter_size_len",
+                &chat_optional_text_len(&self.parameter_size),
+            )
+            .field("family_len", &chat_optional_text_len(&self.family))
+            .finish()
+    }
+}
+
+fn chat_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn chat_optional_text_len(value: &Option<String>) -> Option<usize> {
+    value.as_deref().map(chat_text_len)
+}
+
+fn chat_json_class(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
 }
 
 // =============================================================================
@@ -474,7 +575,7 @@ fn chat_service_unavailable(msg: &str, retry_after: u64) -> Response {
 /// framing (`delta`/`done`/`error`) and JSON payloads are assertable in unit
 /// tests (#816). The handler maps each frame to an SSE [`Event`] at the
 /// channel boundary.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ChatStreamFrame {
     /// SSE event name: `"delta"`, `"done"`, or `"error"`.
     pub event: &'static str,
@@ -485,6 +586,17 @@ pub struct ChatStreamFrame {
     /// `EventSource` echoes it back via `Last-Event-ID` (#815). `None` on a bare
     /// frame before the pump assigns a sequence.
     pub id: Option<String>,
+}
+
+impl std::fmt::Debug for ChatStreamFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatStreamFrame")
+            .field("event", &self.event)
+            .field("data_len", &chat_text_len(&self.data))
+            .field("data_class", &chat_json_text_class(&self.data))
+            .field("id_len", &self.id.as_ref().map(|id| chat_text_len(id)))
+            .finish()
+    }
 }
 
 impl ChatStreamFrame {
@@ -574,6 +686,13 @@ impl ChatStreamFrame {
             data: sf.data.clone(),
             id: Some(format!("{}-{}", session, sf.seq)),
         }
+    }
+}
+
+fn chat_json_text_class(value: &str) -> &'static str {
+    match serde_json::from_str::<serde_json::Value>(value) {
+        Ok(value) => chat_json_class(&value),
+        Err(_) => "invalid",
     }
 }
 
@@ -1206,6 +1325,91 @@ mod tests {
     }
 
     #[test]
+    fn chat_debug_redacts_prompt_response_and_model_content() {
+        let request = ChatRequest {
+            input: "prompt with sk-chat-request-secret and patient Alice".to_string(),
+            model: Some("tenant/private-chat-model-secret".to_string()),
+            context: Some(ChatContext {
+                note_id: Some("note-secret-id".to_string()),
+                collection_id: Some("collection-secret-id".to_string()),
+                search_query: Some("search query with token=secret".to_string()),
+                conversation_history: Some(vec![
+                    ChatMessage {
+                        role: "user".to_string(),
+                        content: "history contains bearer-secret-token".to_string(),
+                        timestamp: Some("2026-06-26T10:00:00Z".to_string()),
+                    },
+                    ChatMessage {
+                        role: "assistant".to_string(),
+                        content: "assistant history with private diagnosis".to_string(),
+                        timestamp: None,
+                    },
+                ]),
+            }),
+        };
+        let response = ChatResponse {
+            messages: vec![ChatMessage {
+                role: "assistant".to_string(),
+                content: "generated answer with sk-chat-response-secret".to_string(),
+                timestamp: Some("2026-06-26T10:01:00Z".to_string()),
+            }],
+            actions: vec![ChatAction {
+                action_type: "open_secret_note".to_string(),
+                payload: serde_json::json!({
+                    "note_id": "note-action-secret",
+                    "url": "https://tenant.example/app?token=secret"
+                }),
+            }],
+            model_info: ChatModelInfo {
+                model: "tenant/private-chat-model-secret".to_string(),
+                context_window: 40960,
+                estimated_available_context: 40760,
+                max_output_tokens: 4096,
+                supports_thinking: true,
+                thinking_type: "private-thinking-profile".to_string(),
+                speed_tok_s: 144.3,
+                parameter_size: Some("secret-parameter-size".to_string()),
+                family: Some("secret-model-family".to_string()),
+            },
+        };
+
+        let rendered = format!(
+            "{request:?}{:?}{response:?}{:?}",
+            request.context.as_ref(),
+            response.actions.first()
+        );
+
+        assert!(rendered.contains("input_len"));
+        assert!(rendered.contains("context_present: true"));
+        assert!(rendered.contains("conversation_history_count"));
+        assert!(rendered.contains("message_count: 1"));
+        assert!(rendered.contains("action_count: 1"));
+        assert!(rendered.contains("payload_class"));
+        for forbidden in [
+            "sk-chat-request-secret",
+            "patient Alice",
+            "tenant/private-chat-model-secret",
+            "note-secret-id",
+            "collection-secret-id",
+            "token=secret",
+            "bearer-secret-token",
+            "private diagnosis",
+            "sk-chat-response-secret",
+            "open_secret_note",
+            "note-action-secret",
+            "tenant.example",
+            "private-thinking-profile",
+            "secret-parameter-size",
+            "secret-model-family",
+        ] {
+            assert!(
+                !rendered.contains(forbidden),
+                "chat Debug leaked {forbidden}: {rendered}"
+            );
+        }
+    }
+
+    #[test]
     fn test_chat_message_serialize_without_timestamp() {
         let msg = ChatMessage {
             role: "user".to_string(),
@@ -1675,6 +1879,45 @@ mod tests {
         assert_eq!(v["detail"], CHAT_GENERATION_FAILURE_MESSAGE);
         assert!(v.get("error").is_none());
         assert!(v.get("code").is_none());
+    }
+
+    #[test]
+    fn chat_stream_debug_redacts_frame_and_replay_content() {
+        let frame =
+            ChatStreamFrame::delta("generated delta with sk-stream-secret and patient transcript")
+                .with_id("tenant-secret-session-42".to_string());
+        let stored = StoredFrame {
+            seq: 42,
+            event: "delta-secret-event".to_string(),
+            data: serde_json::json!({
+                "content": "stored replay content with sk-stored-secret",
+                "url": "https://provider.example/replay?token=secret"
+            })
+            .to_string(),
+        };
+
+        let rendered = format!("{frame:?}{stored:?}");
+
+        assert!(rendered.contains("data_len"));
+        assert!(rendered.contains("data_class"));
+        assert!(rendered.contains("id_len"));
+        assert!(rendered.contains("event_len"));
+        for forbidden in [
+            "generated delta",
+            "sk-stream-secret",
+            "patient transcript",
+            "tenant-secret-session",
+            "delta-secret-event",
+            "stored replay content",
+            "sk-stored-secret",
+            "provider.example",
+            "token=secret",
+        ] {
+            assert!(
+                !rendered.contains(forbidden),
+                "chat stream Debug leaked {forbidden}: {rendered}"
+            );
+        }
     }
 
     /// #816: a clean stream emits one `delta` per non-empty chunk followed by a

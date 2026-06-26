@@ -186,6 +186,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-26 continuation: Inbound connector config Debug slice replaces raw SSE/Redis/Kafka config output with metadata-only destination classes, lengths, counts, and presence flags for credential-bearing URLs, headers, SASL credentials, topics, and extra config.
   - 2026-06-26 continuation: Inbound source management list slice replaces raw connector names, kinds, and config JSON with metadata-only lengths/classes, secret-candidate flags, and key counts.
   - 2026-06-26 continuation: Inbound source model Debug slice replaces raw stored source and create-request output with metadata-only name/kind lengths, config classes, config lengths, and config key counts.
+  - 2026-06-26 continuation: Chat DTO and stream replay Debug slice replaces raw prompts, context, history, generated messages, model metadata, action payloads, SSE frame data, replay frame data, and session ids with metadata-only lengths/classes/counts.
 - [x] **#926 / #928 / #933** fail-closed startup: require issuer in multi-tenant; reject invalid security booleans; validate rate-limit env before constructing limiter. (2026-06-26: startup-config slice added strict parsing for auth/tenant/local-issuer/rate-limit/realtime-consent booleans, hosted-safe issuer validation reused by AsyncAPI metadata, deterministic process-local rate-limit numeric validation before limiter construction, and operator/env docs for accepted forms, local issuer override, and hosted issuer requirements. Issues closed after focused regression tests and docs audit.)
 
 ## Phase 1 — Open BSL desktop GA  `tier/open-build`
@@ -534,3 +535,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-26 — #968/#974 inbound SSE, Redis Stream, and Kafka connector config Debug output now redacts credential-bearing URLs, headers, SASL credentials, topics, event fields, and extra config values.
 - 2026-06-26 — #968/#974 inbound source management list responses now return metadata-only connector records instead of raw names, kinds, or config JSON.
 - 2026-06-26 — #968/#974 inbound source model Debug output now reports metadata-only source/config shape instead of raw connector names, kinds, URLs, headers, stream metadata, or config values.
+- 2026-06-26 — #968/#974 chat request/response and stream replay Debug output now redacts raw prompts, context, history, generated content, action payloads, model metadata, SSE frame data, replay frame data, and session ids.

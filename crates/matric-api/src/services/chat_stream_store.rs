@@ -34,7 +34,7 @@ use tracing::{info, warn};
 const DEFAULT_TTL_SECONDS: u64 = 60;
 
 /// One buffered SSE frame, as persisted in the per-session Redis list.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StoredFrame {
     /// Monotonic per-session sequence number (1-based).
     pub seq: u64,
@@ -44,10 +44,37 @@ pub struct StoredFrame {
     pub data: String,
 }
 
+impl std::fmt::Debug for StoredFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StoredFrame")
+            .field("seq", &self.seq)
+            .field("event_len", &chat_store_text_len(&self.event))
+            .field("data_len", &chat_store_text_len(&self.data))
+            .field("data_class", &chat_store_json_text_class(&self.data))
+            .finish()
+    }
+}
+
 impl StoredFrame {
     /// Whether this frame terminates the stream (`done` or `error`).
     pub fn is_terminal(&self) -> bool {
         self.event == "done" || self.event == "error"
+    }
+}
+
+fn chat_store_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn chat_store_json_text_class(value: &str) -> &'static str {
+    match serde_json::from_str::<serde_json::Value>(value) {
+        Ok(serde_json::Value::Null) => "null",
+        Ok(serde_json::Value::Bool(_)) => "bool",
+        Ok(serde_json::Value::Number(_)) => "number",
+        Ok(serde_json::Value::String(_)) => "string",
+        Ok(serde_json::Value::Array(_)) => "array",
+        Ok(serde_json::Value::Object(_)) => "object",
+        Err(_) => "invalid",
     }
 }
 
