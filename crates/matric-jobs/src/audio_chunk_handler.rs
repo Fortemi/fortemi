@@ -56,6 +56,10 @@ fn audio_chunk_error_reason_code(error: &str) -> &'static str {
     }
 }
 
+fn audio_chunk_text_len(text: &str) -> usize {
+    text.chars().count()
+}
+
 pub struct AudioChunkTranscriptionHandler {
     db: Database,
     transcription: Arc<dyn TranscriptionBackend>,
@@ -135,9 +139,10 @@ impl JobHandler for AudioChunkTranscriptionHandler {
                 return JobResult::Retry("Whisper backend not ready — will retry".into());
             }
             Err(e) => {
+                let error_text = e.to_string();
                 return JobResult::Retry(format!(
-                    "Whisper backend health check failed: {} — will retry",
-                    e
+                    "Whisper backend health check failed ({}) — will retry",
+                    audio_chunk_error_reason_code(&error_text)
                 ));
             }
         }
@@ -160,7 +165,13 @@ impl JobHandler for AudioChunkTranscriptionHandler {
         let chunk_data = {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        audio_chunk_error_reason_code(&error_text)
+                    ));
+                }
             };
             let result = file_storage
                 .download_file_tx(&mut tx, chunk_attachment_id)
@@ -170,16 +181,17 @@ impl JobHandler for AudioChunkTranscriptionHandler {
             match result {
                 Ok((data, _, _)) => data,
                 Err(e) => {
+                    let error_text = e.to_string();
                     return JobResult::Failed(format!(
-                        "Failed to download chunk attachment {}: {}",
-                        chunk_attachment_id, e
-                    ))
+                        "Failed to download chunk attachment ({})",
+                        audio_chunk_error_reason_code(&error_text)
+                    ));
                 }
             }
         };
 
         if chunk_data.is_empty() {
-            return JobResult::Failed(format!("Chunk attachment {} is empty", chunk_attachment_id));
+            return JobResult::Failed("Chunk attachment is empty".into());
         }
 
         // Step 2: Transcribe via Whisper (single pass — chunk is sized appropriately)
@@ -200,10 +212,12 @@ impl JobHandler for AudioChunkTranscriptionHandler {
         {
             Ok(r) => r,
             Err(e) => {
+                let error_text = e.to_string();
                 return JobResult::Retry(format!(
-                    "Whisper transcription failed for chunk {}: {}",
-                    chunk_index, e
-                ))
+                    "Whisper transcription failed for chunk {} ({})",
+                    chunk_index,
+                    audio_chunk_error_reason_code(&error_text)
+                ));
             }
         };
 
@@ -259,14 +273,24 @@ impl JobHandler for AudioChunkTranscriptionHandler {
         {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        audio_chunk_error_reason_code(&error_text)
+                    ));
+                }
             };
             if let Err(e) = file_storage
                 .merge_extracted_metadata_tx(&mut tx, chunk_attachment_id, &chunk_meta)
                 .await
             {
                 let _ = tx.commit().await;
-                return JobResult::Failed(format!("Failed to store chunk metadata: {}", e));
+                let error_text = e.to_string();
+                return JobResult::Failed(format!(
+                    "Failed to store chunk metadata ({})",
+                    audio_chunk_error_reason_code(&error_text)
+                ));
             }
             let _ = tx.commit().await;
         }
@@ -342,7 +366,8 @@ impl JobHandler for AudioChunkTranscriptionHandler {
                     JobResult::Success(Some(json!({
                         "chunk_index": chunk_index,
                         "segment_count": segment_count,
-                        "merge_error": e,
+                        "merge_error_len": audio_chunk_text_len(&error_text),
+                        "merge_error_reason": audio_chunk_error_reason_code(&error_text),
                     })))
                 }
             }
@@ -370,14 +395,23 @@ impl AudioChunkTranscriptionHandler {
     ) -> Result<usize, String> {
         // Load all audio_chunk derived attachments
         let chunk_attachments: Vec<Attachment> = {
-            let mut tx = schema_ctx
-                .begin_tx()
-                .await
-                .map_err(|e| format!("Schema tx failed: {}", e))?;
+            let mut tx = schema_ctx.begin_tx().await.map_err(|e| {
+                let error_text = e.to_string();
+                format!(
+                    "Schema tx failed ({})",
+                    audio_chunk_error_reason_code(&error_text)
+                )
+            })?;
             let atts = file_storage
                 .list_derived_by_type_tx(&mut tx, parent_attachment_id, "audio_chunk")
                 .await
-                .map_err(|e| format!("Failed to list chunk attachments: {}", e))?;
+                .map_err(|e| {
+                    let error_text = e.to_string();
+                    format!(
+                        "Failed to list chunk attachments ({})",
+                        audio_chunk_error_reason_code(&error_text)
+                    )
+                })?;
             let _ = tx.commit().await;
             atts
         };
@@ -472,7 +506,7 @@ impl AudioChunkTranscriptionHandler {
 
         let merged_count = merged.segments.len();
         info!(
-            parent = %parent_attachment_id,
+            parent_attachment_id_present = true,
             chunks = indexed_chunks.len(),
             segments = merged_count,
             duration = ?merged.duration_secs,
@@ -541,5 +575,28 @@ mod tests {
             audio_chunk_error_reason_code("opaque backend diagnostic text"),
             "operation_failed"
         );
+    }
+
+    #[test]
+    fn audio_chunk_runtime_telemetry_helpers_redact_private_values() {
+        let raw_error =
+            "postgres://user:mm_key_secret@db.internal/app failed at /srv/private/audio.wav";
+        let rendered = format!(
+            "parent_attachment_id_present=true; error_len={}; error_reason={}; merge_error_len={}; merge_error_reason={}",
+            audio_chunk_text_len(raw_error),
+            audio_chunk_error_reason_code(raw_error),
+            audio_chunk_text_len(raw_error),
+            audio_chunk_error_reason_code(raw_error)
+        );
+
+        assert!(rendered.contains("parent_attachment_id_present=true"));
+        assert!(rendered.contains("error_len="));
+        assert!(rendered.contains("error_reason="));
+        assert!(rendered.contains("merge_error_len="));
+        assert!(rendered.contains("merge_error_reason="));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("postgres://"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("/srv/private"));
     }
 }
