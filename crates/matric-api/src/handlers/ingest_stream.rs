@@ -27,8 +27,8 @@
 //! - `progress` — `{"processed":N}` every `FORTEMI_INGEST_PROGRESS_INTERVAL`
 //!   data lines (default 100)
 //! - `done` — `{"total":N,"success":M,"errors":K}` terminal summary
-//! - `error` — `{"error":"...","code":"INGEST_FATAL"}` only for a pre-stream
-//!   fatal (e.g. an invalid archive schema)
+//! - `error` — RFC 9457-style `{"type","title","status","detail"}` only for a
+//!   pre-stream fatal (e.g. an invalid archive schema)
 //!
 //! ## Scope (#825 foundation + #826 validation/progress + #828 resumption + #827 backpressure + #829 token auth + #830 outbox)
 //!
@@ -365,8 +365,13 @@ impl IngestFrame {
     fn fatal(error: &str) -> Self {
         Self {
             event: "error",
-            data: json!({ "error": sanitize_ingest_fatal_error(error), "code": "INGEST_FATAL" })
-                .to_string(),
+            data: json!({
+                "type": "https://fortemi.com/problems/operation-failed",
+                "title": "Operation Failed",
+                "status": 500,
+                "detail": sanitize_ingest_fatal_error(error),
+            })
+            .to_string(),
         }
     }
 
@@ -1516,11 +1521,15 @@ mod tests {
         );
         assert_eq!(f.event, "error");
         let j = frame_json(&f);
+        assert_eq!(j["type"], "https://fortemi.com/problems/operation-failed");
+        assert_eq!(j["title"], "Operation Failed");
+        assert_eq!(j["status"], 500);
         assert_eq!(
-            j["error"],
+            j["detail"],
             "ingest stream could not be initialized. Check server logs for diagnostics."
         );
-        assert_eq!(j["code"], "INGEST_FATAL");
+        assert!(j.get("error").is_none());
+        assert!(j.get("code").is_none());
         let serialized = j.to_string();
         assert!(!serialized.contains("postgres://"));
         assert!(!serialized.contains("secret"));

@@ -507,7 +507,13 @@ impl ChatStreamFrame {
     fn error(message: String) -> Self {
         Self {
             event: "error",
-            data: serde_json::json!({ "error": message, "code": "GENERATION_FAILED" }).to_string(),
+            data: serde_json::json!({
+                "type": "https://fortemi.com/problems/provider-failure",
+                "title": "Provider Failure",
+                "status": 502,
+                "detail": message,
+            })
+            .to_string(),
             id: None,
         }
     }
@@ -730,7 +736,7 @@ fn record_disconnect(metrics: &ChatStreamMetrics, delivered: u64, dropped: u64) 
 /// SSE event shape (consistent with `POST /api/v1/inference/stream`):
 /// - `delta` — `{"content": "<chunk>"}` per content chunk
 /// - `done`  — `{"finish_reason": "stop", "model": "<slug>"}` on completion
-/// - `error` — `{"error": "<msg>", "code": "GENERATION_FAILED"}` on failure
+/// - `error` — RFC 9457-style `{"type","title","status","detail"}` on failure
 #[utoipa::path(
     post,
     path = "/api/v1/chat/stream",
@@ -1656,14 +1662,19 @@ mod tests {
         let err = ChatStreamFrame::error("boom".to_string());
         assert_eq!(err.event, "error");
         let v: serde_json::Value = serde_json::from_str(&err.data).unwrap();
-        assert_eq!(v["error"], "boom");
-        assert_eq!(v["code"], "GENERATION_FAILED");
+        assert_eq!(v["type"], "https://fortemi.com/problems/provider-failure");
+        assert_eq!(v["title"], "Provider Failure");
+        assert_eq!(v["status"], 502);
+        assert_eq!(v["detail"], "boom");
+        assert!(v.get("error").is_none());
+        assert!(v.get("code").is_none());
 
         let generic_err = ChatStreamFrame::generation_failed();
         assert_eq!(generic_err.event, "error");
         let v: serde_json::Value = serde_json::from_str(&generic_err.data).unwrap();
-        assert_eq!(v["error"], CHAT_GENERATION_FAILURE_MESSAGE);
-        assert_eq!(v["code"], "GENERATION_FAILED");
+        assert_eq!(v["detail"], CHAT_GENERATION_FAILURE_MESSAGE);
+        assert!(v.get("error").is_none());
+        assert!(v.get("code").is_none());
     }
 
     /// #816: a clean stream emits one `delta` per non-empty chunk followed by a
@@ -1743,8 +1754,11 @@ mod tests {
         assert_eq!(frames[0].event, "delta");
         assert_eq!(frames[1].event, "error");
         let v: serde_json::Value = serde_json::from_str(&frames[1].data).unwrap();
-        assert_eq!(v["error"], CHAT_GENERATION_FAILURE_MESSAGE);
-        assert_eq!(v["code"], "GENERATION_FAILED");
+        assert_eq!(v["type"], "https://fortemi.com/problems/provider-failure");
+        assert_eq!(v["status"], 502);
+        assert_eq!(v["detail"], CHAT_GENERATION_FAILURE_MESSAGE);
+        assert!(v.get("error").is_none());
+        assert!(v.get("code").is_none());
         assert!(!frames[1].data.contains("upstream exploded"));
 
         assert_eq!(metrics.streams_errored.load(Ordering::Relaxed), 1);

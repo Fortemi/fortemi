@@ -33,7 +33,7 @@ A streaming counterpart to `POST /api/v1/chat`. Same request body, but the respo
 |-------|------|---------|
 | `delta` | `{"content": "<chunk>"}` | One generated content chunk. Concatenate `content` across `delta` events to rebuild the message. |
 | `done`  | `{"finish_reason": "stop", "model": "<slug>"}` | Terminal success. No events follow. |
-| `error` | `{"error": "<message>", "code": "GENERATION_FAILED"}` | Terminal failure. No events follow. |
+| `error` | `{"type":"https://fortemi.com/problems/provider-failure","title":"Provider Failure","status":502,"detail":"<message>"}` | Terminal failure. No events follow. |
 
 A keep-alive comment is emitted every 15s to hold idle connections open.
 
