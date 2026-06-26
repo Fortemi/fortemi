@@ -31,6 +31,7 @@ const MODEL_RESOLUTION_JOB_FAILURE: &str =
     "Model resolution failed. Check server logs for diagnostics.";
 const GRAPH_MAINTENANCE_STEP_FAILURE: &str =
     "Graph maintenance step failed. Check server logs for diagnostics.";
+const AI_REVISION_JOB_FAILURE: &str = "AI revision failed. Check server logs for diagnostics.";
 const ATTACHMENT_PROCESSING_JOB_FAILURE: &str =
     "Attachment processing failed. Check server logs for diagnostics.";
 const SCHEMA_CONTEXT_JOB_FAILURE: &str =
@@ -73,6 +74,15 @@ fn graph_maintenance_step_failure(
         "status": "failed",
         "error": GRAPH_MAINTENANCE_STEP_FAILURE,
     })
+}
+
+fn ai_revision_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        error_len = diagnostic.len(),
+        operation, "AI revision job failed"
+    );
+    JobResult::Failed(AI_REVISION_JOB_FAILURE.to_string())
 }
 
 fn attachment_processing_job_failure(
@@ -689,14 +699,14 @@ impl JobHandler for AiRevisionHandler {
         // Get the note
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return ai_revision_job_failure(e, "fetch_note_begin_tx"),
         };
         let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
-            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+            Err(e) => return ai_revision_job_failure(e, "fetch_note"),
         };
         if let Err(e) = tx.commit().await {
-            return JobResult::Failed(format!("Commit failed: {}", e));
+            return ai_revision_job_failure(e, "fetch_note_commit");
         }
 
         let original_content = &note.original.content;
@@ -727,7 +737,7 @@ impl JobHandler for AiRevisionHandler {
         if !is_post_extraction && !is_force {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => return ai_revision_job_failure(e, "media_check_begin_tx"),
             };
             let has_media: bool = sqlx::query_scalar(
                 "SELECT EXISTS (
@@ -1062,7 +1072,7 @@ impl JobHandler for AiRevisionHandler {
 
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            Err(e) => return ai_revision_job_failure(e, "save_revision_begin_tx"),
         };
         if let Err(e) = self
             .db
@@ -1070,10 +1080,10 @@ impl JobHandler for AiRevisionHandler {
             .update_revised_tx(&mut tx, note_id, &revised, Some(revision_note))
             .await
         {
-            return JobResult::Failed(format!("Failed to save revision: {}", e));
+            return ai_revision_job_failure(e, "save_revision");
         }
         if let Err(e) = tx.commit().await {
-            return JobResult::Failed(format!("Commit failed: {}", e));
+            return ai_revision_job_failure(e, "save_revision_commit");
         }
 
         // Record W3C PROV provenance for the AI revision
@@ -7945,6 +7955,27 @@ Quick note about the meeting discussion and action items."#;
         assert!(!serialized.contains("db.internal"));
         assert!(!serialized.contains("/srv/fortemi"));
         assert!(!serialized.contains("database error"));
+    }
+
+    #[test]
+    fn ai_revision_job_failure_uses_generic_stored_message() {
+        let result = ai_revision_job_failure(
+            "revision save failed for postgres://user:secret@db.internal/app at /srv/fortemi SQLSTATE 40001",
+            "save_revision",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, AI_REVISION_JOB_FAILURE);
+                assert!(!message.contains("postgres://"));
+                assert!(!message.contains("user:secret"));
+                assert!(!message.contains("db.internal"));
+                assert!(!message.contains("/srv/fortemi"));
+                assert!(!message.contains("SQLSTATE"));
+                assert!(!message.contains("revision save failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
     }
 
     #[test]
