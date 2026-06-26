@@ -68,6 +68,9 @@ const JOB_TITLE_ESCALATION_FAILURE_DETAIL: &str = "job_title_escalation_failed";
 const JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_linking_diagnostic_failed";
 const JOB_PURGE_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_purge_diagnostic_failed";
 const JOB_CONTEXT_UPDATE_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_context_update_diagnostic_failed";
+const JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_concept_tagging_diagnostic_failed";
+const JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL: &str =
+    "job_reference_extraction_diagnostic_failed";
 
 fn diagnostic_len(error: impl std::fmt::Display) -> usize {
     error.to_string().chars().count()
@@ -3866,7 +3869,12 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                     info!(note_id = %note_id, "Tier-0 GLiNER returned no entities");
                 }
                 Err(e) => {
-                    warn!(error = %e, "Tier-0 GLiNER concept extraction failed");
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "tier0_gliner_concept_extraction",
+                        "Tier-0 GLiNER concept extraction failed"
+                    );
                 }
             }
         }
@@ -4068,9 +4076,21 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             }
             Err(e) => {
                 if concept_labels.is_empty() {
-                    warn!(error = %e, "Tier-2 standard model failed with no prior concepts");
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "tier2_standard_concept_extraction",
+                        prior_concept_count = 0usize,
+                        "Tier-2 standard model failed with no prior concepts"
+                    );
                 } else {
-                    warn!(error = %e, "Tier-2 standard model failed, proceeding with {} prior concepts", concept_labels.len());
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "tier2_standard_concept_extraction",
+                        prior_concept_count = concept_labels.len(),
+                        "Tier-2 standard model failed, proceeding with prior concepts"
+                    );
                 }
             }
         }
@@ -4210,7 +4230,12 @@ impl JobHandler for ConceptTaggingHandler {
                 })
                 .collect(),
             Err(e) => {
-                warn!(error = %e, "Failed to fetch existing concepts, proceeding without");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "fetch_existing_concepts",
+                    "Failed to fetch existing concepts, proceeding without"
+                );
                 vec![]
             }
         };
@@ -4383,7 +4408,12 @@ impl JobHandler for ConceptTaggingHandler {
             let result = self.db.skos.tag_note_tx(&mut tx, tag_req).await;
             tx.commit().await.ok();
             if let Err(e) = result {
-                debug!(error = %e, concept_id = %resolved.concept_id, "Failed to tag note (may already exist)");
+                debug!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "tag_note_with_concept",
+                    "Failed to tag note"
+                );
             } else {
                 tagged_count += 1;
             }
@@ -4420,7 +4450,11 @@ impl JobHandler for ConceptTaggingHandler {
                 .complete_activity(act_id, None, Some(prov_metadata))
                 .await
             {
-                warn!(error = %e, "Failed to complete concept tagging provenance activity");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_PROVENANCE_WRITE_FAILURE_DETAIL,
+                    "Failed to complete concept tagging provenance activity"
+                );
             }
         }
 
@@ -4686,7 +4720,12 @@ impl JobHandler for ReferenceExtractionHandler {
                     (Vec::new(), "gliner_empty")
                 }
                 Err(e) => {
-                    warn!(error = %e, "GLiNER extraction failed, falling back to LLM");
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "gliner_reference_extraction",
+                        "GLiNER extraction failed, falling back to LLM"
+                    );
                     if is_tiered {
                         if let Some(job_id) = self
                             .queue_ref_tier_escalation(
@@ -4776,11 +4815,25 @@ impl JobHandler for ReferenceExtractionHandler {
                                 succeeded += 1;
                             }
                             Err(e) => {
-                                info!(chunk = i, chunks = chunks.len(), error = %e, "Fast model ref parse failed, skipping chunk");
+                                info!(
+                                    chunk = i,
+                                    chunks = chunks.len(),
+                                    error_len = diagnostic_len(&e),
+                                    detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                                    operation = "fast_reference_parse",
+                                    "Fast model ref parse failed, skipping chunk"
+                                );
                             }
                         },
                         Err(e) => {
-                            info!(chunk = i, chunks = chunks.len(), error = %e, "Fast model ref extraction failed, skipping chunk");
+                            info!(
+                                chunk = i,
+                                chunks = chunks.len(),
+                                error_len = diagnostic_len(&e),
+                                detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                                operation = "fast_reference_extraction",
+                                "Fast model ref extraction failed, skipping chunk"
+                            );
                         }
                     }
                 }
@@ -4839,7 +4892,12 @@ impl JobHandler for ReferenceExtractionHandler {
                             (parsed, "llm")
                         }
                         Err(e) => {
-                            warn!(error = %e, "Failed to parse LLM reference response");
+                            warn!(
+                                error_len = diagnostic_len(&e),
+                                detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                                operation = "standard_reference_parse",
+                                "Failed to parse LLM reference response"
+                            );
                             return JobResult::Success(Some(serde_json::json!({
                                 "references": 0,
                                 "reason": "parse_error",
@@ -4848,7 +4906,12 @@ impl JobHandler for ReferenceExtractionHandler {
                         }
                     },
                     Err(e) => {
-                        warn!(error = %e, "LLM reference extraction failed");
+                        warn!(
+                            error_len = diagnostic_len(&e),
+                            detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                            operation = "standard_reference_extraction",
+                            "LLM reference extraction failed"
+                        );
                         return JobResult::Success(Some(serde_json::json!({
                             "references": 0,
                             "reason": "llm_error",
@@ -4939,7 +5002,12 @@ impl JobHandler for ReferenceExtractionHandler {
 
             tx.commit().await.ok();
             if let Err(e) = tag_result {
-                debug!(error = %e, concept_id = %resolved.concept_id, "Failed to tag note with reference (may already exist)");
+                debug!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "tag_note_with_reference",
+                    "Failed to tag note with reference"
+                );
             } else {
                 tagged_count += 1;
                 labels.push(tag_path);
@@ -4965,7 +5033,11 @@ impl JobHandler for ReferenceExtractionHandler {
                 .complete_activity(act_id, None, Some(prov_metadata))
                 .await
             {
-                warn!(error = %e, "Failed to complete reference extraction provenance activity");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_PROVENANCE_WRITE_FAILURE_DETAIL,
+                    "Failed to complete reference extraction provenance activity"
+                );
             }
         }
 
@@ -8187,6 +8259,8 @@ Quick note about the meeting discussion and action items."#;
             JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
             JOB_PURGE_DIAGNOSTIC_FAILURE_DETAIL,
             JOB_CONTEXT_UPDATE_DIAGNOSTIC_FAILURE_DETAIL,
+            JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
+            JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
         ] {
             assert!(!detail.contains("token:secret"));
             assert!(!detail.contains("provider.internal"));
