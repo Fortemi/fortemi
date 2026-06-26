@@ -9,7 +9,6 @@
 //! on env config + a live Ollama probe.
 
 use axum::extract::State;
-use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::Json;
@@ -21,7 +20,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
 use tracing::{debug, error, info, warn};
 
-use crate::AppState;
+use crate::{ApiError, AppState};
 
 // =============================================================================
 // REQUEST + RESPONSE TYPES
@@ -117,12 +116,8 @@ pub struct ProvidersResponse {
     pub providers: Vec<ProviderInfo>,
 }
 
-/// Standard error envelope for all three endpoints.
-#[derive(Debug, Clone, Serialize)]
-pub struct InferenceError {
-    pub error: String,
-    pub code: String,
-}
+const INFERENCE_FAILURE_MESSAGE: &str =
+    "Inference provider failed. Check server logs for diagnostics.";
 
 // =============================================================================
 // HANDLERS
@@ -192,7 +187,7 @@ pub async fn list_providers(State(state): State<AppState>) -> impl IntoResponse 
 pub async fn complete(
     State(state): State<AppState>,
     Json(req): Json<CompleteRequest>,
-) -> Result<Json<CompleteResponse>, (StatusCode, Json<InferenceError>)> {
+) -> Result<Json<CompleteResponse>, axum::response::Response> {
     let provider_id = req
         .provider_id
         .clone()
@@ -200,18 +195,10 @@ pub async fn complete(
 
     // Validate input.
     if req.messages.is_empty() {
-        return Err(error(
-            StatusCode::BAD_REQUEST,
-            "messages array is empty",
-            "EMPTY_MESSAGES",
-        ));
+        return Err(ApiError::BadRequest("messages array is empty".to_string()).into_response());
     }
     if req.model.is_empty() {
-        return Err(error(
-            StatusCode::BAD_REQUEST,
-            "model is required",
-            "MODEL_REQUIRED",
-        ));
+        return Err(ApiError::BadRequest("model is required".to_string()).into_response());
     }
 
     let registry = state.provider_registry();
@@ -225,14 +212,13 @@ pub async fn complete(
         Err(e) => {
             warn!(
                 provider_id = %provider_id,
-                error = %e,
+                error_len = e.to_string().chars().count(),
                 "Failed to resolve inline backend"
             );
-            return Err(error(
-                StatusCode::BAD_REQUEST,
-                &format!("provider resolution failed: {}", e),
-                "PROVIDER_RESOLUTION_FAILED",
-            ));
+            return Err(ApiError::BadRequest(
+                "Provider resolution failed. Check provider id and credentials.".to_string(),
+            )
+            .into_response());
         }
     };
 
@@ -271,14 +257,14 @@ pub async fn complete(
             error!(
                 provider_id = %provider_id,
                 model = %req.model,
-                error = %e,
+                error_len = e.to_string().chars().count(),
                 "Completion failed"
             );
-            Err(error(
-                StatusCode::BAD_GATEWAY,
-                &format!("inference error: {}", e),
-                "INFERENCE_FAILED",
-            ))
+            Err(ApiError::ProviderFailure {
+                capability: "Inference completion",
+                detail: e.to_string(),
+            }
+            .into_response())
         }
     }
 }
@@ -293,8 +279,7 @@ pub async fn complete(
 pub async fn stream(
     State(state): State<AppState>,
     Json(req): Json<CompleteRequest>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<InferenceError>)>
-{
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, axum::response::Response> {
     use futures::StreamExt;
 
     let provider_id = req
@@ -303,18 +288,10 @@ pub async fn stream(
         .unwrap_or_else(|| "ollama".to_string());
 
     if req.messages.is_empty() {
-        return Err(error(
-            StatusCode::BAD_REQUEST,
-            "messages array is empty",
-            "EMPTY_MESSAGES",
-        ));
+        return Err(ApiError::BadRequest("messages array is empty".to_string()).into_response());
     }
     if req.model.is_empty() {
-        return Err(error(
-            StatusCode::BAD_REQUEST,
-            "model is required",
-            "MODEL_REQUIRED",
-        ));
+        return Err(ApiError::BadRequest("model is required".to_string()).into_response());
     }
 
     let registry = state.provider_registry();
@@ -326,11 +303,15 @@ pub async fn stream(
     ) {
         Ok(b) => b,
         Err(e) => {
-            return Err(error(
-                StatusCode::BAD_REQUEST,
-                &format!("provider resolution failed: {}", e),
-                "PROVIDER_RESOLUTION_FAILED",
-            ));
+            warn!(
+                provider_id = %provider_id,
+                error_len = e.to_string().chars().count(),
+                "Failed to resolve inline stream backend"
+            );
+            return Err(ApiError::BadRequest(
+                "Provider resolution failed. Check provider id and credentials.".to_string(),
+            )
+            .into_response());
         }
     };
 
@@ -366,11 +347,13 @@ pub async fn stream(
                             }
                         }
                         Err(e) => {
-                            let err_payload = serde_json::json!({
-                                "error": e.to_string(),
-                                "code": "INFERENCE_FAILED",
-                            })
-                            .to_string();
+                            error!(
+                                provider_id = %pid_clone,
+                                model = %model_name,
+                                error_len = e.to_string().chars().count(),
+                                "Inference stream chunk failed"
+                            );
+                            let err_payload = inference_failed_sse_payload();
                             let _ = tx
                                 .send(Ok(Event::default().event("error").data(err_payload)))
                                 .await;
@@ -389,11 +372,13 @@ pub async fn stream(
                     .await;
             }
             Err(e) => {
-                let err_payload = serde_json::json!({
-                    "error": e.to_string(),
-                    "code": "INFERENCE_FAILED",
-                })
-                .to_string();
+                error!(
+                    provider_id = %pid_clone,
+                    model = %model_name,
+                    error_len = e.to_string().chars().count(),
+                    "Inference stream failed"
+                );
+                let err_payload = inference_failed_sse_payload();
                 let _ = tx
                     .send(Ok(Event::default().event("error").data(err_payload)))
                     .await;
@@ -446,12 +431,29 @@ fn flatten_messages(messages: &[ChatMessage]) -> (String, String) {
     (system, prompt)
 }
 
-fn error(status: StatusCode, msg: &str, code: &str) -> (StatusCode, Json<InferenceError>) {
-    (
-        status,
-        Json(InferenceError {
-            error: msg.to_string(),
-            code: code.to_string(),
-        }),
-    )
+fn inference_failed_sse_payload() -> String {
+    serde_json::json!({
+        "error": INFERENCE_FAILURE_MESSAGE,
+        "code": "INFERENCE_FAILED",
+    })
+    .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inference_failed_sse_payload_uses_generic_message() {
+        let raw_error = "provider https://user:pass@example.com/v1 failed with sk-secret at /tmp/x";
+        let payload = inference_failed_sse_payload();
+        let value: serde_json::Value = serde_json::from_str(&payload).unwrap();
+
+        assert_eq!(value["error"], INFERENCE_FAILURE_MESSAGE);
+        assert_eq!(value["code"], "INFERENCE_FAILED");
+        assert!(!payload.contains(raw_error));
+        assert!(!payload.contains("user:pass"));
+        assert!(!payload.contains("sk-secret"));
+        assert!(!payload.contains("/tmp/x"));
+    }
 }
