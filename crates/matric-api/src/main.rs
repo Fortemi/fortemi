@@ -16852,7 +16852,7 @@ async fn backup_trigger(
         std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
     std::fs::create_dir_all(&backup_dir)
-        .map_err(|e| ApiError::BadRequest(format!("Cannot create backup dir: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Database backup", "create backup directory", e))?;
 
     let timestamp = chrono::Utc::now();
     let ts_str = timestamp.format("%Y%m%d_%H%M%S");
@@ -16905,14 +16905,14 @@ async fn backup_trigger(
     use std::io::Write;
 
     let file = std::fs::File::create(&path)
-        .map_err(|e| ApiError::BadRequest(format!("Cannot create file: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Database backup", "create backup file", e))?;
     let mut encoder = GzEncoder::new(file, Compression::default());
     encoder
         .write_all(&output.stdout)
-        .map_err(|e| ApiError::BadRequest(format!("Write failed: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Database backup", "write backup file", e))?;
     encoder
         .finish()
-        .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Database backup", "compress backup file", e))?;
 
     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
 
@@ -16930,6 +16930,27 @@ async fn backup_trigger(
         output: format!("Backup created: {} ({}).", filename, format_size(size)),
         timestamp,
     }))
+}
+
+fn backup_operation_failed(
+    operation: &'static str,
+    context: &'static str,
+    error: impl std::fmt::Display,
+) -> ApiError {
+    let diagnostic = error.to_string();
+    ApiError::OperationFailed {
+        operation,
+        detail: format!("{context}; error_len={}", diagnostic.len()),
+    }
+}
+
+fn backup_restore_issue_message(operation: &'static str, stderr: &[u8]) -> String {
+    error!(
+        operation,
+        stderr_len = stderr.len(),
+        "backup restore command completed with errors"
+    );
+    format!("{operation} completed with issues. Check server logs for diagnostics.")
 }
 
 #[derive(Debug, Serialize)]
@@ -21009,10 +21030,10 @@ async fn memory_backup_download(
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder
         .write_all(&output.stdout)
-        .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Memory backup", "compress backup stream", e))?;
     let compressed = encoder
         .finish()
-        .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Memory backup", "finish compressed backup", e))?;
 
     let headers = [
         (header::CONTENT_TYPE, "application/gzip".to_string()),
@@ -21059,10 +21080,10 @@ async fn database_backup_download(
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder
         .write_all(&output.stdout)
-        .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Database backup", "compress backup stream", e))?;
     let compressed = encoder
         .finish()
-        .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Database backup", "finish compressed backup", e))?;
 
     let headers = [
         (header::CONTENT_TYPE, "application/gzip".to_string()),
@@ -21086,8 +21107,9 @@ async fn database_backup_snapshot(
         std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
     // Ensure backup directory exists
-    std::fs::create_dir_all(&backup_dir)
-        .map_err(|e| ApiError::BadRequest(format!("Cannot create backup dir: {}", e)))?;
+    std::fs::create_dir_all(&backup_dir).map_err(|e| {
+        backup_operation_failed("Database backup snapshot", "create backup directory", e)
+    })?;
 
     let timestamp = chrono::Utc::now();
     let ts_str = timestamp.format("%Y%m%d_%H%M%S");
@@ -21149,15 +21171,16 @@ async fn database_backup_snapshot(
     use flate2::Compression;
     use std::io::Write;
 
-    let file = std::fs::File::create(&path)
-        .map_err(|e| ApiError::BadRequest(format!("Cannot create file: {}", e)))?;
+    let file = std::fs::File::create(&path).map_err(|e| {
+        backup_operation_failed("Database backup snapshot", "create backup file", e)
+    })?;
     let mut encoder = GzEncoder::new(file, Compression::default());
     encoder
         .write_all(&output.stdout)
-        .map_err(|e| ApiError::BadRequest(format!("Write failed: {}", e)))?;
-    encoder
-        .finish()
-        .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Database backup snapshot", "write backup file", e))?;
+    encoder.finish().map_err(|e| {
+        backup_operation_failed("Database backup snapshot", "compress backup file", e)
+    })?;
 
     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
 
@@ -21219,8 +21242,9 @@ async fn database_backup_upload(
     let backup_dir =
         std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
-    std::fs::create_dir_all(&backup_dir)
-        .map_err(|e| ApiError::BadRequest(format!("Cannot create backup dir: {}", e)))?;
+    std::fs::create_dir_all(&backup_dir).map_err(|e| {
+        backup_operation_failed("Database backup upload", "create backup directory", e)
+    })?;
 
     // Decode base64
     let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &req.data_base64)
@@ -21261,7 +21285,7 @@ async fn database_backup_upload(
 
     // Write file
     std::fs::write(&path, &data)
-        .map_err(|e| ApiError::BadRequest(format!("Cannot write file: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Database backup upload", "write backup file", e))?;
 
     // Issue #242: Clone title/description for echo before moving into metadata
     let echo_title = req.title.clone();
@@ -21360,23 +21384,23 @@ async fn memory_scoped_restore(
         use std::io::Read;
 
         let file = std::fs::File::open(backup_path)
-            .map_err(|e| ApiError::BadRequest(format!("Cannot open backup: {}", e)))?;
+            .map_err(|e| backup_operation_failed("Memory restore", "open backup file", e))?;
         let mut decoder = GzDecoder::new(file);
         let mut content = String::new();
         decoder
             .read_to_string(&mut content)
-            .map_err(|e| ApiError::BadRequest(format!("Cannot decompress: {}", e)))?;
+            .map_err(|e| backup_operation_failed("Memory restore", "decompress backup file", e))?;
         content
     } else {
         std::fs::read_to_string(backup_path)
-            .map_err(|e| ApiError::BadRequest(format!("Cannot read backup: {}", e)))?
+            .map_err(|e| backup_operation_failed("Memory restore", "read backup file", e))?
     };
 
     // Step 1: Drop the schema (CASCADE removes all tables, indexes, triggers, etc.)
     sqlx::query(&format!("DROP SCHEMA IF EXISTS {} CASCADE", schema_name))
         .execute(state.db.pool())
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Failed to drop schema: {}", e)))?;
+        .map_err(|e| backup_operation_failed("Memory restore", "drop restore schema", e))?;
 
     // Step 2: Feed the dump SQL to psql.
     // The dump (from pg_dump --schema) will CREATE SCHEMA + all objects.
@@ -21402,8 +21426,8 @@ async fn memory_scoped_restore(
         output
     })
     .await
-    .map_err(|e| ApiError::BadRequest(format!("psql task panicked: {}", e)))?
-    .map_err(|e| ApiError::BadRequest(format!("psql failed: {}", e)))?;
+    .map_err(|e| backup_operation_failed("Memory restore", "psql task failed", e))?
+    .map_err(|e| backup_operation_failed("Memory restore", "spawn psql", e))?;
 
     let success = output.status.success();
 
@@ -21437,11 +21461,7 @@ async fn memory_scoped_restore(
         message: if success {
             format!("Memory '{}' restored from {}", memory_name, filename)
         } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            format!(
-                "Memory restore may have issues: {}",
-                stderr.chars().take(500).collect::<String>()
-            )
+            backup_restore_issue_message("Memory restore", &output.stderr)
         },
         prerestore_backup: None,
         restored_from: filename.to_string(),
@@ -21512,15 +21532,18 @@ async fn database_backup_restore(
             .args(["-U", "matric", "-h", "localhost", "matric"])
             .env("PGPASSWORD", "matric")
             .output()
-            .map_err(|e| ApiError::BadRequest(format!("Pre-restore snapshot failed: {}", e)))?;
+            .map_err(|e| {
+                backup_operation_failed("Database restore", "create pre-restore snapshot", e)
+            })?;
 
         if output.status.success() {
             use flate2::write::GzEncoder;
             use flate2::Compression;
             use std::io::Write;
 
-            let file = std::fs::File::create(&prerestore_path)
-                .map_err(|e| ApiError::BadRequest(format!("Cannot create snapshot: {}", e)))?;
+            let file = std::fs::File::create(&prerestore_path).map_err(|e| {
+                backup_operation_failed("Database restore", "create pre-restore snapshot file", e)
+            })?;
             let mut encoder = GzEncoder::new(file, Compression::default());
             let _ = encoder.write_all(&output.stdout);
             let _ = encoder.finish();
@@ -21544,16 +21567,16 @@ async fn database_backup_restore(
         use std::io::Read;
 
         let file = std::fs::File::open(&backup_path)
-            .map_err(|e| ApiError::BadRequest(format!("Cannot open backup: {}", e)))?;
+            .map_err(|e| backup_operation_failed("Database restore", "open backup file", e))?;
         let mut decoder = GzDecoder::new(file);
         let mut content = String::new();
-        decoder
-            .read_to_string(&mut content)
-            .map_err(|e| ApiError::BadRequest(format!("Cannot decompress: {}", e)))?;
+        decoder.read_to_string(&mut content).map_err(|e| {
+            backup_operation_failed("Database restore", "decompress backup file", e)
+        })?;
         content
     } else {
         std::fs::read_to_string(&backup_path)
-            .map_err(|e| ApiError::BadRequest(format!("Cannot read backup: {}", e)))?
+            .map_err(|e| backup_operation_failed("Database restore", "read backup file", e))?
     };
 
     // Run psql to restore (drop and recreate).
@@ -21716,8 +21739,8 @@ END $$;
         output
     })
     .await
-    .map_err(|e| ApiError::BadRequest(format!("psql task panicked: {}", e)))?
-    .map_err(|e| ApiError::BadRequest(format!("psql failed: {}", e)))?;
+    .map_err(|e| backup_operation_failed("Database restore", "psql task failed", e))?
+    .map_err(|e| backup_operation_failed("Database restore", "spawn psql", e))?;
 
     let reconnect_delay_ms = 2000; // 2 seconds for DB to stabilize
 
@@ -21801,8 +21824,7 @@ CREATE INDEX IF NOT EXISTS idx_revised_current_tsv ON note_revised_current USING
         message: if success {
             format!("Database restored from {}", req.filename)
         } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            format!("Restore may have issues: {}", stderr)
+            backup_restore_issue_message("Database restore", &output.stderr)
         },
         prerestore_backup: prerestore_filename,
         restored_from: req.filename,
@@ -22812,6 +22834,49 @@ mod tests {
         assert!(!body.contains("/srv/fortemi"));
         assert!(!body.contains("secret"));
         assert!(problem.get("error").is_none());
+    }
+
+    #[tokio::test]
+    async fn backup_operation_failed_returns_generic_problem_without_raw_detail() {
+        let err = backup_operation_failed(
+            "Database restore",
+            "open backup file",
+            "permission denied for /srv/fortemi/backups/db.sql.gz with token=secret",
+        );
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/operation-failed"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Database restore failed. Check server logs for diagnostics."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains("/srv/fortemi"));
+        assert!(!body.contains("token=secret"));
+        assert!(!body.contains("permission denied"));
+        assert!(problem.get("error").is_none());
+    }
+
+    #[test]
+    fn backup_restore_issue_message_uses_generic_client_text() {
+        let message = backup_restore_issue_message(
+            "Database restore",
+            b"psql: could not connect to postgres://user:secret@db.internal/app at /srv/fortemi",
+        );
+
+        assert_eq!(
+            message,
+            "Database restore completed with issues. Check server logs for diagnostics."
+        );
+        assert!(!message.contains("postgres://"));
+        assert!(!message.contains("secret"));
+        assert!(!message.contains("/srv/fortemi"));
+        assert!(!message.contains("psql"));
     }
 
     #[tokio::test]
