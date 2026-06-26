@@ -13,6 +13,9 @@ use crate::{ApiError, AppState};
 use matric_inference::discovery::ModelDiscovery;
 use matric_inference::{OllamaBackend, ProviderHealth};
 
+const MODEL_DISCOVERY_FAILURE_DETAIL: &str =
+    "Model discovery failed. Check server logs for diagnostics.";
+
 /// A single model entry with capability metadata.
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct ModelInfo {
@@ -180,7 +183,12 @@ pub async fn list_models(
             }
         }
         Err(e) => {
-            warn!(error = %e, "Failed to discover Ollama models");
+            let diagnostic = e.to_string();
+            warn!(
+                error_len = diagnostic.chars().count(),
+                detail = MODEL_DISCOVERY_FAILURE_DETAIL,
+                "Failed to discover Ollama models"
+            );
         }
     }
 
@@ -267,4 +275,33 @@ pub async fn list_models(
         },
         providers,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_discovery_failure_detail_is_fixed_and_redacted() {
+        let raw_diagnostics = [
+            "http://provider.local:11434/api/tags?api_key=secret",
+            "postgres://fortemi:secret@db.internal/fortemi",
+            "Bearer model-token-secret",
+            "/srv/fortemi/provider/cache.json",
+        ];
+
+        assert_eq!(
+            MODEL_DISCOVERY_FAILURE_DETAIL,
+            "Model discovery failed. Check server logs for diagnostics."
+        );
+
+        for raw in raw_diagnostics {
+            assert!(!MODEL_DISCOVERY_FAILURE_DETAIL.contains(raw));
+        }
+        assert!(!MODEL_DISCOVERY_FAILURE_DETAIL.contains("http://"));
+        assert!(!MODEL_DISCOVERY_FAILURE_DETAIL.contains("postgres://"));
+        assert!(!MODEL_DISCOVERY_FAILURE_DETAIL.contains("Bearer "));
+        assert!(!MODEL_DISCOVERY_FAILURE_DETAIL.contains("/srv/"));
+        assert!(!MODEL_DISCOVERY_FAILURE_DETAIL.contains("api_key="));
+    }
 }

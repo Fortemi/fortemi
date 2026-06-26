@@ -35,6 +35,8 @@ use uuid::Uuid;
 const CHAT_STREAM_CHANNEL_CAPACITY: usize = 256;
 const CHAT_GENERATION_FAILURE_MESSAGE: &str =
     "Chat generation failed. Check server logs for diagnostics.";
+const CHAT_MODEL_DISCOVERY_FAILURE_DETAIL: &str =
+    "Chat model discovery failed. Check server logs for diagnostics.";
 const CHAT_MODEL_UNAVAILABLE_MESSAGE: &str = "Requested chat model is not available.";
 const CHAT_MODEL_UNSUPPORTED_MESSAGE: &str = "Requested model cannot be used for chat.";
 
@@ -315,7 +317,11 @@ async fn validate_chat_model(
     let models = match discovery.discover_models().await {
         Ok(result) => result,
         Err(e) => {
-            warn!(error = %e, "Failed to discover models for chat validation");
+            let diagnostic = e.to_string();
+            warn!(
+                error_len = diagnostic.chars().count(),
+                "Failed to discover models for chat validation"
+            );
             // If discovery fails, allow the request through — Ollama will reject if invalid
             return Ok(());
         }
@@ -885,10 +891,14 @@ pub async fn list_chat_models(State(state): State<AppState>) -> impl IntoRespons
     let discovered = match discovery.discover_models().await {
         Ok(result) => result,
         Err(e) => {
-            warn!(error = %e, "Failed to discover chat models");
+            let diagnostic = e.to_string();
+            warn!(
+                error_len = diagnostic.chars().count(),
+                "Failed to discover chat models"
+            );
             return ApiError::ProviderFailure {
                 capability: "Chat model discovery",
-                detail: "chat model discovery request failed".to_string(),
+                detail: CHAT_MODEL_DISCOVERY_FAILURE_DETAIL.to_string(),
             }
             .into_response();
         }
@@ -1044,6 +1054,30 @@ mod tests {
             assert!(problem.get("error").is_none());
             assert!(problem.get("error_description").is_none());
         }
+    }
+
+    #[test]
+    fn chat_model_discovery_failure_detail_is_fixed_and_redacted() {
+        let raw_diagnostics = [
+            "http://provider.local:11434/api/tags?api_key=secret",
+            "postgres://fortemi:secret@db.internal/fortemi",
+            "Bearer chat-token-secret",
+            "/srv/fortemi/provider/cache.json",
+        ];
+
+        assert_eq!(
+            CHAT_MODEL_DISCOVERY_FAILURE_DETAIL,
+            "Chat model discovery failed. Check server logs for diagnostics."
+        );
+
+        for raw in raw_diagnostics {
+            assert!(!CHAT_MODEL_DISCOVERY_FAILURE_DETAIL.contains(raw));
+        }
+        assert!(!CHAT_MODEL_DISCOVERY_FAILURE_DETAIL.contains("http://"));
+        assert!(!CHAT_MODEL_DISCOVERY_FAILURE_DETAIL.contains("postgres://"));
+        assert!(!CHAT_MODEL_DISCOVERY_FAILURE_DETAIL.contains("Bearer "));
+        assert!(!CHAT_MODEL_DISCOVERY_FAILURE_DETAIL.contains("/srv/"));
+        assert!(!CHAT_MODEL_DISCOVERY_FAILURE_DETAIL.contains("api_key="));
     }
 
     #[test]
