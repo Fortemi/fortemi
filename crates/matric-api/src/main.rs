@@ -8995,7 +8995,7 @@ fn parse_relative_time(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
 // TEMPORAL QUERY HANDLERS
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct TimelineQuery {
     /// Time period to group by: "hour", "day", "week", "month" (default: "day")
     period: Option<String>,
@@ -9005,6 +9005,20 @@ struct TimelineQuery {
     periods: Option<i64>,
     /// Relative time filter: "7d" (7 days), "1w" (1 week), "1m" (1 month)
     since: Option<String>,
+}
+
+impl fmt::Debug for TimelineQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TimelineQuery")
+            .field("period_len", &self.period.as_ref().map(String::len))
+            .field(
+                "granularity_len",
+                &self.granularity.as_ref().map(String::len),
+            )
+            .field("periods", &self.periods)
+            .field("since_len", &self.since.as_ref().map(String::len))
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -9175,7 +9189,7 @@ async fn get_notes_timeline(
     })))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ActivityQuery {
     /// Relative time filter: "7d" (7 days), "1w" (1 week), "1m" (1 month)
     since: Option<String>,
@@ -9183,6 +9197,19 @@ struct ActivityQuery {
     limit: Option<i64>,
     /// Comma-separated event types to filter by: created, updated
     event_types: Option<String>,
+}
+
+impl fmt::Debug for ActivityQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ActivityQuery")
+            .field("since_len", &self.since.as_ref().map(String::len))
+            .field("limit", &self.limit)
+            .field(
+                "event_types_len",
+                &self.event_types.as_ref().map(String::len),
+            )
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -9360,12 +9387,21 @@ async fn get_notes_activity(
 // KNOWLEDGE HEALTH DASHBOARD
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct HealthQuery {
     /// Staleness threshold in days (default: 90)
     stale_days: Option<i64>,
     /// Limit for results (default: 100)
     limit: Option<i64>,
+}
+
+impl fmt::Debug for HealthQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HealthQuery")
+            .field("stale_days", &self.stale_days)
+            .field("limit", &self.limit)
+            .finish()
+    }
 }
 
 /// Get overall knowledge health metrics.
@@ -9845,7 +9881,7 @@ async fn get_tag_cooccurrence(
 }
 
 /// Query parameters for access frequency analytics.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct AccessFrequencyQuery {
     /// Number of results (default: 50)
     limit: Option<i64>,
@@ -9855,6 +9891,17 @@ struct AccessFrequencyQuery {
     min_accesses: Option<i64>,
     /// Only include notes accessed fewer than this many times
     max_accesses: Option<i64>,
+}
+
+impl fmt::Debug for AccessFrequencyQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AccessFrequencyQuery")
+            .field("limit", &self.limit)
+            .field("sort_len", &self.sort.as_ref().map(String::len))
+            .field("min_accesses", &self.min_accesses)
+            .field("max_accesses", &self.max_accesses)
+            .finish()
+    }
 }
 
 /// Get note access frequency analytics.
@@ -10031,7 +10078,7 @@ async fn get_access_frequency(
     })))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ListNotesQuery {
     limit: Option<i64>,
     offset: Option<i64>,
@@ -10051,6 +10098,25 @@ struct ListNotesQuery {
     updated_before: Option<FlexibleDateTime>,
     /// Relative time filter: "7d" (7 days), "1w" (1 week), "1m" (1 month), "2h" (2 hours)
     since: Option<String>,
+}
+
+impl fmt::Debug for ListNotesQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ListNotesQuery")
+            .field("limit", &self.limit)
+            .field("offset", &self.offset)
+            .field("filter_len", &self.filter.as_ref().map(String::len))
+            .field("sort_by_len", &self.sort_by.as_ref().map(String::len))
+            .field("sort_order_len", &self.sort_order.as_ref().map(String::len))
+            .field("collection_id_set", &self.collection_id.is_some())
+            .field("tags_len", &self.tags.as_ref().map(String::len))
+            .field("created_after_set", &self.created_after.is_some())
+            .field("created_before_set", &self.created_before.is_some())
+            .field("updated_after_set", &self.updated_after.is_some())
+            .field("updated_before_set", &self.updated_before.is_some())
+            .field("since_len", &self.since.as_ref().map(String::len))
+            .finish()
+    }
 }
 
 #[utoipa::path(
@@ -26724,6 +26790,87 @@ mod tests {
             &create_collection_id.to_string(),
             &update_collection_id.to_string(),
             &instantiate_collection_id.to_string(),
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn note_query_debug_redacts_filters_tags_sort_values_and_collection_ids() {
+        let collection_id = Uuid::new_v4();
+        let timeline = TimelineQuery {
+            period: Some("day-private".to_string()),
+            granularity: Some("customer@example.com".to_string()),
+            periods: Some(14),
+            since: Some("7d-sk-live-query".to_string()),
+        };
+        let activity = ActivityQuery {
+            since: Some("1w-postgres://user:pass@db.internal/app".to_string()),
+            limit: Some(25),
+            event_types: Some("created,updated,private-event".to_string()),
+        };
+        let health = HealthQuery {
+            stale_days: Some(90),
+            limit: Some(100),
+        };
+        let access = AccessFrequencyQuery {
+            limit: Some(50),
+            sort: Some("/srv/private/access-sort".to_string()),
+            min_accesses: Some(1),
+            max_accesses: Some(500),
+        };
+        let list = ListNotesQuery {
+            limit: Some(10),
+            offset: Some(5),
+            filter: Some("customer email customer@example.com sk-live-list-query".to_string()),
+            sort_by: Some("private-title".to_string()),
+            sort_order: Some("desc-secret".to_string()),
+            collection_id: Some(collection_id),
+            tags: Some("customer/private/tag,mm_key_note_query".to_string()),
+            created_after: None,
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+            since: Some("2h-private-since".to_string()),
+        };
+
+        let rendered_timeline = format!("{timeline:?}");
+        let rendered_activity = format!("{activity:?}");
+        let rendered_health = format!("{health:?}");
+        let rendered_access = format!("{access:?}");
+        let rendered_list = format!("{list:?}");
+        let combined = format!(
+            "{rendered_timeline}\n{rendered_activity}\n{rendered_health}\n{rendered_access}\n{rendered_list}"
+        );
+
+        assert!(rendered_timeline.contains("TimelineQuery"));
+        assert!(rendered_timeline.contains("period_len"));
+        assert!(rendered_activity.contains("ActivityQuery"));
+        assert!(rendered_activity.contains("event_types_len"));
+        assert!(rendered_health.contains("HealthQuery"));
+        assert!(rendered_health.contains("stale_days"));
+        assert!(rendered_access.contains("AccessFrequencyQuery"));
+        assert!(rendered_access.contains("sort_len"));
+        assert!(rendered_list.contains("ListNotesQuery"));
+        assert!(rendered_list.contains("filter_len"));
+        assert!(rendered_list.contains("collection_id_set"));
+        assert!(rendered_list.contains("tags_len"));
+
+        for raw in [
+            "day-private",
+            "customer@example.com",
+            "sk-live-query",
+            "postgres://user:pass",
+            "db.internal",
+            "private-event",
+            "/srv/private/access-sort",
+            "sk-live-list-query",
+            "private-title",
+            "desc-secret",
+            "customer/private/tag",
+            "mm_key_note_query",
+            "2h-private-since",
+            &collection_id.to_string(),
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
