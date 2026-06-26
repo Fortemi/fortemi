@@ -16,7 +16,7 @@ use std::time::Instant;
 use tracing::{debug, info, warn};
 
 use crate::middleware::archive_routing::ArchiveContext;
-use crate::AppState;
+use crate::{ApiError, AppState};
 use matric_core::defaults::EMBED_DIMENSION;
 use matric_core::InferenceBackend as InferenceBackendTrait;
 use matric_core::ServerEvent;
@@ -229,8 +229,16 @@ pub struct ResetInferenceConfigResponse {
 // HELPERS
 // =============================================================================
 
-fn err(status: StatusCode, msg: impl Into<String>) -> (StatusCode, Json<Value>) {
-    (status, Json(serde_json::json!({"error": msg.into()})))
+fn err(status: StatusCode, msg: impl Into<String>) -> axum::response::Response {
+    let msg = msg.into();
+    match status {
+        StatusCode::BAD_REQUEST => ApiError::BadRequest(msg).into_response(),
+        StatusCode::SERVICE_UNAVAILABLE => ApiError::ServiceUnavailable(msg).into_response(),
+        StatusCode::INTERNAL_SERVER_ERROR => ApiError::Internal(msg).into_response(),
+        StatusCode::NOT_FOUND => ApiError::NotFound(msg).into_response(),
+        StatusCode::CONFLICT => ApiError::Conflict(msg).into_response(),
+        _ => ApiError::Internal(msg).into_response(),
+    }
 }
 
 /// Redact an API key: show first 8 chars + "..." or the full value if shorter.
@@ -328,9 +336,7 @@ fn validate_ollama(base_url: &str, gen_model: &str, embed_model: &str) -> Result
         return Err("Ollama base_url cannot be empty".to_string());
     }
     if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
-        return Err(format!(
-            "Ollama base_url must start with http:// or https://, got: {base_url}"
-        ));
+        return Err("Ollama base_url must start with http:// or https://".to_string());
     }
     if gen_model.is_empty() {
         return Err("Ollama generation_model cannot be empty".to_string());
@@ -347,9 +353,7 @@ fn validate_openai(base_url: &str, gen_model: &str, embed_model: &str) -> Result
         return Err("OpenAI base_url cannot be empty".to_string());
     }
     if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
-        return Err(format!(
-            "OpenAI base_url must start with http:// or https://, got: {base_url}"
-        ));
+        return Err("OpenAI base_url must start with http:// or https://".to_string());
     }
     if gen_model.is_empty() {
         return Err("OpenAI generation_model cannot be empty".to_string());
@@ -892,17 +896,18 @@ pub async fn update_inference_config(
             match probe.health_check().await {
                 Ok(true) => {}
                 Ok(false) => {
-                    return err(
-                        StatusCode::BAD_REQUEST,
-                        format!("Ollama endpoint not healthy: {merged_base}"),
-                    )
+                    return ApiError::ProviderFailure {
+                        capability: "Ollama inference configuration",
+                        detail: "Ollama health check returned unhealthy".to_string(),
+                    }
                     .into_response();
                 }
                 Err(e) => {
-                    return err(
-                        StatusCode::BAD_REQUEST,
-                        format!("Cannot reach Ollama at {merged_base}: {e}"),
-                    )
+                    warn!(error = %e, "Ollama inference configuration probe failed");
+                    return ApiError::ProviderFailure {
+                        capability: "Ollama inference configuration",
+                        detail: "Ollama health check request failed".to_string(),
+                    }
                     .into_response();
                 }
             }
@@ -1145,9 +1150,7 @@ pub async fn update_inference_config(
         {
             return err(
                 StatusCode::BAD_REQUEST,
-                format!(
-                    "OpenRouter base_url must start with http:// or https://, got: {merged_base}"
-                ),
+                "OpenRouter base_url must start with http:// or https://".to_string(),
             )
             .into_response();
         }
@@ -1264,7 +1267,8 @@ pub async fn update_inference_config(
                     .trim_end_matches('/');
                 if !url.is_empty() {
                     if let Err(e) = probe_ollama(&probe_client, url).await {
-                        probe_failures.push(format!("ollama ({}): {}", url, e));
+                        warn!(error = %e, provider = "ollama", "Atomic inference probe failed");
+                        probe_failures.push("ollama".to_string());
                     }
                 }
             }
@@ -1280,7 +1284,8 @@ pub async fn update_inference_config(
                 let api_key = o.get("api_key").and_then(|v| v.as_str());
                 if !url.is_empty() {
                     if let Err(e) = probe_openai(&probe_client, url, api_key).await {
-                        probe_failures.push(format!("openai ({}): {}", url, e));
+                        warn!(error = %e, provider = "openai", "Atomic inference probe failed");
+                        probe_failures.push("openai".to_string());
                     }
                 }
             }
@@ -1298,7 +1303,8 @@ pub async fn update_inference_config(
                     // llama-server speaks OpenAI-compatible, so probe via
                     // /v1/models like any other OpenAI-compat endpoint.
                     if let Err(e) = probe_openai(&probe_client, url, api_key).await {
-                        probe_failures.push(format!("llamacpp ({}): {}", url, e));
+                        warn!(error = %e, provider = "llamacpp", "Atomic inference probe failed");
+                        probe_failures.push("llamacpp".to_string());
                     }
                 }
             }
@@ -1315,7 +1321,8 @@ pub async fn update_inference_config(
                 if !url.is_empty() {
                     // OpenRouter speaks OpenAI-compatible — same probe path.
                     if let Err(e) = probe_openai(&probe_client, url, api_key).await {
-                        probe_failures.push(format!("openrouter ({}): {}", url, e));
+                        warn!(error = %e, provider = "openrouter", "Atomic inference probe failed");
+                        probe_failures.push("openrouter".to_string());
                     }
                 }
             }
@@ -1326,15 +1333,11 @@ pub async fn update_inference_config(
                 failures = ?probe_failures,
                 "Atomic probe failed; aborting config swap"
             );
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "status": "atomic_probe_failed",
-                    "error": "One or more backends failed reachability probe; config not applied",
-                    "failures": probe_failures,
-                })),
-            )
-                .into_response();
+            return ApiError::ProviderFailure {
+                capability: "Inference configuration probe",
+                detail: format!("failed providers: {}", probe_failures.join(", ")),
+            }
+            .into_response();
         }
     }
 
@@ -2314,6 +2317,81 @@ fn classify_connection_error(base_url: &str) -> (String, Vec<String>) {
 #[cfg(test)]
 mod tests_connection {
     use super::*;
+
+    #[tokio::test]
+    async fn inference_err_helper_returns_problem_without_legacy_error_shape() {
+        let response = err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database error: postgres://user:secret@db.internal/app",
+        )
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("application/problem+json")
+        );
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let problem: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/internal-error"
+        );
+        assert_eq!(problem["detail"], "An internal error occurred.");
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+        let serialized = problem.to_string();
+        assert!(!serialized.contains("postgres://"));
+        assert!(!serialized.contains("secret"));
+    }
+
+    #[tokio::test]
+    async fn inference_validation_errors_return_problem_without_submitted_url_echo() {
+        let submitted_url = "ftp://token:secret@provider.internal/v1";
+        let validation = validate_ollama(submitted_url, "gen", "embed").unwrap_err();
+        assert!(!validation.contains(submitted_url));
+        assert!(!validation.contains("secret"));
+
+        let response = err(
+            StatusCode::BAD_REQUEST,
+            format!("Ollama config invalid: {validation}"),
+        )
+        .into_response();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let problem: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+        let serialized = problem.to_string();
+        assert!(!serialized.contains(submitted_url));
+        assert!(!serialized.contains("secret"));
+    }
+
+    #[test]
+    fn inference_config_url_validation_does_not_echo_submitted_url() {
+        let submitted_url = "ftp://token:secret@provider.internal/v1";
+
+        let ollama = validate_ollama(submitted_url, "gen", "embed").unwrap_err();
+        assert!(!ollama.contains(submitted_url));
+        assert!(!ollama.contains("secret"));
+
+        let openai = validate_openai(submitted_url, "gen", "embed").unwrap_err();
+        assert!(!openai.contains(submitted_url));
+        assert!(!openai.contains("secret"));
+    }
 
     #[test]
     fn auto_detect_ollama_by_port() {
