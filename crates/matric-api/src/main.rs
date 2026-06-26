@@ -497,6 +497,18 @@ fn incoming_webhook_idempotency_conflict() -> ApiError {
     ApiError::Conflict("Idempotency key was already used for a different request.".to_string())
 }
 
+fn invalid_memory_search_latitude() -> ApiError {
+    ApiError::BadRequest("Latitude must be between -90 and 90.".to_string())
+}
+
+fn invalid_memory_search_longitude() -> ApiError {
+    ApiError::BadRequest("Longitude must be between -180 and 180.".to_string())
+}
+
+fn invalid_memory_search_radius() -> ApiError {
+    ApiError::BadRequest("Radius must be positive.".to_string())
+}
+
 fn memory_not_found() -> ApiError {
     ApiError::NotFound("Memory not found.".to_string())
 }
@@ -13805,23 +13817,17 @@ async fn search_memories(
     // Validate coordinate bounds (issue #148)
     if let Some(lat) = query.lat {
         if !(-90.0..=90.0).contains(&lat) {
-            return Err(ApiError::BadRequest(format!(
-                "Latitude must be between -90 and 90, got {lat}"
-            )));
+            return Err(invalid_memory_search_latitude());
         }
     }
     if let Some(lon) = query.lon {
         if !(-180.0..=180.0).contains(&lon) {
-            return Err(ApiError::BadRequest(format!(
-                "Longitude must be between -180 and 180, got {lon}"
-            )));
+            return Err(invalid_memory_search_longitude());
         }
     }
     if let Some(radius) = query.radius {
         if radius <= 0.0 {
-            return Err(ApiError::BadRequest(format!(
-                "Radius must be positive, got {radius}"
-            )));
+            return Err(invalid_memory_search_radius());
         }
     }
     // Return empty results for inverted time ranges (issue #296)
@@ -24982,6 +24988,60 @@ mod tests {
         assert!(!body.contains("tenant-alpha"));
         assert!(!body.contains("secret-idempotency-key"));
         assert!(!body.contains("token"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn memory_search_validation_does_not_echo_coordinates() {
+        let submitted_latitude = "123.456789";
+        let err = invalid_memory_search_latitude();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], "Latitude must be between -90 and 90.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_latitude));
+        assert!(!body.contains("123.456789"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+
+        let submitted_longitude = "-200.987654";
+        let err = invalid_memory_search_longitude();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], "Longitude must be between -180 and 180.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_longitude));
+        assert!(!body.contains("-200.987654"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+
+        let submitted_radius = "-42.4242";
+        let err = invalid_memory_search_radius();
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], "Radius must be positive.");
+
+        let body = problem.to_string();
+        assert!(!body.contains(submitted_radius));
+        assert!(!body.contains("-42.4242"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
