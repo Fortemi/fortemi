@@ -10,6 +10,13 @@ const ROOT = path.resolve(process.argv.find((arg) => arg.startsWith("--root="))?
 const PROFILE = process.argv.find((arg) => arg.startsWith("--profile="))?.slice(10) || "hosted_strict";
 const MODE = process.env.DOCS_CONTRACT_MODE || "advisory";
 const SELF_TEST = process.argv.includes("--self-test");
+const UPDATE_BASELINE = process.argv.includes("--update-baseline");
+const DEFAULT_BASELINE_PATH = path.join(ROOT, "scripts/ci/docs-contract.baseline.json");
+const BASELINE_PATH = path.resolve(
+  process.argv.find((arg) => arg.startsWith("--baseline="))?.slice(11) ||
+    process.env.DOCS_CONTRACT_BASELINE ||
+    DEFAULT_BASELINE_PATH
+);
 
 const DEFAULT_SCAN_PATHS = [
   ".gitea/workflows",
@@ -37,6 +44,7 @@ const EXCLUDED_RELATIVE_PATHS = new Set([
   // Exact detector fixture files. Broader tests/scripts remain scanned so
   // local-dev and test-fixture allowlists can be made explicit later.
   "mcp-server/tests/output-sanitizer.test.js",
+  "scripts/ci/docs-contract.baseline.json",
   "scripts/ci/docs-contract.cjs",
 ]);
 
@@ -120,10 +128,11 @@ const RULES = [
 ];
 
 function usage() {
-  console.log(`Usage: DOCS_CONTRACT_MODE=advisory|blocking node scripts/ci/docs-contract.cjs [--root=.] [--profile=hosted_strict] [--self-test]
+  console.log(`Usage: DOCS_CONTRACT_MODE=advisory|blocking node scripts/ci/docs-contract.cjs [--root=.] [--profile=hosted_strict] [--baseline=path] [--update-baseline] [--self-test]
 
 Scans docs/config/example surfaces for #999/#1001 secret-shaped placeholders.
-Output intentionally redacts matched values and reports category + file:line.`);
+Output intentionally redacts matched values and reports category + file:line.
+Baselines store fingerprints and metadata only; raw matched values are never written.`);
 }
 
 function isTextFile(filePath) {
@@ -222,8 +231,94 @@ function scan(root) {
   return findings;
 }
 
-function printFindings(findings) {
-  console.log(`docs-contract profile=${PROFILE} mode=${MODE} findings=${findings.length}`);
+function normalizeBaselineEntry(finding) {
+  return {
+    fingerprint: finding.fingerprint,
+    rule: finding.rule,
+    issue: finding.issue,
+    profile: finding.profile,
+    severity: finding.severity,
+    category: finding.category,
+    file: finding.file,
+    line: finding.line,
+    classification: finding.issue === "#1001" ? "existing_credential_example" : "existing_placeholder",
+    reason: "Initial advisory baseline; cleanup tracked by owner issue.",
+    review_after: "2026-07-31",
+  };
+}
+
+function loadBaseline(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return { filePath, exists: false, entries: [], byFingerprint: new Map() };
+  }
+  const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
+  return {
+    filePath,
+    exists: true,
+    entries,
+    byFingerprint: new Map(entries.map((entry) => [entry.fingerprint, entry])),
+  };
+}
+
+function writeBaseline(filePath, findings) {
+  const baseline = {
+    version: 1,
+    profile: PROFILE,
+    generated_at: new Date().toISOString().slice(0, 10),
+    owner_issues: Array.from(new Set(findings.map((finding) => finding.issue))).sort(),
+    policy:
+      "Redacted docs-contract baseline. Entries store stable fingerprints and finding metadata only; raw matched values are intentionally excluded.",
+    entries: findings.map(normalizeBaselineEntry).sort((a, b) => {
+      return (
+        a.file.localeCompare(b.file) ||
+        a.line - b.line ||
+        a.rule.localeCompare(b.rule) ||
+        a.fingerprint.localeCompare(b.fingerprint)
+      );
+    }),
+  };
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(baseline, null, 2)}\n`);
+  return baseline;
+}
+
+function classifyFindings(findings, baseline) {
+  return findings.map((finding) => ({
+    ...finding,
+    baseline_state: baseline.byFingerprint.has(finding.fingerprint) ? "known" : "new",
+  }));
+}
+
+function countByState(findings) {
+  return findings.reduce(
+    (counts, finding) => {
+      counts[finding.baseline_state] += 1;
+      return counts;
+    },
+    { known: 0, new: 0 }
+  );
+}
+
+function staleBaselineCount(findings, baseline) {
+  const currentFingerprints = new Set(findings.map((finding) => finding.fingerprint));
+  return baseline.entries.filter((entry) => !currentFingerprints.has(entry.fingerprint)).length;
+}
+
+function printFindings(findings, baseline) {
+  const counts = countByState(findings);
+  const stale = staleBaselineCount(findings, baseline);
+  console.log(
+    [
+      `docs-contract profile=${PROFILE}`,
+      `mode=${MODE}`,
+      `findings=${findings.length}`,
+      `known=${counts.known}`,
+      `new=${counts.new}`,
+      `baseline=${baseline.exists ? path.relative(ROOT, baseline.filePath) : "none"}`,
+      `stale_baseline=${stale}`,
+    ].join(" ")
+  );
   for (const finding of findings) {
     console.log(
       [
@@ -234,6 +329,7 @@ function printFindings(findings) {
         `profile=${finding.profile}`,
         `category=${finding.category}`,
         `fingerprint=${finding.fingerprint}`,
+        `baseline=${finding.baseline_state}`,
         `remediation=${finding.remediation}`,
       ].join(" | ")
     );
@@ -277,6 +373,23 @@ function runSelfTest() {
     if (negativeFindings.length !== 0) {
       throw new Error(`expected zero negative findings, got ${negativeFindings.length}`);
     }
+    const baselinePath = path.join(tmp, "docs-contract.baseline.json");
+    const writtenBaseline = writeBaseline(baselinePath, findings);
+    const baseline = loadBaseline(baselinePath);
+    const classified = classifyFindings(findings, baseline);
+    const counts = countByState(classified);
+    if (writtenBaseline.entries.some((entry) => "matched_text" in entry || "snippet" in entry)) {
+      throw new Error("baseline must not store raw matched text or snippets");
+    }
+    if (counts.known !== positiveFindings.length || counts.new !== 0) {
+      throw new Error(`expected baseline to classify all positives as known, got ${JSON.stringify(counts)}`);
+    }
+    fs.appendFileSync(path.join(tmp, "docs", "positive.md"), "\nPOSTGRES_PASSWORD=matric");
+    const expandedFindings = classifyFindings(scan(tmp), baseline);
+    const expandedCounts = countByState(expandedFindings);
+    if (expandedCounts.new !== 1) {
+      throw new Error(`expected one new finding after baseline, got ${JSON.stringify(expandedCounts)}`);
+    }
     console.log("docs-contract self-test passed");
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -299,7 +412,16 @@ if (SELF_TEST) {
 }
 
 const findings = scan(ROOT);
-printFindings(findings);
-if (findings.length > 0 && MODE === "blocking") {
+if (UPDATE_BASELINE) {
+  writeBaseline(BASELINE_PATH, findings);
+}
+const baseline = loadBaseline(BASELINE_PATH);
+const classifiedFindings = classifyFindings(findings, baseline);
+printFindings(classifiedFindings, baseline);
+if (UPDATE_BASELINE) {
+  console.log(`docs-contract baseline updated: ${path.relative(ROOT, BASELINE_PATH)} entries=${findings.length}`);
+}
+const counts = countByState(classifiedFindings);
+if (MODE === "blocking" && ((baseline.exists && counts.new > 0) || (!baseline.exists && findings.length > 0))) {
   process.exit(1);
 }

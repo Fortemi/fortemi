@@ -7,6 +7,7 @@
   "scripts": {
     "docs:build": "pagenary build:tenants fortemi-docs",
     "docs:contract": "node scripts/ci/docs-contract.cjs --root=.",
+    "docs:contract:update-baseline": "node scripts/ci/docs-contract.cjs --root=. --update-baseline",
     "docs:contract:self-test": "node scripts/ci/docs-contract.cjs --self-test"
   },
   "devDependencies": {
