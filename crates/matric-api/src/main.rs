@@ -5235,15 +5235,17 @@ async fn normalize_route_policy_input_for_authorization(
         state.db.archives.get_archive_by_name(&archive_name).await
     })
     .await;
-    normalize_document_type_route_policy_input(input, |document_type_name| async move {
-        state
-            .db
-            .document_types
-            .get_by_name(&document_type_name)
-            .await
-            .map(|document_type| document_type.map(DocumentTypeResourceMetadata::from))
-    })
-    .await
+    let input =
+        normalize_document_type_route_policy_input(input, |document_type_name| async move {
+            state
+                .db
+                .document_types
+                .get_by_name(&document_type_name)
+                .await
+                .map(|document_type| document_type.map(DocumentTypeResourceMetadata::from))
+        })
+        .await;
+    normalize_job_route_policy_input(input, |job_id| state.db.jobs.get(job_id)).await
 }
 
 async fn normalize_note_route_policy_input<F, Fut>(
@@ -5511,6 +5513,80 @@ where
         }
         Err(err) => {
             tracing::warn!(error = %err, "authorization document type normalization lookup failed");
+        }
+    }
+
+    input
+}
+
+async fn normalize_job_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    job_lookup: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(Uuid) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<matric_core::Job>>>,
+{
+    if input.resource.kind != ResourceKind::Job
+        || input
+            .resource
+            .attrs
+            .get("resource_id_param")
+            .and_then(|value| value.as_str())
+            != Some("id")
+        || !input
+            .resource
+            .attrs
+            .get("requires_backing_resource_normalization")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || input
+            .resource
+            .attrs
+            .get("resource_id_normalized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        return input;
+    }
+
+    let Some(resource_id) = input.resource.id.as_deref() else {
+        return input;
+    };
+    let Ok(job_id) = Uuid::parse_str(resource_id) else {
+        tracing::warn!("authorization resource normalization skipped: invalid job id");
+        return input;
+    };
+
+    match job_lookup(job_id).await {
+        Ok(Some(job)) => {
+            route_policy::mark_resource_id_normalized(&mut input);
+            input
+                .resource
+                .attrs
+                .insert("job_type".to_string(), serde_json::json!(job.job_type));
+            input
+                .resource
+                .attrs
+                .insert("job_status".to_string(), serde_json::json!(job.status));
+            if let Some(note_id) = job.note_id {
+                input
+                    .resource
+                    .attrs
+                    .insert("parent_note_id".to_string(), serde_json::json!(note_id));
+            }
+            if let Some(cost_tier) = job.cost_tier {
+                input
+                    .resource
+                    .attrs
+                    .insert("job_cost_tier".to_string(), serde_json::json!(cost_tier));
+            }
+        }
+        Ok(None) => {
+            tracing::warn!("authorization resource normalization skipped: job does not exist");
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "authorization job normalization lookup failed");
         }
     }
 
@@ -22206,6 +22282,151 @@ mod tests {
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
         assert!(normalized.resource.attrs.get("document_type_id").is_none());
+    }
+
+    fn test_job(id: Uuid, note_id: Option<Uuid>) -> matric_core::Job {
+        matric_core::Job {
+            id,
+            note_id,
+            job_type: matric_core::JobType::Embedding,
+            status: matric_core::JobStatus::Pending,
+            priority: 5,
+            payload: None,
+            result: None,
+            error_message: None,
+            progress_percent: 0,
+            progress_message: None,
+            retry_count: 0,
+            max_retries: 3,
+            created_at: chrono::Utc::now(),
+            started_at: None,
+            completed_at: None,
+            cost_tier: Some(1),
+        }
+    }
+
+    #[tokio::test]
+    async fn existing_job_route_id_is_marked_normalized_with_job_metadata() {
+        let job_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000005").unwrap();
+        let note_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000001").unwrap();
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/jobs/018fd1a0-0000-7000-8000-000000000005",
+            Some("tenant-a"),
+        )
+        .expect("job route has policy input");
+
+        let normalized = normalize_job_route_policy_input(input, |lookup_id| async move {
+            assert_eq!(lookup_id, job_id);
+            Ok(Some(test_job(job_id, Some(note_id))))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert_eq!(
+            normalized.resource.attrs["job_type"],
+            serde_json::json!(matric_core::JobType::Embedding)
+        );
+        assert_eq!(
+            normalized.resource.attrs["job_status"],
+            serde_json::json!(matric_core::JobStatus::Pending)
+        );
+        assert_eq!(
+            normalized.resource.attrs["parent_note_id"],
+            serde_json::json!(note_id)
+        );
+        assert_eq!(normalized.resource.attrs["job_cost_tier"], 1);
+        assert!(!hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn missing_job_route_id_stays_unnormalized_after_backing_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/jobs/018fd1a0-0000-7000-8000-000000000005",
+            Some("tenant-a"),
+        )
+        .expect("job route has policy input");
+
+        let normalized =
+            normalize_job_route_policy_input(input, |_lookup_id| async move { Ok(None) }).await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("job_type").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn invalid_job_route_id_stays_unnormalized_without_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/jobs/not-a-uuid",
+            Some("tenant-a"),
+        )
+        .expect("job route has policy input");
+
+        let normalized = normalize_job_route_policy_input(input, |_lookup_id| async move {
+            panic!("invalid job route IDs must not perform job lookups");
+            #[allow(unreachable_code)]
+            Ok(Some(test_job(Uuid::new_v4(), None)))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(normalized.resource.attrs.get("job_type").is_none());
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn job_normalization_lookup_error_preserves_fail_closed_guard() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/jobs/018fd1a0-0000-7000-8000-000000000005",
+            Some("tenant-a"),
+        )
+        .expect("job route has policy input");
+
+        let normalized = normalize_job_route_policy_input(input, |_lookup_id| async move {
+            Err(matric_core::Error::Internal("lookup failed".to_string()))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn job_collection_routes_do_not_run_id_lookup() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/jobs/status",
+            None,
+        )
+        .expect("job collection route has policy input");
+        assert_eq!(input.resource.kind, ResourceKind::Job);
+        assert_eq!(input.resource.attrs["resource_id_source"], "route_template");
+
+        let normalized = normalize_job_route_policy_input(input, |_lookup_id| async move {
+            panic!("job collection routes must not perform job lookups");
+            #[allow(unreachable_code)]
+            Ok(Some(test_job(Uuid::new_v4(), None)))
+        })
+        .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert!(normalized.resource.attrs.get("job_type").is_none());
     }
 
     #[tokio::test]
