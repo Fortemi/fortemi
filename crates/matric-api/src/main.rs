@@ -23947,7 +23947,7 @@ async fn database_backup_snapshot(
     }))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct DatabaseUploadRequest {
     /// Base64-encoded .sql.gz file
     data_base64: String,
@@ -23957,6 +23957,23 @@ struct DatabaseUploadRequest {
     title: Option<String>,
     /// Detailed description of the backup
     description: Option<String>,
+}
+
+impl fmt::Debug for DatabaseUploadRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DatabaseUploadRequest")
+            .field("data_base64_len", &self.data_base64.len())
+            .field(
+                "original_filename_len",
+                &self.original_filename.as_ref().map(String::len),
+            )
+            .field("title_len", &self.title.as_ref().map(String::len))
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .finish()
+    }
 }
 
 /// Upload a database backup file (adds to backup list, does not restore).
@@ -25601,6 +25618,39 @@ mod tests {
             "meta.json",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn database_backup_upload_debug_redacts_payload_filename_and_metadata() {
+        let request = DatabaseUploadRequest {
+            data_base64: "cG9zdGdyZXM6Ly91c2VyOnBhc3NAZGIuaW50ZXJuYWwvYXBw".to_string(),
+            original_filename: Some("customer-postgres-secret-mm_key_upload.sql.gz".to_string()),
+            title: Some("Customer payroll upload".to_string()),
+            description: Some(
+                "Contains /srv/backups/customer and sk-live-upload-secret".to_string(),
+            ),
+        };
+
+        let rendered = format!("{request:?}");
+
+        assert!(rendered.contains("DatabaseUploadRequest"));
+        assert!(rendered.contains("data_base64_len"));
+        assert!(rendered.contains("original_filename_len"));
+        assert!(rendered.contains("title_len"));
+        assert!(rendered.contains("description_len"));
+
+        for raw in [
+            "cG9zdGdyZXM6Ly91c2VyOnBhc3NAZGIuaW50ZXJuYWwvYXBw",
+            "customer-postgres-secret",
+            "mm_key_upload",
+            "Customer payroll upload",
+            "/srv/backups/customer",
+            "sk-live-upload-secret",
+            "postgres://user:pass",
+            "db.internal",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 
