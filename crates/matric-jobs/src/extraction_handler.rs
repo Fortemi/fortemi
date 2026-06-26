@@ -1038,25 +1038,30 @@ impl JobHandler for ExtractionHandler {
                                             Some(note_id),
                                         );
                                         info!(
-                                            note_id = %note_id,
-                                            attachment_id = %att_id,
-                                            audio_attachment = %audio_att_id,
+                                            note_present = true,
+                                            parent_attachment_present = true,
+                                            audio_attachment_present = true,
                                             "AudioTranscription job queued for video"
                                         );
                                     }
                                     Ok(None) => {} // Deduplicated
                                     Err(e) => {
+                                        let error_text = e.to_string();
                                         warn!(
-                                            note_id = %note_id,
-                                            error = %e,
+                                            note_present = true,
+                                            parent_attachment_present = true,
+                                            audio_attachment_present = true,
+                                            error_len = telemetry_text_len(&error_text),
+                                            error_reason =
+                                                extraction_error_reason_code(&error_text),
                                             "Failed to queue AudioTranscription job"
                                         );
                                     }
                                 }
                             } else {
                                 warn!(
-                                    note_id = %note_id,
-                                    attachment_id = %att_id,
+                                    note_present = true,
+                                    parent_attachment_present = true,
                                     "Video has audio but audio_track attachment ID not found — \
                                      cannot queue AudioTranscription"
                                 );
@@ -1077,8 +1082,8 @@ impl JobHandler for ExtractionHandler {
                                 }
                             }
                             debug!(
-                                note_id = %note_id,
-                                attachment_id = %att_id,
+                                note_present = true,
+                                parent_attachment_present = true,
                                 "Video has no audio — transcript_complete set to true for fan-in"
                             );
                         }
@@ -1110,31 +1115,34 @@ impl JobHandler for ExtractionHandler {
                                         Some(note_id),
                                     );
                                     info!(
-                                        note_id = %note_id,
-                                        attachment_id = %att_id,
+                                        note_present = true,
+                                        attachment_present = true,
                                         "Speaker diarization job queued"
                                     );
                                 }
                                 Ok(None) => {} // Deduplicated
                                 Err(e) => {
+                                    let error_text = e.to_string();
                                     warn!(
-                                        note_id = %note_id,
-                                        error = %e,
+                                        note_present = true,
+                                        attachment_present = true,
+                                        error_len = telemetry_text_len(&error_text),
+                                        error_reason = extraction_error_reason_code(&error_text),
                                         "Failed to queue speaker diarization job"
                                     );
                                 }
                             }
                         } else if !diarization_available {
                             info!(
-                                note_id = %note_id,
-                                attachment_id = %att_id,
+                                note_present = true,
+                                attachment_present = true,
                                 strategy = ?strategy,
                                 "Diarization skipped: DIARIZATION_BASE_URL not set"
                             );
                         } else if !has_transcript_segments {
                             info!(
-                                note_id = %note_id,
-                                attachment_id = %att_id,
+                                note_present = true,
+                                attachment_present = true,
                                 strategy = ?strategy,
                                 "Diarization skipped: no transcript segments"
                             );
