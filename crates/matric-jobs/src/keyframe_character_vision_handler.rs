@@ -35,6 +35,32 @@ fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResul
         .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
 }
 
+fn keyframe_character_error_reason_code(error: &str) -> &'static str {
+    let text = error.to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("not found")
+        || text.contains("no such")
+        || text.contains("missing")
+        || text.contains("unknown")
+    {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else if text.contains("connection refused")
+        || text.contains("cannot connect")
+        || text.contains("connection")
+    {
+        "connection_failed"
+    } else if text.contains("database") || text.contains("sql") || text.contains("postgres") {
+        "database_error"
+    } else if text.contains("model") || text.contains("vision") || text.contains("inference") {
+        "model_backend_error"
+    } else {
+        "operation_failed"
+    }
+}
+
 pub struct KeyframeCharacterVisionHandler {
     db: Database,
     vision: Option<Arc<dyn VisionBackend>>,
@@ -169,12 +195,14 @@ impl JobHandler for KeyframeCharacterVisionHandler {
         {
             Ok(desc) => desc,
             Err(e) => {
+                let error_text = e.to_string();
                 warn!(
                     frame_index,
                     parent = %parent_attachment_id,
                     keyframe = %keyframe_attachment_id,
                     model = vision.model_name(),
-                    error = %e,
+                    error_len = error_text.len(),
+                    error_reason = keyframe_character_error_reason_code(&error_text),
                     "Vision LLM failed for character analysis — will retry"
                 );
                 return JobResult::Retry(format!(
@@ -253,7 +281,12 @@ impl KeyframeCharacterVisionHandler {
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
             Err(e) => {
-                warn!(error = %e, "Fan-in count failed, assembly may be delayed");
+                let error_text = e.to_string();
+                warn!(
+                    error_len = error_text.len(),
+                    error_reason = keyframe_character_error_reason_code(&error_text),
+                    "Fan-in count failed, assembly may be delayed"
+                );
                 return;
             }
         };
@@ -337,9 +370,41 @@ impl KeyframeCharacterVisionHandler {
                     debug!("KeyframeAssembly already queued (deduplicated)");
                 }
                 Err(e) => {
-                    error!(error = %e, "Failed to queue KeyframeAssembly");
+                    let error_text = e.to_string();
+                    error!(
+                        error_len = error_text.len(),
+                        error_reason = keyframe_character_error_reason_code(&error_text),
+                        "Failed to queue KeyframeAssembly"
+                    );
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keyframe_character_error_reason_code_uses_stable_classes() {
+        assert_eq!(
+            keyframe_character_error_reason_code(
+                "vision model failed for /home/operator/mm_key_secret"
+            ),
+            "model_backend_error"
+        );
+        assert_eq!(
+            keyframe_character_error_reason_code("postgres://user:secret@db/app sql failed"),
+            "database_error"
+        );
+        assert_eq!(
+            keyframe_character_error_reason_code("Cannot connect to inference backend"),
+            "connection_failed"
+        );
+        assert_eq!(
+            keyframe_character_error_reason_code("opaque backend text with token mm_key_secret"),
+            "operation_failed"
+        );
     }
 }
