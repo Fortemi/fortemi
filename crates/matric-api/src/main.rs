@@ -11248,6 +11248,7 @@ async fn create_concept_scheme(
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<matric_core::CreateConceptSchemeRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let event_attrs = taxonomy_scheme_create_attrs(&body);
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     let id = ctx
@@ -11258,6 +11259,15 @@ async fn create_concept_scheme(
         ServerEvent::ConceptSchemeCreated { scheme_id: id },
         event_context_for(&archive_ctx),
     );
+    emit_taxonomy_audit_event(taxonomy_audit_event(
+        "scheme_create",
+        AuditOutcome::Success,
+        "taxonomy_scheme",
+        id,
+        event_attrs,
+        Some(&archive_ctx.schema),
+    ))
+    .await;
 
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
@@ -11289,6 +11299,7 @@ async fn update_concept_scheme(
     Path(id): Path<Uuid>,
     Json(body): Json<matric_core::UpdateConceptSchemeRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let event_attrs = taxonomy_scheme_update_attrs(&body);
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| Box::pin(async move { skos.update_scheme_tx(tx, id, body).await }))
@@ -11298,6 +11309,15 @@ async fn update_concept_scheme(
         ServerEvent::ConceptSchemeUpdated { scheme_id: id },
         event_context_for(&archive_ctx),
     );
+    emit_taxonomy_audit_event(taxonomy_audit_event(
+        "scheme_update",
+        AuditOutcome::Success,
+        "taxonomy_scheme",
+        id,
+        event_attrs,
+        Some(&archive_ctx.schema),
+    ))
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -11326,6 +11346,15 @@ async fn delete_concept_scheme(
         ServerEvent::ConceptSchemeDeleted { scheme_id: id },
         event_context_for(&archive_ctx),
     );
+    emit_taxonomy_audit_event(taxonomy_audit_event(
+        "scheme_delete",
+        AuditOutcome::Success,
+        "taxonomy_scheme",
+        id,
+        vec![("force_delete", serde_json::json!(force))],
+        Some(&archive_ctx.schema),
+    ))
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -11396,6 +11425,7 @@ async fn create_concept(
     Json(body): Json<matric_core::CreateConceptRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let scheme_id = body.scheme_id;
+    let event_attrs = taxonomy_concept_create_attrs(&body);
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     let id = ctx
@@ -11409,6 +11439,15 @@ async fn create_concept(
         },
         event_context_for(&archive_ctx),
     );
+    emit_taxonomy_audit_event(taxonomy_audit_event(
+        "concept_create",
+        AuditOutcome::Success,
+        "taxonomy_concept",
+        id,
+        event_attrs,
+        Some(&archive_ctx.schema),
+    ))
+    .await;
 
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
@@ -11484,6 +11523,7 @@ async fn update_concept(
     Path(id): Path<Uuid>,
     Json(body): Json<matric_core::UpdateConceptRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let event_attrs = taxonomy_concept_update_attrs(&body);
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     // Return updated concept for better REST semantics (issue #142)
@@ -11504,6 +11544,15 @@ async fn update_concept(
         ServerEvent::ConceptUpdated { concept_id: id },
         event_context_for(&archive_ctx),
     );
+    emit_taxonomy_audit_event(taxonomy_audit_event(
+        "concept_update",
+        AuditOutcome::Success,
+        "taxonomy_concept",
+        id,
+        event_attrs,
+        Some(&archive_ctx.schema),
+    ))
+    .await;
 
     Ok(Json(concept))
 }
@@ -11525,8 +11574,225 @@ async fn delete_concept(
         ServerEvent::ConceptDeleted { concept_id: id },
         event_context_for(&archive_ctx),
     );
+    emit_taxonomy_audit_event(taxonomy_audit_event(
+        "concept_delete",
+        AuditOutcome::Success,
+        "taxonomy_concept",
+        id,
+        Vec::new(),
+        Some(&archive_ctx.schema),
+    ))
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn emit_taxonomy_audit_event(event: AuditEvent) {
+    if let Err(err) = TracingSink.emit(event).await {
+        warn!(
+            error_len = telemetry_text_len(&err.to_string()),
+            detail = API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "emit_taxonomy_audit_event",
+            "failed to emit taxonomy audit event"
+        );
+    }
+}
+
+fn taxonomy_audit_event(
+    action: &str,
+    outcome: AuditOutcome,
+    resource_kind: &str,
+    resource_id: Uuid,
+    attrs: Vec<(&'static str, serde_json::Value)>,
+    archive_schema: Option<&str>,
+) -> AuditEvent {
+    let mut event = AuditEvent::new("taxonomy", action, outcome)
+        .with_resource(resource_kind, resource_id.to_string())
+        .with_attr("entity_kind", resource_kind.to_string())
+        .with_attr("archive_schema_present", archive_schema.is_some());
+
+    if let Some(schema) = archive_schema {
+        event = event.with_attr("archive_schema_len", schema.chars().count() as i64);
+    }
+    for (key, value) in attrs {
+        event = event.with_attr(key, value);
+    }
+
+    event.source = AuditSource::Api;
+    event.visibility = AuditVisibilityClass::SecurityRestricted;
+    event.failure_policy = AuditFailurePolicy::BestEffort;
+    event.severity = match outcome {
+        AuditOutcome::Success => AuditSeverity::Info,
+        AuditOutcome::Denied => AuditSeverity::Warn,
+        AuditOutcome::Failure | AuditOutcome::Error => AuditSeverity::Error,
+        AuditOutcome::Unknown => AuditSeverity::Warn,
+    };
+    event.sanitized()
+}
+
+fn taxonomy_scheme_create_attrs(
+    body: &matric_core::CreateConceptSchemeRequest,
+) -> Vec<(&'static str, serde_json::Value)> {
+    vec![
+        (
+            "notation_present",
+            serde_json::json!(!body.notation.is_empty()),
+        ),
+        (
+            "notation_len",
+            serde_json::json!(body.notation.chars().count() as i64),
+        ),
+        (
+            "title_len",
+            serde_json::json!(body.title.chars().count() as i64),
+        ),
+        ("uri_present", serde_json::json!(body.uri.is_some())),
+        (
+            "description_present",
+            serde_json::json!(body.description.is_some()),
+        ),
+        ("creator_present", serde_json::json!(body.creator.is_some())),
+        (
+            "publisher_present",
+            serde_json::json!(body.publisher.is_some()),
+        ),
+        ("rights_present", serde_json::json!(body.rights.is_some())),
+        ("version_present", serde_json::json!(body.version.is_some())),
+    ]
+}
+
+fn taxonomy_scheme_update_attrs(
+    body: &matric_core::UpdateConceptSchemeRequest,
+) -> Vec<(&'static str, serde_json::Value)> {
+    let mut changed = Vec::new();
+    if body.title.is_some() {
+        changed.push("title");
+    }
+    if body.description.is_some() {
+        changed.push("description");
+    }
+    if body.creator.is_some() {
+        changed.push("creator");
+    }
+    if body.publisher.is_some() {
+        changed.push("publisher");
+    }
+    if body.rights.is_some() {
+        changed.push("rights");
+    }
+    if body.version.is_some() {
+        changed.push("version");
+    }
+    if body.is_active.is_some() {
+        changed.push("is_active");
+    }
+    changed_fields_attrs(changed)
+}
+
+fn taxonomy_concept_create_attrs(
+    body: &matric_core::CreateConceptRequest,
+) -> Vec<(&'static str, serde_json::Value)> {
+    vec![
+        ("scheme_id", serde_json::json!(body.scheme_id)),
+        (
+            "notation_present",
+            serde_json::json!(body.notation.is_some()),
+        ),
+        (
+            "notation_len",
+            serde_json::json!(body
+                .notation
+                .as_deref()
+                .map(|value| value.chars().count())
+                .unwrap_or(0) as i64),
+        ),
+        (
+            "pref_label_len",
+            serde_json::json!(body.pref_label.chars().count() as i64),
+        ),
+        (
+            "language_len",
+            serde_json::json!(body.language.chars().count() as i64),
+        ),
+        ("status", serde_json::json!(format!("{:?}", body.status))),
+        (
+            "facet_type_present",
+            serde_json::json!(body.facet_type.is_some()),
+        ),
+        (
+            "facet_source_present",
+            serde_json::json!(body.facet_source.is_some()),
+        ),
+        (
+            "facet_domain_present",
+            serde_json::json!(body.facet_domain.is_some()),
+        ),
+        (
+            "facet_scope_present",
+            serde_json::json!(body.facet_scope.is_some()),
+        ),
+        (
+            "definition_present",
+            serde_json::json!(body.definition.is_some()),
+        ),
+        (
+            "scope_note_present",
+            serde_json::json!(body.scope_note.is_some()),
+        ),
+        (
+            "broader_count",
+            serde_json::json!(body.broader_ids.len() as i64),
+        ),
+        (
+            "related_count",
+            serde_json::json!(body.related_ids.len() as i64),
+        ),
+        (
+            "alt_label_count",
+            serde_json::json!(body.alt_labels.len() as i64),
+        ),
+    ]
+}
+
+fn taxonomy_concept_update_attrs(
+    body: &matric_core::UpdateConceptRequest,
+) -> Vec<(&'static str, serde_json::Value)> {
+    let mut changed = Vec::new();
+    if body.notation.is_some() {
+        changed.push("notation");
+    }
+    if body.status.is_some() {
+        changed.push("status");
+    }
+    if body.deprecation_reason.is_some() {
+        changed.push("deprecation_reason");
+    }
+    if body.replaced_by_id.is_some() {
+        changed.push("replaced_by_id");
+    }
+    if body.facet_type.is_some() {
+        changed.push("facet_type");
+    }
+    if body.facet_source.is_some() {
+        changed.push("facet_source");
+    }
+    if body.facet_domain.is_some() {
+        changed.push("facet_domain");
+    }
+    if body.facet_scope.is_some() {
+        changed.push("facet_scope");
+    }
+    changed_fields_attrs(changed)
+}
+
+fn changed_fields_attrs(changed: Vec<&'static str>) -> Vec<(&'static str, serde_json::Value)> {
+    vec![
+        (
+            "changed_field_count",
+            serde_json::json!(changed.len() as i64),
+        ),
+        ("changed_fields", serde_json::json!(changed)),
+    ]
 }
 
 // --- Hierarchy Handlers ---
@@ -27181,6 +27447,109 @@ mod tests {
         assert!(!serialized.contains("blocked_extension:exe"));
         assert!(!serialized.contains("x-msdownload"));
         assert!(!serialized.contains("File extension"));
+    }
+
+    #[test]
+    fn taxonomy_concept_create_audit_event_uses_metadata_only() {
+        let scheme_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000701").unwrap();
+        let concept_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000702").unwrap();
+        let body = matric_core::CreateConceptRequest {
+            scheme_id,
+            notation: Some("SECRET-NOTATION-42".to_string()),
+            pref_label: "Customer secret medical diagnosis".to_string(),
+            language: "en".to_string(),
+            status: matric_core::TagStatus::Approved,
+            facet_type: None,
+            facet_source: Some("internal-source-secret".to_string()),
+            facet_domain: Some("private-domain".to_string()),
+            facet_scope: Some("restricted-scope".to_string()),
+            definition: Some("Do not serialize this definition".to_string()),
+            scope_note: Some("Do not serialize this scope note".to_string()),
+            broader_ids: vec![Uuid::parse_str("018fd1a0-0000-7000-8000-000000000703").unwrap()],
+            related_ids: vec![Uuid::parse_str("018fd1a0-0000-7000-8000-000000000704").unwrap()],
+            alt_labels: vec!["secret alternate label".to_string()],
+        };
+
+        let event = taxonomy_audit_event(
+            "concept_create",
+            AuditOutcome::Success,
+            "taxonomy_concept",
+            concept_id,
+            taxonomy_concept_create_attrs(&body),
+            Some("tenant-secret-archive"),
+        );
+
+        assert_eq!(event.category, "taxonomy");
+        assert_eq!(event.action, "concept_create");
+        assert_eq!(event.outcome, AuditOutcome::Success);
+        assert_eq!(event.source, AuditSource::Api);
+        assert_eq!(event.visibility, AuditVisibilityClass::SecurityRestricted);
+        assert_eq!(event.resource_kind.as_deref(), Some("taxonomy_concept"));
+        assert_eq!(
+            event.resource_id.as_deref(),
+            Some("018fd1a0-0000-7000-8000-000000000702")
+        );
+        assert_eq!(event.attrs["scheme_id"], serde_json::json!(scheme_id));
+        assert_eq!(event.attrs["notation_present"], true);
+        assert_eq!(event.attrs["notation_len"], 18);
+        assert_eq!(event.attrs["pref_label_len"], 33);
+        assert_eq!(event.attrs["status"], "Approved");
+        assert_eq!(event.attrs["facet_source_present"], true);
+        assert_eq!(event.attrs["definition_present"], true);
+        assert_eq!(event.attrs["broader_count"], 1);
+        assert_eq!(event.attrs["related_count"], 1);
+        assert_eq!(event.attrs["alt_label_count"], 1);
+        assert_eq!(event.attrs["archive_schema_present"], true);
+        assert_eq!(event.attrs["archive_schema_len"], 21);
+
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("SECRET-NOTATION-42"));
+        assert!(!serialized.contains("medical diagnosis"));
+        assert!(!serialized.contains("internal-source-secret"));
+        assert!(!serialized.contains("private-domain"));
+        assert!(!serialized.contains("restricted-scope"));
+        assert!(!serialized.contains("Do not serialize"));
+        assert!(!serialized.contains("secret alternate label"));
+        assert!(!serialized.contains("tenant-secret-archive"));
+        assert!(!serialized.contains("changes"));
+    }
+
+    #[test]
+    fn taxonomy_update_audit_event_records_field_names_only() {
+        let scheme_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000705").unwrap();
+        let body = matric_core::UpdateConceptSchemeRequest {
+            title: Some("Secret renamed scheme".to_string()),
+            description: Some("Sensitive description".to_string()),
+            creator: None,
+            publisher: Some("Private publisher".to_string()),
+            rights: None,
+            version: Some("internal-v2".to_string()),
+            is_active: Some(false),
+        };
+
+        let event = taxonomy_audit_event(
+            "scheme_update",
+            AuditOutcome::Success,
+            "taxonomy_scheme",
+            scheme_id,
+            taxonomy_scheme_update_attrs(&body),
+            Some("tenant-secret-archive"),
+        );
+
+        assert_eq!(event.category, "taxonomy");
+        assert_eq!(event.action, "scheme_update");
+        assert_eq!(event.attrs["changed_field_count"], 5);
+        assert_eq!(
+            event.attrs["changed_fields"],
+            serde_json::json!(["title", "description", "publisher", "version", "is_active"])
+        );
+
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("Secret renamed scheme"));
+        assert!(!serialized.contains("Sensitive description"));
+        assert!(!serialized.contains("Private publisher"));
+        assert!(!serialized.contains("internal-v2"));
+        assert!(!serialized.contains("tenant-secret-archive"));
     }
 
     #[test]
