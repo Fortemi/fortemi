@@ -1809,10 +1809,11 @@ Output the revised note in clean markdown format. Do not add any labels, markers
         let revised = revised_parts.join("\n\n");
 
         if revised.is_empty() {
-            return JobResult::Failed(
+            return ai_contextual_revision_job_failure(
                 "AI contextual revision returned empty after content cleaning \
                  (model may have echoed the prompt instead of generating a revision)"
-                    .into(),
+                    .to_string(),
+                "empty_contextual_revision_after_cleaning",
             );
         }
 
@@ -8115,6 +8116,23 @@ Quick note about the meeting discussion and action items."#;
                 assert!(!message.contains("/srv/fortemi"));
                 assert!(!message.contains("SQLSTATE"));
                 assert!(!message.contains("contextual revision save failed"));
+            }
+            other => panic!("expected failed job result, got {other:?}"),
+        }
+
+        let result = ai_contextual_revision_job_failure(
+            "AI contextual revision returned empty after content cleaning \
+             (model may have echoed the prompt instead of generating a revision)",
+            "empty_contextual_revision_after_cleaning",
+        );
+
+        match result {
+            JobResult::Failed(message) => {
+                assert_eq!(message, AI_CONTEXTUAL_REVISION_JOB_FAILURE);
+                assert!(!message.contains("empty"));
+                assert!(!message.contains("content cleaning"));
+                assert!(!message.contains("echoed the prompt"));
+                assert!(!message.contains("generating a revision"));
             }
             other => panic!("expected failed job result, got {other:?}"),
         }
