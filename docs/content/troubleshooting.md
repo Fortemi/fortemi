@@ -880,12 +880,13 @@ curl http://localhost:3000/.well-known/oauth-authorization-server
 
 **Fix:**
 ```bash
-# Set ISSUER_URL in .env file
-# Must match your deployment domain
-echo "ISSUER_URL=http://localhost:3000" >> .env
+# Set ISSUER_URL in .env file.
+# Hosted deployments must use the public HTTPS deployment domain.
+echo "ISSUER_URL=https://your-domain.example" >> .env
 
-# Or for local testing
+# Or for local testing, explicitly allow the local HTTP issuer.
 echo "ISSUER_URL=http://localhost:3000" >> .env
+echo "FORTEMI_ALLOW_LOCAL_ISSUER=true" >> .env
 
 # Restart container
 docker compose -f docker-compose.bundle.yml down

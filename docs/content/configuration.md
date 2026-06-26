@@ -80,7 +80,14 @@ MATRIC_MAX_UPLOAD_SIZE_BYTES=104857600  # 100 MB
 REQUIRE_AUTH=true
 ```
 
-**Example (Team Deployment):**
+**Example (Local OAuth/MCP testing):**
+```bash
+REQUIRE_AUTH=true
+ISSUER_URL=http://localhost:3000
+FORTEMI_ALLOW_LOCAL_ISSUER=true
+```
+
+**Example (Hosted/team deployment):**
 ```bash
 REQUIRE_AUTH=true
 ISSUER_URL=https://memory.team.com

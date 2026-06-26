@@ -21,7 +21,7 @@ Add this to your project's `.mcp.json`:
 On first connection, your MCP client will perform an OAuth2 authentication flow. No manual credential setup is needed — the server handles credential management automatically.
 
 **Requirements:**
-- `ISSUER_URL` must be set in your `.env` (e.g., `http://localhost:3000`)
+- `ISSUER_URL` must be set in your `.env` to the hosted public HTTPS deployment domain; local HTTP testing also requires `FORTEMI_ALLOW_LOCAL_ISSUER=true`
 - For remote access, configure nginx to proxy `/mcp` to port 3001
 
 ### Local Access (Development)

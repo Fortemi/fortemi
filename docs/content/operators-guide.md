@@ -10,6 +10,7 @@ Quick reference for deploying, monitoring, and maintaining Fortemi with Docker.
 # 1. Configure URL (required for OAuth/MCP)
 cat > .env <<EOF
 ISSUER_URL=http://localhost:3000
+FORTEMI_ALLOW_LOCAL_ISSUER=true
 EOF
 
 # 2. Start container (initializes database, auto-registers MCP credentials)
@@ -106,6 +107,7 @@ Set in `.env` file (project root):
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `ISSUER_URL` | Yes for hosted/multi-tenant | External URL for OAuth/MCP/AsyncAPI metadata. Hosted values must be public HTTPS with no query, fragment, userinfo, local/private/listen host, or unsupported path. |
+| `FORTEMI_ALLOW_LOCAL_ISSUER` | Local only | Allows `http://localhost` issuer URLs for local development. Do not enable for hosted deployments. |
 | `MCP_CLIENT_ID` | No | OAuth client ID (auto-managed, set only for manual override) |
 | `MCP_CLIENT_SECRET` | No | OAuth client secret (auto-managed, set only for manual override) |
 | `MCP_BASE_URL` | No | MCP resource URL (default: `${ISSUER_URL}/mcp`) |

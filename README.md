@@ -643,7 +643,7 @@ API_HOST_PORT=3010
 MCP_HOST_PORT=3011
 ```
 
-Container-side ports stay fixed; only the host mapping changes. `ISSUER_URL` must match the host-facing address (e.g. `http://localhost:3010`).
+Container-side ports stay fixed; only the host mapping changes. For local development, `ISSUER_URL` must match the host-facing address (e.g. `http://localhost:3010`) and `FORTEMI_ALLOW_LOCAL_ISSUER=true` must be set. Hosted deployments must use a public HTTPS issuer.
 
 ### Connecting to a remote Ollama instead of host
 

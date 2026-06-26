@@ -46,6 +46,7 @@ docker compose -f docker-compose.bundle.yml logs -f
 # 4. Configure environment
 cat > .env <<EOF
 ISSUER_URL=http://localhost:3000
+FORTEMI_ALLOW_LOCAL_ISSUER=true
 EOF
 
 # 5. Restart with configuration
@@ -388,8 +389,9 @@ docker ps
 
 **Fix:**
 ```bash
-# Create/update .env with ISSUER_URL
+# Create/update .env with local issuer settings
 echo "ISSUER_URL=http://localhost:3000" >> .env
+echo "FORTEMI_ALLOW_LOCAL_ISSUER=true" >> .env
 
 # Restart container
 docker compose -f docker-compose.bundle.yml down

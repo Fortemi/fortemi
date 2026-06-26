@@ -217,6 +217,7 @@ Add credentials to `.env`:
 ```bash
 # .env
 ISSUER_URL=http://localhost:3000
+FORTEMI_ALLOW_LOCAL_ISSUER=true
 MCP_CLIENT_ID=mm_abc123def456
 MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>
 ```
@@ -390,7 +391,8 @@ curl http://localhost:3001/.well-known/oauth-protected-resource
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
-| `ISSUER_URL` | `https://localhost:3000` | **Yes** | External URL for OAuth2 issuer. Used for discovery metadata and token validation. |
+| `ISSUER_URL` | local fallback only | **Yes for hosted/multi-tenant** | External URL for OAuth2 issuer. Hosted values must be public HTTPS with no query, fragment, userinfo, local/private/listen host, or unsupported path. |
+| `FORTEMI_ALLOW_LOCAL_ISSUER` | `false` | Local development only | Set to `true` only for local `http://localhost` issuer testing. Never enable for hosted deployments. |
 | `MCP_CLIENT_ID` | (auto) | No | OAuth client ID for MCP server. Auto-managed if not provided. |
 | `MCP_CLIENT_SECRET` | (auto) | No | OAuth client secret for MCP server. Auto-managed if not provided. |
 | `MCP_TRANSPORT` | `http` (bundle) | No | Transport mode: `http` for bundle deployment, `stdio` for local development. |
@@ -400,7 +402,7 @@ curl http://localhost:3001/.well-known/oauth-protected-resource
 
 ### ISSUER_URL Configuration
 
-**Format:** Full URL including scheme and domain (e.g., `http://localhost:3000` for local, `https://your-domain.com` for production).
+**Format:** Full URL including scheme and domain. Hosted deployments must use a public HTTPS origin such as `https://your-domain.com`. Local development may use `http://localhost:3000` only with `FORTEMI_ALLOW_LOCAL_ISSUER=true`.
 
 **What it's used for:**
 
@@ -418,6 +420,7 @@ ISSUER_URL=https://fortemi.example.com
 
 # Local development
 ISSUER_URL=http://localhost:3000
+FORTEMI_ALLOW_LOCAL_ISSUER=true
 ```
 
 ### FORTEMI_URL vs ISSUER_URL

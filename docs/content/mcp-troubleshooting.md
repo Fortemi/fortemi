@@ -44,6 +44,7 @@ curl http://localhost:3001/.well-known/oauth-protected-resource
 **Fix:**
 ```bash
 echo "ISSUER_URL=http://localhost:3000" >> .env
+echo "FORTEMI_ALLOW_LOCAL_ISSUER=true" >> .env
 docker compose -f docker-compose.bundle.yml down
 docker compose -f docker-compose.bundle.yml up -d
 ```
@@ -201,7 +202,8 @@ curl -X POST http://localhost:3001/ \
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ISSUER_URL` | Yes | External URL (e.g., `http://localhost:3000`) |
+| `ISSUER_URL` | Yes for hosted/multi-tenant | External URL. Hosted deployments must use public HTTPS; local `http://localhost:3000` requires `FORTEMI_ALLOW_LOCAL_ISSUER=true`. |
+| `FORTEMI_ALLOW_LOCAL_ISSUER` | Local only | Allows non-HTTPS/local issuer URLs for development. Never enable for hosted deployments. |
 | `MCP_CLIENT_ID` | No | OAuth client ID (auto-managed by default) |
 | `MCP_CLIENT_SECRET` | No | OAuth client secret (auto-managed by default) |
 | `MCP_BASE_URL` | No | Defaults to `${ISSUER_URL}/mcp` |
@@ -231,7 +233,7 @@ Structure:
 
 ## First-Time Setup Checklist
 
-1. [ ] Set `ISSUER_URL` in `.env` (e.g., `http://localhost:3000`)
+1. [ ] Set `ISSUER_URL` in `.env` (`http://localhost:3000` for local with `FORTEMI_ALLOW_LOCAL_ISSUER=true`, public HTTPS for hosted)
 2. [ ] Start container: `docker compose -f docker-compose.bundle.yml up -d`
 3. [ ] Wait for ready: look for `"=== Matric Memory Bundle Ready ==="` in logs
 4. [ ] Verify API: `curl http://localhost:3000/health`
