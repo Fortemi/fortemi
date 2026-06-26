@@ -26088,7 +26088,7 @@ async fn knowledge_archive_upload(
     Ok(Json(serde_json::json!({
         "success": true,
         "filename": final_filename,
-        "path": backup_path.display().to_string(),
+        "path": backup_response_path_metadata(&backup_path),
         "size_bytes": size_bytes,
         "size_human": size_human,
         "metadata": final_metadata,
@@ -27996,6 +27996,33 @@ mod tests {
             "postgres://user:pass",
             "db.internal",
             "mm_key_backup",
+            "customer",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn knowledge_archive_upload_response_path_uses_metadata_only() {
+        let backup_path = std::path::Path::new(
+            "/srv/backups/customer/postgres://user:pass@db.internal/mm_key_archive.sql.gz",
+        );
+        let response = serde_json::json!({
+            "success": true,
+            "filename": "upload_archive_20260626.sql.gz",
+            "path": backup_response_path_metadata(backup_path),
+            "size_bytes": 4096,
+            "size_human": "4.00 KB",
+            "message": "Knowledge archive uploaded and extracted successfully"
+        });
+        let rendered = serde_json::to_string(&response).unwrap();
+
+        assert!(rendered.contains("\"path\":\"path_len:"));
+        for raw in [
+            "/srv/backups",
+            "postgres://user:pass",
+            "db.internal",
+            "mm_key_archive",
             "customer",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
