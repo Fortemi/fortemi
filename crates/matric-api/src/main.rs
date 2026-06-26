@@ -23082,7 +23082,7 @@ impl ProblemType {
     }
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Serialize, utoipa::ToSchema)]
 struct ProblemDetails {
     #[serde(rename = "type")]
     type_uri: String,
@@ -23095,6 +23095,26 @@ struct ProblemDetails {
     request_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     attachment_id: Option<Uuid>,
+}
+
+impl fmt::Debug for ProblemDetails {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProblemDetails")
+            .field("type_uri_len", &telemetry_text_len(&self.type_uri))
+            .field("title_len", &telemetry_text_len(&self.title))
+            .field("status", &self.status)
+            .field("detail_len", &telemetry_text_len(&self.detail))
+            .field(
+                "instance_len",
+                &self.instance.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "request_id_len",
+                &self.request_id.as_deref().map(telemetry_text_len),
+            )
+            .field("attachment_id_set", &self.attachment_id.is_some())
+            .finish()
+    }
 }
 
 impl ProblemDetails {
@@ -37525,6 +37545,36 @@ mod tests {
             "Expected at least 100 API paths, found {}. Did handler annotations get removed?",
             path_count
         );
+    }
+
+    #[test]
+    fn problem_details_debug_redacts_detail_instance_and_request_id() {
+        let attachment_id =
+            Uuid::parse_str("018fd1a0-0000-7000-8000-000000000123").expect("valid fixture uuid");
+        let problem = ProblemDetails {
+            type_uri: "https://fortemi.com/problems/internal-error".to_string(),
+            title: "Internal Server Error".to_string(),
+            status: 500,
+            detail:
+                "postgres://user:secret@db.internal/fortemi /srv/fortemi/private sk-live-secret"
+                    .to_string(),
+            instance: Some("/api/v1/tenants/operator@example.com/private".to_string()),
+            request_id: Some("018fd1a0-secret-request-id".to_string()),
+            attachment_id: Some(attachment_id),
+        };
+
+        let debug = format!("{problem:?}");
+
+        assert!(debug.contains("detail_len"));
+        assert!(debug.contains("instance_len"));
+        assert!(debug.contains("request_id_len"));
+        assert!(debug.contains("attachment_id_set: true"));
+        assert!(!debug.contains("postgres://user:secret@db.internal/fortemi"));
+        assert!(!debug.contains("/srv/fortemi/private"));
+        assert!(!debug.contains("sk-live-secret"));
+        assert!(!debug.contains("operator@example.com"));
+        assert!(!debug.contains("018fd1a0-secret-request-id"));
+        assert!(!debug.contains(&attachment_id.to_string()));
     }
 
     #[test]
