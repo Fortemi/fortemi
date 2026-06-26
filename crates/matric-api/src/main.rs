@@ -15474,7 +15474,7 @@ async fn search_notes(
 // =============================================================================
 
 /// Request body for cross-memory federated search.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct FederatedSearchRequest {
     /// Search query string
     q: String,
@@ -15484,8 +15484,18 @@ struct FederatedSearchRequest {
     limit: Option<i64>,
 }
 
+impl fmt::Debug for FederatedSearchRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FederatedSearchRequest")
+            .field("query_len", &self.q.len())
+            .field("memories_count", &self.memories.len())
+            .field("limit", &self.limit)
+            .finish()
+    }
+}
+
 /// A single federated search hit annotated with its source memory.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 struct FederatedSearchHit {
     note_id: Uuid,
     score: f32,
@@ -15496,13 +15506,37 @@ struct FederatedSearchHit {
     memory: String,
 }
 
+impl fmt::Debug for FederatedSearchHit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FederatedSearchHit")
+            .field("note_id", &self.note_id)
+            .field("score", &self.score)
+            .field("snippet_len", &self.snippet.as_ref().map(String::len))
+            .field("title_len", &self.title.as_ref().map(String::len))
+            .field("tags_count", &self.tags.len())
+            .field("memory_len", &self.memory.len())
+            .finish()
+    }
+}
+
 /// Response for federated search across memories.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct FederatedSearchResponse {
     results: Vec<FederatedSearchHit>,
     query: String,
     total: usize,
     memories_searched: Vec<String>,
+}
+
+impl fmt::Debug for FederatedSearchResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FederatedSearchResponse")
+            .field("results_count", &self.results.len())
+            .field("query_len", &self.query.len())
+            .field("total", &self.total)
+            .field("memories_searched_count", &self.memories_searched.len())
+            .finish()
+    }
 }
 
 /// Search across multiple memories using FTS.
@@ -24882,6 +24916,61 @@ mod tests {
         assert!(!rendered.contains("Quarterly strategy"));
         assert!(!rendered.contains("customer-private"));
         assert!(!rendered.contains("mm_key_secret"));
+    }
+
+    #[test]
+    fn federated_search_debug_redacts_query_memory_and_hit_content() {
+        let request = FederatedSearchRequest {
+            q: "find cross-memory payroll token customer@example.com".to_string(),
+            memories: vec![
+                "customer-vault-internal".to_string(),
+                "archive-mm_key_secret".to_string(),
+            ],
+            limit: Some(5),
+        };
+        let hit = FederatedSearchHit {
+            note_id: Uuid::nil(),
+            score: 0.88,
+            snippet: Some("federated snippet with sk-live-secret-token".to_string()),
+            title: Some("Sensitive cross memory title".to_string()),
+            tags: vec![
+                "customer-private".to_string(),
+                "token-shaped-tag".to_string(),
+            ],
+            memory: "customer-vault-internal".to_string(),
+        };
+        let response = FederatedSearchResponse {
+            results: vec![hit.clone()],
+            query: request.q.clone(),
+            total: 1,
+            memories_searched: request.memories.clone(),
+        };
+
+        let rendered_request = format!("{request:?}");
+        let rendered_hit = format!("{hit:?}");
+        let rendered_response = format!("{response:?}");
+        let combined = format!("{rendered_request}\n{rendered_hit}\n{rendered_response}");
+
+        assert!(rendered_request.contains("query_len"));
+        assert!(rendered_request.contains("memories_count"));
+        assert!(rendered_hit.contains("snippet_len"));
+        assert!(rendered_hit.contains("title_len"));
+        assert!(rendered_hit.contains("tags_count"));
+        assert!(rendered_response.contains("results_count"));
+        assert!(rendered_response.contains("memories_searched_count"));
+
+        for raw in [
+            "find cross-memory",
+            "customer@example.com",
+            "customer-vault-internal",
+            "archive-mm_key_secret",
+            "sk-live-secret-token",
+            "Sensitive cross memory title",
+            "customer-private",
+            "token-shaped-tag",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
     }
 
     #[test]

@@ -199,6 +199,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-26 continuation: Reconstruction response Debug slice replaces raw reconstructed note content, document titles, tags, and chunk titles with metadata-only lengths/counts while preserving API serialization.
   - 2026-06-26 continuation: Speaker relabel config Debug slice replaces raw speaker ids, user-assigned names, roles, and transcript-derived labels with metadata-only lengths/counts while preserving config serialization/rendering.
   - 2026-06-26 continuation: Search response Debug slice replaces raw user queries and search-hit content with result counts, query length, and total while preserving API/cache serialization.
+  - 2026-06-26 continuation: Federated search Debug slice replaces raw query text, memory names, snippets, titles, and tags with metadata-only lengths/counts while preserving request/response serialization.
 - [x] **#926 / #928 / #933** fail-closed startup: require issuer in multi-tenant; reject invalid security booleans; validate rate-limit env before constructing limiter. (2026-06-26: startup-config slice added strict parsing for auth/tenant/local-issuer/rate-limit/realtime-consent booleans, hosted-safe issuer validation reused by AsyncAPI metadata, deterministic process-local rate-limit numeric validation before limiter construction, and operator/env docs for accepted forms, local issuer override, and hosted issuer requirements. Issues closed after focused regression tests and docs audit.)
 
 ## Phase 1 — Open BSL desktop GA  `tier/open-build`
@@ -560,3 +561,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-26 — #968/#974 reconstruction response Debug output now reports content/title/tag/chunk metadata lengths and counts instead of raw reconstructed note content, titles, tags, or chunk titles.
 - 2026-06-26 — #968/#974 speaker relabel config Debug output now reports speaker counts and field lengths instead of raw speaker ids, names, roles, transcript-derived labels, or secret-shaped fragments.
 - 2026-06-26 — #968/#974 search response Debug output now reports result count, query length, and total instead of raw user query text, snippets, titles, tags, emails, or token-shaped hit content.
+- 2026-06-26 — #968/#974 federated search Debug output now reports query/memory/result metadata lengths and counts instead of raw cross-memory queries, memory names, snippets, titles, tags, or token-shaped hit content.
