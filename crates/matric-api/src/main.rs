@@ -4105,10 +4105,29 @@ struct UpdateWebhookBody {
     responses((status = 201, description = "Created")))]
 
 async fn create_webhook(
+    auth: Auth,
     State(state): State<AppState>,
     Json(body): Json<matric_core::CreateWebhookRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let event_count = body.events.len();
+    let max_retries = body.max_retries;
+    let secret_set = body
+        .secret
+        .as_ref()
+        .is_some_and(|secret| !secret.is_empty());
     let id = state.db.webhooks.create(body).await?;
+    emit_webhook_control_audit_event(webhook_control_audit_event(
+        &auth,
+        "subscription_create",
+        AuditOutcome::Success,
+        id,
+        event_count,
+        true,
+        secret_set,
+        Some(max_retries),
+        None,
+    ))
+    .await;
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
 
@@ -4140,6 +4159,7 @@ async fn get_webhook(
     request_body = UpdateWebhookBody,
     responses((status = 200, description = "Success")))]
 async fn update_webhook(
+    auth: Auth,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateWebhookBody>,
@@ -4165,6 +4185,21 @@ async fn update_webhook(
         .await?;
 
     let webhook = state.db.webhooks.get(id).await?.unwrap();
+    emit_webhook_control_audit_event(webhook_control_audit_event(
+        &auth,
+        "subscription_update",
+        AuditOutcome::Success,
+        webhook.id,
+        webhook.events.len(),
+        webhook.is_active,
+        webhook
+            .secret
+            .as_ref()
+            .is_some_and(|secret| !secret.is_empty()),
+        Some(webhook.max_retries),
+        None,
+    ))
+    .await;
     Ok(Json(webhook))
 }
 
@@ -4172,10 +4207,32 @@ async fn update_webhook(
     params(("id" = Uuid, Path, description = "Webhook ID")),
     responses((status = 204, description = "No Content")))]
 async fn delete_webhook_handler(
+    auth: Auth,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let webhook = state
+        .db
+        .webhooks
+        .get(id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Webhook {} not found", id)))?;
     state.db.webhooks.delete(id).await?;
+    emit_webhook_control_audit_event(webhook_control_audit_event(
+        &auth,
+        "subscription_delete",
+        AuditOutcome::Success,
+        webhook.id,
+        webhook.events.len(),
+        webhook.is_active,
+        webhook
+            .secret
+            .as_ref()
+            .is_some_and(|secret| !secret.is_empty()),
+        Some(webhook.max_retries),
+        None,
+    ))
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -4199,6 +4256,7 @@ async fn list_webhook_deliveries(
     params(("id" = Uuid, Path, description = "Webhook ID")),
     responses((status = 200, description = "Success")))]
 async fn test_webhook(
+    auth: Auth,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -4227,8 +4285,67 @@ async fn test_webhook(
         .unwrap_or_default();
 
     deliver_webhook(&client, &state.db, &webhook, "test", &payload).await;
+    emit_webhook_control_audit_event(webhook_control_audit_event(
+        &auth,
+        "subscription_test",
+        AuditOutcome::Success,
+        webhook.id,
+        webhook.events.len(),
+        webhook.is_active,
+        webhook
+            .secret
+            .as_ref()
+            .is_some_and(|secret| !secret.is_empty()),
+        Some(webhook.max_retries),
+        None,
+    ))
+    .await;
 
     Ok(Json(serde_json::json!({ "status": "delivered" })))
+}
+
+async fn emit_webhook_control_audit_event(event: AuditEvent) {
+    if let Err(err) = TracingSink.emit(event).await {
+        warn!(error = %err, "failed to emit webhook control audit event");
+    }
+}
+
+fn webhook_control_audit_event(
+    auth: &Auth,
+    action: &str,
+    outcome: AuditOutcome,
+    webhook_id: Uuid,
+    event_count: usize,
+    is_active: bool,
+    secret_set: bool,
+    max_retries: Option<i32>,
+    reason: Option<&str>,
+) -> AuditEvent {
+    let mut event = AuditEvent::new("webhook", action, outcome)
+        .with_principal(auth_principal_audit_id(&auth.principal))
+        .with_resource("webhook", webhook_id.to_string())
+        .with_attr("webhook_event_count", event_count as i64)
+        .with_attr("webhook_is_active", is_active)
+        .with_attr("webhook_secret_set", secret_set);
+
+    if let Some(max_retries) = max_retries {
+        event = event.with_attr("webhook_max_retries", max_retries);
+    }
+    if let Some(reason) = reason {
+        event.reason = Some(reason.to_string());
+        event = event.with_attr("reason_code", reason.to_string());
+    }
+
+    event.source = AuditSource::Api;
+    event.visibility = AuditVisibilityClass::SecurityRestricted;
+    event.failure_policy = AuditFailurePolicy::BestEffort;
+    event.severity = match outcome {
+        AuditOutcome::Success => AuditSeverity::Info,
+        AuditOutcome::Denied => AuditSeverity::Warn,
+        AuditOutcome::Failure | AuditOutcome::Error => AuditSeverity::Error,
+        AuditOutcome::Unknown => AuditSeverity::Warn,
+    };
+    event.sanitized()
 }
 
 fn verify_incoming_signature(
@@ -24081,6 +24198,56 @@ mod tests {
         assert!(event.reason.is_none());
         let serialized = serde_json::to_string(&event).expect("serialize audit event");
         assert!(!serialized.contains("client_secret=should-redact"));
+    }
+
+    #[test]
+    fn webhook_control_audit_event_uses_metadata_only() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000201").unwrap(),
+                scope: "admin webhook_secret=should-not-appear".to_string(),
+            },
+        };
+
+        let event = webhook_control_audit_event(
+            &auth,
+            "subscription_update",
+            AuditOutcome::Success,
+            Uuid::parse_str("018fd1a0-0000-7000-8000-000000000202").unwrap(),
+            3,
+            true,
+            true,
+            Some(5),
+            Some("updated"),
+        );
+
+        assert_eq!(event.category, "webhook");
+        assert_eq!(event.action, "subscription_update");
+        assert_eq!(event.outcome, AuditOutcome::Success);
+        assert_eq!(event.source, AuditSource::Api);
+        assert_eq!(event.visibility, AuditVisibilityClass::SecurityRestricted);
+        assert_eq!(event.resource_kind.as_deref(), Some("webhook"));
+        assert_eq!(
+            event.resource_id.as_deref(),
+            Some("018fd1a0-0000-7000-8000-000000000202")
+        );
+        assert_eq!(
+            event.principal_id.as_deref(),
+            Some("api_key:018fd1a0-0000-7000-8000-000000000201")
+        );
+        assert_eq!(event.attrs["webhook_event_count"], 3);
+        assert_eq!(event.attrs["webhook_is_active"], true);
+        assert_eq!(event.attrs["webhook_secret_set"], true);
+        assert_eq!(event.attrs["webhook_max_retries"], 5);
+        assert_eq!(event.attrs["reason_code"], "updated");
+
+        let serialized = serde_json::to_string(&event).expect("serialize audit event");
+        assert!(!serialized.contains("webhook_secret=should-not-appear"));
+        assert!(!serialized.contains("https://"));
+        assert!(!serialized.contains("webhook_url"));
+        assert!(!serialized.contains("secret-not-for-audit"));
+        assert!(!serialized.contains("payload"));
+        assert!(!serialized.contains("response_body"));
     }
 
     #[test]
