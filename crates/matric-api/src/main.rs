@@ -18839,10 +18839,38 @@ async fn revoke_api_key(
 // =============================================================================
 
 /// OAuth-specific API error.
-#[derive(Debug)]
 enum OAuthApiError {
     OAuth(OAuthError),
     Database(matric_core::Error),
+}
+
+impl fmt::Debug for OAuthApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OAuth(err) => f
+                .debug_struct("OAuthApiError::OAuth")
+                .field("error_code_len", &telemetry_text_len(&err.error))
+                .field(
+                    "error_description_len",
+                    &err.error_description
+                        .as_deref()
+                        .map(telemetry_text_len)
+                        .unwrap_or(0),
+                )
+                .field(
+                    "error_uri_len",
+                    &err.error_uri
+                        .as_deref()
+                        .map(telemetry_text_len)
+                        .unwrap_or(0),
+                )
+                .finish(),
+            Self::Database(err) => f
+                .debug_struct("OAuthApiError::Database")
+                .field("error_len", &telemetry_text_len(&err.to_string()))
+                .finish(),
+        }
+    }
 }
 
 impl From<matric_core::Error> for OAuthApiError {
@@ -30448,6 +30476,36 @@ mod tests {
         assert!(!problem.to_string().contains("postgres://"));
         assert!(!problem.to_string().contains("secret"));
         assert!(!problem.to_string().contains("db.internal"));
+    }
+
+    #[test]
+    fn oauth_api_error_debug_redacts_oauth_and_database_diagnostics() {
+        let oauth_detail = "provider returned https://oauth.internal/token?client_secret=secret";
+        let oauth_uri = "https://docs.internal/oauth/errors/server_error?token=secret";
+        let oauth_error = OAuthApiError::OAuth(OAuthError {
+            error: "server_error".to_string(),
+            error_description: Some(oauth_detail.to_string()),
+            error_uri: Some(oauth_uri.to_string()),
+        });
+        let database_error = OAuthApiError::Database(matric_core::Error::Internal(
+            "postgres://user:secret@db.internal/oauth query failed".to_string(),
+        ));
+
+        let debug = format!("{oauth_error:?} {database_error:?}");
+
+        assert!(debug.contains("OAuthApiError::OAuth"));
+        assert!(debug.contains("error_code_len"));
+        assert!(debug.contains("error_description_len"));
+        assert!(debug.contains("error_uri_len"));
+        assert!(debug.contains("OAuthApiError::Database"));
+        assert!(debug.contains("error_len"));
+        assert!(!debug.contains("server_error"));
+        assert!(!debug.contains("oauth.internal"));
+        assert!(!debug.contains("client_secret"));
+        assert!(!debug.contains("docs.internal"));
+        assert!(!debug.contains("postgres://"));
+        assert!(!debug.contains("secret"));
+        assert!(!debug.contains("db.internal"));
     }
 
     #[tokio::test]
