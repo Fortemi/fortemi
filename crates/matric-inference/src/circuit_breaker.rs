@@ -15,6 +15,7 @@
 //! All state is behind `Arc<Mutex<_>>` so the breaker can be shared across
 //! async tasks and cloned into retry closures.
 
+use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
@@ -41,7 +42,7 @@ impl std::fmt::Display for CircuitState {
 }
 
 /// Configuration for circuit breaker behavior.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CircuitBreakerConfig {
     /// Number of consecutive failures before opening the circuit.
     pub failure_threshold: u32,
@@ -58,6 +59,16 @@ impl CircuitBreakerConfig {
             cooldown: Duration::from_secs(30),
             service_name: service_name.into(),
         }
+    }
+}
+
+impl fmt::Debug for CircuitBreakerConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CircuitBreakerConfig")
+            .field("failure_threshold", &self.failure_threshold)
+            .field("cooldown", &self.cooldown)
+            .field("service_name_len", &self.service_name.len())
+            .finish()
     }
 }
 
@@ -84,10 +95,23 @@ impl Default for BreakerState {
 /// Thread-safe circuit breaker.
 ///
 /// Clone is cheap (Arc internals). Designed to be stored alongside HTTP clients.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CircuitBreaker {
     config: CircuitBreakerConfig,
     state: Arc<Mutex<BreakerState>>,
+}
+
+impl fmt::Debug for CircuitBreaker {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let state = self.state.lock().unwrap();
+        f.debug_struct("CircuitBreaker")
+            .field("config", &self.config)
+            .field("state", &state.state)
+            .field("consecutive_failures", &state.consecutive_failures)
+            .field("last_failure_recorded", &state.last_failure_time.is_some())
+            .field("total_trips", &state.total_trips)
+            .finish()
+    }
 }
 
 impl CircuitBreaker {
@@ -422,5 +446,36 @@ mod tests {
         assert_eq!(config.failure_threshold, 3);
         assert_eq!(config.cooldown, Duration::from_secs(30));
         assert_eq!(config.service_name, "whisper");
+    }
+
+    #[test]
+    fn test_debug_redacts_service_name() {
+        let config = CircuitBreakerConfig {
+            failure_threshold: 2,
+            cooldown: Duration::from_millis(250),
+            service_name: "https://tenant.example.com/sidecar?token=secret".to_string(),
+        };
+        let config_debug = format!("{config:?}");
+
+        assert!(config_debug.contains("CircuitBreakerConfig"));
+        assert!(config_debug.contains("failure_threshold"));
+        assert!(config_debug.contains("cooldown"));
+        assert!(config_debug.contains("service_name_len"));
+        assert!(!config_debug.contains("tenant.example.com"));
+        assert!(!config_debug.contains("token=secret"));
+
+        let cb = CircuitBreaker::new(config);
+        cb.record_failure();
+        cb.record_failure();
+        let breaker_debug = format!("{cb:?}");
+
+        assert!(breaker_debug.contains("CircuitBreaker"));
+        assert!(breaker_debug.contains("service_name_len"));
+        assert!(breaker_debug.contains("state"));
+        assert!(breaker_debug.contains("consecutive_failures"));
+        assert!(breaker_debug.contains("last_failure_recorded"));
+        assert!(breaker_debug.contains("total_trips"));
+        assert!(!breaker_debug.contains("tenant.example.com"));
+        assert!(!breaker_debug.contains("token=secret"));
     }
 }
