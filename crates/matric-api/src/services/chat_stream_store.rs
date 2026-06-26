@@ -78,6 +78,27 @@ fn chat_store_json_text_class(value: &str) -> &'static str {
     }
 }
 
+fn chat_store_diagnostic_reason(value: &str) -> &'static str {
+    let value = value.to_ascii_lowercase();
+    if value.contains("invalid") || value.contains("parse") {
+        "invalid_input"
+    } else if value.contains("timeout") || value.contains("timed out") {
+        "timeout"
+    } else if value.contains("connect") || value.contains("connection") {
+        "connection_failed"
+    } else if value.contains("auth")
+        || value.contains("permission")
+        || value.contains("denied")
+        || value.contains("unauthorized")
+    {
+        "authorization_failed"
+    } else if value.contains("serialize") || value.contains("json") {
+        "serialization_failed"
+    } else {
+        "operation_failed"
+    }
+}
+
 /// A resumption cursor parsed from a `Last-Event-ID` of the form
 /// `{session}-{seq}`.
 #[derive(Clone, PartialEq, Eq)]
@@ -166,7 +187,13 @@ impl ChatStreamStore {
                         Some(conn)
                     }
                     Ok(Err(e)) => {
-                        warn!("Chat-stream store: Redis connect failed, resumption disabled: {e}");
+                        let diagnostic = e.to_string();
+                        warn!(
+                            operation = "connect",
+                            reason_code = chat_store_diagnostic_reason(&diagnostic),
+                            error_len = chat_store_text_len(&diagnostic),
+                            "Chat-stream store Redis connect failed; resumption disabled"
+                        );
                         None
                     }
                     Err(_) => {
@@ -175,7 +202,13 @@ impl ChatStreamStore {
                     }
                 },
                 Err(e) => {
-                    warn!("Chat-stream store: invalid Redis URL, resumption disabled: {e}");
+                    let diagnostic = e.to_string();
+                    warn!(
+                        operation = "open",
+                        reason_code = chat_store_diagnostic_reason(&diagnostic),
+                        error_len = chat_store_text_len(&diagnostic),
+                        "Chat-stream store Redis URL rejected; resumption disabled"
+                    );
                     None
                 }
             }
@@ -231,12 +264,24 @@ impl ChatStreamStore {
         let payload = match serde_json::to_string(frame) {
             Ok(s) => s,
             Err(e) => {
-                warn!("Chat-stream store: frame serialize failed: {e}");
+                let diagnostic = e.to_string();
+                warn!(
+                    operation = "serialize_frame",
+                    reason_code = chat_store_diagnostic_reason(&diagnostic),
+                    error_len = chat_store_text_len(&diagnostic),
+                    "Chat-stream store frame serialization failed"
+                );
                 return;
             }
         };
         if let Err(e) = conn.rpush::<_, _, ()>(&key, payload).await {
-            warn!("Chat-stream store: RPUSH failed: {e}");
+            let diagnostic = e.to_string();
+            warn!(
+                operation = "rpush",
+                reason_code = chat_store_diagnostic_reason(&diagnostic),
+                error_len = chat_store_text_len(&diagnostic),
+                "Chat-stream store append failed"
+            );
             return;
         }
         // Roll the TTL forward on every append so the window measures time
@@ -258,7 +303,13 @@ impl ChatStreamStore {
         let raw: Vec<String> = match conn.lrange(&key, 0, -1).await {
             Ok(v) => v,
             Err(e) => {
-                warn!("Chat-stream store: LRANGE failed: {e}");
+                let diagnostic = e.to_string();
+                warn!(
+                    operation = "lrange",
+                    reason_code = chat_store_diagnostic_reason(&diagnostic),
+                    error_len = chat_store_text_len(&diagnostic),
+                    "Chat-stream store replay read failed"
+                );
                 return Vec::new();
             }
         };
@@ -319,6 +370,43 @@ mod tests {
         assert!(rendered.contains("after_seq: 42"));
         assert!(!rendered.contains("tenant-secret-session"));
         assert!(!rendered.contains("11111111-2222-3333-4444-555555555555"));
+    }
+
+    #[test]
+    fn chat_store_diagnostic_reason_uses_stable_codes() {
+        let cases = [
+            (
+                "invalid redis url redis://user:pass@cache.internal:6379/0?token=secret",
+                "invalid_input",
+            ),
+            (
+                "connection refused at redis://cache.internal:6379 with token=secret",
+                "connection_failed",
+            ),
+            ("operation timed out connecting to private-cache", "timeout"),
+            (
+                "NOAUTH Authentication required for tenant secret",
+                "authorization_failed",
+            ),
+            (
+                "json parser failed at line 1 column 7 with sk-json-secret",
+                "invalid_input",
+            ),
+            (
+                "backend returned provider.example token=secret",
+                "operation_failed",
+            ),
+        ];
+
+        for (diagnostic, expected) in cases {
+            assert_eq!(chat_store_diagnostic_reason(diagnostic), expected);
+            assert!(!expected.contains("redis://"));
+            assert!(!expected.contains("cache.internal"));
+            assert!(!expected.contains("provider.example"));
+            assert!(!expected.contains("token=secret"));
+            assert!(!expected.contains("user:pass"));
+            assert!(!expected.contains("sk-json-secret"));
+        }
     }
 
     #[test]
