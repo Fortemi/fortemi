@@ -1674,7 +1674,13 @@ fn parse_allowed_origins() -> Vec<HeaderValue> {
             match trimmed.parse::<HeaderValue>() {
                 Ok(v) => Some(v),
                 Err(e) => {
-                    tracing::warn!("Invalid CORS origin '{}': {}", trimmed, e);
+                    let diagnostic = e.to_string();
+                    tracing::warn!(
+                        origin_class = telemetry_url_class(trimmed),
+                        origin_len = telemetry_text_len(trimmed),
+                        error_len = telemetry_text_len(&diagnostic),
+                        "invalid CORS origin ignored"
+                    );
                     None
                 }
             }
@@ -27540,6 +27546,23 @@ mod tests {
             "external"
         );
         assert_eq!(telemetry_url_class("not a url with secret"), "invalid_url");
+    }
+
+    #[test]
+    fn parse_allowed_origins_ignores_invalid_origins_without_echoing_them() {
+        std::env::set_var(
+            "ALLOWED_ORIGINS",
+            "https://valid.example,https://internal.example\r\nx-api-key: secret",
+        );
+
+        let origins = parse_allowed_origins();
+
+        std::env::remove_var("ALLOWED_ORIGINS");
+        assert_eq!(origins.len(), 1);
+        assert_eq!(
+            origins[0],
+            HeaderValue::from_static("https://valid.example")
+        );
     }
 
     #[test]

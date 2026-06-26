@@ -79,6 +79,41 @@ impl DefaultArchiveCache {
     }
 }
 
+fn telemetry_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn archive_routing_diagnostic_reason(value: &str) -> &'static str {
+    let value = value.to_ascii_lowercase();
+    if value.contains("timeout") || value.contains("timed out") {
+        "timeout"
+    } else if value.contains("permission")
+        || value.contains("denied")
+        || value.contains("forbidden")
+    {
+        "permission_denied"
+    } else if value.contains("connect") || value.contains("connection") {
+        "connection_failed"
+    } else if value.contains("not found") || value.contains("no such") || value.contains("missing")
+    {
+        "not_found"
+    } else if value.contains("json")
+        || value.contains("parse")
+        || value.contains("invalid")
+        || value.contains("syntax")
+    {
+        "invalid_data"
+    } else if value.contains("database")
+        || value.contains("postgres")
+        || value.contains("sql")
+        || value.contains("schema")
+    {
+        "database_failed"
+    } else {
+        "operation_failed"
+    }
+}
+
 /// Refresh the default archive cache from the database.
 ///
 /// Queries the archive repository for the current default archive and updates
@@ -105,10 +140,12 @@ async fn refresh_and_get(state: &AppState) -> ArchiveContext {
         .sync_archive_schema(&archive_info.name)
         .await
     {
+        let diagnostic = e.to_string();
         tracing::warn!(
-            "Failed to sync default archive '{}': {}",
-            archive_info.name,
-            e
+            archive_name_len = telemetry_text_len(&archive_info.name),
+            reason_code = archive_routing_diagnostic_reason(&diagnostic),
+            error_len = telemetry_text_len(&diagnostic),
+            "failed to sync default archive schema"
         );
     }
 
@@ -218,7 +255,13 @@ pub async fn archive_routing_middleware(
             Ok(Some(info)) => {
                 // Auto-migrate if schema is outdated (non-blocking best-effort)
                 if let Err(e) = state.db.archives.sync_archive_schema(&name).await {
-                    tracing::warn!("Failed to sync archive schema '{}': {}", name, e);
+                    let diagnostic = e.to_string();
+                    tracing::warn!(
+                        archive_name_len = telemetry_text_len(&name),
+                        reason_code = archive_routing_diagnostic_reason(&diagnostic),
+                        error_len = telemetry_text_len(&diagnostic),
+                        "failed to sync selected archive schema"
+                    );
                 }
                 let ctx = ArchiveContext {
                     schema: info.schema_name,
@@ -305,6 +348,47 @@ mod tests {
     #[test]
     fn test_memory_header_constant() {
         assert_eq!(MEMORY_HEADER, "x-fortemi-memory");
+    }
+
+    #[test]
+    fn archive_routing_diagnostic_reason_uses_stable_codes() {
+        let cases = [
+            (
+                "timeout syncing schema for tenant_secret at postgres://user:pass@db.internal/app",
+                "timeout",
+            ),
+            (
+                "permission denied for schema private_tenant with PGPASSWORD=secret",
+                "permission_denied",
+            ),
+            (
+                "connection refused for postgres://user:pass@10.0.0.5/matric",
+                "connection_failed",
+            ),
+            (
+                "schema missing for /srv/fortemi/archives/private",
+                "not_found",
+            ),
+            ("invalid SQL syntax near sk-archive-secret", "invalid_data"),
+            (
+                "postgres database schema migration failed for tenant_alpha",
+                "database_failed",
+            ),
+            ("backend returned token=secret", "operation_failed"),
+        ];
+
+        for (diagnostic, expected) in cases {
+            assert_eq!(archive_routing_diagnostic_reason(diagnostic), expected);
+            assert!(!expected.contains("postgres://"));
+            assert!(!expected.contains("user:pass"));
+            assert!(!expected.contains("db.internal"));
+            assert!(!expected.contains("private_tenant"));
+            assert!(!expected.contains("PGPASSWORD=secret"));
+            assert!(!expected.contains("/srv/fortemi"));
+            assert!(!expected.contains("sk-archive-secret"));
+            assert!(!expected.contains("tenant_alpha"));
+            assert!(!expected.contains("token=secret"));
+        }
     }
 
     #[tokio::test]
