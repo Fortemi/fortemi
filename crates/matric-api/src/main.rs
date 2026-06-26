@@ -16893,17 +16893,62 @@ impl From<matric_core::Error> for OAuthApiError {
     }
 }
 
+fn oauth_problem_mapping(error: &OAuthError) -> (StatusCode, ProblemType, &'static str) {
+    match error.error.as_str() {
+        "invalid_client" => (
+            StatusCode::UNAUTHORIZED,
+            ProblemType::Unauthorized,
+            "OAuth client authentication failed.",
+        ),
+        "unauthorized_client" => (
+            StatusCode::FORBIDDEN,
+            ProblemType::Forbidden,
+            "OAuth client is not authorized for this request.",
+        ),
+        "server_error" => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ProblemType::Internal,
+            "An internal error occurred.",
+        ),
+        "invalid_grant" => (
+            StatusCode::BAD_REQUEST,
+            ProblemType::Validation,
+            "OAuth grant is invalid or expired.",
+        ),
+        "unsupported_grant_type" => (
+            StatusCode::BAD_REQUEST,
+            ProblemType::Validation,
+            "OAuth grant type is unsupported.",
+        ),
+        "unsupported_response_type" => (
+            StatusCode::BAD_REQUEST,
+            ProblemType::Validation,
+            "OAuth response type is unsupported.",
+        ),
+        "invalid_scope" => (
+            StatusCode::BAD_REQUEST,
+            ProblemType::Validation,
+            "OAuth scope is invalid.",
+        ),
+        "invalid_request" => (
+            StatusCode::BAD_REQUEST,
+            ProblemType::Validation,
+            "OAuth request is invalid.",
+        ),
+        _ => (
+            StatusCode::BAD_REQUEST,
+            ProblemType::Validation,
+            "OAuth request failed validation.",
+        ),
+    }
+}
+
 impl IntoResponse for OAuthApiError {
     fn into_response(self) -> axum::response::Response {
         match self {
             OAuthApiError::OAuth(err) => {
-                let status = match err.error.as_str() {
-                    "invalid_client" => StatusCode::UNAUTHORIZED,
-                    "unauthorized_client" => StatusCode::FORBIDDEN,
-                    "server_error" => StatusCode::INTERNAL_SERVER_ERROR,
-                    _ => StatusCode::BAD_REQUEST,
-                };
-                if status == StatusCode::INTERNAL_SERVER_ERROR {
+                let (status, problem_type, detail) = oauth_problem_mapping(&err);
+                if problem_type == ProblemType::Internal {
                     error!(
                         oauth_error_code = "server_error",
                         oauth_error_description_len = err
@@ -16915,14 +16960,8 @@ impl IntoResponse for OAuthApiError {
                         operation = "map_oauth_server_error",
                         "oauth server error mapped to problem response"
                     );
-                    return problem_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        ProblemType::Internal,
-                        "An internal error occurred.".to_string(),
-                        None,
-                    );
                 }
-                (status, Json(err)).into_response()
+                problem_response(status, problem_type, detail.to_string(), None)
             }
             OAuthApiError::Database(err) => {
                 error!(
@@ -25464,6 +25503,42 @@ mod tests {
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
         assert!(!problem.to_string().contains("oauth.internal"));
+        assert!(!problem.to_string().contains("client_secret"));
+    }
+
+    #[tokio::test]
+    async fn oauth_client_errors_return_problem_without_legacy_error_description() {
+        let response =
+            OAuthApiError::OAuth(OAuthError::invalid_grant("expired code for bearer-secret"))
+                .into_response();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let problem = read_response_json(response).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap(),
+            "application/problem+json"
+        );
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(problem["detail"], "OAuth grant is invalid or expired.");
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+        assert!(!problem.to_string().contains("bearer-secret"));
+
+        let response = OAuthApiError::OAuth(OAuthError::invalid_client("client_secret was wrong"))
+            .into_response();
+        let status = response.status();
+        let problem = read_response_json(response).await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/unauthorized");
+        assert_eq!(problem["detail"], "OAuth client authentication failed.");
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
         assert!(!problem.to_string().contains("client_secret"));
     }
 

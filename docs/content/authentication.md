@@ -601,7 +601,11 @@ def api_call_with_retry(url, headers, max_retries=3):
 
 ```json
 {
-  "error": "Authentication required"
+  "type": "https://fortemi.com/problems/unauthorized",
+  "title": "Unauthorized",
+  "status": 401,
+  "detail": "Missing, malformed, expired, or invalid credentials.",
+  "request_id": "018fd1a0-example"
 }
 ```
 
@@ -616,7 +620,11 @@ def api_call_with_retry(url, headers, max_retries=3):
 
 ```json
 {
-  "error": "Missing required scope: write"
+  "type": "https://fortemi.com/problems/forbidden",
+  "title": "Forbidden",
+  "status": 403,
+  "detail": "Authenticated request denied by authorization policy or admin gate.",
+  "request_id": "018fd1a0-example"
 }
 ```
 
@@ -627,12 +635,17 @@ def api_call_with_retry(url, headers, max_retries=3):
 
 ### OAuth2 Errors
 
-OAuth2 errors follow RFC 6749 format:
+Token, introspection, and revocation endpoint errors use the Fortemi RFC 9457
+problem contract. Authorization redirect denials still use RFC 6749 query
+parameters on the registered redirect URI.
 
 ```json
 {
-  "error": "invalid_grant",
-  "error_description": "Authorization code has expired"
+  "type": "https://fortemi.com/problems/validation-error",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "OAuth grant is invalid or expired.",
+  "request_id": "018fd1a0-example"
 }
 ```
 
