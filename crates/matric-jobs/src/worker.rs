@@ -617,7 +617,9 @@ impl JobWorker {
             debug!(tier = ?tier_group, claimed, "Processing tiered job batch");
             while let Some(result) = tasks.join_next().await {
                 if let Err(e) = result {
-                    error!(error = ?e, "Job task panicked");
+                    let error_text = e.to_string();
+                    let (error_len, error_reason) = worker_failure_telemetry(&error_text);
+                    error!(error_len, error_reason, "Job task panicked");
                 }
             }
             total_drained += claimed;
@@ -655,7 +657,14 @@ impl JobWorker {
             Ok(Some(job)) => Some(job),
             Ok(None) => None,
             Err(e) => {
-                error!(error = ?e, tier = ?tier_group, "Failed to claim job for tier");
+                let error_text = e.to_string();
+                let (error_len, error_reason) = worker_failure_telemetry(&error_text);
+                error!(
+                    error_len,
+                    error_reason,
+                    tier = ?tier_group,
+                    "Failed to claim job for tier"
+                );
                 None
             }
         }
@@ -697,7 +706,7 @@ impl JobWorkerRef {
         let job_id = job.id;
         let job_type = job.job_type;
 
-        info!(?job_id, ?job_type, "Processing job");
+        info!(job_id_present = true, ?job_type, "Processing job");
 
         let _ = self
             .event_tx
@@ -729,7 +738,7 @@ impl JobWorkerRef {
                     Ok(result) => result,
                     Err(_) => {
                         warn!(
-                            ?job_id,
+                            job_id_present = true,
                             ?job_type,
                             timeout_secs,
                             "Job exceeded timeout of {}s",
@@ -749,10 +758,17 @@ impl JobWorkerRef {
         match result {
             JobResult::Success(result_data) => {
                 if let Err(e) = self.db.jobs.complete(job_id, result_data).await {
-                    error!(error = ?e, ?job_id, "Failed to mark job as completed");
+                    let error_text = e.to_string();
+                    let (error_len, error_reason) = worker_failure_telemetry(&error_text);
+                    error!(
+                        error_len,
+                        error_reason,
+                        job_id_present = true,
+                        "Failed to mark job as completed"
+                    );
                 } else {
                     info!(
-                        ?job_id,
+                        job_id_present = true,
                         ?job_type,
                         duration_ms = start.elapsed().as_millis() as u64,
                         "Job completed successfully"
@@ -764,11 +780,18 @@ impl JobWorkerRef {
             }
             JobResult::Failed(error) | JobResult::Retry(error) => {
                 if let Err(e) = self.db.jobs.fail(job_id, &error).await {
-                    error!(error = ?e, ?job_id, "Failed to mark job as failed");
+                    let error_text = e.to_string();
+                    let (error_len, error_reason) = worker_failure_telemetry(&error_text);
+                    error!(
+                        error_len,
+                        error_reason,
+                        job_id_present = true,
+                        "Failed to mark job as failed"
+                    );
                 } else {
                     let (error_len, error_reason) = worker_failure_telemetry(&error);
                     warn!(
-                        ?job_id,
+                        job_id_present = true,
                         ?job_type,
                         error_len,
                         error_reason,
@@ -917,6 +940,24 @@ mod tests {
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
+    }
+
+    #[test]
+    fn worker_operational_telemetry_uses_presence_and_reason_fields() {
+        let raw_job_id = Uuid::new_v4().to_string();
+        let raw_error =
+            "panic for job /srv/private/mm_key_worker postgres://user:pass@db.internal/app";
+        let (error_len, error_reason) = worker_failure_telemetry(raw_error);
+        let rendered =
+            format!("job_id_present=true; error_len={error_len}; error_reason={error_reason}");
+
+        assert!(rendered.contains("job_id_present=true"));
+        assert!(rendered.contains("error_len="));
+        assert!(rendered.contains("error_reason=database_error"));
+        assert!(!rendered.contains(&raw_job_id));
+        assert!(!rendered.contains("postgres://user:pass"));
+        assert!(!rendered.contains("/srv/private"));
+        assert!(!rendered.contains("mm_key_worker"));
     }
 
     // ========== NEW COMPREHENSIVE TESTS ==========
