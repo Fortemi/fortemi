@@ -31,7 +31,11 @@ fn extract_schema(ctx: &JobContext) -> &str {
 
 fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResult> {
     db.for_schema(schema)
-        .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
+        .map_err(|_| JobResult::Failed("Invalid schema".into()))
+}
+
+fn diarization_text_len(text: &str) -> usize {
+    text.chars().count()
 }
 
 fn diarization_error_reason_code(error: &str) -> &'static str {
@@ -114,15 +118,22 @@ impl JobHandler for SpeakerDiarizationHandler {
         let attachment = {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        diarization_error_reason_code(&error_text)
+                    ));
+                }
             };
             let att = match file_storage.get_tx(&mut tx, attachment_id).await {
                 Ok(a) => a,
                 Err(e) => {
+                    let error_text = e.to_string();
                     return JobResult::Failed(format!(
-                        "Failed to fetch attachment {}: {}",
-                        attachment_id, e
-                    ))
+                        "Failed to fetch attachment ({})",
+                        diarization_error_reason_code(&error_text)
+                    ));
                 }
             };
             let _ = tx.commit().await;
@@ -172,7 +183,13 @@ impl JobHandler for SpeakerDiarizationHandler {
         let audio_path = {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                Err(e) => {
+                    let error_text = e.to_string();
+                    return JobResult::Failed(format!(
+                        "Schema tx failed ({})",
+                        diarization_error_reason_code(&error_text)
+                    ));
+                }
             };
             let info = match file_storage
                 .get_file_metadata_tx(&mut tx, attachment_id)
@@ -180,10 +197,11 @@ impl JobHandler for SpeakerDiarizationHandler {
             {
                 Ok(i) => i,
                 Err(e) => {
+                    let error_text = e.to_string();
                     return JobResult::Failed(format!(
-                        "Failed to get file metadata for {}: {}",
-                        attachment_id, e
-                    ))
+                        "Failed to get file metadata ({})",
+                        diarization_error_reason_code(&error_text)
+                    ));
                 }
             };
             let _ = tx.commit().await;
@@ -192,12 +210,7 @@ impl JobHandler for SpeakerDiarizationHandler {
                 FileSource::Filesystem(ref storage_path) => {
                     match file_storage.resolve_storage_path(storage_path) {
                         Some(p) => p,
-                        None => {
-                            return JobResult::Failed(format!(
-                                "Cannot resolve storage path: {}",
-                                storage_path
-                            ))
-                        }
+                        None => return JobResult::Failed("Cannot resolve storage path".into()),
                     }
                 }
                 FileSource::Inline(_) => {
@@ -205,10 +218,11 @@ impl JobHandler for SpeakerDiarizationHandler {
                     let data = match file_storage.download_file(attachment_id).await {
                         Ok((data, _, _)) => data,
                         Err(e) => {
+                            let error_text = e.to_string();
                             return JobResult::Failed(format!(
-                                "Failed to download attachment: {}",
-                                e
-                            ))
+                                "Failed to download attachment ({})",
+                                diarization_error_reason_code(&error_text)
+                            ));
                         }
                     };
                     let suffix = attachment
@@ -219,14 +233,19 @@ impl JobHandler for SpeakerDiarizationHandler {
                     let tmp = match tempfile::Builder::new().suffix(&suffix).tempfile() {
                         Ok(t) => t,
                         Err(e) => {
-                            return JobResult::Failed(format!("Failed to create temp file: {}", e))
+                            let error_text = e.to_string();
+                            return JobResult::Failed(format!(
+                                "Failed to create temp file ({})",
+                                diarization_error_reason_code(&error_text)
+                            ));
                         }
                     };
                     let path = tmp.path().to_path_buf();
                     if let Err(e) = tokio::fs::write(&path, &data).await {
+                        let error_text = e.to_string();
                         return JobResult::Failed(format!(
-                            "Failed to write temp audio file: {}",
-                            e
+                            "Failed to write temp audio file ({})",
+                            diarization_error_reason_code(&error_text)
                         ));
                     }
                     // Leak the tempfile so it persists until this handler completes
@@ -240,7 +259,13 @@ impl JobHandler for SpeakerDiarizationHandler {
         // If already WAV from video pipeline, ffmpeg just resamples (fast no-op).
         let work_dir = match tempfile::tempdir() {
             Ok(d) => d,
-            Err(e) => return JobResult::Failed(format!("Failed to create work dir: {}", e)),
+            Err(e) => {
+                let error_text = e.to_string();
+                return JobResult::Failed(format!(
+                    "Failed to create work dir ({})",
+                    diarization_error_reason_code(&error_text)
+                ));
+            }
         };
         let audio_path = match crate::adapters::audio_util::transcode_to_speech_wav(
             &audio_path,
@@ -252,7 +277,7 @@ impl JobHandler for SpeakerDiarizationHandler {
             Err(e) => {
                 let error_text = e.to_string();
                 warn!(
-                    error_len = error_text.len(),
+                    error_len = diarization_text_len(&error_text),
                     error_reason = diarization_error_reason_code(&error_text),
                     "Audio transcode failed, using original file for diarization"
                 );
@@ -279,7 +304,11 @@ impl JobHandler for SpeakerDiarizationHandler {
         {
             Ok(result) => result,
             Err(e) => {
-                return JobResult::Retry(format!("Diarization failed: {}", e));
+                let error_text = e.to_string();
+                return JobResult::Retry(format!(
+                    "Diarization failed ({})",
+                    diarization_error_reason_code(&error_text)
+                ));
             }
         };
 
@@ -307,10 +336,11 @@ impl JobHandler for SpeakerDiarizationHandler {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
                 Err(e) => {
+                    let error_text = e.to_string();
                     return JobResult::Failed(format!(
-                        "Schema tx failed for metadata update: {}",
-                        e
-                    ))
+                        "Schema tx failed for metadata update ({})",
+                        diarization_error_reason_code(&error_text)
+                    ));
                 }
             };
 
@@ -360,15 +390,22 @@ impl JobHandler for SpeakerDiarizationHandler {
                 let error_text = e.to_string();
                 error!(
                     attachment_present = true,
-                    error_len = error_text.len(),
+                    error_len = diarization_text_len(&error_text),
                     error_reason = diarization_error_reason_code(&error_text),
                     "Failed to update attachment metadata with diarization"
                 );
-                return JobResult::Failed(format!("Failed to update metadata: {}", e));
+                return JobResult::Failed(format!(
+                    "Failed to update metadata ({})",
+                    diarization_error_reason_code(&error_text)
+                ));
             }
 
             if let Err(e) = tx.commit().await {
-                return JobResult::Failed(format!("Failed to commit diarization metadata: {}", e));
+                let error_text = e.to_string();
+                return JobResult::Failed(format!(
+                    "Failed to commit diarization metadata ({})",
+                    diarization_error_reason_code(&error_text)
+                ));
             }
         }
 
@@ -401,7 +438,7 @@ impl JobHandler for SpeakerDiarizationHandler {
                     {
                         let error_text = e.to_string();
                         warn!(
-                            error_len = error_text.len(),
+                            error_len = diarization_text_len(&error_text),
                             error_reason = diarization_error_reason_code(&error_text),
                             "Failed to delete existing caption attachments"
                         );
@@ -423,7 +460,7 @@ impl JobHandler for SpeakerDiarizationHandler {
                     {
                         let error_text = e.to_string();
                         warn!(
-                            error_len = error_text.len(),
+                            error_len = diarization_text_len(&error_text),
                             error_reason = diarization_error_reason_code(&error_text),
                             "Failed to store diarized VTT attachment"
                         );
@@ -445,7 +482,7 @@ impl JobHandler for SpeakerDiarizationHandler {
                     {
                         let error_text = e.to_string();
                         warn!(
-                            error_len = error_text.len(),
+                            error_len = diarization_text_len(&error_text),
                             error_reason = diarization_error_reason_code(&error_text),
                             "Failed to store diarized SRT attachment"
                         );
@@ -477,7 +514,7 @@ impl JobHandler for SpeakerDiarizationHandler {
                     {
                         let error_text = e.to_string();
                         warn!(
-                            error_len = error_text.len(),
+                            error_len = diarization_text_len(&error_text),
                             error_reason = diarization_error_reason_code(&error_text),
                             "Failed to store diarized transcript attachment"
                         );
@@ -486,7 +523,7 @@ impl JobHandler for SpeakerDiarizationHandler {
                     if let Err(e) = tx.commit().await {
                         let error_text = e.to_string();
                         error!(
-                            error_len = error_text.len(),
+                            error_len = diarization_text_len(&error_text),
                             error_reason = diarization_error_reason_code(&error_text),
                             "Failed to commit diarized caption files"
                         );
@@ -541,7 +578,7 @@ impl JobHandler for SpeakerDiarizationHandler {
                             {
                                 let error_text = e.to_string();
                                 warn!(
-                                    error_len = error_text.len(),
+                                    error_len = diarization_text_len(&error_text),
                                     error_reason = diarization_error_reason_code(&error_text),
                                     "Failed to inject speaker config into note"
                                 );
@@ -551,7 +588,7 @@ impl JobHandler for SpeakerDiarizationHandler {
                     Err(e) => {
                         let error_text = e.to_string();
                         warn!(
-                            error_len = error_text.len(),
+                            error_len = diarization_text_len(&error_text),
                             error_reason = diarization_error_reason_code(&error_text),
                             "Failed to fetch note for speaker config injection"
                         );
@@ -567,7 +604,7 @@ impl JobHandler for SpeakerDiarizationHandler {
             "num_speakers": diarization_result.num_speakers,
             "diarization_segments": diarization_result.segments.len(),
             "transcript_segments": transcript_segments.len(),
-            "model": self.backend.model_name(),
+            "model_len": diarization_text_len(self.backend.model_name()),
         });
 
         info!(
@@ -656,5 +693,26 @@ mod tests {
             diarization_error_reason_code("opaque backend diagnostic text"),
             "operation_failed"
         );
+    }
+
+    #[test]
+    fn diarization_runtime_telemetry_helpers_redact_private_values() {
+        let raw_error = "postgres://user:mm_key_secret@db.internal/app failed at /srv/private";
+        let rendered = format!(
+            "attachment_present=true; note_present=true; model_len={}; error_len={}; error_reason={}",
+            diarization_text_len("private-diarization-model-mm_key"),
+            diarization_text_len(raw_error),
+            diarization_error_reason_code(raw_error)
+        );
+
+        assert!(rendered.contains("attachment_present=true"));
+        assert!(rendered.contains("note_present=true"));
+        assert!(rendered.contains("model_len="));
+        assert!(rendered.contains("error_len="));
+        assert!(!rendered.contains("private-diarization-model-mm_key"));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("postgres://"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("/srv/private"));
     }
 }
