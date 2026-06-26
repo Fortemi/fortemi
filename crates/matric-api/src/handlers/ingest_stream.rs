@@ -152,6 +152,9 @@ const INGEST_KEEPALIVE_SECS: u64 = 15;
 /// this many non-blank data lines.
 const DEFAULT_INGEST_PROGRESS_INTERVAL: usize = 100;
 
+const INGEST_TAG_LENGTH_VALIDATION_ERROR: &str = "tag exceeds the allowed length";
+const INGEST_TAG_DEPTH_VALIDATION_ERROR: &str = "tag exceeds the allowed depth";
+
 /// Resolve the per-line byte cap from `FORTEMI_INGEST_MAX_LINE_BYTES`, falling
 /// back to [`DEFAULT_INGEST_MAX_LINE_BYTES`]. A non-numeric or zero value falls
 /// back rather than disabling the bound (the bound is a safety floor).
@@ -526,10 +529,7 @@ fn validate_note_data(n: &IngestNoteData) -> Result<(), String> {
     if let Some(tags) = &n.tags {
         for tag in tags {
             if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
-                return Err(format!(
-                    "tag exceeds {} character limit",
-                    matric_core::defaults::TAG_NAME_MAX_LENGTH
-                ));
+                return Err(INGEST_TAG_LENGTH_VALIDATION_ERROR.to_string());
             }
             let depth = tag
                 .split('/')
@@ -537,10 +537,7 @@ fn validate_note_data(n: &IngestNoteData) -> Result<(), String> {
                 .filter(|s| !s.is_empty())
                 .count();
             if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
-                return Err(format!(
-                    "tag exceeds maximum depth of {} levels",
-                    matric_core::tags::MAX_TAG_PATH_DEPTH
-                ));
+                return Err(INGEST_TAG_DEPTH_VALIDATION_ERROR.to_string());
             }
         }
     }
@@ -1779,19 +1776,28 @@ mod tests {
 
     #[test]
     fn validate_rejects_overlong_tag() {
-        let long_tag = "a".repeat(matric_core::defaults::TAG_NAME_MAX_LENGTH + 1);
+        let long_tag = format!(
+            "tenant-secret-tag-{}",
+            "a".repeat(matric_core::defaults::TAG_NAME_MAX_LENGTH)
+        );
         let line = format!(r#"{{"type":"note","data":{{"content":"c","tags":["{long_tag}"]}}}}"#);
         let err = parse_ingest_line(line.as_bytes()).expect_err("overlong tag rejected");
-        assert!(err.contains("character limit"), "got: {err}");
+        assert_eq!(err, INGEST_TAG_LENGTH_VALIDATION_ERROR);
+        assert!(!err.contains(&long_tag));
+        assert!(!err.contains("tenant-secret-tag"));
+        assert!(!err.contains(&matric_core::defaults::TAG_NAME_MAX_LENGTH.to_string()));
     }
 
     #[test]
     fn validate_rejects_overdeep_tag() {
         // 6 segments > MAX_TAG_PATH_DEPTH (5).
-        let err =
-            parse_ingest_line(br#"{"type":"note","data":{"content":"c","tags":["a/b/c/d/e/f"]}}"#)
-                .expect_err("overdeep tag rejected");
-        assert!(err.contains("maximum depth"), "got: {err}");
+        let tag = "tenant/secret/token/path/extra/private";
+        let line = format!(r#"{{"type":"note","data":{{"content":"c","tags":["{tag}"]}}}}"#);
+        let err = parse_ingest_line(line.as_bytes()).expect_err("overdeep tag rejected");
+        assert_eq!(err, INGEST_TAG_DEPTH_VALIDATION_ERROR);
+        assert!(!err.contains(tag));
+        assert!(!err.contains("tenant"));
+        assert!(!err.contains(&matric_core::tags::MAX_TAG_PATH_DEPTH.to_string()));
     }
 
     #[test]
