@@ -2654,7 +2654,7 @@ pub struct OAuthClient {
 }
 
 /// OAuth2 client registration request (RFC 7591).
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ClientRegistrationRequest {
     pub client_name: String,
     #[serde(default)]
@@ -2678,7 +2678,7 @@ pub struct ClientRegistrationRequest {
 }
 
 /// OAuth2 client registration response (RFC 7591).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ClientRegistrationResponse {
     pub client_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2698,7 +2698,7 @@ pub struct ClientRegistrationResponse {
 }
 
 /// OAuth2 authorization code.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OAuthAuthorizationCode {
     pub code: String,
     pub client_id: String,
@@ -2713,7 +2713,7 @@ pub struct OAuthAuthorizationCode {
 }
 
 /// OAuth2 token.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OAuthToken {
     pub id: Uuid,
     pub access_token_hash: String,
@@ -2729,7 +2729,7 @@ pub struct OAuthToken {
 }
 
 /// OAuth2 token request.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TokenRequest {
     pub grant_type: String,
     #[serde(default)]
@@ -2749,7 +2749,7 @@ pub struct TokenRequest {
 }
 
 /// OAuth2 token response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TokenResponse {
     pub access_token: String,
     pub token_type: String,
@@ -2758,6 +2758,149 @@ pub struct TokenResponse {
     pub refresh_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+}
+
+fn optional_debug_len(value: Option<&String>) -> Option<usize> {
+    value.map(|value| value.chars().count())
+}
+
+impl std::fmt::Debug for ClientRegistrationRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientRegistrationRequest")
+            .field("client_name_len", &self.client_name.chars().count())
+            .field("redirect_uri_count", &self.redirect_uris.len())
+            .field("grant_types", &self.grant_types)
+            .field("response_types", &self.response_types)
+            .field("scope_len", &optional_debug_len(self.scope.as_ref()))
+            .field(
+                "token_endpoint_auth_method",
+                &self.token_endpoint_auth_method,
+            )
+            .field(
+                "client_uri_len",
+                &optional_debug_len(self.client_uri.as_ref()),
+            )
+            .field("logo_uri_len", &optional_debug_len(self.logo_uri.as_ref()))
+            .field("contact_count", &self.contacts.as_ref().map(Vec::len))
+            .field(
+                "policy_uri_len",
+                &optional_debug_len(self.policy_uri.as_ref()),
+            )
+            .field("tos_uri_len", &optional_debug_len(self.tos_uri.as_ref()))
+            .field(
+                "software_id_len",
+                &optional_debug_len(self.software_id.as_ref()),
+            )
+            .field(
+                "software_version_len",
+                &optional_debug_len(self.software_version.as_ref()),
+            )
+            .field("software_statement_set", &self.software_statement.is_some())
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for ClientRegistrationResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientRegistrationResponse")
+            .field("client_id_len", &self.client_id.chars().count())
+            .field("client_secret_set", &self.client_secret.is_some())
+            .field("client_id_issued_at", &self.client_id_issued_at)
+            .field("client_secret_expires_at", &self.client_secret_expires_at)
+            .field("client_name_len", &self.client_name.chars().count())
+            .field("redirect_uri_count", &self.redirect_uris.len())
+            .field("grant_types", &self.grant_types)
+            .field("response_types", &self.response_types)
+            .field("scope_len", &self.scope.chars().count())
+            .field(
+                "token_endpoint_auth_method",
+                &self.token_endpoint_auth_method,
+            )
+            .field(
+                "registration_access_token_set",
+                &self.registration_access_token.is_some(),
+            )
+            .field(
+                "registration_client_uri_len",
+                &optional_debug_len(self.registration_client_uri.as_ref()),
+            )
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for OAuthAuthorizationCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OAuthAuthorizationCode")
+            .field("code_set", &!self.code.is_empty())
+            .field("client_id_len", &self.client_id.chars().count())
+            .field("redirect_uri_len", &self.redirect_uri.chars().count())
+            .field("scope_len", &self.scope.chars().count())
+            .field("state_set", &self.state.is_some())
+            .field("code_challenge_set", &self.code_challenge.is_some())
+            .field("code_challenge_method", &self.code_challenge_method)
+            .field("user_id_len", &optional_debug_len(self.user_id.as_ref()))
+            .field("expires_at", &self.expires_at)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for OAuthToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OAuthToken")
+            .field("id", &self.id)
+            .field(
+                "access_token_hash_len",
+                &self.access_token_hash.chars().count(),
+            )
+            .field(
+                "refresh_token_hash_len",
+                &optional_debug_len(self.refresh_token_hash.as_ref()),
+            )
+            .field("token_type", &self.token_type)
+            .field("scope_len", &self.scope.chars().count())
+            .field("client_id_len", &self.client_id.chars().count())
+            .field("user_id_len", &optional_debug_len(self.user_id.as_ref()))
+            .field("access_token_expires_at", &self.access_token_expires_at)
+            .field("refresh_token_expires_at", &self.refresh_token_expires_at)
+            .field("revoked", &self.revoked)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for TokenRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenRequest")
+            .field("grant_type", &self.grant_type)
+            .field("code_set", &self.code.is_some())
+            .field(
+                "redirect_uri_len",
+                &optional_debug_len(self.redirect_uri.as_ref()),
+            )
+            .field("refresh_token_set", &self.refresh_token.is_some())
+            .field("scope_len", &optional_debug_len(self.scope.as_ref()))
+            .field("code_verifier_set", &self.code_verifier.is_some())
+            .field(
+                "client_id_len",
+                &optional_debug_len(self.client_id.as_ref()),
+            )
+            .field("client_secret_set", &self.client_secret.is_some())
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for TokenResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenResponse")
+            .field("access_token_set", &!self.access_token.is_empty())
+            .field("access_token_len", &self.access_token.chars().count())
+            .field("token_type", &self.token_type)
+            .field("expires_in", &self.expires_in)
+            .field("refresh_token_set", &self.refresh_token.is_some())
+            .field("scope_len", &optional_debug_len(self.scope.as_ref()))
+            .finish()
+    }
 }
 
 /// OAuth2 token introspection response (RFC 7662).
@@ -2928,7 +3071,7 @@ fn default_scope() -> String {
 }
 
 /// API key creation response (includes the actual key, shown only once).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CreateApiKeyResponse {
     pub id: Uuid,
     pub api_key: String, // Full key, only shown once
@@ -2937,6 +3080,21 @@ pub struct CreateApiKeyResponse {
     pub scope: String,
     pub expires_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+}
+
+impl std::fmt::Debug for CreateApiKeyResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateApiKeyResponse")
+            .field("id", &self.id)
+            .field("api_key_set", &!self.api_key.is_empty())
+            .field("api_key_len", &self.api_key.chars().count())
+            .field("key_prefix_len", &self.key_prefix.chars().count())
+            .field("name_len", &self.name.chars().count())
+            .field("scope_len", &self.scope.chars().count())
+            .field("expires_at", &self.expires_at)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
 }
 
 /// Authenticated principal (either OAuth client or API key).
@@ -3195,6 +3353,147 @@ pub struct AttachmentSearchResponse {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn assert_debug_excludes(debug: &str, secrets: &[&str]) {
+        for secret in secrets {
+            assert!(
+                !debug.contains(secret),
+                "debug output leaked secret `{secret}`: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn oauth_model_debug_redacts_secret_material() {
+        let now = Utc::now();
+        let client_registration = ClientRegistrationRequest {
+            client_name: "Sensitive OAuth Client".to_string(),
+            redirect_uris: vec!["https://client.example/callback?code=secret".to_string()],
+            grant_types: vec!["authorization_code".to_string()],
+            response_types: vec!["code".to_string()],
+            scope: Some("read write".to_string()),
+            token_endpoint_auth_method: Some("client_secret_post".to_string()),
+            client_uri: Some("https://client.example/client-secret-path".to_string()),
+            logo_uri: Some("https://client.example/logo-secret.png".to_string()),
+            contacts: Some(vec!["security-secret@example.com".to_string()]),
+            policy_uri: Some("https://client.example/policy?token=secret".to_string()),
+            tos_uri: Some("https://client.example/tos?token=secret".to_string()),
+            software_id: Some("software-secret-id".to_string()),
+            software_version: Some("software-secret-version".to_string()),
+            software_statement: Some("signed-software-statement-secret".to_string()),
+        };
+        let client_response = ClientRegistrationResponse {
+            client_id: "oauth-client-secret-id".to_string(),
+            client_secret: Some("client_secret_raw_value".to_string()),
+            client_id_issued_at: 1,
+            client_secret_expires_at: 0,
+            client_name: "Sensitive OAuth Client".to_string(),
+            redirect_uris: vec!["https://client.example/callback?code=secret".to_string()],
+            grant_types: vec!["authorization_code".to_string()],
+            response_types: vec!["code".to_string()],
+            scope: "read write".to_string(),
+            token_endpoint_auth_method: "client_secret_post".to_string(),
+            registration_access_token: Some("registration_access_token_raw".to_string()),
+            registration_client_uri: Some(
+                "https://issuer.example/oauth/register/client".to_string(),
+            ),
+        };
+        let auth_code = OAuthAuthorizationCode {
+            code: "authorization_code_secret".to_string(),
+            client_id: "oauth-client-secret-id".to_string(),
+            redirect_uri: "https://client.example/callback?code=secret".to_string(),
+            scope: "read write".to_string(),
+            state: Some("state-secret".to_string()),
+            code_challenge: Some("pkce-challenge-secret".to_string()),
+            code_challenge_method: Some("S256".to_string()),
+            user_id: Some("user-secret-id".to_string()),
+            expires_at: now,
+            created_at: now,
+        };
+        let oauth_token = OAuthToken {
+            id: Uuid::new_v4(),
+            access_token_hash: "hashed-mm_at_secret_value".to_string(),
+            refresh_token_hash: Some("hashed-mm_rt_secret_value".to_string()),
+            token_type: "Bearer".to_string(),
+            scope: "read write".to_string(),
+            client_id: "oauth-client-secret-id".to_string(),
+            user_id: Some("user-secret-id".to_string()),
+            access_token_expires_at: now,
+            refresh_token_expires_at: Some(now),
+            revoked: false,
+            created_at: now,
+        };
+        let token_request = TokenRequest {
+            grant_type: "authorization_code".to_string(),
+            code: Some("authorization_code_secret".to_string()),
+            redirect_uri: Some("https://client.example/callback?code=secret".to_string()),
+            refresh_token: Some("mm_rt_refresh_secret".to_string()),
+            scope: Some("read write".to_string()),
+            code_verifier: Some("pkce-verifier-secret".to_string()),
+            client_id: Some("oauth-client-secret-id".to_string()),
+            client_secret: Some("client_secret_raw_value".to_string()),
+        };
+        let token_response = TokenResponse {
+            access_token: "mm_at_access_secret".to_string(),
+            token_type: "Bearer".to_string(),
+            expires_in: 3600,
+            refresh_token: Some("mm_rt_refresh_secret".to_string()),
+            scope: Some("read write".to_string()),
+        };
+
+        let debug = format!(
+            "{:?}{:?}{:?}{:?}{:?}{:?}",
+            client_registration,
+            client_response,
+            auth_code,
+            oauth_token,
+            token_request,
+            token_response
+        );
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "client_secret_raw_value",
+                "registration_access_token_raw",
+                "authorization_code_secret",
+                "hashed-mm_at_secret_value",
+                "hashed-mm_rt_secret_value",
+                "mm_rt_refresh_secret",
+                "pkce-verifier-secret",
+                "pkce-challenge-secret",
+                "signed-software-statement-secret",
+                "state-secret",
+                "https://client.example",
+                "oauth-client-secret-id",
+            ],
+        );
+        assert!(debug.contains("client_secret_set"));
+        assert!(debug.contains("access_token_set"));
+        assert!(debug.contains("refresh_token_hash_len"));
+    }
+
+    #[test]
+    fn api_key_creation_response_debug_redacts_one_time_key() {
+        let response = CreateApiKeyResponse {
+            id: Uuid::new_v4(),
+            api_key: "mm_key_super_secret_once".to_string(),
+            key_prefix: "mm_key_super".to_string(),
+            name: "Production key".to_string(),
+            scope: "admin".to_string(),
+            expires_at: Some(Utc::now()),
+            created_at: Utc::now(),
+        };
+
+        let debug = format!("{response:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &["mm_key_super_secret_once", "mm_key_super", "Production key"],
+        );
+        assert!(debug.contains("api_key_set"));
+        assert!(debug.contains("key_prefix_len"));
+    }
 
     #[test]
     fn test_note_meta_serialization() {

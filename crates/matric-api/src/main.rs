@@ -15761,12 +15761,22 @@ async fn oauth_token(
 }
 
 /// Token introspection request.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct IntrospectRequest {
     token: String,
     #[serde(default)]
     #[allow(dead_code)]
     token_type_hint: Option<String>,
+}
+
+impl std::fmt::Debug for IntrospectRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IntrospectRequest")
+            .field("token_set", &!self.token.is_empty())
+            .field("token_len", &telemetry_text_len(&self.token))
+            .field("token_type_hint", &self.token_type_hint)
+            .finish()
+    }
 }
 
 /// OAuth2 token introspection (RFC 7662).
@@ -15801,11 +15811,21 @@ async fn oauth_introspect(
 }
 
 /// Token revocation request.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct RevokeRequest {
     token: String,
     #[serde(default)]
     token_type_hint: Option<String>,
+}
+
+impl std::fmt::Debug for RevokeRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RevokeRequest")
+            .field("token_set", &!self.token.is_empty())
+            .field("token_len", &telemetry_text_len(&self.token))
+            .field("token_type_hint", &self.token_type_hint)
+            .finish()
+    }
 }
 
 /// OAuth2 token revocation (RFC 7009).
@@ -23008,6 +23028,25 @@ mod tests {
             .await
             .unwrap();
         serde_json::from_slice(&body).unwrap()
+    }
+
+    #[test]
+    fn oauth_handler_request_debug_redacts_tokens() {
+        let introspect = IntrospectRequest {
+            token: "mm_at_introspection_secret".to_string(),
+            token_type_hint: Some("access_token".to_string()),
+        };
+        let revoke = RevokeRequest {
+            token: "mm_rt_revocation_secret".to_string(),
+            token_type_hint: Some("refresh_token".to_string()),
+        };
+
+        let debug = format!("{introspect:?}{revoke:?}");
+
+        assert!(!debug.contains("mm_at_introspection_secret"));
+        assert!(!debug.contains("mm_rt_revocation_secret"));
+        assert!(debug.contains("token_set"));
+        assert!(debug.contains("token_len"));
     }
 
     #[test]
