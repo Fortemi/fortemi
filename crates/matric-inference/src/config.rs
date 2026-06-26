@@ -29,7 +29,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Configuration errors.
-#[derive(Debug, Error)]
+#[derive(Error)]
 pub enum ConfigError {
     #[error("Failed to read config file: {0}")]
     FileRead(#[from] std::io::Error),
@@ -45,6 +45,34 @@ pub enum ConfigError {
 
     #[error("Missing configuration for default backend: {0}")]
     MissingBackend(String),
+}
+
+impl fmt::Debug for ConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::FileRead(error) => f
+                .debug_struct("FileRead")
+                .field("error_kind", &error.kind())
+                .field("message_len", &error.to_string().chars().count())
+                .finish(),
+            Self::TomlParse(error) => f
+                .debug_struct("TomlParse")
+                .field("message_len", &error.to_string().chars().count())
+                .finish(),
+            Self::InvalidBackend(value) => f
+                .debug_struct("InvalidBackend")
+                .field("value_len", &value.chars().count())
+                .finish(),
+            Self::Validation(message) => f
+                .debug_struct("Validation")
+                .field("message_len", &message.chars().count())
+                .finish(),
+            Self::MissingBackend(value) => f
+                .debug_struct("MissingBackend")
+                .field("backend_len", &value.chars().count())
+                .finish(),
+        }
+    }
 }
 
 pub type ConfigResult<T> = Result<T, ConfigError>;
@@ -752,6 +780,38 @@ mod tests {
                 "embed-private-/srv/fortemi/private",
             ],
         );
+    }
+
+    #[test]
+    fn config_error_debug_redacts_payloads() {
+        let invalid = ConfigError::InvalidBackend(
+            "openai:https://user:secret@example.com/v1?token=sk-secret".to_string(),
+        );
+        let validation = ConfigError::Validation(
+            "invalid url https://user:secret@example.com/v1?token=sk-secret".to_string(),
+        );
+        let missing = ConfigError::MissingBackend("tenant/private-backend".to_string());
+
+        let invalid_debug = format!("{invalid:?}");
+        assert!(invalid_debug.contains("InvalidBackend"));
+        assert!(invalid_debug.contains("value_len"));
+        assert_text_excludes(
+            &invalid_debug,
+            &["user:secret@example.com", "token=sk-secret"],
+        );
+
+        let validation_debug = format!("{validation:?}");
+        assert!(validation_debug.contains("Validation"));
+        assert!(validation_debug.contains("message_len"));
+        assert_text_excludes(
+            &validation_debug,
+            &["user:secret@example.com", "token=sk-secret"],
+        );
+
+        let missing_debug = format!("{missing:?}");
+        assert!(missing_debug.contains("MissingBackend"));
+        assert!(missing_debug.contains("backend_len"));
+        assert_text_excludes(&missing_debug, &["tenant/private-backend"]);
     }
 
     #[test]
