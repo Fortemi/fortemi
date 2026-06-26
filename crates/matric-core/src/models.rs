@@ -3284,7 +3284,7 @@ impl fmt::Debug for NoteTemplate {
 // =============================================================================
 
 /// A memory result with temporal and spatial context.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MemoryHit {
     /// Provenance record ID
     pub provenance_id: Uuid,
@@ -3314,22 +3314,75 @@ pub struct MemoryHit {
     pub location_name: Option<String>,
 }
 
+impl fmt::Debug for MemoryHit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryHit")
+            .field("provenance_id_set", &true)
+            .field("attachment_id_set", &true)
+            .field("note_id_set", &true)
+            .field("filename_len", &self.filename.chars().count())
+            .field(
+                "content_type_len",
+                &self
+                    .content_type
+                    .as_ref()
+                    .map(|value| value.chars().count()),
+            )
+            .field("capture_time_set", &self.capture_time.is_some())
+            .field(
+                "event_type_len",
+                &self.event_type.as_ref().map(|value| value.chars().count()),
+            )
+            .field(
+                "event_title_len",
+                &self.event_title.as_ref().map(|value| value.chars().count()),
+            )
+            .field("distance_m_set", &self.distance_m.is_some())
+            .field(
+                "location_name_len",
+                &self
+                    .location_name
+                    .as_ref()
+                    .map(|value| value.chars().count()),
+            )
+            .finish()
+    }
+}
+
 /// Memory search response.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MemorySearchResponse {
     pub memories: Vec<MemoryHit>,
     pub total: usize,
 }
 
+impl fmt::Debug for MemorySearchResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemorySearchResponse")
+            .field("memories_count", &self.memories.len())
+            .field("total", &self.total)
+            .finish()
+    }
+}
+
 /// Timeline grouping response.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TimelineResponse {
     pub groups: Vec<TimelineGroup>,
     pub total: usize,
 }
 
+impl fmt::Debug for TimelineResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TimelineResponse")
+            .field("groups_count", &self.groups.len())
+            .field("total", &self.total)
+            .finish()
+    }
+}
+
 /// A group of memories within a time period.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TimelineGroup {
     /// Group period (e.g., "2024-01", "2024-W23", "2024-01-15")
     pub period: String,
@@ -3341,6 +3394,18 @@ pub struct TimelineGroup {
     pub memories: Vec<MemoryHit>,
     /// Count of memories in this group
     pub count: usize,
+}
+
+impl fmt::Debug for TimelineGroup {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TimelineGroup")
+            .field("period_len", &self.period.chars().count())
+            .field("start_set", &true)
+            .field("end_set", &true)
+            .field("memories_count", &self.memories.len())
+            .field("count", &self.count)
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -3438,10 +3503,19 @@ pub struct AttachmentSearchRequest {
 }
 
 /// Attachment search response.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AttachmentSearchResponse {
     pub attachments: Vec<MemoryHit>,
     pub total: usize,
+}
+
+impl fmt::Debug for AttachmentSearchResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AttachmentSearchResponse")
+            .field("attachments_count", &self.attachments.len())
+            .field("total", &self.total)
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -4866,6 +4940,72 @@ mod tests {
 
         assert_eq!(response.total, 0);
         assert!(response.groups.is_empty());
+    }
+
+    #[test]
+    fn memory_search_debug_redacts_hit_content_and_identifiers() {
+        let provenance_id = Uuid::now_v7();
+        let attachment_id = Uuid::now_v7();
+        let note_id = Uuid::now_v7();
+        let hit = MemoryHit {
+            provenance_id,
+            attachment_id,
+            note_id,
+            filename: "private-photo@example.internal-sk-secret.jpg".to_string(),
+            content_type: Some("image/private-token".to_string()),
+            capture_time: Some((Utc::now(), Some(Utc::now()))),
+            event_type: Some("photo-secret-event".to_string()),
+            event_title: Some("Beach near postgres://user:secret@db.internal".to_string()),
+            distance_m: Some(150.5),
+            location_name: Some("/srv/fortemi/private/location@example.internal".to_string()),
+        };
+        let memory_response = MemorySearchResponse {
+            memories: vec![hit.clone()],
+            total: 1,
+        };
+        let timeline_group = TimelineGroup {
+            period: "2026-06-private@example.internal".to_string(),
+            start: Utc::now(),
+            end: Utc::now(),
+            memories: vec![hit.clone()],
+            count: 1,
+        };
+        let timeline_response = TimelineResponse {
+            groups: vec![timeline_group.clone()],
+            total: 1,
+        };
+        let attachment_response = AttachmentSearchResponse {
+            attachments: vec![hit.clone()],
+            total: 1,
+        };
+
+        let debug = format!(
+            "{hit:?} {memory_response:?} {timeline_group:?} {timeline_response:?} {attachment_response:?}"
+        );
+
+        assert!(debug.contains("MemoryHit"));
+        assert!(debug.contains("filename_len"));
+        assert!(debug.contains("event_title_len"));
+        assert!(debug.contains("location_name_len"));
+        assert!(debug.contains("MemorySearchResponse"));
+        assert!(debug.contains("memories_count"));
+        assert!(debug.contains("TimelineGroup"));
+        assert!(debug.contains("period_len"));
+        assert!(debug.contains("TimelineResponse"));
+        assert!(debug.contains("groups_count"));
+        assert!(debug.contains("AttachmentSearchResponse"));
+        assert!(debug.contains("attachments_count"));
+        assert!(!debug.contains("private-photo"));
+        assert!(!debug.contains("example.internal"));
+        assert!(!debug.contains("sk-secret"));
+        assert!(!debug.contains("image/private-token"));
+        assert!(!debug.contains("photo-secret-event"));
+        assert!(!debug.contains("postgres://"));
+        assert!(!debug.contains("db.internal"));
+        assert!(!debug.contains("/srv/fortemi"));
+        assert!(!debug.contains(&provenance_id.to_string()));
+        assert!(!debug.contains(&attachment_id.to_string()));
+        assert!(!debug.contains(&note_id.to_string()));
     }
 
     // =========================================================================
