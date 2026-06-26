@@ -113,7 +113,57 @@ async fn run_cmd(cmd: &mut Command, timeout_secs: u64) -> Result<std::process::O
     tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output())
         .await
         .map_err(|_| format!("Command timed out after {}s", timeout_secs))?
-        .map_err(|e| format!("Failed to execute command: {}", e))
+        .map_err(|e| {
+            format!(
+                "Command failed to start; io_error_kind={}",
+                media_io_error_kind(&e)
+            )
+        })
+}
+
+fn media_io_error_kind(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => "not_found",
+        std::io::ErrorKind::PermissionDenied => "permission_denied",
+        std::io::ErrorKind::TimedOut => "timed_out",
+        std::io::ErrorKind::Interrupted => "interrupted",
+        std::io::ErrorKind::WouldBlock => "would_block",
+        _ => "io_error",
+    }
+}
+
+fn media_stderr_reason_code(stderr: &[u8]) -> &'static str {
+    let text = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    if text.contains("permission") || text.contains("denied") {
+        "permission_denied"
+    } else if text.contains("invalid data")
+        || text.contains("invalid argument")
+        || text.contains("moov atom not found")
+        || text.contains("could not find codec parameters")
+    {
+        "invalid_media"
+    } else if text.contains("not found") || text.contains("no such") {
+        "not_found"
+    } else if text.contains("timeout") || text.contains("timed out") {
+        "timed_out"
+    } else {
+        "command_failed"
+    }
+}
+
+fn media_command_failure_detail(
+    command: &'static str,
+    status_code: Option<i32>,
+    stderr: &[u8],
+) -> String {
+    format!(
+        "{command} failed; status={}; stderr_len={}; stderr_reason={}",
+        status_code
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "signal".to_string()),
+        stderr.len(),
+        media_stderr_reason_code(stderr)
+    )
 }
 
 /// Run ffprobe on a file and return structured metadata.
@@ -132,8 +182,11 @@ async fn ffprobe(path: &Path) -> Result<ProbeResult, String> {
     .await?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("ffprobe failed: {}", stderr.trim()));
+        return Err(media_command_failure_detail(
+            "ffprobe",
+            output.status.code(),
+            &output.stderr,
+        ));
     }
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout)
@@ -251,8 +304,11 @@ async fn run_ffmpeg(args: &[&str], timeout_secs: u64) -> Result<(), String> {
     let output = run_cmd(&mut cmd, timeout_secs).await?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("ffmpeg failed: {}", stderr.trim()));
+        return Err(media_command_failure_detail(
+            "ffmpeg",
+            output.status.code(),
+            &output.stderr,
+        ));
     }
 
     Ok(())
@@ -758,6 +814,41 @@ fn extension_for_content_type(content_type: &str, filename: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn media_command_failure_detail_redacts_stderr() {
+        let stderr = b"ffmpeg: invalid data at /srv/fortemi/uploads/source.mp4 token=mm_key_secret";
+        let detail = media_command_failure_detail("ffmpeg", Some(1), stderr);
+
+        assert!(detail.contains("ffmpeg failed"));
+        assert!(detail.contains("status=1"));
+        assert!(detail.contains("stderr_len="));
+        assert!(detail.contains("stderr_reason=invalid_media"));
+        assert!(!detail.contains("/srv/fortemi"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("invalid data at"));
+    }
+
+    #[test]
+    fn media_stderr_reason_code_uses_stable_classes() {
+        assert_eq!(
+            media_stderr_reason_code(b"Permission denied while opening input"),
+            "permission_denied"
+        );
+        assert_eq!(
+            media_stderr_reason_code(b"moov atom not found"),
+            "invalid_media"
+        );
+        assert_eq!(media_stderr_reason_code(b"No such file"), "not_found");
+        assert_eq!(
+            media_stderr_reason_code(b"operation timed out"),
+            "timed_out"
+        );
+        assert_eq!(
+            media_stderr_reason_code(b"opaque backend text"),
+            "command_failed"
+        );
+    }
 
     // ── extension_for_content_type ────────────────────────────────────
 
