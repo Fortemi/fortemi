@@ -4,6 +4,7 @@
 //! Implementations consume mono signed PCM normalized to 16 kHz and emit partial
 //! and final transcript events.
 
+use std::fmt;
 use std::pin::Pin;
 
 use async_trait::async_trait;
@@ -17,14 +18,25 @@ pub mod deepgram;
 
 pub type TranscriptEventStream = Pin<Box<dyn Stream<Item = TranscriptEvent> + Send>>;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct AsrSessionConfig {
     pub sample_rate_hz: u32,
     pub language: Option<String>,
     pub metadata: serde_json::Value,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl fmt::Debug for AsrSessionConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AsrSessionConfig")
+            .field("sample_rate_hz", &self.sample_rate_hz)
+            .field("language_len", &self.language.as_ref().map(String::len))
+            .field("metadata_class", &asr_json_class(&self.metadata))
+            .field("metadata_len", &self.metadata.to_string().len())
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq)]
 pub enum TranscriptEvent {
     Partial {
         text: String,
@@ -42,6 +54,51 @@ pub enum TranscriptEvent {
     },
 }
 
+impl fmt::Debug for TranscriptEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Partial { text, ts } => f
+                .debug_struct("TranscriptEvent::Partial")
+                .field("text_len", &text.len())
+                .field("timestamp_set", &true)
+                .field("timestamp_millis", &ts.timestamp_millis())
+                .finish(),
+            Self::Final {
+                text,
+                speaker_label,
+                start_ts,
+                end_ts,
+                confidence,
+            } => f
+                .debug_struct("TranscriptEvent::Final")
+                .field("text_len", &text.len())
+                .field(
+                    "speaker_label_len",
+                    &speaker_label.as_ref().map(String::len),
+                )
+                .field("start_ts_set", &start_ts.is_some())
+                .field("end_ts_set", &end_ts.is_some())
+                .field("confidence", confidence)
+                .finish(),
+            Self::Error { reason } => f
+                .debug_struct("TranscriptEvent::Error")
+                .field("reason_len", &reason.len())
+                .finish(),
+        }
+    }
+}
+
+fn asr_json_class(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
 /// Streaming ASR provider factory. See ADR-RTP-003 for the media pipeline.
 #[async_trait]
 pub trait StreamingASRBackend: Send + Sync {
@@ -57,9 +114,18 @@ pub trait AsrSession: Send + Sync {
     fn events(&mut self) -> TranscriptEventStream;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MockAsrBackend {
     events: Vec<TranscriptEvent>,
+}
+
+impl fmt::Debug for MockAsrBackend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MockAsrBackend")
+            .field("events_count", &self.events.len())
+            .field("events", &self.events)
+            .finish()
+    }
 }
 
 impl Default for MockAsrBackend {
@@ -148,6 +214,7 @@ impl AsrSession for MockAsrSession {
 mod tests {
     use super::*;
     use futures::StreamExt;
+    use serde_json::json;
 
     #[tokio::test]
     async fn mock_asr_backend_emits_final_events() {
@@ -164,5 +231,69 @@ mod tests {
             events.first(),
             Some(TranscriptEvent::Final { .. })
         ));
+    }
+
+    #[test]
+    fn asr_debug_redacts_transcripts_metadata_and_reasons() {
+        let config = AsrSessionConfig {
+            sample_rate_hz: 16_000,
+            language: Some("en-US-private".to_string()),
+            metadata: json!({
+                "provider_call_id": "CA1234567890abcdef",
+                "recording_url": "https://media.example.test/recording?token=secret-token",
+                "database_url": "postgres://user:password@db.example.test/fortemi"
+            }),
+        };
+        let partial = TranscriptEvent::Partial {
+            text: "patient said 555-1212 and sk-live-secret-token".to_string(),
+            ts: Utc::now(),
+        };
+        let final_event = TranscriptEvent::Final {
+            text: "final transcript contains private@example.test".to_string(),
+            speaker_label: Some("speaker_private_label".to_string()),
+            start_ts: Some(0.25),
+            end_ts: Some(1.5),
+            confidence: Some(0.91),
+        };
+        let error = TranscriptEvent::Error {
+            reason: "Deepgram returned https://api.example.test?token=secret-token".to_string(),
+        };
+        let backend =
+            MockAsrBackend::new(vec![partial.clone(), final_event.clone(), error.clone()]);
+
+        let rendered = format!("{config:?}\n{partial:?}\n{final_event:?}\n{error:?}\n{backend:?}");
+
+        for raw in [
+            "en-US-private",
+            "CA1234567890abcdef",
+            "recording_url",
+            "secret-token",
+            "postgres://user:password@db.example.test/fortemi",
+            "555-1212",
+            "sk-live-secret-token",
+            "private@example.test",
+            "speaker_private_label",
+            "Deepgram returned",
+            "https://api.example.test",
+        ] {
+            assert!(
+                !rendered.contains(raw),
+                "ASR Debug output leaked raw value {raw:?}: {rendered}"
+            );
+        }
+
+        for expected in [
+            "language_len",
+            "metadata_class",
+            "text_len",
+            "speaker_label_len",
+            "reason_len",
+            "events_count",
+        ] {
+            assert!(
+                rendered.contains(expected),
+                "ASR Debug output should retain safe metadata field {expected:?}: {rendered}"
+            );
+        }
     }
 }
