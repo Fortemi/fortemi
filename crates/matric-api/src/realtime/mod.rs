@@ -5,6 +5,7 @@
 //! adapter boundaries.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -29,7 +30,7 @@ pub type CallControlEventStream = Pin<Box<dyn Stream<Item = CallControlEvent> + 
 
 /// Wire-format-agnostic media frame, conceptually equivalent to an RTP packet
 /// without network framing.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct MediaFrame {
     /// IANA-aligned codec descriptor for the payload.
     pub codec: Codec,
@@ -41,6 +42,18 @@ pub struct MediaFrame {
     pub marker: bool,
     /// Raw codec payload bytes.
     pub payload: Vec<u8>,
+}
+
+impl fmt::Debug for MediaFrame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MediaFrame")
+            .field("codec", &self.codec)
+            .field("timestamp_rtp", &self.timestamp_rtp)
+            .field("sequence", &self.sequence)
+            .field("marker", &self.marker)
+            .field("payload_len", &self.payload.len())
+            .finish()
+    }
 }
 
 /// Codec identification aligned with VoIP/IANA media names.
@@ -78,7 +91,7 @@ pub enum EndReason {
 }
 
 /// Control-plane events emitted by real-time call adapters.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CallControlEvent {
     CallStarted {
         provider: String,
@@ -102,6 +115,62 @@ pub enum CallControlEvent {
         event_type: String,
         payload: serde_json::Value,
     },
+}
+
+impl fmt::Debug for CallControlEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CallStarted {
+                provider,
+                provider_call_id,
+                remote_party,
+                metadata,
+            } => f
+                .debug_struct("CallControlEvent::CallStarted")
+                .field("provider_len", &provider.len())
+                .field("provider_call_id_len", &provider_call_id.len())
+                .field("remote_party_len", &remote_party.as_ref().map(String::len))
+                .field("metadata_class", &realtime_json_class(metadata))
+                .field("metadata_len", &metadata.to_string().len())
+                .finish(),
+            Self::StateChanged { state } => f
+                .debug_struct("CallControlEvent::StateChanged")
+                .field("state", state)
+                .finish(),
+            Self::DtmfDigit { .. } => f
+                .debug_struct("CallControlEvent::DtmfDigit")
+                .field("digit_present", &true)
+                .finish(),
+            Self::RecordingAvailable { url } => f
+                .debug_struct("CallControlEvent::RecordingAvailable")
+                .field("url_len", &url.len())
+                .finish(),
+            Self::Dropped { reason } => f
+                .debug_struct("CallControlEvent::Dropped")
+                .field("reason_len", &reason.len())
+                .finish(),
+            Self::Custom {
+                event_type,
+                payload,
+            } => f
+                .debug_struct("CallControlEvent::Custom")
+                .field("event_type_len", &event_type.len())
+                .field("payload_class", &realtime_json_class(payload))
+                .field("payload_len", &payload.to_string().len())
+                .finish(),
+        }
+    }
+}
+
+fn realtime_json_class(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
 }
 
 /// Provider adapter contract.
@@ -134,7 +203,7 @@ pub trait CallTransport: Send + Sync {
 }
 
 /// Active call session tracked by [`CallSessionManager`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ActiveCallSession {
     pub call_id: Uuid,
     pub provider: String,
@@ -143,11 +212,32 @@ pub struct ActiveCallSession {
     pub started_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for ActiveCallSession {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ActiveCallSession")
+            .field("call_id_set", &true)
+            .field("provider_len", &self.provider.len())
+            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field("state", &self.state)
+            .field("started_at", &self.started_at)
+            .finish()
+    }
+}
+
 /// In-memory registry for active real-time sessions.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct CallSessionManager {
     sessions: Arc<RwLock<HashMap<Uuid, ActiveCallSession>>>,
     provider_index: Arc<RwLock<HashMap<(String, String), Uuid>>>,
+}
+
+impl fmt::Debug for CallSessionManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CallSessionManager")
+            .field("sessions_redacted", &true)
+            .field("provider_index_redacted", &true)
+            .finish()
+    }
 }
 
 impl CallSessionManager {
@@ -253,6 +343,85 @@ mod tests {
         };
 
         assert_eq!(event.clone(), event);
+    }
+
+    #[test]
+    fn realtime_debug_redacts_payloads_provider_ids_and_control_values() {
+        let frame = MediaFrame {
+            codec: Codec::Opus {
+                sample_rate: 48_000,
+                channels: 2,
+            },
+            timestamp_rtp: 42,
+            sequence: 7,
+            marker: true,
+            payload: b"sk-live-media-payload".to_vec(),
+        };
+        let started = CallControlEvent::CallStarted {
+            provider: "twilio-private".to_string(),
+            provider_call_id: "CApostgres://user:pass@db.internal/app".to_string(),
+            remote_party: Some("+15551230000".to_string()),
+            metadata: serde_json::json!({
+                "recording_url": "https://api.twilio.com/recording.wav?token=sk-live-recording",
+                "consent_confirmed": true,
+            }),
+        };
+        let dtmf = CallControlEvent::DtmfDigit { digit: '#' };
+        let recording = CallControlEvent::RecordingAvailable {
+            url: "https://api.twilio.com/recording.wav?token=sk-live-recording".to_string(),
+        };
+        let dropped = CallControlEvent::Dropped {
+            reason: "socket closed for +15559870000 sk-live-drop".to_string(),
+        };
+        let custom = CallControlEvent::Custom {
+            event_type: "private.provider.event".to_string(),
+            payload: serde_json::json!({
+                "provider_call_id": "CAprivate-custom",
+                "payload": "postgres://user:pass@db.internal/app",
+            }),
+        };
+        let session = ActiveCallSession {
+            call_id: Uuid::new_v4(),
+            provider: "twilio-private".to_string(),
+            provider_call_id: "CAcustomer@example.com".to_string(),
+            state: CallState::Active,
+            started_at: Utc::now(),
+        };
+        let manager = CallSessionManager::new();
+
+        let combined = format!(
+            "{frame:?}\n{started:?}\n{dtmf:?}\n{recording:?}\n{dropped:?}\n{custom:?}\n{session:?}\n{manager:?}"
+        );
+
+        assert!(combined.contains("payload_len"));
+        assert!(combined.contains("provider_call_id_len"));
+        assert!(combined.contains("metadata_class"));
+        assert!(combined.contains("digit_present"));
+        assert!(combined.contains("url_len"));
+        assert!(combined.contains("reason_len"));
+        assert!(combined.contains("sessions_redacted"));
+
+        for raw in [
+            "sk-live-media-payload",
+            "twilio-private",
+            "CApostgres",
+            "postgres://user:pass",
+            "db.internal",
+            "+15551230000",
+            "api.twilio.com",
+            "sk-live-recording",
+            "#",
+            "+15559870000",
+            "sk-live-drop",
+            "private.provider.event",
+            "CAprivate-custom",
+            "CAcustomer",
+            "customer@example.com",
+            "recording_url",
+            "consent_confirmed",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
     }
 
     #[tokio::test]
