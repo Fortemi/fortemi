@@ -25320,6 +25320,14 @@ impl std::fmt::Debug for DatabaseRestoreResponse {
     }
 }
 
+fn memory_restore_success_message() -> String {
+    "Memory restored from backup".to_string()
+}
+
+fn database_restore_success_message() -> String {
+    "Database restored from backup".to_string()
+}
+
 /// Restore a backup into a specific memory using DROP SCHEMA CASCADE.
 ///
 /// This is dramatically simpler than public schema restore because:
@@ -25449,7 +25457,7 @@ async fn memory_scoped_restore(
     Ok(Json(DatabaseRestoreResponse {
         success,
         message: if success {
-            format!("Memory '{}' restored from {}", memory_name, filename)
+            memory_restore_success_message()
         } else {
             backup_restore_issue_message("Memory restore", &output.stderr)
         },
@@ -25812,7 +25820,7 @@ CREATE INDEX IF NOT EXISTS idx_revised_current_tsv ON note_revised_current USING
     Ok(Json(DatabaseRestoreResponse {
         success,
         message: if success {
-            format!("Database restored from {}", req.filename)
+            database_restore_success_message()
         } else {
             backup_restore_issue_message("Database restore", &output.stderr)
         },
@@ -28475,6 +28483,29 @@ mod tests {
             "private-restore.sql.gz",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn database_restore_success_messages_are_fixed() {
+        let rendered = format!(
+            "{}\n{}",
+            memory_restore_success_message(),
+            database_restore_success_message()
+        );
+
+        assert!(rendered.contains("Memory restored from backup"));
+        assert!(rendered.contains("Database restored from backup"));
+        for raw in [
+            "customer-private-memory",
+            "customer-postgres-secret",
+            "mm_key_restore",
+            "/srv/backups/customer",
+            "postgres://user:pass",
+            "db.internal",
+            "private.sql.gz",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 

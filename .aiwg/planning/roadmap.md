@@ -151,6 +151,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-26 continuation: media optimize setup job failure text now stores stable reason codes for schema, temp-dir, transaction, download, commit, and temp-file write failures instead of raw schema names, database/storage diagnostics, filesystem paths, DSNs, hostnames, or token-shaped values.
   - 2026-06-26 continuation: backup status directory-creation failure responses now return stable reason-code status values instead of raw OS diagnostics, filesystem paths, DSNs, hostnames, or token-shaped values.
   - 2026-06-26 continuation: backup trigger dry-run responses now report the generated backup filename only instead of echoing full backup destination paths that can contain filesystem paths, DSNs, hostnames, or token-shaped values.
+  - 2026-06-26 continuation: database and memory restore success messages now use fixed text instead of echoing memory names, backup filenames, filesystem paths, DSNs, hostnames, or token-shaped values.
   - 2026-06-26 continuation: video multimodal adapter audio/keyframe/description broad logs now report filename lengths, error lengths, and stable reason classes instead of raw filenames or backend error text.
   - 2026-06-26 continuation: PDF text/OCR and Office conversion broad logs now report filename lengths, error lengths, and stable reason classes instead of raw filenames or extraction backend error text.
   - 2026-06-26 continuation: Spreadsheet adapter broad logs now report filename/sheet-name lengths, error lengths, and stable reason classes instead of raw filenames, sheet names, or backend error text.
@@ -748,3 +749,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-26 — #968/#974 media optimize setup job failure text now stores stable reason codes instead of raw schema names, database/storage diagnostics, filesystem paths, DSNs, hostnames, or token-shaped values.
 - 2026-06-26 — #968/#974 backup status directory-creation failure responses now return stable reason-code status values instead of raw OS diagnostics, filesystem paths, DSNs, hostnames, or token-shaped values.
 - 2026-06-26 — #968/#974 backup trigger dry-run responses now report generated backup filenames only instead of full backup destination paths, DSNs, hostnames, or token-shaped values.
+- 2026-06-26 — #968/#974 database and memory restore success messages now use fixed text instead of echoing memory names, backup filenames, filesystem paths, DSNs, hostnames, or token-shaped values.
