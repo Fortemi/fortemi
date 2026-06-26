@@ -23693,7 +23693,7 @@ impl fmt::Debug for DatabaseBackupResponse {
     }
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct SnapshotRequest {
     /// Optional name for the snapshot (will be sanitized for filename)
     name: Option<String>,
@@ -23701,6 +23701,19 @@ struct SnapshotRequest {
     title: Option<String>,
     /// Detailed description of the backup
     description: Option<String>,
+}
+
+impl fmt::Debug for SnapshotRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SnapshotRequest")
+            .field("name_len", &self.name.as_ref().map(String::len))
+            .field("title_len", &self.title.as_ref().map(String::len))
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .finish()
+    }
 }
 
 /// Download a fresh database backup (pg_dump).
@@ -25618,6 +25631,36 @@ mod tests {
             "meta.json",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn snapshot_request_debug_redacts_name_title_and_description() {
+        let request = SnapshotRequest {
+            name: Some("customer-postgres-secret-mm_key_snapshot".to_string()),
+            title: Some("Customer payroll snapshot".to_string()),
+            description: Some(
+                "Contains /srv/backups/customer and postgres://user:pass@db.internal/app"
+                    .to_string(),
+            ),
+        };
+
+        let rendered = format!("{request:?}");
+
+        assert!(rendered.contains("SnapshotRequest"));
+        assert!(rendered.contains("name_len"));
+        assert!(rendered.contains("title_len"));
+        assert!(rendered.contains("description_len"));
+
+        for raw in [
+            "customer-postgres-secret",
+            "mm_key_snapshot",
+            "Customer payroll snapshot",
+            "/srv/backups/customer",
+            "postgres://user:pass",
+            "db.internal",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 
