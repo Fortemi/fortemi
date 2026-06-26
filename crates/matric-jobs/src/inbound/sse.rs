@@ -26,7 +26,7 @@ use super::source::{
 };
 
 /// Connector config, deserialized from the `inbound_source.config` JSONB.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct SseConfig {
     pub url: String,
     /// Arbitrary request headers, e.g. `{"Authorization": "Bearer ..."}`.
@@ -44,6 +44,29 @@ pub struct SseConfig {
     /// HTTP connect timeout (seconds) for the streaming request.
     #[serde(default = "default_connect_timeout_secs")]
     pub connect_timeout_secs: u64,
+}
+
+impl std::fmt::Debug for SseConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SseConfig")
+            .field("url_class", &telemetry_destination_class(&self.url))
+            .field("url_len", &telemetry_text_len(&self.url))
+            .field("header_count", &self.headers.len())
+            .field(
+                "event_type_field_len",
+                &telemetry_text_len(&self.event_type_field),
+            )
+            .field(
+                "default_event_type_len",
+                &telemetry_text_len(&self.default_event_type),
+            )
+            .field(
+                "event_type_filter_count",
+                &self.event_type_filter.as_ref().map(Vec::len),
+            )
+            .field("connect_timeout_secs", &self.connect_timeout_secs)
+            .finish()
+    }
 }
 
 fn default_event_type_field() -> String {
@@ -294,6 +317,42 @@ mod tests {
         assert!(SseSource::from_config("s", &json!({"url":"https://x/stream"})).is_ok());
         assert!(SseSource::from_config("s", &json!({"url":"redis://x"})).is_err());
         assert!(SseSource::from_config("s", &json!({})).is_err());
+    }
+
+    #[test]
+    fn config_debug_redacts_headers_and_url() {
+        let cfg = cfg(json!({
+            "url": "https://user:pass@example.test/stream?api_key=sse-secret-token",
+            "headers": {
+                "Authorization": "Bearer sse-secret-token",
+                "X-Api-Key": "sse-api-key-secret"
+            },
+            "event_type_field": "tenant_secret_event_type",
+            "default_event_type": "secret.default.v1",
+            "event_type_filter": ["tenant.secret.v1"]
+        }));
+
+        let debug = format!("{cfg:?}");
+        for forbidden in [
+            "user:pass",
+            "example.test",
+            "api_key=sse-secret-token",
+            "Authorization",
+            "Bearer sse-secret-token",
+            "X-Api-Key",
+            "sse-api-key-secret",
+            "tenant_secret_event_type",
+            "secret.default.v1",
+            "tenant.secret.v1",
+        ] {
+            assert!(
+                !debug.contains(forbidden),
+                "SSE config Debug leaked {forbidden}: {debug}"
+            );
+        }
+        assert!(debug.contains("url_class"));
+        assert!(debug.contains("header_count"));
+        assert!(debug.contains("event_type_filter_count"));
     }
 
     #[test]

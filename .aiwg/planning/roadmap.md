@@ -177,6 +177,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-26 continuation: Inference config audit/readback slice replaces API-key prefix masks with metadata-only length sentinels and defensively sanitizes audit JSON on diagnostic reads.
   - 2026-06-26 continuation: API-key management list slice replaces raw key prefixes, labels, descriptions, and scopes with metadata-only lengths while preserving one-time create display.
   - 2026-06-26 continuation: OAuth client readback Debug slice replaces derived output on post-creation client records with metadata-only lengths/counts for ids, labels, URLs, contacts, software fields, and scopes.
+  - 2026-06-26 continuation: Inbound connector config Debug slice replaces raw SSE/Redis/Kafka config output with metadata-only destination classes, lengths, counts, and presence flags for credential-bearing URLs, headers, SASL credentials, topics, and extra config.
 - [x] **#926 / #928 / #933** fail-closed startup: require issuer in multi-tenant; reject invalid security booleans; validate rate-limit env before constructing limiter. (2026-06-26: startup-config slice added strict parsing for auth/tenant/local-issuer/rate-limit/realtime-consent booleans, hosted-safe issuer validation reused by AsyncAPI metadata, deterministic process-local rate-limit numeric validation before limiter construction, and operator/env docs for accepted forms, local issuer override, and hosted issuer requirements. Issues closed after focused regression tests and docs audit.)
 
 ## Phase 1 — Open BSL desktop GA  `tier/open-build`
@@ -516,3 +517,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-26 — #968/#974 inference config API-key readback and audit JSON now use metadata-only secret sentinels instead of raw or prefix-masked key values.
 - 2026-06-26 — #968/#974 API-key management list responses now return metadata-only key records after one-time create display, without key prefixes, labels, descriptions, scopes, hashes, or raw keys.
 - 2026-06-26 — #968/#974 OAuth client post-creation Debug output now reports metadata-only lengths/counts instead of raw client ids, labels, URLs, contacts, software fields, or scopes.
+- 2026-06-26 — #968/#974 inbound SSE, Redis Stream, and Kafka connector config Debug output now redacts credential-bearing URLs, headers, SASL credentials, topics, event fields, and extra config values.

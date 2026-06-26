@@ -24,7 +24,7 @@ use super::source::{
 };
 
 /// Connector config, deserialized from the `inbound_source.config` JSONB.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct RedisStreamConfig {
     pub url: String,
     pub stream: String,
@@ -42,6 +42,28 @@ pub struct RedisStreamConfig {
     /// Fallback `event_type` when the field is absent.
     #[serde(default = "default_event_type")]
     pub default_event_type: String,
+}
+
+impl std::fmt::Debug for RedisStreamConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RedisStreamConfig")
+            .field("url_class", &telemetry_destination_class(&self.url))
+            .field("url_len", &telemetry_text_len(&self.url))
+            .field("stream_len", &telemetry_text_len(&self.stream))
+            .field("group_len", &telemetry_text_len(&self.group))
+            .field("consumer_len", &telemetry_text_len(&self.consumer))
+            .field("start_len", &telemetry_text_len(&self.start))
+            .field("block_ms", &self.block_ms)
+            .field(
+                "event_type_field_len",
+                &telemetry_text_len(&self.event_type_field),
+            )
+            .field(
+                "default_event_type_len",
+                &telemetry_text_len(&self.default_event_type),
+            )
+            .finish()
+    }
 }
 
 fn default_consumer() -> String {
@@ -283,6 +305,40 @@ mod tests {
             RedisStreamSource::from_config("r", &json!({"url":"","stream":"s","group":"g"}))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn config_debug_redacts_url_and_stream_metadata() {
+        let cfg: RedisStreamConfig = serde_json::from_value(json!({
+            "url": "redis://user:pass@redis.internal:6379/0?token=redis-secret",
+            "stream": "tenant-secret-stream",
+            "group": "secret-consumer-group",
+            "consumer": "secret-consumer",
+            "start": "0",
+            "event_type_field": "tenant_secret_event_type",
+            "default_event_type": "secret.redis.v1"
+        }))
+        .unwrap();
+
+        let debug = format!("{cfg:?}");
+        for forbidden in [
+            "user:pass",
+            "redis.internal",
+            "token=redis-secret",
+            "tenant-secret-stream",
+            "secret-consumer-group",
+            "secret-consumer",
+            "tenant_secret_event_type",
+            "secret.redis.v1",
+        ] {
+            assert!(
+                !debug.contains(forbidden),
+                "Redis config Debug leaked {forbidden}: {debug}"
+            );
+        }
+        assert!(debug.contains("url_class"));
+        assert!(debug.contains("stream_len"));
+        assert!(debug.contains("group_len"));
     }
 
     #[test]

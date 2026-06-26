@@ -35,7 +35,7 @@ use super::source::{
 };
 
 /// Connector config, deserialized from the `inbound_source.config` JSONB.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct KafkaConfig {
     pub bootstrap_servers: String,
     pub topic: String,
@@ -67,6 +67,48 @@ pub struct KafkaConfig {
     /// Passthrough librdkafka properties (advanced tuning).
     #[serde(default)]
     pub extra: BTreeMap<String, String>,
+}
+
+impl std::fmt::Debug for KafkaConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KafkaConfig")
+            .field(
+                "bootstrap_servers_class",
+                &telemetry_destination_class(&self.bootstrap_servers),
+            )
+            .field(
+                "bootstrap_servers_len",
+                &telemetry_text_len(&self.bootstrap_servers),
+            )
+            .field("topic_len", &telemetry_text_len(&self.topic))
+            .field("group_id_len", &telemetry_text_len(&self.group_id))
+            .field("start_offset_len", &telemetry_text_len(&self.start_offset))
+            .field(
+                "security_protocol_len",
+                &self.security_protocol.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "sasl_mechanism_len",
+                &self.sasl_mechanism.as_deref().map(telemetry_text_len),
+            )
+            .field("sasl_username_set", &self.sasl_username.is_some())
+            .field("sasl_password_set", &self.sasl_password.is_some())
+            .field("ssl_ca_location_set", &self.ssl_ca_location.is_some())
+            .field(
+                "dead_letter_topic_len",
+                &self.dead_letter_topic.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "event_type_field_len",
+                &telemetry_text_len(&self.event_type_field),
+            )
+            .field(
+                "default_event_type_len",
+                &telemetry_text_len(&self.default_event_type),
+            )
+            .field("extra_count", &self.extra.len())
+            .finish()
+    }
 }
 
 fn default_start_offset() -> String {
@@ -301,6 +343,54 @@ mod tests {
             &json!({"bootstrap_servers":"","topic":"t","group_id":"g"})
         )
         .is_err());
+    }
+
+    #[test]
+    fn config_debug_redacts_credentials_and_topics() {
+        let cfg: KafkaConfig = serde_json::from_value(json!({
+            "bootstrap_servers": "user:pass@broker.internal:9092",
+            "topic": "tenant-secret-topic",
+            "group_id": "secret-group",
+            "start_offset": "earliest",
+            "security_protocol": "SASL_SSL",
+            "sasl_mechanism": "PLAIN",
+            "sasl_username": "kafka-secret-user",
+            "sasl_password": "kafka-secret-password",
+            "ssl_ca_location": "/srv/secret/ca.pem",
+            "dead_letter_topic": "secret-dlq-topic",
+            "event_type_field": "tenant_secret_event_type",
+            "default_event_type": "secret.kafka.v1",
+            "extra": {
+                "sasl.oauthbearer.config": "token=kafka-secret-token",
+                "client.id": "secret-client-id"
+            }
+        }))
+        .unwrap();
+
+        let debug = format!("{cfg:?}");
+        for forbidden in [
+            "user:pass",
+            "broker.internal",
+            "tenant-secret-topic",
+            "secret-group",
+            "kafka-secret-user",
+            "kafka-secret-password",
+            "/srv/secret/ca.pem",
+            "secret-dlq-topic",
+            "tenant_secret_event_type",
+            "secret.kafka.v1",
+            "sasl.oauthbearer.config",
+            "kafka-secret-token",
+            "secret-client-id",
+        ] {
+            assert!(
+                !debug.contains(forbidden),
+                "Kafka config Debug leaked {forbidden}: {debug}"
+            );
+        }
+        assert!(debug.contains("bootstrap_servers_class"));
+        assert!(debug.contains("sasl_password_set"));
+        assert!(debug.contains("extra_count"));
     }
 
     // Creating a StreamConsumer with the `tokio` feature requires a running
