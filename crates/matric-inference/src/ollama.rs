@@ -836,7 +836,7 @@ fn ollama_chat_ndjson_stream(response: reqwest::Response) -> matric_core::Genera
 
 #[async_trait]
 impl EmbeddingBackend for OllamaBackend {
-    #[instrument(skip(self, texts), fields(subsystem = "inference", component = "ollama", op = "embed_texts", model = %self.embed_model, input_count = texts.len()))]
+    #[instrument(skip(self, texts), fields(subsystem = "inference", component = "ollama", op = "embed_texts", model_len = diagnostic_len(&self.embed_model), input_count = texts.len()))]
     async fn embed_texts(&self, texts: &[String]) -> Result<Vec<Vector>> {
         if texts.is_empty() {
             return Ok(vec![]);
@@ -906,7 +906,7 @@ impl GenerationBackend for OllamaBackend {
         self.generate_with_system("", prompt).await
     }
 
-    #[instrument(skip(self, system, prompt), fields(subsystem = "inference", component = "ollama", op = "generate", model = %self.gen_model, prompt_len = prompt.len()))]
+    #[instrument(skip(self, system, prompt), fields(subsystem = "inference", component = "ollama", op = "generate", model_len = diagnostic_len(&self.gen_model), prompt_len = prompt.len()))]
     async fn generate_with_system(&self, system: &str, prompt: &str) -> Result<String> {
         self.generate_internal(system, prompt, None, None).await
     }
@@ -915,7 +915,7 @@ impl GenerationBackend for OllamaBackend {
         self.generate_json_with_system("", prompt).await
     }
 
-    #[instrument(skip(self, system, prompt), fields(subsystem = "inference", component = "ollama", op = "generate_json", model = %self.gen_model, prompt_len = prompt.len()))]
+    #[instrument(skip(self, system, prompt), fields(subsystem = "inference", component = "ollama", op = "generate_json", model_len = diagnostic_len(&self.gen_model), prompt_len = prompt.len()))]
     async fn generate_json_with_system(&self, system: &str, prompt: &str) -> Result<String> {
         self.generate_internal(system, prompt, Some(serde_json::json!("json")), None)
             .await
@@ -925,7 +925,7 @@ impl GenerationBackend for OllamaBackend {
         self.stream_generate_with_system("", prompt).await
     }
 
-    #[instrument(skip(self, system, prompt), fields(subsystem = "inference", component = "ollama", op = "stream_generate", model = %self.gen_model, prompt_len = prompt.len()))]
+    #[instrument(skip(self, system, prompt), fields(subsystem = "inference", component = "ollama", op = "stream_generate", model_len = diagnostic_len(&self.gen_model), prompt_len = prompt.len()))]
     async fn stream_generate_with_system(
         &self,
         system: &str,

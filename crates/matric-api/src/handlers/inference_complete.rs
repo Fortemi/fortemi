@@ -39,8 +39,8 @@ pub struct ChatMessage {
 impl std::fmt::Debug for ChatMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ChatMessage")
-            .field("role_len", &self.role.chars().count())
-            .field("content_len", &self.content.chars().count())
+            .field("role_len", &complete_text_len(&self.role))
+            .field("content_len", &complete_text_len(&self.content))
             .finish()
     }
 }
@@ -99,15 +99,11 @@ impl std::fmt::Debug for CompleteRequest {
             .as_deref()
             .map(complete_request_url_class)
             .unwrap_or("absent");
-        let base_url_len = self
-            .base_url
-            .as_deref()
-            .map(|value| value.chars().count())
-            .unwrap_or(0);
+        let base_url_len = self.base_url.as_deref().map(complete_text_len).unwrap_or(0);
         let message_content_chars: usize = self
             .messages
             .iter()
-            .map(|message| message.content.chars().count())
+            .map(|message| complete_text_len(&message.content))
             .sum();
 
         f.debug_struct("CompleteRequest")
@@ -115,7 +111,7 @@ impl std::fmt::Debug for CompleteRequest {
             .field("api_key_present", &self.api_key.is_some())
             .field("base_url_class", &base_url_class)
             .field("base_url_len", &base_url_len)
-            .field("model_len", &self.model.chars().count())
+            .field("model_len", &complete_text_len(&self.model))
             .field("message_count", &self.messages.len())
             .field("message_content_chars", &message_content_chars)
             .field("temperature", &self.temperature)
@@ -160,6 +156,10 @@ fn complete_request_url_class(raw: &str) -> &'static str {
     "external"
 }
 
+fn complete_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
 /// Response body for `/complete`.
 #[derive(Clone, Serialize)]
 pub struct CompleteResponse {
@@ -172,10 +172,10 @@ pub struct CompleteResponse {
 impl std::fmt::Debug for CompleteResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CompleteResponse")
-            .field("content_len", &self.content.chars().count())
-            .field("finish_reason_len", &self.finish_reason.chars().count())
-            .field("model_len", &self.model.chars().count())
-            .field("provider_id_len", &self.provider_id.chars().count())
+            .field("content_len", &complete_text_len(&self.content))
+            .field("finish_reason_len", &complete_text_len(&self.finish_reason))
+            .field("model_len", &complete_text_len(&self.model))
+            .field("provider_id_len", &complete_text_len(&self.provider_id))
             .finish()
     }
 }
@@ -205,14 +205,14 @@ pub struct ProviderInfo {
 impl std::fmt::Debug for ProviderInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProviderInfo")
-            .field("id_len", &self.id.chars().count())
-            .field("type_len", &self.r#type.chars().count())
-            .field("name_len", &self.name.chars().count())
+            .field("id_len", &complete_text_len(&self.id))
+            .field("type_len", &complete_text_len(&self.r#type))
+            .field("name_len", &complete_text_len(&self.name))
             .field(
                 "base_url_class",
                 &complete_request_url_class(&self.base_url),
             )
-            .field("base_url_len", &self.base_url.chars().count())
+            .field("base_url_len", &complete_text_len(&self.base_url))
             .field("capability_count", &self.capabilities.len())
             .field("server_configured", &self.server_configured)
             .field("requires_user_key", &self.requires_user_key)
@@ -329,8 +329,8 @@ pub async fn complete(
         Ok(b) => b,
         Err(e) => {
             warn!(
-                provider_id = %provider_id,
-                error_len = e.to_string().chars().count(),
+                provider_id_len = complete_text_len(&provider_id),
+                error_len = complete_text_len(&e.to_string()),
                 "Failed to resolve inline backend"
             );
             return Err(ApiError::BadRequest(
@@ -343,8 +343,8 @@ pub async fn complete(
     let (system, prompt) = flatten_messages(&req.messages);
 
     debug!(
-        provider_id = %provider_id,
-        model = %req.model,
+        provider_id_len = complete_text_len(&provider_id),
+        model_len = complete_text_len(&req.model),
         prompt_len = prompt.len(),
         has_system = !system.is_empty(),
         "Running completion via inline backend"
@@ -359,8 +359,8 @@ pub async fn complete(
     match result {
         Ok(content) => {
             info!(
-                provider_id = %provider_id,
-                model = %req.model,
+                provider_id_len = complete_text_len(&provider_id),
+                model_len = complete_text_len(&req.model),
                 content_len = content.len(),
                 "Completion succeeded"
             );
@@ -373,9 +373,9 @@ pub async fn complete(
         }
         Err(e) => {
             error!(
-                provider_id = %provider_id,
-                model = %req.model,
-                error_len = e.to_string().chars().count(),
+                provider_id_len = complete_text_len(&provider_id),
+                model_len = complete_text_len(&req.model),
+                error_len = complete_text_len(&e.to_string()),
                 "Completion failed"
             );
             Err(ApiError::ProviderFailure {
@@ -422,8 +422,8 @@ pub async fn stream(
         Ok(b) => b,
         Err(e) => {
             warn!(
-                provider_id = %provider_id,
-                error_len = e.to_string().chars().count(),
+                provider_id_len = complete_text_len(&provider_id),
+                error_len = complete_text_len(&e.to_string()),
                 "Failed to resolve inline stream backend"
             );
             return Err(ApiError::BadRequest(
@@ -466,9 +466,9 @@ pub async fn stream(
                         }
                         Err(e) => {
                             error!(
-                                provider_id = %pid_clone,
-                                model = %model_name,
-                                error_len = e.to_string().chars().count(),
+                                provider_id_len = complete_text_len(&pid_clone),
+                                model_len = complete_text_len(&model_name),
+                                error_len = complete_text_len(&e.to_string()),
                                 "Inference stream chunk failed"
                             );
                             let err_payload = inference_failed_sse_payload();
@@ -491,9 +491,9 @@ pub async fn stream(
             }
             Err(e) => {
                 error!(
-                    provider_id = %pid_clone,
-                    model = %model_name,
-                    error_len = e.to_string().chars().count(),
+                    provider_id_len = complete_text_len(&pid_clone),
+                    model_len = complete_text_len(&model_name),
+                    error_len = complete_text_len(&e.to_string()),
                     "Inference stream failed"
                 );
                 let err_payload = inference_failed_sse_payload();
@@ -584,6 +584,14 @@ mod tests {
         assert!(!payload.contains("user:pass"));
         assert!(!payload.contains("sk-secret"));
         assert!(!payload.contains("/tmp/x"));
+    }
+
+    #[test]
+    fn complete_telemetry_lengths_redact_private_values() {
+        let value = "provider/private-model user@example.com token=sk-secret";
+
+        assert_eq!(complete_text_len(value), value.chars().count());
+        assert_eq!(complete_text_len(value), 55);
     }
 
     #[test]

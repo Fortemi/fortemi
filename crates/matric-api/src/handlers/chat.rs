@@ -940,7 +940,7 @@ pub async fn chat_stream_handler(
     messages.push(("user".to_string(), input.to_string()));
 
     debug!(
-        model = %model_name,
+        model_len = chat_text_len(&model_name),
         message_count = messages.len(),
         "Starting streaming chat request"
     );
@@ -1107,6 +1107,14 @@ mod tests {
     #[test]
     fn test_system_prompt_not_empty() {
         assert!(!SYSTEM_PROMPT.is_empty());
+    }
+
+    #[test]
+    fn chat_telemetry_lengths_redact_private_values() {
+        let value = "tenant/private-model user@example.com token=sk-secret";
+
+        assert_eq!(chat_text_len(value), value.chars().count());
+        assert_eq!(chat_text_len(value), 53);
     }
 
     #[test]

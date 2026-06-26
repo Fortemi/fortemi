@@ -2071,8 +2071,8 @@ async fn main() -> anyhow::Result<()> {
         info!(
             base_url_class = telemetry_url_class(&base_url),
             base_url_len = telemetry_text_len(&base_url),
-            embed_model = %EmbeddingBackend::model_name(&backend),
-            gen_model = %GenerationBackend::model_name(&backend),
+            embed_model_len = telemetry_text_len(EmbeddingBackend::model_name(&backend)),
+            gen_model_len = telemetry_text_len(GenerationBackend::model_name(&backend)),
             "Inference backend configured"
         );
         match backend.health_check().await {
