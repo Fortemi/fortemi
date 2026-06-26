@@ -60,6 +60,10 @@ const REEMBED_ALL_JOB_FAILURE: &str =
 const REFRESH_EMBEDDING_SET_JOB_FAILURE: &str =
     "Embedding set refresh failed. Check server logs for diagnostics.";
 const JOB_CHUNK_MERGE_PARSE_FAILURE_DETAIL: &str = "job_chunk_merge_parse_failed";
+const JOB_AI_GENERATION_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_ai_generation_diagnostic_failed";
+const JOB_AI_REVISION_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_ai_revision_diagnostic_failed";
+const JOB_AI_CONTEXTUAL_REVISION_DIAGNOSTIC_FAILURE_DETAIL: &str =
+    "job_ai_contextual_revision_diagnostic_failed";
 const JOB_PROVENANCE_WRITE_FAILURE_DETAIL: &str = "job_provenance_write_failed";
 const JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL: &str = "job_queue_followup_failed";
 const JOB_REVISION_NOTE_UPDATE_FAILURE_DETAIL: &str = "job_revision_note_update_failed";
@@ -83,7 +87,8 @@ fn diagnostic_len(error: impl std::fmt::Display) -> usize {
 
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
-        error = %error,
+        error_len = diagnostic_len(error),
+        detail = JOB_AI_GENERATION_DIAGNOSTIC_FAILURE_DETAIL,
         operation,
         "AI generation job failed"
     );
@@ -1151,7 +1156,8 @@ impl JobHandler for AiRevisionHandler {
                     if is_chunked {
                         // Graceful degradation: skip failed chunks rather than failing the job
                         warn!(
-                            error = %e,
+                            error_len = diagnostic_len(&e),
+                            detail = JOB_AI_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
                             chunk = chunk_idx + 1,
                             total = total_chunks,
                             timeout_secs = chunk_timeout,
@@ -1159,7 +1165,8 @@ impl JobHandler for AiRevisionHandler {
                         );
                     } else {
                         warn!(
-                            error = %e,
+                            error_len = diagnostic_len(&e),
+                            detail = JOB_AI_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
                             timeout_secs = chunk_timeout,
                             "AI revision generation failed"
                         );
@@ -1840,7 +1847,8 @@ Output the revised note in clean markdown format. Do not add any labels, markers
                 Err(e) => {
                     if is_chunked {
                         warn!(
-                            error = %e,
+                            error_len = diagnostic_len(&e),
+                            detail = JOB_AI_CONTEXTUAL_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
                             chunk = chunk_idx + 1,
                             total = total_chunks,
                             timeout_secs = chunk_timeout,
@@ -1848,7 +1856,8 @@ Output the revised note in clean markdown format. Do not add any labels, markers
                         );
                     } else {
                         warn!(
-                            error = %e,
+                            error_len = diagnostic_len(&e),
+                            detail = JOB_AI_CONTEXTUAL_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
                             timeout_secs = chunk_timeout,
                             "AI contextual revision generation failed"
                         );
@@ -2348,7 +2357,13 @@ impl TitleGenerationHandler {
         {
             Ok(job_id) => job_id,
             Err(e) => {
-                warn!(%note_id, next_tier, error = %e, "Failed to queue title generation tier escalation");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_TITLE_ESCALATION_FAILURE_DETAIL,
+                    next_tier,
+                    operation = "queue_title_generation_tier_escalation",
+                    "Failed to queue title generation tier escalation"
+                );
                 None
             }
         }
@@ -3717,7 +3732,12 @@ impl ConceptTaggingHandler {
         {
             Ok(job_id) => job_id,
             Err(e) => {
-                warn!(%note_id, error = %e, "Failed to queue phase-2 related concept inference job");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
+                    operation = "queue_phase2_related_concept_inference",
+                    "Failed to queue phase-2 related concept inference job"
+                );
                 None
             }
         }
@@ -3967,7 +3987,14 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             match backend.generate_json(&prompt).await {
                 Ok(r) => chunk_results.push(r.trim().to_string()),
                 Err(e) => {
-                    info!(chunk = i, chunks = chunks.len(), error = %e, "Tier-1 fast model failed on chunk, skipping");
+                    info!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
+                        chunk = i,
+                        chunks = chunks.len(),
+                        operation = "tier1_fast_concept_chunk",
+                        "Tier-1 fast model failed on chunk, skipping"
+                    );
                 }
             }
         }
@@ -4142,9 +4169,10 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             Ok(job_id) => job_id,
             Err(e) => {
                 warn!(
-                    %note_id,
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
                     next_tier,
-                    error = %e,
+                    operation = "queue_concept_tagging_tier_escalation",
                     "Failed to queue concept tagging tier escalation"
                 );
                 None
@@ -4393,7 +4421,13 @@ impl JobHandler for ConceptTaggingHandler {
             {
                 Ok(r) => r,
                 Err(e) => {
-                    warn!(label = %label, error = %e, "Failed to resolve concept");
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_CONCEPT_TAGGING_DIAGNOSTIC_FAILURE_DETAIL,
+                        label_len = label.chars().count(),
+                        operation = "resolve_concept_tag",
+                        "Failed to resolve concept"
+                    );
                     tx.commit().await.ok();
                     continue;
                 }
@@ -4547,7 +4581,13 @@ impl ReferenceExtractionHandler {
         {
             Ok(job_id) => job_id,
             Err(e) => {
-                warn!(%note_id, next_tier, error = %e, "Failed to queue reference extraction tier escalation");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                    next_tier,
+                    operation = "queue_reference_extraction_tier_escalation",
+                    "Failed to queue reference extraction tier escalation"
+                );
                 None
             }
         }
@@ -4975,7 +5015,13 @@ impl JobHandler for ReferenceExtractionHandler {
             {
                 Ok(r) => r,
                 Err(e) => {
-                    warn!(tag_path = %tag_path, error = %e, "Failed to resolve reference concept");
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                        tag_path_len = tag_path.chars().count(),
+                        operation = "resolve_reference_concept",
+                        "Failed to resolve reference concept"
+                    );
                     tx.commit().await.ok();
                     continue;
                 }
@@ -5126,7 +5172,12 @@ impl RelatedConceptHandler {
         {
             Ok(job_id) => job_id,
             Err(e) => {
-                warn!(%note_id, error = %e, "Failed to queue phase-3 embedding job");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
+                    operation = "queue_phase3_embedding_job",
+                    "Failed to queue phase-3 embedding job"
+                );
                 None
             }
         };
@@ -5144,7 +5195,12 @@ impl RelatedConceptHandler {
         {
             Ok(job_id) => job_id,
             Err(e) => {
-                warn!(%note_id, error = %e, "Failed to queue phase-3 linking job");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
+                    operation = "queue_phase3_linking_job",
+                    "Failed to queue phase-3 linking job"
+                );
                 None
             }
         };
@@ -5177,7 +5233,12 @@ impl RelatedConceptHandler {
         {
             Ok(job_id) => job_id,
             Err(e) => {
-                warn!(%note_id, error = %e, "Failed to queue related concept tier-2 escalation");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_RELATED_CONCEPT_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "queue_related_concept_tier2_escalation",
+                    "Failed to queue related concept tier-2 escalation"
+                );
                 None
             }
         }
@@ -5445,7 +5506,8 @@ If no meaningful related pairs exist, output an empty array: []"#
                             })));
                         }
                         warn!(
-                            error = %e,
+                            error_len = diagnostic_len(&e),
+                            detail = JOB_RELATED_CONCEPT_DIAGNOSTIC_FAILURE_DETAIL,
                             response_len = ai_response.len(),
                             parser = "related_concept_pairs",
                             "Failed to parse related concept pairs"
@@ -5652,7 +5714,13 @@ impl MetadataExtractionHandler {
         {
             Ok(job_id) => job_id,
             Err(e) => {
-                warn!(%note_id, next_tier, error = %e, "Failed to queue metadata extraction tier escalation");
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_METADATA_DIAGNOSTIC_FAILURE_DETAIL,
+                    next_tier,
+                    operation = "queue_metadata_extraction_tier_escalation",
+                    "Failed to queue metadata extraction tier escalation"
+                );
                 None
             }
         }
@@ -5852,7 +5920,8 @@ Example output:
                             })));
                         }
                         warn!(
-                            error = %e,
+                            error_len = diagnostic_len(&e),
+                            detail = JOB_METADATA_DIAGNOSTIC_FAILURE_DETAIL,
                             response_len = ai_response.len(),
                             parser = "metadata_json",
                             "Failed to parse AI metadata response"
@@ -8346,6 +8415,9 @@ Quick note about the meeting discussion and action items."#;
 
         for detail in [
             JOB_CHUNK_MERGE_PARSE_FAILURE_DETAIL,
+            JOB_AI_GENERATION_DIAGNOSTIC_FAILURE_DETAIL,
+            JOB_AI_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
+            JOB_AI_CONTEXTUAL_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
             JOB_PROVENANCE_WRITE_FAILURE_DETAIL,
             JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
             JOB_REVISION_NOTE_UPDATE_FAILURE_DETAIL,
