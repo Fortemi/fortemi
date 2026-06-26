@@ -1568,6 +1568,25 @@ fn telemetry_text_len(value: &str) -> usize {
     value.chars().count()
 }
 
+#[derive(Clone, Copy)]
+struct StartupPathTelemetry {
+    path_len: usize,
+}
+
+impl fmt::Debug for StartupPathTelemetry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StartupPathTelemetry")
+            .field("path_len", &self.path_len)
+            .finish()
+    }
+}
+
+fn startup_path_telemetry(path: &str) -> StartupPathTelemetry {
+    StartupPathTelemetry {
+        path_len: telemetry_text_len(path),
+    }
+}
+
 fn preload_diagnostic_reason(value: &str) -> &'static str {
     let value = value.to_ascii_lowercase();
     if value.contains("timeout") || value.contains("timed out") {
@@ -1926,11 +1945,13 @@ async fn main() -> anyhow::Result<()> {
     // Initialize file storage
     let file_storage_path =
         std::env::var("FILE_STORAGE_PATH").unwrap_or_else(|_| "/var/lib/matric/files".to_string());
+    let file_storage_path_meta = startup_path_telemetry(&file_storage_path);
     // Ensure storage directory exists on startup (issue #123, #154)
     if let Err(e) = tokio::fs::create_dir_all(&file_storage_path).await {
         error!(
-            "Could not create file storage directory {}: {} — attachment uploads will fail!",
-            file_storage_path, e
+            path_len = file_storage_path_meta.path_len,
+            error_len = telemetry_text_len(&e.to_string()),
+            "Could not create file storage directory; attachment uploads will fail!"
         );
     }
     // Validate storage works before accepting uploads (issue #150)
@@ -1938,10 +1959,14 @@ async fn main() -> anyhow::Result<()> {
     {
         let backend = FilesystemBackend::new(&file_storage_path);
         match backend.validate().await {
-            Ok(()) => info!("File storage validated at {}", file_storage_path),
+            Ok(()) => info!(
+                path_len = file_storage_path_meta.path_len,
+                "File storage validated"
+            ),
             Err(e) => error!(
-                "File storage validation FAILED at {}: {}",
-                file_storage_path, e
+                path_len = file_storage_path_meta.path_len,
+                error_len = telemetry_text_len(&e.to_string()),
+                "File storage validation failed"
             ),
         }
         // Sweep `*.bin.tmp` orphans older than 5 minutes — they cannot belong
@@ -1952,7 +1977,7 @@ async fn main() -> anyhow::Result<()> {
         if swept > 0 {
             info!(
                 count = swept,
-                base = %file_storage_path,
+                base_path_len = file_storage_path_meta.path_len,
                 "file_storage: swept stale .bin.tmp files at startup"
             );
         }
@@ -1962,7 +1987,10 @@ async fn main() -> anyhow::Result<()> {
         &file_storage_path,
         matric_core::defaults::FILE_INLINE_THRESHOLD as i64, // 1MB inline threshold
     );
-    info!("File storage initialized at {}", file_storage_path);
+    info!(
+        path_len = file_storage_path_meta.path_len,
+        "File storage initialized"
+    );
 
     // Create search engine
     let search = Arc::new(HybridSearchEngine::new(db.clone()));
@@ -2492,13 +2520,18 @@ async fn main() -> anyhow::Result<()> {
     // Create tus staging directory for resumable uploads (Issue #528)
     let tus_staging_path =
         std::env::var("TUS_STAGING_DIR").unwrap_or_else(|_| "/tmp/matric-tus-staging".to_string());
+    let tus_staging_path_meta = startup_path_telemetry(&tus_staging_path);
     if let Err(e) = tokio::fs::create_dir_all(&tus_staging_path).await {
         warn!(
-            "Could not create tus staging directory {}: {} — resumable uploads will fail!",
-            tus_staging_path, e
+            path_len = tus_staging_path_meta.path_len,
+            error_len = telemetry_text_len(&e.to_string()),
+            "Could not create tus staging directory; resumable uploads will fail!"
         );
     } else {
-        info!("Tus staging directory ready at {}", tus_staging_path);
+        info!(
+            path_len = tus_staging_path_meta.path_len,
+            "Tus staging directory ready"
+        );
     }
 
     // Create chat backend + semaphore (#549).
@@ -37682,6 +37715,24 @@ mod tests {
         assert!(!debug.contains("/srv/fortemi/private/blob.bin"));
         assert!(!debug.contains("local://operator@example.com/private"));
         assert!(!debug.contains(&attachment_id.to_string()));
+    }
+
+    #[test]
+    fn startup_path_telemetry_debug_redacts_raw_paths() {
+        let meta = startup_path_telemetry(
+            "/srv/fortemi/tenant/operator@example.com/private/sk-live-secret",
+        );
+
+        let debug = format!("{meta:?}");
+
+        assert_eq!(
+            meta.path_len,
+            telemetry_text_len("/srv/fortemi/tenant/operator@example.com/private/sk-live-secret")
+        );
+        assert!(debug.contains("path_len"));
+        assert!(!debug.contains("/srv/fortemi"));
+        assert!(!debug.contains("operator@example.com"));
+        assert!(!debug.contains("sk-live-secret"));
     }
 
     #[test]
