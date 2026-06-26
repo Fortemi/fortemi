@@ -25332,6 +25332,10 @@ fn database_restore_success_message() -> String {
     "Database restored from backup".to_string()
 }
 
+fn backup_response_filename_metadata(filename: &str) -> String {
+    format!("filename_len:{}", telemetry_text_len(filename))
+}
+
 /// Restore a backup into a specific memory using DROP SCHEMA CASCADE.
 ///
 /// This is dramatically simpler than public schema restore because:
@@ -25466,7 +25470,7 @@ async fn memory_scoped_restore(
             backup_restore_issue_message("Memory restore", &output.stderr)
         },
         prerestore_backup: None,
-        restored_from: filename.to_string(),
+        restored_from: backup_response_filename_metadata(filename),
         reconnect_delay_ms: 0,
     }))
 }
@@ -25828,8 +25832,10 @@ CREATE INDEX IF NOT EXISTS idx_revised_current_tsv ON note_revised_current USING
         } else {
             backup_restore_issue_message("Database restore", &output.stderr)
         },
-        prerestore_backup: prerestore_filename,
-        restored_from: req.filename,
+        prerestore_backup: prerestore_filename
+            .as_deref()
+            .map(backup_response_filename_metadata),
+        restored_from: backup_response_filename_metadata(&req.filename),
         reconnect_delay_ms,
     }))
 }
@@ -28637,6 +28643,37 @@ mod tests {
             "private-restore.sql.gz",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn database_restore_response_filenames_use_metadata_only() {
+        let response = DatabaseRestoreResponse {
+            success: true,
+            message: database_restore_success_message(),
+            prerestore_backup: Some(backup_response_filename_metadata(
+                "prerestore-mm_key_secret-customer.sql.gz",
+            )),
+            restored_from: backup_response_filename_metadata(
+                "customer-postgres-secret-mm_key_restore.sql.gz",
+            ),
+            reconnect_delay_ms: 1000,
+        };
+
+        let rendered = serde_json::to_string(&response).unwrap();
+
+        assert!(rendered.contains("\"prerestore_backup\":\"filename_len:"));
+        assert!(rendered.contains("\"restored_from\":\"filename_len:"));
+        for raw in [
+            "customer-postgres-secret",
+            "mm_key_restore",
+            "prerestore-mm_key_secret",
+            "private.sql.gz",
+            "/srv/backups/customer",
+            "postgres://user:pass",
+            "db.internal",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 
