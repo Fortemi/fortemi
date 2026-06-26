@@ -20,7 +20,10 @@ use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::info;
 
-use super::source::{InboundError, InboundEvent, InboundEventSource, InboundResult, Offset};
+use super::source::{
+    telemetry_destination_class, telemetry_text_len, InboundError, InboundEvent,
+    InboundEventSource, InboundResult, Offset,
+};
 
 /// Connector config, deserialized from the `inbound_source.config` JSONB.
 #[derive(Debug, Clone, Deserialize)]
@@ -117,9 +120,10 @@ impl SseSource {
             )));
         }
         info!(
-            "sse '{}' connected to {}",
-            self.name,
-            self.config.url.trim()
+            source_name_len = telemetry_text_len(&self.name),
+            destination_class = telemetry_destination_class(self.config.url.trim()),
+            destination_len = telemetry_text_len(self.config.url.trim()),
+            "sse connector connected"
         );
         Ok(SseState {
             resp,

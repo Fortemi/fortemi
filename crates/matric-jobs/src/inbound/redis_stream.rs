@@ -18,7 +18,10 @@ use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::info;
 
-use super::source::{InboundError, InboundEvent, InboundEventSource, InboundResult, Offset};
+use super::source::{
+    telemetry_destination_class, telemetry_text_len, InboundError, InboundEvent,
+    InboundEventSource, InboundResult, Offset,
+};
 
 /// Connector config, deserialized from the `inbound_source.config` JSONB.
 #[derive(Debug, Clone, Deserialize)]
@@ -114,8 +117,13 @@ impl RedisStreamSource {
             .query_async(&mut conn)
             .await;
         info!(
-            "redis-stream '{}' connected (stream={}, group={}, consumer={})",
-            self.name, self.config.stream, self.config.group, self.config.consumer
+            source_name_len = telemetry_text_len(&self.name),
+            destination_class = telemetry_destination_class(&self.config.url),
+            destination_len = telemetry_text_len(&self.config.url),
+            stream_len = telemetry_text_len(&self.config.stream),
+            group_len = telemetry_text_len(&self.config.group),
+            consumer_len = telemetry_text_len(&self.config.consumer),
+            "redis-stream connector connected"
         );
         *guard = Some(conn);
         Ok(())

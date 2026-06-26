@@ -18,7 +18,9 @@ use matric_db::{CreateOutboxEvent, Database};
 
 use super::metrics::InboundMetrics;
 use super::registry::SourceRegistry;
-use super::source::{InboundError, InboundEvent, InboundEventSource};
+use super::source::{
+    inbound_error_reason_code, telemetry_text_len, InboundError, InboundEvent, InboundEventSource,
+};
 
 const DEFAULT_MAX_ATTEMPTS: u32 = 3;
 const MAX_BACKOFF_SECS: u64 = 30;
@@ -59,7 +61,12 @@ impl InboundSupervisor {
         let enabled = match self.db.inbound_sources.list_enabled().await {
             Ok(v) => v,
             Err(e) => {
-                warn!("inbound supervisor: failed to load enabled sources: {e}");
+                let error = e.to_string();
+                warn!(
+                    reason_code = inbound_error_reason_code(&error),
+                    error_len = telemetry_text_len(&error),
+                    "inbound supervisor failed to load enabled sources"
+                );
                 return Vec::new();
             }
         };
@@ -68,15 +75,22 @@ impl InboundSupervisor {
             match registry.build(&cfg.kind, &cfg.name, &cfg.config) {
                 Ok(src) => {
                     info!(
-                        "inbound supervisor: starting connector '{}' (kind {})",
-                        cfg.name, cfg.kind
+                        source_name_len = telemetry_text_len(&cfg.name),
+                        kind_len = telemetry_text_len(&cfg.kind),
+                        "inbound supervisor starting connector"
                     );
                     sources.push(src);
                 }
-                Err(e) => warn!(
-                    "inbound supervisor: skip '{}' (kind {}): {e}",
-                    cfg.name, cfg.kind
-                ),
+                Err(e) => {
+                    let error = e.to_string();
+                    warn!(
+                        source_name_len = telemetry_text_len(&cfg.name),
+                        kind_len = telemetry_text_len(&cfg.kind),
+                        reason_code = inbound_error_reason_code(&error),
+                        error_len = telemetry_text_len(&error),
+                        "inbound supervisor skipped connector"
+                    );
+                }
             }
         }
         self.spawn_all(sources)
@@ -108,14 +122,23 @@ impl InboundSupervisor {
                     self.handle_event(source.as_ref(), event).await;
                 }
                 Err(InboundError::Closed) => {
-                    info!("inbound connector '{name}' closed");
+                    info!(
+                        source_name_len = telemetry_text_len(&name),
+                        "inbound connector closed"
+                    );
                     break;
                 }
                 Err(InboundError::Transient(e)) => {
                     self.metrics.record_error(&name);
                     fetch_fail = fetch_fail.saturating_add(1);
                     let delay = backoff(fetch_fail);
-                    warn!("inbound connector '{name}' fetch error (retry in {delay:?}): {e}");
+                    warn!(
+                        source_name_len = telemetry_text_len(&name),
+                        reason_code = inbound_error_reason_code(&e),
+                        error_len = telemetry_text_len(&e),
+                        retry_ms = delay.as_millis() as u64,
+                        "inbound connector fetch error"
+                    );
                     tokio::time::sleep(delay).await;
                 }
             }
@@ -130,14 +153,24 @@ impl InboundSupervisor {
             match self.process(name, &event).await {
                 Ok(()) => {
                     if let Err(e) = source.commit(event.offset.clone()).await {
-                        warn!("inbound connector '{name}': offset commit failed: {e}");
+                        let error = e.to_string();
+                        warn!(
+                            source_name_len = telemetry_text_len(name),
+                            reason_code = inbound_error_reason_code(&error),
+                            error_len = telemetry_text_len(&error),
+                            "inbound connector offset commit failed"
+                        );
                     }
                     self.metrics.record_event(name);
                     return;
                 }
                 Err(reason) if attempt >= self.max_attempts => {
                     warn!(
-                        "inbound connector '{name}': dead-lettering event after {attempt} attempts: {reason}"
+                        source_name_len = telemetry_text_len(name),
+                        attempts = attempt,
+                        reason_code = inbound_error_reason_code(&reason),
+                        reason_len = telemetry_text_len(&reason),
+                        "inbound connector dead-lettering event"
                     );
                     if let Err(e) = self
                         .db
@@ -151,7 +184,13 @@ impl InboundSupervisor {
                         )
                         .await
                     {
-                        warn!("inbound connector '{name}': DLQ write failed: {e}");
+                        let error = e.to_string();
+                        warn!(
+                            source_name_len = telemetry_text_len(name),
+                            reason_code = inbound_error_reason_code(&error),
+                            error_len = telemetry_text_len(&error),
+                            "inbound connector DLQ write failed"
+                        );
                     }
                     // Commit to skip the poison event; healthy events stay at-least-once.
                     let _ = source.commit(event.offset.clone()).await;
@@ -193,7 +232,7 @@ impl InboundSupervisor {
             .emit_event(outbox)
             .await
             .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(|_| "outbox_emit_failed".to_string())
     }
 }
 

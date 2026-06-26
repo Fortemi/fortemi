@@ -29,7 +29,10 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 use tracing::{info, warn};
 
-use super::source::{InboundError, InboundEvent, InboundEventSource, InboundResult, Offset};
+use super::source::{
+    inbound_error_reason_code, telemetry_destination_class, telemetry_text_len, InboundError,
+    InboundEvent, InboundEventSource, InboundResult, Offset,
+};
 
 /// Connector config, deserialized from the `inbound_source.config` JSONB.
 #[derive(Debug, Clone, Deserialize)]
@@ -130,8 +133,12 @@ impl KafkaSource {
             };
 
         info!(
-            "kafka '{}' subscribed (topic={}, group={})",
-            name, cfg.topic, cfg.group_id
+            source_name_len = telemetry_text_len(name),
+            destination_class = telemetry_destination_class(&cfg.bootstrap_servers),
+            destination_len = telemetry_text_len(&cfg.bootstrap_servers),
+            topic_len = telemetry_text_len(&cfg.topic),
+            group_len = telemetry_text_len(&cfg.group_id),
+            "kafka connector subscribed"
         );
         Ok(Self {
             name: name.to_string(),
@@ -156,8 +163,11 @@ impl KafkaSource {
             let record = FutureRecord::to(topic).payload(bytes).key(key);
             if let Err((e, _)) = prod.send(record, Duration::from_secs(5)).await {
                 warn!(
-                    "kafka '{}': dead-letter produce to {topic} failed: {e}",
-                    self.name
+                    source_name_len = telemetry_text_len(&self.name),
+                    topic_len = telemetry_text_len(topic),
+                    reason_code = inbound_error_reason_code(&e.to_string()),
+                    error_len = telemetry_text_len(&e.to_string()),
+                    "kafka dead-letter produce failed"
                 );
             }
         }

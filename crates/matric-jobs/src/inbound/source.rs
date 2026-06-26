@@ -50,6 +50,71 @@ pub enum InboundError {
 
 pub type InboundResult<T> = std::result::Result<T, InboundError>;
 
+/// Bounded length helper for user/backend-originated diagnostic strings.
+pub(crate) fn telemetry_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+/// Coarse destination class for connector endpoints.
+pub(crate) fn telemetry_destination_class(raw: &str) -> &'static str {
+    let value = raw.trim().to_ascii_lowercase();
+    if value.is_empty() {
+        "empty"
+    } else if value.starts_with("https://") {
+        "https"
+    } else if value.starts_with("http://") {
+        "http"
+    } else if value.starts_with("rediss://") {
+        "rediss"
+    } else if value.starts_with("redis://") {
+        "redis"
+    } else if value.contains(',') {
+        "broker_list"
+    } else if value.contains(':') {
+        "host_port"
+    } else {
+        "other"
+    }
+}
+
+/// Stable reason codes for connector/backend errors before broad telemetry.
+pub(crate) fn inbound_error_reason_code(error: &str) -> &'static str {
+    let value = error.to_ascii_lowercase();
+    if value.contains("invalid")
+        || value.contains("malformed")
+        || value.contains("requires")
+        || value.contains("empty")
+        || value.contains("parse")
+    {
+        "invalid_config_or_payload"
+    } else if value.contains("timeout") || value.contains("timed out") {
+        "timeout"
+    } else if value.contains("connect")
+        || value.contains("connection")
+        || value.contains("network")
+        || value.contains("dns")
+    {
+        "connection_failed"
+    } else if value.contains("auth")
+        || value.contains("permission")
+        || value.contains("denied")
+        || value.contains("forbidden")
+        || value.contains("unauthorized")
+    {
+        "authorization_failed"
+    } else if value.contains("subscribe") {
+        "subscribe_failed"
+    } else if value.contains("commit") || value.contains("xack") {
+        "commit_failed"
+    } else if value.contains("dlq") || value.contains("dead-letter") {
+        "dead_letter_failed"
+    } else if value.contains("outbox") || value.contains("database") || value.contains("sql") {
+        "storage_failed"
+    } else {
+        "backend_error"
+    }
+}
+
 /// A pluggable inbound event source. Concrete connectors (#834 Redis Stream,
 /// #835 SSE, #836 Kafka) implement this; the supervisor drives it.
 #[async_trait]
@@ -127,5 +192,31 @@ mod tests {
         src.commit(b.offset).await.unwrap();
         assert!(matches!(src.next_event().await, Err(InboundError::Closed)));
         assert_eq!(src.committed(), vec!["1-0".to_string(), "1-1".to_string()]);
+    }
+
+    #[test]
+    fn telemetry_destination_class_omits_raw_endpoint_parts() {
+        assert_eq!(
+            telemetry_destination_class("https://user:secret@example.internal/events?token=x"),
+            "https"
+        );
+        assert_eq!(
+            telemetry_destination_class("redis://user:secret@redis.internal:6379/0"),
+            "redis"
+        );
+        assert_eq!(
+            telemetry_destination_class("broker-a.internal:9092,broker-b.internal:9092"),
+            "broker_list"
+        );
+    }
+
+    #[test]
+    fn inbound_error_reason_code_avoids_raw_error_text() {
+        let raw = "connect failed for https://user:secret@example.internal/path";
+        let code = inbound_error_reason_code(raw);
+        assert_eq!(code, "connection_failed");
+        assert!(!code.contains("secret"));
+        assert!(!code.contains("example"));
+        assert!(!code.contains("https://"));
     }
 }
