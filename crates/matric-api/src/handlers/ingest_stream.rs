@@ -494,7 +494,7 @@ struct IngestNoteData {
 /// parse contract is unit-testable without a server.
 fn parse_ingest_line(raw: &[u8]) -> Result<CreateNoteRequest, String> {
     let line: IngestLine =
-        serde_json::from_slice(raw).map_err(|e| format!("invalid ingest line: {e}"))?;
+        serde_json::from_slice(raw).map_err(|_| "invalid ingest line".to_string())?;
     match line {
         IngestLine::Note(n) => build_note_request(n),
     }
@@ -1450,13 +1450,18 @@ mod tests {
     fn parse_rejects_unknown_type() {
         let err = parse_ingest_line(br#"{"type":"widget","data":{"content":"x"}}"#)
             .expect_err("unknown envelope type must be rejected");
-        assert!(err.contains("invalid ingest line"), "got: {err}");
+        assert_eq!(err, "invalid ingest line");
+        assert!(!err.contains("widget"));
+        assert!(!err.contains("unknown variant"));
     }
 
     #[test]
     fn parse_rejects_malformed_json() {
         let err = parse_ingest_line(b"{not json").expect_err("malformed JSON must be rejected");
-        assert!(err.contains("invalid ingest line"), "got: {err}");
+        assert_eq!(err, "invalid ingest line");
+        assert!(!err.contains("line 1 column"));
+        assert!(!err.contains("column"));
+        assert!(!err.contains("not json"));
     }
 
     // ---- IngestFrame --------------------------------------------------------
