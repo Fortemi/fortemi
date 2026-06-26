@@ -187,10 +187,29 @@ impl fmt::Debug for TwilioDtmf {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum TwilioTranslatedEvent {
     Media(MediaFrame),
     Control(CallControlEvent),
+}
+
+impl fmt::Debug for TwilioTranslatedEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Media(frame) => f
+                .debug_struct("TwilioTranslatedEvent::Media")
+                .field("codec", &frame.codec)
+                .field("timestamp_rtp", &frame.timestamp_rtp)
+                .field("sequence", &frame.sequence)
+                .field("marker", &frame.marker)
+                .field("payload_len", &frame.payload.len())
+                .finish(),
+            Self::Control(event) => f
+                .debug_struct("TwilioTranslatedEvent::Control")
+                .field("event_class", &twilio_control_event_class(event))
+                .finish(),
+        }
+    }
 }
 
 pub fn translate_media_stream_json(input: &str) -> Result<TwilioTranslatedEvent> {
@@ -275,13 +294,44 @@ fn with_sequence(
 /// the generic [`CallTransport`] contract to be exercised without a live
 /// Twilio WebSocket. Production sockets should feed received envelopes through
 /// the same translation functions before handing frames to downstream ASR.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TwilioMediaStreamAdapter {
     provider_call_id: String,
     frames: Vec<MediaFrame>,
     control_events: Vec<CallControlEvent>,
     dropped_on_close: Option<String>,
     ended: Option<EndReason>,
+}
+
+impl fmt::Debug for TwilioMediaStreamAdapter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TwilioMediaStreamAdapter")
+            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field("frames_count", &self.frames.len())
+            .field(
+                "frame_payload_lens",
+                &self
+                    .frames
+                    .iter()
+                    .map(|frame| frame.payload.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("control_events_count", &self.control_events.len())
+            .field(
+                "control_event_classes",
+                &self
+                    .control_events
+                    .iter()
+                    .map(twilio_control_event_class)
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "dropped_on_close_len",
+                &self.dropped_on_close.as_ref().map(String::len),
+            )
+            .field("ended", &self.ended)
+            .finish()
+    }
 }
 
 impl TwilioMediaStreamAdapter {
@@ -422,16 +472,66 @@ impl fmt::Debug for TwilioVoiceWebhookForm {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TwilioVoiceWebhookEvent {
     pub provider_call_id: String,
     pub control_event: CallControlEvent,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl fmt::Debug for TwilioVoiceWebhookEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TwilioVoiceWebhookEvent")
+            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field(
+                "control_event_class",
+                &twilio_control_event_class(&self.control_event),
+            )
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct TwilioCallEventOutbox {
     pub event_type: &'static str,
     pub payload: Value,
+}
+
+impl fmt::Debug for TwilioCallEventOutbox {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TwilioCallEventOutbox")
+            .field("event_type", &self.event_type)
+            .field("payload_class", &twilio_json_class(&self.payload))
+            .field("payload_len", &self.payload.to_string().len())
+            .finish()
+    }
+}
+
+fn twilio_control_event_class(event: &CallControlEvent) -> &'static str {
+    match event {
+        CallControlEvent::CallStarted { .. } => "call_started",
+        CallControlEvent::StateChanged { state } => match state {
+            CallState::Ringing => "state_ringing",
+            CallState::EarlyMedia => "state_early_media",
+            CallState::Active => "state_active",
+            CallState::OnHold => "state_on_hold",
+            CallState::Ended { .. } => "state_ended",
+        },
+        CallControlEvent::DtmfDigit { .. } => "dtmf_digit",
+        CallControlEvent::RecordingAvailable { .. } => "recording_available",
+        CallControlEvent::Dropped { .. } => "dropped",
+        CallControlEvent::Custom { .. } => "custom",
+    }
+}
+
+fn twilio_json_class(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
 }
 
 pub fn translate_voice_webhook_form(input: &[u8]) -> Result<TwilioVoiceWebhookEvent> {
@@ -676,6 +776,55 @@ mod tests {
             "api.twilio.com",
             "sk-live-recording",
             "v2026-private",
+        ] {
+            assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn twilio_translated_debug_redacts_provider_payloads_and_call_metadata() {
+        let media = translate_media_stream_json(
+            r#"{"event":"media","sequenceNumber":"7","media":{"payload":"c2stdG9rZW4tcGF5bG9hZA==","timestamp":"160","chunk":"3"}}"#,
+        )
+        .unwrap();
+        let started = translate_voice_webhook_form(
+            b"CallSid=CAcustomer@example.com&CallStatus=ringing&From=%2B15551230000&RecordingUrl=https%3A%2F%2Fapi.twilio.com%2Frecording.wav%3Ftoken%3Dsk-live-recording&ConsentConfirmed=true",
+        )
+        .unwrap();
+        let outbox = call_event_outbox_for_control_event(&started.control_event, false).unwrap();
+        let adapter = TwilioMediaStreamAdapter::from_envelopes(
+            "CApostgres://user:pass@db.internal/app",
+            [
+                r#"{"event":"start","sequenceNumber":"1","start":{"callSid":"CAprivate-start"}}"#,
+                r#"{"event":"media","sequenceNumber":"2","media":{"payload":"/////w==","timestamp":"160","chunk":"1"}}"#,
+            ],
+        )
+        .unwrap()
+        .dropped_on_close("socket closed for +15559870000 sk-live-drop");
+
+        let combined = format!("{media:?}\n{started:?}\n{outbox:?}\n{adapter:?}");
+
+        assert!(combined.contains("payload_len"));
+        assert!(combined.contains("provider_call_id_len"));
+        assert!(combined.contains("control_event_class"));
+        assert!(combined.contains("payload_class"));
+        assert!(combined.contains("dropped_on_close_len"));
+        assert!(combined.contains("call_started"));
+
+        for raw in [
+            "c2stdG9rZW4tcGF5bG9hZA",
+            "CAcustomer",
+            "customer@example.com",
+            "+15551230000",
+            "api.twilio.com",
+            "sk-live-recording",
+            "postgres://user:pass",
+            "db.internal",
+            "CAprivate-start",
+            "+15559870000",
+            "sk-live-drop",
+            "remote_party",
+            "consent_confirmed",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
