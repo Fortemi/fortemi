@@ -101,6 +101,8 @@ CE guarantees:
 Operational logs, public health metrics, retained event payloads, and protected
 diagnostics use the separate hosted telemetry classes in
 `docs/architecture/hosted-telemetry-classification.md`.
+Hosted secret classes, response metadata, storage rules, and lifecycle
+requirements are defined in `docs/architecture/hosted-secret-inventory.md`.
 
 ## Health Checks
 

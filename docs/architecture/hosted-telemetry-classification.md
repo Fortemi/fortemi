@@ -4,6 +4,8 @@ This contract defines how hosted Fortemi classifies logs, telemetry, retained
 event payloads, health output, and diagnostics. It complements the normalized
 `fortemi.audit` stream in `docs/architecture/audit-event-mapping.md`; ordinary
 operational telemetry must not become an unclassified audit or content store.
+Secret classes, storage rules, response metadata, and credential lifecycle
+requirements are defined in `docs/architecture/hosted-secret-inventory.md`.
 
 ## Classes
 
@@ -81,7 +83,8 @@ localized stores.
 - #967 owns public API error shapes; error payloads must use stable problem
   codes and request ids, not backend messages or sensitive details.
 - #968 owns secret classes, storage/lifecycle rules, and shared redaction
-  semantics used by telemetry.
+  semantics used by telemetry; see
+  `docs/architecture/hosted-secret-inventory.md`.
 - #974 owns this operational telemetry classification and the call-site
   migration away from raw values.
 - #939 owns Redis Stream payload minimization; Redis/event stream payloads still

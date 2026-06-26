@@ -33,6 +33,8 @@ Operational logs and diagnostics linked from `request_id` follow the hosted
 telemetry classes in
 `docs/architecture/hosted-telemetry-classification.md`; problem responses remain
 public-safe interface errors, not a diagnostic sink.
+Secret and credential classes that must not appear in problem responses are
+defined in `docs/architecture/hosted-secret-inventory.md`.
 
 ## Stable Problem Types
 

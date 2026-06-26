@@ -10,6 +10,9 @@ diagnostics use the hosted telemetry classes in
 `docs/architecture/hosted-telemetry-classification.md`. DSAR implementations
 must map those classes into retention, beyond-use, export, and legal-hold
 behavior instead of treating broad logs as a single undifferentiated store.
+Credential metadata and secret storage classes use the hosted secret inventory
+in `docs/architecture/hosted-secret-inventory.md`; DSAR exports must describe
+safe metadata without exposing raw secret values.
 
 ## Context
 
