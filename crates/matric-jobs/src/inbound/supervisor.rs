@@ -165,11 +165,15 @@ impl InboundSupervisor {
                     return;
                 }
                 Err(reason) if attempt >= self.max_attempts => {
+                    let payload = inbound_payload_telemetry(&event.payload);
                     warn!(
                         source_name_len = telemetry_text_len(name),
                         attempts = attempt,
                         reason_code = inbound_error_reason_code(&reason),
                         reason_len = telemetry_text_len(&reason),
+                        payload_class = payload.class,
+                        payload_len = payload.serialized_len,
+                        payload_secret_candidate = payload.secret_candidate,
                         "inbound connector dead-lettering event"
                     );
                     if let Err(e) = self
@@ -240,4 +244,116 @@ impl InboundSupervisor {
 fn backoff(attempt: u32) -> Duration {
     let secs = (1u64 << attempt.min(5)).min(MAX_BACKOFF_SECS);
     Duration::from_secs(secs)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct InboundPayloadTelemetry {
+    class: &'static str,
+    serialized_len: usize,
+    secret_candidate: bool,
+}
+
+fn inbound_payload_telemetry(payload: &serde_json::Value) -> InboundPayloadTelemetry {
+    InboundPayloadTelemetry {
+        class: inbound_payload_class(payload),
+        serialized_len: payload.to_string().chars().count(),
+        secret_candidate: inbound_payload_contains_secret_candidate(payload),
+    }
+}
+
+fn inbound_payload_class(payload: &serde_json::Value) -> &'static str {
+    match payload {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
+fn inbound_payload_contains_secret_candidate(payload: &serde_json::Value) -> bool {
+    match payload {
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            false
+        }
+        serde_json::Value::String(value) => inbound_text_contains_secret_candidate(value),
+        serde_json::Value::Array(values) => {
+            values.iter().any(inbound_payload_contains_secret_candidate)
+        }
+        serde_json::Value::Object(entries) => entries.iter().any(|(key, value)| {
+            inbound_key_contains_secret_candidate(key)
+                || inbound_payload_contains_secret_candidate(value)
+        }),
+    }
+}
+
+fn inbound_key_contains_secret_candidate(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    key.contains("token")
+        || key.contains("secret")
+        || key.contains("password")
+        || key.contains("api_key")
+        || key.contains("apikey")
+        || key.contains("authorization")
+        || key.contains("credential")
+}
+
+fn inbound_text_contains_secret_candidate(value: &str) -> bool {
+    let value = value.to_ascii_lowercase();
+    value.contains("bearer ")
+        || value.contains("mm_key_")
+        || value.contains("mm_at_")
+        || value.contains("client_secret=")
+        || value.contains("password=")
+        || value.contains("api_key=")
+        || value.contains("token=")
+        || value.contains("postgres://")
+        || value.contains("redis://")
+        || value.contains("rediss://")
+        || value.contains("-----begin ")
+        || value.starts_with("sk-")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn inbound_payload_telemetry_reports_classes_without_raw_values() {
+        let payload = json!({
+            "api_key": "mm_key_raw_value_should_not_appear",
+            "nested": {
+                "url": "postgres://user:password@db.internal/app",
+                "notes": ["line1\nline2", "normal"]
+            }
+        });
+
+        let telemetry = inbound_payload_telemetry(&payload);
+
+        assert_eq!(telemetry.class, "object");
+        assert!(telemetry.serialized_len > 0);
+        assert!(telemetry.secret_candidate);
+        let rendered = format!("{telemetry:?}");
+        assert!(!rendered.contains("mm_key_raw_value_should_not_appear"));
+        assert!(!rendered.contains("postgres://"));
+        assert!(!rendered.contains("password"));
+        assert!(!rendered.contains("db.internal"));
+    }
+
+    #[test]
+    fn inbound_payload_telemetry_keeps_non_secret_metadata_safe() {
+        let payload = json!({
+            "kind": "temperature_reading",
+            "value": 72,
+            "tags": ["warehouse", "sensor"]
+        });
+
+        let telemetry = inbound_payload_telemetry(&payload);
+
+        assert_eq!(telemetry.class, "object");
+        assert!(telemetry.serialized_len > 0);
+        assert!(!telemetry.secret_candidate);
+    }
 }
