@@ -334,7 +334,7 @@ impl JobHandler for ExtractionHandler {
                                     .collect();
                                 if !completed_indices.is_empty() {
                                     debug!(
-                                        attachment_id = %att_id,
+                                        attachment_present = true,
                                         completed = completed_indices.len(),
                                         "Checkpoint: found existing keyframes, injecting skip list"
                                     );
@@ -1777,16 +1777,20 @@ impl JobHandler for ExtractionHandler {
                                 )
                                 .await
                             {
+                                let error = status_err.to_string();
                                 error!(
-                                    attachment_id = %att_id,
-                                    error = %status_err,
+                                    attachment_present = true,
+                                    error_len = telemetry_text_len(&error),
+                                    error_reason = extraction_error_reason_code(&error),
                                     "Failed to update attachment status to Failed"
                                 );
                             }
                             if let Err(commit_err) = tx.commit().await {
+                                let error = commit_err.to_string();
                                 error!(
-                                    attachment_id = %att_id,
-                                    error = %commit_err,
+                                    attachment_present = true,
+                                    error_len = telemetry_text_len(&error),
+                                    error_reason = extraction_error_reason_code(&error),
                                     "Failed to commit attachment failure status"
                                 );
                             }
