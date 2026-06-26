@@ -14,6 +14,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::fmt;
 
 /// Knowledge management capability flags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -134,7 +135,7 @@ impl QualityTier {
 }
 
 /// Capability rating for a specific model.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CapabilityRating {
     /// The capability being rated.
     pub capability: Capability,
@@ -146,6 +147,21 @@ pub struct CapabilityRating {
     pub latency_p95_ms: Option<u64>,
     /// Notes about this capability (e.g., "requires raw mode").
     pub notes: Option<String>,
+}
+
+impl fmt::Debug for CapabilityRating {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CapabilityRating")
+            .field("capability", &self.capability)
+            .field("tier", &self.tier)
+            .field("score", &self.score)
+            .field("latency_p95_ms", &self.latency_p95_ms)
+            .field(
+                "notes_len",
+                &self.notes.as_ref().map(|value| value.chars().count()),
+            )
+            .finish()
+    }
 }
 
 impl CapabilityRating {
@@ -190,7 +206,7 @@ impl CapabilityRating {
 }
 
 /// Collection of capability ratings for a model.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct ModelCapabilities {
     /// Model name.
     pub model_name: String,
@@ -200,6 +216,31 @@ pub struct ModelCapabilities {
     pub is_embedding_model: bool,
     /// Last evaluation timestamp (ISO 8601).
     pub evaluated_at: Option<String>,
+}
+
+impl fmt::Debug for ModelCapabilities {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ModelCapabilities")
+            .field("model_name_len", &self.model_name.chars().count())
+            .field("rating_count", &self.ratings.len())
+            .field(
+                "rating_capabilities",
+                &self
+                    .ratings
+                    .iter()
+                    .map(|rating| rating.capability)
+                    .collect::<Vec<_>>(),
+            )
+            .field("is_embedding_model", &self.is_embedding_model)
+            .field(
+                "evaluated_at_len",
+                &self
+                    .evaluated_at
+                    .as_ref()
+                    .map(|value| value.chars().count()),
+            )
+            .finish()
+    }
 }
 
 impl ModelCapabilities {
@@ -713,5 +754,36 @@ mod tests {
             nomic.tier_for(Capability::Embedding),
             QualityTier::Excellent
         );
+    }
+
+    #[test]
+    fn capability_debug_redacts_model_names_notes_and_timestamps() {
+        let rating = CapabilityRating::from_score(Capability::FastInference, 91.0)
+            .with_latency(321)
+            .with_notes(
+                "Use private-model-jane@example.com at https://tenant.example with sk-private",
+            );
+        let mut capabilities = ModelCapabilities::new("private-model-jane@example.com:sk-private");
+        capabilities.is_embedding_model = true;
+        capabilities.evaluated_at = Some("2026-06-26T16:30:00Z /srv/private".to_string());
+        capabilities.add_rating(rating.clone());
+
+        let debug = format!("{rating:?}\n{capabilities:?}");
+
+        for raw in [
+            "private-model",
+            "jane@example.com",
+            "https://tenant.example",
+            "sk-private",
+            "2026-06-26T16:30:00Z",
+            "/srv/private",
+        ] {
+            assert!(!debug.contains(raw), "debug output leaked {raw}: {debug}");
+        }
+
+        assert!(debug.contains("notes_len"));
+        assert!(debug.contains("model_name_len"));
+        assert!(debug.contains("rating_count"));
+        assert!(debug.contains("evaluated_at_len"));
     }
 }
