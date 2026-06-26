@@ -42,9 +42,7 @@ pub async fn describe_image(
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<DescribeImageResponse>, ApiError> {
     let default_backend = state.vision_backend.as_ref().ok_or_else(|| {
-        ApiError::ServiceUnavailable(
-            "Vision model not configured. Set OLLAMA_VISION_MODEL environment variable.".into(),
-        )
+        ApiError::ServiceUnavailable("Vision model backend is not configured.".into())
     })?;
 
     let mut file_data: Option<Vec<u8>> = None;
@@ -55,7 +53,7 @@ pub async fn describe_image(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Multipart error: {}", e)))?
+        .map_err(|_| ApiError::BadRequest("Invalid multipart vision request.".to_string()))?
     {
         let field_name = field.name().map(|n| n.to_string());
         match field_name.as_deref() {
@@ -65,7 +63,9 @@ pub async fn describe_image(
                     field
                         .bytes()
                         .await
-                        .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?
+                        .map_err(|_| {
+                            ApiError::BadRequest("Invalid uploaded image file.".to_string())
+                        })?
                         .to_vec(),
                 );
             }
@@ -74,14 +74,14 @@ pub async fn describe_image(
                     field
                         .text()
                         .await
-                        .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?,
+                        .map_err(|_| ApiError::BadRequest("Invalid prompt field.".to_string()))?,
                 );
             }
             Some("model") => {
                 let val = field
                     .text()
                     .await
-                    .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?;
+                    .map_err(|_| ApiError::BadRequest("Invalid model field.".to_string()))?;
                 if !val.trim().is_empty() {
                     model_override = Some(val.trim().to_string());
                 }
@@ -114,7 +114,10 @@ pub async fn describe_image(
     let description = backend
         .describe_image(&image_bytes, mime_type, prompt.as_deref())
         .await
-        .map_err(|e| ApiError::Internal(format!("Vision model error: {}", e)))?;
+        .map_err(|e| ApiError::ProviderFailure {
+            capability: "Vision analysis",
+            detail: e.to_string(),
+        })?;
 
     Ok(Json(DescribeImageResponse {
         description,

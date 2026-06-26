@@ -48,10 +48,7 @@ pub async fn transcribe_audio(
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<TranscribeAudioResponse>, ApiError> {
     let default_backend = state.transcription_backend.as_ref().ok_or_else(|| {
-        ApiError::ServiceUnavailable(
-            "Transcription backend not configured. Set WHISPER_BASE_URL environment variable."
-                .into(),
-        )
+        ApiError::ServiceUnavailable("Audio transcription backend is not configured.".into())
     })?;
 
     let mut file_data: Option<Vec<u8>> = None;
@@ -62,7 +59,7 @@ pub async fn transcribe_audio(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| ApiError::BadRequest(format!("Multipart error: {}", e)))?
+        .map_err(|_| ApiError::BadRequest("Invalid multipart audio request.".to_string()))?
     {
         let field_name = field.name().map(|n| n.to_string());
         match field_name.as_deref() {
@@ -72,23 +69,23 @@ pub async fn transcribe_audio(
                     field
                         .bytes()
                         .await
-                        .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?
+                        .map_err(|_| {
+                            ApiError::BadRequest("Invalid uploaded audio file.".to_string())
+                        })?
                         .to_vec(),
                 );
             }
             Some("language") => {
-                language = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?,
-                );
+                language =
+                    Some(field.text().await.map_err(|_| {
+                        ApiError::BadRequest("Invalid language field.".to_string())
+                    })?);
             }
             Some("model") => {
                 let val = field
                     .text()
                     .await
-                    .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?;
+                    .map_err(|_| ApiError::BadRequest("Invalid model field.".to_string()))?;
                 if !val.trim().is_empty() {
                     model_override = Some(val.trim().to_string());
                 }
@@ -121,7 +118,10 @@ pub async fn transcribe_audio(
     let result = backend
         .transcribe(&audio_bytes, mime_type, language.as_deref())
         .await
-        .map_err(|e| ApiError::Internal(format!("Transcription error: {}", e)))?;
+        .map_err(|e| ApiError::ProviderFailure {
+            capability: "Audio transcription",
+            detail: e.to_string(),
+        })?;
 
     Ok(Json(TranscribeAudioResponse {
         text: result.full_text,

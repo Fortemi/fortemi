@@ -19190,6 +19190,10 @@ enum ApiError {
         operation: &'static str,
         detail: String,
     },
+    ProviderFailure {
+        capability: &'static str,
+        detail: String,
+    },
     ServiceUnavailable(String),
     /// Attachment row exists in `attachment_blob` but the on-disk file is gone.
     /// Distinct from a generic 500 I/O error so clients can surface the
@@ -19212,6 +19216,7 @@ enum ProblemType {
     RateLimit,
     Internal,
     OperationFailed,
+    ProviderFailure,
     ServiceUnavailable,
     BlobMissing,
 }
@@ -19229,6 +19234,7 @@ impl ProblemType {
             ProblemType::RateLimit => "rate-limit-exceeded",
             ProblemType::Internal => "internal-error",
             ProblemType::OperationFailed => "operation-failed",
+            ProblemType::ProviderFailure => "provider-failure",
             ProblemType::ServiceUnavailable => "service-unavailable",
             ProblemType::BlobMissing => "blob-missing",
         }
@@ -19248,6 +19254,7 @@ impl ProblemType {
             ProblemType::RateLimit => "Too Many Requests",
             ProblemType::Internal => "Internal Server Error",
             ProblemType::OperationFailed => "Operation Failed",
+            ProblemType::ProviderFailure => "Provider Failure",
             ProblemType::ServiceUnavailable => "Service Unavailable",
             ProblemType::BlobMissing => "Blob Missing",
         }
@@ -19392,6 +19399,19 @@ impl IntoResponse for ApiError {
                     StatusCode::INTERNAL_SERVER_ERROR,
                     ProblemType::OperationFailed,
                     format!("{operation} failed. Check server logs for diagnostics."),
+                    None,
+                )
+            }
+            ApiError::ProviderFailure { capability, detail } => {
+                error!(
+                    capability,
+                    error = %detail,
+                    "provider failure mapped to problem response"
+                );
+                (
+                    StatusCode::BAD_GATEWAY,
+                    ProblemType::ProviderFailure,
+                    format!("{capability} provider failed. Check server logs for diagnostics."),
                     None,
                 )
             }
@@ -22398,6 +22418,35 @@ mod tests {
         assert!(!body.contains("/srv/fortemi"));
         assert!(!body.contains("secret"));
         assert!(problem.get("error").is_none());
+    }
+
+    #[tokio::test]
+    async fn api_error_provider_failure_returns_generic_problem_without_raw_detail() {
+        let raw_detail = "Cannot reach Ollama at http://token:secret@ollama.internal:11434 from /srv/fortemi/models";
+        let (status, _headers, problem) = read_problem_response(ApiError::ProviderFailure {
+            capability: "Vision analysis",
+            detail: raw_detail.to_string(),
+        })
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/provider-failure"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Vision analysis provider failed. Check server logs for diagnostics."
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains("Ollama"));
+        assert!(!body.contains("ollama.internal"));
+        assert!(!body.contains("http://"));
+        assert!(!body.contains("secret"));
+        assert!(!body.contains("/srv/fortemi"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
     }
 
     #[tokio::test]
