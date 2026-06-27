@@ -81,7 +81,10 @@ fn cell_to_string(cell: &Data) -> String {
         Data::DateTime(dt) => dt.to_string(),
         Data::DateTimeIso(s) => s.clone(),
         Data::DurationIso(s) => s.clone(),
-        Data::Error(e) => format!("#ERR:{:?}", e),
+        Data::Error(e) => {
+            let error_text = format!("{e:?}");
+            format!("#ERR:{}", spreadsheet_error_reason_code(&error_text))
+        }
     }
 }
 
@@ -270,7 +273,8 @@ impl ExtractionAdapter for SpreadsheetAdapter {
                     );
                     sheet_meta.push(serde_json::json!({
                         "name": sheet_name,
-                        "error": e.to_string(),
+                        "error_reason": spreadsheet_error_reason_code(&error_text),
+                        "error_len": spreadsheet_text_len(&error_text),
                         "empty": true,
                     }));
                 }
@@ -444,6 +448,14 @@ mod tests {
         );
     }
 
+    #[test]
+    fn spreadsheet_cell_error_output_uses_reason_code_only() {
+        let rendered = cell_to_string(&Data::Error(calamine::CellErrorType::Name));
+
+        assert_eq!(rendered, "#ERR:read_failed");
+        assert!(!rendered.contains("Name"));
+    }
+
     // ── row_looks_like_headers ────────────────────────────────────────────
 
     #[test]
@@ -539,6 +551,48 @@ mod tests {
         assert!(md.contains("Column A"), "Missing 'Column A' header");
         assert!(md.contains("Column B"), "Missing 'Column B' header");
         assert!(md.contains("Column C"), "Missing 'Column C' header");
+    }
+
+    #[test]
+    fn sheet_to_markdown_redacts_cell_error_debug_values() {
+        let rows = vec![
+            vec![
+                Data::String("Status".to_string()),
+                Data::String("Diagnostic".to_string()),
+            ],
+            vec![
+                Data::String("failed".to_string()),
+                Data::Error(calamine::CellErrorType::Name),
+            ],
+        ];
+
+        let md = sheet_to_markdown("Errors", &rows).unwrap();
+
+        assert!(md.contains("#ERR:read_failed"));
+        assert!(!md.contains("#NAME"));
+        assert!(!md.contains("Name"));
+    }
+
+    #[test]
+    fn spreadsheet_error_metadata_shape_omits_raw_error_text() {
+        let sheet_name = "customer@example.com private payroll";
+        let raw_error = "permission denied for /srv/private/book.xlsx token=sk-live-spreadsheet";
+        let error_text = raw_error.to_string();
+        let meta = serde_json::json!({
+            "name": sheet_name,
+            "error_reason": spreadsheet_error_reason_code(&error_text),
+            "error_len": spreadsheet_text_len(&error_text),
+            "empty": true,
+        });
+
+        assert_eq!(meta["error_reason"], "permission_denied");
+        assert_eq!(meta["error_len"], raw_error.len());
+        assert!(meta.get("error").is_none());
+
+        let rendered = meta.to_string();
+        for raw in ["/srv/private", "sk-live-spreadsheet", "permission denied"] {
+            assert!(!rendered.contains(raw), "raw error leaked: {raw}");
+        }
     }
 
     #[test]
