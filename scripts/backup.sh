@@ -218,11 +218,11 @@ parse_args() {
 # Load configuration from file
 load_config() {
     if [[ -f "$CONFIG_FILE" ]]; then
-        log_verbose "Loading config from $CONFIG_FILE"
+        log_verbose "Loading config: $(backup_path_metadata "$CONFIG_FILE")"
         # shellcheck source=/dev/null
         source "$CONFIG_FILE"
     else
-        log_verbose "Config file not found: $CONFIG_FILE (using defaults/environment)"
+        log_verbose "Config file not found: $(backup_path_metadata "$CONFIG_FILE") (using defaults/environment)"
     fi
 }
 
@@ -251,7 +251,7 @@ validate_environment() {
             error_exit "Encryption tool (age) not found"
         fi
         if [[ ! -f "$BACKUP_ENCRYPT" ]]; then
-            error_exit "Encryption key file not found: $BACKUP_ENCRYPT"
+            error_exit "Encryption key file not found: $(backup_path_metadata "$BACKUP_ENCRYPT")"
         fi
     fi
 
@@ -669,7 +669,11 @@ main() {
     log_verbose "Timestamp: $timestamp"
     log_verbose "Destination: ${SPECIFIC_DEST:-all enabled}"
     log_verbose "Compression: $BACKUP_COMPRESS"
-    log_verbose "Encryption: ${BACKUP_ENCRYPT:-disabled}"
+    if [[ -n "$BACKUP_ENCRYPT" ]]; then
+        log_verbose "Encryption: enabled $(backup_path_metadata "$BACKUP_ENCRYPT")"
+    else
+        log_verbose "Encryption: disabled"
+    fi
 
     # Trap to ensure cleanup
     trap cleanup_temp EXIT
