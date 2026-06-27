@@ -64,7 +64,7 @@ impl fmt::Debug for TwilioMediaEnvelope {
                 .field("start", start)
                 .field(
                     "sequence_number_len",
-                    &sequence_number.as_ref().map(String::len),
+                    &sequence_number.as_ref().map(|value| twilio_text_len(value)),
                 )
                 .finish(),
             Self::Media {
@@ -75,7 +75,7 @@ impl fmt::Debug for TwilioMediaEnvelope {
                 .field("media", media)
                 .field(
                     "sequence_number_len",
-                    &sequence_number.as_ref().map(String::len),
+                    &sequence_number.as_ref().map(|value| twilio_text_len(value)),
                 )
                 .finish(),
             Self::Stop {
@@ -86,7 +86,7 @@ impl fmt::Debug for TwilioMediaEnvelope {
                 .field("stop", stop)
                 .field(
                     "sequence_number_len",
-                    &sequence_number.as_ref().map(String::len),
+                    &sequence_number.as_ref().map(|value| twilio_text_len(value)),
                 )
                 .finish(),
             Self::Mark {
@@ -97,7 +97,7 @@ impl fmt::Debug for TwilioMediaEnvelope {
                 .field("mark", mark)
                 .field(
                     "sequence_number_len",
-                    &sequence_number.as_ref().map(String::len),
+                    &sequence_number.as_ref().map(|value| twilio_text_len(value)),
                 )
                 .finish(),
             Self::Dtmf {
@@ -108,7 +108,7 @@ impl fmt::Debug for TwilioMediaEnvelope {
                 .field("dtmf", dtmf)
                 .field(
                     "sequence_number_len",
-                    &sequence_number.as_ref().map(String::len),
+                    &sequence_number.as_ref().map(|value| twilio_text_len(value)),
                 )
                 .finish(),
         }
@@ -124,7 +124,7 @@ struct TwilioStart {
 impl fmt::Debug for TwilioStart {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TwilioStart")
-            .field("call_sid_len", &self.call_sid.len())
+            .field("call_sid_len", &twilio_text_len(&self.call_sid))
             .finish()
     }
 }
@@ -140,9 +140,9 @@ struct TwilioMedia {
 impl fmt::Debug for TwilioMedia {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TwilioMedia")
-            .field("payload_len", &self.payload.len())
-            .field("timestamp_len", &self.timestamp.len())
-            .field("chunk_len", &self.chunk.len())
+            .field("payload_len", &twilio_text_len(&self.payload))
+            .field("timestamp_len", &twilio_text_len(&self.timestamp))
+            .field("chunk_len", &twilio_text_len(&self.chunk))
             .finish()
     }
 }
@@ -156,7 +156,7 @@ struct TwilioStop {
 impl fmt::Debug for TwilioStop {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TwilioStop")
-            .field("call_sid_len", &self.call_sid.len())
+            .field("call_sid_len", &twilio_text_len(&self.call_sid))
             .finish()
     }
 }
@@ -169,7 +169,7 @@ struct TwilioMark {
 impl fmt::Debug for TwilioMark {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TwilioMark")
-            .field("name_len", &self.name.len())
+            .field("name_len", &twilio_text_len(&self.name))
             .finish()
     }
 }
@@ -182,7 +182,7 @@ struct TwilioDtmf {
 impl fmt::Debug for TwilioDtmf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TwilioDtmf")
-            .field("digit_len", &self.digit.len())
+            .field("digit_len", &twilio_text_len(&self.digit))
             .finish()
     }
 }
@@ -307,7 +307,10 @@ pub struct TwilioMediaStreamAdapter {
 impl fmt::Debug for TwilioMediaStreamAdapter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TwilioMediaStreamAdapter")
-            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field(
+                "provider_call_id_len",
+                &twilio_text_len(&self.provider_call_id),
+            )
             .field("frames_count", &self.frames.len())
             .field(
                 "frame_payload_lens",
@@ -328,7 +331,10 @@ impl fmt::Debug for TwilioMediaStreamAdapter {
             )
             .field(
                 "dropped_on_close_len",
-                &self.dropped_on_close.as_ref().map(String::len),
+                &self
+                    .dropped_on_close
+                    .as_ref()
+                    .map(|value| twilio_text_len(value)),
             )
             .field("ended", &self.ended)
             .finish()
@@ -433,41 +439,74 @@ struct TwilioVoiceWebhookForm {
 impl fmt::Debug for TwilioVoiceWebhookForm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TwilioVoiceWebhookForm")
-            .field("call_sid_len", &self.call_sid.len())
+            .field("call_sid_len", &twilio_text_len(&self.call_sid))
             .field(
                 "call_status_len",
-                &self.call_status.as_ref().map(String::len),
+                &self
+                    .call_status
+                    .as_ref()
+                    .map(|value| twilio_text_len(value)),
             )
-            .field("from_len", &self.from.as_ref().map(String::len))
-            .field("to_len", &self.to.as_ref().map(String::len))
-            .field("direction_len", &self.direction.as_ref().map(String::len))
+            .field(
+                "from_len",
+                &self.from.as_ref().map(|value| twilio_text_len(value)),
+            )
+            .field(
+                "to_len",
+                &self.to.as_ref().map(|value| twilio_text_len(value)),
+            )
+            .field(
+                "direction_len",
+                &self.direction.as_ref().map(|value| twilio_text_len(value)),
+            )
             .field(
                 "recording_sid_len",
-                &self._recording_sid.as_ref().map(String::len),
+                &self
+                    ._recording_sid
+                    .as_ref()
+                    .map(|value| twilio_text_len(value)),
             )
             .field(
                 "recording_url_len",
-                &self.recording_url.as_ref().map(String::len),
+                &self
+                    .recording_url
+                    .as_ref()
+                    .map(|value| twilio_text_len(value)),
             )
             .field(
                 "recording_status_len",
-                &self.recording_status.as_ref().map(String::len),
+                &self
+                    .recording_status
+                    .as_ref()
+                    .map(|value| twilio_text_len(value)),
             )
             .field(
                 "consent_confirmed_len",
-                &self.consent_confirmed.as_ref().map(String::len),
+                &self
+                    .consent_confirmed
+                    .as_ref()
+                    .map(|value| twilio_text_len(value)),
             )
             .field(
                 "recording_consent_len",
-                &self.recording_consent.as_ref().map(String::len),
+                &self
+                    .recording_consent
+                    .as_ref()
+                    .map(|value| twilio_text_len(value)),
             )
             .field(
                 "disclosure_played_len",
-                &self.disclosure_played.as_ref().map(String::len),
+                &self
+                    .disclosure_played
+                    .as_ref()
+                    .map(|value| twilio_text_len(value)),
             )
             .field(
                 "disclosure_version_len",
-                &self.disclosure_version.as_ref().map(String::len),
+                &self
+                    .disclosure_version
+                    .as_ref()
+                    .map(|value| twilio_text_len(value)),
             )
             .finish()
     }
@@ -482,7 +521,10 @@ pub struct TwilioVoiceWebhookEvent {
 impl fmt::Debug for TwilioVoiceWebhookEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TwilioVoiceWebhookEvent")
-            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field(
+                "provider_call_id_len",
+                &twilio_text_len(&self.provider_call_id),
+            )
             .field(
                 "control_event_class",
                 &twilio_control_event_class(&self.control_event),
@@ -502,7 +544,7 @@ impl fmt::Debug for TwilioCallEventOutbox {
         f.debug_struct("TwilioCallEventOutbox")
             .field("event_type", &self.event_type)
             .field("payload_class", &twilio_json_class(&self.payload))
-            .field("payload_len", &self.payload.to_string().len())
+            .field("payload_len", &twilio_text_len(&self.payload.to_string()))
             .finish()
     }
 }
@@ -819,40 +861,40 @@ mod tests {
     #[test]
     fn twilio_wire_debug_redacts_provider_payloads_and_call_metadata() {
         let start: TwilioMediaEnvelope = serde_json::from_str(
-            r#"{"event":"start","sequenceNumber":"seq-secret-1","start":{"callSid":"CAcustomer@example.com"}}"#,
+            r#"{"event":"start","sequenceNumber":"séq-secret-1","start":{"callSid":"CAcustómer@example.com"}}"#,
         )
         .unwrap();
         let media: TwilioMediaEnvelope = serde_json::from_str(
-            r#"{"event":"media","sequenceNumber":"seq-secret-2","media":{"payload":"c2stbGl2ZS10d2lsaW8tcGF5bG9hZA==","timestamp":"160-private","chunk":"chunk-mm_key"}}"#,
+            r#"{"event":"media","sequenceNumber":"séq-secret-2","media":{"payload":"c2stbGl2ZS10d2lsaW8tcGF5bG9hZÁ==","timestamp":"160-privaté","chunk":"chunk-mm_kéy"}}"#,
         )
         .unwrap();
         let stop: TwilioMediaEnvelope = serde_json::from_str(
-            r#"{"event":"stop","sequenceNumber":"seq-secret-3","stop":{"callSid":"CApostgres://user:pass@db.internal/app"}}"#,
+            r#"{"event":"stop","sequenceNumber":"séq-secret-3","stop":{"callSid":"CApostgres://usér:pass@db.internal/app"}}"#,
         )
         .unwrap();
         let mark: TwilioMediaEnvelope = serde_json::from_str(
-            r#"{"event":"mark","sequenceNumber":"seq-secret-4","mark":{"name":"/srv/private/twilio-mark"}}"#,
+            r#"{"event":"mark","sequenceNumber":"séq-secret-4","mark":{"name":"/srv/privaté/twilio-mark"}}"#,
         )
         .unwrap();
         let dtmf: TwilioMediaEnvelope = serde_json::from_str(
-            r##"{"event":"dtmf","sequenceNumber":"seq-secret-5","dtmf":{"digit":"#"}}"##,
+            r##"{"event":"dtmf","sequenceNumber":"séq-secret-5","dtmf":{"digit":"é"}}"##,
         )
         .unwrap();
         let webhook = TwilioVoiceWebhookForm {
-            call_sid: "CAprivate-call".to_string(),
-            call_status: Some("ringing".to_string()),
-            from: Some("+15551230000".to_string()),
-            to: Some("+15559870000".to_string()),
-            direction: Some("inbound".to_string()),
-            _recording_sid: Some("REprivate-recording".to_string()),
+            call_sid: "CAprivaté-call".to_string(),
+            call_status: Some("ringíng".to_string()),
+            from: Some("+15551230000-éxt".to_string()),
+            to: Some("+15559870000-éxt".to_string()),
+            direction: Some("inboúnd".to_string()),
+            _recording_sid: Some("REprivaté-recording".to_string()),
             recording_url: Some(
-                "https://api.twilio.com/recording.wav?token=sk-live-recording".to_string(),
+                "https://api.twilió.com/recording.wav?token=sk-live-recording".to_string(),
             ),
-            recording_status: Some("completed".to_string()),
-            consent_confirmed: Some("true".to_string()),
-            recording_consent: Some("confirmed".to_string()),
-            disclosure_played: Some("1".to_string()),
-            disclosure_version: Some("v2026-private".to_string()),
+            recording_status: Some("compléted".to_string()),
+            consent_confirmed: Some("trúé".to_string()),
+            recording_consent: Some("confirméd".to_string()),
+            disclosure_played: Some("sí".to_string()),
+            disclosure_version: Some("v2026-privaté".to_string()),
         };
 
         let combined = format!("{start:?}\n{media:?}\n{stop:?}\n{mark:?}\n{dtmf:?}\n{webhook:?}");
@@ -862,24 +904,85 @@ mod tests {
         assert!(combined.contains("payload_len"));
         assert!(combined.contains("recording_url_len"));
         assert!(combined.contains("sequence_number_len"));
+        for expected in [
+            format!(
+                "sequence_number_len: {:?}",
+                Some(twilio_text_len("séq-secret-1"))
+            ),
+            format!(
+                "call_sid_len: {}",
+                twilio_text_len("CAcustómer@example.com")
+            ),
+            format!(
+                "payload_len: {}",
+                twilio_text_len("c2stbGl2ZS10d2lsaW8tcGF5bG9hZÁ==")
+            ),
+            format!("timestamp_len: {}", twilio_text_len("160-privaté")),
+            format!("chunk_len: {}", twilio_text_len("chunk-mm_kéy")),
+            format!(
+                "call_sid_len: {}",
+                twilio_text_len("CApostgres://usér:pass@db.internal/app")
+            ),
+            format!("name_len: {}", twilio_text_len("/srv/privaté/twilio-mark")),
+            format!("digit_len: {}", twilio_text_len("é")),
+            format!("call_sid_len: {}", twilio_text_len("CAprivaté-call")),
+            format!("call_status_len: {:?}", Some(twilio_text_len("ringíng"))),
+            format!("from_len: {:?}", Some(twilio_text_len("+15551230000-éxt"))),
+            format!("to_len: {:?}", Some(twilio_text_len("+15559870000-éxt"))),
+            format!("direction_len: {:?}", Some(twilio_text_len("inboúnd"))),
+            format!(
+                "recording_sid_len: {:?}",
+                Some(twilio_text_len("REprivaté-recording"))
+            ),
+            format!(
+                "recording_url_len: {:?}",
+                Some(twilio_text_len(
+                    "https://api.twilió.com/recording.wav?token=sk-live-recording"
+                ))
+            ),
+            format!(
+                "recording_status_len: {:?}",
+                Some(twilio_text_len("compléted"))
+            ),
+            format!("consent_confirmed_len: {:?}", Some(twilio_text_len("trúé"))),
+            format!(
+                "recording_consent_len: {:?}",
+                Some(twilio_text_len("confirméd"))
+            ),
+            format!("disclosure_played_len: {:?}", Some(twilio_text_len("sí"))),
+            format!(
+                "disclosure_version_len: {:?}",
+                Some(twilio_text_len("v2026-privaté"))
+            ),
+        ] {
+            assert!(
+                combined.contains(&expected),
+                "Twilio Debug output should retain exact character-count metadata {expected:?}: {combined}"
+            );
+        }
 
         for raw in [
-            "seq-secret",
+            "séq-secret",
             "CAcustomer",
+            "CAcustómer",
             "customer@example.com",
+            "custómer@example.com",
             "c2stbGl2ZS10d2lsaW8tcGF5bG9hZA",
-            "160-private",
-            "chunk-mm_key",
-            "postgres://user:pass",
+            "c2stbGl2ZS10d2lsaW8tcGF5bG9hZÁ",
+            "160-privaté",
+            "chunk-mm_kéy",
+            "postgres://usér:pass",
             "db.internal",
-            "/srv/private",
+            "/srv/privaté",
             "twilio-mark",
             "+15551230000",
             "+15559870000",
-            "REprivate-recording",
-            "api.twilio.com",
+            "+15551230000-éxt",
+            "+15559870000-éxt",
+            "REprivaté-recording",
+            "api.twilió.com",
             "sk-live-recording",
-            "v2026-private",
+            "v2026-privaté",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
@@ -892,19 +995,19 @@ mod tests {
         )
         .unwrap();
         let started = translate_voice_webhook_form(
-            b"CallSid=CAcustomer@example.com&CallStatus=ringing&From=%2B15551230000&RecordingUrl=https%3A%2F%2Fapi.twilio.com%2Frecording.wav%3Ftoken%3Dsk-live-recording&ConsentConfirmed=true",
+            "CallSid=CAcust%C3%B3mer@example.com&CallStatus=ringing&From=%2B15551230000-%C3%A9xt&RecordingUrl=https%3A%2F%2Fapi.twili%C3%B3.com%2Frecording.wav%3Ftoken%3Dsk-live-recording&ConsentConfirmed=true".as_bytes(),
         )
         .unwrap();
         let outbox = call_event_outbox_for_control_event(&started.control_event, false).unwrap();
         let adapter = TwilioMediaStreamAdapter::from_envelopes(
-            "CApostgres://user:pass@db.internal/app",
+            "CApostgres://usér:pass@db.internal/app",
             [
                 r#"{"event":"start","sequenceNumber":"1","start":{"callSid":"CAprivate-start"}}"#,
                 r#"{"event":"media","sequenceNumber":"2","media":{"payload":"/////w==","timestamp":"160","chunk":"1"}}"#,
             ],
         )
         .unwrap()
-        .dropped_on_close("socket closed for +15559870000 sk-live-drop");
+        .dropped_on_close("socket clósed for +15559870000 sk-live-drop");
 
         let combined = format!("{media:?}\n{started:?}\n{outbox:?}\n{adapter:?}");
 
@@ -914,18 +1017,47 @@ mod tests {
         assert!(combined.contains("payload_class"));
         assert!(combined.contains("dropped_on_close_len"));
         assert!(combined.contains("call_started"));
+        for expected in [
+            format!(
+                "provider_call_id_len: {}",
+                twilio_text_len("CAcustómer@example.com")
+            ),
+            format!(
+                "payload_len: {}",
+                twilio_text_len(&outbox.payload.to_string())
+            ),
+            format!(
+                "provider_call_id_len: {}",
+                twilio_text_len("CApostgres://usér:pass@db.internal/app")
+            ),
+            format!(
+                "dropped_on_close_len: {:?}",
+                Some(twilio_text_len(
+                    "socket clósed for +15559870000 sk-live-drop"
+                ))
+            ),
+        ] {
+            assert!(
+                combined.contains(&expected),
+                "Twilio translated Debug output should retain exact character-count metadata {expected:?}: {combined}"
+            );
+        }
 
         for raw in [
             "c2stdG9rZW4tcGF5bG9hZA",
             "CAcustomer",
+            "CAcustómer",
             "customer@example.com",
+            "custómer@example.com",
             "+15551230000",
-            "api.twilio.com",
+            "+15551230000-éxt",
+            "api.twilió.com",
             "sk-live-recording",
-            "postgres://user:pass",
+            "postgres://usér:pass",
             "db.internal",
             "CAprivate-start",
             "+15559870000",
+            "socket clósed",
             "sk-live-drop",
             "remote_party",
             "consent_confirmed",
