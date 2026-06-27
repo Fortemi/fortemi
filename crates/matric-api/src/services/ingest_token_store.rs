@@ -14,8 +14,8 @@
 //!
 //! Two keys per token so revocation can take a non-secret id rather than the
 //! bearer secret:
-//! - `mm:ingesttoken:{token}` → JSON [`IngestTokenData`] (the validation lookup)
-//! - `mm:ingesttoken-id:{token_id}` → `{token}` (reverse index for revoke-by-id)
+//! - `mm:ingesttoken:{sha256(token)}` → JSON [`IngestTokenData`] (the validation lookup)
+//! - `mm:ingesttoken-id:{token_id}` → `{sha256(token)}` (reverse index for revoke-by-id)
 //!
 //! Both share the same TTL; a refresh is not performed on validate (a stream
 //! token's lifetime is fixed from mint, unlike the resumption cursor's rolling
@@ -38,6 +38,7 @@
 use redis::aio::ConnectionManager;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -49,9 +50,8 @@ const DEFAULT_TTL_SECONDS: u64 = 3600;
 /// Default per-token rate limit (lines/sec); 0 means unlimited.
 const DEFAULT_RATE_LIMIT: u64 = 0;
 
-/// The persisted record for a stream token (value under `mm:ingesttoken:{token}`).
-/// Holds no secret beyond its own key; the `token_id` is a non-secret handle for
-/// revocation.
+/// The persisted record for a stream token. Holds no token secret; the `token_id`
+/// is a non-secret handle for revocation.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IngestTokenData {
     /// Non-secret revocation handle.
@@ -170,7 +170,11 @@ impl IngestTokenStore {
     }
 
     fn key(&self, token: &str) -> String {
-        format!("{}{}", self.inner.prefix, token)
+        self.key_from_fingerprint(&ingest_token_fingerprint(token))
+    }
+
+    fn key_from_fingerprint(&self, token_fingerprint: &str) -> String {
+        format!("{}{}", self.inner.prefix, token_fingerprint)
     }
 
     fn id_key(&self, token_id: &str) -> String {
@@ -206,8 +210,13 @@ impl IngestTokenStore {
             );
             return None;
         }
+        let token_fingerprint = ingest_token_fingerprint(&token);
         if let Err(e) = conn
-            .set_ex::<_, _, ()>(&self.id_key(&token_id), &token, self.inner.ttl_seconds)
+            .set_ex::<_, _, ()>(
+                &self.id_key(&token_id),
+                &token_fingerprint,
+                self.inner.ttl_seconds,
+            )
             .await
         {
             let diagnostic = e.to_string();
@@ -260,10 +269,13 @@ impl IngestTokenStore {
             return false;
         };
         let id_key = self.id_key(token_id);
-        let token: Option<String> = conn.get(&id_key).await.unwrap_or(None);
+        let token_fingerprint: Option<String> = conn.get(&id_key).await.unwrap_or(None);
         let mut deleted: u64 = 0;
-        if let Some(tok) = token {
-            deleted += conn.del::<_, u64>(&self.key(&tok)).await.unwrap_or(0);
+        if let Some(fingerprint) = token_fingerprint {
+            deleted += conn
+                .del::<_, u64>(&self.key_from_fingerprint(&fingerprint))
+                .await
+                .unwrap_or(0);
         }
         deleted += conn.del::<_, u64>(&id_key).await.unwrap_or(0);
         deleted > 0
@@ -315,6 +327,12 @@ async fn connect(redis_url: &str, ttl_seconds: u64) -> Option<ConnectionManager>
 
 fn ingest_token_text_len(value: &str) -> usize {
     value.chars().count()
+}
+
+fn ingest_token_fingerprint(token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 fn ingest_token_diagnostic_reason(value: &str) -> &'static str {
@@ -386,6 +404,31 @@ mod tests {
         assert!(!rendered.contains("tenant-alpha"));
         assert!(!rendered.contains("private_schema"));
         assert!(!rendered.contains("token_secret"));
+    }
+
+    #[test]
+    fn ingest_token_redis_storage_uses_fingerprints_without_raw_bearer_token() {
+        let store = IngestTokenStore::disabled();
+        let token = "mm_ist_secret_token_for_tenant_alpha";
+        let fingerprint = ingest_token_fingerprint(token);
+        let primary_key = store.key(token);
+        let reverse_payload = fingerprint.clone();
+
+        assert_eq!(fingerprint.len(), 64);
+        assert!(primary_key.starts_with("mm:ingesttoken:"));
+        assert_eq!(primary_key, store.key(token));
+        assert_ne!(primary_key, store.key("mm_ist_different_secret"));
+        assert_eq!(
+            primary_key,
+            store.key_from_fingerprint(&reverse_payload),
+            "reverse index should store a fingerprint that locates the primary key"
+        );
+        assert!(!primary_key.contains(token));
+        assert!(!primary_key.contains("mm_ist_secret"));
+        assert!(!primary_key.contains("tenant_alpha"));
+        assert!(!reverse_payload.contains(token));
+        assert!(!reverse_payload.contains("mm_ist_secret"));
+        assert!(!reverse_payload.contains("tenant_alpha"));
     }
 
     #[test]
