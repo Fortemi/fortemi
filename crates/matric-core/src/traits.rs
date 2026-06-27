@@ -61,7 +61,7 @@ impl fmt::Debug for ListNotesRequest {
                 &self
                     .tags
                     .as_ref()
-                    .map(|tags| tags.iter().map(|tag| tag.len()).collect::<Vec<_>>()),
+                    .map(|tags| tags.iter().map(|tag| str_len(tag)).collect::<Vec<_>>()),
             )
             .field("created_after", &self.created_after)
             .field("created_before", &self.created_before)
@@ -151,9 +151,9 @@ pub struct CreateNoteRequest {
 impl fmt::Debug for CreateNoteRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CreateNoteRequest")
-            .field("content_len", &self.content.len())
-            .field("format_len", &self.format.len())
-            .field("source_len", &self.source.len())
+            .field("content_len", &str_len(&self.content))
+            .field("format_len", &str_len(&self.format))
+            .field("source_len", &str_len(&self.source))
             .field("collection_id_present", &self.collection_id.is_some())
             .field("tags_count", &self.tags.as_ref().map(Vec::len))
             .field(
@@ -161,7 +161,7 @@ impl fmt::Debug for CreateNoteRequest {
                 &self
                     .tags
                     .as_ref()
-                    .map(|tags| tags.iter().map(|tag| tag.len()).collect::<Vec<_>>()),
+                    .map(|tags| tags.iter().map(|tag| str_len(tag)).collect::<Vec<_>>()),
             )
             .field(
                 "metadata_class",
@@ -627,7 +627,7 @@ pub struct SearchQuery {
 impl fmt::Debug for SearchQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SearchQuery")
-            .field("query_len", &self.query.len())
+            .field("query_len", &str_len(&self.query))
             .field("mode", &self.mode)
             .field("limit", &self.limit)
             .field("offset", &self.offset)
@@ -635,7 +635,7 @@ impl fmt::Debug for SearchQuery {
             .field("tags_count", &self.tags.len())
             .field(
                 "tag_lens",
-                &self.tags.iter().map(|tag| tag.len()).collect::<Vec<_>>(),
+                &self.tags.iter().map(|tag| str_len(tag)).collect::<Vec<_>>(),
             )
             .field("include_archived", &self.include_archived)
             .finish()
@@ -723,10 +723,10 @@ pub struct DerivedFile {
 impl fmt::Debug for DerivedFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DerivedFile")
-            .field("filename_len", &self.filename.len())
-            .field("content_type_len", &self.content_type.len())
+            .field("filename_len", &str_len(&self.filename))
+            .field("content_type_len", &str_len(&self.content_type))
             .field("data_len", &self.data.len())
-            .field("derivation_type_len", &self.derivation_type.len())
+            .field("derivation_type_len", &str_len(&self.derivation_type))
             .field(
                 "ai_description_len",
                 &optional_str_len(self.ai_description.as_deref()),
@@ -873,7 +873,7 @@ impl fmt::Debug for AiMetadata {
                 &self
                     .categories
                     .iter()
-                    .map(|category| category.len())
+                    .map(|category| str_len(category))
                     .collect::<Vec<_>>(),
             )
             .field("topics_count", &self.topics.len())
@@ -882,7 +882,7 @@ impl fmt::Debug for AiMetadata {
                 &self
                     .topics
                     .iter()
-                    .map(|topic| topic.len())
+                    .map(|topic| str_len(topic))
                     .collect::<Vec<_>>(),
             )
             .field("keywords_count", &self.keywords.len())
@@ -891,7 +891,7 @@ impl fmt::Debug for AiMetadata {
                 &self
                     .keywords
                     .iter()
-                    .map(|keyword| keyword.len())
+                    .map(|keyword| str_len(keyword))
                     .collect::<Vec<_>>(),
             )
             .field("entities_class", &json_debug_class(&self.entities))
@@ -939,12 +939,12 @@ pub struct CreateTemplateRequest {
 impl fmt::Debug for CreateTemplateRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CreateTemplateRequest")
-            .field("name_len", &self.name.len())
+            .field("name_len", &str_len(&self.name))
             .field(
                 "description_len",
                 &optional_str_len(self.description.as_deref()),
             )
-            .field("content_len", &self.content.len())
+            .field("content_len", &str_len(&self.content))
             .field("format_len", &optional_str_len(self.format.as_deref()))
             .field(
                 "default_tags_count",
@@ -955,7 +955,7 @@ impl fmt::Debug for CreateTemplateRequest {
                 &self
                     .default_tags
                     .as_ref()
-                    .map(|tags| tags.iter().map(|tag| tag.len()).collect::<Vec<_>>()),
+                    .map(|tags| tags.iter().map(|tag| str_len(tag)).collect::<Vec<_>>()),
             )
             .field("collection_id_present", &self.collection_id.is_some())
             .finish()
@@ -990,7 +990,7 @@ impl fmt::Debug for UpdateTemplateRequest {
                 &self
                     .default_tags
                     .as_ref()
-                    .map(|tags| tags.iter().map(|tag| tag.len()).collect::<Vec<_>>()),
+                    .map(|tags| tags.iter().map(|tag| str_len(tag)).collect::<Vec<_>>()),
             )
             .field(
                 "collection_id_update_present",
@@ -1001,7 +1001,11 @@ impl fmt::Debug for UpdateTemplateRequest {
 }
 
 fn optional_str_len(value: Option<&str>) -> Option<usize> {
-    value.map(str::len)
+    value.map(str_len)
+}
+
+fn str_len(value: &str) -> usize {
+    value.chars().count()
 }
 
 fn json_debug_class(value: &JsonValue) -> &'static str {
@@ -1016,11 +1020,11 @@ fn json_debug_class(value: &JsonValue) -> &'static str {
 }
 
 fn json_serialized_len(value: &JsonValue) -> usize {
-    serde_json::to_string(value).map_or(0, |serialized| serialized.len())
+    serde_json::to_string(value).map_or(0, |serialized| str_len(&serialized))
 }
 
 fn path_display_len(path: &std::path::Path) -> usize {
-    path.display().to_string().len()
+    str_len(&path.display().to_string())
 }
 
 /// Repository for note template operations.
@@ -1390,49 +1394,54 @@ mod tests {
     #[test]
     fn trait_request_and_extraction_debug_redacts_content_metadata_and_paths() {
         let note_req = CreateNoteRequest {
-            content: "Private note content includes owner@example.internal and sk-live-secret"
+            content: "秘密 note content includes owner@example.internal and sk-live-secret"
                 .to_string(),
-            format: "markdown-private-format".to_string(),
-            source: "https://source.example.test/import?token=secret".to_string(),
+            format: "markdown-秘密-format".to_string(),
+            source: "https://source.example.test/import?token=秘密".to_string(),
             collection_id: Some(Uuid::new_v4()),
             tags: Some(vec![
-                "secret-tag-owner@example.internal".to_string(),
-                "postgres://user:secret@db.internal/fortemi".to_string(),
+                "秘密-tag-owner@example.internal".to_string(),
+                "postgres://user:秘密@db.internal/fortemi".to_string(),
             ]),
             metadata: Some(json!({
-                "provider_url": "https://provider.example.test/v1?token=secret",
+                "provider_url": "https://provider.example.test/v1?token=秘密",
                 "api_key": "sk-live-secret"
             })),
             document_type_id: Some(Uuid::new_v4()),
-            title: Some("Private roadmap title".to_string()),
+            title: Some("秘密 roadmap title".to_string()),
         };
         let note_debug = format!("{note_req:?}");
         assert!(note_debug.contains("CreateNoteRequest"));
+        assert!(note_debug.contains("content_len: 66"));
+        assert!(note_debug.contains("format_len: 18"));
+        assert!(note_debug.contains("source_len: 43"));
+        assert!(note_debug.contains("tag_lens: Some([29, 38])"));
+        assert!(note_debug.contains("title_len: Some(16)"));
         assert!(note_debug.contains("content_len"));
         assert!(note_debug.contains("metadata_class"));
         assert_debug_excludes(
             &note_debug,
             &[
-                "Private note content",
+                "秘密 note content",
                 "owner@example.internal",
                 "sk-live-secret",
-                "markdown-private-format",
-                "https://source.example.test/import?token=secret",
-                "secret-tag-owner@example.internal",
-                "postgres://user:secret@db.internal/fortemi",
-                "https://provider.example.test/v1?token=secret",
-                "Private roadmap title",
+                "markdown-秘密-format",
+                "https://source.example.test/import?token=秘密",
+                "秘密-tag-owner@example.internal",
+                "postgres://user:秘密@db.internal/fortemi",
+                "https://provider.example.test/v1?token=秘密",
+                "秘密 roadmap title",
             ],
         );
 
         let list_req = ListNotesRequest {
-            sort_by: Some("private-sort-field".to_string()),
-            sort_order: Some("desc-secret".to_string()),
+            sort_by: Some("秘密-sort-field".to_string()),
+            sort_order: Some("desc-秘密".to_string()),
             filter: Some("filter-owner@example.internal".to_string()),
             limit: Some(25),
             offset: Some(5),
             collection_id: Some(Uuid::new_v4()),
-            tags: Some(vec!["sk-list-secret".to_string()]),
+            tags: Some(vec!["sk-list-秘密".to_string()]),
             created_after: Some(Utc::now()),
             created_before: None,
             updated_after: None,
@@ -1441,13 +1450,17 @@ mod tests {
         let list_debug = format!("{list_req:?}");
         assert!(list_debug.contains("ListNotesRequest"));
         assert!(list_debug.contains("tags_count"));
+        assert!(list_debug.contains("sort_by_len: Some(13)"));
+        assert!(list_debug.contains("sort_order_len: Some(7)"));
+        assert!(list_debug.contains("filter_len: Some(29)"));
+        assert!(list_debug.contains("tag_lens: Some([10])"));
         assert_debug_excludes(
             &list_debug,
             &[
-                "private-sort-field",
-                "desc-secret",
+                "秘密-sort-field",
+                "desc-秘密",
                 "filter-owner@example.internal",
-                "sk-list-secret",
+                "sk-list-秘密",
             ],
         );
 
@@ -1468,146 +1481,167 @@ mod tests {
         );
 
         let search_query = SearchQuery {
-            query: "find private@example.internal with sk-search-secret".to_string(),
+            query: "探す private@example.internal with sk-search-secret".to_string(),
             mode: SearchMode::Hybrid,
             limit: Some(10),
             offset: Some(0),
             collection_id: Some(Uuid::new_v4()),
-            tags: vec!["private-search-tag".to_string()],
+            tags: vec!["秘密-search-tag".to_string()],
             include_archived: true,
         };
         let search_debug = format!("{search_query:?}");
         assert!(search_debug.contains("SearchQuery"));
+        assert!(search_debug.contains("query_len: 49"));
+        assert!(search_debug.contains("tag_lens: [13]"));
         assert!(search_debug.contains("query_len"));
         assert_debug_excludes(
             &search_debug,
             &[
                 "private@example.internal",
                 "sk-search-secret",
-                "private-search-tag",
+                "秘密-search-tag",
             ],
         );
 
         let derived_file = DerivedFile {
-            filename: "private-keyframe-owner@example.internal.jpg".to_string(),
-            content_type: "image/private-jpeg".to_string(),
+            filename: "秘密-keyframe-owner@example.internal.jpg".to_string(),
+            content_type: "image/秘密-jpeg".to_string(),
             data: b"binary-secret-sk-derived".to_vec(),
-            derivation_type: "secret-keyframe".to_string(),
-            ai_description: Some("Generated description mentions sk-derived-secret".to_string()),
+            derivation_type: "秘密-keyframe".to_string(),
+            ai_description: Some("Generated description mentions sk-derived-秘密".to_string()),
             metadata: Some(json!({
-                "source": "https://metadata.example.test/?token=secret"
+                "source": "https://metadata.example.test/?token=秘密"
             })),
-            source_path: Some(PathBuf::from("/tmp/fortemi/private/keyframe.jpg")),
+            source_path: Some(PathBuf::from("/tmp/fortemi/private/秘密-keyframe.jpg")),
         };
         let derived_debug = format!("{derived_file:?}");
         assert!(derived_debug.contains("DerivedFile"));
+        assert!(derived_debug.contains("filename_len: 38"));
+        assert!(derived_debug.contains("content_type_len: 13"));
+        assert!(derived_debug.contains("derivation_type_len: 11"));
+        assert!(derived_debug.contains("ai_description_len: Some(44)"));
+        assert!(derived_debug.contains("source_path_len: Some(36)"));
         assert!(derived_debug.contains("filename_len"));
         assert_debug_excludes(
             &derived_debug,
             &[
-                "private-keyframe-owner@example.internal.jpg",
-                "image/private-jpeg",
+                "秘密-keyframe-owner@example.internal.jpg",
+                "image/秘密-jpeg",
                 "binary-secret-sk-derived",
-                "secret-keyframe",
-                "sk-derived-secret",
-                "https://metadata.example.test/?token=secret",
-                "/tmp/fortemi/private/keyframe.jpg",
+                "秘密-keyframe",
+                "sk-derived-秘密",
+                "https://metadata.example.test/?token=秘密",
+                "/tmp/fortemi/private/秘密-keyframe.jpg",
             ],
         );
 
         let extraction = ExtractionResult {
             extracted_text: Some(
-                "Extracted text includes customer@example.internal and sk-extract-secret"
-                    .to_string(),
+                "Extracted text includes customer@example.internal and sk-extract-秘密".to_string(),
             ),
             metadata: json!({
                 "filename": "/srv/customer/private.pdf",
-                "api_key": "sk-extract-secret"
+                "api_key": "sk-extract-秘密"
             }),
-            ai_description: Some("AI description includes private diagnosis".to_string()),
+            ai_description: Some("AI description includes private 診断".to_string()),
             preview_data: Some(b"preview-secret".to_vec()),
             derived_files: vec![derived_file],
         };
         let extraction_debug = format!("{extraction:?}");
         assert!(extraction_debug.contains("ExtractionResult"));
+        assert!(extraction_debug.contains("extracted_text_len: Some(67)"));
+        assert!(extraction_debug.contains("ai_description_len: Some(34)"));
         assert!(extraction_debug.contains("derived_files_count"));
         assert_debug_excludes(
             &extraction_debug,
             &[
                 "Extracted text",
                 "customer@example.internal",
-                "sk-extract-secret",
+                "sk-extract-秘密",
                 "/srv/customer/private.pdf",
-                "private diagnosis",
+                "private 診断",
                 "preview-secret",
-                "private-keyframe-owner@example.internal.jpg",
+                "秘密-keyframe-owner@example.internal.jpg",
             ],
         );
 
         let ai_metadata = AiMetadata {
-            categories: vec!["secret-category@example.internal".to_string()],
-            topics: vec!["https://topic.example.test/?token=secret".to_string()],
-            keywords: vec!["sk-keyword-secret".to_string()],
+            categories: vec!["秘密-category@example.internal".to_string()],
+            topics: vec!["https://topic.example.test/?token=秘密".to_string()],
+            keywords: vec!["sk-keyword-秘密".to_string()],
             entities: json!({
                 "person": ["Private Person"],
-                "url": "https://entity.example.test/?token=secret"
+                "url": "https://entity.example.test/?token=秘密"
             }),
-            summary: Some("Summary includes private@example.internal".to_string()),
+            summary: Some("Summary includes private@example.internal 秘密".to_string()),
         };
         let ai_debug = format!("{ai_metadata:?}");
         assert!(ai_debug.contains("AiMetadata"));
+        assert!(ai_debug.contains("category_lens: [28]"));
+        assert!(ai_debug.contains("topic_lens: [36]"));
+        assert!(ai_debug.contains("keyword_lens: [13]"));
+        assert!(ai_debug.contains("summary_len: Some(44)"));
         assert!(ai_debug.contains("entities_class"));
         assert_debug_excludes(
             &ai_debug,
             &[
-                "secret-category@example.internal",
-                "https://topic.example.test/?token=secret",
-                "sk-keyword-secret",
+                "秘密-category@example.internal",
+                "https://topic.example.test/?token=秘密",
+                "sk-keyword-秘密",
                 "Private Person",
-                "https://entity.example.test/?token=secret",
+                "https://entity.example.test/?token=秘密",
                 "private@example.internal",
             ],
         );
 
         let create_template = CreateTemplateRequest {
-            name: "private-template-name".to_string(),
-            description: Some("Template description with secret@example.internal".to_string()),
-            content: "Template body with sk-template-secret".to_string(),
-            format: Some("private-template-format".to_string()),
-            default_tags: Some(vec!["private-default-tag".to_string()]),
+            name: "秘密-template-name".to_string(),
+            description: Some("Template description with secret@example.internal 秘密".to_string()),
+            content: "Template body with sk-template-秘密".to_string(),
+            format: Some("秘密-template-format".to_string()),
+            default_tags: Some(vec!["秘密-default-tag".to_string()]),
             collection_id: Some(Uuid::new_v4()),
         };
         let template_debug = format!("{create_template:?}");
         assert!(template_debug.contains("CreateTemplateRequest"));
+        assert!(template_debug.contains("name_len: 16"));
+        assert!(template_debug.contains("description_len: Some(52)"));
+        assert!(template_debug.contains("content_len: 33"));
+        assert!(template_debug.contains("format_len: Some(18)"));
+        assert!(template_debug.contains("default_tag_lens: Some([14])"));
         assert!(template_debug.contains("content_len"));
         assert_debug_excludes(
             &template_debug,
             &[
-                "private-template-name",
+                "秘密-template-name",
                 "secret@example.internal",
-                "sk-template-secret",
-                "private-template-format",
-                "private-default-tag",
+                "sk-template-秘密",
+                "秘密-template-format",
+                "秘密-default-tag",
             ],
         );
 
         let update_template = UpdateTemplateRequest {
-            name: Some("updated-private-template".to_string()),
-            description: Some("Updated description with private@example.internal".to_string()),
-            content: Some("Updated body with sk-updated-template-secret".to_string()),
-            default_tags: Some(vec!["updated-private-tag".to_string()]),
+            name: Some("updated-秘密-template".to_string()),
+            description: Some("Updated description with private@example.internal 秘密".to_string()),
+            content: Some("Updated body with sk-updated-template-秘密".to_string()),
+            default_tags: Some(vec!["updated-秘密-tag".to_string()]),
             collection_id: Some(Some(Uuid::new_v4())),
         };
         let update_template_debug = format!("{update_template:?}");
         assert!(update_template_debug.contains("UpdateTemplateRequest"));
+        assert!(update_template_debug.contains("name_len: Some(19)"));
+        assert!(update_template_debug.contains("description_len: Some(52)"));
+        assert!(update_template_debug.contains("content_len: Some(40)"));
+        assert!(update_template_debug.contains("default_tag_lens: Some([14])"));
         assert!(update_template_debug.contains("collection_id_update_present"));
         assert_debug_excludes(
             &update_template_debug,
             &[
-                "updated-private-template",
+                "updated-秘密-template",
                 "private@example.internal",
-                "sk-updated-template-secret",
-                "updated-private-tag",
+                "sk-updated-template-秘密",
+                "updated-秘密-tag",
             ],
         );
     }
@@ -1749,7 +1783,7 @@ mod tests {
     #[test]
     fn test_search_query_debug_format() {
         let query = SearchQuery {
-            query: "test".to_string(),
+            query: "test秘密".to_string(),
             mode: SearchMode::Hybrid,
             limit: Some(10),
             offset: Some(0),
@@ -1760,7 +1794,8 @@ mod tests {
 
         let debug_str = format!("{:?}", query);
         assert!(debug_str.contains("SearchQuery"));
-        assert!(debug_str.contains("test"));
+        assert!(debug_str.contains("query_len: 6"));
+        assert!(!debug_str.contains("test秘密"));
     }
 
     #[test]
