@@ -17,6 +17,7 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
+use serde_json::{json, Value};
 use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
@@ -2290,8 +2291,8 @@ impl SkosGovernanceRepository for PgSkosRepository {
                 entity_type: r.get("entity_type"),
                 entity_id: r.get("entity_id"),
                 action: r.get("action"),
-                changes: r.get("changes"),
-                actor: r.get("actor"),
+                changes: skos_audit_changes_metadata(r.get("changes")),
+                actor: skos_audit_actor_metadata(&r.get::<String, _>("actor")),
                 actor_type: r.get("actor_type"),
                 created_at: r.get("created_at"),
             })
@@ -2397,6 +2398,8 @@ impl SkosGovernanceRepository for PgSkosRepository {
     ) -> Result<Uuid> {
         let id = new_v7();
         let now = Utc::now();
+        let changes = skos_audit_changes_metadata(changes);
+        let actor = skos_audit_actor_metadata(actor);
 
         sqlx::query(
             r#"
@@ -2409,7 +2412,7 @@ impl SkosGovernanceRepository for PgSkosRepository {
         .bind(entity_id)
         .bind(action)
         .bind(&changes)
-        .bind(actor)
+        .bind(&actor)
         .bind(actor_type)
         .bind(now)
         .execute(&self.pool)
@@ -2417,6 +2420,150 @@ impl SkosGovernanceRepository for PgSkosRepository {
         .map_err(Error::Database)?;
 
         Ok(id)
+    }
+}
+
+fn skos_audit_actor_metadata(actor: &str) -> String {
+    if actor.starts_with("actor_present=true;actor_len=") {
+        actor.to_string()
+    } else {
+        format!("actor_present=true;actor_len={}", actor.chars().count())
+    }
+}
+
+fn skos_audit_changes_metadata(changes: Option<Value>) -> Option<Value> {
+    changes.map(redact_skos_audit_value)
+}
+
+fn redact_skos_audit_value(value: Value) -> Value {
+    if value
+        .as_object()
+        .and_then(|object| object.get("redacted"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return value;
+    }
+
+    match value {
+        Value::Null => json!({
+            "redacted": true,
+            "value_class": "null"
+        }),
+        Value::Bool(_) => json!({
+            "redacted": true,
+            "value_class": "boolean"
+        }),
+        Value::Number(_) => json!({
+            "redacted": true,
+            "value_class": "number"
+        }),
+        Value::String(value) => json!({
+            "redacted": true,
+            "value_class": "string",
+            "string_len": value.chars().count()
+        }),
+        Value::Array(values) => json!({
+            "redacted": true,
+            "value_class": "array",
+            "item_count": values.len()
+        }),
+        Value::Object(object) => {
+            let mut string_fields = 0;
+            let mut numeric_fields = 0;
+            let mut boolean_fields = 0;
+            let mut array_fields = 0;
+            let mut object_fields = 0;
+            let mut null_fields = 0;
+
+            for value in object.values() {
+                match value {
+                    Value::String(_) => string_fields += 1,
+                    Value::Number(_) => numeric_fields += 1,
+                    Value::Bool(_) => boolean_fields += 1,
+                    Value::Array(_) => array_fields += 1,
+                    Value::Object(_) => object_fields += 1,
+                    Value::Null => null_fields += 1,
+                }
+            }
+
+            json!({
+                "redacted": true,
+                "value_class": "object",
+                "field_count": object.len(),
+                "string_field_count": string_fields,
+                "numeric_field_count": numeric_fields,
+                "boolean_field_count": boolean_fields,
+                "array_field_count": array_fields,
+                "object_field_count": object_fields,
+                "null_field_count": null_fields
+            })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skos_audit_metadata_redacts_raw_actor_and_changes() {
+        let actor = skos_audit_actor_metadata("alice@example.com");
+        assert_eq!(actor, "actor_present=true;actor_len=17");
+        assert!(!actor.contains("alice"));
+        assert!(!actor.contains("example.com"));
+
+        let changes = skos_audit_changes_metadata(Some(json!({
+            "pref_label": "Secret Product Plan",
+            "confidence": 0.92,
+            "active": true,
+            "nested": { "raw": "value" },
+            "ids": ["note-1", "note-2"],
+            "removed": null
+        })))
+        .expect("metadata");
+
+        assert_eq!(changes["redacted"], true);
+        assert_eq!(changes["value_class"], "object");
+        assert_eq!(changes["field_count"], 6);
+        assert_eq!(changes["string_field_count"], 1);
+        assert_eq!(changes["numeric_field_count"], 1);
+        assert_eq!(changes["boolean_field_count"], 1);
+        assert_eq!(changes["array_field_count"], 1);
+        assert_eq!(changes["object_field_count"], 1);
+        assert_eq!(changes["null_field_count"], 1);
+
+        let rendered = changes.to_string();
+        assert!(!rendered.contains("Secret Product Plan"));
+        assert!(!rendered.contains("pref_label"));
+        assert!(!rendered.contains("note-1"));
+        assert!(!rendered.contains("raw"));
+    }
+
+    #[test]
+    fn skos_audit_string_change_metadata_keeps_only_length() {
+        let changes =
+            skos_audit_changes_metadata(Some(json!("tenant-secret-label"))).expect("metadata");
+
+        assert_eq!(changes["redacted"], true);
+        assert_eq!(changes["value_class"], "string");
+        assert_eq!(changes["string_len"], 19);
+        assert!(!changes.to_string().contains("tenant-secret-label"));
+    }
+
+    #[test]
+    fn skos_audit_metadata_preserves_existing_redaction() {
+        let changes = json!({
+            "redacted": true,
+            "value_class": "object",
+            "field_count": 3
+        });
+
+        assert_eq!(
+            skos_audit_actor_metadata("actor_present=true;actor_len=8"),
+            "actor_present=true;actor_len=8"
+        );
+        assert_eq!(redact_skos_audit_value(changes.clone()), changes);
     }
 }
 
