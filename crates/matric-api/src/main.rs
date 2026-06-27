@@ -9503,13 +9503,16 @@ struct TimelineQuery {
 impl fmt::Debug for TimelineQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TimelineQuery")
-            .field("period_len", &self.period.as_ref().map(String::len))
+            .field(
+                "period_len",
+                &self.period.as_deref().map(telemetry_text_len),
+            )
             .field(
                 "granularity_len",
-                &self.granularity.as_ref().map(String::len),
+                &self.granularity.as_deref().map(telemetry_text_len),
             )
             .field("periods", &self.periods)
-            .field("since_len", &self.since.as_ref().map(String::len))
+            .field("since_len", &self.since.as_deref().map(telemetry_text_len))
             .finish()
     }
 }
@@ -9706,11 +9709,11 @@ struct ActivityQuery {
 impl fmt::Debug for ActivityQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ActivityQuery")
-            .field("since_len", &self.since.as_ref().map(String::len))
+            .field("since_len", &self.since.as_deref().map(telemetry_text_len))
             .field("limit", &self.limit)
             .field(
                 "event_types_len",
-                &self.event_types.as_ref().map(String::len),
+                &self.event_types.as_deref().map(telemetry_text_len),
             )
             .finish()
     }
@@ -10439,7 +10442,7 @@ impl fmt::Debug for AccessFrequencyQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AccessFrequencyQuery")
             .field("limit", &self.limit)
-            .field("sort_len", &self.sort.as_ref().map(String::len))
+            .field("sort_len", &self.sort.as_deref().map(telemetry_text_len))
             .field("min_accesses", &self.min_accesses)
             .field("max_accesses", &self.max_accesses)
             .finish()
@@ -10669,16 +10672,25 @@ impl fmt::Debug for ListNotesQuery {
         f.debug_struct("ListNotesQuery")
             .field("limit", &self.limit)
             .field("offset", &self.offset)
-            .field("filter_len", &self.filter.as_ref().map(String::len))
-            .field("sort_by_len", &self.sort_by.as_ref().map(String::len))
-            .field("sort_order_len", &self.sort_order.as_ref().map(String::len))
+            .field(
+                "filter_len",
+                &self.filter.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "sort_by_len",
+                &self.sort_by.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "sort_order_len",
+                &self.sort_order.as_deref().map(telemetry_text_len),
+            )
             .field("collection_id_set", &self.collection_id.is_some())
-            .field("tags_len", &self.tags.as_ref().map(String::len))
+            .field("tags_len", &self.tags.as_deref().map(telemetry_text_len))
             .field("created_after_set", &self.created_after.is_some())
             .field("created_before_set", &self.created_before.is_some())
             .field("updated_after_set", &self.updated_after.is_some())
             .field("updated_before_set", &self.updated_before.is_some())
-            .field("since_len", &self.since.as_ref().map(String::len))
+            .field("since_len", &self.since.as_deref().map(telemetry_text_len))
             .finish()
     }
 }
@@ -12515,10 +12527,16 @@ struct SearchConceptsQuery {
 impl fmt::Debug for SearchConceptsQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SearchConceptsQuery")
-            .field("q_len", &self.q.as_ref().map(String::len))
+            .field("q_len", &self.q.as_deref().map(telemetry_text_len))
             .field("scheme_id_set", &self.scheme_id.is_some())
-            .field("status_len", &self.status.as_ref().map(String::len))
-            .field("facet_type_len", &self.facet_type.as_ref().map(String::len))
+            .field(
+                "status_len",
+                &self.status.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "facet_type_len",
+                &self.facet_type.as_deref().map(telemetry_text_len),
+            )
             .field("top_only", &self.top_only)
             .field("include_deprecated", &self.include_deprecated)
             .field("limit", &self.limit)
@@ -12599,7 +12617,7 @@ struct AutocompleteQuery {
 impl fmt::Debug for AutocompleteQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AutocompleteQuery")
-            .field("q_len", &self.q.len())
+            .field("q_len", &telemetry_text_len(&self.q))
             .field("limit", &self.limit)
             .finish()
     }
@@ -14321,7 +14339,7 @@ impl fmt::Debug for GraphQuery {
             .field("max_edges_per_node", &self.max_edges_per_node)
             .field(
                 "edge_filter_len",
-                &self.edge_filter.as_ref().map(String::len),
+                &self.edge_filter.as_deref().map(telemetry_text_len),
             )
             .field("include_structural", &self.include_structural)
             .finish()
@@ -14474,7 +14492,7 @@ struct CaptureSnapshotBody {
 impl fmt::Debug for CaptureSnapshotBody {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CaptureSnapshotBody")
-            .field("label_len", &self.label.len())
+            .field("label_len", &telemetry_text_len(&self.label))
             .field("sample_size", &self.sample_size)
             .finish()
     }
@@ -14758,10 +14776,12 @@ impl fmt::Debug for GraphMaintenanceBody {
             .field("steps_count", &self.steps.as_ref().map(Vec::len))
             .field(
                 "step_lens",
-                &self
-                    .steps
-                    .as_ref()
-                    .map(|steps| steps.iter().map(String::len).collect::<Vec<_>>()),
+                &self.steps.as_ref().map(|steps| {
+                    steps
+                        .iter()
+                        .map(|step| telemetry_text_len(step))
+                        .collect::<Vec<_>>()
+                }),
             )
             .finish()
     }
@@ -14795,7 +14815,7 @@ impl fmt::Debug for ColdNote {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ColdNote")
             .field("id_set", &true)
-            .field("title_len", &self.title.as_ref().map(String::len))
+            .field("title_len", &self.title.as_deref().map(telemetry_text_len))
             .field("access_count", &self.access_count)
             .field("last_accessed_at_set", &self.last_accessed_at.is_some())
             .field("created_at_utc", &self.created_at_utc)
@@ -28319,19 +28339,19 @@ mod tests {
         let governance_scheme_id = Uuid::new_v4();
         let search = SearchConceptsQuery {
             q: Some(
-                "customer@example.com postgres://user:pass@db.internal/app sk-live-concept"
+                "customer@example.com café postgres://user:pass@db.internal/app sk-live-concept"
                     .to_string(),
             ),
             scheme_id: Some(scheme_id),
-            status: Some("private-status-value".to_string()),
-            facet_type: Some("customer-private-facet".to_string()),
+            status: Some("privaté-status-value".to_string()),
+            facet_type: Some("customer-privaté-facet".to_string()),
             top_only: Some(true),
             include_deprecated: Some(false),
             limit: Some(50),
             offset: Some(10),
         };
         let autocomplete = AutocompleteQuery {
-            q: "autocomplete customer@example.com mm_key_concept".to_string(),
+            q: "autocomplete café customer@example.com mm_key_concept".to_string(),
             limit: Some(8),
         };
         let governance = GovernanceQuery {
@@ -28353,9 +28373,13 @@ mod tests {
         assert!(rendered_search.contains("q_len"));
         assert!(rendered_search.contains("scheme_id_set"));
         assert!(rendered_search.contains("status_len"));
+        assert!(rendered_search.contains("q_len: Some(78)"));
+        assert!(rendered_search.contains("status_len: Some(20)"));
         assert!(rendered_search.contains("facet_type_len"));
+        assert!(rendered_search.contains("facet_type_len: Some(22)"));
         assert!(rendered_autocomplete.contains("AutocompleteQuery"));
         assert!(rendered_autocomplete.contains("q_len"));
+        assert!(rendered_autocomplete.contains("q_len: 53"));
         assert!(rendered_governance.contains("GovernanceQuery"));
         assert!(rendered_list_collections.contains("ListSkosCollectionsQuery"));
         assert!(rendered_list_collections.contains("scheme_id_set"));
@@ -28363,11 +28387,12 @@ mod tests {
 
         for raw in [
             "customer@example.com",
+            "café",
             "postgres://user:pass",
             "db.internal",
             "sk-live-concept",
-            "private-status-value",
-            "customer-private-facet",
+            "privaté-status-value",
+            "customer-privaté-facet",
             "autocomplete customer",
             "mm_key_concept",
             &scheme_id.to_string(),
@@ -28385,24 +28410,24 @@ mod tests {
             min_score: 0.42,
             max_edges_per_node: Some(25),
             edge_filter: Some(
-                "customer@example.com postgres://user:pass@db.internal/app".to_string(),
+                "customer@example.com café postgres://user:pass@db.internal/app".to_string(),
             ),
             include_structural: true,
         };
         let snapshot = CaptureSnapshotBody {
-            label: "private graph snapshot sk-live-graph /srv/private/graph.json".to_string(),
+            label: "private graph snapshot café sk-live-graph /srv/privaté/graph.json".to_string(),
             sample_size: Some(512),
         };
         let maintenance = GraphMaintenanceBody {
             steps: Some(vec![
-                "normalize_private_customer".to_string(),
-                "snapshot_mm_key_graph".to_string(),
+                "normalize_privâté_customer".to_string(),
+                "snapshot_mm_key_grâph".to_string(),
             ]),
         };
         let cold_note_id = Uuid::new_v4();
         let cold_note = ColdNote {
             id: cold_note_id,
-            title: Some("cold note customer@example.com sk-live-cold".to_string()),
+            title: Some("cold note café customer@example.com sk-live-cold".to_string()),
             access_count: Some(1),
             last_accessed_at: None,
             created_at_utc: chrono::Utc::now(),
@@ -28418,24 +28443,29 @@ mod tests {
 
         assert!(rendered_query.contains("GraphQuery"));
         assert!(rendered_query.contains("edge_filter_len"));
+        assert!(rendered_query.contains("edge_filter_len: Some(62)"));
         assert!(rendered_snapshot.contains("CaptureSnapshotBody"));
         assert!(rendered_snapshot.contains("label_len"));
+        assert!(rendered_snapshot.contains("label_len: 65"));
         assert!(rendered_maintenance.contains("GraphMaintenanceBody"));
         assert!(rendered_maintenance.contains("steps_count"));
         assert!(rendered_maintenance.contains("step_lens"));
+        assert!(rendered_maintenance.contains("step_lens: Some([26, 21])"));
         assert!(rendered_cold_note.contains("ColdNote"));
         assert!(rendered_cold_note.contains("title_len"));
+        assert!(rendered_cold_note.contains("title_len: Some(48)"));
         assert!(rendered_cold_note.contains("id_set"));
 
         for raw in [
             "customer@example.com",
+            "café",
             "postgres://user:pass",
             "db.internal",
             "private graph snapshot",
             "sk-live-graph",
-            "/srv/private/graph.json",
-            "normalize_private_customer",
-            "snapshot_mm_key_graph",
+            "/srv/privaté/graph.json",
+            "normalize_privâté_customer",
+            "snapshot_mm_key_grâph",
             "cold note",
             "sk-live-cold",
             &cold_note_id.to_string(),
@@ -28670,15 +28700,15 @@ mod tests {
     fn note_query_debug_redacts_filters_tags_sort_values_and_collection_ids() {
         let collection_id = Uuid::new_v4();
         let timeline = TimelineQuery {
-            period: Some("day-private".to_string()),
-            granularity: Some("customer@example.com".to_string()),
+            period: Some("day-privaté".to_string()),
+            granularity: Some("customer@example.com café".to_string()),
             periods: Some(14),
-            since: Some("7d-sk-live-query".to_string()),
+            since: Some("7d-sk-live-query-café".to_string()),
         };
         let activity = ActivityQuery {
-            since: Some("1w-postgres://user:pass@db.internal/app".to_string()),
+            since: Some("1w-café-postgres://user:pass@db.internal/app".to_string()),
             limit: Some(25),
-            event_types: Some("created,updated,private-event".to_string()),
+            event_types: Some("created,updated,privaté-event".to_string()),
         };
         let health = HealthQuery {
             stale_days: Some(90),
@@ -28686,23 +28716,23 @@ mod tests {
         };
         let access = AccessFrequencyQuery {
             limit: Some(50),
-            sort: Some("/srv/private/access-sort".to_string()),
+            sort: Some("/srv/privaté/access-sort".to_string()),
             min_accesses: Some(1),
             max_accesses: Some(500),
         };
         let list = ListNotesQuery {
             limit: Some(10),
             offset: Some(5),
-            filter: Some("customer email customer@example.com sk-live-list-query".to_string()),
-            sort_by: Some("private-title".to_string()),
-            sort_order: Some("desc-secret".to_string()),
+            filter: Some("customer email café customer@example.com sk-live-list-query".to_string()),
+            sort_by: Some("privaté-title".to_string()),
+            sort_order: Some("desc-sécret".to_string()),
             collection_id: Some(collection_id),
-            tags: Some("customer/private/tag,mm_key_note_query".to_string()),
+            tags: Some("customer/privaté/tag,mm_key_note_query".to_string()),
             created_after: None,
             created_before: None,
             updated_after: None,
             updated_before: None,
-            since: Some("2h-private-since".to_string()),
+            since: Some("2h-privaté-since".to_string()),
         };
 
         let rendered_timeline = format!("{timeline:?}");
@@ -28716,31 +28746,43 @@ mod tests {
 
         assert!(rendered_timeline.contains("TimelineQuery"));
         assert!(rendered_timeline.contains("period_len"));
+        assert!(rendered_timeline.contains("period_len: Some(11)"));
+        assert!(rendered_timeline.contains("granularity_len: Some(25)"));
+        assert!(rendered_timeline.contains("since_len: Some(21)"));
         assert!(rendered_activity.contains("ActivityQuery"));
         assert!(rendered_activity.contains("event_types_len"));
+        assert!(rendered_activity.contains("since_len: Some(44)"));
+        assert!(rendered_activity.contains("event_types_len: Some(29)"));
         assert!(rendered_health.contains("HealthQuery"));
         assert!(rendered_health.contains("stale_days"));
         assert!(rendered_access.contains("AccessFrequencyQuery"));
         assert!(rendered_access.contains("sort_len"));
+        assert!(rendered_access.contains("sort_len: Some(24)"));
         assert!(rendered_list.contains("ListNotesQuery"));
         assert!(rendered_list.contains("filter_len"));
+        assert!(rendered_list.contains("filter_len: Some(59)"));
+        assert!(rendered_list.contains("sort_by_len: Some(13)"));
+        assert!(rendered_list.contains("sort_order_len: Some(11)"));
         assert!(rendered_list.contains("collection_id_set"));
         assert!(rendered_list.contains("tags_len"));
+        assert!(rendered_list.contains("tags_len: Some(38)"));
+        assert!(rendered_list.contains("since_len: Some(16)"));
 
         for raw in [
-            "day-private",
+            "day-privaté",
             "customer@example.com",
+            "café",
             "sk-live-query",
             "postgres://user:pass",
             "db.internal",
-            "private-event",
-            "/srv/private/access-sort",
+            "privaté-event",
+            "/srv/privaté/access-sort",
             "sk-live-list-query",
-            "private-title",
-            "desc-secret",
-            "customer/private/tag",
+            "privaté-title",
+            "desc-sécret",
+            "customer/privaté/tag",
             "mm_key_note_query",
-            "2h-private-since",
+            "2h-privaté-since",
             &collection_id.to_string(),
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
