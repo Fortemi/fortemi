@@ -1,9 +1,10 @@
 //! Downgrade impact analysis for importing shards from newer versions.
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Analysis of what will be lost when importing a newer shard
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DowngradeImpact {
     pub shard_version: String,
     pub current_version: String,
@@ -13,20 +14,55 @@ pub struct DowngradeImpact {
     pub summary: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+impl fmt::Debug for DowngradeImpact {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DowngradeImpact")
+            .field("shard_version_len", &self.shard_version.chars().count())
+            .field("current_version_len", &self.current_version.chars().count())
+            .field("features_lost_count", &self.features_lost.len())
+            .field("data_loss_count", &self.data_loss.len())
+            .field("can_proceed", &self.can_proceed)
+            .field("summary_len", &self.summary.chars().count())
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FeatureLoss {
     pub feature: String,
     pub introduced_in: String,
     pub description: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+impl fmt::Debug for FeatureLoss {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FeatureLoss")
+            .field("feature_len", &self.feature.chars().count())
+            .field("introduced_in_len", &self.introduced_in.chars().count())
+            .field("description_len", &self.description.chars().count())
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DataLoss {
     pub component: String,
     pub field: String,
     pub affected_count: usize,
     pub description: String,
     pub outcome: DataLossOutcome,
+}
+
+impl fmt::Debug for DataLoss {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DataLoss")
+            .field("component_len", &self.component.chars().count())
+            .field("field_len", &self.field.chars().count())
+            .field("affected_count", &self.affected_count)
+            .field("description_len", &self.description.chars().count())
+            .field("outcome", &self.outcome)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -229,6 +265,61 @@ mod tests {
         let json = serde_json::to_string(&impact).unwrap();
         let deserialized: DowngradeImpact = serde_json::from_str(&json).unwrap();
         assert_eq!(impact, deserialized);
+    }
+
+    #[test]
+    fn downgrade_impact_debug_redacts_versions_features_fields_and_summaries() {
+        let impact = DowngradeImpact {
+            shard_version: "2.0.0-customer@example.com-sk-live-shard".to_string(),
+            current_version: "1.0.0-postgres://user:secret@db.internal/app".to_string(),
+            features_lost: vec![FeatureLoss {
+                feature: "private/customer@example.com-feature".to_string(),
+                introduced_in: "1.9.0-sk-live-feature".to_string(),
+                description: "feature uses bearer sk-live-description".to_string(),
+            }],
+            data_loss: vec![DataLoss {
+                component: "private/path/customer@example.com".to_string(),
+                field: "database_url".to_string(),
+                affected_count: 5,
+                description: "lost postgres://user:secret@db.internal/app field".to_string(),
+                outcome: DataLossOutcome::Discarded,
+            }],
+            can_proceed: false,
+            summary: "Import warning for customer@example.com and sk-live-summary".to_string(),
+        };
+
+        let rendered = format!("{impact:?}");
+        let feature = format!("{:?}", impact.features_lost[0]);
+        let data_loss = format!("{:?}", impact.data_loss[0]);
+        let combined = format!("{rendered}\n{feature}\n{data_loss}");
+
+        assert!(rendered.contains("DowngradeImpact"));
+        assert!(rendered.contains("shard_version_len"));
+        assert!(rendered.contains("current_version_len"));
+        assert!(rendered.contains("features_lost_count"));
+        assert!(rendered.contains("data_loss_count"));
+        assert!(feature.contains("FeatureLoss"));
+        assert!(feature.contains("feature_len"));
+        assert!(data_loss.contains("DataLoss"));
+        assert!(data_loss.contains("component_len"));
+        assert!(data_loss.contains("field_len"));
+        assert!(data_loss.contains("description_len"));
+
+        for raw in [
+            "customer@example.com",
+            "sk-live",
+            "postgres://",
+            "db.internal",
+            "private/",
+            "database_url",
+            "bearer",
+            "Import warning",
+        ] {
+            assert!(
+                !combined.contains(raw),
+                "Debug output leaked {raw}: {combined}"
+            );
+        }
     }
 
     #[test]
