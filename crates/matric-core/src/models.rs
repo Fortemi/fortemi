@@ -521,7 +521,10 @@ impl std::str::FromStr for EmbeddingSetType {
         match s.to_lowercase().as_str() {
             "filter" => Ok(Self::Filter),
             "full" => Ok(Self::Full),
-            _ => Err(format!("Invalid embedding set type; value_len={}", s.len())),
+            _ => Err(format!(
+                "Invalid embedding set type; value_len={}",
+                debug_len(s)
+            )),
         }
     }
 }
@@ -556,7 +559,10 @@ impl std::str::FromStr for EmbeddingSetMode {
             "auto" => Ok(Self::Auto),
             "manual" => Ok(Self::Manual),
             "mixed" => Ok(Self::Mixed),
-            _ => Err(format!("Invalid embedding set mode; value_len={}", s.len())),
+            _ => Err(format!(
+                "Invalid embedding set mode; value_len={}",
+                debug_len(s)
+            )),
         }
     }
 }
@@ -605,7 +611,7 @@ impl std::str::FromStr for EmbeddingIndexStatus {
             "disabled" => Ok(Self::Disabled),
             _ => Err(format!(
                 "Invalid embedding index status; value_len={}",
-                s.len()
+                debug_len(s)
             )),
         }
     }
@@ -820,7 +826,7 @@ impl fmt::Debug for TagStrategy {
                 .field("tag_count", &tags.len())
                 .field(
                     "tag_lens",
-                    &tags.iter().map(String::len).collect::<Vec<_>>(),
+                    &tags.iter().map(|tag| debug_len(tag)).collect::<Vec<_>>(),
                 )
                 .finish(),
         }
@@ -868,7 +874,10 @@ impl fmt::Debug for DocumentComposition {
             .field("tag_strategy", &self.tag_strategy)
             .field("include_concepts", &self.include_concepts)
             .field("concept_max_doc_freq", &self.concept_max_doc_freq)
-            .field("instruction_prefix_len", &self.instruction_prefix.len())
+            .field(
+                "instruction_prefix_len",
+                &debug_len(&self.instruction_prefix),
+            )
             .finish()
     }
 }
@@ -986,12 +995,12 @@ impl fmt::Debug for EmbeddingConfigProfile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EmbeddingConfigProfile")
             .field("id_set", &true)
-            .field("name_len", &self.name.len())
+            .field("name_len", &debug_len(&self.name))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self.description.as_ref().map(|value| debug_len(value)),
             )
-            .field("model_len", &self.model.len())
+            .field("model_len", &debug_len(&self.model))
             .field("dimension", &self.dimension)
             .field("chunk_size", &self.chunk_size)
             .field("chunk_overlap", &self.chunk_overlap)
@@ -1022,7 +1031,7 @@ impl fmt::Debug for EmbeddingConfigProfile {
                 &self
                     .content_types
                     .iter()
-                    .map(String::len)
+                    .map(|content_type| debug_len(content_type))
                     .collect::<Vec<_>>(),
             )
             .field("document_composition", &self.document_composition)
@@ -1461,7 +1470,10 @@ impl std::str::FromStr for DocumentCategory {
             "personal" => Ok(Self::Personal),
             "agentic" => Ok(Self::Agentic),
             "custom" => Ok(Self::Custom),
-            _ => Err(format!("Invalid document category; value_len={}", s.len())),
+            _ => Err(format!(
+                "Invalid document category; value_len={}",
+                debug_len(s)
+            )),
         }
     }
 }
@@ -1514,7 +1526,10 @@ impl std::str::FromStr for ChunkingStrategy {
             "per_section" | "persection" => Ok(Self::PerSection),
             "per_unit" | "perunit" => Ok(Self::PerUnit),
             "whole" => Ok(Self::Whole),
-            _ => Err(format!("Invalid chunking strategy; value_len={}", s.len())),
+            _ => Err(format!(
+                "Invalid chunking strategy; value_len={}",
+                debug_len(s)
+            )),
         }
     }
 }
@@ -1920,7 +1935,7 @@ impl std::str::FromStr for ExtractionStrategy {
             "none" => Ok(Self::TextNative),
             _ => Err(format!(
                 "Invalid extraction strategy; value_len={}",
-                s.len()
+                debug_len(s)
             )),
         }
     }
@@ -2529,7 +2544,10 @@ impl std::str::FromStr for AttachmentStatus {
             "completed" => Ok(Self::Completed),
             "failed" => Ok(Self::Failed),
             "quarantined" => Ok(Self::Quarantined),
-            _ => Err(format!("Invalid attachment status; value_len={}", s.len())),
+            _ => Err(format!(
+                "Invalid attachment status; value_len={}",
+                debug_len(s)
+            )),
         }
     }
 }
@@ -6603,18 +6621,18 @@ mod tests {
             include_title: true,
             include_content: true,
             tag_strategy: TagStrategy::Specific(vec![
-                "specific-private-tag".to_string(),
-                "specific-secret@example.test".to_string(),
+                "spécific-private-tag".to_string(),
+                "spécific-secret@example.test".to_string(),
             ]),
             include_concepts: true,
             concept_max_doc_freq: 0.4,
-            instruction_prefix: "private-instruction-prefix sk-live-secret".to_string(),
+            instruction_prefix: "prïvate-instruction-prefix sk-live-secret".to_string(),
         };
         let profile = EmbeddingConfigProfile {
             id: Uuid::new_v4(),
-            name: "Private embedding profile".to_string(),
-            description: Some("Profile description private@example.test".to_string()),
-            model: "private-embedding-model".to_string(),
+            name: "Prïvate embedding profile".to_string(),
+            description: Some("Pröfile description private@example.test".to_string()),
+            model: "prïvate-embedding-model".to_string(),
             dimension: 768,
             chunk_size: 512,
             chunk_overlap: 64,
@@ -6633,7 +6651,7 @@ mod tests {
                 "api_key": "sk-live-secret",
                 "path": "/tmp/customer/provider.json"
             }),
-            content_types: vec!["private-content-type".to_string()],
+            content_types: vec!["prïvate-content-type".to_string()],
             document_composition: composition.clone(),
         };
         let set = EmbeddingSet {
@@ -6745,15 +6763,15 @@ mod tests {
                 "/tmp/customer/perf.log",
                 "related-private-set",
                 "Suggested query",
-                "specific-private-tag",
-                "specific-secret@example.test",
-                "private-instruction-prefix",
-                "Private embedding profile",
-                "Profile description",
-                "private-embedding-model",
+                "spécific-private-tag",
+                "spécific-secret@example.test",
+                "prïvate-instruction-prefix",
+                "Prïvate embedding profile",
+                "Pröfile description",
+                "prïvate-embedding-model",
                 "api_key",
                 "/tmp/customer/provider.json",
-                "private-content-type",
+                "prïvate-content-type",
                 "Private embedding set",
                 "private-embedding-set",
                 "Set description",
@@ -6790,6 +6808,12 @@ mod tests {
             "performance_notes_len: Some(2)",
             "related_set_lens: [2]",
             "suggested_query_lens: [2]",
+            "tag_lens: [20, 28]",
+            "instruction_prefix_len: 41",
+            "name_len: 25",
+            "description_len: Some(40)",
+            "model_len: 23",
+            "content_type_lens: [20]",
             "tags_count",
             "tag_lens",
             "fts_query_len",
@@ -8359,7 +8383,7 @@ mod tests {
 
     #[test]
     fn enum_parse_errors_report_lengths_without_raw_values() {
-        let secret = "postgres://user:pass@db.internal/app?token=sk-live-secret";
+        let secret = "pöstgres://user:pass@db.internal/app?token=sk-live-secret";
         let cases = [
             secret.parse::<EmbeddingSetType>().unwrap_err(),
             secret.parse::<EmbeddingSetMode>().unwrap_err(),
@@ -8371,7 +8395,14 @@ mod tests {
         ];
 
         for error in cases {
-            assert!(error.contains("value_len="), "{error}");
+            assert!(
+                error.contains(&format!("value_len={}", secret.chars().count())),
+                "{error}"
+            );
+            assert!(
+                !error.contains(&format!("value_len={}", secret.len())),
+                "enum parser error used byte length instead of character count: {error}"
+            );
             assert!(
                 !error.contains(secret),
                 "enum parser error leaked raw invalid value: {error}"
