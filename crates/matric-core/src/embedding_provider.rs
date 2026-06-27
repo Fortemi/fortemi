@@ -43,7 +43,7 @@ impl std::str::FromStr for EmbeddingProvider {
             "voyage" => Ok(Self::Voyage),
             "cohere" => Ok(Self::Cohere),
             "custom" => Ok(Self::Custom),
-            _ => Err(format!("Invalid embedding provider: {}", s)),
+            _ => Err(format!("Invalid embedding provider; value_len={}", s.len())),
         }
     }
 }
@@ -397,5 +397,22 @@ mod tests {
                 "embedding config request Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
+    }
+
+    #[test]
+    fn embedding_provider_parse_errors_report_lengths_without_raw_values() {
+        let secret = "https://provider.example.test/embed?api_key=sk-live-secret";
+        let error = secret.parse::<EmbeddingProvider>().unwrap_err();
+
+        assert!(error.contains("Invalid embedding provider"));
+        assert!(error.contains("value_len="));
+        assert!(
+            !error.contains(secret),
+            "embedding provider parser error leaked raw invalid value: {error}"
+        );
+        assert!(
+            !error.contains("api_key=") && !error.contains("sk-live-secret"),
+            "embedding provider parser error leaked secret-shaped fragment: {error}"
+        );
     }
 }

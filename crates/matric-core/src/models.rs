@@ -515,7 +515,7 @@ impl std::str::FromStr for EmbeddingSetType {
         match s.to_lowercase().as_str() {
             "filter" => Ok(Self::Filter),
             "full" => Ok(Self::Full),
-            _ => Err(format!("Invalid embedding set type: {}", s)),
+            _ => Err(format!("Invalid embedding set type; value_len={}", s.len())),
         }
     }
 }
@@ -550,7 +550,7 @@ impl std::str::FromStr for EmbeddingSetMode {
             "auto" => Ok(Self::Auto),
             "manual" => Ok(Self::Manual),
             "mixed" => Ok(Self::Mixed),
-            _ => Err(format!("Invalid embedding set mode: {}", s)),
+            _ => Err(format!("Invalid embedding set mode; value_len={}", s.len())),
         }
     }
 }
@@ -597,7 +597,10 @@ impl std::str::FromStr for EmbeddingIndexStatus {
             "ready" => Ok(Self::Ready),
             "stale" => Ok(Self::Stale),
             "disabled" => Ok(Self::Disabled),
-            _ => Err(format!("Invalid embedding index status: {}", s)),
+            _ => Err(format!(
+                "Invalid embedding index status; value_len={}",
+                s.len()
+            )),
         }
     }
 }
@@ -1442,7 +1445,7 @@ impl std::str::FromStr for DocumentCategory {
             "personal" => Ok(Self::Personal),
             "agentic" => Ok(Self::Agentic),
             "custom" => Ok(Self::Custom),
-            _ => Err(format!("Invalid document category: {}", s)),
+            _ => Err(format!("Invalid document category; value_len={}", s.len())),
         }
     }
 }
@@ -1495,7 +1498,7 @@ impl std::str::FromStr for ChunkingStrategy {
             "per_section" | "persection" => Ok(Self::PerSection),
             "per_unit" | "perunit" => Ok(Self::PerUnit),
             "whole" => Ok(Self::Whole),
-            _ => Err(format!("Invalid chunking strategy: {}", s)),
+            _ => Err(format!("Invalid chunking strategy; value_len={}", s.len())),
         }
     }
 }
@@ -1899,7 +1902,10 @@ impl std::str::FromStr for ExtractionStrategy {
             "spreadsheet" | "xlsx" | "xls" | "ods" => Ok(Self::Spreadsheet),
             "archive" | "zip" | "tar" | "7z" | "rar" => Ok(Self::Archive),
             "none" => Ok(Self::TextNative),
-            _ => Err(format!("Invalid extraction strategy: {}", s)),
+            _ => Err(format!(
+                "Invalid extraction strategy; value_len={}",
+                s.len()
+            )),
         }
     }
 }
@@ -2500,7 +2506,7 @@ impl std::str::FromStr for AttachmentStatus {
             "completed" => Ok(Self::Completed),
             "failed" => Ok(Self::Failed),
             "quarantined" => Ok(Self::Quarantined),
-            _ => Err(format!("Invalid attachment status: {}", s)),
+            _ => Err(format!("Invalid attachment status; value_len={}", s.len())),
         }
     }
 }
@@ -8189,6 +8195,32 @@ mod tests {
         assert!(result
             .unwrap_err()
             .contains("Invalid embedding index status"));
+    }
+
+    #[test]
+    fn enum_parse_errors_report_lengths_without_raw_values() {
+        let secret = "postgres://user:pass@db.internal/app?token=sk-live-secret";
+        let cases = [
+            secret.parse::<EmbeddingSetType>().unwrap_err(),
+            secret.parse::<EmbeddingSetMode>().unwrap_err(),
+            secret.parse::<EmbeddingIndexStatus>().unwrap_err(),
+            secret.parse::<DocumentCategory>().unwrap_err(),
+            secret.parse::<ChunkingStrategy>().unwrap_err(),
+            secret.parse::<ExtractionStrategy>().unwrap_err(),
+            secret.parse::<AttachmentStatus>().unwrap_err(),
+        ];
+
+        for error in cases {
+            assert!(error.contains("value_len="), "{error}");
+            assert!(
+                !error.contains(secret),
+                "enum parser error leaked raw invalid value: {error}"
+            );
+            assert!(
+                !error.contains("postgres://") && !error.contains("sk-live-secret"),
+                "enum parser error leaked secret-shaped fragment: {error}"
+            );
+        }
     }
 
     #[test]

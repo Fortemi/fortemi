@@ -69,7 +69,10 @@ impl std::str::FromStr for SkosSemanticRelation {
             "broader" => Ok(Self::Broader),
             "narrower" => Ok(Self::Narrower),
             "related" => Ok(Self::Related),
-            _ => Err(format!("Invalid SKOS semantic relation: {}", s)),
+            _ => Err(format!(
+                "Invalid SKOS semantic relation; value_len={}",
+                s.len()
+            )),
         }
     }
 }
@@ -121,7 +124,10 @@ impl std::str::FromStr for SkosMappingRelation {
             "broad_match" | "broadmatch" => Ok(Self::BroadMatch),
             "narrow_match" | "narrowmatch" => Ok(Self::NarrowMatch),
             "related_match" | "relatedmatch" => Ok(Self::RelatedMatch),
-            _ => Err(format!("Invalid SKOS mapping relation: {}", s)),
+            _ => Err(format!(
+                "Invalid SKOS mapping relation; value_len={}",
+                s.len()
+            )),
         }
     }
 }
@@ -166,7 +172,7 @@ impl std::str::FromStr for SkosLabelType {
             "pref_label" | "preflabel" => Ok(Self::PrefLabel),
             "alt_label" | "altlabel" => Ok(Self::AltLabel),
             "hidden_label" | "hiddenlabel" => Ok(Self::HiddenLabel),
-            _ => Err(format!("Invalid SKOS label type: {}", s)),
+            _ => Err(format!("Invalid SKOS label type; value_len={}", s.len())),
         }
     }
 }
@@ -228,7 +234,7 @@ impl std::str::FromStr for SkosNoteType {
             "editorial_note" | "editorialnote" => Ok(Self::EditorialNote),
             "change_note" | "changenote" => Ok(Self::ChangeNote),
             "note" => Ok(Self::Note),
-            _ => Err(format!("Invalid SKOS note type: {}", s)),
+            _ => Err(format!("Invalid SKOS note type; value_len={}", s.len())),
         }
     }
 }
@@ -283,7 +289,7 @@ impl std::str::FromStr for PmestFacet {
             "energy" | "e" => Ok(Self::Energy),
             "space" | "s" => Ok(Self::Space),
             "time" | "t" => Ok(Self::Time),
-            _ => Err(format!("Invalid PMEST facet: {}", s)),
+            _ => Err(format!("Invalid PMEST facet; value_len={}", s.len())),
         }
     }
 }
@@ -329,7 +335,7 @@ impl std::str::FromStr for TagStatus {
             "approved" => Ok(Self::Approved),
             "deprecated" => Ok(Self::Deprecated),
             "obsolete" => Ok(Self::Obsolete),
-            _ => Err(format!("Invalid tag status: {}", s)),
+            _ => Err(format!("Invalid tag status; value_len={}", s.len())),
         }
     }
 }
@@ -394,7 +400,7 @@ impl std::str::FromStr for TagAntipattern {
             "polyhierarchy_excess" | "polyhierarchyexcess" => Ok(Self::PolyhierarchyExcess),
             "missing_labels" | "missinglabels" => Ok(Self::MissingLabels),
             "circular_hierarchy" | "circularhierarchy" => Ok(Self::CircularHierarchy),
-            _ => Err(format!("Invalid tag antipattern: {}", s)),
+            _ => Err(format!("Invalid tag antipattern; value_len={}", s.len())),
         }
     }
 }
@@ -3681,5 +3687,31 @@ mod tests {
         let input = spec.to_tag_input();
         assert_eq!(input.path, vec!["Machine Learning"]);
         assert_eq!(input.scheme, "topics");
+    }
+
+    #[test]
+    fn tag_enum_parse_errors_report_lengths_without_raw_values() {
+        let secret = "customer/private@example.test?token=sk-live-secret";
+        let cases = [
+            secret.parse::<SkosSemanticRelation>().unwrap_err(),
+            secret.parse::<SkosMappingRelation>().unwrap_err(),
+            secret.parse::<SkosLabelType>().unwrap_err(),
+            secret.parse::<SkosNoteType>().unwrap_err(),
+            secret.parse::<PmestFacet>().unwrap_err(),
+            secret.parse::<TagStatus>().unwrap_err(),
+            secret.parse::<TagAntipattern>().unwrap_err(),
+        ];
+
+        for error in cases {
+            assert!(error.contains("value_len="), "{error}");
+            assert!(
+                !error.contains(secret),
+                "tag enum parser error leaked raw invalid value: {error}"
+            );
+            assert!(
+                !error.contains("private@example.test") && !error.contains("sk-live-secret"),
+                "tag enum parser error leaked secret-shaped fragment: {error}"
+            );
+        }
     }
 }
