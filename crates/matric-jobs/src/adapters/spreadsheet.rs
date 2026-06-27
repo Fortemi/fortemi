@@ -209,9 +209,12 @@ impl ExtractionAdapter for SpreadsheetAdapter {
 
         let cursor = Cursor::new(data.to_vec());
         let mut workbook = open_workbook_auto_from_rs(cursor).map_err(|e| {
+            let error_text = e.to_string();
             matric_core::Error::InvalidInput(format!(
-                "Failed to open spreadsheet '{}': {}",
-                filename, e
+                "Failed to open spreadsheet; filename_len={}; error_len={}; error_reason={}",
+                spreadsheet_text_len(filename),
+                spreadsheet_text_len(&error_text),
+                spreadsheet_error_reason_code(&error_text)
             ))
         })?;
 
@@ -318,6 +321,13 @@ impl ExtractionAdapter for SpreadsheetAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn invalid_input_message(error: matric_core::Error) -> String {
+        match error {
+            matric_core::Error::InvalidInput(message) => message,
+            other => panic!("expected invalid input error, got {other:?}"),
+        }
+    }
 
     #[test]
     fn spreadsheet_error_reason_code_uses_stable_classes() {
@@ -696,21 +706,27 @@ mod tests {
     #[tokio::test]
     async fn test_spreadsheet_invalid_data_returns_error() {
         let adapter = SpreadsheetAdapter;
+        let filename = "bad-token-sk-live.xlsx";
         let result = adapter
             .extract(
                 b"not a spreadsheet at all",
-                "bad.xlsx",
+                filename,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 &serde_json::json!({}),
             )
             .await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = invalid_input_message(result.unwrap_err());
         assert!(
             err.to_lowercase().contains("failed") || err.to_lowercase().contains("spreadsheet"),
             "Error should mention failure or spreadsheet: {}",
             err
         );
+        assert!(err.contains("filename_len="));
+        assert!(err.contains("error_len="));
+        assert!(err.contains("error_reason="));
+        assert!(!err.contains(filename));
+        assert!(!err.contains("sk-live"));
     }
 
     // ── Integration tests using real xlsx bytes ───────────────────────────

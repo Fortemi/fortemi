@@ -174,8 +174,8 @@ impl ExtractionAdapter for PdfTextAdapter {
         // Validate PDF magic bytes (%PDF)
         if data.len() < 4 || &data[0..4] != b"%PDF" {
             return Err(matric_core::Error::InvalidInput(format!(
-                "File '{}' is not a valid PDF (missing %PDF header)",
-                filename
+                "File is not a valid PDF; filename_len={}; reason=missing_pdf_header",
+                pdf_text_len(filename)
             )));
         }
 
@@ -306,6 +306,13 @@ impl ExtractionAdapter for PdfTextAdapter {
 mod tests {
     use super::*;
 
+    fn invalid_input_message(error: matric_core::Error) -> String {
+        match error {
+            matric_core::Error::InvalidInput(message) => message,
+            other => panic!("expected invalid input error, got {other:?}"),
+        }
+    }
+
     #[test]
     fn test_pdf_text_strategy() {
         let adapter = PdfTextAdapter;
@@ -395,21 +402,26 @@ mod tests {
     #[tokio::test]
     async fn test_pdf_text_invalid_pdf() {
         let adapter = PdfTextAdapter;
+        let filename = "bad-token-sk-live.pdf";
         let result = adapter
             .extract(
                 b"not a pdf at all",
-                "bad.pdf",
+                filename,
                 "application/pdf",
                 &serde_json::json!({}),
             )
             .await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = invalid_input_message(result.unwrap_err());
         assert!(
             err.contains("not a valid PDF"),
             "Error should mention invalid PDF: {}",
             err
         );
+        assert!(err.contains("filename_len="));
+        assert!(err.contains("reason=missing_pdf_header"));
+        assert!(!err.contains(filename));
+        assert!(!err.contains("sk-live"));
     }
 
     #[tokio::test]

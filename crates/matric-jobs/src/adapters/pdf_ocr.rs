@@ -167,8 +167,8 @@ impl ExtractionAdapter for PdfOcrAdapter {
         // Validate PDF magic bytes
         if data.len() < 4 || &data[0..4] != b"%PDF" {
             return Err(matric_core::Error::InvalidInput(format!(
-                "File '{}' is not a valid PDF (missing %PDF header)",
-                filename
+                "File is not a valid PDF; filename_len={}; reason=missing_pdf_header",
+                pdf_ocr_text_len(filename)
             )));
         }
 
@@ -332,6 +332,13 @@ impl ExtractionAdapter for PdfOcrAdapter {
 mod tests {
     use super::*;
 
+    fn invalid_input_message(error: matric_core::Error) -> String {
+        match error {
+            matric_core::Error::InvalidInput(message) => message,
+            other => panic!("expected invalid input error, got {other:?}"),
+        }
+    }
+
     #[test]
     fn test_pdf_ocr_strategy() {
         let adapter = PdfOcrAdapter;
@@ -420,7 +427,11 @@ mod tests {
             .extract(b"not a pdf", "bad.pdf", "application/pdf", &json!({}))
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not a valid PDF"));
+        let err = invalid_input_message(result.unwrap_err());
+        assert!(err.contains("not a valid PDF"));
+        assert!(err.contains("filename_len="));
+        assert!(err.contains("reason=missing_pdf_header"));
+        assert!(!err.contains("bad.pdf"));
     }
 
     #[tokio::test]
@@ -446,7 +457,11 @@ mod tests {
             .extract(b"%PD", "short.pdf", "application/pdf", &json!({}))
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not a valid PDF"));
+        let err = invalid_input_message(result.unwrap_err());
+        assert!(err.contains("not a valid PDF"));
+        assert!(err.contains("filename_len="));
+        assert!(err.contains("reason=missing_pdf_header"));
+        assert!(!err.contains("short.pdf"));
     }
 
     #[tokio::test]
@@ -456,12 +471,15 @@ mod tests {
             .extract(b"JPEG", "fake.pdf", "application/pdf", &json!({}))
             .await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = invalid_input_message(result.unwrap_err());
         assert!(
             err.contains("not a valid PDF"),
             "Expected PDF validation error, got: {}",
             err
         );
+        assert!(err.contains("filename_len="));
+        assert!(err.contains("reason=missing_pdf_header"));
+        assert!(!err.contains("fake.pdf"));
     }
 
     #[tokio::test]
@@ -492,20 +510,19 @@ mod tests {
     #[tokio::test]
     async fn test_pdf_ocr_filename_in_error() {
         let adapter = PdfOcrAdapter;
+        let filename = "my-document-sk-live-secret.pdf";
         let result = adapter
-            .extract(
-                b"NOT_PDF_DATA",
-                "my-document.pdf",
-                "application/pdf",
-                &json!({}),
-            )
+            .extract(b"NOT_PDF_DATA", filename, "application/pdf", &json!({}))
             .await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = invalid_input_message(result.unwrap_err());
         assert!(
-            err.contains("my-document.pdf"),
-            "Error should include filename, got: {}",
+            err.contains("filename_len="),
+            "Error should include filename metadata, got: {}",
             err
         );
+        assert!(err.contains("reason=missing_pdf_header"));
+        assert!(!err.contains(filename));
+        assert!(!err.contains("sk-live"));
     }
 }
