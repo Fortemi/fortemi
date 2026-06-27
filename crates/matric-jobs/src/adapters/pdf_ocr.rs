@@ -82,6 +82,13 @@ fn pdf_ocr_command_failure_detail(
     )
 }
 
+fn pdf_ocr_io_failure_detail(phase: &'static str, error: &std::io::Error) -> String {
+    format!(
+        "PDF OCR temp IO failed; phase={phase}; io_error_kind={}",
+        pdf_ocr_io_error_kind(error)
+    )
+}
+
 #[allow(dead_code)]
 /// Run a command with a timeout, returning stdout as a string.
 async fn run_cmd_with_timeout(
@@ -181,16 +188,16 @@ impl ExtractionAdapter for PdfOcrAdapter {
 
         // Write PDF to temp file
         let mut tmpfile = NamedTempFile::new().map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to create temp file: {}", e))
+            matric_core::Error::Internal(pdf_ocr_io_failure_detail("create_temp_file", &e))
         })?;
         tmpfile.write_all(data).map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to write temp file: {}", e))
+            matric_core::Error::Internal(pdf_ocr_io_failure_detail("write_temp_file", &e))
         })?;
         let pdf_path = tmpfile.path().to_string_lossy().to_string();
 
         // Create temp dir for rendered page images
         let img_dir = TempDir::new().map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to create temp dir: {}", e))
+            matric_core::Error::Internal(pdf_ocr_io_failure_detail("create_temp_dir", &e))
         })?;
         let img_prefix = img_dir.path().join("page").to_string_lossy().to_string();
 
@@ -215,12 +222,13 @@ impl ExtractionAdapter for PdfOcrAdapter {
 
         // Find all rendered page images (sorted by name for correct order)
         let mut page_images: Vec<String> = Vec::new();
-        let entries = fs::read_dir(img_dir.path())
-            .map_err(|e| matric_core::Error::Internal(format!("Failed to read temp dir: {}", e)))?;
+        let entries = fs::read_dir(img_dir.path()).map_err(|e| {
+            matric_core::Error::Internal(pdf_ocr_io_failure_detail("read_temp_dir", &e))
+        })?;
 
         for entry in entries {
             let entry = entry.map_err(|e| {
-                matric_core::Error::Internal(format!("Failed to read dir entry: {}", e))
+                matric_core::Error::Internal(pdf_ocr_io_failure_detail("read_dir_entry", &e))
             })?;
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("png") {
@@ -400,6 +408,22 @@ mod tests {
             pdf_ocr_stderr_reason_code(b"opaque backend detail"),
             "command_failed"
         );
+    }
+
+    #[test]
+    fn pdf_ocr_io_failure_detail_redacts_os_diagnostics() {
+        let error = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "permission denied at /srv/fortemi/private/sk-live-page.png",
+        );
+        let detail = pdf_ocr_io_failure_detail("read_dir_entry", &error);
+
+        assert!(detail.contains("PDF OCR temp IO failed"));
+        assert!(detail.contains("phase=read_dir_entry"));
+        assert!(detail.contains("io_error_kind=permission_denied"));
+        assert!(!detail.contains("/srv/fortemi"));
+        assert!(!detail.contains("sk-live"));
+        assert!(!detail.contains("permission denied at"));
     }
 
     #[tokio::test]

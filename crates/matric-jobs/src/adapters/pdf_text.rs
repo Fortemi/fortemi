@@ -121,6 +121,13 @@ fn pdf_text_command_failure_detail(
     )
 }
 
+fn pdf_text_io_failure_detail(phase: &'static str, error: &std::io::Error) -> String {
+    format!(
+        "PDF temp IO failed; phase={phase}; io_error_kind={}",
+        pdf_text_io_error_kind(error)
+    )
+}
+
 /// Run a command with a timeout, returning stdout as a string.
 async fn run_cmd_with_timeout(
     cmd: &mut Command,
@@ -181,10 +188,10 @@ impl ExtractionAdapter for PdfTextAdapter {
 
         // Write data to a temporary file (pdftotext reads from file path)
         let mut tmpfile = NamedTempFile::new().map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to create temp file: {}", e))
+            matric_core::Error::Internal(pdf_text_io_failure_detail("create_temp_file", &e))
         })?;
         tmpfile.write_all(data).map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to write temp file: {}", e))
+            matric_core::Error::Internal(pdf_text_io_failure_detail("write_temp_file", &e))
         })?;
         let tmp_path = tmpfile.path().to_string_lossy().to_string();
 
@@ -374,6 +381,22 @@ mod tests {
             pdf_text_stderr_reason_code(b"opaque backend detail"),
             "command_failed"
         );
+    }
+
+    #[test]
+    fn pdf_text_io_failure_detail_redacts_os_diagnostics() {
+        let error = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "permission denied at /srv/fortemi/private/sk-live.pdf",
+        );
+        let detail = pdf_text_io_failure_detail("write_temp_file", &error);
+
+        assert!(detail.contains("PDF temp IO failed"));
+        assert!(detail.contains("phase=write_temp_file"));
+        assert!(detail.contains("io_error_kind=permission_denied"));
+        assert!(!detail.contains("/srv/fortemi"));
+        assert!(!detail.contains("sk-live"));
+        assert!(!detail.contains("permission denied at"));
     }
 
     #[tokio::test]
