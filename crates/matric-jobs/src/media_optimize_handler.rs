@@ -143,6 +143,20 @@ fn media_variant_progress_message(derivation_type: &str) -> String {
     )
 }
 
+fn media_variant_result_metadata(
+    derivation_type: &str,
+    attachment_id: Uuid,
+    content_type: &str,
+    size_bytes: u64,
+) -> serde_json::Value {
+    json!({
+        "derivation_type_len": media_text_len(derivation_type),
+        "attachment_id_present": !attachment_id.is_nil(),
+        "content_type_len": media_text_len(content_type),
+        "size_bytes": size_bytes,
+    })
+}
+
 fn media_error_reason_code(error: &str) -> &'static str {
     let text = error.to_ascii_lowercase();
     if text.contains("permission") || text.contains("denied") {
@@ -835,12 +849,12 @@ impl JobHandler for MediaOptimizeHandler {
                         continue;
                     }
                     stored_count += 1;
-                    variant_info.push(json!({
-                        "derivation_type": variant.derivation_type,
-                        "attachment_id": att.id.to_string(),
-                        "content_type": variant.content_type,
-                        "size_bytes": file_size,
-                    }));
+                    variant_info.push(media_variant_result_metadata(
+                        &variant.derivation_type,
+                        att.id,
+                        &variant.content_type,
+                        file_size,
+                    ));
                     info!(
                         parent_attachment_id_present = true,
                         derivation_type_len = media_text_len(&variant.derivation_type),
@@ -969,6 +983,33 @@ mod tests {
         assert!(!rendered.contains("private-client-preview"));
         assert!(!rendered.contains("/srv/media"));
         assert!(!rendered.contains("sk-secret"));
+    }
+
+    #[test]
+    fn media_variant_result_metadata_redacts_labels_and_ids() {
+        let derivation_type = "private-client-preview /srv/media token=sk-secret";
+        let attachment_id = Uuid::new_v4();
+        let content_type = "video/private-token-mm_key_secret";
+        let metadata =
+            media_variant_result_metadata(derivation_type, attachment_id, content_type, 4096);
+        let rendered = serde_json::to_string(&metadata).unwrap();
+
+        assert_eq!(
+            metadata["derivation_type_len"],
+            json!(derivation_type.chars().count())
+        );
+        assert_eq!(metadata["attachment_id_present"], json!(true));
+        assert_eq!(
+            metadata["content_type_len"],
+            json!(content_type.chars().count())
+        );
+        assert_eq!(metadata["size_bytes"], json!(4096));
+        assert!(!rendered.contains(derivation_type));
+        assert!(!rendered.contains(&attachment_id.to_string()));
+        assert!(!rendered.contains(content_type));
+        assert!(!rendered.contains("sk-secret"));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("/srv/media"));
     }
 
     #[test]
