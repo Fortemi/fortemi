@@ -1574,6 +1574,28 @@ fn telemetry_text_len(value: &str) -> usize {
     value.chars().count()
 }
 
+#[derive(Clone, Copy)]
+struct EventTextTelemetry {
+    present: bool,
+    len: usize,
+}
+
+impl fmt::Debug for EventTextTelemetry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EventTextTelemetry")
+            .field("present", &self.present)
+            .field("len", &self.len)
+            .finish()
+    }
+}
+
+fn event_text_telemetry(value: &str) -> EventTextTelemetry {
+    EventTextTelemetry {
+        present: true,
+        len: telemetry_text_len(value),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SseFilterTelemetry {
     memory_len: Option<usize>,
@@ -4698,10 +4720,14 @@ async fn telemetry_mirror(event_bus: Arc<EventBus>) {
                 ServerEvent::JobStarted {
                     job_id, job_type, ..
                 } => {
+                    let job_id = event_text_telemetry(&job_id.to_string());
+                    let job_type = event_text_telemetry(job_type);
                     tracing::info!(
                         target: "fortemi::events",
                         event = "job.started",
-                        %job_id, %job_type,
+                        job_id_present = job_id.present,
+                        job_id_len = job_id.len,
+                        job_type_len = job_type.len,
                         "Job started"
                     );
                 }
@@ -4711,10 +4737,15 @@ async fn telemetry_mirror(event_bus: Arc<EventBus>) {
                     duration_ms,
                     ..
                 } => {
+                    let job_id = event_text_telemetry(&job_id.to_string());
+                    let job_type = event_text_telemetry(job_type);
                     tracing::info!(
                         target: "fortemi::events",
                         event = "job.completed",
-                        %job_id, %job_type, ?duration_ms,
+                        job_id_present = job_id.present,
+                        job_id_len = job_id.len,
+                        job_type_len = job_type.len,
+                        ?duration_ms,
                         "Job completed"
                     );
                 }
@@ -4724,21 +4755,26 @@ async fn telemetry_mirror(event_bus: Arc<EventBus>) {
                     error,
                     ..
                 } => {
+                    let job_id = event_text_telemetry(&job_id.to_string());
+                    let job_type = event_text_telemetry(job_type);
                     tracing::warn!(
                         target: "fortemi::events",
                         event = "job.failed",
-                        %job_id,
-                        %job_type,
+                        job_id_present = job_id.present,
+                        job_id_len = job_id.len,
+                        job_type_len = job_type.len,
                         error_class = telemetry_error_class(error),
                         error_len = telemetry_text_len(error),
                         "Job failed"
                     );
                 }
                 ServerEvent::NoteUpdated { note_id, .. } => {
+                    let note_id = event_text_telemetry(&note_id.to_string());
                     tracing::info!(
                         target: "fortemi::events",
                         event = "note.updated",
-                        %note_id,
+                        note_id_present = note_id.present,
+                        note_id_len = note_id.len,
                         "Note updated"
                     );
                 }
@@ -32105,6 +32141,34 @@ mod tests {
             telemetry_text_len(secret_query),
             secret_query.chars().count()
         );
+    }
+
+    #[test]
+    fn event_text_telemetry_redacts_event_bus_identifiers() {
+        let job_id = Uuid::new_v4().to_string();
+        let note_id = Uuid::new_v4().to_string();
+        let job_type = "tenant-alpha-private-embedding";
+        let backend_error = "database connect failed for postgres://user:secret@db.internal/matric";
+
+        let job_id_telemetry = event_text_telemetry(&job_id);
+        let note_id_telemetry = event_text_telemetry(&note_id);
+        let job_type_telemetry = event_text_telemetry(job_type);
+        let rendered = format!(
+            "{job_id_telemetry:?} {note_id_telemetry:?} {job_type_telemetry:?} error_class={}",
+            telemetry_error_class(backend_error)
+        );
+
+        assert!(job_id_telemetry.present);
+        assert!(note_id_telemetry.present);
+        assert_eq!(job_id_telemetry.len, job_id.chars().count());
+        assert_eq!(note_id_telemetry.len, note_id.chars().count());
+        assert_eq!(job_type_telemetry.len, job_type.chars().count());
+        assert!(!rendered.contains(&job_id));
+        assert!(!rendered.contains(&note_id));
+        assert!(!rendered.contains("tenant-alpha"));
+        assert!(!rendered.contains("postgres://"));
+        assert!(!rendered.contains("secret"));
+        assert!(!rendered.contains("db.internal"));
     }
 
     #[test]
