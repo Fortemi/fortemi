@@ -18,9 +18,9 @@ fn document_type_not_found_error(name: &str) -> Error {
 
 fn document_type_in_use_error(name: &str, reference_count: i64) -> Error {
     Error::InvalidInput(format!(
-        "Cannot delete document type; name_len={}; reference_count={}",
+        "Cannot delete document type; name_len={}; reference_count_present={}",
         name.chars().count(),
-        reference_count
+        reference_count > 0
     ))
 }
 
@@ -497,7 +497,8 @@ mod tests {
 
         assert!(message.contains("Cannot delete document type"));
         assert!(message.contains("name_len=44"));
-        assert!(message.contains("reference_count=7"));
+        assert!(message.contains("reference_count_present=true"));
+        assert!(!message.contains("reference_count=7"));
         assert!(!message.contains(raw_name));
         assert!(!message.contains("customer-report"));
         assert!(!message.contains("sk-live"));

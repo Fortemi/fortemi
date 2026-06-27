@@ -190,7 +190,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: Reconstruction chunk-chain not-found errors now report chain-id presence metadata instead of raw chain UUIDs.
   - 2026-06-27 continuation: Tag resolver required tag/scheme not-found errors now report notation length metadata instead of raw tag or scheme notation strings.
   - 2026-06-27 continuation: Core EXIF read errors now report parser diagnostic length metadata instead of raw EXIF parser diagnostics.
-  - 2026-06-27 continuation: DB document-type in-use delete errors now report document-type name length and reference count metadata instead of raw document-type names.
+  - 2026-06-27 continuation: DB document-type in-use delete errors now report document-type name length and reference-count presence metadata instead of raw document-type names or exact reference counts.
   - 2026-06-27 continuation: API collection delete in-use conflicts now report note-count presence and force-required metadata instead of the exact referenced-note count.
   - 2026-06-27 continuation: DB SKOS scheme/concept delete in-use errors now report count-presence and force-required metadata instead of exact concept or note-tag counts.
   - 2026-06-27 continuation: DB embedding-config delete in-use errors now report embedding-set count presence instead of exact embedding-set usage counts.
@@ -1132,8 +1132,9 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 Reconstruction chunk-chain not-found errors now report chain-id presence metadata instead of raw chain UUIDs.
 - 2026-06-27 — #968/#974 Tag resolver required tag/scheme not-found errors now report notation length metadata instead of raw tag or scheme notation strings.
 - 2026-06-27 — #968/#974 Core EXIF read errors now report parser diagnostic length metadata instead of raw EXIF parser diagnostics.
-- 2026-06-27 — #968/#974 DB document-type in-use delete errors now report document-type name length and reference count metadata instead of raw document-type names.
+- 2026-06-27 — #968/#974 DB document-type in-use delete errors now report document-type name length and reference-count presence metadata instead of raw document-type names or exact reference counts.
 - 2026-06-27 — #968/#974 API collection delete in-use conflicts now report note-count presence and force-required metadata instead of exact referenced-note counts.
 - 2026-06-27 — #968/#974 DB SKOS scheme/concept delete in-use errors now report count-presence metadata instead of exact concept or note-tag counts.
 - 2026-06-27 — #968/#974 DB embedding-config delete in-use errors now report embedding-set count presence instead of exact usage counts.
 - 2026-06-27 — #968/#974 PDF/OCR/spreadsheet adapter validation errors now report filename/error length metadata and stable reason codes instead of raw filenames or parser diagnostics.
+- 2026-06-27 — #968/#974 DB document-type in-use delete errors now report reference-count presence instead of exact reference counts.
