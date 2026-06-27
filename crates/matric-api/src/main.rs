@@ -12636,9 +12636,7 @@ async fn update_concept(
                 skos.update_concept_tx(tx, id, body).await?;
                 skos.get_concept_with_label_tx(tx, id)
                     .await?
-                    .ok_or_else(|| {
-                        matric_core::Error::NotFound(format!("Concept {id} not found after update"))
-                    })
+                    .ok_or_else(|| concept_not_found_after_update_error(id))
             })
         })
         .await?;
@@ -12658,6 +12656,12 @@ async fn update_concept(
     .await;
 
     Ok(Json(concept))
+}
+
+fn concept_not_found_after_update_error(_id: Uuid) -> matric_core::Error {
+    matric_core::Error::NotFound(
+        "Concept not found after update; concept_id_present=true".to_string(),
+    )
 }
 
 #[utoipa::path(delete, path = "/api/v1/concepts/{id}", tag = "SKOS",
@@ -33677,6 +33681,19 @@ mod tests {
         assert!(!serialized.contains("secret alternate label"));
         assert!(!serialized.contains("tenant-secret-archive"));
         assert!(!serialized.contains("changes"));
+    }
+
+    #[test]
+    fn concept_not_found_after_update_errors_report_metadata_without_raw_ids() {
+        let concept_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000705").unwrap();
+        let error = concept_not_found_after_update_error(concept_id);
+        let matric_core::Error::NotFound(message) = error else {
+            panic!("expected not-found error");
+        };
+
+        assert!(message.contains("Concept not found after update"));
+        assert!(message.contains("concept_id_present=true"));
+        assert!(!message.contains(&concept_id.to_string()));
     }
 
     #[test]
