@@ -12,6 +12,8 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+const INLINE_PASSPHRASE_WARNING: &str = "Warning: --passphrase/-p places secret material in argv and shell history; prefer --passphrase-stdin or --passphrase-file.";
+
 #[derive(Parser)]
 #[command(name = "matric-pke")]
 #[command(author, version, about = "Public-key encryption for matric-memory")]
@@ -130,6 +132,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             output,
             label,
         } => {
+            warn_inline_passphrase(passphrase.as_deref());
             let passphrase = resolve_passphrase(
                 passphrase.as_deref(),
                 passphrase_stdin,
@@ -155,6 +158,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             passphrase_stdin,
             passphrase_file,
         } => {
+            warn_inline_passphrase(passphrase.as_deref());
             let passphrase = resolve_passphrase(
                 passphrase.as_deref(),
                 passphrase_stdin,
@@ -171,6 +175,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn warn_inline_passphrase(inline: Option<&str>) {
+    if let Some(warning) = inline_passphrase_warning(inline) {
+        eprintln!("{warning}");
+    }
+}
+
+fn inline_passphrase_warning(inline: Option<&str>) -> Option<&'static str> {
+    inline.map(|_| INLINE_PASSPHRASE_WARNING)
 }
 
 fn resolve_passphrase(
@@ -402,6 +416,19 @@ mod tests {
         )
         .is_err());
         assert!(resolve_passphrase(Some("safe-passphrase-inline"), true, None).is_err());
+    }
+
+    #[test]
+    fn test_inline_passphrase_warning_marks_argv_risk() {
+        let warning = inline_passphrase_warning(Some("safe-passphrase-inline")).unwrap();
+
+        assert!(warning.contains("--passphrase"));
+        assert!(warning.contains("argv"));
+        assert!(warning.contains("shell history"));
+        assert!(warning.contains("--passphrase-stdin"));
+        assert!(warning.contains("--passphrase-file"));
+        assert!(!warning.contains("safe-passphrase-inline"));
+        assert!(inline_passphrase_warning(None).is_none());
     }
 
     #[test]
