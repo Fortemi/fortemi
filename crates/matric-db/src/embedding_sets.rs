@@ -32,6 +32,12 @@ fn embedding_config_not_found_after_creation_error(_id: Uuid) -> Error {
     Error::NotFound("Embedding config not found after creation; config_id_present=true".to_string())
 }
 
+fn embedding_config_in_use_error(_usage_count: i64) -> Error {
+    Error::InvalidInput(
+        "Cannot delete embedding config; embedding_set_count_present=true".to_string(),
+    )
+}
+
 /// PostgreSQL implementation of embedding set repository.
 pub struct PgEmbeddingSetRepository {
     pool: Pool<Postgres>,
@@ -963,10 +969,7 @@ impl PgEmbeddingSetRepository {
                 .map_err(Error::Database)?;
 
         if usage_count > 0 {
-            return Err(Error::InvalidInput(format!(
-                "Cannot delete config: {} embedding set(s) are using it",
-                usage_count
-            )));
+            return Err(embedding_config_in_use_error(usage_count));
         }
 
         let result = sqlx::query("DELETE FROM embedding_config WHERE id = $1")
@@ -2517,6 +2520,18 @@ mod tests {
             assert!(!message.contains(&set_id.to_string()));
             assert!(!message.contains(&config_id.to_string()));
         }
+
+        let usage_count = 23_i64;
+        let Error::InvalidInput(message) = embedding_config_in_use_error(usage_count) else {
+            panic!("expected config in-use invalid-input error");
+        };
+
+        assert_eq!(
+            message,
+            "Cannot delete embedding config; embedding_set_count_present=true"
+        );
+        assert!(!message.contains(&usage_count.to_string()));
+        assert!(!message.contains("embedding set(s)"));
     }
 
     #[test]
