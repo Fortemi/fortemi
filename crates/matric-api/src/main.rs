@@ -9751,6 +9751,20 @@ fn orphan_tag_health_telemetry(
     })
 }
 
+fn stale_note_health_telemetry(
+    title: Option<&str>,
+    updated_at_utc: chrono::DateTime<chrono::Utc>,
+    days_stale: i64,
+) -> serde_json::Value {
+    serde_json::json!({
+        "note_id_present": true,
+        "title_present": title.is_some(),
+        "title_len": title.map(telemetry_text_len),
+        "updated_at": updated_at_utc,
+        "days_stale": days_stale,
+    })
+}
+
 /// Get overall knowledge health metrics.
 #[utoipa::path(
     get,
@@ -10037,12 +10051,7 @@ async fn get_stale_notes(
         .take(limit)
         .map(|n| {
             let days_stale = (chrono::Utc::now() - n.updated_at_utc).num_days();
-            serde_json::json!({
-                "id": n.id,
-                "title": n.title,
-                "updated_at": n.updated_at_utc,
-                "days_stale": days_stale
-            })
+            stale_note_health_telemetry(Some(n.title.as_str()), n.updated_at_utc, days_stale)
         })
         .collect();
 
@@ -28131,6 +28140,37 @@ mod tests {
         assert!(!payload.as_object().unwrap().contains_key("tag"));
 
         for raw in ["customer@example.com", "/srv/private", "mm_key_orphan_tag"] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn stale_note_health_payload_uses_metadata_only() {
+        let title = "customer@example.com /srv/private/mm_key_stale_note private note";
+        let note_id = Uuid::new_v4();
+        let updated_at = chrono::DateTime::parse_from_rfc3339("2026-06-20T00:00:00Z")
+            .expect("valid timestamp")
+            .with_timezone(&chrono::Utc);
+        let payload = stale_note_health_telemetry(Some(title), updated_at, 7);
+        let rendered = serde_json::to_string(&payload).expect("payload serializes");
+
+        assert_eq!(payload["note_id_present"], true);
+        assert_eq!(payload["title_present"], true);
+        assert_eq!(
+            payload["title_len"].as_u64(),
+            Some(title.chars().count() as u64)
+        );
+        assert_eq!(payload["days_stale"], 7);
+        assert!(!payload.as_object().unwrap().contains_key("id"));
+        assert!(!payload.as_object().unwrap().contains_key("title"));
+
+        for raw in [
+            &note_id.to_string(),
+            "customer@example.com",
+            "/srv/private",
+            "mm_key_stale_note",
+            "private note",
+        ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }

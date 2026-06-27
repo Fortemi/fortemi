@@ -215,6 +215,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: Worker tiered-batch and claim-failure telemetry now reports stable tier classes instead of raw `TierGroup` debug labels.
   - 2026-06-27 continuation: Access-frequency health diagnostics now return note-id presence and title length metadata instead of raw note UUIDs or titles.
   - 2026-06-27 continuation: Orphan-tag health diagnostics now return tag presence/length metadata instead of raw tag names.
+  - 2026-06-27 continuation: Stale-note health diagnostics now return note-id presence and title length metadata instead of raw note UUIDs or titles.
   - 2026-06-26 continuation: extraction setup job telemetry and failure text now report filename lengths, available-strategy counts, and stable reason codes instead of raw schema names, attachment UUIDs, filenames, storage paths, parser diagnostics, database/storage diagnostics, DSNs, paths, hostnames, or token-shaped values.
   - 2026-06-26 continuation: extraction adapter failure job/status text now stores stable reason codes instead of raw adapter/backend errors, DSNs, paths, hostnames, filenames, or token-shaped values.
   - 2026-06-26 continuation: media optimize setup job failure text now stores stable reason codes for schema, temp-dir, transaction, download, commit, and temp-file write failures instead of raw schema names, database/storage diagnostics, filesystem paths, DSNs, hostnames, or token-shaped values.
@@ -917,3 +918,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 Worker tiered-batch and claim-failure telemetry now reports stable tier classes instead of raw `TierGroup` debug labels.
 - 2026-06-27 — #968/#974 Access-frequency health diagnostics now return note-id presence and title length metadata instead of raw note UUIDs or titles.
 - 2026-06-27 — #968/#974 Orphan-tag health diagnostics now return tag presence/length metadata instead of raw tag names.
+- 2026-06-27 — #968/#974 Stale-note health diagnostics now return note-id presence and title length metadata instead of raw note UUIDs or titles.
