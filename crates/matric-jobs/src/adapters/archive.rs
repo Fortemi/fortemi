@@ -126,6 +126,35 @@ impl fmt::Debug for EntryInfo {
     }
 }
 
+fn archive_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn archive_error_reason_code(error: &str) -> &'static str {
+    let lower = error.to_ascii_lowercase();
+
+    if lower.contains("eof") || lower.contains("unexpected end") {
+        "truncated"
+    } else if lower.contains("invalid") || lower.contains("malformed") {
+        "invalid_format"
+    } else if lower.contains("unsupported") {
+        "unsupported"
+    } else if lower.contains("permission") || lower.contains("denied") {
+        "permission_denied"
+    } else {
+        "archive_error"
+    }
+}
+
+fn archive_failure_detail(phase: &str, error: &dyn fmt::Display) -> String {
+    let error_text = error.to_string();
+    format!(
+        "Archive extraction failed; phase={phase}; error_len={}; error_reason={}",
+        archive_text_len(&error_text),
+        archive_error_reason_code(&error_text)
+    )
+}
+
 fn entry_extension_class(name: &str) -> &'static str {
     match name.rsplit('.').next().map(str::to_ascii_lowercase) {
         Some(ext) if ext.is_empty() || ext == name.to_ascii_lowercase() => "none",
@@ -222,7 +251,7 @@ impl ArchiveAdapter {
     fn extract_zip(data: &[u8], limits: &Limits) -> Result<ExtractOutput> {
         let cursor = Cursor::new(data);
         let mut archive = zip::ZipArchive::new(cursor)
-            .map_err(|e| matric_core::Error::Internal(format!("Failed to open zip: {e}")))?;
+            .map_err(|e| matric_core::Error::Internal(archive_failure_detail("zip_open", &e)))?;
 
         let mut entries: Vec<EntryInfo> = Vec::new();
         let mut texts: Vec<(String, String)> = Vec::new();
@@ -230,9 +259,9 @@ impl ArchiveAdapter {
         let file_count = archive.len();
 
         for i in 0..file_count {
-            let mut file = archive
-                .by_index(i)
-                .map_err(|e| matric_core::Error::Internal(format!("Zip index error: {e}")))?;
+            let mut file = archive.by_index(i).map_err(|e| {
+                matric_core::Error::Internal(archive_failure_detail("zip_index", &e))
+            })?;
 
             let name = file.name().to_string();
             let size = file.size();
@@ -327,13 +356,14 @@ impl ArchiveAdapter {
             max_single_file_bytes: usize,
             max_extract_bytes: usize,
         ) -> Result<()> {
-            let tar_entries = archive
-                .entries()
-                .map_err(|e| matric_core::Error::Internal(format!("Tar read error: {e}")))?;
+            let tar_entries = archive.entries().map_err(|e| {
+                matric_core::Error::Internal(archive_failure_detail("tar_read", &e))
+            })?;
 
             for entry_result in tar_entries {
-                let mut entry = entry_result
-                    .map_err(|e| matric_core::Error::Internal(format!("Tar entry error: {e}")))?;
+                let mut entry = entry_result.map_err(|e| {
+                    matric_core::Error::Internal(archive_failure_detail("tar_entry", &e))
+                })?;
 
                 let path = entry
                     .path()
@@ -713,6 +743,24 @@ mod tests {
         assert_eq!(result.metadata["error_code"], "empty_input");
         assert!(result.metadata.get("error").is_none());
         assert!(!result.metadata.to_string().contains("empty input"));
+    }
+
+    #[test]
+    fn archive_failure_detail_redacts_parser_diagnostic() {
+        let diagnostic = concat!(
+            "invalid central directory for /srv/tenant/backups/archive.zip ",
+            "token=sk-test-secret db=postgres://user:pass@db.internal/tenant"
+        );
+        let detail = archive_failure_detail("zip_open", &diagnostic);
+
+        assert!(detail.starts_with("Archive extraction failed;"));
+        assert!(detail.contains("phase=zip_open"));
+        assert!(detail.contains("error_len="));
+        assert!(detail.contains("error_reason=invalid_format"));
+        assert!(!detail.contains("/srv/tenant/backups/archive.zip"));
+        assert!(!detail.contains("sk-test-secret"));
+        assert!(!detail.contains("postgres://user:pass"));
+        assert!(!detail.contains(diagnostic));
     }
 
     // ── ZIP extraction ────────────────────────────────────────────────────────
