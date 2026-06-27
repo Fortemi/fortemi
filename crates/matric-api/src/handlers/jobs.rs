@@ -1483,8 +1483,8 @@ impl JobHandler for AiRevisionHandler {
         ctx.report_progress(100, Some("Revision complete"));
         info!(
             note_id_present = true,
-            mode = ?revision_mode,
-            effective_mode = ?effective_mode,
+            mode_len = diagnostic_len(format!("{revision_mode:?}")),
+            effective_mode_len = diagnostic_len(format!("{effective_mode:?}")),
             duration_ms = start.elapsed().as_millis() as u64,
             detail = JOB_AI_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
             operation = "complete_ai_revision",
@@ -2129,7 +2129,7 @@ Output the revised note in clean markdown format. Do not add any labels, markers
         ctx.report_progress(100, Some("Contextual revision complete"));
         info!(
             note_id_present = true,
-            mode = ?revision_mode,
+            mode_len = diagnostic_len(format!("{revision_mode:?}")),
             related_count = related_count,
             duration_ms = start.elapsed().as_millis() as u64,
             detail = JOB_AI_CONTEXTUAL_REVISION_DIAGNOSTIC_FAILURE_DETAIL,
@@ -7567,12 +7567,17 @@ mod tests {
         let strategy = "private-archive-wiki-strategy";
         let document_type_id = "lab-report-secret-id";
         let detection_method = "secret-agent-detection";
+        let revision_mode = "tenant-secret-revision-mode";
+        let effective_mode = "tenant-effective-secret-mode";
         let rendered = format!(
-            "model_len={} strategy_len={} document_type_id_len={} detection_method_len={}",
+            "model_len={} strategy_len={} document_type_id_len={} detection_method_len={} \
+             revision_mode_len={} effective_mode_len={}",
             diagnostic_len(model),
             diagnostic_len(strategy),
             diagnostic_len(document_type_id),
-            diagnostic_len(detection_method)
+            diagnostic_len(detection_method),
+            diagnostic_len(revision_mode),
+            diagnostic_len(effective_mode)
         );
 
         assert_eq!(diagnostic_len(wiki_target), wiki_target.chars().count());
@@ -7582,6 +7587,8 @@ mod tests {
         assert!(!rendered.contains("private-archive"));
         assert!(!rendered.contains("lab-report-secret-id"));
         assert!(!rendered.contains("secret-agent-detection"));
+        assert!(!rendered.contains("tenant-secret-revision-mode"));
+        assert!(!rendered.contains("tenant-effective-secret-mode"));
     }
 
     #[test]
