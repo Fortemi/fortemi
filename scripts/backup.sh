@@ -12,6 +12,7 @@
 #
 # Environment variables:
 #   BACKUP_DEST          Local backup directory (default: /var/backups/fortemi)
+#   BACKUP_TEMP_DIR      Explicit private scratch directory for temporary dump files
 #   BACKUP_RETAIN        Days to retain backups (default: 7)
 #   BACKUP_COMPRESS      Compression: gzip, zstd, none (default: gzip)
 #   BACKUP_REMOTE_RSYNC  Rsync destination (user@host:/path)
@@ -28,7 +29,8 @@ readonly SCRIPT_VERSION="1.0.0"
 # Default configuration
 CONFIG_FILE="${FORTEMI_BACKUP_CONFIG:-/etc/fortemi/backup.conf}"
 BACKUP_DEST="${BACKUP_DEST:-/var/backups/fortemi}"
-BACKUP_TEMP_DIR="${BACKUP_TEMP_DIR:-/tmp/fortemi-backup}"
+BACKUP_TEMP_DIR="${BACKUP_TEMP_DIR:-}"
+BACKUP_TEMP_TRUSTED_ENCRYPTED="${BACKUP_TEMP_TRUSTED_ENCRYPTED:-false}"
 BACKUP_RETAIN="${BACKUP_RETAIN:-7}"
 BACKUP_COMPRESS="${BACKUP_COMPRESS:-gzip}"
 BACKUP_ENCRYPT="${BACKUP_ENCRYPT:-}"
@@ -124,6 +126,9 @@ Options:
 
 Environment Variables:
   BACKUP_DEST            Local backup directory (default: /var/backups/fortemi)
+  BACKUP_TEMP_DIR        Explicit private scratch directory for temporary dump files
+  BACKUP_TEMP_TRUSTED_ENCRYPTED
+                         Set true only when BACKUP_TEMP_DIR is encrypted-at-rest
   BACKUP_RETAIN          Days to retain backups (default: 7)
   BACKUP_COMPRESS        Compression: gzip, zstd, none (default: gzip)
   BACKUP_ENCRYPT         Path to age public key for encryption
@@ -237,13 +242,48 @@ validate_environment() {
     # Create directories
     if [[ "$DRY_RUN" != "true" ]]; then
         mkdir -p "$BACKUP_DEST" 2>/dev/null || true
-        mkdir -p "$BACKUP_TEMP_DIR" 2>/dev/null || true
+        validate_backup_temp_dir
         if [[ -n "$LOG_FILE" ]]; then
             mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
         fi
     fi
 
     log_verbose "Environment validated"
+}
+
+validate_backup_temp_dir() {
+    if [[ -z "$BACKUP_TEMP_DIR" ]]; then
+        error_exit "BACKUP_TEMP_DIR must be set to an explicit private scratch directory"
+    fi
+
+    if [[ "$BACKUP_TEMP_DIR" == "/tmp" || "$BACKUP_TEMP_DIR" == "/tmp/"* ]]; then
+        error_exit "BACKUP_TEMP_DIR must not use shared /tmp scratch"
+    fi
+
+    mkdir -p -m 700 "$BACKUP_TEMP_DIR" 2>/dev/null || error_exit "Could not create BACKUP_TEMP_DIR"
+    chmod 700 "$BACKUP_TEMP_DIR" 2>/dev/null || error_exit "Could not set BACKUP_TEMP_DIR permissions"
+
+    local mode
+    local owner
+    mode=$(stat -c '%a' "$BACKUP_TEMP_DIR" 2>/dev/null || stat -f '%Lp' "$BACKUP_TEMP_DIR" 2>/dev/null || echo "")
+    owner=$(stat -c '%u' "$BACKUP_TEMP_DIR" 2>/dev/null || stat -f '%u' "$BACKUP_TEMP_DIR" 2>/dev/null || echo "")
+    if [[ -z "$mode" || -z "$owner" ]]; then
+        error_exit "Could not verify BACKUP_TEMP_DIR metadata"
+    fi
+    if [[ "$owner" != "$(id -u)" ]]; then
+        error_exit "BACKUP_TEMP_DIR must be owned by the current user"
+    fi
+    if (( (8#$mode & 077) != 0 )); then
+        error_exit "BACKUP_TEMP_DIR must not be readable by group or others"
+    fi
+
+    local fs_type=""
+    if command -v findmnt &> /dev/null; then
+        fs_type=$(findmnt -no FSTYPE -T "$BACKUP_TEMP_DIR" 2>/dev/null | tail -n 1 || true)
+    fi
+    if [[ "$fs_type" != "tmpfs" && "$fs_type" != "ramfs" && "$BACKUP_TEMP_TRUSTED_ENCRYPTED" != "true" ]]; then
+        error_exit "BACKUP_TEMP_DIR must be tmpfs/ramfs or BACKUP_TEMP_TRUSTED_ENCRYPTED=true"
+    fi
 }
 
 require_database_secret() {
@@ -254,18 +294,23 @@ require_database_secret() {
     error_exit "PGPASSWORD or PGPASSFILE must be set for database backup"
 }
 
+backup_temp_path() {
+    local file="$1"
+    local temp_dir="${BACKUP_TEMP_DIR:-<BACKUP_TEMP_DIR>}"
+    printf '%s/%s' "$temp_dir" "$file"
+}
+
 # Create database dump
 create_database_dump() {
     local output_file="$1"
-    local temp_path="${BACKUP_TEMP_DIR}/${output_file}"
+    local temp_path
     local -a pg_env=()
+    temp_path=$(backup_temp_path "$output_file")
 
     log "Creating database dump: $output_file"
 
     if [[ "$DRY_RUN" == "true" ]]; then
         log "DRY RUN: Would create pg_dump to $temp_path"
-        # Create empty file for dry run
-        touch "$temp_path"
         return 0
     fi
 
@@ -302,7 +347,8 @@ create_database_dump() {
 # Compress backup file
 compress_backup() {
     local file="$1"
-    local input_path="${BACKUP_TEMP_DIR}/${file}"
+    local input_path
+    input_path=$(backup_temp_path "$file")
 
     if [[ "$BACKUP_COMPRESS" == "none" ]]; then
         log_verbose "Compression disabled, skipping"
@@ -338,7 +384,8 @@ compress_backup() {
 # Encrypt backup file
 encrypt_backup() {
     local file="$1"
-    local input_path="${BACKUP_TEMP_DIR}/${file}"
+    local input_path
+    input_path=$(backup_temp_path "$file")
 
     if [[ -z "$BACKUP_ENCRYPT" ]]; then
         return 0
@@ -386,8 +433,9 @@ get_backup_filename() {
 # Copy to local destination
 copy_to_local() {
     local file="$1"
-    local source="${BACKUP_TEMP_DIR}/${file}"
+    local source
     local dest="${BACKUP_DEST}/${file}"
+    source=$(backup_temp_path "$file")
 
     log "Copying backup to local: $BACKUP_DEST"
 
@@ -407,7 +455,8 @@ copy_to_local() {
 # Sync to remote via rsync
 sync_to_remote() {
     local file="$1"
-    local source="${BACKUP_TEMP_DIR}/${file}"
+    local source
+    source=$(backup_temp_path "$file")
 
     if [[ -z "$BACKUP_REMOTE_RSYNC" ]]; then
         log_verbose "No rsync destination configured"
@@ -431,7 +480,8 @@ sync_to_remote() {
 # Upload to S3
 upload_to_s3() {
     local file="$1"
-    local source="${BACKUP_TEMP_DIR}/${file}"
+    local source
+    source=$(backup_temp_path "$file")
 
     if [[ -z "$BACKUP_REMOTE_S3" ]]; then
         log_verbose "No S3 destination configured"
@@ -505,9 +555,11 @@ cleanup_old_backups() {
 
     if [[ "$DRY_RUN" == "true" ]]; then
         log "DRY RUN: Would cleanup backups older than $BACKUP_RETAIN days"
-        find "$BACKUP_DEST" -name "fortemi_backup_*.sql*" -type f -mtime "+$BACKUP_RETAIN" 2>/dev/null | while read -r file; do
-            log "DRY RUN: Would delete $file"
-        done
+        if [[ -d "$BACKUP_DEST" ]]; then
+            find "$BACKUP_DEST" -name "fortemi_backup_*.sql*" -type f -mtime "+$BACKUP_RETAIN" 2>/dev/null | while read -r file; do
+                log "DRY RUN: Would delete $file"
+            done
+        fi
         return 0
     fi
 
@@ -571,7 +623,7 @@ verify_backup() {
 
 # Cleanup temporary files
 cleanup_temp() {
-    if [[ -d "$BACKUP_TEMP_DIR" ]]; then
+    if [[ -n "$BACKUP_TEMP_DIR" && -d "$BACKUP_TEMP_DIR" ]]; then
         rm -f "${BACKUP_TEMP_DIR}"/fortemi_backup_*.sql* 2>/dev/null || true
     fi
 }
