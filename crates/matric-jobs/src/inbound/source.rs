@@ -9,6 +9,7 @@
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::VecDeque;
+use std::fmt;
 use std::sync::Mutex;
 
 const INBOUND_TELEMETRY_TEXT_LEN_CAP: usize = 512;
@@ -18,7 +19,7 @@ const INBOUND_TELEMETRY_TEXT_LEN_CAP: usize = 512;
 pub type Offset = String;
 
 /// A normalized event pulled from an upstream source, ready for the outbox.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct InboundEvent {
     /// Outbox `event_type` (e.g. `external.metric.v1`).
     pub event_type: String,
@@ -26,6 +27,17 @@ pub struct InboundEvent {
     pub payload: Value,
     /// Upstream cursor to commit once the event is durably stored.
     pub offset: Offset,
+}
+
+impl fmt::Debug for InboundEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InboundEvent")
+            .field("event_type_len", &telemetry_text_len(&self.event_type))
+            .field("payload_class", &json_value_class(&self.payload))
+            .field("payload_len", &json_value_len(&self.payload))
+            .field("offset_len", &telemetry_text_len(&self.offset))
+            .finish()
+    }
 }
 
 impl InboundEvent {
@@ -40,7 +52,7 @@ impl InboundEvent {
 
 /// Connector-facing error. `Closed` ends the per-connector loop cleanly;
 /// `Transient` triggers a backoff+retry of `next_event`.
-#[derive(Debug, thiserror::Error)]
+#[derive(thiserror::Error)]
 pub enum InboundError {
     /// The source is exhausted/closed; the supervisor stops the connector.
     #[error("inbound source closed")]
@@ -50,11 +62,39 @@ pub enum InboundError {
     Transient(String),
 }
 
+impl fmt::Debug for InboundError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Closed => f.write_str("InboundError::Closed"),
+            Self::Transient(error) => f
+                .debug_struct("InboundError::Transient")
+                .field("error_len", &telemetry_text_len(error))
+                .field("reason_code", &inbound_error_reason_code(error))
+                .finish(),
+        }
+    }
+}
+
 pub type InboundResult<T> = std::result::Result<T, InboundError>;
 
 /// Bounded length helper for user/backend-originated diagnostic strings.
 pub(crate) fn telemetry_text_len(value: &str) -> usize {
     value.chars().take(INBOUND_TELEMETRY_TEXT_LEN_CAP).count()
+}
+
+fn json_value_class(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+fn json_value_len(value: &Value) -> usize {
+    serde_json::to_string(value).map_or(0, |encoded| encoded.len())
 }
 
 /// Coarse destination class for connector endpoints.
@@ -245,6 +285,53 @@ mod tests {
                 !rendered.contains(raw_fragment),
                 "raw value leaked: {raw_fragment:?}"
             );
+        }
+    }
+
+    #[test]
+    fn inbound_event_and_error_debug_redacts_payload_offsets_and_errors() {
+        let event = InboundEvent::new(
+            "external.customer@example.internal.metric.v1",
+            json!({
+                "email": "customer@example.internal",
+                "token": "sk-live-secret",
+                "dsn": "postgres://user:secret@db.internal/app",
+                "path": "/srv/private/mm_key_inbound",
+            }),
+            "redis://user:secret@redis.internal:6379/0-1",
+        );
+        let err = InboundError::Transient(
+            "connect failed for postgres://user:secret@db.internal/app /srv/private/mm_key_inbound"
+                .to_string(),
+        );
+
+        let rendered = format!("{event:?}\n{err:?}");
+
+        for expected in [
+            "InboundEvent",
+            "event_type_len",
+            "payload_class",
+            "payload_len",
+            "offset_len",
+            "InboundError::Transient",
+            "error_len",
+            "reason_code",
+            "connection_failed",
+        ] {
+            assert!(rendered.contains(expected), "missing field: {expected}");
+        }
+
+        for raw in [
+            "customer@example.internal",
+            "sk-live-secret",
+            "postgres://user:secret",
+            "db.internal",
+            "/srv/private",
+            "mm_key_inbound",
+            "redis://user:secret",
+            "redis.internal",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 }

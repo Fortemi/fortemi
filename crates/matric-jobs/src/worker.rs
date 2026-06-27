@@ -1,6 +1,7 @@
 //! Job worker and runner for processing background jobs.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -124,7 +125,7 @@ impl WorkerConfig {
 }
 
 /// Event emitted by the job worker.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum WorkerEvent {
     /// A downstream job was queued by a handler (not directly by user request).
     JobQueued {
@@ -152,6 +153,62 @@ pub enum WorkerEvent {
     WorkerStarted,
     /// Worker stopped.
     WorkerStopped,
+}
+
+impl fmt::Debug for WorkerEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::JobQueued {
+                job_id,
+                job_type,
+                note_id,
+            } => f
+                .debug_struct("JobQueued")
+                .field("job_id_set", &job_id_set(job_id))
+                .field("job_type", job_type)
+                .field("note_id_set", &note_id.is_some())
+                .finish(),
+            Self::JobStarted { job_id, job_type } => f
+                .debug_struct("JobStarted")
+                .field("job_id_set", &job_id_set(job_id))
+                .field("job_type", job_type)
+                .finish(),
+            Self::JobProgress {
+                job_id,
+                percent,
+                message,
+            } => f
+                .debug_struct("JobProgress")
+                .field("job_id_set", &job_id_set(job_id))
+                .field("percent", percent)
+                .field("message_len", &message.as_deref().map(str::len))
+                .finish(),
+            Self::JobCompleted { job_id, job_type } => f
+                .debug_struct("JobCompleted")
+                .field("job_id_set", &job_id_set(job_id))
+                .field("job_type", job_type)
+                .finish(),
+            Self::JobFailed {
+                job_id,
+                job_type,
+                error,
+            } => {
+                let (error_len, reason_code) = worker_failure_telemetry(error);
+                f.debug_struct("JobFailed")
+                    .field("job_id_set", &job_id_set(job_id))
+                    .field("job_type", job_type)
+                    .field("error_len", &error_len)
+                    .field("reason_code", &reason_code)
+                    .finish()
+            }
+            Self::WorkerStarted => f.write_str("WorkerStarted"),
+            Self::WorkerStopped => f.write_str("WorkerStopped"),
+        }
+    }
+}
+
+fn job_id_set(_: &Uuid) -> bool {
+    true
 }
 
 /// Handle for controlling a running worker.
@@ -1210,6 +1267,8 @@ mod tests {
         let debug_str = format!("{:?}", event);
         assert!(debug_str.contains("JobStarted"));
         assert!(debug_str.contains("Embedding"));
+        assert!(debug_str.contains("job_id_set"));
+        assert!(!debug_str.contains(&job_id.to_string()));
     }
 
     #[test]
@@ -1278,6 +1337,62 @@ mod tests {
                 assert_eq!(job_type, JobType::GraphMaintenance);
             }
             _ => panic!("Wrong event variant"),
+        }
+    }
+
+    #[test]
+    fn worker_event_debug_redacts_ids_progress_and_errors() {
+        let job_id = Uuid::new_v4();
+        let note_id = Uuid::new_v4();
+        let progress_message =
+            "processing customer@example.internal with token sk-live-secret in /srv/private";
+        let failure_error =
+            "postgres://user:secret@db.internal/app failed for /srv/private/mm_key_worker";
+
+        let rendered = format!(
+            "{:?}\n{:?}\n{:?}",
+            WorkerEvent::JobQueued {
+                job_id,
+                job_type: JobType::Embedding,
+                note_id: Some(note_id),
+            },
+            WorkerEvent::JobProgress {
+                job_id,
+                percent: 42,
+                message: Some(progress_message.to_string()),
+            },
+            WorkerEvent::JobFailed {
+                job_id,
+                job_type: JobType::AiRevision,
+                error: failure_error.to_string(),
+            }
+        );
+
+        for expected in [
+            "JobQueued",
+            "JobProgress",
+            "JobFailed",
+            "job_id_set",
+            "note_id_set",
+            "message_len",
+            "error_len",
+            "reason_code",
+            "database_error",
+        ] {
+            assert!(rendered.contains(expected), "missing field: {expected}");
+        }
+
+        for raw in [
+            job_id.to_string(),
+            note_id.to_string(),
+            "customer@example.internal".to_string(),
+            "sk-live-secret".to_string(),
+            "postgres://user:secret".to_string(),
+            "db.internal".to_string(),
+            "/srv/private".to_string(),
+            "mm_key_worker".to_string(),
+        ] {
+            assert!(!rendered.contains(&raw), "raw value leaked: {raw}");
         }
     }
 }
