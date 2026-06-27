@@ -157,6 +157,14 @@ fn media_variant_result_metadata(
     })
 }
 
+fn media_probe_skip_result(error: &str) -> serde_json::Value {
+    json!({
+        "skipped": true,
+        "reason": media_error_reason_code(error),
+        "error_len": media_text_len(error),
+    })
+}
+
 fn media_error_reason_code(error: &str) -> &'static str {
     let text = error.to_ascii_lowercase();
     if text.contains("permission") || text.contains("denied") {
@@ -739,10 +747,7 @@ impl JobHandler for MediaOptimizeHandler {
                     error_reason = media_error_reason_code(&e),
                     "ffprobe failed, skipping optimization"
                 );
-                return JobResult::Success(Some(json!({
-                    "skipped": true,
-                    "reason": format!("ffprobe failed: {}", e),
-                })));
+                return JobResult::Success(Some(media_probe_skip_result(&e)));
             }
         };
 
@@ -1010,6 +1015,21 @@ mod tests {
         assert!(!rendered.contains("sk-secret"));
         assert!(!rendered.contains("mm_key_secret"));
         assert!(!rendered.contains("/srv/media"));
+    }
+
+    #[test]
+    fn media_probe_skip_result_redacts_raw_error() {
+        let raw_error = "ffprobe failed for /srv/fortemi/uploads/private.mov token=mm_key_secret";
+        let result = media_probe_skip_result(raw_error);
+        let rendered = serde_json::to_string(&result).unwrap();
+
+        assert_eq!(result["skipped"], json!(true));
+        assert_eq!(result["reason"], json!("invalid_media"));
+        assert_eq!(result["error_len"], json!(media_text_len(raw_error)));
+        assert!(!rendered.contains("/srv/fortemi"));
+        assert!(!rendered.contains("private.mov"));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("ffprobe failed for"));
     }
 
     #[test]
