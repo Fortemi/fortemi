@@ -16320,7 +16320,7 @@ async fn search_notes(
             tracing::debug!(
                 query_len = telemetry_text_len(&query.q),
                 has_filters = query.filters.is_some(),
-                archive_schema = %archive_ctx.schema,
+                archive_schema_len = telemetry_text_len(&archive_ctx.schema),
                 "Search cache hit"
             );
             return Ok(Json(cached));
@@ -32143,10 +32143,25 @@ mod tests {
     #[test]
     fn telemetry_text_len_counts_without_exposing_content() {
         let secret_query = "find mm_key_secret and patient name";
+        let archive_schema = "tenant_alpha_private_archive";
+        let rendered = format!(
+            "query_len={} archive_schema_len={}",
+            telemetry_text_len(secret_query),
+            telemetry_text_len(archive_schema)
+        );
+
         assert_eq!(
             telemetry_text_len(secret_query),
             secret_query.chars().count()
         );
+        assert_eq!(
+            telemetry_text_len(archive_schema),
+            archive_schema.chars().count()
+        );
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("patient name"));
+        assert!(!rendered.contains("tenant_alpha"));
+        assert!(!rendered.contains("private_archive"));
     }
 
     #[test]
