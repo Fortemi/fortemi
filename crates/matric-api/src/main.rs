@@ -18469,7 +18469,10 @@ impl std::fmt::Debug for IntrospectRequest {
         f.debug_struct("IntrospectRequest")
             .field("token_set", &!self.token.is_empty())
             .field("token_len", &telemetry_text_len(&self.token))
-            .field("token_type_hint", &self.token_type_hint)
+            .field(
+                "token_type_hint_class",
+                &oauth_token_hint_class(self.token_type_hint.as_deref()),
+            )
             .finish()
     }
 }
@@ -18520,7 +18523,10 @@ impl std::fmt::Debug for RevokeRequest {
         f.debug_struct("RevokeRequest")
             .field("token_set", &!self.token.is_empty())
             .field("token_len", &telemetry_text_len(&self.token))
-            .field("token_type_hint", &self.token_type_hint)
+            .field(
+                "token_type_hint_class",
+                &oauth_token_hint_class(self.token_type_hint.as_deref()),
+            )
             .finish()
     }
 }
@@ -29501,11 +29507,11 @@ mod tests {
     fn oauth_handler_request_debug_redacts_tokens() {
         let introspect = IntrospectRequest {
             token: "mm_at_introspection_secret".to_string(),
-            token_type_hint: Some("access_token".to_string()),
+            token_type_hint: Some("custom-introspection-hint-sk-secret".to_string()),
         };
         let revoke = RevokeRequest {
             token: "mm_rt_revocation_secret".to_string(),
-            token_type_hint: Some("refresh_token".to_string()),
+            token_type_hint: Some("custom-revocation-hint-postgres://user:secret@db".to_string()),
         };
         let authorization = AuthorizationRequest {
             response_type: "code".to_string(),
@@ -29531,6 +29537,8 @@ mod tests {
 
         assert!(!debug.contains("mm_at_introspection_secret"));
         assert!(!debug.contains("mm_rt_revocation_secret"));
+        assert!(!debug.contains("custom-introspection-hint"));
+        assert!(!debug.contains("custom-revocation-hint"));
         assert!(!debug.contains("oauth-client-should-redact"));
         assert!(!debug.contains("form-client-should-redact"));
         assert!(!debug.contains("oauth.example"));
@@ -29545,6 +29553,7 @@ mod tests {
         assert!(!debug.contains("mm_key_should_redact"));
         assert!(debug.contains("token_set"));
         assert!(debug.contains("token_len"));
+        assert!(debug.contains("token_type_hint_class"));
         assert!(debug.contains("client_id_len"));
         assert!(debug.contains("redirect_uri_len"));
         assert!(debug.contains("code_challenge_len"));
