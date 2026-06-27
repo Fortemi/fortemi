@@ -13,6 +13,25 @@ use matric_core::{
     UpdateEmbeddingConfigRequest, UpdateEmbeddingSetRequest,
 };
 
+fn embedding_set_not_found_by_slug_error(slug: &str) -> Error {
+    Error::NotFound(format!(
+        "Embedding set not found; slug_len={}",
+        slug.chars().count()
+    ))
+}
+
+fn embedding_set_not_found_by_id_error(_id: Uuid) -> Error {
+    Error::NotFound("Embedding set not found; set_id_present=true".to_string())
+}
+
+fn embedding_config_not_found_error(_id: Uuid) -> Error {
+    Error::NotFound("Embedding config not found; config_id_present=true".to_string())
+}
+
+fn embedding_config_not_found_after_creation_error(_id: Uuid) -> Error {
+    Error::NotFound("Embedding config not found after creation; config_id_present=true".to_string())
+}
+
 /// PostgreSQL implementation of embedding set repository.
 pub struct PgEmbeddingSetRepository {
     pool: Pool<Postgres>,
@@ -258,7 +277,7 @@ impl PgEmbeddingSetRepository {
         let existing = self
             .get_by_slug(slug)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", slug)))?;
+            .ok_or_else(|| embedding_set_not_found_by_slug_error(slug))?;
 
         if existing.is_system {
             return Err(Error::InvalidInput(
@@ -289,7 +308,7 @@ impl PgEmbeddingSetRepository {
         let set = self
             .get_by_slug(set_slug)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
+            .ok_or_else(|| embedding_set_not_found_by_slug_error(set_slug))?;
 
         let rows = sqlx::query(
             r#"
@@ -326,7 +345,7 @@ impl PgEmbeddingSetRepository {
         let set = self
             .get_by_slug(set_slug)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
+            .ok_or_else(|| embedding_set_not_found_by_slug_error(set_slug))?;
 
         let mut count = 0i64;
         for note_id in &req.note_ids {
@@ -365,7 +384,7 @@ impl PgEmbeddingSetRepository {
         let set = self
             .get_by_slug(set_slug)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
+            .ok_or_else(|| embedding_set_not_found_by_slug_error(set_slug))?;
 
         let result = sqlx::query(
             "DELETE FROM embedding_set_member WHERE embedding_set_id = $1 AND note_id = $2",
@@ -412,7 +431,7 @@ impl PgEmbeddingSetRepository {
         let set = self
             .get_by_id(set_id)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_id)))?;
+            .ok_or_else(|| embedding_set_not_found_by_id_error(set_id))?;
 
         let criteria = &set.criteria;
 
@@ -497,7 +516,7 @@ impl PgEmbeddingSetRepository {
         let set = self
             .get_by_slug(set_slug)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
+            .ok_or_else(|| embedding_set_not_found_by_slug_error(set_slug))?;
 
         if set.mode == EmbeddingSetMode::Manual {
             // Return count of members missing embeddings for this set
@@ -777,7 +796,7 @@ impl PgEmbeddingSetRepository {
         // Fetch and return the created config
         self.get_config(id)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Config {} not found after creation", id)))
+            .ok_or_else(|| embedding_config_not_found_after_creation_error(id))
     }
 
     /// Update an existing embedding config.
@@ -914,7 +933,7 @@ impl PgEmbeddingSetRepository {
         // Fetch and return the updated config
         self.get_config(id)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Config {} not found", id)))
+            .ok_or_else(|| embedding_config_not_found_error(id))
     }
 
     /// Delete an embedding config by ID.
@@ -957,7 +976,7 @@ impl PgEmbeddingSetRepository {
             .map_err(Error::Database)?;
 
         if result.rows_affected() == 0 {
-            return Err(Error::NotFound(format!("Config {} not found", id)));
+            return Err(embedding_config_not_found_error(id));
         }
 
         Ok(())
@@ -1400,7 +1419,7 @@ impl PgEmbeddingSetRepository {
         let set = self
             .get_by_id(set_id)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_id)))?;
+            .ok_or_else(|| embedding_set_not_found_by_id_error(set_id))?;
 
         let stale_count = self.count_stale_embeddings(set_id).await?;
         let orphaned_embeddings = self.find_orphaned_embeddings(set_id, 1).await?.len() as i64;
@@ -1791,7 +1810,7 @@ impl PgEmbeddingSetRepository {
         let existing = self
             .get_by_slug_tx(tx, slug)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", slug)))?;
+            .ok_or_else(|| embedding_set_not_found_by_slug_error(slug))?;
 
         if existing.is_system {
             return Err(Error::InvalidInput(
@@ -1819,7 +1838,7 @@ impl PgEmbeddingSetRepository {
         let existing = self
             .get_by_slug_tx(tx, slug)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", slug)))?;
+            .ok_or_else(|| embedding_set_not_found_by_slug_error(slug))?;
 
         if existing.is_system {
             if req.name.is_some() {
@@ -1902,7 +1921,7 @@ impl PgEmbeddingSetRepository {
         let set = self
             .get_by_slug_tx(tx, set_slug)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
+            .ok_or_else(|| embedding_set_not_found_by_slug_error(set_slug))?;
 
         let rows = sqlx::query(
             r#"
@@ -1944,7 +1963,7 @@ impl PgEmbeddingSetRepository {
         let set = self
             .get_by_slug_tx(tx, set_slug)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
+            .ok_or_else(|| embedding_set_not_found_by_slug_error(set_slug))?;
 
         let mut count = 0i64;
         for note_id in &req.note_ids {
@@ -1988,7 +2007,7 @@ impl PgEmbeddingSetRepository {
         let set = self
             .get_by_slug_tx(tx, set_slug)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
+            .ok_or_else(|| embedding_set_not_found_by_slug_error(set_slug))?;
 
         let result = sqlx::query(
             "DELETE FROM embedding_set_member WHERE embedding_set_id = $1 AND note_id = $2",
@@ -2021,7 +2040,7 @@ impl PgEmbeddingSetRepository {
         let set = self
             .get_by_id_tx(tx, set_id)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_id)))?;
+            .ok_or_else(|| embedding_set_not_found_by_id_error(set_id))?;
 
         let criteria = &set.criteria;
         let mut conditions = Vec::new();
@@ -2103,7 +2122,7 @@ impl PgEmbeddingSetRepository {
         let set = self
             .get_by_slug_tx(tx, set_slug)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
+            .ok_or_else(|| embedding_set_not_found_by_slug_error(set_slug))?;
 
         if set.mode == EmbeddingSetMode::Manual {
             // Return count of members missing embeddings for this set
@@ -2457,6 +2476,48 @@ fn slugify(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedding_set_not_found_errors_report_metadata_without_raw_values() {
+        let raw_slug = "tenant-set-sk-live-123/path@example.com";
+        let set_id = Uuid::parse_str("018f4e7a-aaaa-7bbb-8ccc-abcdef123456").unwrap();
+        let config_id = Uuid::parse_str("018f4e7b-bbbb-7ccc-8ddd-fedcba654321").unwrap();
+
+        let slug_err = embedding_set_not_found_by_slug_error(raw_slug);
+        let Error::NotFound(slug_message) = slug_err else {
+            panic!("expected slug not-found error");
+        };
+
+        assert!(slug_message.contains("Embedding set not found"));
+        assert!(slug_message.contains(&format!("slug_len={}", raw_slug.chars().count())));
+        assert!(!slug_message.contains(raw_slug));
+        assert!(!slug_message.contains("tenant-set"));
+        assert!(!slug_message.contains("sk-live"));
+        assert!(!slug_message.contains("path@example.com"));
+
+        for (err, expected) in [
+            (
+                embedding_set_not_found_by_id_error(set_id),
+                "Embedding set not found; set_id_present=true",
+            ),
+            (
+                embedding_config_not_found_error(config_id),
+                "Embedding config not found; config_id_present=true",
+            ),
+            (
+                embedding_config_not_found_after_creation_error(config_id),
+                "Embedding config not found after creation; config_id_present=true",
+            ),
+        ] {
+            let Error::NotFound(message) = err else {
+                panic!("expected id/config not-found error");
+            };
+
+            assert_eq!(message, expected);
+            assert!(!message.contains(&set_id.to_string()));
+            assert!(!message.contains(&config_id.to_string()));
+        }
+    }
 
     #[test]
     fn test_slugify() {
