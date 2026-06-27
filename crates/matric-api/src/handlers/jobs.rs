@@ -191,6 +191,24 @@ fn title_generation_job_result(title: &str) -> serde_json::Value {
     })
 }
 
+fn embedding_provenance_metadata(
+    chunk_count: usize,
+    model_name: &str,
+    concept_label_count: usize,
+    concept_relation_count: usize,
+    composition: &matric_core::DocumentComposition,
+    embedding_set_id: Option<uuid::Uuid>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "chunks": chunk_count,
+        "model_len": diagnostic_len(model_name),
+        "concept_labels_available": concept_label_count,
+        "concept_relations_available": concept_relation_count,
+        "composition": serde_json::to_value(composition).unwrap_or_default(),
+        "embedding_set_id_present": embedding_set_id.is_some(),
+    })
+}
+
 fn exif_no_metadata_job_result(filename: &str) -> serde_json::Value {
     serde_json::json!({
         "status": "completed",
@@ -2461,14 +2479,14 @@ impl JobHandler for EmbeddingHandler {
 
         // Complete provenance activity (#430)
         if let Some(act_id) = activity_id {
-            let prov_metadata = serde_json::json!({
-                "chunks": chunk_count,
-                "model": model_name,
-                "concept_labels_available": concept_labels.len(),
-                "concept_relations_available": concept_relations.len(),
-                "composition": serde_json::to_value(&composition).unwrap_or_default(),
-                "embedding_set_id": embedding_set_id.map(|id| id.to_string()),
-            });
+            let prov_metadata = embedding_provenance_metadata(
+                chunk_count,
+                model_name,
+                concept_labels.len(),
+                concept_relations.len(),
+                &composition,
+                embedding_set_id,
+            );
             if let Err(e) = self
                 .db
                 .provenance
@@ -7709,6 +7727,33 @@ mod tests {
         assert!(!result.contains("patient-secret"));
         assert!(!result.contains("mm_key_file"));
         assert!(!result.contains(&uuid::Uuid::nil().to_string()));
+    }
+
+    #[test]
+    fn embedding_provenance_metadata_redacts_model_and_set_id() {
+        let model = "tenant-private-embedding-model https://models.internal sk-model-secret";
+        let embedding_set_id =
+            uuid::Uuid::parse_str("018fd1a0-0000-7000-8000-000000000731").expect("test uuid");
+        let metadata = embedding_provenance_metadata(
+            3,
+            model,
+            2,
+            1,
+            &matric_core::DocumentComposition::default(),
+            Some(embedding_set_id),
+        );
+        let rendered = metadata.to_string();
+
+        assert_eq!(metadata["model_len"], diagnostic_len(model));
+        assert_eq!(metadata["embedding_set_id_present"], true);
+        assert!(rendered.contains("model_len"));
+        assert!(rendered.contains("embedding_set_id_present"));
+        assert!(!rendered.contains("tenant-private-embedding-model"));
+        assert!(!rendered.contains("models.internal"));
+        assert!(!rendered.contains("sk-model-secret"));
+        assert!(!rendered.contains(&embedding_set_id.to_string()));
+        assert!(!rendered.contains("\"model\""));
+        assert!(!rendered.contains("embedding_set_id\""));
     }
 
     #[test]
