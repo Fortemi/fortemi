@@ -2,12 +2,13 @@
 
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Postgres, Transaction};
+use std::fmt;
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
 
 /// A version entry in the original content history.
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Clone, sqlx::FromRow)]
 pub struct OriginalVersion {
     pub id: Uuid,
     pub note_id: Uuid,
@@ -18,8 +19,22 @@ pub struct OriginalVersion {
     pub created_by: String,
 }
 
+impl fmt::Debug for OriginalVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OriginalVersion")
+            .field("id_set", &(!self.id.is_nil()))
+            .field("note_id_set", &true)
+            .field("version_number", &self.version_number)
+            .field("content_len", &self.content.len())
+            .field("hash_len", &self.hash.len())
+            .field("created_at_utc", &self.created_at_utc)
+            .field("created_by_len", &self.created_by.len())
+            .finish()
+    }
+}
+
 /// Summary of a version (without full content).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct VersionSummary {
     pub version_number: i32,
     pub created_at_utc: DateTime<Utc>,
@@ -27,8 +42,19 @@ pub struct VersionSummary {
     pub is_current: bool,
 }
 
+impl fmt::Debug for VersionSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VersionSummary")
+            .field("version_number", &self.version_number)
+            .field("created_at_utc", &self.created_at_utc)
+            .field("created_by_len", &self.created_by.len())
+            .field("is_current", &self.is_current)
+            .finish()
+    }
+}
+
 /// A revision version summary from note_revision table.
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Clone, sqlx::FromRow)]
 pub struct RevisionVersionSummary {
     pub id: Uuid,
     pub revision_number: i32,
@@ -37,14 +63,38 @@ pub struct RevisionVersionSummary {
     pub is_user_edited: bool,
 }
 
+impl fmt::Debug for RevisionVersionSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RevisionVersionSummary")
+            .field("id_set", &(!self.id.is_nil()))
+            .field("revision_number", &self.revision_number)
+            .field("created_at_utc", &self.created_at_utc)
+            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("is_user_edited", &self.is_user_edited)
+            .finish()
+    }
+}
+
 /// Combined version listing for both tracks.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct NoteVersions {
     pub note_id: Uuid,
     pub current_original_version: i32,
     pub current_revision_number: Option<i32>,
     pub original_versions: Vec<VersionSummary>,
     pub revised_versions: Vec<RevisionVersionSummary>,
+}
+
+impl fmt::Debug for NoteVersions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NoteVersions")
+            .field("note_id_set", &true)
+            .field("current_original_version", &self.current_original_version)
+            .field("current_revision_number", &self.current_revision_number)
+            .field("original_versions_count", &self.original_versions.len())
+            .field("revised_versions_count", &self.revised_versions.len())
+            .finish()
+    }
 }
 
 /// Repository for note version history.
@@ -820,4 +870,71 @@ fn strip_frontmatter(content: &str) -> String {
         }
     }
     content.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn versioning_debug_redacts_content_hash_ids_actor_and_model() {
+        let version_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000014").unwrap();
+        let note_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000015").unwrap();
+        let revision_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000016").unwrap();
+        let timestamp = DateTime::parse_from_rfc3339("2026-06-27T08:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let original = OriginalVersion {
+            id: version_id,
+            note_id,
+            version_number: 3,
+            content: "private note customer@example.com postgres://user:secret@db.internal sk-version-token".to_string(),
+            hash: "hash-secret-abcdef1234567890".to_string(),
+            created_at_utc: timestamp,
+            created_by: "editor@example.com".to_string(),
+        };
+        let summary = VersionSummary {
+            version_number: 3,
+            created_at_utc: timestamp,
+            created_by: "editor@example.com".to_string(),
+            is_current: true,
+        };
+        let revision = RevisionVersionSummary {
+            id: revision_id,
+            revision_number: 2,
+            created_at_utc: timestamp,
+            model: Some("tenant-private-model@example.internal".to_string()),
+            is_user_edited: false,
+        };
+        let versions = NoteVersions {
+            note_id,
+            current_original_version: 3,
+            current_revision_number: Some(2),
+            original_versions: vec![summary.clone()],
+            revised_versions: vec![revision.clone()],
+        };
+
+        let debug = format!("{original:?} {summary:?} {revision:?} {versions:?}");
+
+        assert!(debug.contains("OriginalVersion"));
+        assert!(debug.contains("content_len"));
+        assert!(debug.contains("hash_len"));
+        assert!(debug.contains("created_by_len"));
+        assert!(debug.contains("RevisionVersionSummary"));
+        assert!(debug.contains("model_len"));
+        assert!(debug.contains("NoteVersions"));
+        assert!(debug.contains("original_versions_count"));
+        assert!(debug.contains("revised_versions_count"));
+        assert!(!debug.contains(&version_id.to_string()));
+        assert!(!debug.contains(&note_id.to_string()));
+        assert!(!debug.contains(&revision_id.to_string()));
+        assert!(!debug.contains("private note"));
+        assert!(!debug.contains("customer@example.com"));
+        assert!(!debug.contains("postgres://"));
+        assert!(!debug.contains("db.internal"));
+        assert!(!debug.contains("sk-version-token"));
+        assert!(!debug.contains("hash-secret"));
+        assert!(!debug.contains("editor@example.com"));
+        assert!(!debug.contains("tenant-private-model"));
+    }
 }
