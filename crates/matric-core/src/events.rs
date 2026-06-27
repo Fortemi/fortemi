@@ -1417,6 +1417,21 @@ pub struct EventBus {
     pub metrics: SseMetrics,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+struct EventBusTelemetry {
+    event_type_len: usize,
+    event_id_present: bool,
+    memory_len: Option<usize>,
+}
+
+fn event_bus_telemetry(envelope: &EventEnvelope) -> EventBusTelemetry {
+    EventBusTelemetry {
+        event_type_len: envelope.event_type.len(),
+        event_id_present: true,
+        memory_len: optional_str_len(envelope.memory.as_deref()),
+    }
+}
+
 impl EventBus {
     /// Create a new event bus with the given broadcast capacity and default replay buffer.
     ///
@@ -1446,9 +1461,10 @@ impl EventBus {
     pub fn emit(&self, event: ServerEvent) {
         let envelope = EventEnvelope::new(event);
         let subscriber_count = self.tx.receiver_count();
+        let telemetry = event_bus_telemetry(&envelope);
         tracing::debug!(
-            event_type = %envelope.event_type,
-            event_id = %envelope.event_id,
+            event_type_len = telemetry.event_type_len,
+            event_id_present = telemetry.event_id_present,
             subscriber_count,
             "EventBus emit"
         );
@@ -1464,11 +1480,12 @@ impl EventBus {
     pub fn emit_with_context(&self, event: ServerEvent, ctx: EventContext) {
         let envelope = EventEnvelope::with_context(event, ctx);
         let subscriber_count = self.tx.receiver_count();
+        let telemetry = event_bus_telemetry(&envelope);
         tracing::debug!(
-            event_type = %envelope.event_type,
-            event_id = %envelope.event_id,
+            event_type_len = telemetry.event_type_len,
+            event_id_present = telemetry.event_id_present,
             subscriber_count,
-            ?envelope.memory,
+            memory_len = telemetry.memory_len,
             "EventBus emit (with context)"
         );
         self.metrics.events_emitted.fetch_add(1, Ordering::Relaxed);
@@ -1657,6 +1674,28 @@ mod tests {
                 "owner@example.internal",
                 "secret-tag-owner@example.internal",
                 "postgres://user:secret@db.internal/fortemi",
+            ],
+        );
+
+        let mut context = EventContext::default();
+        context.memory = Some("customer-private-memory@example.internal".to_string());
+        let envelope = EventEnvelope::with_context(event.clone(), context);
+        let telemetry = event_bus_telemetry(&envelope);
+        let telemetry_debug = format!("{telemetry:?}");
+
+        assert_eq!(telemetry.event_type_len, "note.updated".len());
+        assert!(telemetry.event_id_present);
+        assert_eq!(
+            telemetry.memory_len,
+            Some("customer-private-memory@example.internal".chars().count())
+        );
+        let event_id = envelope.event_id.to_string();
+        assert_debug_excludes(
+            &telemetry_debug,
+            &[
+                &event_id,
+                "note.updated",
+                "customer-private-memory@example.internal",
             ],
         );
 
