@@ -8,13 +8,28 @@ use sqlx::{Pool, Postgres};
 use matric_core::{Error, Result};
 
 /// A PKE public key record from the registry.
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Clone, sqlx::FromRow)]
 pub struct PkePublicKey {
     pub address: String,
     pub public_key: Vec<u8>,
     pub label: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl std::fmt::Debug for PkePublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PkePublicKey")
+            .field("address_len", &self.address.chars().count())
+            .field("public_key_len", &self.public_key.len())
+            .field(
+                "label_len",
+                &self.label.as_ref().map(|label| label.chars().count()),
+            )
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
 }
 
 /// PostgreSQL implementation of PKE key registry.
@@ -140,6 +155,29 @@ mod tests {
     use super::*;
     use crate::pool::create_pool;
     use uuid::Uuid;
+
+    #[test]
+    fn pke_public_key_debug_redacts_key_address_and_label() {
+        let key = PkePublicKey {
+            address: "mm:pke:customer@example.internal:secret-address-fragment".to_string(),
+            public_key: b"public-key-material-secret-shaped".to_vec(),
+            label: Some("Admin label with /srv/private and sk-secret".to_string()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        let rendered = format!("{key:?}");
+
+        assert!(rendered.contains("PkePublicKey"));
+        assert!(rendered.contains("address_len"));
+        assert!(rendered.contains("public_key_len"));
+        assert!(rendered.contains("label_len"));
+        assert!(!rendered.contains("customer@example.internal"));
+        assert!(!rendered.contains("secret-address-fragment"));
+        assert!(!rendered.contains("public-key-material"));
+        assert!(!rendered.contains("/srv/private"));
+        assert!(!rendered.contains("sk-secret"));
+    }
 
     async fn setup_test_pool() -> Pool<Postgres> {
         let database_url = std::env::var("DATABASE_URL")
