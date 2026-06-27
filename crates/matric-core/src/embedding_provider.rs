@@ -43,9 +43,16 @@ impl std::str::FromStr for EmbeddingProvider {
             "voyage" => Ok(Self::Voyage),
             "cohere" => Ok(Self::Cohere),
             "custom" => Ok(Self::Custom),
-            _ => Err(format!("Invalid embedding provider; value_len={}", s.len())),
+            _ => Err(format!(
+                "Invalid embedding provider; value_len={}",
+                text_len(s)
+            )),
         }
     }
+}
+
+fn text_len(value: &str) -> usize {
+    value.chars().count()
 }
 
 fn default_chunk_size() -> i32 {
@@ -92,12 +99,12 @@ pub struct CreateEmbeddingConfigRequest {
 impl fmt::Debug for CreateEmbeddingConfigRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CreateEmbeddingConfigRequest")
-            .field("name_len", &self.name.len())
+            .field("name_len", &text_len(&self.name))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self.description.as_deref().map(text_len),
             )
-            .field("model_len", &self.model.len())
+            .field("model_len", &text_len(&self.model))
             .field("dimension", &self.dimension)
             .field("chunk_size", &self.chunk_size)
             .field("chunk_overlap", &self.chunk_overlap)
@@ -122,7 +129,7 @@ impl fmt::Debug for CreateEmbeddingConfigRequest {
                 &self
                     .content_types
                     .iter()
-                    .map(|content_type| content_type.len())
+                    .map(|content_type| text_len(content_type))
                     .collect::<Vec<_>>(),
             )
             .field("hnsw_m", &self.hnsw_m)
@@ -157,12 +164,12 @@ pub struct UpdateEmbeddingConfigRequest {
 impl fmt::Debug for UpdateEmbeddingConfigRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UpdateEmbeddingConfigRequest")
-            .field("name_len", &self.name.as_ref().map(String::len))
+            .field("name_len", &self.name.as_deref().map(text_len))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self.description.as_deref().map(text_len),
             )
-            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("model_len", &self.model.as_deref().map(text_len))
             .field("dimension", &self.dimension)
             .field("chunk_size", &self.chunk_size)
             .field("chunk_overlap", &self.chunk_overlap)
@@ -190,7 +197,7 @@ impl fmt::Debug for UpdateEmbeddingConfigRequest {
                 &self.content_types.as_ref().map(|content_types| {
                     content_types
                         .iter()
-                        .map(|content_type| content_type.len())
+                        .map(|content_type| text_len(content_type))
                         .collect::<Vec<_>>()
                 }),
             )
@@ -217,7 +224,7 @@ fn json_value_class(value: &JsonValue) -> &'static str {
 
 fn json_serialized_len(value: &JsonValue) -> usize {
     serde_json::to_string(value)
-        .map(|json| json.len())
+        .map(|json| text_len(&json))
         .unwrap_or(0)
 }
 
@@ -319,15 +326,15 @@ mod tests {
     #[test]
     fn embedding_config_request_debug_redacts_provider_config_and_identifiers() {
         let request = CreateEmbeddingConfigRequest {
-            name: "private-config@example.test".to_string(),
-            description: Some("private description with /tmp/path".to_string()),
-            model: "private-model-sk-live-secret".to_string(),
+            name: "priváté-config@example.test".to_string(),
+            description: Some("priváté description with /tmp/path".to_string()),
+            model: "priváté-model-sk-live-secret".to_string(),
             dimension: 1536,
             chunk_size: 800,
             chunk_overlap: 80,
             provider: EmbeddingProvider::Custom,
             provider_config: serde_json::json!({
-                "base_url": "https://example.test/embed?token=secret",
+                "base_url": "https://example.test/embéd?token=secret",
                 "api_key": "sk-live-secret",
                 "headers": { "authorization": "Bearer secret" }
             }),
@@ -335,8 +342,8 @@ mod tests {
             matryoshka_dims: Some(vec![256, 512, 1024]),
             default_truncate_dim: Some(512),
             content_types: vec![
-                "text/private-sk-live-secret".to_string(),
-                "application/private@example.test".to_string(),
+                "text/priváté-sk-live-secret".to_string(),
+                "application/priváté@example.test".to_string(),
             ],
             hnsw_m: Some(16),
             hnsw_ef_construction: Some(200),
@@ -344,14 +351,14 @@ mod tests {
         };
 
         let update = UpdateEmbeddingConfigRequest {
-            name: Some("updated-private@example.test".to_string()),
-            description: Some("updated private description".to_string()),
-            model: Some("updated-model-sk-live-secret".to_string()),
+            name: Some("updáted-private@example.test".to_string()),
+            description: Some("updáted private description".to_string()),
+            model: Some("updáted-model-sk-live-secret".to_string()),
             provider_config: Some(serde_json::json!({
-                "base_url": "https://example.test/updated?token=secret",
+                "base_url": "https://example.test/updáted?token=secret",
                 "api_key": "sk-live-updated"
             })),
-            content_types: Some(vec!["updated/private@example.test".to_string()]),
+            content_types: Some(vec!["updáted/private@example.test".to_string()]),
             document_composition: Some(DocumentComposition::default()),
             ..Default::default()
         };
@@ -359,22 +366,22 @@ mod tests {
         let debug = format!("{request:?}\n{update:?}");
 
         for secret in [
-            "private-config@example.test",
-            "private description",
+            "priváté-config@example.test",
+            "priváté description",
             "/tmp/path",
-            "private-model-sk-live-secret",
-            "https://example.test/embed?token=secret",
-            "https://example.test/updated?token=secret",
+            "priváté-model-sk-live-secret",
+            "https://example.test/embéd?token=secret",
+            "https://example.test/updáted?token=secret",
             "token=secret",
             "api_key",
             "sk-live-secret",
             "sk-live-updated",
             "Bearer secret",
-            "text/private-sk-live-secret",
-            "application/private@example.test",
-            "updated-private@example.test",
-            "updated-model-sk-live-secret",
-            "updated/private@example.test",
+            "text/priváté-sk-live-secret",
+            "application/priváté@example.test",
+            "updáted-private@example.test",
+            "updáted-model-sk-live-secret",
+            "updáted/private@example.test",
         ] {
             assert!(
                 !debug.contains(secret),
@@ -397,15 +404,31 @@ mod tests {
                 "embedding config request Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
+
+        for expected in [
+            "name_len: 27",
+            "description_len: Some(34)",
+            "model_len: 28",
+            "content_type_lens: [27, 32]",
+            "name_len: Some(28)",
+            "description_len: Some(27)",
+            "model_len: Some(28)",
+            "content_type_lens: Some([28])",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "embedding config request Debug output should report Unicode character counts for {expected:?}: {debug}"
+            );
+        }
     }
 
     #[test]
     fn embedding_provider_parse_errors_report_lengths_without_raw_values() {
-        let secret = "https://provider.example.test/embed?api_key=sk-live-secret";
+        let secret = "https://provider.example.test/embéd?api_key=sk-live-secret";
         let error = secret.parse::<EmbeddingProvider>().unwrap_err();
 
         assert!(error.contains("Invalid embedding provider"));
-        assert!(error.contains("value_len="));
+        assert!(error.contains("value_len=58"));
         assert!(
             !error.contains(secret),
             "embedding provider parser error leaked raw invalid value: {error}"
