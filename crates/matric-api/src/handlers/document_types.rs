@@ -12,7 +12,7 @@ use axum::{
 use serde::Deserialize;
 use std::fmt;
 
-use crate::{document_type_not_found, ApiError, AppState};
+use crate::{document_type_not_found, telemetry_text_len, ApiError, AppState};
 use matric_core::DocumentTypeRepository;
 
 // NOTE: These types must be defined in matric-core before handlers will compile.
@@ -38,7 +38,13 @@ pub struct ListDocumentTypesQuery {
 impl fmt::Debug for ListDocumentTypesQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ListDocumentTypesQuery")
-            .field("category_len", &self.category.as_ref().map(String::len))
+            .field(
+                "category_len",
+                &self
+                    .category
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
+            )
             .finish()
     }
 }
@@ -57,9 +63,24 @@ pub struct DetectDocumentTypeRequest {
 impl fmt::Debug for DetectDocumentTypeRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DetectDocumentTypeRequest")
-            .field("filename_len", &self.filename.as_ref().map(String::len))
-            .field("content_len", &self.content.as_ref().map(String::len))
-            .field("mime_type_len", &self.mime_type.as_ref().map(String::len))
+            .field(
+                "filename_len",
+                &self
+                    .filename
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
+            )
+            .field(
+                "content_len",
+                &self.content.as_ref().map(|value| telemetry_text_len(value)),
+            )
+            .field(
+                "mime_type_len",
+                &self
+                    .mime_type
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
+            )
             .finish()
     }
 }
@@ -227,16 +248,18 @@ mod tests {
 
     #[test]
     fn document_type_request_debug_redacts_filters_filenames_and_content() {
+        let category = "privaté-config/customer@example.com";
+        let filename = "/srv/privaté/customer-mm_key_secret.env";
+        let content =
+            "DATABASE_URL=postgres://user:päss@db.internal/app\nOPENAI_API_KEY=sk-live-dóc-type";
+        let mime_type = "application/x-privaté-env";
         let query = ListDocumentTypesQuery {
-            category: Some("private-config/customer@example.com".to_string()),
+            category: Some(category.to_string()),
         };
         let detect = DetectDocumentTypeRequest {
-            filename: Some("/srv/private/customer-mm_key_secret.env".to_string()),
-            content: Some(
-                "DATABASE_URL=postgres://user:pass@db.internal/app\nOPENAI_API_KEY=sk-live-doc-type"
-                    .to_string(),
-            ),
-            mime_type: Some("application/x-private-env".to_string()),
+            filename: Some(filename.to_string()),
+            content: Some(content.to_string()),
+            mime_type: Some(mime_type.to_string()),
         };
 
         let rendered_query = format!("{query:?}");
@@ -249,18 +272,41 @@ mod tests {
         assert!(rendered_detect.contains("filename_len"));
         assert!(rendered_detect.contains("content_len"));
         assert!(rendered_detect.contains("mime_type_len"));
+        for (rendered, expected) in [
+            (
+                &rendered_query,
+                format!("category_len: Some({})", category.chars().count()),
+            ),
+            (
+                &rendered_detect,
+                format!("filename_len: Some({})", filename.chars().count()),
+            ),
+            (
+                &rendered_detect,
+                format!("content_len: Some({})", content.chars().count()),
+            ),
+            (
+                &rendered_detect,
+                format!("mime_type_len: Some({})", mime_type.chars().count()),
+            ),
+        ] {
+            assert!(
+                rendered.contains(&expected),
+                "document-type Debug output should retain exact character-count metadata {expected:?}: {rendered}"
+            );
+        }
 
         for raw in [
-            "private-config",
+            "privaté-config",
             "customer@example.com",
-            "/srv/private",
+            "/srv/privaté",
             "customer-mm_key_secret.env",
             "DATABASE_URL",
-            "postgres://user:pass",
+            "postgres://user:päss",
             "db.internal",
             "OPENAI_API_KEY",
-            "sk-live-doc-type",
-            "application/x-private-env",
+            "sk-live-dóc-type",
+            "application/x-privaté-env",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
