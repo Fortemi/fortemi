@@ -11,6 +11,20 @@ use uuid::Uuid;
 
 use matric_core::{new_v7, ArchiveInfo, ArchiveRepository, Error, Result};
 
+fn archive_not_found_error(name: &str) -> Error {
+    Error::NotFound(format!(
+        "Archive not found; name_len={}",
+        name.chars().count()
+    ))
+}
+
+fn source_archive_not_found_error(name: &str) -> Error {
+    Error::NotFound(format!(
+        "Source archive not found; name_len={}",
+        name.chars().count()
+    ))
+}
+
 /// FTS generated columns and functional indexes that use custom text search
 /// configurations from the `public` schema (e.g., `matric_english`, `matric_simple`).
 ///
@@ -542,7 +556,7 @@ impl PgArchiveRepository {
         let archive = self
             .get_archive_by_name(archive_name)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Archive not found: {}", archive_name)))?;
+            .ok_or_else(|| archive_not_found_error(archive_name))?;
 
         let current_version = self.current_schema_version().await?;
         if archive.schema_version >= current_version {
@@ -1017,7 +1031,7 @@ impl ArchiveRepository for PgArchiveRepository {
         let archive = self
             .get_archive_by_name(name)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Archive not found: {}", name)))?;
+            .ok_or_else(|| archive_not_found_error(name))?;
 
         // Defense-in-depth: NEVER drop the default archive or public schema
         if archive.is_default || archive.schema_name == "public" {
@@ -1168,7 +1182,7 @@ impl ArchiveRepository for PgArchiveRepository {
             .map_err(Error::Database)?;
 
         if result.rows_affected() == 0 {
-            return Err(Error::NotFound(format!("Archive not found: {}", name)));
+            return Err(archive_not_found_error(name));
         }
 
         tx.commit().await.map_err(Error::Database)?;
@@ -1184,7 +1198,7 @@ impl ArchiveRepository for PgArchiveRepository {
             .map_err(Error::Database)?;
 
         if result.rows_affected() == 0 {
-            return Err(Error::NotFound(format!("Archive not found: {}", name)));
+            return Err(archive_not_found_error(name));
         }
 
         Ok(())
@@ -1195,7 +1209,7 @@ impl ArchiveRepository for PgArchiveRepository {
         let archive = self
             .get_archive_by_name(name)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Archive not found: {}", name)))?;
+            .ok_or_else(|| archive_not_found_error(name))?;
 
         // Count notes in the archive schema
         let note_count: i64 = sqlx::query_scalar(&format!(
@@ -1245,7 +1259,7 @@ impl ArchiveRepository for PgArchiveRepository {
         let source = self
             .get_archive_by_name(source_name)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Source archive not found: {}", source_name)))?;
+            .ok_or_else(|| source_archive_not_found_error(source_name))?;
 
         // Check new name doesn't already exist
         if self.get_archive_by_name(new_name).await?.is_some() {
@@ -1373,6 +1387,30 @@ impl ArchiveRepository for PgArchiveRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn archive_not_found_errors_report_metadata_without_raw_values() {
+        let raw_name = "tenant-archive-sk-live-123/path@example.com";
+
+        for (err, expected_label) in [
+            (archive_not_found_error(raw_name), "Archive not found"),
+            (
+                source_archive_not_found_error(raw_name),
+                "Source archive not found",
+            ),
+        ] {
+            let Error::NotFound(message) = err else {
+                panic!("expected not-found error");
+            };
+
+            assert!(message.contains(expected_label));
+            assert!(message.contains("name_len=43"));
+            assert!(!message.contains(raw_name));
+            assert!(!message.contains("tenant-archive"));
+            assert!(!message.contains("sk-live"));
+            assert!(!message.contains("path@example.com"));
+        }
+    }
 
     #[test]
     fn missing_column_debug_redacts_schema_names_and_defaults() {
