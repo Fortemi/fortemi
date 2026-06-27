@@ -5925,6 +5925,20 @@ fn twilio_recording_provider_failure(
     }
 }
 
+fn twilio_recording_reference_metadata(recording_url: &str) -> serde_json::Value {
+    serde_json::json!({
+        "recording_url_class": telemetry_url_class(recording_url),
+        "recording_url_len": telemetry_text_len(recording_url),
+    })
+}
+
+fn twilio_provider_call_reference_metadata(provider_call_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "provider_call_id_present": true,
+        "provider_call_id_len": telemetry_text_len(provider_call_id),
+    })
+}
+
 async fn queue_twilio_recording_transcription(
     state: &AppState,
     session: &matric_core::CallSession,
@@ -5975,10 +5989,11 @@ async fn queue_twilio_recording_transcription(
         .db
         .notes
         .insert(CreateNoteRequest {
-            title: Some(format!("Call recording {}", session.provider_call_id)),
+            title: Some("Call recording".to_string()),
             content: format!(
-                "Call recording imported from {} for provider call {}.",
-                session.provider, session.provider_call_id
+                "Call recording imported from {}; provider call id length {}.",
+                session.provider,
+                telemetry_text_len(&session.provider_call_id)
             ),
             format: "markdown".to_string(),
             source: "realtime_call_recording".to_string(),
@@ -5987,15 +6002,15 @@ async fn queue_twilio_recording_transcription(
             metadata: Some(serde_json::json!({
                 "call_id": session.call_id,
                 "provider": session.provider,
-                "provider_call_id": session.provider_call_id,
-                "recording_url": recording_url,
+                "provider_call": twilio_provider_call_reference_metadata(&session.provider_call_id),
+                "recording": twilio_recording_reference_metadata(recording_url),
                 "batch_transcript_policy": "append_attachment_transcript",
             })),
             document_type_id: None,
         })
         .await?;
 
-    let filename = recording_filename(&session.provider_call_id, &content_type);
+    let filename = recording_filename(&session.call_id.to_string(), &content_type);
     let attachment = {
         let mut tx = state
             .db
@@ -6016,8 +6031,8 @@ async fn queue_twilio_recording_transcription(
         "is_video": false,
         "call_id": session.call_id.to_string(),
         "provider": session.provider,
-        "provider_call_id": session.provider_call_id,
-        "recording_url": recording_url,
+        "provider_call": twilio_provider_call_reference_metadata(&session.provider_call_id),
+        "recording": twilio_recording_reference_metadata(recording_url),
         "batch_transcript_policy": "append_attachment_transcript",
     });
     let job_id = state
@@ -6044,7 +6059,7 @@ async fn queue_twilio_recording_transcription(
                 "note_id": note_id,
                 "audio_attachment_id": attachment.id,
                 "job_id": job_id,
-                "recording_url": recording_url,
+                "recording": twilio_recording_reference_metadata(recording_url),
             }),
         );
     }
@@ -31962,6 +31977,36 @@ mod tests {
             "external"
         );
         assert_eq!(telemetry_url_class("not a url with secret"), "invalid_url");
+    }
+
+    #[test]
+    fn twilio_recording_reference_metadata_redacts_recording_url() {
+        let recording_url = "https://api.twilio.com/recording.wav?token=sk-live-recording";
+        let metadata = twilio_recording_reference_metadata(recording_url);
+        let rendered = serde_json::to_string(&metadata).expect("serialize recording metadata");
+
+        assert_eq!(metadata["recording_url_class"], "twilio_api");
+        assert_eq!(metadata["recording_url_len"], recording_url.chars().count());
+        assert!(!rendered.contains("api.twilio.com"));
+        assert!(!rendered.contains("recording.wav"));
+        assert!(!rendered.contains("sk-live-recording"));
+        assert!(!rendered.contains("token="));
+        assert!(!rendered.contains(recording_url));
+    }
+
+    #[test]
+    fn twilio_provider_call_reference_metadata_redacts_provider_call_id() {
+        let provider_call_id = "CA-secret-provider-call-id";
+        let metadata = twilio_provider_call_reference_metadata(provider_call_id);
+        let rendered = serde_json::to_string(&metadata).expect("serialize provider call metadata");
+
+        assert_eq!(metadata["provider_call_id_present"], true);
+        assert_eq!(
+            metadata["provider_call_id_len"],
+            provider_call_id.chars().count()
+        );
+        assert!(!rendered.contains("CA-secret-provider-call-id"));
+        assert!(!rendered.contains("secret-provider"));
     }
 
     #[test]
