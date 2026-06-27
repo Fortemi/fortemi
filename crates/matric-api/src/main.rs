@@ -1274,7 +1274,7 @@ impl std::fmt::Debug for CallDetailResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CallDetailResponse")
             .field("call_id_set", &true)
-            .field("provider_len", &self.provider.len())
+            .field("provider_len", &self.provider.chars().count())
             .field(
                 "provider_call_class",
                 &webhook_delivery_json_class(&self.provider_call),
@@ -1283,7 +1283,7 @@ impl std::fmt::Debug for CallDetailResponse {
             .field("ended_at", &self.ended_at)
             .field(
                 "end_reason_len",
-                &self.end_reason.as_ref().map(|value| value.len()),
+                &self.end_reason.as_ref().map(|value| value.chars().count()),
             )
             .field("duration_secs", &self.duration_secs)
             .field("asr_backend_len", &self.asr_backend_len)
@@ -27554,11 +27554,11 @@ mod tests {
             Uuid::parse_str("018fd1a0-0000-7000-8000-000000000703").expect("valid segment uuid");
         let response = CallDetailResponse {
             call_id,
-            provider: "twilio-private-provider".to_string(),
+            provider: "éé".to_string(),
             provider_call: twilio_provider_call_reference_metadata("CA-secret-provider-call-id"),
             started_at: Utc::now(),
             ended_at: Some(Utc::now()),
-            end_reason: Some("customer disclosed private reason".to_string()),
+            end_reason: Some("éé".to_string()),
             duration_secs: Some(42.0),
             asr_backend_len: Some("deepgram-secret-backend".len()),
             remote_party_present: true,
@@ -27591,8 +27591,10 @@ mod tests {
         assert!(rendered.contains("CallDetailResponse"));
         assert!(rendered.contains("call_id_set"));
         assert!(rendered.contains("provider_len"));
+        assert!(rendered.contains("provider_len: 2"));
         assert!(rendered.contains("provider_call_class"));
         assert!(rendered.contains("end_reason_len"));
+        assert!(rendered.contains("end_reason_len: Some(2)"));
         assert!(rendered.contains("asr_backend_len"));
         assert!(rendered.contains("remote_party_present"));
         assert!(rendered.contains("remote_party_len"));
@@ -27602,9 +27604,8 @@ mod tests {
         assert!(rendered.contains("segments_count"));
 
         for raw in [
-            "twilio-private-provider",
+            "éé",
             "CA-secret-provider-call-id",
-            "customer disclosed private reason",
             "deepgram-secret-backend",
             "+15551234567",
             "recording_url",
