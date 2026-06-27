@@ -4106,7 +4106,7 @@ pub struct OAuthClient {
 impl std::fmt::Debug for OAuthClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OAuthClient")
-            .field("id", &self.id)
+            .field("id_set", &true)
             .field("client_id_len", &self.client_id.chars().count())
             .field("client_name_len", &self.client_name.chars().count())
             .field(
@@ -4340,7 +4340,7 @@ impl std::fmt::Debug for OAuthAuthorizationCode {
 impl std::fmt::Debug for OAuthToken {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OAuthToken")
-            .field("id", &self.id)
+            .field("id_set", &true)
             .field(
                 "access_token_hash_len",
                 &self.access_token_hash.chars().count(),
@@ -7125,8 +7125,10 @@ mod tests {
     #[test]
     fn oauth_model_debug_redacts_secret_material() {
         let now = Utc::now();
+        let oauth_client_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f401").unwrap();
+        let oauth_token_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f402").unwrap();
         let oauth_client = OAuthClient {
-            id: Uuid::new_v4(),
+            id: oauth_client_id,
             client_id: "oauth-client-secret-id".to_string(),
             client_name: "Sensitive OAuth Client secret label".to_string(),
             client_uri: Some("https://client.example/client-secret-path".to_string()),
@@ -7192,7 +7194,7 @@ mod tests {
             created_at: now,
         };
         let oauth_token = OAuthToken {
-            id: Uuid::new_v4(),
+            id: oauth_token_id,
             access_token_hash: "hashed-mm_at_secret_value".to_string(),
             refresh_token_hash: Some("hashed-mm_rt_secret_value".to_string()),
             token_type: "Bearer".to_string(),
@@ -7253,8 +7255,11 @@ mod tests {
                 "software-secret-id",
                 "software-secret-version",
                 "security-secret@example.com",
+                "018fd1a0-0000-7000-8000-00000000f401",
+                "018fd1a0-0000-7000-8000-00000000f402",
             ],
         );
+        assert!(debug.contains("id_set"));
         assert!(debug.contains("client_name_len"));
         assert!(debug.contains("redirect_uri_count"));
         assert!(debug.contains("client_secret_set"));
