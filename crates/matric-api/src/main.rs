@@ -7395,12 +7395,23 @@ where
     input
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct CollectionResourceMetadata {
     id: Uuid,
     name: String,
     parent_id: Option<Uuid>,
     note_count: i64,
+}
+
+impl fmt::Debug for CollectionResourceMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CollectionResourceMetadata")
+            .field("id_present", &true)
+            .field("name_len", &telemetry_text_len(&self.name))
+            .field("parent_id_present", &self.parent_id.is_some())
+            .field("note_count", &self.note_count)
+            .finish()
+    }
 }
 
 impl From<matric_core::Collection> for CollectionResourceMetadata {
@@ -7501,13 +7512,25 @@ where
     input
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct TemplateResourceMetadata {
     id: Uuid,
     name: String,
     format: String,
     default_tag_count: usize,
     collection_id: Option<Uuid>,
+}
+
+impl fmt::Debug for TemplateResourceMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TemplateResourceMetadata")
+            .field("id_present", &true)
+            .field("name_len", &telemetry_text_len(&self.name))
+            .field("format_len", &telemetry_text_len(&self.format))
+            .field("default_tag_count", &self.default_tag_count)
+            .field("collection_id_present", &self.collection_id.is_some())
+            .finish()
+    }
 }
 
 impl From<matric_core::NoteTemplate> for TemplateResourceMetadata {
@@ -34221,6 +34244,31 @@ mod tests {
         }
     }
 
+    #[test]
+    fn collection_metadata_debug_redacts_names_and_ids() {
+        let collection_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000009").unwrap();
+        let parent_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000010").unwrap();
+        let metadata = CollectionResourceMetadata {
+            id: collection_id,
+            name: "Finance collection ops@example.com sk-collection-secret".to_string(),
+            parent_id: Some(parent_id),
+            note_count: 12,
+        };
+
+        let debug = format!("{metadata:?}");
+
+        assert!(debug.contains("CollectionResourceMetadata"));
+        assert!(debug.contains("id_present"));
+        assert!(debug.contains("name_len"));
+        assert!(debug.contains("parent_id_present"));
+        assert!(debug.contains("note_count"));
+        assert!(!debug.contains(&collection_id.to_string()));
+        assert!(!debug.contains(&parent_id.to_string()));
+        assert!(!debug.contains("Finance collection"));
+        assert!(!debug.contains("ops@example.com"));
+        assert!(!debug.contains("sk-collection-secret"));
+    }
+
     #[tokio::test]
     async fn existing_collection_route_id_is_marked_normalized_with_safe_metadata() {
         let collection_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000009").unwrap();
@@ -34383,6 +34431,34 @@ mod tests {
             created_at_utc: chrono::Utc::now(),
             updated_at_utc: chrono::Utc::now(),
         }
+    }
+
+    #[test]
+    fn template_metadata_debug_redacts_names_formats_and_ids() {
+        let template_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000011").unwrap();
+        let collection_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000009").unwrap();
+        let metadata = TemplateResourceMetadata {
+            id: template_id,
+            name: "Private Template mm_key_template_secret".to_string(),
+            format: "markdown+x-secret/path".to_string(),
+            default_tag_count: 2,
+            collection_id: Some(collection_id),
+        };
+
+        let debug = format!("{metadata:?}");
+
+        assert!(debug.contains("TemplateResourceMetadata"));
+        assert!(debug.contains("id_present"));
+        assert!(debug.contains("name_len"));
+        assert!(debug.contains("format_len"));
+        assert!(debug.contains("default_tag_count"));
+        assert!(debug.contains("collection_id_present"));
+        assert!(!debug.contains(&template_id.to_string()));
+        assert!(!debug.contains(&collection_id.to_string()));
+        assert!(!debug.contains("Private Template"));
+        assert!(!debug.contains("mm_key_template_secret"));
+        assert!(!debug.contains("markdown+x-secret/path"));
+        assert!(!debug.contains("x-secret"));
     }
 
     #[tokio::test]
