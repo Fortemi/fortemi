@@ -73,8 +73,14 @@ jobs:
           set -e
           DB_CONTAINER="matric-fast-db-${GITHUB_RUN_ID}"
           DB_PORT=$((15332 + (GITHUB_RUN_ID % 1000)))
+          DB_USER="matric"
+          DB_PASSWORD="fortemi-ci-${GITHUB_RUN_ID}-${DB_PORT}"
+          DB_NAME="matric_test"
           echo "DB_CONTAINER=${DB_CONTAINER}" >> $GITHUB_ENV
           echo "DB_PORT=${DB_PORT}" >> $GITHUB_ENV
+          echo "DB_USER=${DB_USER}" >> $GITHUB_ENV
+          echo "DB_PASSWORD=${DB_PASSWORD}" >> $GITHUB_ENV
+          echo "DB_NAME=${DB_NAME}" >> $GITHUB_ENV
 
           # Kill any container occupying our target port (stale containers from other runs)
           docker ps --format '{{.ID}}\t{{.Ports}}' | grep ":${DB_PORT}->" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
@@ -83,13 +89,13 @@ jobs:
 
           docker run -d --name ${DB_CONTAINER} \
             -p ${DB_PORT}:5432 \
-            -e POSTGRES_USER=matric \
-            -e POSTGRES_PASSWORD=matric \
-            -e POSTGRES_DB=matric_test \
+            -e POSTGRES_USER="${DB_USER}" \
+            -e POSTGRES_PASSWORD="${DB_PASSWORD}" \
+            -e POSTGRES_DB="${DB_NAME}" \
             matric-testdb:local
 
           for i in {1..30}; do
-            if docker exec ${DB_CONTAINER} pg_isready -U matric 2>/dev/null; then
+            if docker exec ${DB_CONTAINER} pg_isready -U "${DB_USER}" 2>/dev/null; then
               echo "PostgreSQL is ready!"
               break
             fi
@@ -102,17 +108,17 @@ jobs:
           DB_CONTAINER="matric-fast-db-${GITHUB_RUN_ID}"
           # Ensure extensions exist (matric is superuser in testdb image; init-extensions.sh handles this
           # on first boot, but these are a safety net for containers with pre-existing data volumes)
-          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+          docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
           for f in migrations/*.sql; do
             echo "Running migration: $f"
-            docker exec -i ${DB_CONTAINER} psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
+            docker exec -i ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 < "$f"
           done
 
       - name: Run fast tests
         run: |
           DB_PORT=$((15332 + (GITHUB_RUN_ID % 1000)))
-          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           export INTEGRATION_TEST_DB=1
           # Run lib tests and doc tests separately (can't mix --lib and --doc)
           cargo test --lib --workspace
@@ -148,8 +154,14 @@ jobs:
           set -e
           DB_CONTAINER="matric-test-db-${GITHUB_RUN_ID}"
           DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
+          DB_USER="matric"
+          DB_PASSWORD="fortemi-ci-${GITHUB_RUN_ID}-${DB_PORT}"
+          DB_NAME="matric_test"
           echo "DB_CONTAINER=${DB_CONTAINER}" >> $GITHUB_ENV
           echo "DB_PORT=${DB_PORT}" >> $GITHUB_ENV
+          echo "DB_USER=${DB_USER}" >> $GITHUB_ENV
+          echo "DB_PASSWORD=${DB_PASSWORD}" >> $GITHUB_ENV
+          echo "DB_NAME=${DB_NAME}" >> $GITHUB_ENV
 
           # Kill any container occupying our target port (stale containers from other runs)
           docker ps --format '{{.ID}}\t{{.Ports}}' | grep ":${DB_PORT}->" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
@@ -159,14 +171,14 @@ jobs:
           # Start PostgreSQL with pgvector
           docker run -d --name ${DB_CONTAINER} \
             -p ${DB_PORT}:5432 \
-            -e POSTGRES_USER=matric \
-            -e POSTGRES_PASSWORD=matric \
-            -e POSTGRES_DB=matric_test \
+            -e POSTGRES_USER="${DB_USER}" \
+            -e POSTGRES_PASSWORD="${DB_PASSWORD}" \
+            -e POSTGRES_DB="${DB_NAME}" \
             matric-testdb:local
 
           # Wait for PostgreSQL
           for i in {1..30}; do
-            if docker exec ${DB_CONTAINER} pg_isready -U matric 2>/dev/null; then
+            if docker exec ${DB_CONTAINER} pg_isready -U "${DB_USER}" 2>/dev/null; then
               echo "PostgreSQL is ready!"
               break
             fi
@@ -179,17 +191,17 @@ jobs:
           DB_CONTAINER="matric-test-db-${GITHUB_RUN_ID}"
           # Ensure extensions exist (matric is superuser in testdb image; init-extensions.sh handles this
           # on first boot, but these are a safety net for containers with pre-existing data volumes)
-          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+          docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
           for f in migrations/*.sql; do
             echo "Running migration: $f"
-            docker exec -i ${DB_CONTAINER} psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
+            docker exec -i ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 < "$f"
           done
 
       - name: Run worker integration tests (serial, first)
         run: |
           DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
-          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
 
           # Worker tests require serial execution due to shared database state
           # (tests share job queue, workers can claim jobs from other tests)
@@ -200,7 +212,7 @@ jobs:
       - name: Run other integration tests
         run: |
           DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
-          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           export INTEGRATION_TEST_DB=1
 
           # Run all workspace tests except matric-jobs
@@ -236,8 +248,14 @@ jobs:
           set -e
           DB_CONTAINER="matric-coverage-db-${GITHUB_RUN_ID}"
           DB_PORT=$((15532 + (GITHUB_RUN_ID % 1000)))
+          DB_USER="matric"
+          DB_PASSWORD="fortemi-ci-${GITHUB_RUN_ID}-${DB_PORT}"
+          DB_NAME="matric_test"
           echo "DB_CONTAINER=${DB_CONTAINER}" >> $GITHUB_ENV
           echo "DB_PORT=${DB_PORT}" >> $GITHUB_ENV
+          echo "DB_USER=${DB_USER}" >> $GITHUB_ENV
+          echo "DB_PASSWORD=${DB_PASSWORD}" >> $GITHUB_ENV
+          echo "DB_NAME=${DB_NAME}" >> $GITHUB_ENV
 
           # Kill any container occupying our target port (stale containers from other runs)
           docker ps --format '{{.ID}}\t{{.Ports}}' | grep ":${DB_PORT}->" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
@@ -246,23 +264,23 @@ jobs:
 
           docker run -d --name ${DB_CONTAINER} \
             -p ${DB_PORT}:5432 \
-            -e POSTGRES_USER=matric \
-            -e POSTGRES_PASSWORD=matric \
-            -e POSTGRES_DB=matric_test \
+            -e POSTGRES_USER="${DB_USER}" \
+            -e POSTGRES_PASSWORD="${DB_PASSWORD}" \
+            -e POSTGRES_DB="${DB_NAME}" \
             matric-testdb:local
 
           for i in {1..30}; do
-            if docker exec ${DB_CONTAINER} pg_isready -U matric 2>/dev/null; then
+            if docker exec ${DB_CONTAINER} pg_isready -U "${DB_USER}" 2>/dev/null; then
               break
             fi
             sleep 2
           done
 
           # Ensure extensions exist (matric is superuser in testdb image)
-          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+          docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
           for f in migrations/*.sql; do
-            docker exec -i ${DB_CONTAINER} psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
+            docker exec -i ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 < "$f"
           done
 
       - name: Install llvm-cov
@@ -272,7 +290,7 @@ jobs:
       - name: Generate coverage (worker tests serial)
         run: |
           DB_PORT=$((15532 + (GITHUB_RUN_ID % 1000)))
-          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
 
           mkdir -p target/coverage
 
@@ -283,7 +301,7 @@ jobs:
       - name: Generate coverage (matric-jobs lib tests)
         run: |
           DB_PORT=$((15532 + (GITHUB_RUN_ID % 1000)))
-          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
 
           # Run matric-jobs lib tests (adapter unit tests, extraction registry, extraction handler)
           # These are independent of worker integration tests and safe to run in parallel
@@ -293,7 +311,7 @@ jobs:
       - name: Generate coverage (other tests)
         run: |
           DB_PORT=$((15532 + (GITHUB_RUN_ID % 1000)))
-          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           export INTEGRATION_TEST_DB=1
 
           # Run all other tests with coverage (accumulate with --no-clean)
@@ -360,8 +378,14 @@ jobs:
           set -e
           DB_CONTAINER="matric-slow-db-${GITHUB_RUN_ID}"
           DB_PORT=$((15632 + (GITHUB_RUN_ID % 1000)))
+          DB_USER="matric"
+          DB_PASSWORD="fortemi-ci-${GITHUB_RUN_ID}-${DB_PORT}"
+          DB_NAME="matric_test"
           echo "DB_CONTAINER=${DB_CONTAINER}" >> $GITHUB_ENV
           echo "DB_PORT=${DB_PORT}" >> $GITHUB_ENV
+          echo "DB_USER=${DB_USER}" >> $GITHUB_ENV
+          echo "DB_PASSWORD=${DB_PASSWORD}" >> $GITHUB_ENV
+          echo "DB_NAME=${DB_NAME}" >> $GITHUB_ENV
 
           # Kill any container occupying our target port (stale containers from other runs)
           docker ps --format '{{.ID}}\t{{.Ports}}' | grep ":${DB_PORT}->" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
@@ -370,13 +394,13 @@ jobs:
 
           docker run -d --name ${DB_CONTAINER} \
             -p ${DB_PORT}:5432 \
-            -e POSTGRES_USER=matric \
-            -e POSTGRES_PASSWORD=matric \
-            -e POSTGRES_DB=matric_test \
+            -e POSTGRES_USER="${DB_USER}" \
+            -e POSTGRES_PASSWORD="${DB_PASSWORD}" \
+            -e POSTGRES_DB="${DB_NAME}" \
             matric-testdb:local
 
           for i in {1..30}; do
-            if docker exec ${DB_CONTAINER} pg_isready -U matric 2>/dev/null; then
+            if docker exec ${DB_CONTAINER} pg_isready -U "${DB_USER}" 2>/dev/null; then
               break
             fi
             sleep 2
@@ -387,17 +411,17 @@ jobs:
           DB_CONTAINER="matric-slow-db-${GITHUB_RUN_ID}"
           # Ensure extensions exist (matric is superuser in testdb image; init-extensions.sh handles this
           # on first boot, but these are a safety net for containers with pre-existing data volumes)
-          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+          docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
           for f in migrations/*.sql; do
             echo "Running migration: $f"
-            docker exec -i ${DB_CONTAINER} psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
+            docker exec -i ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 < "$f"
           done
 
       - name: Run slow/ignored tests
         run: |
           DB_PORT=$((15632 + (GITHUB_RUN_ID % 1000)))
-          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           export INTEGRATION_TEST_DB=1
 
           # Run tests marked with #[ignore] serially to avoid database state conflicts
