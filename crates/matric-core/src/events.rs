@@ -14,6 +14,7 @@
 //! Architecture: See ADR-037 (unified-event-bus)
 
 use std::collections::VecDeque;
+use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
@@ -31,7 +32,7 @@ use uuid::Uuid;
 ///
 /// Identifies who or what caused an event — system processes, authenticated
 /// users, or AI agents.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Clone, Serialize, JsonSchema)]
 pub struct EventActor {
     /// Actor type: `"system"`, `"user"`, or `"agent"`.
     pub kind: String,
@@ -41,6 +42,16 @@ pub struct EventActor {
     /// Optional display name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+}
+
+impl fmt::Debug for EventActor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EventActor")
+            .field("kind_len", &self.kind.len())
+            .field("id_len", &optional_str_len(self.id.as_deref()))
+            .field("name_len", &optional_str_len(self.name.as_deref()))
+            .finish()
+    }
 }
 
 impl EventActor {
@@ -76,7 +87,7 @@ impl EventActor {
 ///
 /// Used with [`EventBus::emit_with_context`] to attach memory scope,
 /// actor identity, and correlation IDs to emitted events.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct EventContext {
     /// Memory/archive scope (schema name). None for system-wide events.
     pub memory: Option<String>,
@@ -88,6 +99,21 @@ pub struct EventContext {
     pub correlation_id: Option<Uuid>,
     /// ID of the event that directly caused this event.
     pub causation_id: Option<Uuid>,
+}
+
+impl fmt::Debug for EventContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EventContext")
+            .field("memory_len", &optional_str_len(self.memory.as_deref()))
+            .field(
+                "tenant_id_len",
+                &optional_str_len(self.tenant_id.as_deref()),
+            )
+            .field("actor_present", &self.actor.is_some())
+            .field("correlation_id_present", &self.correlation_id.is_some())
+            .field("causation_id_present", &self.causation_id.is_some())
+            .finish()
+    }
 }
 
 /// Versioned server event envelope conforming to the Fortemi SSE contract.
@@ -110,7 +136,7 @@ pub struct EventContext {
 /// - New optional fields may be added to the envelope without version bump.
 /// - Consumers should ignore unknown fields (forward compatibility).
 /// - Breaking changes require a new `payload_version` with deprecation window.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Clone, Serialize, JsonSchema)]
 pub struct EventEnvelope {
     /// Unique event identifier (UUIDv7 for temporal ordering).
     pub event_id: Uuid,
@@ -142,6 +168,34 @@ pub struct EventEnvelope {
     pub payload_version: u32,
     /// Domain-specific event data.
     pub payload: ServerEvent,
+}
+
+impl fmt::Debug for EventEnvelope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EventEnvelope")
+            .field("event_id_present", &true)
+            .field("event_type_len", &self.event_type.len())
+            .field("occurred_at", &self.occurred_at)
+            .field("memory_len", &optional_str_len(self.memory.as_deref()))
+            .field(
+                "tenant_id_len",
+                &optional_str_len(self.tenant_id.as_deref()),
+            )
+            .field("actor", &self.actor)
+            .field(
+                "entity_type_len",
+                &optional_str_len(self.entity_type.as_deref()),
+            )
+            .field(
+                "entity_id_len",
+                &optional_str_len(self.entity_id.as_deref()),
+            )
+            .field("correlation_id_present", &self.correlation_id.is_some())
+            .field("causation_id_present", &self.causation_id.is_some())
+            .field("payload_version", &self.payload_version)
+            .field("payload", &self.payload)
+            .finish()
+    }
 }
 
 impl EventEnvelope {
@@ -183,7 +237,7 @@ impl EventEnvelope {
 /// `{"type":"JobStarted","job_id":"...","job_type":"Embedding"}`
 ///
 /// When wrapped in an [`EventEnvelope`], these become the `payload` field.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Clone, Serialize, JsonSchema)]
 #[serde(tag = "type")]
 pub enum ServerEvent {
     /// Periodic queue statistics broadcast.
@@ -429,6 +483,223 @@ pub enum ServerEvent {
         /// `["embedding_backend"]`, `["__reset__"]` for `DELETE` events.
         changed_fields: Vec<String>,
     },
+}
+
+impl fmt::Debug for ServerEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_struct("ServerEvent");
+        debug
+            .field("event_type", &self.namespaced_event_type())
+            .field("legacy_type", &self.event_type())
+            .field("entity_type", &self.entity_type())
+            .field("priority", &self.priority());
+
+        match self {
+            ServerEvent::QueueStatus {
+                total_jobs,
+                running,
+                pending,
+            } => {
+                debug
+                    .field("total_jobs", total_jobs)
+                    .field("running", running)
+                    .field("pending", pending);
+            }
+            ServerEvent::JobQueued {
+                job_type, note_id, ..
+            }
+            | ServerEvent::JobStarted {
+                job_type, note_id, ..
+            } => {
+                debug
+                    .field("job_id_present", &true)
+                    .field("job_type_len", &job_type.len())
+                    .field("note_id_present", &note_id.is_some());
+            }
+            ServerEvent::JobProgress {
+                note_id,
+                progress,
+                message,
+                ..
+            } => {
+                debug
+                    .field("job_id_present", &true)
+                    .field("note_id_present", &note_id.is_some())
+                    .field("progress", progress)
+                    .field("message_len", &optional_str_len(message.as_deref()));
+            }
+            ServerEvent::JobCompleted {
+                job_type,
+                note_id,
+                duration_ms,
+                ..
+            } => {
+                debug
+                    .field("job_id_present", &true)
+                    .field("job_type_len", &job_type.len())
+                    .field("note_id_present", &note_id.is_some())
+                    .field("duration_ms", duration_ms);
+            }
+            ServerEvent::JobFailed {
+                job_type,
+                note_id,
+                error,
+                ..
+            } => {
+                debug
+                    .field("job_id_present", &true)
+                    .field("job_type_len", &job_type.len())
+                    .field("note_id_present", &note_id.is_some())
+                    .field("error_len", &error.len());
+            }
+            ServerEvent::NoteUpdated {
+                title,
+                tags,
+                has_ai_content,
+                has_links,
+                ..
+            } => {
+                debug
+                    .field("note_id_present", &true)
+                    .field("title_len", &optional_str_len(title.as_deref()))
+                    .field("tags_count", &tags.len())
+                    .field("tag_lens", &string_lens(tags))
+                    .field("has_ai_content", has_ai_content)
+                    .field("has_links", has_links);
+            }
+            ServerEvent::NoteCreated { title, tags, .. } => {
+                debug
+                    .field("note_id_present", &true)
+                    .field("title_len", &optional_str_len(title.as_deref()))
+                    .field("tags_count", &tags.len())
+                    .field("tag_lens", &string_lens(tags));
+            }
+            ServerEvent::NoteDeleted { .. }
+            | ServerEvent::NoteArchived { .. }
+            | ServerEvent::NoteRestored { .. }
+            | ServerEvent::NoteLinksUpdated { .. }
+            | ServerEvent::NoteRevisionCreated { .. }
+            | ServerEvent::AttachmentExtractionUpdated { .. }
+            | ServerEvent::CollectionDeleted { .. }
+            | ServerEvent::ConceptSchemeCreated { .. }
+            | ServerEvent::ConceptSchemeUpdated { .. }
+            | ServerEvent::ConceptSchemeDeleted { .. }
+            | ServerEvent::ConceptUpdated { .. }
+            | ServerEvent::ConceptDeleted { .. }
+            | ServerEvent::ReadmodelSearchReady { .. } => {
+                debug.field("entity_id_present", &true);
+            }
+            ServerEvent::NoteTagsUpdated { tags, .. } => {
+                debug
+                    .field("note_id_present", &true)
+                    .field("tags_count", &tags.len())
+                    .field("tag_lens", &string_lens(tags));
+            }
+            ServerEvent::AttachmentCreated { filename, .. } => {
+                debug
+                    .field("attachment_id_present", &true)
+                    .field("note_id_present", &true)
+                    .field("filename_len", &optional_str_len(filename.as_deref()));
+            }
+            ServerEvent::AttachmentDeleted { note_id, .. } => {
+                debug
+                    .field("attachment_id_present", &true)
+                    .field("note_id_present", &note_id.is_some());
+            }
+            ServerEvent::CollectionCreated { name, .. }
+            | ServerEvent::CollectionUpdated { name, .. } => {
+                debug
+                    .field("collection_id_present", &true)
+                    .field("name_len", &name.len());
+            }
+            ServerEvent::CollectionMembershipChanged { collection_id, .. } => {
+                debug
+                    .field("collection_id_present", &collection_id.is_some())
+                    .field("note_id_present", &true);
+            }
+            ServerEvent::ArchiveCreated { name, archive_id } => {
+                debug
+                    .field("name_len", &name.len())
+                    .field("archive_id_present", &archive_id.is_some());
+            }
+            ServerEvent::ArchiveUpdated { name }
+            | ServerEvent::ArchiveDeleted { name }
+            | ServerEvent::ArchiveDefaultChanged { name } => {
+                debug.field("name_len", &name.len());
+            }
+            ServerEvent::ConceptCreated { scheme_id, .. } => {
+                debug
+                    .field("concept_id_present", &true)
+                    .field("scheme_id_present", &scheme_id.is_some());
+            }
+            ServerEvent::ConceptRelationsUpdated { relation_type, .. } => {
+                debug
+                    .field("concept_id_present", &true)
+                    .field("relation_type_len", &relation_type.len());
+            }
+            ServerEvent::ConceptSchemeChanged { scheme_id, .. } => {
+                debug
+                    .field("concept_id_present", &true)
+                    .field("scheme_id_present", &scheme_id.is_some());
+            }
+            ServerEvent::ConceptCollectionMembershipChanged { collection_id, .. } => {
+                debug
+                    .field("concept_id_present", &true)
+                    .field("collection_id_present", &collection_id.is_some());
+            }
+            ServerEvent::TagCreated { tag } | ServerEvent::TagDeleted { tag } => {
+                debug.field("tag_len", &tag.len());
+            }
+            ServerEvent::TagRenamed { old_name, new_name } => {
+                debug
+                    .field("old_name_len", &old_name.len())
+                    .field("new_name_len", &new_name.len());
+            }
+            ServerEvent::TagMerged {
+                source_tag,
+                target_tag,
+                affected_count,
+            } => {
+                debug
+                    .field("source_tag_len", &source_tag.len())
+                    .field("target_tag_len", &target_tag.len())
+                    .field("affected_count", affected_count);
+            }
+            ServerEvent::TagStatsUpdated => {}
+            ServerEvent::JobsPaused { scope } | ServerEvent::JobsResumed { scope } => {
+                debug.field("scope_len", &scope.len());
+            }
+            ServerEvent::IndexEmbeddingUpdated { job_id, .. }
+            | ServerEvent::IndexLinkingUpdated { job_id, .. }
+            | ServerEvent::IndexFtsUpdated { job_id, .. } => {
+                debug
+                    .field("note_id_present", &true)
+                    .field("job_id_present", &job_id.is_some());
+            }
+            ServerEvent::ReadmodelGraphUpdated { note_id } => {
+                debug.field("note_id_present", &note_id.is_some());
+            }
+            ServerEvent::InferenceAvailabilityChanged { available } => {
+                debug.field("available", available);
+            }
+            ServerEvent::InferenceConfigChanged {
+                default_backend,
+                embedding_backend,
+                changed_fields,
+            } => {
+                debug
+                    .field("default_backend_len", &default_backend.len())
+                    .field(
+                        "embedding_backend_len",
+                        &optional_str_len(embedding_backend.as_deref()),
+                    )
+                    .field("changed_fields_count", &changed_fields.len())
+                    .field("changed_field_lens", &string_lens(changed_fields));
+            }
+        }
+
+        debug.finish()
+    }
 }
 
 impl ServerEvent {
@@ -744,12 +1015,20 @@ impl ServerEvent {
     }
 }
 
+fn optional_str_len(value: Option<&str>) -> Option<usize> {
+    value.map(str::len)
+}
+
+fn string_lens(values: &[String]) -> Vec<usize> {
+    values.iter().map(|value| value.len()).collect()
+}
+
 // ============================================================================
 // Variant Metadata (for AsyncAPI spec generation)
 // ============================================================================
 
 /// Metadata for a single `ServerEvent` variant, used for AsyncAPI spec generation.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct EventVariantMeta {
     /// Dot-namespaced event type (e.g., `"note.updated"`).
     pub namespaced_type: &'static str,
@@ -761,6 +1040,18 @@ pub struct EventVariantMeta {
     pub priority: EventPriority,
     /// Human-readable description of the event.
     pub description: &'static str,
+}
+
+impl fmt::Debug for EventVariantMeta {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EventVariantMeta")
+            .field("namespaced_type", &self.namespaced_type)
+            .field("variant_name", &self.variant_name)
+            .field("entity_type", &self.entity_type)
+            .field("priority", &self.priority)
+            .field("description_len", &self.description.len())
+            .finish()
+    }
 }
 
 impl ServerEvent {
@@ -1233,6 +1524,15 @@ impl EventBus {
 mod tests {
     use super::*;
 
+    fn assert_debug_excludes(debug: &str, secrets: &[&str]) {
+        for secret in secrets {
+            assert!(
+                !debug.contains(secret),
+                "debug output leaked secret `{secret}`: {debug}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn test_event_bus_emit_subscribe() {
         let bus = EventBus::new(32);
@@ -1328,6 +1628,136 @@ mod tests {
         assert!(json.contains(r#""type":"NoteUpdated"#));
         assert!(json.contains(r#""has_ai_content":true"#));
         assert!(json.contains(r#""has_links":false"#));
+    }
+
+    #[test]
+    fn event_debug_redacts_payload_context_actor_and_config_values() {
+        let event = ServerEvent::NoteUpdated {
+            note_id: Uuid::new_v4(),
+            title: Some("Private note title for owner@example.internal".to_string()),
+            tags: vec![
+                "secret-tag-owner@example.internal".to_string(),
+                "postgres://user:secret@db.internal/fortemi".to_string(),
+            ],
+            has_ai_content: true,
+            has_links: true,
+        };
+        let event_debug = format!("{event:?}");
+        assert!(event_debug.contains("ServerEvent"));
+        assert!(event_debug.contains("note.updated"));
+        assert!(event_debug.contains("title_len"));
+        assert_debug_excludes(
+            &event_debug,
+            &[
+                "Private note title",
+                "owner@example.internal",
+                "secret-tag-owner@example.internal",
+                "postgres://user:secret@db.internal/fortemi",
+            ],
+        );
+
+        let failed = ServerEvent::JobFailed {
+            job_id: Uuid::new_v4(),
+            job_type: "ExtractionJobPrivate".to_string(),
+            note_id: Some(Uuid::new_v4()),
+            error: "backend failed at /srv/private/file.pdf with sk-job-secret".to_string(),
+        };
+        let failed_debug = format!("{failed:?}");
+        assert!(failed_debug.contains("error_len"));
+        assert_debug_excludes(
+            &failed_debug,
+            &[
+                "ExtractionJobPrivate",
+                "/srv/private/file.pdf",
+                "sk-job-secret",
+            ],
+        );
+
+        let progress = ServerEvent::JobProgress {
+            job_id: Uuid::new_v4(),
+            note_id: Some(Uuid::new_v4()),
+            progress: 42,
+            message: Some("Processing private@example.internal via /tmp/private".to_string()),
+        };
+        let progress_debug = format!("{progress:?}");
+        assert!(progress_debug.contains("message_len"));
+        assert_debug_excludes(
+            &progress_debug,
+            &["private@example.internal", "/tmp/private"],
+        );
+
+        let attachment = ServerEvent::AttachmentCreated {
+            attachment_id: Uuid::new_v4(),
+            note_id: Uuid::new_v4(),
+            filename: Some("secret-owner@example.internal.pdf".to_string()),
+        };
+        let attachment_debug = format!("{attachment:?}");
+        assert!(attachment_debug.contains("filename_len"));
+        assert_debug_excludes(&attachment_debug, &["secret-owner@example.internal.pdf"]);
+
+        let archive = ServerEvent::ArchiveCreated {
+            name: "customer-private-archive".to_string(),
+            archive_id: Some(Uuid::new_v4()),
+        };
+        let archive_debug = format!("{archive:?}");
+        assert!(archive_debug.contains("name_len"));
+        assert_debug_excludes(&archive_debug, &["customer-private-archive"]);
+
+        let config = ServerEvent::InferenceConfigChanged {
+            default_backend: "openrouter-private".to_string(),
+            embedding_backend: Some("embedding-private".to_string()),
+            changed_fields: vec![
+                "openrouter.api_key".to_string(),
+                "openrouter.base_url".to_string(),
+            ],
+        };
+        let config_debug = format!("{config:?}");
+        assert!(config_debug.contains("changed_fields_count"));
+        assert_debug_excludes(
+            &config_debug,
+            &[
+                "openrouter-private",
+                "embedding-private",
+                "openrouter.api_key",
+                "openrouter.base_url",
+            ],
+        );
+
+        let actor = EventActor::user(
+            "user-secret-owner@example.internal",
+            Some("Private Operator".to_string()),
+        );
+        let actor_debug = format!("{actor:?}");
+        assert!(actor_debug.contains("EventActor"));
+        assert_debug_excludes(
+            &actor_debug,
+            &["user-secret-owner@example.internal", "Private Operator"],
+        );
+
+        let envelope = EventEnvelope::with_context(
+            failed,
+            EventContext {
+                memory: Some("archive-secret-name".to_string()),
+                tenant_id: Some("tenant-secret-id".to_string()),
+                actor: Some(actor),
+                correlation_id: Some(Uuid::new_v4()),
+                causation_id: Some(Uuid::new_v4()),
+            },
+        );
+        let envelope_debug = format!("{envelope:?}");
+        assert!(envelope_debug.contains("EventEnvelope"));
+        assert!(envelope_debug.contains("payload"));
+        assert_debug_excludes(
+            &envelope_debug,
+            &[
+                "archive-secret-name",
+                "tenant-secret-id",
+                "user-secret-owner@example.internal",
+                "Private Operator",
+                "/srv/private/file.pdf",
+                "sk-job-secret",
+            ],
+        );
     }
 
     #[test]
