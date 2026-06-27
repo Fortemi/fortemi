@@ -1565,7 +1565,7 @@ impl fmt::Debug for AgenticConfig {
         f.debug_struct("AgenticConfig")
             .field(
                 "generation_prompt_len",
-                &self.generation_prompt.as_ref().map(String::len),
+                &optional_debug_len(self.generation_prompt.as_ref()),
             )
             .field("required_sections_count", &self.required_sections.len())
             .field(
@@ -1573,7 +1573,7 @@ impl fmt::Debug for AgenticConfig {
                 &self
                     .required_sections
                     .iter()
-                    .map(String::len)
+                    .map(|section| debug_len(section))
                     .collect::<Vec<_>>(),
             )
             .field("optional_sections_count", &self.optional_sections.len())
@@ -1582,7 +1582,7 @@ impl fmt::Debug for AgenticConfig {
                 &self
                     .optional_sections
                     .iter()
-                    .map(String::len)
+                    .map(|section| debug_len(section))
                     .collect::<Vec<_>>(),
             )
             .field("template_id_set", &self.template_id.is_some())
@@ -1996,12 +1996,12 @@ impl fmt::Debug for DocumentType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DocumentType")
             .field("id_set", &true)
-            .field("name_len", &self.name.len())
-            .field("display_name_len", &self.display_name.len())
+            .field("name_len", &debug_len(&self.name))
+            .field("display_name_len", &debug_len(&self.display_name))
             .field("category", &self.category)
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &optional_debug_len(self.description.as_ref()),
             )
             .field("file_extensions_count", &self.file_extensions.len())
             .field(
@@ -2009,13 +2009,17 @@ impl fmt::Debug for DocumentType {
                 &self
                     .file_extensions
                     .iter()
-                    .map(String::len)
+                    .map(|extension| debug_len(extension))
                     .collect::<Vec<_>>(),
             )
             .field("mime_types_count", &self.mime_types.len())
             .field(
                 "mime_type_lens",
-                &self.mime_types.iter().map(String::len).collect::<Vec<_>>(),
+                &self
+                    .mime_types
+                    .iter()
+                    .map(|mime_type| debug_len(mime_type))
+                    .collect::<Vec<_>>(),
             )
             .field("magic_patterns_count", &self.magic_patterns.len())
             .field(
@@ -2023,7 +2027,7 @@ impl fmt::Debug for DocumentType {
                 &self
                     .magic_patterns
                     .iter()
-                    .map(String::len)
+                    .map(|pattern| debug_len(pattern))
                     .collect::<Vec<_>>(),
             )
             .field("filename_patterns_count", &self.filename_patterns.len())
@@ -2032,7 +2036,7 @@ impl fmt::Debug for DocumentType {
                 &self
                     .filename_patterns
                     .iter()
-                    .map(String::len)
+                    .map(|pattern| debug_len(pattern))
                     .collect::<Vec<_>>(),
             )
             .field("chunking_strategy", &self.chunking_strategy)
@@ -2057,12 +2061,12 @@ impl fmt::Debug for DocumentType {
                 &self
                     .content_types
                     .iter()
-                    .map(String::len)
+                    .map(|content_type| debug_len(content_type))
                     .collect::<Vec<_>>(),
             )
             .field(
                 "tree_sitter_language_len",
-                &self.tree_sitter_language.as_ref().map(String::len),
+                &optional_debug_len(self.tree_sitter_language.as_ref()),
             )
             .field("extraction_strategy", &self.extraction_strategy)
             .field(
@@ -2082,7 +2086,10 @@ impl fmt::Debug for DocumentType {
             .field("is_active", &self.is_active)
             .field("created_at", &self.created_at)
             .field("updated_at", &self.updated_at)
-            .field("created_by_len", &self.created_by.as_ref().map(String::len))
+            .field(
+                "created_by_len",
+                &optional_debug_len(self.created_by.as_ref()),
+            )
             .field("agentic_config", &self.agentic_config)
             .finish()
     }
@@ -2114,17 +2121,17 @@ impl fmt::Debug for DocumentTypeSummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DocumentTypeSummary")
             .field("id_set", &true)
-            .field("name_len", &self.name.len())
-            .field("display_name_len", &self.display_name.len())
+            .field("name_len", &debug_len(&self.name))
+            .field("display_name_len", &debug_len(&self.display_name))
             .field("category", &self.category)
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &optional_debug_len(self.description.as_ref()),
             )
             .field("chunking_strategy", &self.chunking_strategy)
             .field(
                 "tree_sitter_language_len",
-                &self.tree_sitter_language.as_ref().map(String::len),
+                &optional_debug_len(self.tree_sitter_language.as_ref()),
             )
             .field("extraction_strategy", &self.extraction_strategy)
             .field("requires_attachment", &self.requires_attachment)
@@ -2183,15 +2190,15 @@ pub struct CreateDocumentTypeRequest {
 impl fmt::Debug for CreateDocumentTypeRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CreateDocumentTypeRequest")
-            .field("name_len", &self.name.len())
+            .field("name_len", &debug_len(&self.name))
             .field(
                 "display_name_len",
-                &self.display_name.as_ref().map(String::len),
+                &optional_debug_len(self.display_name.as_ref()),
             )
             .field("category", &self.category)
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &optional_debug_len(self.description.as_ref()),
             )
             .field("file_extensions_count", &self.file_extensions.len())
             .field("mime_types_count", &self.mime_types.len())
@@ -2216,7 +2223,7 @@ impl fmt::Debug for CreateDocumentTypeRequest {
             .field("content_types_count", &self.content_types.len())
             .field(
                 "tree_sitter_language_len",
-                &self.tree_sitter_language.as_ref().map(String::len),
+                &optional_debug_len(self.tree_sitter_language.as_ref()),
             )
             .field("agentic_config_set", &self.agentic_config.is_some())
             .field("extraction_strategy", &self.extraction_strategy)
@@ -2296,11 +2303,11 @@ impl fmt::Debug for UpdateDocumentTypeRequest {
         f.debug_struct("UpdateDocumentTypeRequest")
             .field(
                 "display_name_len",
-                &self.display_name.as_ref().map(String::len),
+                &optional_debug_len(self.display_name.as_ref()),
             )
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &optional_debug_len(self.description.as_ref()),
             )
             .field(
                 "file_extensions_count",
@@ -2337,7 +2344,7 @@ impl fmt::Debug for UpdateDocumentTypeRequest {
             )
             .field(
                 "tree_sitter_language_len",
-                &self.tree_sitter_language.as_ref().map(String::len),
+                &optional_debug_len(self.tree_sitter_language.as_ref()),
             )
             .field("is_active", &self.is_active)
             .field("agentic_config_set", &self.agentic_config.is_some())
@@ -2372,7 +2379,7 @@ impl fmt::Debug for DetectDocumentTypeResult {
         f.debug_struct("DetectDocumentTypeResult")
             .field("document_type", &self.document_type)
             .field("confidence", &self.confidence)
-            .field("detection_method_len", &self.detection_method.len())
+            .field("detection_method_len", &debug_len(&self.detection_method))
             .finish()
     }
 }
@@ -6749,12 +6756,9 @@ mod tests {
             json!({"hint": "prefer private@example.test and sk-live-secret"}),
         );
         let agentic_config = AgenticConfig {
-            generation_prompt: Some(
-                "Generate a private report for private@example.test with sk-live-secret"
-                    .to_string(),
-            ),
-            required_sections: vec!["Required secret section 555-1212".to_string()],
-            optional_sections: vec!["Optional private section".to_string()],
+            generation_prompt: Some("éé".to_string()),
+            required_sections: vec!["éé".to_string()],
+            optional_sections: vec!["éé".to_string()],
             template_id: Some(Uuid::new_v4()),
             context_requirements,
             validation_rules,
@@ -6766,14 +6770,14 @@ mod tests {
         };
         let document_type = DocumentType {
             id: Uuid::new_v4(),
-            name: "private-document-type".to_string(),
-            display_name: "Private Document Type".to_string(),
+            name: "éé".to_string(),
+            display_name: "éé".to_string(),
             category: DocumentCategory::Custom,
-            description: Some("Description includes /tmp/customer/type.md".to_string()),
-            file_extensions: vec!["secret-ext".to_string()],
-            mime_types: vec!["application/private-type".to_string()],
-            magic_patterns: vec!["SECRET_MAGIC".to_string()],
-            filename_patterns: vec!["private-*.sk-live-secret".to_string()],
+            description: Some("éé".to_string()),
+            file_extensions: vec!["éé".to_string()],
+            mime_types: vec!["éé".to_string()],
+            magic_patterns: vec!["éé".to_string()],
+            filename_patterns: vec!["éé".to_string()],
             chunking_strategy: ChunkingStrategy::Hybrid,
             chunk_size_default: 1024,
             chunk_overlap_default: 128,
@@ -6783,8 +6787,8 @@ mod tests {
                 "path": "/tmp/customer/chunking.json"
             }),
             recommended_config_id: Some(Uuid::new_v4()),
-            content_types: vec!["private-content-type".to_string()],
-            tree_sitter_language: Some("private-language".to_string()),
+            content_types: vec!["éé".to_string()],
+            tree_sitter_language: Some("éé".to_string()),
             extraction_strategy: ExtractionStrategy::Vision,
             extraction_config: json!({
                 "model": "private-vision-model",
@@ -6796,29 +6800,27 @@ mod tests {
             is_active: true,
             created_at: now,
             updated_at: now,
-            created_by: Some("creator-private@example.test".to_string()),
+            created_by: Some("éé".to_string()),
             agentic_config: agentic_config.clone(),
         };
         let summary = DocumentTypeSummary {
             id: Uuid::new_v4(),
-            name: "summary-private-type".to_string(),
-            display_name: "Summary Private Type".to_string(),
+            name: "éé".to_string(),
+            display_name: "éé".to_string(),
             category: DocumentCategory::Media,
-            description: Some(
-                "Summary description https://summary.example.test/?token=secret".to_string(),
-            ),
+            description: Some("éé".to_string()),
             chunking_strategy: ChunkingStrategy::Semantic,
-            tree_sitter_language: Some("summary-private-language".to_string()),
+            tree_sitter_language: Some("éé".to_string()),
             extraction_strategy: ExtractionStrategy::PdfText,
             requires_attachment: false,
             is_system: false,
             is_active: true,
         };
         let create = CreateDocumentTypeRequest {
-            name: "create-private-type".to_string(),
-            display_name: Some("Create Private Type".to_string()),
+            name: "éé".to_string(),
+            display_name: Some("éé".to_string()),
             category: DocumentCategory::Research,
-            description: Some("Create description private@example.test".to_string()),
+            description: Some("éé".to_string()),
             file_extensions: vec!["create-secret-ext".to_string()],
             mime_types: vec!["application/create-private".to_string()],
             magic_patterns: vec!["CREATE_SECRET_MAGIC".to_string()],
@@ -6830,7 +6832,7 @@ mod tests {
             chunking_config: Some(json!({"token": "create-secret-token"})),
             recommended_config_id: Some(Uuid::new_v4()),
             content_types: vec!["create-private-content".to_string()],
-            tree_sitter_language: Some("create-private-language".to_string()),
+            tree_sitter_language: Some("éé".to_string()),
             agentic_config: Some(agentic_config.clone()),
             extraction_strategy: ExtractionStrategy::OfficeConvert,
             extraction_config: Some(json!({
@@ -6841,10 +6843,8 @@ mod tests {
             attachment_generates_content: false,
         };
         let update = UpdateDocumentTypeRequest {
-            display_name: Some("Update Private Type".to_string()),
-            description: Some(
-                "Update description https://update.example.test/?token=secret".to_string(),
-            ),
+            display_name: Some("éé".to_string()),
+            description: Some("éé".to_string()),
             file_extensions: Some(vec!["update-secret-ext".to_string()]),
             mime_types: Some(vec!["application/update-private".to_string()]),
             magic_patterns: Some(vec!["UPDATE_SECRET_MAGIC".to_string()]),
@@ -6856,7 +6856,7 @@ mod tests {
             chunking_config: Some(json!({"private": "update-private@example.test"})),
             recommended_config_id: Some(Uuid::new_v4()),
             content_types: Some(vec!["update-private-content".to_string()]),
-            tree_sitter_language: Some("update-private-language".to_string()),
+            tree_sitter_language: Some("éé".to_string()),
             is_active: Some(false),
             agentic_config: Some(agentic_config),
             extraction_strategy: Some(ExtractionStrategy::AudioTranscribe),
@@ -6870,7 +6870,7 @@ mod tests {
         let detection = DetectDocumentTypeResult {
             document_type: summary.clone(),
             confidence: 0.88,
-            detection_method: "filename private-document-sk-live-secret.pdf".to_string(),
+            detection_method: "éé".to_string(),
         };
 
         let debug = format!("{document_type:?}{summary:?}{create:?}{update:?}{detection:?}");
@@ -6878,6 +6878,7 @@ mod tests {
         assert_debug_excludes(
             &debug,
             &[
+                "éé",
                 "private-document-type",
                 "Private Document Type",
                 "/tmp/customer/type.md",
@@ -6924,6 +6925,20 @@ mod tests {
         );
 
         for expected in [
+            "name_len: 2",
+            "display_name_len: 2",
+            "description_len: Some(2)",
+            "file_extension_lens: [2]",
+            "mime_type_lens: [2]",
+            "magic_pattern_lens: [2]",
+            "filename_pattern_lens: [2]",
+            "content_type_lens: [2]",
+            "tree_sitter_language_len: Some(2)",
+            "created_by_len: Some(2)",
+            "generation_prompt_len: Some(2)",
+            "required_section_lens: [2]",
+            "optional_section_lens: [2]",
+            "detection_method_len: 2",
             "name_len",
             "display_name_len",
             "description_len",
