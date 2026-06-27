@@ -249,7 +249,7 @@ impl ColBERTRepository {
 }
 
 /// Statistics about ColBERT embeddings.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ColBERTStats {
     pub notes_with_tokens: i32,
     pub total_tokens: i64,
@@ -257,6 +257,19 @@ pub struct ColBERTStats {
     pub max_tokens_per_note: i32,
     pub model_count: i32,
     pub total_size: String,
+}
+
+impl std::fmt::Debug for ColBERTStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ColBERTStats")
+            .field("notes_with_tokens", &self.notes_with_tokens)
+            .field("total_tokens", &self.total_tokens)
+            .field("avg_tokens_per_note", &self.avg_tokens_per_note)
+            .field("max_tokens_per_note", &self.max_tokens_per_note)
+            .field("model_count", &self.model_count)
+            .field("total_size_len", &self.total_size.chars().count())
+            .finish()
+    }
 }
 
 #[cfg(test)]
@@ -339,6 +352,40 @@ mod tests {
         assert_eq!(stats.total_tokens, 50000);
         assert_eq!(stats.avg_tokens_per_note, 500.0);
         assert_eq!(stats.max_tokens_per_note, 2000);
+    }
+
+    #[test]
+    fn colbert_stats_debug_redacts_total_size_string() {
+        let stats = ColBERTStats {
+            notes_with_tokens: 2,
+            total_tokens: 2048,
+            avg_tokens_per_note: 1024.0,
+            max_tokens_per_note: 1536,
+            model_count: 1,
+            total_size: "postgres://user:secret@db.internal/app /srv/fortemi/vector.index"
+                .to_string(),
+        };
+
+        let debug = format!("{stats:?}");
+
+        for forbidden in [
+            "postgres://user:secret@db.internal/app",
+            "/srv/fortemi/vector.index",
+            &stats.total_size,
+        ] {
+            assert!(
+                !debug.contains(forbidden),
+                "ColBERT stats debug leaked {forbidden}"
+            );
+        }
+
+        assert!(debug.contains("ColBERTStats"));
+        assert!(debug.contains("notes_with_tokens"));
+        assert!(debug.contains("total_tokens"));
+        assert!(debug.contains("avg_tokens_per_note"));
+        assert!(debug.contains("max_tokens_per_note"));
+        assert!(debug.contains("model_count"));
+        assert!(debug.contains("total_size_len"));
     }
 
     // Integration tests would go here testing actual database operations
