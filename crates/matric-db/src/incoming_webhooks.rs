@@ -186,8 +186,8 @@ impl PgIncomingWebhookReceiverRepository {
 /// Validate a payload against a receiver's schema.
 ///
 /// Resolution order: a custom `schema_doc` (if present) wins; otherwise the
-/// built-in schema named by `schema_ref` is used. Returns field-level error
-/// messages (`<json-pointer>: <message>`) on failure.
+/// built-in schema named by `schema_ref` is used. Returns metadata-only
+/// validation diagnostics on failure.
 pub fn validate_incoming_webhook_payload(
     schema_ref: &str,
     schema_doc: Option<&Value>,
@@ -197,7 +197,7 @@ pub fn validate_incoming_webhook_payload(
     let schema = resolve_schema(&schema_ref, schema_doc)?;
 
     let validator = jsonschema::validator_for(&schema)
-        .map_err(|e| Error::InvalidInput(format!("invalid JSON schema for {schema_ref}: {e}")))?;
+        .map_err(|e| incoming_webhook_schema_error("schema_ref_compile", schema_ref.as_str(), e))?;
 
     let errors: Vec<String> = validator
         .iter_errors(payload)
@@ -211,17 +211,18 @@ pub fn validate_incoming_webhook_payload(
     })
 }
 
-/// Render a single `jsonschema` error as a field-scoped message. The instance
-/// path (a JSON pointer such as `/media/payload`) prefixes the message so the
-/// offending field is always identifiable; root-level errors (e.g. a missing
-/// required property) carry the field name in the message itself.
+/// Render a single `jsonschema` error as metadata. Validator messages can echo
+/// JSON pointers, payload values, and schema property names, so this boundary
+/// exposes only stable classes and lengths.
 fn format_validation_error(err: &jsonschema::ValidationError<'_>) -> String {
     let path = err.instance_path().to_string();
-    if path.is_empty() {
-        err.to_string()
-    } else {
-        format!("{path}: {err}")
-    }
+    let diagnostic = err.to_string();
+    format!(
+        "incoming webhook payload validation failed; path_len={}; diagnostic_class={}; diagnostic_len={}",
+        incoming_webhook_text_len(&path),
+        incoming_webhook_diagnostic_class(&diagnostic),
+        incoming_webhook_text_len(&diagnostic)
+    )
 }
 
 /// Resolve the effective schema document for a receiver: custom doc if present,
@@ -230,11 +231,7 @@ fn resolve_schema(schema_ref: &str, schema_doc: Option<&Value>) -> Result<Value>
     if let Some(doc) = schema_doc {
         return Ok(doc.clone());
     }
-    built_in_schema(schema_ref).ok_or_else(|| {
-        Error::InvalidInput(format!(
-            "unsupported incoming webhook schema_ref: {schema_ref} (no custom schema_doc registered)"
-        ))
-    })
+    built_in_schema(schema_ref).ok_or_else(|| incoming_webhook_unsupported_schema_ref(schema_ref))
 }
 
 /// Ensure a (schema_ref, schema_doc) pair is usable: a custom doc must compile
@@ -242,15 +239,60 @@ fn resolve_schema(schema_ref: &str, schema_doc: Option<&Value>) -> Result<Value>
 fn ensure_validatable(schema_ref: &str, schema_doc: Option<&Value>) -> Result<()> {
     match schema_doc {
         Some(doc) => {
-            jsonschema::validator_for(doc).map_err(|e| {
-                Error::InvalidInput(format!("schema_doc is not a valid JSON Schema: {e}"))
-            })?;
+            jsonschema::validator_for(doc)
+                .map_err(|e| incoming_webhook_schema_error("schema_doc_compile", schema_ref, e))?;
             Ok(())
         }
         None if built_in_schema(schema_ref).is_some() => Ok(()),
-        None => Err(Error::InvalidInput(format!(
-            "unsupported incoming webhook schema_ref: {schema_ref} (provide a schema_doc or use a built-in)"
-        ))),
+        None => Err(incoming_webhook_unsupported_schema_ref(schema_ref)),
+    }
+}
+
+fn incoming_webhook_unsupported_schema_ref(schema_ref: &str) -> Error {
+    Error::InvalidInput(format!(
+        "unsupported incoming webhook schema_ref; schema_ref_len={}",
+        incoming_webhook_text_len(schema_ref)
+    ))
+}
+
+fn incoming_webhook_schema_error(
+    context: &'static str,
+    schema_ref: &str,
+    err: impl std::fmt::Display,
+) -> Error {
+    let diagnostic = err.to_string();
+    Error::InvalidInput(format!(
+        "invalid incoming webhook JSON schema; context={context}; schema_ref_len={}; diagnostic_class={}; diagnostic_len={}",
+        incoming_webhook_text_len(schema_ref),
+        incoming_webhook_diagnostic_class(&diagnostic),
+        incoming_webhook_text_len(&diagnostic)
+    ))
+}
+
+fn incoming_webhook_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn incoming_webhook_diagnostic_class(value: &str) -> &'static str {
+    let lower = value.to_ascii_lowercase();
+    if value.is_empty() {
+        "empty"
+    } else if value.chars().any(char::is_control) {
+        "control_chars"
+    } else if lower.contains("secret")
+        || lower.contains("token")
+        || lower.contains("password")
+        || lower.contains("apikey")
+        || lower.contains("api_key")
+        || lower.contains("sk-")
+    {
+        "secret_candidate"
+    } else if lower.contains("://") || lower.starts_with("http") {
+        "url_like"
+    } else if value.contains('/') || value.contains('\\') {
+        "path_like"
+    } else {
+        "text"
     }
 }
 
@@ -456,10 +498,14 @@ mod tests {
         let response = validate("twilio.voice.v1", json!({ "CallStatus": "ringing" }));
         assert!(!response.valid);
         assert!(
-            response.errors.iter().any(|e| e.contains("CallSid")),
-            "expected a CallSid error, got: {:?}",
+            response
+                .errors
+                .iter()
+                .any(|e| e.contains("payload validation failed")),
+            "expected a redacted validation error, got: {:?}",
             response.errors
         );
+        assert!(!response.errors.iter().any(|e| e.contains("CallSid")));
     }
 
     #[test]
@@ -470,10 +516,14 @@ mod tests {
         );
         assert!(!response.valid);
         assert!(
-            response.errors.iter().any(|e| e.contains("RecordingUrl")),
-            "expected a RecordingUrl error, got: {:?}",
+            response
+                .errors
+                .iter()
+                .any(|e| e.contains("payload validation failed")),
+            "expected a redacted validation error, got: {:?}",
             response.errors
         );
+        assert!(!response.errors.iter().any(|e| e.contains("RecordingUrl")));
     }
 
     #[test]
@@ -496,7 +546,16 @@ mod tests {
             json!({ "event": "explode", "sequenceNumber": "1" }),
         );
         assert!(!response.valid);
-        assert!(response.errors.iter().any(|e| e.contains("event")));
+        assert!(
+            response
+                .errors
+                .iter()
+                .any(|e| e.contains("payload validation failed")),
+            "expected a redacted validation error, got: {:?}",
+            response.errors
+        );
+        assert!(!response.errors.iter().any(|e| e.contains("explode")));
+        assert!(!response.errors.iter().any(|e| e.contains("event")));
     }
 
     #[test]
@@ -504,17 +563,27 @@ mod tests {
         let response = validate("twilio.media-stream.v1", json!({ "event": "stop" }));
         assert!(!response.valid);
         assert!(
-            response.errors.iter().any(|e| e.contains("sequenceNumber")),
-            "expected a sequenceNumber error, got: {:?}",
+            response
+                .errors
+                .iter()
+                .any(|e| e.contains("payload validation failed")),
+            "expected a redacted validation error, got: {:?}",
             response.errors
         );
+        assert!(!response.errors.iter().any(|e| e.contains("sequenceNumber")));
     }
 
     #[test]
     fn rejects_unsupported_schema_ref_without_doc() {
         let err = validate_incoming_webhook_payload("unknown.v1", None, &json!({}))
             .expect_err("schema must be rejected");
-        assert!(matches!(err, Error::InvalidInput(_)));
+        let message = match err {
+            Error::InvalidInput(message) => message,
+            other => panic!("unexpected error: {other:?}"),
+        };
+        assert!(message.contains("unsupported incoming webhook schema_ref"));
+        assert!(message.contains("schema_ref_len=10"));
+        assert!(!message.contains("unknown.v1"));
     }
 
     #[test]
@@ -540,10 +609,14 @@ mod tests {
         .unwrap();
         assert!(!bad.valid);
         assert!(
-            bad.errors.iter().any(|e| e.contains("amount")),
-            "expected an amount error, got: {:?}",
+            bad.errors
+                .iter()
+                .any(|e| e.contains("payload validation failed")),
+            "expected a redacted validation error, got: {:?}",
             bad.errors
         );
+        assert!(!bad.errors.iter().any(|e| e.contains("amount")));
+        assert!(!bad.errors.iter().any(|e| e.contains("not-a-number")));
     }
 
     #[test]
@@ -561,6 +634,69 @@ mod tests {
         // A schema that is not an object/array/bool is not a valid JSON Schema.
         let bad = json!("definitely not a schema");
         assert!(ensure_validatable("custom.v1", Some(&bad)).is_err());
+    }
+
+    #[test]
+    fn schema_diagnostics_report_metadata_without_raw_values() {
+        let diagnostic = "invalid token sk-live-secret at /tmp/schema/private.json";
+        let error = incoming_webhook_schema_error(
+            "schema_doc_compile",
+            "tenant-secret.webhook.v1",
+            diagnostic,
+        );
+        let message = match error {
+            Error::InvalidInput(message) => message,
+            other => panic!("unexpected error: {other:?}"),
+        };
+
+        assert!(message.contains("context=schema_doc_compile"));
+        assert!(message.contains("schema_ref_len=24"));
+        assert!(message.contains("diagnostic_class=secret_candidate"));
+        assert!(message.contains(&format!("diagnostic_len={}", diagnostic.chars().count())));
+        for raw in [
+            "tenant-secret.webhook.v1",
+            "sk-live-secret",
+            "/tmp/schema/private.json",
+            "token ",
+        ] {
+            assert!(!message.contains(raw), "raw diagnostic leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn payload_validation_errors_report_metadata_without_raw_values() {
+        let schema = json!({
+            "type": "object",
+            "required": ["secretWebhookToken"],
+            "properties": {
+                "secretWebhookToken": { "type": "number" }
+            }
+        });
+
+        let response = validate_incoming_webhook_payload(
+            "tenant-secret.webhook.v1",
+            Some(&schema),
+            &json!({ "secretWebhookToken": "sk-live-secret" }),
+        )
+        .unwrap();
+
+        assert!(!response.valid);
+        let rendered = response.errors.join("\n");
+        assert!(rendered.contains("payload validation failed"));
+        assert!(rendered.contains("diagnostic_class=secret_candidate"));
+        assert!(rendered.contains("path_len="));
+        assert!(rendered.contains("diagnostic_len="));
+        for raw in [
+            "tenant-secret.webhook.v1",
+            "secretWebhookToken",
+            "sk-live-secret",
+            "/secretWebhookToken",
+        ] {
+            assert!(
+                !rendered.contains(raw),
+                "raw validation detail leaked: {raw}"
+            );
+        }
     }
 
     #[test]
