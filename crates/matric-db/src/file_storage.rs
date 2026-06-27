@@ -42,6 +42,16 @@ fn storage_text_len(value: &str) -> usize {
     value.chars().count()
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+struct StorageIdentifierTelemetry {
+    id_present: bool,
+}
+
+fn storage_identifier_telemetry(id: &Uuid) -> StorageIdentifierTelemetry {
+    let _ = id;
+    StorageIdentifierTelemetry { id_present: true }
+}
+
 fn storage_io_error_kind(error: &std::io::Error) -> &'static str {
     match error.kind() {
         std::io::ErrorKind::NotFound => "not_found",
@@ -659,8 +669,9 @@ impl PgFileStorageRepository {
                 if storage_backend == "filesystem" {
                     if let Some(path) = storage_path {
                         if let Err(e) = self.backend.delete(&path).await {
+                            let blob = storage_identifier_telemetry(&blob_id);
                             warn!(
-                                blob_id = %blob_id,
+                                blob_id_present = blob.id_present,
                                 path_len = storage_text_len(&path),
                                 error_class = storage_error_class(&e),
                                 "Failed to delete orphaned blob file (blob row already removed)"
@@ -1242,8 +1253,9 @@ impl PgFileStorageRepository {
                 if storage_backend == "filesystem" {
                     if let Some(path) = storage_path {
                         if let Err(e) = self.backend.delete(&path).await {
+                            let blob = storage_identifier_telemetry(&blob_id);
                             warn!(
-                                blob_id = %blob_id,
+                                blob_id_present = blob.id_present,
                                 path_len = storage_text_len(&path),
                                 error_class = storage_error_class(&e),
                                 "Failed to delete orphaned blob file (blob row already removed)"
@@ -1553,8 +1565,9 @@ impl PgFileStorageRepository {
         }
 
         if count > 0 {
+            let parent_attachment = storage_identifier_telemetry(&parent_attachment_id);
             debug!(
-                parent_attachment_id = %parent_attachment_id,
+                parent_attachment_id_present = parent_attachment.id_present,
                 deleted = count,
                 "Deleted existing derived caption/transcript attachments"
             );
@@ -1760,6 +1773,14 @@ mod sweep_tests {
             "permission_denied"
         );
         assert_eq!(storage_error_class(&storage_error), "not_found");
+
+        let id = Uuid::parse_str("018f5c7a-0000-7000-8000-000000000123").unwrap();
+        let id_metadata = storage_identifier_telemetry(&id);
+        let rendered = format!("{id_metadata:?}");
+
+        assert!(id_metadata.id_present);
+        assert!(rendered.contains("id_present"));
+        assert!(!rendered.contains(&id.to_string()));
     }
 
     /// Atomic-write produces a `.bin.tmp` -> renamed `.bin` and the rename
