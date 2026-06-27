@@ -168,11 +168,39 @@ fn reference_extraction_summary_metadata(
     metadata
 }
 
+fn graph_linking_summary_metadata(
+    links_created: usize,
+    wiki_links_found: usize,
+    wiki_links_resolved: usize,
+    strategy: impl std::fmt::Display,
+) -> serde_json::Value {
+    serde_json::json!({
+        "links_created": links_created,
+        "wiki_links_found": wiki_links_found,
+        "wiki_links_resolved": wiki_links_resolved,
+        "strategy_len": diagnostic_len(strategy),
+    })
+}
+
 fn document_type_progress_message(document_type_name: &str) -> String {
     format!(
         "Detected document type; name_len={}",
         diagnostic_len(document_type_name)
     )
+}
+
+fn document_type_inference_summary_metadata(
+    document_type_id: impl std::fmt::Display,
+    detection_method: &str,
+    confidence: f32,
+) -> serde_json::Value {
+    serde_json::json!({
+        "detected": true,
+        "document_type_id_present": true,
+        "document_type_id_len": diagnostic_len(document_type_id),
+        "detection_method_len": diagnostic_len(detection_method),
+        "confidence": confidence,
+    })
 }
 
 fn embedding_set_progress_message(slug: &str) -> String {
@@ -3550,12 +3578,12 @@ impl JobHandler for LinkingHandler {
 
         // Complete provenance activity (#430)
         if let Some(act_id) = activity_id {
-            let prov_metadata = serde_json::json!({
-                "links_created": created,
-                "wiki_links_found": wiki_links_found,
-                "wiki_links_resolved": wiki_links_resolved,
-                "strategy": graph_config.strategy.to_string(),
-            });
+            let prov_metadata = graph_linking_summary_metadata(
+                created,
+                wiki_links_found,
+                wiki_links_resolved,
+                &graph_config.strategy,
+            );
             if let Err(e) = self
                 .db
                 .provenance
@@ -3600,12 +3628,12 @@ impl JobHandler for LinkingHandler {
             }
         }
 
-        JobResult::Success(Some(serde_json::json!({
-            "links_created": created,
-            "wiki_links_found": wiki_links_found,
-            "wiki_links_resolved": wiki_links_resolved,
-            "strategy": graph_config.strategy.to_string()
-        })))
+        JobResult::Success(Some(graph_linking_summary_metadata(
+            created,
+            wiki_links_found,
+            wiki_links_resolved,
+            &graph_config.strategy,
+        )))
     }
 }
 
@@ -6555,11 +6583,11 @@ impl JobHandler for DocumentTypeInferenceHandler {
 
         // Complete provenance activity
         if let Some(act_id) = activity_id {
-            let prov_metadata = serde_json::json!({
-                "document_type_id": doc_type_id.to_string(),
-                "detection_method": detection_method,
-                "confidence": confidence,
-            });
+            let prov_metadata = document_type_inference_summary_metadata(
+                doc_type_id,
+                &detection_method,
+                confidence,
+            );
             if let Err(e) = self
                 .db
                 .provenance
@@ -6587,12 +6615,11 @@ impl JobHandler for DocumentTypeInferenceHandler {
             "Document type inference completed"
         );
 
-        JobResult::Success(Some(serde_json::json!({
-            "detected": true,
-            "document_type_id": doc_type_id.to_string(),
-            "detection_method": detection_method,
-            "confidence": confidence,
-        })))
+        JobResult::Success(Some(document_type_inference_summary_metadata(
+            doc_type_id,
+            &detection_method,
+            confidence,
+        )))
     }
 }
 
@@ -7765,6 +7792,36 @@ mod tests {
         assert!(!rendered.contains("mm_key"));
         assert!(!rendered.contains("llm_private"));
         assert!(!rendered.contains("gliner_private"));
+    }
+
+    #[test]
+    fn linking_and_document_type_summaries_redact_raw_labels() {
+        let strategy = "private-archive-wiki-strategy token=sk-secret";
+        let document_type_id = "lab-report-secret-id";
+        let detection_method = "secret-agent-detection";
+        let linking = graph_linking_summary_metadata(3, 2, 1, strategy);
+        let document_type =
+            document_type_inference_summary_metadata(document_type_id, detection_method, 0.92);
+        let rendered = format!("{linking}\n{document_type}");
+
+        assert_eq!(linking["links_created"], 3);
+        assert_eq!(linking["wiki_links_found"], 2);
+        assert_eq!(linking["wiki_links_resolved"], 1);
+        assert_eq!(linking["strategy_len"], diagnostic_len(strategy));
+        assert_eq!(document_type["detected"], true);
+        assert_eq!(document_type["document_type_id_present"], true);
+        assert_eq!(
+            document_type["document_type_id_len"],
+            diagnostic_len(document_type_id)
+        );
+        assert_eq!(
+            document_type["detection_method_len"],
+            diagnostic_len(detection_method)
+        );
+        assert!(!rendered.contains("private-archive"));
+        assert!(!rendered.contains("sk-secret"));
+        assert!(!rendered.contains("lab-report-secret-id"));
+        assert!(!rendered.contains("secret-agent-detection"));
     }
 
     #[test]
