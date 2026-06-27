@@ -40,6 +40,13 @@ impl PgNoteRepository {
         source.map(|value| format!("source_present=true;source_len={}", value.chars().count()))
     }
 
+    fn note_not_found_error(id: Uuid) -> Error {
+        Error::NotFound(format!(
+            "Note not found; id_present={}",
+            (!id.is_nil()) as u8
+        ))
+    }
+
     /// Merge explicit tags with inline hashtags extracted from content.
     ///
     /// Returns a deduplicated, sorted vector of all tags.
@@ -264,7 +271,7 @@ impl NoteRepository for PgNoteRepository {
     async fn update_status(&self, id: Uuid, req: UpdateNoteStatusRequest) -> Result<()> {
         // Check if note exists first (issue #362)
         if !self.exists(id).await? {
-            return Err(Error::NotFound(format!("Note {} not found", id)));
+            return Err(Self::note_not_found_error(id));
         }
         let mut updates: Vec<String> = vec!["updated_at_utc = $1".to_string()];
         let now = Utc::now();
@@ -307,7 +314,7 @@ impl NoteRepository for PgNoteRepository {
     async fn update_original(&self, id: Uuid, content: &str) -> Result<()> {
         // Check if note exists first (issue #362)
         if !self.exists(id).await? {
-            return Err(Error::NotFound(format!("Note {} not found", id)));
+            return Err(Self::note_not_found_error(id));
         }
         let now = Utc::now();
         let hash = Self::hash_content(content);
@@ -762,7 +769,7 @@ impl PgNoteRepository {
         .fetch_optional(&mut **tx)
         .await
         .map_err(Error::Database)?
-        .ok_or_else(|| Error::NotFound(format!("Note {} not found", id)))?;
+        .ok_or_else(|| Self::note_not_found_error(id))?;
 
         // Fetch original content
         let original_row = sqlx::query(
@@ -1036,7 +1043,7 @@ impl PgNoteRepository {
     ) -> Result<()> {
         // Check if note exists first (issue #362)
         if !self.exists_tx(tx, id).await? {
-            return Err(Error::NotFound(format!("Note {} not found", id)));
+            return Err(Self::note_not_found_error(id));
         }
         let mut updates: Vec<String> = vec!["updated_at_utc = $1".to_string()];
         let now = Utc::now();
@@ -1085,7 +1092,7 @@ impl PgNoteRepository {
     ) -> Result<()> {
         // Check if note exists first (issue #362)
         if !self.exists_tx(tx, id).await? {
-            return Err(Error::NotFound(format!("Note {} not found", id)));
+            return Err(Self::note_not_found_error(id));
         }
         let now = Utc::now();
         let hash = Self::hash_content(content);
@@ -1556,6 +1563,21 @@ mod tests {
             assert!(!metadata.contains(raw), "raw value leaked: {raw}");
         }
         assert_eq!(PgNoteRepository::access_source_metadata(None), None);
+    }
+
+    #[test]
+    fn note_not_found_errors_report_presence_without_raw_ids() {
+        let note_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000501").unwrap();
+        let error = PgNoteRepository::note_not_found_error(note_id);
+        let message = match error {
+            Error::NotFound(message) => message,
+            other => panic!("unexpected error: {other:?}"),
+        };
+
+        assert!(message.contains("Note not found"));
+        assert!(message.contains("id_present=1"));
+        assert!(!message.contains(&note_id.to_string()));
+        assert!(!message.contains("018fd1a0"));
     }
 
     #[test]
