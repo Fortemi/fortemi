@@ -1,9 +1,10 @@
 //! Shard version compatibility checking.
 
 use super::version::{Version, CURRENT_SHARD_VERSION};
+use std::fmt;
 
 /// Result of a compatibility check between a shard version and the current system.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum CompatibilityResult {
     /// The shard version is compatible with the current system (same version or older minor).
     Compatible,
@@ -22,6 +23,39 @@ pub enum CompatibilityResult {
         reason: String,
         min_required: Option<String>,
     },
+}
+
+impl fmt::Debug for CompatibilityResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Compatible => f.debug_struct("Compatible").finish(),
+            Self::RequiresMigration { from, to } => f
+                .debug_struct("RequiresMigration")
+                .field("from_len", &from.len())
+                .field("to_len", &to.len())
+                .finish(),
+            Self::NewerMinor {
+                shard_version,
+                warnings,
+            } => f
+                .debug_struct("NewerMinor")
+                .field("shard_version_len", &shard_version.len())
+                .field("warnings_count", &warnings.len())
+                .field(
+                    "warning_lens",
+                    &warnings.iter().map(String::len).collect::<Vec<_>>(),
+                )
+                .finish(),
+            Self::Incompatible {
+                reason,
+                min_required,
+            } => f
+                .debug_struct("Incompatible")
+                .field("reason_len", &reason.len())
+                .field("min_required_len", &min_required.as_ref().map(String::len))
+                .finish(),
+        }
+    }
 }
 
 /// Check if a shard with the given manifest version is compatible with the current system.
@@ -159,6 +193,56 @@ mod tests {
                 assert!(reason.contains("Invalid shard version"));
             }
             _ => panic!("Expected Incompatible, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn compatibility_result_debug_redacts_versions_warnings_and_reasons() {
+        let results = [
+            CompatibilityResult::RequiresMigration {
+                from: "1.0.0-customer@example.com".to_string(),
+                to: "2.0.0-sk-live-token".to_string(),
+            },
+            CompatibilityResult::NewerMinor {
+                shard_version: "1.9.0-private/shard".to_string(),
+                warnings: vec![
+                    "Shard warning for postgres://admin:secret@db.internal/fortemi".to_string(),
+                    "Operator path /srv/private/customer@example.com".to_string(),
+                ],
+            },
+            CompatibilityResult::Incompatible {
+                reason: "Invalid shard version bearer-secret at db.internal/private".to_string(),
+                min_required: Some("2.0.0-sk-live-token".to_string()),
+            },
+        ];
+
+        for result in results {
+            let debug = format!("{result:?}");
+            for raw in [
+                "customer@example.com",
+                "sk-live",
+                "private/shard",
+                "postgres://",
+                "db.internal",
+                "/srv/private",
+                "bearer-secret",
+                "Shard warning",
+                "Operator path",
+                "Invalid shard version",
+            ] {
+                assert!(!debug.contains(raw), "debug output leaked {raw}: {debug}");
+            }
+
+            assert!(
+                debug.contains("RequiresMigration")
+                    || debug.contains("NewerMinor")
+                    || debug.contains("Incompatible")
+            );
+            assert!(
+                debug.contains("_len")
+                    || debug.contains("_count")
+                    || debug.contains("warning_lens")
+            );
         }
     }
 
