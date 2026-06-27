@@ -66,6 +66,23 @@ fn view_vision_error_reason_code(error: &str) -> &'static str {
     }
 }
 
+fn view_assembly_job_payload(
+    parent_attachment_id: Uuid,
+    filename: &str,
+    schema: &str,
+) -> serde_json::Value {
+    let mut assembly_payload = serde_json::Map::new();
+    assembly_payload.insert(
+        "attachment_id".into(),
+        json!(parent_attachment_id.to_string()),
+    );
+    assembly_payload.insert("filename_len".into(), json!(view_vision_text_len(filename)));
+    if schema != "public" {
+        assembly_payload.insert("schema".into(), json!(schema));
+    }
+    serde_json::Value::Object(assembly_payload)
+}
+
 pub struct ViewVisionHandler {
     db: Database,
     vision: Option<Arc<dyn VisionBackend>>,
@@ -319,15 +336,8 @@ impl JobHandler for ViewVisionHandler {
 
             if described_count >= total_views {
                 // All views done — queue assembly
-                let mut assembly_payload = serde_json::Map::new();
-                assembly_payload.insert(
-                    "attachment_id".into(),
-                    json!(parent_attachment_id.to_string()),
-                );
-                assembly_payload.insert("filename".into(), json!(filename));
-                if schema != "public" {
-                    assembly_payload.insert("schema".into(), json!(schema));
-                }
+                let assembly_payload =
+                    view_assembly_job_payload(parent_attachment_id, filename, schema);
 
                 match self
                     .db
@@ -336,7 +346,7 @@ impl JobHandler for ViewVisionHandler {
                         ctx.note_id(),
                         JobType::ViewAssembly,
                         JobType::ViewAssembly.default_priority(),
-                        Some(serde_json::Value::Object(assembly_payload)),
+                        Some(assembly_payload),
                         JobType::ViewAssembly.default_cost_tier(),
                     )
                     .await
@@ -418,5 +428,25 @@ mod tests {
         assert!(!rendered.contains("postgres://"));
         assert!(!rendered.contains("db.internal"));
         assert!(!rendered.contains("/srv/private"));
+    }
+
+    #[test]
+    fn view_assembly_job_payload_redacts_filename() {
+        let attachment_id = Uuid::new_v4();
+        let raw_filename = "customer-token-mm_key_secret-model.glb";
+        let payload = view_assembly_job_payload(attachment_id, raw_filename, "tenant_schema");
+        let rendered = serde_json::to_string(&payload).unwrap();
+
+        assert_eq!(
+            payload["attachment_id"].as_str(),
+            Some(attachment_id.to_string().as_str())
+        );
+        assert_eq!(payload["filename_len"], json!(raw_filename.chars().count()));
+        assert_eq!(payload["schema"], json!("tenant_schema"));
+        assert!(rendered.contains("filename_len"));
+        assert!(!rendered.contains("filename\":\""));
+        assert!(!rendered.contains(raw_filename));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("customer-token"));
     }
 }

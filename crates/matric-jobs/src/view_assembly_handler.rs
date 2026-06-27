@@ -68,6 +68,14 @@ fn view_assembly_error_reason_code(error: &str) -> &'static str {
     }
 }
 
+fn view_assembly_filename(db_filename: &str, legacy_payload_filename: Option<&str>) -> String {
+    if db_filename.is_empty() {
+        legacy_payload_filename.unwrap_or("model.glb").to_string()
+    } else {
+        db_filename.to_string()
+    }
+}
+
 pub struct ViewAssemblyHandler {
     db: Database,
 }
@@ -104,11 +112,6 @@ impl JobHandler for ViewAssemblyHandler {
             None => return JobResult::Failed("Missing note_id for assembly".into()),
         };
 
-        let filename = payload
-            .get("filename")
-            .and_then(|v| v.as_str())
-            .unwrap_or("model.glb");
-
         let schema = extract_schema(&ctx);
         let schema_ctx = match schema_context(&self.db, schema) {
             Ok(ctx) => ctx,
@@ -122,7 +125,7 @@ impl JobHandler for ViewAssemblyHandler {
 
         // Step 1: Load parent attachment metadata
         ctx.report_progress(10, Some("Loading parent metadata"));
-        let existing_metadata = {
+        let (filename, existing_metadata) = {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
                 Err(e) => {
@@ -133,8 +136,8 @@ impl JobHandler for ViewAssemblyHandler {
                     ));
                 }
             };
-            let row: Option<(Option<JsonValue>,)> =
-                sqlx::query_as("SELECT extracted_metadata FROM attachment WHERE id = $1")
+            let row: Option<(String, Option<JsonValue>)> =
+                sqlx::query_as("SELECT filename, extracted_metadata FROM attachment WHERE id = $1")
                     .bind(attachment_id)
                     .fetch_optional(&mut *tx)
                     .await
@@ -143,7 +146,13 @@ impl JobHandler for ViewAssemblyHandler {
             let _ = tx.commit().await;
 
             match row {
-                Some((meta,)) => meta.unwrap_or(json!({})),
+                Some((db_filename, meta)) => (
+                    view_assembly_filename(
+                        &db_filename,
+                        payload.get("filename").and_then(|v| v.as_str()),
+                    ),
+                    meta.unwrap_or(json!({})),
+                ),
                 None => return JobResult::Failed("Parent attachment not found".into()),
             }
         };
@@ -200,18 +209,18 @@ impl JobHandler for ViewAssemblyHandler {
         info!(
             attachment_id_present = true,
             views = view_descriptions.len(),
-            filename_len = view_assembly_text_len(filename),
+            filename_len = view_assembly_text_len(&filename),
             "Assembling view descriptions into 3D model description"
         );
 
         // Step 3: Build composite description from all views
         ctx.report_progress(40, Some("Synthesizing composite description"));
-        let composite_description = build_composite_description(filename, &view_descriptions);
+        let composite_description = build_composite_description(&filename, &view_descriptions);
 
         // Step 4: Build markdown content for the 3D model
         ctx.report_progress(50, Some("Building model markdown"));
         let model_markdown =
-            format_3d_model_markdown(filename, &view_descriptions, &composite_description);
+            format_3d_model_markdown(&filename, &view_descriptions, &composite_description);
 
         // Step 5: Update parent attachment's ai_description and metadata
         ctx.report_progress(60, Some("Updating attachment"));
@@ -545,5 +554,24 @@ mod tests {
         assert!(!rendered.contains("postgres://"));
         assert!(!rendered.contains("db.internal"));
         assert!(!rendered.contains("/srv/private"));
+    }
+
+    #[test]
+    fn view_assembly_filename_prefers_database_value() {
+        let db_filename = "stored-model.glb";
+        let legacy_payload_filename = "payload-token-mm_key_secret.glb";
+        let filename = view_assembly_filename(db_filename, Some(legacy_payload_filename));
+
+        assert_eq!(filename, db_filename);
+        assert!(!filename.contains("mm_key_secret"));
+    }
+
+    #[test]
+    fn view_assembly_filename_keeps_legacy_payload_fallback() {
+        assert_eq!(
+            view_assembly_filename("", Some("legacy-model.glb")),
+            "legacy-model.glb"
+        );
+        assert_eq!(view_assembly_filename("", None), "model.glb");
     }
 }
