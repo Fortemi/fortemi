@@ -3752,12 +3752,18 @@ impl fmt::Debug for Job {
             .field("result_len", &self.result.as_ref().map(json_serialized_len))
             .field(
                 "error_message_len",
-                &self.error_message.as_ref().map(String::len),
+                &self
+                    .error_message
+                    .as_ref()
+                    .map(|message| debug_len(message)),
             )
             .field("progress_percent", &self.progress_percent)
             .field(
                 "progress_message_len",
-                &self.progress_message.as_ref().map(String::len),
+                &self
+                    .progress_message
+                    .as_ref()
+                    .map(|message| debug_len(message)),
             )
             .field("retry_count", &self.retry_count)
             .field("max_retries", &self.max_retries)
@@ -3845,6 +3851,13 @@ pub struct ExtractionStats {
 
 impl fmt::Debug for ExtractionStats {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut strategy_name_lens = self
+            .strategy_breakdown
+            .keys()
+            .map(|strategy| debug_len(strategy))
+            .collect::<Vec<_>>();
+        strategy_name_lens.sort_unstable();
+
         f.debug_struct("ExtractionStats")
             .field("total_jobs", &self.total_jobs)
             .field("completed_jobs", &self.completed_jobs)
@@ -3852,14 +3865,7 @@ impl fmt::Debug for ExtractionStats {
             .field("pending_jobs", &self.pending_jobs)
             .field("avg_duration_secs", &self.avg_duration_secs)
             .field("strategy_breakdown_count", &self.strategy_breakdown.len())
-            .field(
-                "strategy_name_lens",
-                &self
-                    .strategy_breakdown
-                    .keys()
-                    .map(String::len)
-                    .collect::<Vec<_>>(),
-            )
+            .field("strategy_name_lens", &strategy_name_lens)
             .finish()
     }
 }
@@ -7651,6 +7657,8 @@ mod tests {
     #[test]
     fn job_debug_redacts_payload_result_and_status_text() {
         let now = Utc::now();
+        let error_message = "prövider failed at https://provider.example.test with sk-live-secret";
+        let progress_message = "pröcessing private transcript chunk";
         let job = Job {
             id: Uuid::new_v4(),
             note_id: Some(Uuid::new_v4()),
@@ -7665,11 +7673,9 @@ mod tests {
                 "generated": "Patient transcript said 555-1212",
                 "storage_path": "/tmp/customer/audio.wav"
             })),
-            error_message: Some(
-                "provider failed at https://provider.example.test with sk-live-secret".to_string(),
-            ),
+            error_message: Some(error_message.to_string()),
             progress_percent: 42,
-            progress_message: Some("processing private transcript chunk".to_string()),
+            progress_message: Some(progress_message.to_string()),
             retry_count: 2,
             max_retries: 5,
             created_at: now,
@@ -7690,21 +7696,30 @@ mod tests {
                 "Patient transcript",
                 "555-1212",
                 "/tmp/customer/audio.wav",
-                "processing private transcript chunk",
+                "pröcessing private transcript chunk",
             ],
         );
 
+        let expected_error_len =
+            format!("error_message_len: Some({})", error_message.chars().count());
+        let expected_progress_len = format!(
+            "progress_message_len: Some({})",
+            progress_message.chars().count()
+        );
+
         for expected in [
-            "payload_class",
-            "payload_len",
-            "result_class",
-            "result_len",
-            "error_message_len",
-            "progress_message_len",
-            "note_id_set",
+            "payload_class".to_string(),
+            "payload_len".to_string(),
+            "result_class".to_string(),
+            "result_len".to_string(),
+            expected_error_len,
+            expected_progress_len,
+            "error_message_len".to_string(),
+            "progress_message_len".to_string(),
+            "note_id_set".to_string(),
         ] {
             assert!(
-                debug.contains(expected),
+                debug.contains(&expected),
                 "Job Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
@@ -7784,9 +7799,9 @@ mod tests {
             pending_jobs: 1,
             avg_duration_secs: Some(12.5),
             strategy_breakdown: HashMap::from([
-                ("private-pdf@example.test".to_string(), 4),
-                ("postgres://user:secret@db.internal/strategy".to_string(), 2),
-                ("sk-live-secret-strategy".to_string(), 1),
+                ("prïvate-pdf@example.test".to_string(), 4),
+                ("pöstgres://user:secret@db.internal/strategy".to_string(), 2),
+                ("sk-live-sécret-strategy".to_string(), 1),
             ]),
         };
 
@@ -7796,10 +7811,10 @@ mod tests {
             &debug,
             &[
                 &set_id.to_string(),
-                "private-pdf",
+                "prïvate-pdf",
                 "private@example.test",
-                "postgres://user:secret@db.internal",
-                "sk-live-secret-strategy",
+                "pöstgres://user:secret@db.internal",
+                "sk-live-sécret-strategy",
             ],
         );
 
@@ -7812,6 +7827,7 @@ mod tests {
             "orphaned_memberships_removed",
             "ExtractionStats",
             "strategy_breakdown_count",
+            "strategy_name_lens: [23, 24, 43]",
             "strategy_name_lens",
         ] {
             assert!(
