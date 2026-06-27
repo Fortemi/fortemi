@@ -10797,39 +10797,48 @@ struct CreateNoteBody {
 impl fmt::Debug for CreateNoteBody {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CreateNoteBody")
-            .field("content_len", &self.content.len())
-            .field("format_len", &self.format.as_ref().map(String::len))
-            .field("source_len", &self.source.as_ref().map(String::len))
+            .field("content_len", &telemetry_text_len(&self.content))
+            .field(
+                "format_len",
+                &self.format.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "source_len",
+                &self.source.as_deref().map(telemetry_text_len),
+            )
             .field("collection_id_set", &self.collection_id.is_some())
             .field("tags_count", &self.tags.as_ref().map(Vec::len))
             .field(
                 "tag_lens",
-                &self
-                    .tags
-                    .as_ref()
-                    .map(|tags| tags.iter().map(String::len).collect::<Vec<_>>()),
+                &self.tags.as_ref().map(|tags| {
+                    tags.iter()
+                        .map(|tag| telemetry_text_len(tag))
+                        .collect::<Vec<_>>()
+                }),
             )
-            .field("title_len", &self.title.as_ref().map(String::len))
+            .field("title_len", &self.title.as_deref().map(telemetry_text_len))
             .field(
                 "revision_mode_len",
-                &self.revision_mode.as_ref().map(String::len),
+                &self.revision_mode.as_deref().map(telemetry_text_len),
             )
             .field("metadata_set", &self.metadata.is_some())
             .field("document_type_id_set", &self.document_type_id.is_some())
             .field(
                 "document_type_len",
-                &self.document_type.as_ref().map(String::len),
+                &self.document_type.as_deref().map(telemetry_text_len),
             )
-            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("model_len", &self.model.as_deref().map(telemetry_text_len))
             .field("chunk_max_chars", &self.chunk_max_chars)
             .field("chunk_overlap", &self.chunk_overlap)
             .field("pipeline_count", &self.pipeline.as_ref().map(Vec::len))
             .field(
                 "pipeline_lens",
-                &self
-                    .pipeline
-                    .as_ref()
-                    .map(|pipeline| pipeline.iter().map(String::len).collect::<Vec<_>>()),
+                &self.pipeline.as_ref().map(|pipeline| {
+                    pipeline
+                        .iter()
+                        .map(|step| telemetry_text_len(step))
+                        .collect::<Vec<_>>()
+                }),
             )
             .finish()
     }
@@ -11065,29 +11074,36 @@ struct BulkCreateNoteItem {
 impl fmt::Debug for BulkCreateNoteItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BulkCreateNoteItem")
-            .field("content_len", &self.content.len())
-            .field("title_len", &self.title.as_ref().map(String::len))
+            .field("content_len", &telemetry_text_len(&self.content))
+            .field("title_len", &self.title.as_deref().map(telemetry_text_len))
             .field("tags_count", &self.tags.as_ref().map(Vec::len))
             .field(
                 "tag_lens",
-                &self
-                    .tags
-                    .as_ref()
-                    .map(|tags| tags.iter().map(String::len).collect::<Vec<_>>()),
+                &self.tags.as_ref().map(|tags| {
+                    tags.iter()
+                        .map(|tag| telemetry_text_len(tag))
+                        .collect::<Vec<_>>()
+                }),
             )
             .field("metadata_set", &self.metadata.is_some())
             .field(
                 "revision_mode_len",
-                &self.revision_mode.as_ref().map(String::len),
+                &self.revision_mode.as_deref().map(telemetry_text_len),
             )
             .field("document_type_id_set", &self.document_type_id.is_some())
             .field(
                 "document_type_len",
-                &self.document_type.as_ref().map(String::len),
+                &self.document_type.as_deref().map(telemetry_text_len),
             )
             .field("collection_id_set", &self.collection_id.is_some())
-            .field("format_len", &self.format.as_ref().map(String::len))
-            .field("source_len", &self.source.as_ref().map(String::len))
+            .field(
+                "format_len",
+                &self.format.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "source_len",
+                &self.source.as_deref().map(telemetry_text_len),
+            )
             .field("chunk_max_chars", &self.chunk_max_chars)
             .field("chunk_overlap", &self.chunk_overlap)
             .finish()
@@ -11356,23 +11372,27 @@ struct UpdateNoteBody {
 impl fmt::Debug for UpdateNoteBody {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UpdateNoteBody")
-            .field("content_len", &self.content.as_ref().map(String::len))
+            .field(
+                "content_len",
+                &self.content.as_deref().map(telemetry_text_len),
+            )
             .field("starred", &self.starred)
             .field("archived", &self.archived)
             .field(
                 "revision_mode_len",
-                &self.revision_mode.as_ref().map(String::len),
+                &self.revision_mode.as_deref().map(telemetry_text_len),
             )
             .field("metadata_set", &self.metadata.is_some())
             .field("tags_count", &self.tags.as_ref().map(Vec::len))
             .field(
                 "tag_lens",
-                &self
-                    .tags
-                    .as_ref()
-                    .map(|tags| tags.iter().map(String::len).collect::<Vec<_>>()),
+                &self.tags.as_ref().map(|tags| {
+                    tags.iter()
+                        .map(|tag| telemetry_text_len(tag))
+                        .collect::<Vec<_>>()
+                }),
             )
-            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("model_len", &self.model.as_deref().map(telemetry_text_len))
             .field("chunk_max_chars", &self.chunk_max_chars)
             .field("chunk_overlap", &self.chunk_overlap)
             .finish()
@@ -11678,7 +11698,7 @@ impl fmt::Debug for RestoreNoteQuery {
         f.debug_struct("RestoreNoteQuery")
             .field(
                 "revision_mode_len",
-                &self.revision_mode.as_ref().map(String::len),
+                &self.revision_mode.as_deref().map(telemetry_text_len),
             )
             .finish()
     }
@@ -11763,17 +11783,19 @@ impl fmt::Debug for ReprocessNoteBody {
         f.debug_struct("ReprocessNoteBody")
             .field(
                 "revision_mode_len",
-                &self.revision_mode.as_ref().map(String::len),
+                &self.revision_mode.as_deref().map(telemetry_text_len),
             )
             .field("steps_count", &self.steps.as_ref().map(Vec::len))
             .field(
                 "step_lens",
-                &self
-                    .steps
-                    .as_ref()
-                    .map(|steps| steps.iter().map(String::len).collect::<Vec<_>>()),
+                &self.steps.as_ref().map(|steps| {
+                    steps
+                        .iter()
+                        .map(|step| telemetry_text_len(step))
+                        .collect::<Vec<_>>()
+                }),
             )
-            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("model_len", &self.model.as_deref().map(telemetry_text_len))
             .field("chunk_max_chars", &self.chunk_max_chars)
             .field("chunk_overlap", &self.chunk_overlap)
             .finish()
@@ -11951,19 +11973,21 @@ impl fmt::Debug for BulkReprocessBody {
         f.debug_struct("BulkReprocessBody")
             .field(
                 "revision_mode_len",
-                &self.revision_mode.as_ref().map(String::len),
+                &self.revision_mode.as_deref().map(telemetry_text_len),
             )
             .field("note_ids_count", &self.note_ids.as_ref().map(Vec::len))
             .field("steps_count", &self.steps.as_ref().map(Vec::len))
             .field(
                 "step_lens",
-                &self
-                    .steps
-                    .as_ref()
-                    .map(|steps| steps.iter().map(String::len).collect::<Vec<_>>()),
+                &self.steps.as_ref().map(|steps| {
+                    steps
+                        .iter()
+                        .map(|step| telemetry_text_len(step))
+                        .collect::<Vec<_>>()
+                }),
             )
             .field("limit", &self.limit)
-            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("model_len", &self.model.as_deref().map(telemetry_text_len))
             .field("chunk_max_chars", &self.chunk_max_chars)
             .field("chunk_overlap", &self.chunk_overlap)
             .finish()
@@ -12246,7 +12270,11 @@ impl fmt::Debug for SetTagsBody {
             .field("tags_count", &self.tags.len())
             .field(
                 "tag_lens",
-                &self.tags.iter().map(String::len).collect::<Vec<_>>(),
+                &self
+                    .tags
+                    .iter()
+                    .map(|tag| telemetry_text_len(tag))
+                    .collect::<Vec<_>>(),
             )
             .finish()
     }
@@ -27899,30 +27927,31 @@ mod tests {
     #[test]
     fn create_note_body_debug_redacts_content_metadata_tags_and_model_fields() {
         let body = CreateNoteBody {
-            content: "Customer note contains postgres://user:pass@db.internal/app and sk-live-note"
-                .to_string(),
-            format: Some("markdown-private".to_string()),
-            source: Some("customer@example.com/private-import".to_string()),
+            content:
+                "Customer résumé contains postgres://user:pass@db.internal/app and sk-live-note"
+                    .to_string(),
+            format: Some("markdown-privé".to_string()),
+            source: Some("customer@example.com/privaté-import".to_string()),
             collection_id: Some(Uuid::new_v4()),
             tags: Some(vec![
-                "customer-secret-tag".to_string(),
-                "mm_key_tag_secret".to_string(),
+                "cüstomer-secret-tag".to_string(),
+                "mm_key_tag_sécret".to_string(),
             ]),
-            title: Some("Customer payroll note".to_string()),
-            revision_mode: Some("full-private-revision".to_string()),
+            title: Some("Customer payroll café".to_string()),
+            revision_mode: Some("full-privaté-revision".to_string()),
             metadata: Some(serde_json::json!({
                 "path": "/srv/private/customer-note.md",
                 "token": "sk-live-metadata-token",
                 "url": "postgres://user:pass@db.internal/app"
             })),
             document_type_id: Some(Uuid::new_v4()),
-            document_type: Some("private-document-type".to_string()),
-            model: Some("qwen3-private-db.internal".to_string()),
+            document_type: Some("private-document-typé".to_string()),
+            model: Some("qwen3-privaté-db.internal".to_string()),
             chunk_max_chars: Some(4096),
             chunk_overlap: Some(256),
             pipeline: Some(vec![
-                "metadata_extraction_private".to_string(),
-                "concept_tagging_secret".to_string(),
+                "metadata_extraction_privé".to_string(),
+                "concept_tagging_sécret".to_string(),
             ]),
         };
 
@@ -27936,25 +27965,34 @@ mod tests {
         assert!(rendered.contains("model_len"));
         assert!(rendered.contains("pipeline_count"));
         assert!(rendered.contains("pipeline_lens"));
+        assert!(rendered.contains("content_len: 78"));
+        assert!(rendered.contains("format_len: Some(14)"));
+        assert!(rendered.contains("source_len: Some(35)"));
+        assert!(rendered.contains("tag_lens: Some([19, 17])"));
+        assert!(rendered.contains("title_len: Some(21)"));
+        assert!(rendered.contains("revision_mode_len: Some(21)"));
+        assert!(rendered.contains("document_type_len: Some(21)"));
+        assert!(rendered.contains("model_len: Some(25)"));
+        assert!(rendered.contains("pipeline_lens: Some([25, 22])"));
 
         for raw in [
-            "Customer note contains",
+            "Customer résumé contains",
             "postgres://user:pass",
             "db.internal",
             "sk-live-note",
-            "markdown-private",
+            "markdown-privé",
             "customer@example.com",
-            "private-import",
-            "customer-secret-tag",
-            "mm_key_tag_secret",
-            "Customer payroll note",
-            "full-private-revision",
+            "privaté-import",
+            "cüstomer-secret-tag",
+            "mm_key_tag_sécret",
+            "Customer payroll café",
+            "full-privaté-revision",
             "/srv/private/customer-note.md",
             "sk-live-metadata-token",
-            "private-document-type",
-            "qwen3-private-db.internal",
-            "metadata_extraction_private",
-            "concept_tagging_secret",
+            "private-document-typé",
+            "qwen3-privaté-db.internal",
+            "metadata_extraction_privé",
+            "concept_tagging_sécret",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
@@ -27964,24 +28002,25 @@ mod tests {
     fn bulk_create_debug_redacts_note_content_metadata_tags_and_routing_fields() {
         let body = BulkCreateNotesBody {
             notes: vec![BulkCreateNoteItem {
-                content: "Bulk note contains postgres://user:pass@db.internal/app and sk-live-bulk"
-                    .to_string(),
-                title: Some("Customer bulk payroll note".to_string()),
+                content:
+                    "Bulk résumé contains postgres://user:pass@db.internal/app and sk-live-bulk"
+                        .to_string(),
+                title: Some("Customer bulk café".to_string()),
                 tags: Some(vec![
-                    "customer-bulk-secret-tag".to_string(),
-                    "mm_key_bulk_tag".to_string(),
+                    "customer-bulk-sécret-tag".to_string(),
+                    "mm_key_bulk_täg".to_string(),
                 ]),
                 metadata: Some(serde_json::json!({
                     "path": "/srv/private/bulk-note.md",
                     "token": "sk-live-bulk-metadata",
                     "email": "customer@example.com"
                 })),
-                revision_mode: Some("full-private-bulk-revision".to_string()),
+                revision_mode: Some("full-private-bülk-revision".to_string()),
                 document_type_id: Some(Uuid::new_v4()),
-                document_type: Some("bulk-private-document-type".to_string()),
+                document_type: Some("bulk-private-document-typé".to_string()),
                 collection_id: Some(Uuid::new_v4()),
-                format: Some("markdown-private-bulk".to_string()),
-                source: Some("customer@example.com/bulk-import".to_string()),
+                format: Some("markdown-private-bülk".to_string()),
+                source: Some("customer@example.com/bülk-import".to_string()),
                 chunk_max_chars: Some(4096),
                 chunk_overlap: Some(128),
             }],
@@ -27998,22 +28037,29 @@ mod tests {
         assert!(rendered.contains("metadata_set"));
         assert!(rendered.contains("document_type_len"));
         assert!(rendered.contains("source_len"));
+        assert!(rendered.contains("content_len: 74"));
+        assert!(rendered.contains("title_len: Some(18)"));
+        assert!(rendered.contains("tag_lens: Some([24, 15])"));
+        assert!(rendered.contains("revision_mode_len: Some(26)"));
+        assert!(rendered.contains("document_type_len: Some(26)"));
+        assert!(rendered.contains("format_len: Some(21)"));
+        assert!(rendered.contains("source_len: Some(32)"));
 
         for raw in [
-            "Bulk note contains",
+            "Bulk résumé contains",
             "postgres://user:pass",
             "db.internal",
             "sk-live-bulk",
-            "Customer bulk payroll note",
-            "customer-bulk-secret-tag",
-            "mm_key_bulk_tag",
+            "Customer bulk café",
+            "customer-bulk-sécret-tag",
+            "mm_key_bulk_täg",
             "/srv/private/bulk-note.md",
             "sk-live-bulk-metadata",
             "customer@example.com",
-            "full-private-bulk-revision",
-            "bulk-private-document-type",
-            "markdown-private-bulk",
-            "bulk-import",
+            "full-private-bülk-revision",
+            "bulk-private-document-typé",
+            "markdown-private-bülk",
+            "bülk-import",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
@@ -28023,22 +28069,22 @@ mod tests {
     fn update_note_body_debug_redacts_content_metadata_tags_and_model_fields() {
         let body = UpdateNoteBody {
             content: Some(
-                "Updated note contains postgres://user:pass@db.internal/app and sk-live-update"
+                "Updated résumé contains postgres://user:pass@db.internal/app and sk-live-update"
                     .to_string(),
             ),
             starred: Some(true),
             archived: Some(false),
-            revision_mode: Some("contextual-private-update".to_string()),
+            revision_mode: Some("contextual-privaté-update".to_string()),
             metadata: Some(serde_json::json!({
                 "path": "/srv/private/update-note.md",
                 "token": "sk-live-update-metadata",
                 "email": "customer@example.com"
             })),
             tags: Some(vec![
-                "customer-update-secret-tag".to_string(),
-                "mm_key_update_tag".to_string(),
+                "customer-update-sécret-tag".to_string(),
+                "mm_key_update_täg".to_string(),
             ]),
-            model: Some("qwen3-update-db.internal".to_string()),
+            model: Some("qwen3-update-db.internäl".to_string()),
             chunk_max_chars: Some(2048),
             chunk_overlap: Some(64),
         };
@@ -28053,19 +28099,23 @@ mod tests {
         assert!(rendered.contains("tag_lens"));
         assert!(rendered.contains("model_len"));
         assert!(rendered.contains("chunk_max_chars"));
+        assert!(rendered.contains("content_len: Some(79)"));
+        assert!(rendered.contains("revision_mode_len: Some(25)"));
+        assert!(rendered.contains("tag_lens: Some([26, 17])"));
+        assert!(rendered.contains("model_len: Some(24)"));
 
         for raw in [
-            "Updated note contains",
+            "Updated résumé contains",
             "postgres://user:pass",
             "db.internal",
             "sk-live-update",
-            "contextual-private-update",
+            "contextual-privaté-update",
             "/srv/private/update-note.md",
             "sk-live-update-metadata",
             "customer@example.com",
-            "customer-update-secret-tag",
-            "mm_key_update_tag",
-            "qwen3-update-db.internal",
+            "customer-update-sécret-tag",
+            "mm_key_update_täg",
+            "qwen3-update-db.internäl",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
@@ -28075,30 +28125,30 @@ mod tests {
     fn reprocess_debug_redacts_steps_models_and_bulk_note_ids() {
         let note_id = Uuid::new_v4();
         let single = ReprocessNoteBody {
-            revision_mode: Some("contextual-private-reprocess".to_string()),
+            revision_mode: Some("contextual-privaté-reprocess".to_string()),
             steps: Some(vec![
-                "metadata_extraction_private".to_string(),
-                "concept_tagging_sk_live_step".to_string(),
+                "metadata_extraction_privé".to_string(),
+                "concept_tagging_sk_live_stép".to_string(),
             ]),
-            model: Some("qwen3-reprocess-db.internal".to_string()),
+            model: Some("qwen3-reprocess-db.internäl".to_string()),
             chunk_max_chars: Some(2048),
             chunk_overlap: Some(64),
         };
         let bulk = BulkReprocessBody {
-            revision_mode: Some("full-private-bulk-reprocess".to_string()),
+            revision_mode: Some("full-private-bülk-reprocess".to_string()),
             note_ids: Some(vec![note_id]),
             steps: Some(vec![
-                "ai_revision_customer_private".to_string(),
+                "ai_revision_customer_privé".to_string(),
                 "embedding_postgres://user:pass@db.internal/app".to_string(),
             ]),
             limit: Some(250),
-            model: Some("bulk-model-sk-live-reprocess".to_string()),
+            model: Some("bulk-model-sk-live-réprocess".to_string()),
             chunk_max_chars: Some(4096),
             chunk_overlap: Some(128),
         };
         let restore = RestoreNoteQuery {
             revision_mode: Some(
-                "contextual-private-restore postgres://user:pass@db.internal/app".to_string(),
+                "contextual-privaté-restore postgres://user:pass@db.internal/app".to_string(),
             ),
         };
 
@@ -28118,18 +28168,25 @@ mod tests {
         assert!(rendered_bulk.contains("chunk_max_chars"));
         assert!(rendered_restore.contains("RestoreNoteQuery"));
         assert!(rendered_restore.contains("revision_mode_len"));
+        assert!(rendered_single.contains("revision_mode_len: Some(28)"));
+        assert!(rendered_single.contains("step_lens: Some([25, 28])"));
+        assert!(rendered_single.contains("model_len: Some(27)"));
+        assert!(rendered_bulk.contains("revision_mode_len: Some(27)"));
+        assert!(rendered_bulk.contains("step_lens: Some([26, 46])"));
+        assert!(rendered_bulk.contains("model_len: Some(28)"));
+        assert!(rendered_restore.contains("revision_mode_len: Some(63)"));
 
         for raw in [
-            "contextual-private-reprocess",
-            "metadata_extraction_private",
-            "concept_tagging_sk_live_step",
-            "qwen3-reprocess-db.internal",
-            "full-private-bulk-reprocess",
-            "contextual-private-restore",
-            "ai_revision_customer_private",
+            "contextual-privaté-reprocess",
+            "metadata_extraction_privé",
+            "concept_tagging_sk_live_stép",
+            "qwen3-reprocess-db.internäl",
+            "full-private-bülk-reprocess",
+            "contextual-privaté-restore",
+            "ai_revision_customer_privé",
             "embedding_postgres://user:pass",
             "db.internal",
-            "bulk-model-sk-live-reprocess",
+            "bulk-model-sk-live-réprocess",
             &note_id.to_string(),
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
@@ -28142,9 +28199,9 @@ mod tests {
         let target_id = Uuid::new_v4();
         let set_tags = SetTagsBody {
             tags: vec![
-                "customer/private/payroll".to_string(),
+                "customer/privaté/payroll".to_string(),
                 "contact/customer@example.com".to_string(),
-                "token/sk-live-tag-secret".to_string(),
+                "token/sk-live-tag-sécret".to_string(),
             ],
         };
         let tag_note = TagNoteBody {
@@ -28161,6 +28218,7 @@ mod tests {
         assert!(rendered_tags.contains("SetTagsBody"));
         assert!(rendered_tags.contains("tags_count"));
         assert!(rendered_tags.contains("tag_lens"));
+        assert!(rendered_tags.contains("tag_lens: [24, 28, 24]"));
         assert!(rendered_concept.contains("TagNoteBody"));
         assert!(rendered_concept.contains("concept_id_set"));
         assert!(rendered_concept.contains("is_primary"));
@@ -28168,9 +28226,9 @@ mod tests {
         assert!(rendered_relation.contains("target_id_set"));
 
         for raw in [
-            "customer/private/payroll",
+            "customer/privaté/payroll",
             "customer@example.com",
-            "sk-live-tag-secret",
+            "sk-live-tag-sécret",
             &concept_id.to_string(),
             &target_id.to_string(),
         ] {
