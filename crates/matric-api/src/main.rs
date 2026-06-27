@@ -40177,7 +40177,9 @@ mod tests {
         .await
         .ok();
         sqlx::query("DELETE FROM inbound_dlq WHERE source_name = $1")
-            .bind(&source_name)
+            .bind(matric_db::inbound_sources::inbound_dlq_source_ref(
+                &source_name,
+            ))
             .execute(db.pool())
             .await
             .ok();

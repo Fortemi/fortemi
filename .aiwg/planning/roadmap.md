@@ -220,6 +220,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: Tag co-occurrence health diagnostics now return tag presence and length metadata instead of raw tag pair names.
   - 2026-06-27 continuation: Streaming RTP health metrics now return backend duration count/total metadata instead of raw ASR backend label maps.
   - 2026-06-27 continuation: Retained inbound outbox envelopes now store source, offset, and event-type presence/length metadata instead of raw wrapper values.
+  - 2026-06-27 continuation: Retained inbound DLQ rows now store source fingerprints plus offset/error metadata instead of raw source names, offsets, or error text.
   - 2026-06-26 continuation: extraction setup job telemetry and failure text now report filename lengths, available-strategy counts, and stable reason codes instead of raw schema names, attachment UUIDs, filenames, storage paths, parser diagnostics, database/storage diagnostics, DSNs, paths, hostnames, or token-shaped values.
   - 2026-06-26 continuation: extraction adapter failure job/status text now stores stable reason codes instead of raw adapter/backend errors, DSNs, paths, hostnames, filenames, or token-shaped values.
   - 2026-06-26 continuation: media optimize setup job failure text now stores stable reason codes for schema, temp-dir, transaction, download, commit, and temp-file write failures instead of raw schema names, database/storage diagnostics, filesystem paths, DSNs, hostnames, or token-shaped values.
@@ -927,3 +928,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 Tag co-occurrence health diagnostics now return tag presence and length metadata instead of raw tag pair names.
 - 2026-06-27 — #968/#974 Streaming RTP health metrics now return backend duration count/total metadata instead of raw ASR backend label maps.
 - 2026-06-27 — #968/#974 Retained inbound outbox envelopes now store source, offset, and event-type presence/length metadata instead of raw wrapper values.
+- 2026-06-27 — #968/#974 Retained inbound DLQ rows now store source fingerprints plus offset/error metadata instead of raw source names, offsets, or error text.
