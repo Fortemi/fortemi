@@ -180,6 +180,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: Backup status/list/info path response metadata now uses structured length-only `path_metadata` tokens with path, filename, and extension lengths instead of raw absolute paths, DSNs, hostnames, or token-shaped path fragments.
   - 2026-06-27 continuation: Backup script dry-run, distribution, retention, verification, and subprocess verbose logs now report destination/path/output classes plus lengths instead of raw local paths, scratch paths, rsync/S3 URIs, or command output lines.
   - 2026-06-27 continuation: Backup script verbose config-file and encryption-key diagnostics now report filesystem path class/length metadata instead of raw operator config or key paths.
+  - 2026-06-27 continuation: PKE crypto file/header Debug output now reports public-key, recipient, filename, encrypted-DEK, nonce, salt, and KDF string metadata as lengths/counts/presence instead of raw addresses, filenames, encrypted key material, salts, or nonces.
   - 2026-06-27 continuation: Chat-stream replay/resumption Redis keys now use SHA-256 session fingerprints instead of storing raw session ids in Redis keyspace while preserving public SSE resume cursor format.
   - 2026-06-27 continuation: Ingest stream cursor Redis keys now use SHA-256 stream fingerprints instead of storing raw stream ids in Redis keyspace while preserving public cursor format.
   - 2026-06-27 continuation: Ingest stream token Redis keys and reverse-index values now use SHA-256 token fingerprints instead of storing raw bearer tokens in Redis keyspace or revoke-by-id index values.
@@ -1222,3 +1223,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 Backup script dry-run, distribution, retention, verification, and subprocess verbose logs now use destination/path/output classes plus lengths instead of raw local paths, scratch paths, rsync/S3 URIs, or command output lines.
 - 2026-06-27 — #968/#974 Backup script verbose config-file and encryption-key diagnostics now use filesystem path class/length metadata instead of raw operator config or key paths.
 - 2026-06-27 — #968/#974 Hybrid search tracing now reports query class and character length instead of raw search query text in ordinary search spans.
+- 2026-06-27 — #968/#974 PKE crypto file/header Debug output now reports lengths/counts/presence instead of raw addresses, filenames, encrypted key material, salts, or nonces.

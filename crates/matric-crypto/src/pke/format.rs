@@ -33,6 +33,7 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use crate::error::{CryptoError, CryptoResult};
 use crate::pke::address::Address;
@@ -45,7 +46,7 @@ pub const MAGIC_BYTES: &[u8; 8] = b"MMPKE01\n";
 pub const FORMAT_VERSION: u8 = 1;
 
 /// MMPKE01 file header.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PkeHeader {
     /// Format version (currently 1).
     pub version: u8,
@@ -69,8 +70,30 @@ pub struct PkeHeader {
     pub created_at: Option<String>,
 }
 
+impl fmt::Debug for PkeHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PkeHeader")
+            .field("version", &self.version)
+            .field(
+                "ephemeral_pubkey_len",
+                &self.ephemeral_pubkey.as_bytes().len(),
+            )
+            .field("recipient_count", &self.recipients.len())
+            .field("data_nonce_len", &self.data_nonce.len())
+            .field(
+                "original_filename_len",
+                &self
+                    .original_filename
+                    .as_ref()
+                    .map(|value| value.chars().count()),
+            )
+            .field("created_at_present", &self.created_at.is_some())
+            .finish()
+    }
+}
+
 /// Per-recipient block containing the encrypted DEK.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct RecipientBlock {
     /// Recipient's address (for identification).
     pub address: Address,
@@ -82,6 +105,16 @@ pub struct RecipientBlock {
     /// Nonce used for DEK encryption.
     #[serde(with = "base64_bytes")]
     pub dek_nonce: [u8; 12],
+}
+
+impl fmt::Debug for RecipientBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RecipientBlock")
+            .field("address_len", &self.address.to_string().chars().count())
+            .field("encrypted_dek_len", &self.encrypted_dek.len())
+            .field("dek_nonce_len", &self.dek_nonce.len())
+            .finish()
+    }
 }
 
 impl PkeHeader {
@@ -275,6 +308,50 @@ mod tests {
             [42u8; 12],
             Some("test.json".to_string()),
         )
+    }
+
+    #[test]
+    fn test_pke_header_debug_redacts_sensitive_material() {
+        let header = create_test_header();
+        let recipient_address = header.recipients[0].address.to_string();
+        let debug = format!("{header:?}");
+        let recipient_debug = format!("{:?}", header.recipients[0]);
+
+        for secret in [
+            "test.json",
+            recipient_address.as_str(),
+            "encrypted_dek:",
+            "data_nonce:",
+            "dek_nonce:",
+            "[1, 2, 3, 4",
+            "[0, 0, 0, 0",
+            "Address(",
+            "PublicKey(",
+        ] {
+            assert!(
+                !debug.contains(secret),
+                "PkeHeader Debug output leaked sensitive value {secret:?}: {debug}"
+            );
+            assert!(
+                !recipient_debug.contains(secret),
+                "RecipientBlock Debug output leaked sensitive value {secret:?}: {recipient_debug}"
+            );
+        }
+
+        for expected in [
+            "ephemeral_pubkey_len",
+            "recipient_count",
+            "data_nonce_len",
+            "original_filename_len",
+            "address_len",
+            "encrypted_dek_len",
+            "dek_nonce_len",
+        ] {
+            assert!(
+                debug.contains(expected) || recipient_debug.contains(expected),
+                "PKE Debug output should retain safe metadata field {expected:?}: {debug} {recipient_debug}"
+            );
+        }
     }
 
     #[test]

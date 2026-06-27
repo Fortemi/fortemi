@@ -19,6 +19,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use crate::cipher::{aes_gcm_decrypt, aes_gcm_encrypt, generate_nonce, generate_salt};
 use crate::error::{CryptoError, CryptoResult};
@@ -28,7 +29,7 @@ use crate::kdf::{derive_key, KdfParams};
 pub const MAGIC_PKEKEY: &[u8; 8] = b"MMPKEKEY";
 
 /// Header for encrypted private key files.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PkeKeyHeader {
     /// Format version.
     pub version: u8,
@@ -42,6 +43,19 @@ pub struct PkeKeyHeader {
     pub nonce: String,
     /// Creation timestamp.
     pub created_at: DateTime<Utc>,
+}
+
+impl fmt::Debug for PkeKeyHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PkeKeyHeader")
+            .field("version", &self.version)
+            .field("kdf_len", &self.kdf.chars().count())
+            .field("kdf_params", &self.kdf_params)
+            .field("salt_len", &self.salt.chars().count())
+            .field("nonce_len", &self.nonce.chars().count())
+            .field("created_at", &self.created_at)
+            .finish()
+    }
 }
 
 /// Encrypt a private key (32 bytes) with a passphrase.
@@ -178,6 +192,46 @@ mod tests {
         let decrypted = decrypt_private_key(&encrypted, passphrase).unwrap();
 
         assert_eq!(key, decrypted);
+    }
+
+    #[test]
+    fn test_pke_key_header_debug_redacts_salt_and_nonce() {
+        let header = PkeKeyHeader {
+            version: 1,
+            kdf: "argon2id-secret-marker".to_string(),
+            kdf_params: KdfParams::default(),
+            salt: "salt-secret-base64".to_string(),
+            nonce: "nonce-secret-base64".to_string(),
+            created_at: Utc::now(),
+        };
+
+        let debug = format!("{header:?}");
+
+        for secret in [
+            "argon2id-secret-marker",
+            "salt-secret-base64",
+            "nonce-secret-base64",
+            "salt:",
+            "nonce:",
+        ] {
+            assert!(
+                !debug.contains(secret),
+                "PkeKeyHeader Debug output leaked sensitive value {secret:?}: {debug}"
+            );
+        }
+
+        for expected in [
+            "kdf_len",
+            "kdf_params",
+            "salt_len",
+            "nonce_len",
+            "created_at",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "PkeKeyHeader Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
     }
 
     #[test]
