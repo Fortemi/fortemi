@@ -7628,7 +7628,7 @@ where
     input
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct TaxonomyConceptResourceMetadata {
     id: Uuid,
     primary_scheme_id: Uuid,
@@ -7640,6 +7640,23 @@ struct TaxonomyConceptResourceMetadata {
     related_count: i32,
     has_notation: bool,
     has_embedding: bool,
+}
+
+impl fmt::Debug for TaxonomyConceptResourceMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TaxonomyConceptResourceMetadata")
+            .field("id_present", &true)
+            .field("primary_scheme_id_present", &true)
+            .field("status_len", &telemetry_text_len(&self.status))
+            .field("note_count", &self.note_count)
+            .field("depth", &self.depth)
+            .field("broader_count", &self.broader_count)
+            .field("narrower_count", &self.narrower_count)
+            .field("related_count", &self.related_count)
+            .field("has_notation", &self.has_notation)
+            .field("has_embedding", &self.has_embedding)
+            .finish()
+    }
 }
 
 impl From<matric_core::SkosConcept> for TaxonomyConceptResourceMetadata {
@@ -7912,7 +7929,7 @@ fn taxonomy_relation_type_for_route_template(template: &str) -> Option<&'static 
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct TaxonomySchemeResourceMetadata {
     id: Uuid,
     notation: String,
@@ -7921,6 +7938,20 @@ struct TaxonomySchemeResourceMetadata {
     is_system: bool,
     has_issued_at: bool,
     has_modified_at: bool,
+}
+
+impl fmt::Debug for TaxonomySchemeResourceMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TaxonomySchemeResourceMetadata")
+            .field("id_present", &true)
+            .field("notation_len", &telemetry_text_len(&self.notation))
+            .field("version_len", &telemetry_text_len(&self.version))
+            .field("is_active", &self.is_active)
+            .field("is_system", &self.is_system)
+            .field("has_issued_at", &self.has_issued_at)
+            .field("has_modified_at", &self.has_modified_at)
+            .finish()
+    }
 }
 
 impl From<matric_core::SkosConceptScheme> for TaxonomySchemeResourceMetadata {
@@ -8035,13 +8066,25 @@ where
     input
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct TaxonomyCollectionResourceMetadata {
     id: Uuid,
     scheme_id: Option<Uuid>,
     is_ordered: bool,
     has_created_at: bool,
     has_updated_at: bool,
+}
+
+impl fmt::Debug for TaxonomyCollectionResourceMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TaxonomyCollectionResourceMetadata")
+            .field("id_present", &true)
+            .field("scheme_id_present", &self.scheme_id.is_some())
+            .field("is_ordered", &self.is_ordered)
+            .field("has_created_at", &self.has_created_at)
+            .field("has_updated_at", &self.has_updated_at)
+            .finish()
+    }
 }
 
 impl From<matric_core::SkosCollection> for TaxonomyCollectionResourceMetadata {
@@ -34640,6 +34683,37 @@ mod tests {
         }
     }
 
+    #[test]
+    fn taxonomy_concept_metadata_debug_redacts_ids_and_status() {
+        let concept_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000013").unwrap();
+        let scheme_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000014").unwrap();
+        let metadata = TaxonomyConceptResourceMetadata {
+            id: concept_id,
+            primary_scheme_id: scheme_id,
+            status: "Approved sk-taxonomy-secret ops@example.com".to_string(),
+            note_count: 7,
+            depth: 2,
+            broader_count: 1,
+            narrower_count: 3,
+            related_count: 4,
+            has_notation: true,
+            has_embedding: true,
+        };
+
+        let debug = format!("{metadata:?}");
+
+        assert!(debug.contains("TaxonomyConceptResourceMetadata"));
+        assert!(debug.contains("id_present"));
+        assert!(debug.contains("primary_scheme_id_present"));
+        assert!(debug.contains("status_len"));
+        assert!(debug.contains("note_count"));
+        assert!(!debug.contains(&concept_id.to_string()));
+        assert!(!debug.contains(&scheme_id.to_string()));
+        assert!(!debug.contains("Approved sk-taxonomy-secret"));
+        assert!(!debug.contains("ops@example.com"));
+        assert!(!debug.contains("sk-taxonomy-secret"));
+    }
+
     #[tokio::test]
     async fn existing_taxonomy_concept_route_id_is_marked_normalized_with_safe_metadata() {
         let concept_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000013").unwrap();
@@ -35044,6 +35118,33 @@ mod tests {
         }
     }
 
+    #[test]
+    fn taxonomy_scheme_metadata_debug_redacts_notation_version_and_ids() {
+        let scheme_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000014").unwrap();
+        let metadata = TaxonomySchemeResourceMetadata {
+            id: scheme_id,
+            notation: "research-topics ops@example.com".to_string(),
+            version: "2.0.0+/tmp/sk-secret".to_string(),
+            is_active: true,
+            is_system: false,
+            has_issued_at: true,
+            has_modified_at: true,
+        };
+
+        let debug = format!("{metadata:?}");
+
+        assert!(debug.contains("TaxonomySchemeResourceMetadata"));
+        assert!(debug.contains("id_present"));
+        assert!(debug.contains("notation_len"));
+        assert!(debug.contains("version_len"));
+        assert!(debug.contains("has_modified_at"));
+        assert!(!debug.contains(&scheme_id.to_string()));
+        assert!(!debug.contains("research-topics"));
+        assert!(!debug.contains("ops@example.com"));
+        assert!(!debug.contains("2.0.0+/tmp/sk-secret"));
+        assert!(!debug.contains("sk-secret"));
+    }
+
     #[tokio::test]
     async fn existing_taxonomy_scheme_route_id_is_marked_normalized_with_safe_metadata() {
         let scheme_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000014").unwrap();
@@ -35265,6 +35366,29 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         }
+    }
+
+    #[test]
+    fn taxonomy_collection_metadata_debug_redacts_ids() {
+        let collection_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000015").unwrap();
+        let scheme_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000014").unwrap();
+        let metadata = TaxonomyCollectionResourceMetadata {
+            id: collection_id,
+            scheme_id: Some(scheme_id),
+            is_ordered: true,
+            has_created_at: true,
+            has_updated_at: true,
+        };
+
+        let debug = format!("{metadata:?}");
+
+        assert!(debug.contains("TaxonomyCollectionResourceMetadata"));
+        assert!(debug.contains("id_present"));
+        assert!(debug.contains("scheme_id_present"));
+        assert!(debug.contains("is_ordered"));
+        assert!(debug.contains("has_updated_at"));
+        assert!(!debug.contains(&collection_id.to_string()));
+        assert!(!debug.contains(&scheme_id.to_string()));
     }
 
     #[tokio::test]
