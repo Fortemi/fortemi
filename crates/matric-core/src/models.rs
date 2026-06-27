@@ -4429,15 +4429,21 @@ impl fmt::Debug for TokenIntrospectionResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TokenIntrospectionResponse")
             .field("active", &self.active)
-            .field("scope_len", &self.scope.as_ref().map(String::len))
-            .field("client_id_len", &self.client_id.as_ref().map(String::len))
-            .field("username_len", &self.username.as_ref().map(String::len))
-            .field("token_type_len", &self.token_type.as_ref().map(String::len))
+            .field("scope_len", &optional_debug_len(self.scope.as_ref()))
+            .field(
+                "client_id_len",
+                &optional_debug_len(self.client_id.as_ref()),
+            )
+            .field("username_len", &optional_debug_len(self.username.as_ref()))
+            .field(
+                "token_type_len",
+                &optional_debug_len(self.token_type.as_ref()),
+            )
             .field("exp", &self.exp)
             .field("iat", &self.iat)
-            .field("sub_len", &self.sub.as_ref().map(String::len))
-            .field("aud_len", &self.aud.as_ref().map(String::len))
-            .field("iss_len", &self.iss.as_ref().map(String::len))
+            .field("sub_len", &optional_debug_len(self.sub.as_ref()))
+            .field("aud_len", &optional_debug_len(self.aud.as_ref()))
+            .field("iss_len", &optional_debug_len(self.iss.as_ref()))
             .finish()
     }
 }
@@ -4471,12 +4477,15 @@ pub struct OAuthError {
 impl fmt::Debug for OAuthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OAuthError")
-            .field("error_len", &self.error.len())
+            .field("error_len", &self.error.chars().count())
             .field(
                 "error_description_len",
-                &self.error_description.as_ref().map(String::len),
+                &optional_debug_len(self.error_description.as_ref()),
             )
-            .field("error_uri_len", &self.error_uri.as_ref().map(String::len))
+            .field(
+                "error_uri_len",
+                &optional_debug_len(self.error_uri.as_ref()),
+            )
             .finish()
     }
 }
@@ -4570,23 +4579,23 @@ pub struct AuthorizationServerMetadata {
 impl fmt::Debug for AuthorizationServerMetadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AuthorizationServerMetadata")
-            .field("issuer_len", &self.issuer.len())
+            .field("issuer_len", &self.issuer.chars().count())
             .field(
                 "authorization_endpoint_len",
-                &self.authorization_endpoint.len(),
+                &self.authorization_endpoint.chars().count(),
             )
-            .field("token_endpoint_len", &self.token_endpoint.len())
+            .field("token_endpoint_len", &self.token_endpoint.chars().count())
             .field(
                 "registration_endpoint_len",
-                &self.registration_endpoint.as_ref().map(String::len),
+                &optional_debug_len(self.registration_endpoint.as_ref()),
             )
             .field(
                 "introspection_endpoint_len",
-                &self.introspection_endpoint.as_ref().map(String::len),
+                &optional_debug_len(self.introspection_endpoint.as_ref()),
             )
             .field(
                 "revocation_endpoint_len",
-                &self.revocation_endpoint.as_ref().map(String::len),
+                &optional_debug_len(self.revocation_endpoint.as_ref()),
             )
             .field(
                 "response_types_supported_count",
@@ -4630,13 +4639,13 @@ impl fmt::Debug for ApiKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ApiKey")
             .field("id_set", &true)
-            .field("key_prefix_len", &self.key_prefix.len())
-            .field("name_len", &self.name.len())
+            .field("key_prefix_len", &self.key_prefix.chars().count())
+            .field("name_len", &self.name.chars().count())
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &optional_debug_len(self.description.as_ref()),
             )
-            .field("scope_len", &self.scope.len())
+            .field("scope_len", &self.scope.chars().count())
             .field("rate_limit_per_minute", &self.rate_limit_per_minute)
             .field("rate_limit_per_hour", &self.rate_limit_per_hour)
             .field("last_used_at_set", &self.last_used_at.is_some())
@@ -4661,12 +4670,12 @@ pub struct CreateApiKeyRequest {
 impl fmt::Debug for CreateApiKeyRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CreateApiKeyRequest")
-            .field("name_len", &self.name.len())
+            .field("name_len", &self.name.chars().count())
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &optional_debug_len(self.description.as_ref()),
             )
-            .field("scope_len", &self.scope.len())
+            .field("scope_len", &self.scope.chars().count())
             .field("expires_in_days", &self.expires_in_days)
             .finish()
     }
@@ -7310,7 +7319,7 @@ mod tests {
         let now = Utc::now();
         let introspection = TokenIntrospectionResponse {
             active: true,
-            scope: Some("read write private.scope.sk-live-secret".to_string()),
+            scope: Some("éé".to_string()),
             client_id: Some("oauth-client-secret-id".to_string()),
             username: Some("private-user@example.test".to_string()),
             token_type: Some("Bearer-private-token-type".to_string()),
@@ -7364,7 +7373,7 @@ mod tests {
         let create = CreateApiKeyRequest {
             name: "Create private API key".to_string(),
             description: Some("Create key for private@example.test".to_string()),
-            scope: "write private.scope.sk-live-secret".to_string(),
+            scope: "éé".to_string(),
             expires_in_days: Some(30),
         };
 
@@ -7390,6 +7399,15 @@ mod tests {
                 "/tmp/customer/key.txt",
                 "Create private API key",
             ],
+        );
+
+        assert!(
+            debug.contains("scope_len: Some(2)"),
+            "TokenIntrospectionResponse Debug should report Unicode character counts, not byte counts: {debug}"
+        );
+        assert!(
+            debug.contains("scope_len: 2"),
+            "CreateApiKeyRequest Debug should report Unicode character counts, not byte counts: {debug}"
         );
 
         for expected in [
