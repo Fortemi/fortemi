@@ -4309,7 +4309,7 @@ impl std::fmt::Debug for TokenResponse {
 }
 
 /// OAuth2 token introspection response (RFC 7662).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TokenIntrospectionResponse {
     pub active: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -4332,6 +4332,23 @@ pub struct TokenIntrospectionResponse {
     pub iss: Option<String>,
 }
 
+impl fmt::Debug for TokenIntrospectionResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TokenIntrospectionResponse")
+            .field("active", &self.active)
+            .field("scope_len", &self.scope.as_ref().map(String::len))
+            .field("client_id_len", &self.client_id.as_ref().map(String::len))
+            .field("username_len", &self.username.as_ref().map(String::len))
+            .field("token_type_len", &self.token_type.as_ref().map(String::len))
+            .field("exp", &self.exp)
+            .field("iat", &self.iat)
+            .field("sub_len", &self.sub.as_ref().map(String::len))
+            .field("aud_len", &self.aud.as_ref().map(String::len))
+            .field("iss_len", &self.iss.as_ref().map(String::len))
+            .finish()
+    }
+}
+
 /// Token expiry information for warning headers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenExpiryInfo {
@@ -4349,13 +4366,26 @@ impl TokenExpiryInfo {
 }
 
 /// OAuth2 error response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct OAuthError {
     pub error: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_uri: Option<String>,
+}
+
+impl fmt::Debug for OAuthError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OAuthError")
+            .field("error_len", &self.error.len())
+            .field(
+                "error_description_len",
+                &self.error_description.as_ref().map(String::len),
+            )
+            .field("error_uri_len", &self.error_uri.as_ref().map(String::len))
+            .finish()
+    }
 }
 
 impl OAuthError {
@@ -4425,7 +4455,7 @@ impl OAuthError {
 }
 
 /// OAuth2 authorization server metadata (RFC 8414).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AuthorizationServerMetadata {
     pub issuer: String,
     pub authorization_endpoint: String,
@@ -4444,8 +4474,50 @@ pub struct AuthorizationServerMetadata {
     pub code_challenge_methods_supported: Option<Vec<String>>,
 }
 
+impl fmt::Debug for AuthorizationServerMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthorizationServerMetadata")
+            .field("issuer_len", &self.issuer.len())
+            .field(
+                "authorization_endpoint_len",
+                &self.authorization_endpoint.len(),
+            )
+            .field("token_endpoint_len", &self.token_endpoint.len())
+            .field(
+                "registration_endpoint_len",
+                &self.registration_endpoint.as_ref().map(String::len),
+            )
+            .field(
+                "introspection_endpoint_len",
+                &self.introspection_endpoint.as_ref().map(String::len),
+            )
+            .field(
+                "revocation_endpoint_len",
+                &self.revocation_endpoint.as_ref().map(String::len),
+            )
+            .field(
+                "response_types_supported_count",
+                &self.response_types_supported.len(),
+            )
+            .field(
+                "grant_types_supported_count",
+                &self.grant_types_supported.len(),
+            )
+            .field(
+                "token_endpoint_auth_methods_supported_count",
+                &self.token_endpoint_auth_methods_supported.len(),
+            )
+            .field("scopes_supported_count", &self.scopes_supported.len())
+            .field(
+                "code_challenge_methods_supported_count",
+                &self.code_challenge_methods_supported.as_ref().map(Vec::len),
+            )
+            .finish()
+    }
+}
+
 /// API key for simpler authentication.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ApiKey {
     pub id: Uuid,
     pub key_prefix: String,
@@ -4461,14 +4533,50 @@ pub struct ApiKey {
     pub created_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for ApiKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ApiKey")
+            .field("id_set", &true)
+            .field("key_prefix_len", &self.key_prefix.len())
+            .field("name_len", &self.name.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("scope_len", &self.scope.len())
+            .field("rate_limit_per_minute", &self.rate_limit_per_minute)
+            .field("rate_limit_per_hour", &self.rate_limit_per_hour)
+            .field("last_used_at_set", &self.last_used_at.is_some())
+            .field("use_count", &self.use_count)
+            .field("is_active", &self.is_active)
+            .field("expires_at_set", &self.expires_at.is_some())
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
 /// API key creation request.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateApiKeyRequest {
     pub name: String,
     pub description: Option<String>,
     #[serde(default = "default_scope")]
     pub scope: String,
     pub expires_in_days: Option<i32>,
+}
+
+impl fmt::Debug for CreateApiKeyRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateApiKeyRequest")
+            .field("name_len", &self.name.len())
+            .field(
+                "description_len",
+                &self.description.as_ref().map(String::len),
+            )
+            .field("scope_len", &self.scope.len())
+            .field("expires_in_days", &self.expires_in_days)
+            .finish()
+    }
 }
 
 fn default_scope() -> String {
@@ -6508,6 +6616,113 @@ mod tests {
         );
         assert!(debug.contains("api_key_set"));
         assert!(debug.contains("key_prefix_len"));
+    }
+
+    #[test]
+    fn oauth_readback_and_api_key_debug_redacts_ids_urls_scopes_and_errors() {
+        let now = Utc::now();
+        let introspection = TokenIntrospectionResponse {
+            active: true,
+            scope: Some("read write private.scope.sk-live-secret".to_string()),
+            client_id: Some("oauth-client-secret-id".to_string()),
+            username: Some("private-user@example.test".to_string()),
+            token_type: Some("Bearer-private-token-type".to_string()),
+            exp: Some(3600),
+            iat: Some(1),
+            sub: Some("subject-private@example.test".to_string()),
+            aud: Some("https://audience.example.test/?token=secret".to_string()),
+            iss: Some("https://issuer.example.test/private".to_string()),
+        };
+        let oauth_error = OAuthError {
+            error: "invalid_request_private".to_string(),
+            error_description: Some(
+                "OAuth error leaked https://provider.example.test/?token=secret".to_string(),
+            ),
+            error_uri: Some("https://errors.example.test/private?token=secret".to_string()),
+        };
+        let metadata = AuthorizationServerMetadata {
+            issuer: "https://issuer.example.test/private?token=secret".to_string(),
+            authorization_endpoint: "https://issuer.example.test/oauth/authorize?token=secret"
+                .to_string(),
+            token_endpoint: "https://issuer.example.test/oauth/token?token=secret".to_string(),
+            registration_endpoint: Some(
+                "https://issuer.example.test/oauth/register?token=secret".to_string(),
+            ),
+            introspection_endpoint: Some(
+                "https://issuer.example.test/oauth/introspect?token=secret".to_string(),
+            ),
+            revocation_endpoint: Some(
+                "https://issuer.example.test/oauth/revoke?token=secret".to_string(),
+            ),
+            response_types_supported: vec!["code".to_string()],
+            grant_types_supported: vec!["authorization_code".to_string()],
+            token_endpoint_auth_methods_supported: vec!["client_secret_post".to_string()],
+            scopes_supported: vec!["private.scope.sk-live-secret".to_string()],
+            code_challenge_methods_supported: Some(vec!["S256".to_string()]),
+        };
+        let api_key = ApiKey {
+            id: Uuid::new_v4(),
+            key_prefix: "mm_key_private_prefix".to_string(),
+            name: "Private API key private@example.test".to_string(),
+            description: Some("Key description includes /tmp/customer/key.txt".to_string()),
+            scope: "admin private.scope.sk-live-secret".to_string(),
+            rate_limit_per_minute: Some(60),
+            rate_limit_per_hour: Some(600),
+            last_used_at: Some(now),
+            use_count: 3,
+            is_active: true,
+            expires_at: Some(now),
+            created_at: now,
+        };
+        let create = CreateApiKeyRequest {
+            name: "Create private API key".to_string(),
+            description: Some("Create key for private@example.test".to_string()),
+            scope: "write private.scope.sk-live-secret".to_string(),
+            expires_in_days: Some(30),
+        };
+
+        let debug = format!("{introspection:?}{oauth_error:?}{metadata:?}{api_key:?}{create:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "private.scope",
+                "sk-live-secret",
+                "oauth-client-secret-id",
+                "private-user@example.test",
+                "Bearer-private-token-type",
+                "subject-private@example.test",
+                "audience.example.test",
+                "issuer.example.test",
+                "invalid_request_private",
+                "OAuth error leaked",
+                "provider.example.test",
+                "errors.example.test",
+                "mm_key_private_prefix",
+                "Private API key",
+                "/tmp/customer/key.txt",
+                "Create private API key",
+            ],
+        );
+
+        for expected in [
+            "scope_len",
+            "client_id_len",
+            "username_len",
+            "error_description_len",
+            "issuer_len",
+            "authorization_endpoint_len",
+            "scopes_supported_count",
+            "key_prefix_len",
+            "name_len",
+            "description_len",
+            "expires_in_days",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "OAuth/API-key Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
     }
 
     #[test]
