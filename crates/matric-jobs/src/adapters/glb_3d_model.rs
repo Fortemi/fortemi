@@ -134,6 +134,10 @@ fn glb_error_reason_code(error: &str) -> &'static str {
     }
 }
 
+fn glb_renderer_unavailable_diagnostic(reason: &str) -> (&'static str, usize) {
+    (glb_error_reason_code(reason), glb_text_len(reason))
+}
+
 fn renderer_test_status_class(status: &str) -> &'static str {
     match status {
         "passed" | "healthy" | "ok" | "success" => "success",
@@ -658,10 +662,12 @@ impl ExtractionAdapter for Glb3DModelAdapter {
                 debug!("GLB adapter healthy: vision + renderer available");
             }
             Err(reason) => {
+                let (renderer_reason, renderer_reason_len) =
+                    glb_renderer_unavailable_diagnostic(&reason);
                 warn!(
-                    "GLB adapter registered with degraded capability — \
-                     renderer not available: {}",
-                    reason
+                    renderer_reason,
+                    renderer_reason_len,
+                    "GLB adapter registered with degraded capability; renderer not available"
                 );
             }
         }
@@ -914,6 +920,24 @@ mod tests {
             glb_error_reason_code("opaque backend text /srv/fortemi/model.glb"),
             "operation_failed"
         );
+    }
+
+    #[test]
+    fn glb_renderer_unavailable_diagnostic_uses_metadata_only() {
+        let reason =
+            "connection refused for https://token=mm_key_secret@renderer.internal/private/model.glb";
+        let (renderer_reason, renderer_reason_len) = glb_renderer_unavailable_diagnostic(reason);
+        let rendered =
+            format!("renderer_reason={renderer_reason} renderer_reason_len={renderer_reason_len}");
+
+        assert_eq!(renderer_reason, "connection_failed");
+        assert_eq!(renderer_reason_len, reason.len());
+        assert!(rendered.contains("renderer_reason=connection_failed"));
+        assert!(rendered.contains("renderer_reason_len="));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("renderer.internal"));
+        assert!(!rendered.contains("/private/model.glb"));
+        assert!(!rendered.contains(reason));
     }
 
     #[test]
