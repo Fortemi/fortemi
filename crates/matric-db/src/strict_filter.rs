@@ -3,10 +3,11 @@
 //! This module provides SQL query generation for strict SKOS concept filtering,
 //! enabling precise control over which notes are included in search results.
 
+use std::fmt;
 use uuid::Uuid;
 
 /// Type-safe parameter binding for SQL queries.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum QueryParam {
     /// Single UUID parameter.
     Uuid(Uuid),
@@ -22,6 +23,59 @@ pub enum QueryParam {
     String(String),
     /// Array of strings (for simple tag filtering).
     StringArray(Vec<String>),
+}
+
+impl fmt::Debug for QueryParam {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            QueryParam::Uuid(_) => f
+                .debug_struct("QueryParam::Uuid")
+                .field("value_set", &true)
+                .finish(),
+            QueryParam::UuidArray(values) => f
+                .debug_struct("QueryParam::UuidArray")
+                .field("values_count", &values.len())
+                .finish(),
+            QueryParam::Int(value) => f
+                .debug_struct("QueryParam::Int")
+                .field("value", value)
+                .finish(),
+            QueryParam::Timestamp(_) => f
+                .debug_struct("QueryParam::Timestamp")
+                .field("value_set", &true)
+                .finish(),
+            QueryParam::Bool(value) => f
+                .debug_struct("QueryParam::Bool")
+                .field("value", value)
+                .finish(),
+            QueryParam::String(value) => f
+                .debug_struct("QueryParam::String")
+                .field("value_len", &value.len())
+                .finish(),
+            QueryParam::StringArray(values) => f
+                .debug_struct("QueryParam::StringArray")
+                .field("values_count", &values.len())
+                .field(
+                    "value_lens",
+                    &values.iter().map(String::len).collect::<Vec<_>>(),
+                )
+                .finish(),
+        }
+    }
+}
+
+impl QueryParam {
+    pub(crate) fn debug_kind(&self) -> &'static str {
+        match self {
+            QueryParam::Uuid(_) => "uuid",
+            QueryParam::UuidArray(_) => "uuid_array",
+            QueryParam::Int(_) => "int",
+            QueryParam::Timestamp(_) => "timestamp",
+            QueryParam::Bool(_) => "bool",
+            QueryParam::String(_) => "string",
+            QueryParam::StringArray(_) => "string_array",
+        }
+    }
 }
 
 /// Generates SQL WHERE clause fragments for strict tag filtering.
@@ -498,5 +552,35 @@ mod tests {
         assert!(sql.contains("$1")); // required concept
         assert!(sql.contains("$2")); // required scheme (used twice in isolation check)
         assert!(sql.contains("$3")); // excluded scheme
+    }
+
+    #[test]
+    fn query_param_debug_redacts_identifiers_and_strings() {
+        let secret_id = Uuid::new_v4();
+        let params = vec![
+            QueryParam::Uuid(secret_id),
+            QueryParam::UuidArray(vec![secret_id]),
+            QueryParam::Timestamp(chrono::Utc::now()),
+            QueryParam::String("private-format sk-live-secret /tmp/customer.md".to_string()),
+            QueryParam::StringArray(vec![
+                "private-tag@example.test".to_string(),
+                "https://tags.example.test/?token=secret".to_string(),
+            ]),
+        ];
+
+        let debug = format!("{params:?}");
+
+        assert!(debug.contains("QueryParam::Uuid"));
+        assert!(debug.contains("value_set"));
+        assert!(debug.contains("QueryParam::String"));
+        assert!(debug.contains("value_len"));
+        assert!(debug.contains("QueryParam::StringArray"));
+        assert!(debug.contains("value_lens"));
+        assert!(!debug.contains(&secret_id.to_string()));
+        assert!(!debug.contains("private-format"));
+        assert!(!debug.contains("sk-live-secret"));
+        assert!(!debug.contains("/tmp/customer.md"));
+        assert!(!debug.contains("private-tag@example.test"));
+        assert!(!debug.contains("tags.example.test"));
     }
 }

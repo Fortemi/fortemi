@@ -20,6 +20,7 @@
 //! 4. **Short-Circuit Evaluation**: Empty filter dimensions generate no SQL.
 
 use chrono::{DateTime, Utc};
+use std::fmt;
 
 use matric_core::{
     MetadataFilter, SemanticScopeFilter, StrictCollectionFilter, StrictFilter,
@@ -63,7 +64,7 @@ pub struct UnifiedFilterQueryBuilder {
 }
 
 /// Result of building a unified filter query.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct UnifiedFilterResult {
     /// The WHERE clause fragment (without "WHERE" keyword).
     pub where_clause: String,
@@ -83,6 +84,27 @@ pub struct UnifiedFilterResult {
 
     /// Number of active filter dimensions.
     pub active_dimensions: usize,
+}
+
+impl fmt::Debug for UnifiedFilterResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UnifiedFilterResult")
+            .field("where_clause_len", &self.where_clause.len())
+            .field("cte_clause_len", &self.cte_clause.as_ref().map(String::len))
+            .field("params_count", &self.params.len())
+            .field(
+                "param_kinds",
+                &self
+                    .params
+                    .iter()
+                    .map(QueryParam::debug_kind)
+                    .collect::<Vec<_>>(),
+            )
+            .field("used_uuid_temporal_opt", &self.used_uuid_temporal_opt)
+            .field("used_recursive_cte", &self.used_recursive_cte)
+            .field("active_dimensions", &self.active_dimensions)
+            .finish()
+    }
 }
 
 impl UnifiedFilterQueryBuilder {
@@ -739,5 +761,41 @@ mod tests {
 
         // First tag param should be $6
         assert!(result.where_clause.contains("$6"));
+    }
+
+    #[test]
+    fn unified_filter_result_debug_redacts_sql_and_params() {
+        let collection_id = Uuid::new_v4();
+        let filter = StrictFilter::new()
+            .with_collections(
+                StrictCollectionFilter::new()
+                    .in_collection(collection_id)
+                    .with_descendants(true),
+            )
+            .with_metadata(
+                MetadataFilter::new()
+                    .with_format("private-format sk-live-secret")
+                    .with_source("https://source.example.test/?token=secret"),
+            );
+
+        let builder = UnifiedFilterQueryBuilder::new(filter, 0);
+        let result = builder.build();
+        let debug = format!("{result:?}");
+
+        assert!(debug.contains("UnifiedFilterResult"));
+        assert!(debug.contains("where_clause_len"));
+        assert!(debug.contains("cte_clause_len"));
+        assert!(debug.contains("params_count"));
+        assert!(debug.contains("param_kinds"));
+        assert!(debug.contains("uuid_array"));
+        assert!(debug.contains("string"));
+        assert!(!debug.contains("WITH RECURSIVE"));
+        assert!(!debug.contains("collection_tree"));
+        assert!(!debug.contains("n.format"));
+        assert!(!debug.contains("n.source"));
+        assert!(!debug.contains(&collection_id.to_string()));
+        assert!(!debug.contains("private-format"));
+        assert!(!debug.contains("sk-live-secret"));
+        assert!(!debug.contains("source.example.test"));
     }
 }
