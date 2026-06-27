@@ -248,8 +248,8 @@ fn ai_revision_job_result(
 ) -> serde_json::Value {
     serde_json::json!({
         "revised_length": revised_len,
-        "revision_mode": revision_mode,
-        "effective_mode": effective_mode,
+        "revision_mode_len": diagnostic_len(format!("{revision_mode:?}")),
+        "effective_mode_len": diagnostic_len(format!("{effective_mode:?}")),
         "phase2_queued": phase2_queued,
         "chunked": is_chunked,
         "chunk_count": total_chunks,
@@ -268,7 +268,7 @@ fn ai_contextual_revision_job_result(
 ) -> serde_json::Value {
     serde_json::json!({
         "revised_length": revised_len,
-        "revision_mode": revision_mode,
+        "revision_mode_len": diagnostic_len(format!("{revision_mode:?}")),
         "related_notes_used": related_count,
         "context_filtered": context_filtered,
         "content_type_name_len": doc_type_name.map(diagnostic_len),
@@ -1487,8 +1487,8 @@ impl JobHandler for AiRevisionHandler {
             // Complete the provenance activity
             if let Some(act_id) = activity_id {
                 let metadata = serde_json::json!({
-                    "revision_mode": format!("{:?}", revision_mode),
-                    "effective_mode": format!("{:?}", effective_mode),
+                    "revision_mode_len": diagnostic_len(format!("{revision_mode:?}")),
+                    "effective_mode_len": diagnostic_len(format!("{effective_mode:?}")),
                     "revised_length": revised.len(),
                     "is_phase1": revision_mode.is_contextual(),
                 });
@@ -2232,7 +2232,7 @@ Output the revised note in clean markdown format. Do not add any labels, markers
 
             if let Some(act_id) = activity_id {
                 let metadata = serde_json::json!({
-                    "revision_mode": format!("{:?}", revision_mode),
+                    "revision_mode_len": diagnostic_len(format!("{revision_mode:?}")),
                     "related_notes_used": related_count,
                     "revised_length": revised.len(),
                     "context_filtered": context_filter.is_some(),
@@ -7877,10 +7877,14 @@ mod tests {
         );
 
         assert!(result.contains("content_type_name_len"));
+        assert!(result.contains("revision_mode_len"));
+        assert!(result.contains("effective_mode_len"));
         assert!(result.contains("title_len"));
         assert!(result.contains("filename_len"));
         assert!(result.contains("attachment_id_present"));
         assert!(result.contains("location_id_present"));
+        assert!(!result.contains("Standard"));
+        assert!(!result.contains("ContextualFiltered"));
         assert!(!result.contains("Private Customer"));
         assert!(!result.contains("sk-title-secret"));
         assert!(!result.contains("Confidential Lab Report"));
