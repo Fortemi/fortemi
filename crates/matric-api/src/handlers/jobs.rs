@@ -363,6 +363,18 @@ fn graph_maintenance_step_failure(
     })
 }
 
+fn graph_maintenance_job_result(
+    schema: &str,
+    duration_ms: u64,
+    steps: serde_json::Map<String, serde_json::Value>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "schema_len": diagnostic_len(schema),
+        "duration_ms": duration_ms,
+        "steps": steps,
+    })
+}
+
 fn ai_revision_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     let diagnostic = error.to_string();
     warn!(
@@ -7675,13 +7687,17 @@ impl JobHandler for GraphMaintenanceHandler {
         let _ = links; // suppress unused warning
         let duration_ms = start.elapsed().as_millis() as u64;
         ctx.report_progress(100, Some("Graph maintenance complete"));
-        info!(duration_ms, schema, "Graph maintenance pipeline completed");
+        info!(
+            duration_ms,
+            schema_len = diagnostic_len(schema),
+            "Graph maintenance pipeline completed"
+        );
 
-        JobResult::Success(Some(serde_json::json!({
-            "schema": schema,
-            "duration_ms": duration_ms,
-            "steps": results,
-        })))
+        JobResult::Success(Some(graph_maintenance_job_result(
+            schema,
+            duration_ms,
+            results,
+        )))
     }
 }
 
@@ -7822,6 +7838,25 @@ mod tests {
         assert!(!rendered.contains("sk-secret"));
         assert!(!rendered.contains("lab-report-secret-id"));
         assert!(!rendered.contains("secret-agent-detection"));
+    }
+
+    #[test]
+    fn graph_maintenance_result_redacts_schema_label() {
+        let schema = "tenant_secret_schema /srv/fortemi token=sk-secret";
+        let mut steps = serde_json::Map::new();
+        steps.insert(
+            "normalize".to_string(),
+            serde_json::json!({"status": "ok", "gamma": 0.75}),
+        );
+        let result = graph_maintenance_job_result(schema, 123, steps);
+        let rendered = result.to_string();
+
+        assert_eq!(result["schema_len"], diagnostic_len(schema));
+        assert_eq!(result["duration_ms"], 123);
+        assert_eq!(result["steps"]["normalize"]["status"], "ok");
+        assert!(!rendered.contains("tenant_secret_schema"));
+        assert!(!rendered.contains("/srv/fortemi"));
+        assert!(!rendered.contains("sk-secret"));
     }
 
     #[test]
