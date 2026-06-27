@@ -8963,9 +8963,9 @@ mod tests {
     fn cross_archive_debug_redacts_queries_results_and_identifiers() {
         let note_id = Uuid::now_v7();
         let request = CrossArchiveSearchRequest {
-            query: "find private token sk-secret in postgres://user:secret@db.internal".to_string(),
+            query: "探す private token sk-secret in postgres://user:secret@db.internal".to_string(),
             archives: vec![
-                "tenant_archive@example.internal".to_string(),
+                "tenant_日本@example.internal".to_string(),
                 "/srv/fortemi/private/archive".to_string(),
             ],
             mode: SearchMode::Hybrid,
@@ -8973,20 +8973,20 @@ mod tests {
             enable_fusion: true,
         };
         let result = CrossArchiveSearchResult {
-            archive_name: "archive_with_secret@example.internal".to_string(),
+            archive_name: "archive_秘密@example.internal".to_string(),
             note_id,
             score: 0.95,
-            snippet: Some("private snippet with /srv/fortemi/path and bearer-secret".to_string()),
-            title: Some("Sensitive title postgres://user:secret@db.internal".to_string()),
+            snippet: Some("抜粋 with /srv/fortemi/path and bearer-secret".to_string()),
+            title: Some("秘密 title postgres://user:secret@db.internal".to_string()),
             tags: vec![
-                "customer/email@example.internal".to_string(),
-                "token/sk-secret-cross-archive".to_string(),
+                "顧客/email@example.internal".to_string(),
+                "token/秘密-cross-archive".to_string(),
             ],
         };
         let response = CrossArchiveSearchResponse {
             results: vec![result.clone()],
             archives_searched: vec![
-                "archive_with_secret@example.internal".to_string(),
+                "archive_秘密@example.internal".to_string(),
                 "postgres://user:secret@db.internal/archive".to_string(),
             ],
             total: 1,
@@ -8995,14 +8995,21 @@ mod tests {
         let debug = format!("{request:?} {result:?} {response:?}");
 
         assert!(debug.contains("CrossArchiveSearchRequest"));
+        assert!(debug.contains("query_len: 64"));
+        assert!(debug.contains("archive_lens: [26, 28]"));
         assert!(debug.contains("query_len"));
         assert!(debug.contains("archives_count"));
         assert!(debug.contains("CrossArchiveSearchResult"));
+        assert!(debug.contains("archive_name_len: 27"));
+        assert!(debug.contains("snippet_len: Some(43)"));
+        assert!(debug.contains("title_len: Some(43)"));
+        assert!(debug.contains("tag_lens: [25, 22]"));
         assert!(debug.contains("archive_name_len"));
         assert!(debug.contains("snippet_len"));
         assert!(debug.contains("title_len"));
         assert!(debug.contains("tag_lens"));
         assert!(debug.contains("CrossArchiveSearchResponse"));
+        assert!(debug.contains("archives_searched_lens: [27, 42]"));
         assert!(debug.contains("results_count"));
         assert!(debug.contains("archives_searched_count"));
         assert!(!debug.contains("sk-secret"));
@@ -9092,20 +9099,20 @@ mod tests {
             provenance_id,
             attachment_id,
             note_id,
-            filename: "private-photo@example.internal-sk-secret.jpg".to_string(),
+            filename: "秘密-photo@example.internal-sk-secret.jpg".to_string(),
             content_type: Some("image/private-token".to_string()),
             capture_time: Some((Utc::now(), Some(Utc::now()))),
             event_type: Some("photo-secret-event".to_string()),
-            event_title: Some("Beach near postgres://user:secret@db.internal".to_string()),
+            event_title: Some("海 near postgres://user:secret@db.internal".to_string()),
             distance_m: Some(150.5),
-            location_name: Some("/srv/fortemi/private/location@example.internal".to_string()),
+            location_name: Some("/srv/fortemi/private/場所@example.internal".to_string()),
         };
         let memory_response = MemorySearchResponse {
             memories: vec![hit.clone()],
             total: 1,
         };
         let timeline_group = TimelineGroup {
-            period: "2026-06-private@example.internal".to_string(),
+            period: "2026-六月-private@example.internal".to_string(),
             start: Utc::now(),
             end: Utc::now(),
             memories: vec![hit.clone()],
@@ -9125,18 +9132,20 @@ mod tests {
         );
 
         assert!(debug.contains("MemoryHit"));
+        assert!(debug.contains("filename_len: 39"));
         assert!(debug.contains("filename_len"));
         assert!(debug.contains("event_title_len"));
         assert!(debug.contains("location_name_len"));
         assert!(debug.contains("MemorySearchResponse"));
         assert!(debug.contains("memories_count"));
         assert!(debug.contains("TimelineGroup"));
+        assert!(debug.contains("period_len: 32"));
         assert!(debug.contains("period_len"));
         assert!(debug.contains("TimelineResponse"));
         assert!(debug.contains("groups_count"));
         assert!(debug.contains("AttachmentSearchResponse"));
         assert!(debug.contains("attachments_count"));
-        assert!(!debug.contains("private-photo"));
+        assert!(!debug.contains("秘密-photo"));
         assert!(!debug.contains("example.internal"));
         assert!(!debug.contains("sk-secret"));
         assert!(!debug.contains("image/private-token"));

@@ -11,6 +11,14 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+fn debug_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn optional_debug_len(value: Option<&String>) -> Option<usize> {
+    value.map(|value| debug_len(value))
+}
+
 // =============================================================================
 // MEMORY SEARCH TYPES
 // =============================================================================
@@ -46,13 +54,16 @@ impl fmt::Debug for MemoryHit {
             .field("provenance_id_set", &true)
             .field("attachment_id_set", &true)
             .field("note_id_set", &true)
-            .field("filename_len", &self.filename.len())
-            .field("content_type_len", &self.content_type.as_ref().map(String::len))
+            .field("filename_len", &debug_len(&self.filename))
+            .field("content_type_len", &optional_debug_len(self.content_type.as_ref()))
             .field("capture_time_set", &self.capture_time.is_some())
-            .field("event_type_len", &self.event_type.as_ref().map(String::len))
-            .field("event_title_len", &self.event_title.as_ref().map(String::len))
+            .field("event_type_len", &optional_debug_len(self.event_type.as_ref()))
+            .field("event_title_len", &optional_debug_len(self.event_title.as_ref()))
             .field("distance_m_set", &self.distance_m.is_some())
-            .field("location_name_len", &self.location_name.as_ref().map(String::len))
+            .field(
+                "location_name_len",
+                &optional_debug_len(self.location_name.as_ref()),
+            )
             .finish()
     }
 }
@@ -107,7 +118,7 @@ pub struct TimelineGroup {
 impl fmt::Debug for TimelineGroup {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TimelineGroup")
-            .field("period_len", &self.period.len())
+            .field("period_len", &debug_len(&self.period))
             .field("start", &self.start)
             .field("end", &self.end)
             .field("memories_count", &self.memories.len())
@@ -141,9 +152,9 @@ pub struct CrossArchiveSearchRequest {
 
 impl fmt::Debug for CrossArchiveSearchRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let archive_lens: Vec<usize> = self.archives.iter().map(String::len).collect();
+        let archive_lens: Vec<usize> = self.archives.iter().map(|value| debug_len(value)).collect();
         f.debug_struct("CrossArchiveSearchRequest")
-            .field("query_len", &self.query.len())
+            .field("query_len", &debug_len(&self.query))
             .field("archives_count", &self.archives.len())
             .field("archive_lens", &archive_lens)
             .field("mode", &self.mode)
@@ -177,13 +188,13 @@ pub struct CrossArchiveSearchResult {
 
 impl fmt::Debug for CrossArchiveSearchResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let tag_lens: Vec<usize> = self.tags.iter().map(String::len).collect();
+        let tag_lens: Vec<usize> = self.tags.iter().map(|value| debug_len(value)).collect();
         f.debug_struct("CrossArchiveSearchResult")
-            .field("archive_name_len", &self.archive_name.len())
+            .field("archive_name_len", &debug_len(&self.archive_name))
             .field("note_id_set", &true)
             .field("score", &self.score)
-            .field("snippet_len", &self.snippet.as_ref().map(String::len))
-            .field("title_len", &self.title.as_ref().map(String::len))
+            .field("snippet_len", &optional_debug_len(self.snippet.as_ref()))
+            .field("title_len", &optional_debug_len(self.title.as_ref()))
             .field("tags_count", &self.tags.len())
             .field("tag_lens", &tag_lens)
             .finish()
@@ -201,7 +212,7 @@ pub struct CrossArchiveSearchResponse {
 impl fmt::Debug for CrossArchiveSearchResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let archives_searched_lens: Vec<usize> =
-            self.archives_searched.iter().map(String::len).collect();
+            self.archives_searched.iter().map(|value| debug_len(value)).collect();
         f.debug_struct("CrossArchiveSearchResponse")
             .field("results_count", &self.results.len())
             .field("archives_searched_count", &self.archives_searched.len())
@@ -244,14 +255,17 @@ impl fmt::Debug for AttachmentSearchRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AttachmentSearchRequest")
             .field("note_id_set", &self.note_id.is_some())
-            .field("content_type_len", &self.content_type.as_ref().map(String::len))
-            .field("event_type_len", &self.event_type.as_ref().map(String::len))
+            .field("content_type_len", &optional_debug_len(self.content_type.as_ref()))
+            .field("event_type_len", &optional_debug_len(self.event_type.as_ref()))
             .field("capture_after_set", &self.capture_after.is_some())
             .field("capture_before_set", &self.capture_before.is_some())
             .field("near_lat_set", &self.near_lat.is_some())
             .field("near_lon_set", &self.near_lon.is_some())
             .field("radius_m_set", &self.radius_m.is_some())
-            .field("location_name_len", &self.location_name.as_ref().map(String::len))
+            .field(
+                "location_name_len",
+                &optional_debug_len(self.location_name.as_ref()),
+            )
             .field("device_id_set", &self.device_id.is_some())
             .field("limit", &self.limit)
             .finish()
@@ -384,20 +398,20 @@ mod tests {
             provenance_id,
             attachment_id,
             note_id,
-            filename: "private-path-customer@example.com-sk-live.jpg".to_string(),
-            content_type: Some("image/private-token".to_string()),
+            filename: "秘密-photo-customer@example.com-sk-live.jpg".to_string(),
+            content_type: Some("image/秘密".to_string()),
             capture_time: Some((Utc::now(), None)),
-            event_type: Some("photo-secret".to_string()),
-            event_title: Some("Beach with bearer-secret at /srv/private".to_string()),
+            event_type: Some("写真-secret".to_string()),
+            event_title: Some("海 with bearer-secret at /srv/private".to_string()),
             distance_m: Some(150.5),
-            location_name: Some("Home customer@example.com".to_string()),
+            location_name: Some("自宅 customer@example.com".to_string()),
         };
         let response = MemorySearchResponse {
             memories: vec![hit.clone()],
             total: 1,
         };
         let group = TimelineGroup {
-            period: "2024-customer@example.com-sk-live".to_string(),
+            period: "2024-六月-customer@example.com-sk-live".to_string(),
             start: Utc::now(),
             end: Utc::now(),
             memories: vec![hit.clone()],
@@ -419,18 +433,21 @@ mod tests {
             attachment_id.to_string(),
             note_id.to_string(),
             "private-path",
+            "秘密",
             "customer@example.com",
             "sk-live",
-            "image/private-token",
-            "photo-secret",
+            "image/秘密",
+            "写真-secret",
             "bearer-secret",
             "/srv/private",
-            "Home",
+            "自宅",
             "2024-customer",
         ] {
             assert!(!debug.contains(&raw), "debug leaked {raw}: {debug}");
         }
 
+        assert!(debug.contains("filename_len: 39"));
+        assert!(debug.contains("period_len: 36"));
         assert!(debug.contains("memories_count"));
         assert!(debug.contains("groups_count"));
         assert!(debug.contains("attachments_count"));
@@ -443,9 +460,9 @@ mod tests {
         let note_id = Uuid::parse_str("dddddddd-dddd-4ddd-dddd-dddddddddddd").unwrap();
         let device_id = Uuid::parse_str("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee").unwrap();
         let request = CrossArchiveSearchRequest {
-            query: "find private@example.com sk-live /srv/private".to_string(),
+            query: "探す private@example.com sk-live /srv/private".to_string(),
             archives: vec![
-                "tenant_customer@example.com".to_string(),
+                "tenant_日本_customer@example.com".to_string(),
                 "postgres://admin:secret@db".to_string(),
             ],
             mode: crate::SearchMode::Hybrid,
@@ -453,31 +470,31 @@ mod tests {
             enable_fusion: true,
         };
         let result = CrossArchiveSearchResult {
-            archive_name: "tenant_customer@example.com".to_string(),
+            archive_name: "tenant_日本_customer@example.com".to_string(),
             note_id,
             score: 0.92,
-            snippet: Some("snippet has sk-live and /srv/private".to_string()),
-            title: Some("private title customer@example.com".to_string()),
+            snippet: Some("抜粋 has sk-live and /srv/private".to_string()),
+            title: Some("秘密 title customer@example.com".to_string()),
             tags: vec![
-                "secret-tag".to_string(),
+                "秘密-tag".to_string(),
                 "postgres://admin:secret@db".to_string(),
             ],
         };
         let response = CrossArchiveSearchResponse {
             results: vec![result],
-            archives_searched: vec!["tenant_customer@example.com".to_string()],
+            archives_searched: vec!["tenant_日本_customer@example.com".to_string()],
             total: 1,
         };
         let attachment_request = AttachmentSearchRequest {
             note_id: Some(note_id),
-            content_type: Some("image/secret".to_string()),
-            event_type: Some("scan-private".to_string()),
+            content_type: Some("image/秘密".to_string()),
+            event_type: Some("scan-秘密".to_string()),
             capture_after: Some(Utc::now()),
             capture_before: Some(Utc::now()),
             near_lat: Some(34.0195),
             near_lon: Some(-118.4912),
             radius_m: Some(500.0),
-            location_name: Some("home private@example.com".to_string()),
+            location_name: Some("自宅 private@example.com".to_string()),
             device_id: Some(device_id),
             limit: 10,
         };
@@ -487,21 +504,32 @@ mod tests {
         for raw in [
             note_id.to_string(),
             device_id.to_string(),
-            "find private@example.com sk-live /srv/private",
+            "探す private@example.com sk-live /srv/private",
             "tenant_customer@example.com",
+            "tenant_日本_customer@example.com",
             "postgres://admin:secret@db",
-            "snippet has",
-            "private title",
-            "secret-tag",
-            "image/secret",
-            "scan-private",
-            "home private@example.com",
+            "抜粋 has",
+            "秘密 title",
+            "秘密-tag",
+            "image/秘密",
+            "scan-秘密",
+            "自宅 private@example.com",
             "34.0195",
             "-118.4912",
         ] {
             assert!(!debug.contains(&raw), "debug leaked {raw}: {debug}");
         }
 
+        assert!(debug.contains("query_len: 44"));
+        assert!(debug.contains("archive_lens: [28, 26]"));
+        assert!(debug.contains("archive_name_len: 28"));
+        assert!(debug.contains("snippet_len: 31"));
+        assert!(debug.contains("title_len: 29"));
+        assert!(debug.contains("tag_lens: [6, 26]"));
+        assert!(debug.contains("archives_searched_lens: [28]"));
+        assert!(debug.contains("content_type_len: Some(8)"));
+        assert!(debug.contains("event_type_len: Some(7)"));
+        assert!(debug.contains("location_name_len: Some(26)"));
         assert!(debug.contains("query_len"));
         assert!(debug.contains("archives_count"));
         assert!(debug.contains("archive_lens"));
