@@ -24,6 +24,13 @@ impl ExtractionRegistry {
         self.adapters.insert(adapter.strategy(), adapter);
     }
 
+    fn missing_adapter_error(strategy: ExtractionStrategy) -> matric_core::Error {
+        matric_core::Error::Internal(format!(
+            "No extraction adapter registered; strategy_len={}",
+            strategy.to_string().chars().count()
+        ))
+    }
+
     /// Extract content using the adapter registered for the given strategy.
     pub async fn extract(
         &self,
@@ -33,12 +40,10 @@ impl ExtractionRegistry {
         mime_type: &str,
         config: &JsonValue,
     ) -> Result<ExtractionResult> {
-        let adapter = self.adapters.get(&strategy).ok_or_else(|| {
-            matric_core::Error::Internal(format!(
-                "No extraction adapter registered for strategy: {:?}",
-                strategy
-            ))
-        })?;
+        let adapter = self
+            .adapters
+            .get(&strategy)
+            .ok_or_else(|| Self::missing_adapter_error(strategy))?;
         adapter.extract(data, filename, mime_type, config).await
     }
 
@@ -56,12 +61,10 @@ impl ExtractionRegistry {
         config: &JsonValue,
         progress: ProgressFn,
     ) -> Result<ExtractionResult> {
-        let adapter = self.adapters.get(&strategy).ok_or_else(|| {
-            matric_core::Error::Internal(format!(
-                "No extraction adapter registered for strategy: {:?}",
-                strategy
-            ))
-        })?;
+        let adapter = self
+            .adapters
+            .get(&strategy)
+            .ok_or_else(|| Self::missing_adapter_error(strategy))?;
         adapter
             .extract_with_progress(data, filename, mime_type, config, progress)
             .await
@@ -128,7 +131,31 @@ mod tests {
                 &serde_json::json!({}),
             )
             .await;
-        assert!(result.is_err());
+        let err = result.expect_err("missing adapter should fail");
+        let matric_core::Error::Internal(detail) = err else {
+            panic!("missing adapter should return internal error");
+        };
+        assert!(detail.contains("strategy_len="));
+        assert!(!detail.contains("PdfText"));
+        assert!(!detail.contains("pdf_text"));
+
+        let result = registry
+            .extract_with_progress(
+                ExtractionStrategy::PdfText,
+                b"data",
+                "test.pdf",
+                "application/pdf",
+                &serde_json::json!({}),
+                Arc::new(|_, _| {}),
+            )
+            .await;
+        let err = result.expect_err("missing adapter should fail with progress");
+        let matric_core::Error::Internal(detail) = err else {
+            panic!("missing adapter should return internal error");
+        };
+        assert!(detail.contains("strategy_len="));
+        assert!(!detail.contains("PdfText"));
+        assert!(!detail.contains("pdf_text"));
     }
 
     #[tokio::test]
