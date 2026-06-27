@@ -5,7 +5,7 @@ use chrono::Utc;
 use hex;
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres, Row, Transaction};
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt};
 use uuid::Uuid;
 
 use matric_core::{
@@ -1283,7 +1283,7 @@ pub struct ListNotesWithFilterRequest {
 }
 
 /// Response for filtered note listing.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ListNotesWithFilterResponse {
     /// Total count of matching notes (before pagination).
     pub total: i64,
@@ -1295,6 +1295,18 @@ pub struct ListNotesWithFilterResponse {
     pub used_recursive_cte: bool,
     /// Number of active filter dimensions.
     pub active_dimensions: usize,
+}
+
+impl fmt::Debug for ListNotesWithFilterResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ListNotesWithFilterResponse")
+            .field("total", &self.total)
+            .field("notes_count", &self.notes.len())
+            .field("used_uuid_temporal_opt", &self.used_uuid_temporal_opt)
+            .field("used_recursive_cte", &self.used_recursive_cte)
+            .field("active_dimensions", &self.active_dimensions)
+            .finish()
+    }
 }
 
 impl PgNoteRepository {
@@ -1525,5 +1537,63 @@ mod tests {
             assert!(!metadata.contains(raw), "raw value leaked: {raw}");
         }
         assert_eq!(PgNoteRepository::access_source_metadata(None), None);
+    }
+
+    #[test]
+    fn list_notes_with_filter_response_debug_redacts_nested_note_content() {
+        let note_id = Uuid::new_v4();
+        let document_type_id = Uuid::new_v4();
+        let response = ListNotesWithFilterResponse {
+            total: 1,
+            notes: vec![NoteSummary {
+                id: note_id,
+                title: "CEO notes customer@example.com mm_key_title_secret".to_string(),
+                snippet: "snippet with postgres://user:pass@db/private and /srv/private"
+                    .to_string(),
+                embedding_status: None,
+                created_at_utc: Utc::now(),
+                updated_at_utc: Utc::now(),
+                starred: true,
+                archived: false,
+                tags: vec![
+                    "internal/path/tag".to_string(),
+                    "sk-proj-tag-secret".to_string(),
+                ],
+                has_revision: true,
+                metadata: serde_json::json!({
+                    "raw": "https://tenant.example/search?token=mm_key_metadata_secret"
+                }),
+                document_type_id: Some(document_type_id),
+                document_type_name: Some("contract-secret-type".to_string()),
+            }],
+            used_uuid_temporal_opt: true,
+            used_recursive_cte: false,
+            active_dimensions: 3,
+        };
+
+        let debug = format!("{:?}", response);
+
+        assert!(debug.contains("ListNotesWithFilterResponse"));
+        assert!(debug.contains("notes_count: 1"));
+        assert!(debug.contains("total: 1"));
+        assert!(debug.contains("active_dimensions: 3"));
+
+        for raw in [
+            &note_id.to_string(),
+            &document_type_id.to_string(),
+            "CEO notes",
+            "customer@example.com",
+            "mm_key_title_secret",
+            "postgres://user:pass@db/private",
+            "/srv/private",
+            "internal/path/tag",
+            "sk-proj-tag-secret",
+            "https://tenant.example",
+            "mm_key_metadata_secret",
+            "contract-secret-type",
+            "NoteSummary",
+        ] {
+            assert!(!debug.contains(raw), "raw value leaked in Debug: {raw}");
+        }
     }
 }
