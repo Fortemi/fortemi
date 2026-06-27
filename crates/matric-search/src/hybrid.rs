@@ -36,6 +36,20 @@ const MIN_SEMANTIC_SIMILARITY: f32 = 0.3;
 /// vectors occupy a similar region of the embedding manifold.
 const MIN_SEMANTIC_SIMILARITY_NO_FTS: f32 = 0.55;
 
+fn telemetry_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn search_query_telemetry_class(query: &str) -> &'static str {
+    if query.is_empty() {
+        "empty"
+    } else if query.chars().any(char::is_control) {
+        "contains_control"
+    } else {
+        "present"
+    }
+}
+
 /// Configuration for hybrid search.
 #[derive(Clone)]
 pub struct HybridSearchConfig {
@@ -698,7 +712,8 @@ impl HybridSearch for HybridSearchEngine {
         subsystem = "search",
         component = "hybrid_search",
         op = "search",
-        query = %query,
+        query_len = telemetry_text_len(query),
+        query_class = %search_query_telemetry_class(query),
         fts_weight = config.fts_weight,
         semantic_weight = config.semantic_weight,
     ))]
@@ -865,7 +880,8 @@ impl HybridSearch for HybridSearchEngine {
         subsystem = "search",
         component = "hybrid_search",
         op = "search_filtered",
-        query = %query,
+        query_len = telemetry_text_len(query),
+        query_class = %search_query_telemetry_class(query),
     ))]
     async fn search_filtered(
         &self,
@@ -1384,6 +1400,35 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "SearchRequest Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn search_query_telemetry_metadata_redacts_raw_query() {
+        let query =
+            "private@example.test postgres://user:pass@db.internal /srv/private sk-live-secret\n";
+
+        assert_eq!(telemetry_text_len(query), query.chars().count());
+        assert_eq!(search_query_telemetry_class(""), "empty");
+        assert_eq!(search_query_telemetry_class("ordinary query"), "present");
+        assert_eq!(search_query_telemetry_class(query), "contains_control");
+
+        let telemetry = format!(
+            "query_len={} query_class={}",
+            telemetry_text_len(query),
+            search_query_telemetry_class(query)
+        );
+
+        for secret in [
+            "private@example.test",
+            "postgres://user:pass@db.internal",
+            "/srv/private",
+            "sk-live-secret",
+        ] {
+            assert!(
+                !telemetry.contains(secret),
+                "Search query telemetry metadata leaked sensitive value {secret:?}: {telemetry}"
             );
         }
     }
