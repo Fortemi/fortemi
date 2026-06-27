@@ -31,6 +31,7 @@
 
 use crate::chunking::{Chunk, Chunker, ChunkerConfig, SemanticChunker};
 use std::collections::HashMap;
+use std::fmt;
 
 #[cfg(feature = "tree-sitter")]
 use tree_sitter::{Language, Node, Parser, Tree};
@@ -79,7 +80,7 @@ impl CodeUnitKind {
 }
 
 /// A code-aware chunk with syntactic context.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct CodeChunk {
     /// The actual chunk (implements standard Chunk interface).
     pub chunk: Chunk,
@@ -93,6 +94,36 @@ pub struct CodeChunk {
     pub parent_scope: Option<String>,
     /// Module path (e.g., ["matric_core", "models"]).
     pub module_path: Vec<String>,
+}
+
+impl fmt::Debug for CodeChunk {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CodeChunk")
+            .field("chunk", &self.chunk)
+            .field("unit_kind", &self.unit_kind)
+            .field(
+                "unit_name_len",
+                &self.unit_name.as_ref().map(|name| name.chars().count()),
+            )
+            .field("language_len", &self.language.chars().count())
+            .field(
+                "parent_scope_len",
+                &self
+                    .parent_scope
+                    .as_ref()
+                    .map(|scope| scope.chars().count()),
+            )
+            .field("module_path_count", &self.module_path.len())
+            .field(
+                "module_path_lens",
+                &self
+                    .module_path
+                    .iter()
+                    .map(|part| part.chars().count())
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 impl CodeChunk {
@@ -910,6 +941,64 @@ fn large_function() {
         assert_eq!(code_chunk.language, "rust");
         assert_eq!(code_chunk.parent_scope, Some("impl MyStruct".to_string()));
         assert_eq!(code_chunk.module_path.len(), 2);
+    }
+
+    #[test]
+    fn code_chunk_debug_redacts_code_symbols_and_module_paths() {
+        let mut metadata = HashMap::new();
+        metadata.insert("owner".to_string(), "customer@example.com".to_string());
+        metadata.insert(
+            "database".to_string(),
+            "postgres://user:secret@db.internal/app".to_string(),
+        );
+        metadata.insert("token".to_string(), "sk-live-code-metadata".to_string());
+
+        let chunk = Chunk::with_metadata(
+            "fn customer@example.com_secret() { let token = \"sk-live-code\"; }".to_string(),
+            0,
+            65,
+            metadata,
+        );
+        let code_chunk = CodeChunk::new(
+            chunk,
+            CodeUnitKind::Function,
+            Some("customer@example.com_sk_live_function".to_string()),
+            "rust-postgres://user:secret@db.internal".to_string(),
+            Some("impl SecretBearer<sk-live-scope>".to_string()),
+            vec![
+                "crate".to_string(),
+                "private/customer@example.com".to_string(),
+                "token/sk-live-module".to_string(),
+            ],
+        );
+
+        let debug = format!("{code_chunk:?}");
+
+        assert!(debug.contains("CodeChunk"));
+        assert!(debug.contains("Chunk"));
+        assert!(debug.contains("text_len"));
+        assert!(debug.contains("metadata_key_lens"));
+        assert!(debug.contains("metadata_value_lens"));
+        assert!(debug.contains("unit_name_len"));
+        assert!(debug.contains("language_len"));
+        assert!(debug.contains("parent_scope_len"));
+        assert!(debug.contains("module_path_count"));
+        assert!(debug.contains("module_path_lens"));
+
+        for raw in [
+            "customer@example.com",
+            "postgres://",
+            "db.internal",
+            "sk-live",
+            "SecretBearer",
+            "private/",
+            "token/",
+            "secret()",
+            "database",
+            "owner",
+        ] {
+            assert!(!debug.contains(raw), "Debug output leaked {raw}: {debug}");
+        }
     }
 
     #[cfg(feature = "tree-sitter")]
