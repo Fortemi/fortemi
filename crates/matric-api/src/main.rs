@@ -4290,7 +4290,7 @@ fn envelope_matches_filters(
 /// selection are accepted as query parameters (Issue #452).
 #[derive(Deserialize)]
 struct SseQuery {
-    /// Bearer token (`mm_at_*` or `mm_key_*`) for auth when headers are unavailable.
+    /// Bearer token for auth when headers are unavailable.
     token: Option<String>,
     /// Memory/archive name for scoping events. Falls back to `X-Fortemi-Memory` header.
     memory: Option<String>,
@@ -4320,8 +4320,8 @@ impl fmt::Debug for SseQuery {
 /// Clients connect to `/api/v1/events` and receive Server-Sent Events.
 ///
 /// ## Auth (Issue #452)
-/// - Query param: `?token=mm_at_xxx` or `?token=mm_key_xxx`
-/// - Header: `Authorization: Bearer mm_at_xxx`
+/// - Query param: `?token=<STREAM_TOKEN>`
+/// - Header: `Authorization: Bearer <ACCESS_TOKEN>`
 /// - When `REQUIRE_AUTH=true`, one of the above is required.
 ///
 /// ## Memory Scoping (Issue #452)
