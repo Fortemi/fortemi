@@ -724,7 +724,7 @@ async fn write_audit_row(
         let diagnostic = e.to_string();
         warn!(
             error_len = telemetry_text_len(&diagnostic),
-            action = %action,
+            action_len = telemetry_text_len(action),
             detail = INFERENCE_CONFIG_AUDIT_WRITE_FAILURE,
             "Failed to write inference_config_audit row"
         );
@@ -1914,10 +1914,13 @@ pub async fn update_inference_config(
         }
 
         if !probe_failures.is_empty() {
+            let failed_provider_total_len = probe_failures
+                .iter()
+                .map(|provider| telemetry_text_len(provider))
+                .sum::<usize>();
             warn!(
                 failure_count = probe_failures.len(),
-                failed_providers = %probe_failures.join(","),
-                "Atomic probe failed; aborting config swap"
+                failed_provider_total_len, "Atomic probe failed; aborting config swap"
             );
             return ApiError::ProviderFailure {
                 capability: "Inference configuration probe",
@@ -1974,7 +1977,7 @@ pub async fn update_inference_config(
             return inference_config_database_failed();
         }
         info!(
-            schema = %schema,
+            schema_len = telemetry_text_len(schema),
             "archive_inference_override persisted via POST /api/v1/inference/config"
         );
 
@@ -2269,7 +2272,7 @@ pub async fn delete_inference_config(
             return inference_config_database_failed();
         }
         info!(
-            schema = %schema,
+            schema_len = telemetry_text_len(schema),
             "archive_inference_override deleted via DELETE /api/v1/inference/config"
         );
 
@@ -3706,6 +3709,35 @@ mod tests_connection {
         assert!(!rendered.contains("tenant-secret-detected-provider"));
         assert!(!rendered.contains("tenant-secret-embedding-provider"));
         assert!(!rendered.contains("openai-compatible"));
+    }
+
+    #[test]
+    fn inference_config_operational_telemetry_uses_label_lengths_only() {
+        let action = "rotate-secret-for-tenant@example.com";
+        let schema = "private_archive_schema_token_secret";
+        let failed_providers = ["openai-secret-provider", "tenant-ollama-private"];
+        let failed_provider_total_len = failed_providers
+            .iter()
+            .map(|provider| telemetry_text_len(provider))
+            .sum::<usize>();
+
+        let rendered = format!(
+            "action_len={} schema_len={} failure_count={} failed_provider_total_len={}",
+            telemetry_text_len(action),
+            telemetry_text_len(schema),
+            failed_providers.len(),
+            failed_provider_total_len
+        );
+
+        assert!(rendered.contains("action_len"));
+        assert!(rendered.contains("schema_len"));
+        assert!(rendered.contains("failure_count=2"));
+        assert!(rendered.contains("failed_provider_total_len"));
+        assert!(!rendered.contains("tenant@example.com"));
+        assert!(!rendered.contains("private_archive_schema"));
+        assert!(!rendered.contains("token_secret"));
+        assert!(!rendered.contains("openai-secret-provider"));
+        assert!(!rendered.contains("tenant-ollama-private"));
     }
 
     #[test]
