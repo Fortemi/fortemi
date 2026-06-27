@@ -9,6 +9,14 @@
 
 use std::fmt::{self, Write};
 
+fn debug_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn optional_debug_len(value: Option<&String>) -> Option<usize> {
+    value.map(|value| debug_len(value))
+}
+
 /// A timestamped text segment for caption rendering.
 ///
 /// This is format-agnostic — convert from transcription segments, whisper output, etc.
@@ -27,8 +35,8 @@ impl fmt::Debug for CaptionSegment {
             .field("start_secs_set", &self.start_secs.is_finite())
             .field("end_secs_set", &self.end_secs.is_finite())
             .field("duration_secs", &(self.end_secs - self.start_secs))
-            .field("text_len", &self.text.len())
-            .field("speaker_len", &self.speaker.as_ref().map(String::len))
+            .field("text_len", &debug_len(&self.text))
+            .field("speaker_len", &optional_debug_len(self.speaker.as_ref()))
             .finish()
     }
 }
@@ -254,18 +262,13 @@ mod tests {
         let segment = CaptionSegment {
             start_secs: 1.25,
             end_secs: 3.75,
-            text: "Patient private@example.test said token sk-live-secret".to_string(),
-            speaker: Some("Dr. Private Speaker".to_string()),
+            text: "éé private@example.test sk-live-secret".to_string(),
+            speaker: Some("ö丼".to_string()),
         };
 
         let rendered = format!("{segment:?}");
 
-        for raw in [
-            "Patient",
-            "private@example.test",
-            "sk-live-secret",
-            "Dr. Private Speaker",
-        ] {
+        for raw in ["éé", "private@example.test", "sk-live-secret", "ö丼"] {
             assert!(
                 !rendered.contains(raw),
                 "CaptionSegment Debug output leaked raw value {raw:?}: {rendered}"
@@ -278,12 +281,18 @@ mod tests {
             "duration_secs",
             "text_len",
             "speaker_len",
+            "speaker_len: Some(2)",
         ] {
             assert!(
                 rendered.contains(expected),
                 "CaptionSegment Debug output should retain safe metadata field {expected:?}: {rendered}"
             );
         }
+
+        assert!(
+            rendered.contains("text_len: 38"),
+            "CaptionSegment Debug output should report Unicode character-count text length: {rendered}"
+        );
     }
 
     #[test]
