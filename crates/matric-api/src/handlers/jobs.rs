@@ -518,7 +518,7 @@ fn extraction_chunk_size(backend: Option<&OllamaBackend>) -> usize {
                 .max(matric_core::defaults::EXTRACTION_CHUNK_SIZE_MIN);
 
             info!(
-                model = %profile.name,
+                model_len = diagnostic_len(&profile.name),
                 context_tokens = profile.native_context,
                 chunk_chars = size,
                 "Computed extraction chunk size from model profile"
@@ -577,7 +577,7 @@ fn revision_chunk_size(backend: &OllamaBackend, running_ctx: Option<usize>) -> u
         let size = (available / 2).clamp(matric_core::defaults::REVISION_CHUNK_SIZE_MIN, 200_000);
 
         info!(
-            model = %profile.name,
+            model_len = diagnostic_len(&profile.name),
             context_tokens = effective_ctx,
             profile_context = profile.native_context,
             running_context = running_ctx.unwrap_or(0),
@@ -3437,7 +3437,7 @@ impl JobHandler for LinkingHandler {
         info!(
             note_id_present = true,
             result_count = created,
-            strategy = %graph_config.strategy,
+            strategy_len = diagnostic_len(&graph_config.strategy),
             wiki_found = wiki_links_found,
             wiki_resolved = wiki_links_resolved,
             duration_ms = start.elapsed().as_millis() as u64,
@@ -4921,7 +4921,7 @@ impl JobHandler for ReferenceExtractionHandler {
                     info!(
                         note_id_present = true,
                         entities = result.entities.len(),
-                        model = %result.model,
+                        model_len = diagnostic_len(&result.model),
                         detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
                         operation = "gliner_reference_extraction_complete",
                         "GLiNER extraction succeeded"
@@ -6473,8 +6473,8 @@ impl JobHandler for DocumentTypeInferenceHandler {
         ctx.report_progress(100, Some("Document type inference complete"));
         info!(
             note_id_present = true,
-            document_type_id = %doc_type_id,
-            detection_method = %detection_method,
+            document_type_id_len = diagnostic_len(doc_type_id),
+            detection_method_len = diagnostic_len(&detection_method),
             confidence = confidence,
             duration_ms = start.elapsed().as_millis() as u64,
             detail = JOB_DOCUMENT_TYPE_DIAGNOSTIC_FAILURE_DETAIL,
@@ -7563,10 +7563,25 @@ mod tests {
         let wiki_target = "Project Secret user@example.com token=sk-secret";
         let concept_label = "Sensitive Concept /srv/fortemi/private";
         let camera_model = "Camera Model with operator@example.com token=secret";
+        let model = "tenant-secret-model:8b";
+        let strategy = "private-archive-wiki-strategy";
+        let document_type_id = "lab-report-secret-id";
+        let detection_method = "secret-agent-detection";
+        let rendered = format!(
+            "model_len={} strategy_len={} document_type_id_len={} detection_method_len={}",
+            diagnostic_len(model),
+            diagnostic_len(strategy),
+            diagnostic_len(document_type_id),
+            diagnostic_len(detection_method)
+        );
 
         assert_eq!(diagnostic_len(wiki_target), wiki_target.chars().count());
         assert_eq!(diagnostic_len(concept_label), concept_label.chars().count());
         assert_eq!(diagnostic_len(camera_model), camera_model.chars().count());
+        assert!(!rendered.contains("tenant-secret-model"));
+        assert!(!rendered.contains("private-archive"));
+        assert!(!rendered.contains("lab-report-secret-id"));
+        assert!(!rendered.contains("secret-agent-detection"));
     }
 
     #[test]
