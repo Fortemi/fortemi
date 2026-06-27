@@ -6,6 +6,7 @@
 use axum::{extract::State, response::IntoResponse};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use std::fmt;
 
 use crate::AppState;
 use matric_core::ArchiveRepository;
@@ -14,7 +15,7 @@ use matric_core::ArchiveRepository;
 ///
 /// Contains the schema name to use for the current request and whether it's
 /// the default archive. Handlers can access this via request.extensions().
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ArchiveContext {
     /// PostgreSQL schema name to use for database operations.
     pub schema: String,
@@ -25,6 +26,16 @@ pub struct ArchiveContext {
     /// Human-readable archive name for event scoping (Issue #452).
     /// None for the fallback public schema when no default is configured.
     pub name: Option<String>,
+}
+
+impl fmt::Debug for ArchiveContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ArchiveContext")
+            .field("schema_len", &telemetry_text_len(&self.schema))
+            .field("is_default", &self.is_default)
+            .field("name_len", &self.name.as_deref().map(telemetry_text_len))
+            .finish()
+    }
 }
 
 impl Default for ArchiveContext {
@@ -307,6 +318,29 @@ mod tests {
         let ctx = ArchiveContext::default();
         assert_eq!(ctx.schema, "public");
         assert!(!ctx.is_default);
+    }
+
+    #[test]
+    fn archive_context_debug_redacts_schema_and_name() {
+        let ctx = ArchiveContext {
+            schema: "tenant_acme_ops_postgres://user:pass@db.internal/app".to_string(),
+            is_default: true,
+            name: Some("Acme Private Memory sk-archive-secret ops@example.com".to_string()),
+        };
+
+        let debug = format!("{ctx:?}");
+
+        assert!(debug.contains("ArchiveContext"));
+        assert!(debug.contains("schema_len"));
+        assert!(debug.contains("is_default: true"));
+        assert!(debug.contains("name_len"));
+        assert!(!debug.contains("tenant_acme_ops"));
+        assert!(!debug.contains("postgres://"));
+        assert!(!debug.contains("user:pass"));
+        assert!(!debug.contains("db.internal"));
+        assert!(!debug.contains("Acme Private Memory"));
+        assert!(!debug.contains("sk-archive-secret"));
+        assert!(!debug.contains("ops@example.com"));
     }
 
     #[test]
