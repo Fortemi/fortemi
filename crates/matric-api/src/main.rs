@@ -14498,15 +14498,11 @@ async fn compare_diagnostics_snapshots(
                 let before = links
                     .get_diagnostics_snapshot_tx(tx, before_id)
                     .await?
-                    .ok_or_else(|| {
-                        matric_db::Error::NotFound(format!("Snapshot {before_id} not found"))
-                    })?;
+                    .ok_or_else(|| diagnostics_snapshot_not_found_error("before", before_id))?;
                 let after = links
                     .get_diagnostics_snapshot_tx(tx, after_id)
                     .await?
-                    .ok_or_else(|| {
-                        matric_db::Error::NotFound(format!("Snapshot {after_id} not found"))
-                    })?;
+                    .ok_or_else(|| diagnostics_snapshot_not_found_error("after", after_id))?;
                 Ok(matric_db::DiagnosticsComparison::from_snapshots(
                     before, after,
                 ))
@@ -14514,6 +14510,12 @@ async fn compare_diagnostics_snapshots(
         })
         .await?;
     Ok(Json(result))
+}
+
+fn diagnostics_snapshot_not_found_error(side: &str, _id: Uuid) -> matric_db::Error {
+    matric_db::Error::NotFound(format!(
+        "Snapshot not found; snapshot_side={side}; snapshot_id_present=true"
+    ))
 }
 
 #[utoipa::path(post, path = "/api/v1/graph/snn/recompute", tag = "Graph",
@@ -28193,6 +28195,36 @@ mod tests {
             &cold_note_id.to_string(),
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn diagnostics_snapshot_not_found_errors_report_metadata_without_raw_ids() {
+        let before_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000018").unwrap();
+        let after_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000019").unwrap();
+
+        let cases = [
+            (
+                diagnostics_snapshot_not_found_error("before", before_id),
+                "snapshot_side=before",
+                before_id,
+            ),
+            (
+                diagnostics_snapshot_not_found_error("after", after_id),
+                "snapshot_side=after",
+                after_id,
+            ),
+        ];
+
+        for (error, side, raw_id) in cases {
+            let matric_db::Error::NotFound(message) = error else {
+                panic!("expected not-found error");
+            };
+
+            assert!(message.contains("Snapshot not found"));
+            assert!(message.contains(side));
+            assert!(message.contains("snapshot_id_present=true"));
+            assert!(!message.contains(&raw_id.to_string()));
         }
     }
 
