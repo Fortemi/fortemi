@@ -138,7 +138,8 @@ impl JobHandler for ExtractionHandler {
     }
 
     async fn execute(&self, ctx: JobContext) -> JobResult {
-        // Parse payload: { strategy, filename, mime_type, data, config }
+        // Parse payload. Attachment-backed jobs resolve raw filename/MIME from storage;
+        // payload filename/mime_type are legacy fallbacks for inline-data jobs.
         let payload = match ctx.payload() {
             Some(p) => p.clone(),
             None => return JobResult::Failed("Missing extraction job payload".into()),
@@ -153,14 +154,16 @@ impl JobHandler for ExtractionHandler {
             Err(_) => return JobResult::Failed("Invalid extraction strategy".into()),
         };
 
-        let filename = payload
+        let mut filename = payload
             .get("filename")
             .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let mime_type = payload
+            .unwrap_or("unknown")
+            .to_string();
+        let mut mime_type = payload
             .get("mime_type")
             .and_then(|v| v.as_str())
-            .unwrap_or("application/octet-stream");
+            .unwrap_or("application/octet-stream")
+            .to_string();
         let mut config = payload.get("config").cloned().unwrap_or_else(|| json!({}));
 
         // Parse optional attachment_id (used later for persisting results)
@@ -223,7 +226,15 @@ impl JobHandler for ExtractionHandler {
                 }
                 match path_result {
                     Ok(info) => {
-                        if let matric_db::FileSource::Filesystem(ref storage_path) = info.source {
+                        let matric_db::FileDownloadInfo {
+                            content_type,
+                            filename: stored_filename,
+                            source,
+                            ..
+                        } = info;
+                        filename = stored_filename;
+                        mime_type = content_type;
+                        if let matric_db::FileSource::Filesystem(ref storage_path) = source {
                             if let Some(fs_path) = file_storage.resolve_storage_path(storage_path) {
                                 let source_path = if file_access_mode
                                     == matric_core::defaults::VIDEO_FILE_ACCESS_DIRECT
@@ -284,7 +295,7 @@ impl JobHandler for ExtractionHandler {
                             }
                         } else {
                             // Inline storage: extract the data directly
-                            match info.source {
+                            match source {
                                 matric_db::FileSource::Inline(d) => d,
                                 _ => unreachable!(),
                             }
@@ -305,7 +316,11 @@ impl JobHandler for ExtractionHandler {
                     return extraction_job_failure("Commit failed", e);
                 }
                 match result {
-                    Ok((file_data, _content_type, _filename)) => file_data,
+                    Ok((file_data, stored_content_type, stored_filename)) => {
+                        filename = stored_filename;
+                        mime_type = stored_content_type;
+                        file_data
+                    }
                     Err(e) => return extraction_job_failure("Failed to download attachment", e),
                 }
             }
@@ -373,7 +388,7 @@ impl JobHandler for ExtractionHandler {
             }
             debug!(
                 strategy_len = telemetry_strategy_len(strategy),
-                filename_len = telemetry_text_len(filename),
+                filename_len = telemetry_text_len(&filename),
                 "_skip_vision injected — vision LLM calls deferred to atomic jobs"
             );
         }
@@ -386,7 +401,7 @@ impl JobHandler for ExtractionHandler {
             }
             debug!(
                 strategy_len = telemetry_strategy_len(strategy),
-                filename_len = telemetry_text_len(filename),
+                filename_len = telemetry_text_len(&filename),
                 "_skip_transcription injected — transcription deferred to AudioTranscription job"
             );
         }
@@ -426,7 +441,7 @@ impl JobHandler for ExtractionHandler {
         // Run extraction with progress reporting
         match self
             .registry
-            .extract_with_progress(strategy, &data, filename, mime_type, &config, progress)
+            .extract_with_progress(strategy, &data, &filename, &mime_type, &config, progress)
             .await
         {
             Ok(result) => {
@@ -688,7 +703,7 @@ impl JobHandler for ExtractionHandler {
                                 let base_name = filename
                                     .rsplit_once('.')
                                     .map(|(name, _)| name)
-                                    .unwrap_or(filename);
+                                    .unwrap_or(&filename);
 
                                 if let Ok(mut tx) = schema_ctx.begin_tx().await {
                                     // Plain text for all caption files (shared for extracted_text)
@@ -1752,7 +1767,7 @@ impl JobHandler for ExtractionHandler {
 
                 info!(
                     strategy_len = telemetry_strategy_len(strategy),
-                    filename_len = telemetry_text_len(filename),
+                    filename_len = telemetry_text_len(&filename),
                     text_len = result.extracted_text.as_ref().map(|t| t.len()).unwrap_or(0),
                     "Extraction completed successfully"
                 );
@@ -1765,7 +1780,7 @@ impl JobHandler for ExtractionHandler {
                 let error_msg = extraction_failure_message(&error_text);
                 error!(
                     strategy_len = telemetry_strategy_len(strategy),
-                    filename_len = telemetry_text_len(filename),
+                    filename_len = telemetry_text_len(&filename),
                     error_len = telemetry_text_len(&error_text),
                     error_reason = extraction_error_reason_code(&error_text),
                     "Extraction failed"

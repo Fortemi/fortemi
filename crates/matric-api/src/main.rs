@@ -184,11 +184,40 @@ async fn queue_extraction_job(
     schema: Option<&str>,
     vision_mode: Option<&str>,
 ) {
+    let payload = extraction_job_payload(
+        attachment_id,
+        strategy,
+        filename,
+        content_type,
+        schema,
+        vision_mode,
+    );
+
+    queue_extraction_job_payload(
+        db,
+        note_id,
+        attachment_id,
+        strategy,
+        filename,
+        payload,
+        event_bus,
+    )
+    .await;
+}
+
+fn extraction_job_payload(
+    attachment_id: Uuid,
+    strategy: ExtractionStrategy,
+    filename: &str,
+    content_type: &str,
+    schema: Option<&str>,
+    vision_mode: Option<&str>,
+) -> serde_json::Value {
     let mut payload = serde_json::json!({
         "strategy": strategy.to_string(),
         "attachment_id": attachment_id.to_string(),
-        "filename": filename,
-        "mime_type": content_type,
+        "filename_len": telemetry_text_len(filename),
+        "mime_type_len": telemetry_text_len(content_type),
     });
     if let Some(s) = schema {
         payload["schema"] = serde_json::json!(s);
@@ -203,7 +232,18 @@ async fn queue_extraction_job(
     if !config.is_empty() {
         payload["config"] = serde_json::Value::Object(config);
     }
+    payload
+}
 
+async fn queue_extraction_job_payload(
+    db: &Database,
+    note_id: Uuid,
+    attachment_id: Uuid,
+    strategy: ExtractionStrategy,
+    filename: &str,
+    payload: serde_json::Value,
+    event_bus: &EventBus,
+) {
     // Determine cost tier based on extraction strategy.
     // 3D model extraction uses Open3D renderer (GPU EGL), separated from
     // vision tier to avoid renderer↔Ollama GPU contention.
@@ -39552,6 +39592,30 @@ mod tests {
         assert!(serialized.contains("vision_mode_secret_candidate"));
         assert!(!serialized.contains("custom-sk-secret"));
         assert!(!serialized.contains("example.test"));
+    }
+
+    #[test]
+    fn extraction_job_payload_redacts_attachment_filename_and_mime() {
+        let payload = extraction_job_payload(
+            Uuid::new_v4(),
+            ExtractionStrategy::Vision,
+            "private-customer-mm_key_secret.jpg",
+            "application/x-private-customer",
+            Some("tenant_archive"),
+            Some("full"),
+        );
+        let rendered = payload.to_string();
+
+        assert_eq!(payload["strategy"], "vision");
+        assert_eq!(payload["filename_len"], 34);
+        assert_eq!(payload["mime_type_len"], 30);
+        assert_eq!(payload["config"]["vision_mode"], "full");
+        assert!(rendered.contains("attachment_id"));
+        assert!(!rendered.contains("private-customer"));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("application/x-private"));
+        assert!(!rendered.contains("filename\":\""));
+        assert!(!rendered.contains("mime_type\":\""));
     }
 
     #[test]
