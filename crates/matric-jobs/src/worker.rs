@@ -78,6 +78,17 @@ fn worker_job_type_len(job_type: &JobType) -> usize {
     format!("{job_type:?}").len()
 }
 
+fn worker_tier_class(tier_group: TierGroup) -> &'static str {
+    match tier_group {
+        TierGroup::CpuAndAgnostic => "cpu_agnostic",
+        TierGroup::AudioGpu => "audio_gpu",
+        TierGroup::FastGpu => "fast_gpu",
+        TierGroup::StandardGpu => "standard_gpu",
+        TierGroup::RenderGpu => "render_gpu",
+        TierGroup::VisionGpu => "vision_gpu",
+    }
+}
+
 impl WorkerConfig {
     /// Create config from environment variables (with defaults).
     ///
@@ -678,7 +689,10 @@ impl JobWorker {
                 break;
             }
 
-            debug!(tier = ?tier_group, claimed, "Processing tiered job batch");
+            debug!(
+                tier_class = worker_tier_class(tier_group),
+                claimed, "Processing tiered job batch"
+            );
             while let Some(result) = tasks.join_next().await {
                 if let Err(e) = result {
                     let error_text = e.to_string();
@@ -726,7 +740,7 @@ impl JobWorker {
                 error!(
                     error_len,
                     error_reason,
-                    tier = ?tier_group,
+                    tier_class = worker_tier_class(tier_group),
                     "Failed to claim job for tier"
                 );
                 None
@@ -1025,6 +1039,26 @@ mod tests {
         assert!(!rendered.contains("postgres://user:pass"));
         assert!(!rendered.contains("/srv/private"));
         assert!(!rendered.contains("mm_key_worker"));
+    }
+
+    #[test]
+    fn worker_tier_telemetry_uses_stable_classes() {
+        let rendered = format!(
+            "tier_class={}; tier_class={}",
+            worker_tier_class(TierGroup::CpuAndAgnostic),
+            worker_tier_class(TierGroup::RenderGpu)
+        );
+
+        assert_eq!(worker_tier_class(TierGroup::CpuAndAgnostic), "cpu_agnostic");
+        assert_eq!(worker_tier_class(TierGroup::AudioGpu), "audio_gpu");
+        assert_eq!(worker_tier_class(TierGroup::FastGpu), "fast_gpu");
+        assert_eq!(worker_tier_class(TierGroup::StandardGpu), "standard_gpu");
+        assert_eq!(worker_tier_class(TierGroup::RenderGpu), "render_gpu");
+        assert_eq!(worker_tier_class(TierGroup::VisionGpu), "vision_gpu");
+        assert!(rendered.contains("tier_class=cpu_agnostic"));
+        assert!(rendered.contains("tier_class=render_gpu"));
+        assert!(!rendered.contains("CpuAndAgnostic"));
+        assert!(!rendered.contains("RenderGpu"));
     }
 
     // ========== NEW COMPREHENSIVE TESTS ==========
