@@ -754,7 +754,11 @@ impl GraphConfig {
             if let Some(strategy) = GraphLinkingStrategy::from_str_loose(&val) {
                 config.strategy = strategy;
             } else {
-                tracing::warn!(value = %val, "Invalid GRAPH_LINKING_STRATEGY, using default");
+                tracing::warn!(
+                    value_len = val.len(),
+                    value_class = graph_env_value_class(&val),
+                    "Invalid GRAPH_LINKING_STRATEGY, using default"
+                );
             }
         }
 
@@ -767,7 +771,11 @@ impl GraphConfig {
                     config.adaptive_k = false;
                 }
             } else {
-                tracing::warn!(value = %val, "Invalid GRAPH_K_NEIGHBORS, using default");
+                tracing::warn!(
+                    value_len = val.len(),
+                    value_class = graph_env_value_class(&val),
+                    "Invalid GRAPH_K_NEIGHBORS, using default"
+                );
             }
         }
 
@@ -837,6 +845,21 @@ impl GraphConfig {
         }
         let k = (note_count as f64).log2().floor() as usize;
         k.clamp(self.k_min, self.k_max)
+    }
+}
+
+fn graph_env_value_class(value: &str) -> &'static str {
+    if value.is_empty() {
+        "empty"
+    } else if value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    {
+        "token"
+    } else if value.contains("://") {
+        "url_like"
+    } else {
+        "other"
     }
 }
 
@@ -1160,6 +1183,20 @@ mod tests {
         assert_eq!(
             GraphLinkingStrategy::HnswHeuristic.to_string(),
             "hnsw_heuristic"
+        );
+    }
+
+    #[test]
+    fn graph_env_value_class_reports_metadata_without_raw_values() {
+        assert_eq!(graph_env_value_class(""), "empty");
+        assert_eq!(graph_env_value_class("sk-live-secret-token"), "token");
+        assert_eq!(
+            graph_env_value_class("postgres://user:pass@db.internal/app"),
+            "url_like"
+        );
+        assert_eq!(
+            graph_env_value_class("/srv/private/customer@example.com"),
+            "other"
         );
     }
 
