@@ -648,7 +648,7 @@ impl JobHandler for MediaOptimizeHandler {
             None => return JobResult::Failed("Missing or invalid attachment_id".into()),
         };
 
-        let content_type = payload
+        let payload_content_type = payload
             .get("content_type")
             .and_then(|v| v.as_str())
             .unwrap_or("")
@@ -691,11 +691,16 @@ impl JobHandler for MediaOptimizeHandler {
             Ok(tx) => tx,
             Err(e) => return media_job_failure_from_error("Failed to start transaction", &e),
         };
-        let (file_data, _ct, original_filename) =
+        let (file_data, stored_content_type, original_filename) =
             match file_storage.download_file_tx(&mut tx, attachment_id).await {
                 Ok(data) => data,
                 Err(e) => return media_job_failure_from_error("Failed to download attachment", &e),
             };
+        let content_type = if stored_content_type.is_empty() {
+            payload_content_type
+        } else {
+            stored_content_type
+        };
         if let Err(e) = tx.commit().await {
             return media_job_failure_from_error("Transaction commit failed", &e);
         }

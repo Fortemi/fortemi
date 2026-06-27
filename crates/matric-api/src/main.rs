@@ -378,10 +378,7 @@ async fn queue_media_optimize_job(
         return;
     }
 
-    let mut payload = serde_json::json!({
-        "attachment_id": attachment_id.to_string(),
-        "content_type": content_type,
-    });
+    let mut payload = media_optimize_job_payload(attachment_id, content_type);
     if let Some(s) = schema {
         payload["schema"] = serde_json::json!(s);
     }
@@ -414,6 +411,13 @@ async fn queue_media_optimize_job(
             );
         }
     }
+}
+
+fn media_optimize_job_payload(attachment_id: Uuid, content_type: &str) -> serde_json::Value {
+    serde_json::json!({
+        "attachment_id": attachment_id.to_string(),
+        "content_type_len": telemetry_text_len(content_type),
+    })
 }
 
 /// Parse and validate a `revision_mode` string, returning 400 for invalid values.
@@ -39616,6 +39620,19 @@ mod tests {
         assert!(!rendered.contains("application/x-private"));
         assert!(!rendered.contains("filename\":\""));
         assert!(!rendered.contains("mime_type\":\""));
+    }
+
+    #[test]
+    fn media_optimize_job_payload_redacts_content_type() {
+        let payload =
+            media_optimize_job_payload(Uuid::new_v4(), "video/x-private-customer-mm_key_secret");
+        let rendered = payload.to_string();
+
+        assert_eq!(payload["content_type_len"], 38);
+        assert!(rendered.contains("attachment_id"));
+        assert!(!rendered.contains("video/x-private"));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("content_type\":\""));
     }
 
     #[test]
