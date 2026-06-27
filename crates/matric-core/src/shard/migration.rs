@@ -20,16 +20,16 @@ impl fmt::Debug for MigrationError {
         match self {
             Self::NoMigrationPath { from, to } => f
                 .debug_struct("NoMigrationPath")
-                .field("from_len", &from.len())
-                .field("to_len", &to.len())
+                .field("from_len", &from.chars().count())
+                .field("to_len", &to.chars().count())
                 .finish(),
             Self::MigrationFailed(message) => f
                 .debug_tuple("MigrationFailed")
-                .field(&format_args!("message_len={}", message.len()))
+                .field(&format_args!("message_len={}", message.chars().count()))
                 .finish(),
             Self::InvalidVersion(version) => f
                 .debug_tuple("InvalidVersion")
-                .field(&format_args!("version_len={}", version.len()))
+                .field(&format_args!("version_len={}", version.chars().count()))
                 .finish(),
             Self::CircularMigration => f.write_str("CircularMigration"),
         }
@@ -42,17 +42,21 @@ impl fmt::Display for MigrationError {
             Self::NoMigrationPath { from, to } => write!(
                 f,
                 "no shard migration path found; from_len={}, to_len={}",
-                from.len(),
-                to.len()
+                from.chars().count(),
+                to.chars().count()
             ),
             Self::MigrationFailed(message) => {
-                write!(f, "shard migration failed; message_len={}", message.len())
+                write!(
+                    f,
+                    "shard migration failed; message_len={}",
+                    message.chars().count()
+                )
             }
             Self::InvalidVersion(version) => {
                 write!(
                     f,
                     "invalid shard migration version; version_len={}",
-                    version.len()
+                    version.chars().count()
                 )
             }
             Self::CircularMigration => f.write_str("circular shard migration detected"),
@@ -79,7 +83,7 @@ impl fmt::Debug for MigrationResult {
             Value::Object(_) => "object",
         };
         let data_len = serde_json::to_string(&self.data)
-            .map(|serialized| serialized.len())
+            .map(|serialized| serialized.chars().count())
             .unwrap_or_default();
 
         f.debug_struct("MigrationResult")
@@ -346,13 +350,13 @@ mod tests {
     fn migration_error_display_and_debug_redact_versions_and_backend_messages() {
         let errors = [
             MigrationError::NoMigrationPath {
-                from: "postgres://admin:secret@db.internal/fortemi".to_string(),
-                to: "2.0.0-sk-live-customer@example.com".to_string(),
+                from: "postgres://admin:秘密@db.internal/fortemi".to_string(),
+                to: "2.0.0-sk-live-customer@example.com-秘密".to_string(),
             },
             MigrationError::MigrationFailed(
-                "backend returned /srv/private/shard.tar bearer-secret".to_string(),
+                "backend returned /srv/private/shard.tar bearer-秘密".to_string(),
             ),
-            MigrationError::InvalidVersion("version customer@example.com sk-live".to_string()),
+            MigrationError::InvalidVersion("version customer@example.com sk-live 秘密".to_string()),
         ];
 
         for error in errors {
@@ -364,15 +368,22 @@ mod tests {
                 combined.contains("_len=") || combined.contains("CircularMigration"),
                 "migration error should retain only metadata: {combined}"
             );
+            assert!(
+                combined.contains("from_len=39")
+                    || combined.contains("message_len=49")
+                    || combined.contains("version_len=39"),
+                "migration error should use Unicode character-count lengths: {combined}"
+            );
             for raw in [
                 "postgres://",
-                "admin:secret",
+                "admin:秘密",
                 "db.internal",
                 "fortemi",
                 "sk-live",
                 "customer@example.com",
+                "秘密",
                 "/srv/private",
-                "bearer-secret",
+                "bearer-秘密",
             ] {
                 assert!(
                     !combined.contains(raw),
@@ -386,10 +397,10 @@ mod tests {
     fn migration_result_debug_redacts_migrated_json_payload() {
         let result = MigrationResult {
             data: serde_json::json!({
-                "database_url": "postgres://admin:secret@db.internal/fortemi",
+                "database_url": "postgres://admin:秘密@db.internal/fortemi",
                 "owner": "customer@example.com",
                 "path": "/srv/private/shard.tar",
-                "token": "sk-live-secret"
+                "token": "sk-live-秘密"
             }),
             warnings: vec![],
         };
@@ -397,17 +408,19 @@ mod tests {
         let debug = format!("{result:?}");
         assert!(debug.contains("MigrationResult"));
         assert!(debug.contains("data_class"));
+        assert!(debug.contains("data_len: 142"));
         assert!(debug.contains("data_len"));
         assert!(debug.contains("warnings_len"));
 
         for raw in [
             "database_url",
             "postgres://",
-            "admin:secret",
+            "admin:秘密",
             "db.internal",
             "customer@example.com",
             "/srv/private",
             "sk-live",
+            "秘密",
         ] {
             assert!(
                 !debug.contains(raw),

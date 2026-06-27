@@ -42,9 +42,12 @@ impl fmt::Debug for UpgradeStep {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UpgradeStep")
             .field("order", &self.order)
-            .field("title_len", &self.title.len())
-            .field("description_len", &self.description.len())
-            .field("command_len", &self.command.as_ref().map(String::len))
+            .field("title_len", &self.title.chars().count())
+            .field("description_len", &self.description.chars().count())
+            .field(
+                "command_len",
+                &self.command.as_ref().map(|value| value.chars().count()),
+            )
             .field("is_automatic", &self.is_automatic)
             .finish()
     }
@@ -64,8 +67,8 @@ pub struct UpgradeGuidance {
 impl fmt::Debug for UpgradeGuidance {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UpgradeGuidance")
-            .field("from_version_len", &self.from_version.len())
-            .field("to_version_len", &self.to_version.len())
+            .field("from_version_len", &self.from_version.chars().count())
+            .field("to_version_len", &self.to_version.chars().count())
             .field("difficulty", &self.difficulty)
             .field("steps_count", &self.steps.len())
             .field(
@@ -77,10 +80,10 @@ impl fmt::Debug for UpgradeGuidance {
                 &self
                     .new_features_available
                     .iter()
-                    .map(String::len)
+                    .map(|value| value.chars().count())
                     .collect::<Vec<_>>(),
             )
-            .field("summary_len", &self.summary.len())
+            .field("summary_len", &self.summary.chars().count())
             .finish()
     }
 }
@@ -289,24 +292,24 @@ mod tests {
     #[test]
     fn upgrade_guidance_debug_redacts_versions_steps_features_and_summaries() {
         let guidance = UpgradeGuidance {
-            from_version: "1.0.0-customer@example.com".to_string(),
-            to_version: "2.0.0-sk-live-upgrade-token".to_string(),
+            from_version: "1.0.0-customer@example.com-秘密".to_string(),
+            to_version: "2.0.0-sk-live-token-秘密".to_string(),
             difficulty: UpgradeDifficulty::Moderate,
             steps: vec![UpgradeStep {
                 order: 1,
-                title: "Rotate postgres://admin:secret@db.internal/fortemi".to_string(),
-                description: "Move private/archive path /srv/private/customer@example.com"
+                title: "Rotate 秘密 postgres://admin:secret@db.internal/fortemi".to_string(),
+                description: "Move private/archive 秘密 path /srv/private/customer@example.com"
                     .to_string(),
                 command: Some(
-                    "fortemi import --token bearer-secret --path private/shard".to_string(),
+                    "fortemi import 秘密 --token bearer-secret --path private/shard".to_string(),
                 ),
                 is_automatic: false,
             }],
             new_features_available: vec![
-                "Document type registry for customer@example.com".to_string(),
-                "Provider key sk-live-feature".to_string(),
+                "Document type registry 秘密".to_string(),
+                "Provider key 秘密".to_string(),
             ],
-            summary: "Upgrade summary contains postgres://admin:secret@db.internal/fortemi"
+            summary: "Upgrade summary 秘密 contains postgres://admin:secret@db.internal/fortemi"
                 .to_string(),
         };
 
@@ -328,6 +331,7 @@ mod tests {
                 "Rotate",
                 "Move private/archive",
                 "fortemi import",
+                "秘密",
             ] {
                 assert!(
                     !debug_output.contains(raw),
@@ -337,12 +341,19 @@ mod tests {
         }
 
         assert!(guidance_debug.contains("UpgradeGuidance"));
+        assert!(guidance_debug.contains("from_version_len: 29"));
+        assert!(guidance_debug.contains("to_version_len: 22"));
         assert!(guidance_debug.contains("from_version_len"));
         assert!(guidance_debug.contains("to_version_len"));
         assert!(guidance_debug.contains("steps_count"));
+        assert!(guidance_debug.contains("new_features_available_lens: [25, 15]"));
         assert!(guidance_debug.contains("new_features_available_lens"));
+        assert!(guidance_debug.contains("summary_len: 71"));
         assert!(guidance_debug.contains("summary_len"));
         assert!(step_debug.contains("UpgradeStep"));
+        assert!(step_debug.contains("title_len: 53"));
+        assert!(step_debug.contains("description_len: 62"));
+        assert!(step_debug.contains("command_len: Some(60)"));
         assert!(step_debug.contains("title_len"));
         assert!(step_debug.contains("description_len"));
         assert!(step_debug.contains("command_len"));

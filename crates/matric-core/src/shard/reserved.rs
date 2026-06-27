@@ -85,10 +85,10 @@ pub struct ReservedFieldError {
 impl fmt::Debug for ReservedFieldError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ReservedFieldError")
-            .field("field_len", &self.field.len())
+            .field("field_len", &self.field.chars().count())
             .field("component", &self.component)
-            .field("removed_in_len", &self.removed_in.len())
-            .field("reason_len", &self.reason.len())
+            .field("removed_in_len", &self.removed_in.chars().count())
+            .field("reason_len", &self.reason.chars().count())
             .finish()
     }
 }
@@ -99,9 +99,9 @@ impl fmt::Display for ReservedFieldError {
             f,
             "reserved field used in {:?}; field_len={}, removed_in_len={}, reason_len={}",
             self.component,
-            self.field.len(),
-            self.removed_in.len(),
-            self.reason.len()
+            self.field.chars().count(),
+            self.removed_in.chars().count(),
+            self.reason.chars().count()
         )
     }
 }
@@ -176,10 +176,10 @@ mod tests {
     #[test]
     fn reserved_field_error_display_and_debug_redact_field_version_and_reason() {
         let error = ReservedFieldError {
-            field: "database_url_postgres://admin:secret@db.internal/fortemi".to_string(),
+            field: "database_url_postgres://admin:秘密@db.internal/fortemi".to_string(),
             component: FieldComponent::Note,
-            removed_in: "2.0.0-sk-live-token".to_string(),
-            reason: "Replaced by /srv/private/customer@example.com bearer-secret".to_string(),
+            removed_in: "2.0.0-sk-live-秘密".to_string(),
+            reason: "Replaced by /srv/private/customer@example.com bearer-秘密".to_string(),
         };
 
         let display = error.to_string();
@@ -187,10 +187,16 @@ mod tests {
         let combined = format!("{display}\n{debug}");
 
         assert!(display.contains("reserved field used in Note"));
+        assert!(display.contains("field_len=52"));
+        assert!(display.contains("removed_in_len=16"));
+        assert!(display.contains("reason_len=55"));
         assert!(display.contains("field_len="));
         assert!(display.contains("removed_in_len="));
         assert!(display.contains("reason_len="));
         assert!(debug.contains("ReservedFieldError"));
+        assert!(debug.contains("field_len: 52"));
+        assert!(debug.contains("removed_in_len: 16"));
+        assert!(debug.contains("reason_len: 55"));
         assert!(debug.contains("field_len"));
         assert!(debug.contains("removed_in_len"));
         assert!(debug.contains("reason_len"));
@@ -203,9 +209,10 @@ mod tests {
             "fortemi",
             "2.0.0",
             "sk-live",
+            "秘密",
             "/srv/private",
             "customer@example.com",
-            "bearer-secret",
+            "bearer-秘密",
         ] {
             assert!(
                 !combined.contains(raw),

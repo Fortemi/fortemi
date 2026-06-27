@@ -31,19 +31,22 @@ impl fmt::Debug for CompatibilityResult {
             Self::Compatible => f.debug_struct("Compatible").finish(),
             Self::RequiresMigration { from, to } => f
                 .debug_struct("RequiresMigration")
-                .field("from_len", &from.len())
-                .field("to_len", &to.len())
+                .field("from_len", &from.chars().count())
+                .field("to_len", &to.chars().count())
                 .finish(),
             Self::NewerMinor {
                 shard_version,
                 warnings,
             } => f
                 .debug_struct("NewerMinor")
-                .field("shard_version_len", &shard_version.len())
+                .field("shard_version_len", &shard_version.chars().count())
                 .field("warnings_count", &warnings.len())
                 .field(
                     "warning_lens",
-                    &warnings.iter().map(String::len).collect::<Vec<_>>(),
+                    &warnings
+                        .iter()
+                        .map(|value| value.chars().count())
+                        .collect::<Vec<_>>(),
                 )
                 .finish(),
             Self::Incompatible {
@@ -51,8 +54,11 @@ impl fmt::Debug for CompatibilityResult {
                 min_required,
             } => f
                 .debug_struct("Incompatible")
-                .field("reason_len", &reason.len())
-                .field("min_required_len", &min_required.as_ref().map(String::len))
+                .field("reason_len", &reason.chars().count())
+                .field(
+                    "min_required_len",
+                    &min_required.as_ref().map(|value| value.chars().count()),
+                )
                 .finish(),
         }
     }
@@ -200,19 +206,20 @@ mod tests {
     fn compatibility_result_debug_redacts_versions_warnings_and_reasons() {
         let results = [
             CompatibilityResult::RequiresMigration {
-                from: "1.0.0-customer@example.com".to_string(),
-                to: "2.0.0-sk-live-token".to_string(),
+                from: "1.0.0-customer@example.com-秘密".to_string(),
+                to: "2.0.0-sk-live-token-秘密".to_string(),
             },
             CompatibilityResult::NewerMinor {
-                shard_version: "1.9.0-private/shard".to_string(),
+                shard_version: "1.9.0-private/秘密-shard".to_string(),
                 warnings: vec![
-                    "Shard warning for postgres://admin:secret@db.internal/fortemi".to_string(),
-                    "Operator path /srv/private/customer@example.com".to_string(),
+                    "Shard warning for postgres://admin:秘密@db.internal/fortemi".to_string(),
+                    "Operator path /srv/private/customer@example.com/秘密".to_string(),
                 ],
             },
             CompatibilityResult::Incompatible {
-                reason: "Invalid shard version bearer-secret at db.internal/private".to_string(),
-                min_required: Some("2.0.0-sk-live-token".to_string()),
+                reason: "Invalid shard version bearer-secret at db.internal/private 秘密"
+                    .to_string(),
+                min_required: Some("2.0.0-sk-live-token-秘密".to_string()),
             },
         ];
 
@@ -222,6 +229,7 @@ mod tests {
                 "customer@example.com",
                 "sk-live",
                 "private/shard",
+                "private/秘密-shard",
                 "postgres://",
                 "db.internal",
                 "/srv/private",
@@ -229,20 +237,30 @@ mod tests {
                 "Shard warning",
                 "Operator path",
                 "Invalid shard version",
+                "秘密",
             ] {
                 assert!(!debug.contains(raw), "debug output leaked {raw}: {debug}");
             }
 
-            assert!(
-                debug.contains("RequiresMigration")
-                    || debug.contains("NewerMinor")
-                    || debug.contains("Incompatible")
-            );
-            assert!(
-                debug.contains("_len")
-                    || debug.contains("_count")
-                    || debug.contains("warning_lens")
-            );
+            match result {
+                CompatibilityResult::RequiresMigration { .. } => {
+                    assert!(debug.contains("RequiresMigration"));
+                    assert!(debug.contains("from_len: 29"));
+                    assert!(debug.contains("to_len: 22"));
+                }
+                CompatibilityResult::NewerMinor { .. } => {
+                    assert!(debug.contains("NewerMinor"));
+                    assert!(debug.contains("shard_version_len: 22"));
+                    assert!(debug.contains("warnings_count: 2"));
+                    assert!(debug.contains("warning_lens: [57, 50]"));
+                }
+                CompatibilityResult::Incompatible { .. } => {
+                    assert!(debug.contains("Incompatible"));
+                    assert!(debug.contains("reason_len: 61"));
+                    assert!(debug.contains("min_required_len: Some(22)"));
+                }
+                CompatibilityResult::Compatible => unreachable!("not included in regression cases"),
+            }
         }
     }
 
