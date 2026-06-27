@@ -1198,15 +1198,17 @@ impl<T> std::fmt::Debug for ListResponse<T> {
 struct CallDetailResponse {
     call_id: Uuid,
     provider: String,
-    provider_call_id: String,
+    provider_call: serde_json::Value,
     started_at: chrono::DateTime<chrono::Utc>,
     ended_at: Option<chrono::DateTime<chrono::Utc>>,
     end_reason: Option<String>,
     duration_secs: Option<f64>,
-    asr_backend: Option<String>,
-    remote_party: Option<String>,
+    asr_backend_len: Option<usize>,
+    remote_party_present: bool,
+    remote_party_len: Option<usize>,
     archive_id: Option<Uuid>,
-    metadata: serde_json::Value,
+    metadata_class: String,
+    metadata_len: usize,
     segment_count: usize,
     segments: Vec<matric_core::TranscriptSegment>,
     pagination: PaginationMeta,
@@ -1217,7 +1219,10 @@ impl std::fmt::Debug for CallDetailResponse {
         f.debug_struct("CallDetailResponse")
             .field("call_id_set", &true)
             .field("provider_len", &self.provider.len())
-            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field(
+                "provider_call_class",
+                &webhook_delivery_json_class(&self.provider_call),
+            )
             .field("started_at", &self.started_at)
             .field("ended_at", &self.ended_at)
             .field(
@@ -1225,19 +1230,12 @@ impl std::fmt::Debug for CallDetailResponse {
                 &self.end_reason.as_ref().map(|value| value.len()),
             )
             .field("duration_secs", &self.duration_secs)
-            .field(
-                "asr_backend_len",
-                &self.asr_backend.as_ref().map(|value| value.len()),
-            )
-            .field(
-                "remote_party_len",
-                &self.remote_party.as_ref().map(|value| value.len()),
-            )
+            .field("asr_backend_len", &self.asr_backend_len)
+            .field("remote_party_present", &self.remote_party_present)
+            .field("remote_party_len", &self.remote_party_len)
             .field("archive_id_set", &self.archive_id.is_some())
-            .field(
-                "metadata_class",
-                &webhook_delivery_json_class(&self.metadata),
-            )
+            .field("metadata_class", &self.metadata_class)
+            .field("metadata_len", &self.metadata_len)
             .field("segment_count", &self.segment_count)
             .field("segments_count", &self.segments.len())
             .field("pagination", &self.pagination)
@@ -1355,15 +1353,23 @@ async fn get_call(
     Ok(Json(CallDetailResponse {
         call_id: session.call_id,
         provider: session.provider,
-        provider_call_id: session.provider_call_id,
+        provider_call: twilio_provider_call_reference_metadata(&session.provider_call_id),
         started_at: session.started_at,
         ended_at: session.ended_at,
         end_reason: session.end_reason,
         duration_secs,
-        asr_backend: session.asr_backend,
-        remote_party: session.remote_party,
+        asr_backend_len: session
+            .asr_backend
+            .as_ref()
+            .map(|value| value.chars().count()),
+        remote_party_present: session.remote_party.is_some(),
+        remote_party_len: session
+            .remote_party
+            .as_ref()
+            .map(|value| value.chars().count()),
         archive_id: session.archive_id,
-        metadata: session.metadata,
+        metadata_class: webhook_delivery_json_class(&session.metadata).to_string(),
+        metadata_len: session.metadata.to_string().chars().count(),
         segment_count: total,
         segments,
         pagination: PaginationMeta {
@@ -27013,18 +27019,17 @@ mod tests {
         let response = CallDetailResponse {
             call_id,
             provider: "twilio-private-provider".to_string(),
-            provider_call_id: "CA-secret-provider-call-id".to_string(),
+            provider_call: twilio_provider_call_reference_metadata("CA-secret-provider-call-id"),
             started_at: Utc::now(),
             ended_at: Some(Utc::now()),
             end_reason: Some("customer disclosed private reason".to_string()),
             duration_secs: Some(42.0),
-            asr_backend: Some("deepgram-secret-backend".to_string()),
-            remote_party: Some("+15551234567".to_string()),
+            asr_backend_len: Some("deepgram-secret-backend".len()),
+            remote_party_present: true,
+            remote_party_len: Some("+15551234567".len()),
             archive_id: Some(archive_id),
-            metadata: serde_json::json!({
-                "recording_url": "https://api.twilio.com/recording?token=secret",
-                "customer": "customer@example.com"
-            }),
+            metadata_class: "object".to_string(),
+            metadata_len: 92,
             segment_count: 1,
             segments: vec![matric_core::TranscriptSegment {
                 id: segment_id,
@@ -27050,12 +27055,14 @@ mod tests {
         assert!(rendered.contains("CallDetailResponse"));
         assert!(rendered.contains("call_id_set"));
         assert!(rendered.contains("provider_len"));
-        assert!(rendered.contains("provider_call_id_len"));
+        assert!(rendered.contains("provider_call_class"));
         assert!(rendered.contains("end_reason_len"));
         assert!(rendered.contains("asr_backend_len"));
+        assert!(rendered.contains("remote_party_present"));
         assert!(rendered.contains("remote_party_len"));
         assert!(rendered.contains("archive_id_set"));
         assert!(rendered.contains("metadata_class"));
+        assert!(rendered.contains("metadata_len"));
         assert!(rendered.contains("segments_count"));
 
         for raw in [
@@ -31781,16 +31788,24 @@ mod tests {
         let db = Database::connect(&database_url)
             .await
             .expect("Failed to connect to test DB");
+        let provider_call_id = format!("api-test-secret-{}", Uuid::new_v4());
+        let remote_party = "+15551234567";
+        let asr_backend = "mock-asr-secret-backend";
+        let metadata_secret = "https://api.twilio.com/recording.wav?token=sk-live-call-detail";
         let session = db
             .call_sessions
             .create_session(matric_core::CreateCallSessionRequest {
                 provider: "mock".to_string(),
-                provider_call_id: format!("api-test-{}", Uuid::new_v4()),
+                provider_call_id: provider_call_id.clone(),
                 started_at: None,
-                asr_backend: Some("mock-asr".to_string()),
-                remote_party: Some("+15551234567".to_string()),
+                asr_backend: Some(asr_backend.to_string()),
+                remote_party: Some(remote_party.to_string()),
                 archive_id: None,
-                metadata: serde_json::json!({"test": true}),
+                metadata: serde_json::json!({
+                    "test": true,
+                    "recording_url": metadata_secret,
+                    "customer": "customer@example.com"
+                }),
             })
             .await
             .expect("create call session");
@@ -31833,6 +31848,16 @@ mod tests {
         let body: serde_json::Value = response.json().await.unwrap();
         assert_eq!(body["call_id"], session.call_id.to_string());
         assert_eq!(body["provider"], "mock");
+        assert_eq!(body["provider_call"]["provider_call_id_present"], true);
+        assert_eq!(
+            body["provider_call"]["provider_call_id_len"],
+            provider_call_id.chars().count()
+        );
+        assert_eq!(body["asr_backend_len"], asr_backend.chars().count());
+        assert_eq!(body["remote_party_present"], true);
+        assert_eq!(body["remote_party_len"], remote_party.chars().count());
+        assert_eq!(body["metadata_class"], "object");
+        assert!(body["metadata_len"].as_u64().unwrap() > 0);
         assert_eq!(body["segment_count"], 2);
         assert_eq!(body["segments"].as_array().unwrap().len(), 1);
         assert_eq!(body["segments"][0]["text"], "segment 1");
@@ -31840,6 +31865,22 @@ mod tests {
         assert_eq!(body["pagination"]["limit"], 1);
         assert_eq!(body["pagination"]["offset"], 1);
         assert_eq!(body["pagination"]["has_more"], false);
+        let serialized_body = serde_json::to_string(&body).expect("serialize call detail body");
+        for raw in [
+            provider_call_id.as_str(),
+            "api-test-secret",
+            remote_party,
+            asr_backend,
+            "recording_url",
+            "api.twilio.com",
+            "sk-live-call-detail",
+            "customer@example.com",
+        ] {
+            assert!(
+                !serialized_body.contains(raw),
+                "raw call metadata leaked: {raw}"
+            );
+        }
 
         let missing = client
             .get(format!("{}/api/v1/calls/{}", base_url, Uuid::new_v4()))
