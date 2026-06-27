@@ -16534,23 +16534,26 @@ struct SearchQuery {
 impl fmt::Debug for SearchQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SearchQuery")
-            .field("q_len", &self.q.len())
+            .field("q_len", &telemetry_text_len(&self.q))
             .field("limit", &self.limit)
-            .field("filters_len", &self.filters.as_ref().map(String::len))
-            .field("mode_len", &self.mode.as_ref().map(String::len))
+            .field(
+                "filters_len",
+                &self.filters.as_deref().map(telemetry_text_len),
+            )
+            .field("mode_len", &self.mode.as_deref().map(telemetry_text_len))
             .field(
                 "embedding_set_len",
-                &self.embedding_set.as_ref().map(String::len),
+                &self.embedding_set.as_deref().map(telemetry_text_len),
             )
             .field("created_after_set", &self.created_after.is_some())
             .field("created_before_set", &self.created_before.is_some())
             .field("updated_after_set", &self.updated_after.is_some())
             .field("updated_before_set", &self.updated_before.is_some())
-            .field("since_len", &self.since.as_ref().map(String::len))
-            .field("tags_len", &self.tags.as_ref().map(String::len))
+            .field("since_len", &self.since.as_deref().map(telemetry_text_len))
+            .field("tags_len", &self.tags.as_deref().map(telemetry_text_len))
             .field(
                 "strict_filter_len",
-                &self.strict_filter.as_ref().map(String::len),
+                &self.strict_filter.as_deref().map(telemetry_text_len),
             )
             .field("diversity", &self.diversity)
             .finish()
@@ -16568,7 +16571,7 @@ impl fmt::Debug for SearchResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SearchResponse")
             .field("results_count", &self.results.len())
-            .field("query_len", &self.query.len())
+            .field("query_len", &telemetry_text_len(&self.query))
             .field("total", &self.total)
             .finish()
     }
@@ -16807,7 +16810,7 @@ struct FederatedSearchRequest {
 impl fmt::Debug for FederatedSearchRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FederatedSearchRequest")
-            .field("query_len", &self.q.len())
+            .field("query_len", &telemetry_text_len(&self.q))
             .field("memories_count", &self.memories.len())
             .field("limit", &self.limit)
             .finish()
@@ -16831,10 +16834,13 @@ impl fmt::Debug for FederatedSearchHit {
         f.debug_struct("FederatedSearchHit")
             .field("note_id_set", &true)
             .field("score", &self.score)
-            .field("snippet_len", &self.snippet.as_ref().map(String::len))
-            .field("title_len", &self.title.as_ref().map(String::len))
+            .field(
+                "snippet_len",
+                &self.snippet.as_deref().map(telemetry_text_len),
+            )
+            .field("title_len", &self.title.as_deref().map(telemetry_text_len))
             .field("tags_count", &self.tags.len())
-            .field("memory_len", &self.memory.len())
+            .field("memory_len", &telemetry_text_len(&self.memory))
             .finish()
     }
 }
@@ -16852,7 +16858,7 @@ impl fmt::Debug for FederatedSearchResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FederatedSearchResponse")
             .field("results_count", &self.results.len())
-            .field("query_len", &self.query.len())
+            .field("query_len", &telemetry_text_len(&self.query))
             .field("total", &self.total)
             .field("memories_searched_count", &self.memories_searched.len())
             .finish()
@@ -27394,19 +27400,22 @@ mod tests {
     #[test]
     fn search_query_debug_redacts_query_filters_tags_and_embedding_set() {
         let query = SearchQuery {
-            q: "customer@example.com payroll postgres://user:pass@db.internal/app".to_string(),
+            q: "customer@example.com café payroll postgres://user:pass@db.internal/app"
+                .to_string(),
             limit: Some(25),
-            filters: Some("{\"path\":\"/srv/private/search\",\"token\":\"mm_key_search\"}".to_string()),
-            mode: Some("hybrid-sk-live-search".to_string()),
-            embedding_set: Some("tenant-alpha/private-embedding-set".to_string()),
+            filters: Some(
+                "{\"path\":\"/srv/privaté/search\",\"token\":\"mm_key_search\"}".to_string(),
+            ),
+            mode: Some("hybrid-sk-live-séarch".to_string()),
+            embedding_set: Some("tenant-alpha/privaté-embedding-set".to_string()),
             created_after: None,
             created_before: None,
             updated_after: None,
             updated_before: None,
-            since: Some("7d-customer-secret".to_string()),
-            tags: Some("customer/private,token/sk-live-tag".to_string()),
+            since: Some("7d-customer-sécret".to_string()),
+            tags: Some("customer/privaté,token/sk-live-tag".to_string()),
             strict_filter: Some(
-                "{\"required_tags\":[\"customer@example.com\"],\"excluded_tags\":[\"mm_key_filter\"]}"
+                "{\"required_tags\":[\"customer@example.com café\"],\"excluded_tags\":[\"mm_key_filter\"]}"
                     .to_string(),
             ),
             diversity: Some(0.25),
@@ -27423,18 +27432,26 @@ mod tests {
         assert!(rendered.contains("tags_len"));
         assert!(rendered.contains("strict_filter_len"));
         assert!(rendered.contains("diversity"));
+        assert!(rendered.contains("q_len: 70"));
+        assert!(rendered.contains("filters_len: Some(54)"));
+        assert!(rendered.contains("mode_len: Some(21)"));
+        assert!(rendered.contains("embedding_set_len: Some(34)"));
+        assert!(rendered.contains("since_len: Some(18)"));
+        assert!(rendered.contains("tags_len: Some(34)"));
+        assert!(rendered.contains("strict_filter_len: Some(81)"));
 
         for raw in [
             "customer@example.com",
+            "café",
             "postgres://user:pass",
             "db.internal",
-            "/srv/private/search",
+            "/srv/privaté/search",
             "mm_key_search",
-            "hybrid-sk-live-search",
+            "hybrid-sk-live-séarch",
             "tenant-alpha",
-            "private-embedding-set",
-            "7d-customer-secret",
-            "customer/private",
+            "privaté-embedding-set",
+            "7d-customer-sécret",
+            "customer/privaté",
             "sk-live-tag",
             "mm_key_filter",
         ] {
@@ -27458,7 +27475,7 @@ mod tests {
                 },
                 chain_info: None,
             }],
-            query: "find payroll bearer token customer@example.com".to_string(),
+            query: "find payroll café bearer token customer@example.com".to_string(),
             total: 1,
         };
 
@@ -27467,8 +27484,10 @@ mod tests {
         assert!(rendered.contains("SearchResponse"));
         assert!(rendered.contains("results_count"));
         assert!(rendered.contains("query_len"));
+        assert!(rendered.contains("query_len: 51"));
         assert!(rendered.contains("total"));
         assert!(!rendered.contains("find payroll"));
+        assert!(!rendered.contains("café"));
         assert!(!rendered.contains("bearer token"));
         assert!(!rendered.contains("customer@example.com"));
         assert!(!rendered.contains("sk-live-secret-token"));
@@ -27511,23 +27530,23 @@ mod tests {
     #[test]
     fn federated_search_debug_redacts_query_memory_and_hit_content() {
         let request = FederatedSearchRequest {
-            q: "find cross-memory payroll token customer@example.com".to_string(),
+            q: "find cross-mémory payroll token customer@example.com".to_string(),
             memories: vec![
-                "customer-vault-internal".to_string(),
-                "archive-mm_key_secret".to_string(),
+                "customer-vault-intérnal".to_string(),
+                "archive-mm_key_sécret".to_string(),
             ],
             limit: Some(5),
         };
         let hit = FederatedSearchHit {
             note_id: Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f001").unwrap(),
             score: 0.88,
-            snippet: Some("federated snippet with sk-live-secret-token".to_string()),
-            title: Some("Sensitive cross memory title".to_string()),
+            snippet: Some("federated snippet café with sk-live-secret-token".to_string()),
+            title: Some("Sensitive cross mémory title".to_string()),
             tags: vec![
                 "customer-private".to_string(),
                 "token-shaped-tag".to_string(),
             ],
-            memory: "customer-vault-internal".to_string(),
+            memory: "customer-vault-intérnal".to_string(),
         };
         let response = FederatedSearchResponse {
             results: vec![hit.clone()],
@@ -27542,21 +27561,28 @@ mod tests {
         let combined = format!("{rendered_request}\n{rendered_hit}\n{rendered_response}");
 
         assert!(rendered_request.contains("query_len"));
+        assert!(rendered_request.contains("query_len: 52"));
         assert!(rendered_request.contains("memories_count"));
         assert!(rendered_hit.contains("note_id_set"));
         assert!(rendered_hit.contains("snippet_len"));
+        assert!(rendered_hit.contains("snippet_len: Some(48)"));
         assert!(rendered_hit.contains("title_len"));
+        assert!(rendered_hit.contains("title_len: Some(28)"));
         assert!(rendered_hit.contains("tags_count"));
+        assert!(rendered_hit.contains("memory_len: 23"));
         assert!(rendered_response.contains("results_count"));
+        assert!(rendered_response.contains("query_len: 52"));
         assert!(rendered_response.contains("memories_searched_count"));
 
         for raw in [
-            "find cross-memory",
+            "find cross-mémory",
+            "mémory",
             "customer@example.com",
-            "customer-vault-internal",
-            "archive-mm_key_secret",
+            "customer-vault-intérnal",
+            "archive-mm_key_sécret",
+            "café",
             "sk-live-secret-token",
-            "Sensitive cross memory title",
+            "Sensitive cross mémory title",
             "customer-private",
             "token-shaped-tag",
             "018fd1a0-0000-7000-8000-00000000f001",
