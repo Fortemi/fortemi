@@ -19,7 +19,9 @@ use matric_core::{
     UpdateSkosCollectionRequest, DEFAULT_SCHEME_NOTATION,
 };
 
-use crate::skos_tags::{PgSkosRepository, CONCEPT_COLUMNS};
+use crate::skos_tags::{
+    skos_concept_in_use_error, skos_scheme_not_empty_error, PgSkosRepository, CONCEPT_COLUMNS,
+};
 
 impl PgSkosRepository {
     // ==========================================================================
@@ -255,10 +257,7 @@ impl PgSkosRepository {
                 .map_err(Error::Database)?;
 
         if count > 0 && !force {
-            return Err(Error::InvalidInput(format!(
-                "Cannot delete scheme with {} concepts. Use force=true to cascade delete.",
-                count
-            )));
+            return Err(skos_scheme_not_empty_error(count));
         }
 
         if count > 0 && force {
@@ -1037,10 +1036,7 @@ impl PgSkosRepository {
                 .map_err(Error::Database)?;
 
         if count > 0 {
-            return Err(Error::InvalidInput(format!(
-                "Cannot delete concept with {} note tags",
-                count
-            )));
+            return Err(skos_concept_in_use_error(count));
         }
 
         sqlx::query("DELETE FROM skos_concept WHERE id = $1")

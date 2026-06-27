@@ -34,6 +34,16 @@ use matric_core::{
     DEFAULT_SCHEME_NOTATION,
 };
 
+pub(crate) fn skos_scheme_not_empty_error(_concept_count: i64) -> Error {
+    Error::InvalidInput(
+        "Cannot delete scheme; concept_count_present=true; force_required=true".to_string(),
+    )
+}
+
+pub(crate) fn skos_concept_in_use_error(_tag_count: i64) -> Error {
+    Error::InvalidInput("Cannot delete concept; note_tag_count_present=true".to_string())
+}
+
 // =============================================================================
 // SQL COLUMN CONSTANTS
 // =============================================================================
@@ -557,10 +567,7 @@ impl SkosConceptSchemeRepository for PgSkosRepository {
                 .map_err(Error::Database)?;
 
         if count > 0 && !force {
-            return Err(Error::InvalidInput(format!(
-                "Cannot delete scheme with {} concepts. Use force=true to cascade delete.",
-                count
-            )));
+            return Err(skos_scheme_not_empty_error(count));
         }
 
         if count > 0 && force {
@@ -1291,10 +1298,7 @@ impl SkosConceptRepository for PgSkosRepository {
                 .map_err(Error::Database)?;
 
         if count > 0 {
-            return Err(Error::InvalidInput(format!(
-                "Cannot delete concept with {} note tags",
-                count
-            )));
+            return Err(skos_concept_in_use_error(count));
         }
 
         sqlx::query("DELETE FROM skos_concept WHERE id = $1")
@@ -2505,6 +2509,37 @@ fn redact_skos_audit_value(value: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skos_delete_in_use_errors_report_presence_without_exact_counts() {
+        let concept_count = 42_i64;
+        let scheme_err = skos_scheme_not_empty_error(concept_count);
+        let scheme_msg = match scheme_err {
+            Error::InvalidInput(msg) => msg,
+            other => panic!("expected invalid input error, got {other:?}"),
+        };
+
+        assert_eq!(
+            scheme_msg,
+            "Cannot delete scheme; concept_count_present=true; force_required=true"
+        );
+        assert!(!scheme_msg.contains(&concept_count.to_string()));
+        assert!(!scheme_msg.contains("concepts."));
+
+        let tag_count = 17_i64;
+        let concept_err = skos_concept_in_use_error(tag_count);
+        let concept_msg = match concept_err {
+            Error::InvalidInput(msg) => msg,
+            other => panic!("expected invalid input error, got {other:?}"),
+        };
+
+        assert_eq!(
+            concept_msg,
+            "Cannot delete concept; note_tag_count_present=true"
+        );
+        assert!(!concept_msg.contains(&tag_count.to_string()));
+        assert!(!concept_msg.contains("note tags"));
+    }
 
     #[test]
     fn skos_audit_metadata_redacts_raw_actor_and_changes() {
