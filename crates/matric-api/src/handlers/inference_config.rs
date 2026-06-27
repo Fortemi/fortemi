@@ -2418,7 +2418,7 @@ pub struct AuditRow {
 impl std::fmt::Debug for AuditRow {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AuditRow")
-            .field("id", &self.id)
+            .field("id_set", &(self.id != 0))
             .field("changed_at", &self.changed_at)
             .field("changed_by_len", &telemetry_text_len(&self.changed_by))
             .field("action_len", &telemetry_text_len(&self.action))
@@ -3370,7 +3370,7 @@ mod tests_connection {
     #[test]
     fn inference_config_audit_debug_redacts_rows_and_queries() {
         let row = AuditRow {
-            id: 42,
+            id: 987_654_321,
             changed_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
             changed_by: "api_key:secret-operator-key-id".to_string(),
             action: "set-secret-provider".to_string(),
@@ -3404,8 +3404,10 @@ mod tests_connection {
         assert!(rendered.contains("before_json_class"));
         assert!(rendered.contains("after_json_class"));
         assert!(rendered.contains("source_ip_class"));
+        assert!(rendered.contains("id_set"));
         assert!(rendered.contains("changed_by_len"));
         assert!(rendered.contains("action_len"));
+        assert!(!rendered.contains("987654321"));
         assert!(!rendered.contains("secret-operator-key-id"));
         assert!(!rendered.contains("set-secret-provider"));
         assert!(!rendered.contains("203.0.113.77"));
