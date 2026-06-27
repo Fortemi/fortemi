@@ -7,6 +7,53 @@ use std::sync::Arc;
 use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Result};
 use matric_inference::transcription::TranscriptionBackend;
 
+fn audio_transcribe_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn audio_transcribe_io_error_kind(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => "not_found",
+        std::io::ErrorKind::PermissionDenied => "permission_denied",
+        std::io::ErrorKind::TimedOut => "timed_out",
+        std::io::ErrorKind::Interrupted => "interrupted",
+        std::io::ErrorKind::WouldBlock => "would_block",
+        _ => "io_error",
+    }
+}
+
+fn audio_transcribe_error_reason_code(error: &str) -> &'static str {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("permission") || lower.contains("denied") {
+        "permission_denied"
+    } else if lower.contains("timeout") || lower.contains("timed out") {
+        "timed_out"
+    } else if lower.contains("no such") || lower.contains("not found") {
+        "not_found"
+    } else if lower.contains("invalid") || lower.contains("decode") || lower.contains("parse") {
+        "invalid_input"
+    } else {
+        "backend_failed"
+    }
+}
+
+fn audio_transcribe_backend_failure_detail(
+    backend_name: &str,
+    mime_type: &str,
+    audio_size_bytes: usize,
+    error: &dyn std::fmt::Display,
+) -> String {
+    let error_text = error.to_string();
+    format!(
+        "Audio transcription failed; backend_name_len={}; mime_type_len={}; audio_size_bytes={}; error_len={}; error_reason={}",
+        audio_transcribe_text_len(backend_name),
+        audio_transcribe_text_len(mime_type),
+        audio_size_bytes,
+        audio_transcribe_text_len(&error_text),
+        audio_transcribe_error_reason_code(&error_text)
+    )
+}
+
 /// Format duration in seconds to a human-readable string.
 fn format_audio_duration(secs: f64) -> String {
     let total = secs as u64;
@@ -85,7 +132,10 @@ impl ExtractionAdapter for AudioTranscribeAdapter {
         // Then transcode to 16kHz mono PCM WAV via ffmpeg for reliable
         // Whisper/pyannote compatibility (eliminates 415 errors).
         let work_dir = tempfile::tempdir().map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to create work dir: {}", e))
+            matric_core::Error::Internal(format!(
+                "Failed to create work dir; io_error_kind={}",
+                audio_transcribe_io_error_kind(&e)
+            ))
         })?;
 
         let source_path = if let Some(path) = config.get("_source_path").and_then(|v| v.as_str()) {
@@ -96,7 +146,11 @@ impl ExtractionAdapter for AudioTranscribeAdapter {
             let ext = mime_type_to_ext(mime_type);
             let input_path = work_dir.path().join(format!("input.{}", ext));
             std::fs::write(&input_path, data).map_err(|e| {
-                matric_core::Error::Internal(format!("Failed to write audio temp file: {}", e))
+                matric_core::Error::Internal(format!(
+                    "Failed to write audio temp file; input_path_len={}; io_error_kind={}",
+                    audio_transcribe_text_len(&input_path.display().to_string()),
+                    audio_transcribe_io_error_kind(&e)
+                ))
             })?;
             input_path
         };
@@ -114,21 +168,20 @@ impl ExtractionAdapter for AudioTranscribeAdapter {
             // since video pipeline chunks at the video level, not audio level).
             let audio_data = std::fs::read(&source_path).map_err(|e| {
                 matric_core::Error::Internal(format!(
-                    "Failed to read audio from {}: {}",
-                    source_path.display(),
-                    e
+                    "Failed to read audio; source_path_len={}; io_error_kind={}",
+                    audio_transcribe_text_len(&source_path.display().to_string()),
+                    audio_transcribe_io_error_kind(&e)
                 ))
             })?;
             self.backend
                 .transcribe(&audio_data, mime_type, language)
                 .await
                 .map_err(|e| {
-                    matric_core::Error::Internal(format!(
-                        "Audio transcription failed (backend: {}, mime: {}, size: {} bytes): {}",
+                    matric_core::Error::Internal(audio_transcribe_backend_failure_detail(
                         self.backend.model_name(),
                         mime_type,
                         audio_data.len(),
-                        e
+                        &e,
                     ))
                 })?
         } else {
@@ -245,6 +298,13 @@ mod tests {
 
         fn model_name(&self) -> &str {
             "mock-whisper"
+        }
+    }
+
+    fn internal_message(error: matric_core::Error) -> String {
+        match error {
+            matric_core::Error::Internal(message) => message,
+            other => panic!("expected internal error, got {other:?}"),
         }
     }
 
@@ -658,7 +718,7 @@ mod tests {
                 b"",
                 "test.mp3",
                 "audio/mpeg",
-                &serde_json::json!({ "_source_path": "/nonexistent/path/audio.mp3", "_skip_transcode": true }),
+                &serde_json::json!({ "_source_path": "/nonexistent/path/sk-live-audio-token/audio.mp3", "_skip_transcode": true }),
             )
             .await;
 
@@ -666,11 +726,93 @@ mod tests {
             result.is_err(),
             "should fail when source path doesn't exist"
         );
-        let err = result.unwrap_err().to_string();
+        let err = internal_message(result.unwrap_err());
         assert!(
-            err.contains("Failed to read audio from"),
+            err.contains("Failed to read audio"),
             "error should mention file read failure: {}",
             err
+        );
+        assert!(
+            err.contains("source_path_len="),
+            "error should include source path length metadata: {}",
+            err
+        );
+        assert!(
+            err.contains("io_error_kind=not_found"),
+            "error should include stable io kind: {}",
+            err
+        );
+        assert!(
+            !err.contains("/nonexistent"),
+            "error should not expose raw source path: {}",
+            err
+        );
+        assert!(
+            !err.contains("sk-live"),
+            "error should not expose token-like path fragments: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn audio_transcribe_backend_failure_detail_redacts_metadata_and_error() {
+        let err = "backend token=sk-live path /srv/private/audio.wav invalid decode";
+        let detail = audio_transcribe_backend_failure_detail(
+            "secret-model-sk-live",
+            "audio/x-private-sk-live",
+            42,
+            &err,
+        );
+
+        assert!(
+            detail.contains("Audio transcription failed"),
+            "detail should identify backend failure: {}",
+            detail
+        );
+        assert!(
+            detail.contains("backend_name_len="),
+            "detail should include backend name length metadata: {}",
+            detail
+        );
+        assert!(
+            detail.contains("mime_type_len="),
+            "detail should include MIME length metadata: {}",
+            detail
+        );
+        assert!(
+            detail.contains("audio_size_bytes=42"),
+            "detail should include byte count: {}",
+            detail
+        );
+        assert!(
+            detail.contains("error_len="),
+            "detail should include backend error length metadata: {}",
+            detail
+        );
+        assert!(
+            detail.contains("error_reason=invalid_input"),
+            "detail should include stable reason code: {}",
+            detail
+        );
+        assert!(
+            !detail.contains("secret-model"),
+            "detail should not expose raw backend model name: {}",
+            detail
+        );
+        assert!(
+            !detail.contains("audio/x-private"),
+            "detail should not expose raw MIME label: {}",
+            detail
+        );
+        assert!(
+            !detail.contains("sk-live"),
+            "detail should not expose token-like values: {}",
+            detail
+        );
+        assert!(
+            !detail.contains("/srv/private"),
+            "detail should not expose backend paths: {}",
+            detail
         );
     }
 }

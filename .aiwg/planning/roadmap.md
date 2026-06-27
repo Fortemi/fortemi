@@ -322,6 +322,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: Core shard version parse and migration error/result Display/Debug output now reports version strings, migration failure text, and migrated JSON payloads as lengths/classes instead of raw import strings, emails, DSNs, paths, or token-shaped values.
   - 2026-06-27 continuation: PDF/OCR/spreadsheet adapter validation errors now report filename/error length metadata and stable reason codes instead of raw filenames or parser diagnostics.
   - 2026-06-27 continuation: Audio ffprobe duration parse failures now report stdout/error lengths and stable reason codes instead of raw ffprobe stdout or parser diagnostics.
+  - 2026-06-27 continuation: Audio transcription adapter setup/read/backend errors now report path/model/MIME/error length metadata plus stable IO/reason codes instead of raw paths, labels, or backend diagnostics.
   - 2026-06-26 continuation: extraction setup job telemetry and failure text now report filename lengths, available-strategy counts, and stable reason codes instead of raw schema names, attachment UUIDs, filenames, storage paths, parser diagnostics, database/storage diagnostics, DSNs, paths, hostnames, or token-shaped values.
   - 2026-06-26 continuation: extraction adapter failure job/status text now stores stable reason codes instead of raw adapter/backend errors, DSNs, paths, hostnames, filenames, or token-shaped values.
   - 2026-06-26 continuation: media optimize setup job failure text now stores stable reason codes for schema, temp-dir, transaction, download, commit, and temp-file write failures instead of raw schema names, database/storage diagnostics, filesystem paths, DSNs, hostnames, or token-shaped values.
@@ -1140,3 +1141,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 PDF/OCR/spreadsheet adapter validation errors now report filename/error length metadata and stable reason codes instead of raw filenames or parser diagnostics.
 - 2026-06-27 — #968/#974 DB document-type in-use delete errors now report reference-count presence instead of exact reference counts.
 - 2026-06-27 — #968/#974 Audio ffprobe duration parse failures now report stdout/error lengths and stable reason codes instead of raw ffprobe stdout or parser diagnostics.
+- 2026-06-27 — #968/#974 Audio transcription adapter setup/read/backend errors now report path/model/MIME/error length metadata plus stable IO/reason codes instead of raw paths, labels, or backend diagnostics.
