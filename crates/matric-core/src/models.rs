@@ -5708,6 +5708,162 @@ mod tests {
     }
 
     #[test]
+    fn memory_provenance_debug_redacts_location_device_event_and_metadata() {
+        let now = Utc::now();
+        let extracted = ExtractedProvenance {
+            capture_time: Some(now),
+            original_timezone: Some("Private/Timezone".to_string()),
+            duration_seconds: Some(12.5),
+            latitude: Some(37.774929),
+            longitude: Some(-122.419416),
+            altitude_m: Some(33.3),
+            device_make: Some("Private Make".to_string()),
+            device_model: Some("Secret Model".to_string()),
+            software: Some("SecretCameraApp".to_string()),
+            raw_exif: json!({
+                "serial": "private-serial-private@example.test",
+                "path": "/tmp/customer/exif.json",
+                "api_key": "sk-live-secret"
+            }),
+        };
+        let location_result = MemoryLocationResult {
+            provenance_id: Some(Uuid::new_v4()),
+            attachment_id: Some(Uuid::new_v4()),
+            note_id: Uuid::new_v4(),
+            filename: Some("private-photo-sk-live-secret.jpg".to_string()),
+            content_type: Some("image/private-photo".to_string()),
+            distance_m: 1234.5,
+            capture_time_start: Some(now),
+            capture_time_end: Some(now),
+            location_name: Some("Private clinic location 555-1212".to_string()),
+            event_type: Some("private-event-type-private@example.test".to_string()),
+        };
+        let time_result = MemoryTimeResult {
+            provenance_id: Some(Uuid::new_v4()),
+            attachment_id: Some(Uuid::new_v4()),
+            note_id: Uuid::new_v4(),
+            capture_time_start: Some(now),
+            capture_time_end: Some(now),
+            event_type: Some("private-time-event".to_string()),
+            location_name: Some("Private time location".to_string()),
+        };
+        let location = MemoryLocation {
+            id: Uuid::new_v4(),
+            latitude: 37.774929,
+            longitude: -122.419416,
+            horizontal_accuracy_m: Some(4.2),
+            altitude_m: Some(33.3),
+            vertical_accuracy_m: Some(6.7),
+            heading_degrees: Some(180.0),
+            speed_mps: Some(1.5),
+            named_location_id: Some(Uuid::new_v4()),
+            named_location_name: Some("Private named location".to_string()),
+            source: "gps_private_device_sk-live-secret".to_string(),
+            confidence: "private-confidence-private@example.test".to_string(),
+        };
+        let location_debug = format!("{location:?}");
+        let device = MemoryDevice {
+            id: Uuid::new_v4(),
+            device_make: Some("Private Make".to_string()),
+            device_model: Some("Secret Model".to_string()),
+            device_os: Some("PrivateOS".to_string()),
+            device_os_version: Some("private-version-1.2.3".to_string()),
+            software: Some("SecretCameraApp".to_string()),
+            software_version: Some("private-build-sk-live-secret".to_string()),
+            device_name: Some("Alice private phone 555-1212".to_string()),
+        };
+        let device_debug = format!("{device:?}");
+        let record = ProvenanceRecord {
+            id: Uuid::new_v4(),
+            attachment_id: Some(Uuid::new_v4()),
+            note_id: Some(Uuid::new_v4()),
+            capture_time_start: Some(now),
+            capture_time_end: Some(now),
+            capture_timezone: Some("Private/Timezone".to_string()),
+            capture_duration_seconds: Some(12.5),
+            time_source: Some("private-camera-clock".to_string()),
+            time_confidence: "private-confidence".to_string(),
+            location: Some(location),
+            device: Some(device),
+            event_type: Some("private-event-type".to_string()),
+            event_title: Some("Private event title 555-1212".to_string()),
+            event_description: Some("Private event description /tmp/customer/event.md".to_string()),
+            user_corrected: true,
+            created_at: now,
+        };
+        let chain = MemoryProvenance {
+            note_id: Uuid::new_v4(),
+            files: vec![record.clone()],
+            note: Some(record),
+        };
+
+        let record_debug = format!("{:?}", chain.files[0]);
+        let debug = format!(
+            "{extracted:?}{location_result:?}{time_result:?}{location_debug}{device_debug}{record_debug}{chain:?}"
+        );
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "37.774929",
+                "-122.419416",
+                "1234.5",
+                "33.3",
+                "Private/Timezone",
+                "Private Make",
+                "Secret Model",
+                "SecretCameraApp",
+                "private-serial",
+                "private@example.test",
+                "/tmp/customer/exif.json",
+                "sk-live-secret",
+                "private-photo",
+                "image/private-photo",
+                "Private clinic location",
+                "555-1212",
+                "private-event-type",
+                "Private time location",
+                "Private named location",
+                "PrivateOS",
+                "Alice private phone",
+                "private-camera-clock",
+                "Private event title",
+                "Private event description",
+                "/tmp/customer/event.md",
+            ],
+        );
+
+        for expected in [
+            "raw_exif_class",
+            "raw_exif_len",
+            "filename_len",
+            "content_type_len",
+            "distance_m_set",
+            "location_name_len",
+            "event_type_len",
+            "latitude_set",
+            "longitude_set",
+            "device_make_len",
+            "device_model_len",
+            "device_name_len",
+            "capture_timezone_len",
+            "time_source_len",
+            "time_confidence_len",
+            "location_set",
+            "device_set",
+            "event_title_len",
+            "event_description_len",
+            "files_count",
+            "note_set",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Memory provenance Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
     fn tus_upload_debug_redacts_paths_filenames_and_metadata() {
         let now = Utc::now();
         let upload = TusUpload {
@@ -9084,7 +9240,7 @@ mod tests {
 }
 
 /// Extracted temporal and spatial provenance from file metadata (EXIF, etc.)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ExtractedProvenance {
     // Temporal
     pub capture_time: Option<chrono::DateTime<chrono::Utc>>,
@@ -9103,6 +9259,33 @@ pub struct ExtractedProvenance {
 
     // Raw metadata preservation
     pub raw_exif: serde_json::Value,
+}
+
+impl fmt::Debug for ExtractedProvenance {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExtractedProvenance")
+            .field("capture_time_set", &self.capture_time.is_some())
+            .field(
+                "original_timezone_len",
+                &self.original_timezone.as_ref().map(String::len),
+            )
+            .field("duration_seconds_set", &self.duration_seconds.is_some())
+            .field("latitude_set", &self.latitude.is_some())
+            .field("longitude_set", &self.longitude.is_some())
+            .field("altitude_m_set", &self.altitude_m.is_some())
+            .field(
+                "device_make_len",
+                &self.device_make.as_ref().map(String::len),
+            )
+            .field(
+                "device_model_len",
+                &self.device_model.as_ref().map(String::len),
+            )
+            .field("software_len", &self.software.as_ref().map(String::len))
+            .field("raw_exif_class", &json_value_class(&self.raw_exif))
+            .field("raw_exif_len", &json_serialized_len(&self.raw_exif))
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -9242,7 +9425,7 @@ pub struct StructuredMediaMetadata {
 // =============================================================================
 
 /// Result from spatial memory search (find_memories_near).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MemoryLocationResult {
     /// Provenance ID (None for note-metadata matches without file provenance).
     pub provenance_id: Option<Uuid>,
@@ -9258,8 +9441,31 @@ pub struct MemoryLocationResult {
     pub event_type: Option<String>,
 }
 
+impl fmt::Debug for MemoryLocationResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryLocationResult")
+            .field("provenance_id_set", &self.provenance_id.is_some())
+            .field("attachment_id_set", &self.attachment_id.is_some())
+            .field("note_id_set", &true)
+            .field("filename_len", &self.filename.as_ref().map(String::len))
+            .field(
+                "content_type_len",
+                &self.content_type.as_ref().map(String::len),
+            )
+            .field("distance_m_set", &true)
+            .field("capture_time_start_set", &self.capture_time_start.is_some())
+            .field("capture_time_end_set", &self.capture_time_end.is_some())
+            .field(
+                "location_name_len",
+                &self.location_name.as_ref().map(String::len),
+            )
+            .field("event_type_len", &self.event_type.as_ref().map(String::len))
+            .finish()
+    }
+}
+
 /// Result from temporal memory search (find_memories_in_timerange).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MemoryTimeResult {
     /// Provenance ID (None for note-metadata matches without file provenance).
     pub provenance_id: Option<Uuid>,
@@ -9272,8 +9478,25 @@ pub struct MemoryTimeResult {
     pub location_name: Option<String>,
 }
 
+impl fmt::Debug for MemoryTimeResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryTimeResult")
+            .field("provenance_id_set", &self.provenance_id.is_some())
+            .field("attachment_id_set", &self.attachment_id.is_some())
+            .field("note_id_set", &true)
+            .field("capture_time_start_set", &self.capture_time_start.is_some())
+            .field("capture_time_end_set", &self.capture_time_end.is_some())
+            .field("event_type_len", &self.event_type.as_ref().map(String::len))
+            .field(
+                "location_name_len",
+                &self.location_name.as_ref().map(String::len),
+            )
+            .finish()
+    }
+}
+
 /// Location information for a memory.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MemoryLocation {
     pub id: Uuid,
     pub latitude: f64,
@@ -9289,8 +9512,36 @@ pub struct MemoryLocation {
     pub confidence: String,
 }
 
+impl fmt::Debug for MemoryLocation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryLocation")
+            .field("id_set", &true)
+            .field("latitude_set", &true)
+            .field("longitude_set", &true)
+            .field(
+                "horizontal_accuracy_m_set",
+                &self.horizontal_accuracy_m.is_some(),
+            )
+            .field("altitude_m_set", &self.altitude_m.is_some())
+            .field(
+                "vertical_accuracy_m_set",
+                &self.vertical_accuracy_m.is_some(),
+            )
+            .field("heading_degrees_set", &self.heading_degrees.is_some())
+            .field("speed_mps_set", &self.speed_mps.is_some())
+            .field("named_location_id_set", &self.named_location_id.is_some())
+            .field(
+                "named_location_name_len",
+                &self.named_location_name.as_ref().map(String::len),
+            )
+            .field("source_len", &self.source.len())
+            .field("confidence_len", &self.confidence.len())
+            .finish()
+    }
+}
+
 /// Device information for a memory.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MemoryDevice {
     pub id: Uuid,
     pub device_make: Option<String>,
@@ -9302,8 +9553,38 @@ pub struct MemoryDevice {
     pub device_name: Option<String>,
 }
 
+impl fmt::Debug for MemoryDevice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryDevice")
+            .field("id_set", &true)
+            .field(
+                "device_make_len",
+                &self.device_make.as_ref().map(String::len),
+            )
+            .field(
+                "device_model_len",
+                &self.device_model.as_ref().map(String::len),
+            )
+            .field("device_os_len", &self.device_os.as_ref().map(String::len))
+            .field(
+                "device_os_version_len",
+                &self.device_os_version.as_ref().map(String::len),
+            )
+            .field("software_len", &self.software.as_ref().map(String::len))
+            .field(
+                "software_version_len",
+                &self.software_version.as_ref().map(String::len),
+            )
+            .field(
+                "device_name_len",
+                &self.device_name.as_ref().map(String::len),
+            )
+            .finish()
+    }
+}
+
 /// Provenance record with full context (supports both file and note targets).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ProvenanceRecord {
     pub id: Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -9325,16 +9606,64 @@ pub struct ProvenanceRecord {
     pub created_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for ProvenanceRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProvenanceRecord")
+            .field("id_set", &true)
+            .field("attachment_id_set", &self.attachment_id.is_some())
+            .field("note_id_set", &self.note_id.is_some())
+            .field("capture_time_start_set", &self.capture_time_start.is_some())
+            .field("capture_time_end_set", &self.capture_time_end.is_some())
+            .field(
+                "capture_timezone_len",
+                &self.capture_timezone.as_ref().map(String::len),
+            )
+            .field(
+                "capture_duration_seconds_set",
+                &self.capture_duration_seconds.is_some(),
+            )
+            .field(
+                "time_source_len",
+                &self.time_source.as_ref().map(String::len),
+            )
+            .field("time_confidence_len", &self.time_confidence.len())
+            .field("location_set", &self.location.is_some())
+            .field("device_set", &self.device.is_some())
+            .field("event_type_len", &self.event_type.as_ref().map(String::len))
+            .field(
+                "event_title_len",
+                &self.event_title.as_ref().map(String::len),
+            )
+            .field(
+                "event_description_len",
+                &self.event_description.as_ref().map(String::len),
+            )
+            .field("user_corrected", &self.user_corrected)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
 /// Backward-compatible alias.
 pub type FileProvenanceRecord = ProvenanceRecord;
 
 /// Complete provenance chain for a note's memories.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MemoryProvenance {
     pub note_id: Uuid,
     pub files: Vec<ProvenanceRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<ProvenanceRecord>,
+}
+
+impl fmt::Debug for MemoryProvenance {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryProvenance")
+            .field("note_id_set", &true)
+            .field("files_count", &self.files.len())
+            .field("note_set", &self.note.is_some())
+            .finish()
+    }
 }
 
 // =============================================================================
