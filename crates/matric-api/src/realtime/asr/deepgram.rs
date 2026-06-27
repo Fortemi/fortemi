@@ -43,11 +43,11 @@ impl fmt::Debug for DeepgramConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeepgramConfig")
             .field("api_key_set", &!self.api_key.is_empty())
-            .field("api_key_len", &self.api_key.len())
-            .field("listen_url_len", &self.listen_url.len())
-            .field("model_len", &self.model.len())
-            .field("language_len", &self.language.len())
-            .field("encoding_len", &self.encoding.len())
+            .field("api_key_len", &deepgram_text_len(&self.api_key))
+            .field("listen_url_len", &deepgram_text_len(&self.listen_url))
+            .field("model_len", &deepgram_text_len(&self.model))
+            .field("language_len", &deepgram_text_len(&self.language))
+            .field("encoding_len", &deepgram_text_len(&self.encoding))
             .field("sample_rate_hz", &self.sample_rate_hz)
             .finish()
     }
@@ -712,11 +712,11 @@ mod tests {
     #[test]
     fn config_debug_redacts_provider_credentials_and_topology() {
         let config = DeepgramConfig {
-            api_key: "dg_sk_live_customer@example.com".to_string(),
-            listen_url: "wss://api.deepgram.com/v1/listen?token=sk-live-url".to_string(),
-            model: "nova-private-model".to_string(),
-            language: "en-private".to_string(),
-            encoding: "linear16-private".to_string(),
+            api_key: "dg_sk_live_customér@example.com".to_string(),
+            listen_url: "wss://api.deepgrám.com/v1/listen?token=sk-live-url".to_string(),
+            model: "nova-privaté-model".to_string(),
+            language: "pt-Brásil".to_string(),
+            encoding: "lineár16-private".to_string(),
             sample_rate_hz: 16_000,
         };
 
@@ -724,18 +724,34 @@ mod tests {
 
         assert!(rendered.contains("DeepgramConfig"));
         assert!(rendered.contains("api_key_set"));
-        assert!(rendered.contains("api_key_len"));
-        assert!(rendered.contains("listen_url_len"));
+        assert!(rendered.contains(&format!(
+            "api_key_len: {}",
+            deepgram_text_len(&config.api_key)
+        )));
+        assert!(rendered.contains(&format!(
+            "listen_url_len: {}",
+            deepgram_text_len(&config.listen_url)
+        )));
+        assert!(rendered.contains(&format!("model_len: {}", deepgram_text_len(&config.model))));
+        assert!(rendered.contains(&format!(
+            "language_len: {}",
+            deepgram_text_len(&config.language)
+        )));
+        assert!(rendered.contains(&format!(
+            "encoding_len: {}",
+            deepgram_text_len(&config.encoding)
+        )));
         assert!(rendered.contains("sample_rate_hz"));
 
         for raw in [
             "dg_sk_live",
             "customer@example.com",
-            "api.deepgram.com",
+            "customér@example.com",
+            "api.deepgrám.com",
             "sk-live-url",
-            "nova-private-model",
-            "en-private",
-            "linear16-private",
+            "nova-privaté-model",
+            "pt-Brásil",
+            "lineár16-private",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
