@@ -27,6 +27,10 @@ use serde_json::Value as JsonValue;
 use std::fmt;
 use uuid::Uuid;
 
+fn text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
 // =============================================================================
 // SKOS ENUMS
 // =============================================================================
@@ -71,7 +75,7 @@ impl std::str::FromStr for SkosSemanticRelation {
             "related" => Ok(Self::Related),
             _ => Err(format!(
                 "Invalid SKOS semantic relation; value_len={}",
-                s.len()
+                text_len(s)
             )),
         }
     }
@@ -126,7 +130,7 @@ impl std::str::FromStr for SkosMappingRelation {
             "related_match" | "relatedmatch" => Ok(Self::RelatedMatch),
             _ => Err(format!(
                 "Invalid SKOS mapping relation; value_len={}",
-                s.len()
+                text_len(s)
             )),
         }
     }
@@ -172,7 +176,10 @@ impl std::str::FromStr for SkosLabelType {
             "pref_label" | "preflabel" => Ok(Self::PrefLabel),
             "alt_label" | "altlabel" => Ok(Self::AltLabel),
             "hidden_label" | "hiddenlabel" => Ok(Self::HiddenLabel),
-            _ => Err(format!("Invalid SKOS label type; value_len={}", s.len())),
+            _ => Err(format!(
+                "Invalid SKOS label type; value_len={}",
+                text_len(s)
+            )),
         }
     }
 }
@@ -234,7 +241,7 @@ impl std::str::FromStr for SkosNoteType {
             "editorial_note" | "editorialnote" => Ok(Self::EditorialNote),
             "change_note" | "changenote" => Ok(Self::ChangeNote),
             "note" => Ok(Self::Note),
-            _ => Err(format!("Invalid SKOS note type; value_len={}", s.len())),
+            _ => Err(format!("Invalid SKOS note type; value_len={}", text_len(s))),
         }
     }
 }
@@ -289,7 +296,7 @@ impl std::str::FromStr for PmestFacet {
             "energy" | "e" => Ok(Self::Energy),
             "space" | "s" => Ok(Self::Space),
             "time" | "t" => Ok(Self::Time),
-            _ => Err(format!("Invalid PMEST facet; value_len={}", s.len())),
+            _ => Err(format!("Invalid PMEST facet; value_len={}", text_len(s))),
         }
     }
 }
@@ -335,7 +342,7 @@ impl std::str::FromStr for TagStatus {
             "approved" => Ok(Self::Approved),
             "deprecated" => Ok(Self::Deprecated),
             "obsolete" => Ok(Self::Obsolete),
-            _ => Err(format!("Invalid tag status; value_len={}", s.len())),
+            _ => Err(format!("Invalid tag status; value_len={}", text_len(s))),
         }
     }
 }
@@ -400,7 +407,10 @@ impl std::str::FromStr for TagAntipattern {
             "polyhierarchy_excess" | "polyhierarchyexcess" => Ok(Self::PolyhierarchyExcess),
             "missing_labels" | "missinglabels" => Ok(Self::MissingLabels),
             "circular_hierarchy" | "circularhierarchy" => Ok(Self::CircularHierarchy),
-            _ => Err(format!("Invalid tag antipattern; value_len={}", s.len())),
+            _ => Err(format!(
+                "Invalid tag antipattern; value_len={}",
+                text_len(s)
+            )),
         }
     }
 }
@@ -3691,7 +3701,7 @@ mod tests {
 
     #[test]
     fn tag_enum_parse_errors_report_lengths_without_raw_values() {
-        let secret = "customer/private@example.test?token=sk-live-secret";
+        let secret = "custömér/private@example.test?token=sk-live-secret";
         let cases = [
             secret.parse::<SkosSemanticRelation>().unwrap_err(),
             secret.parse::<SkosMappingRelation>().unwrap_err(),
@@ -3703,7 +3713,14 @@ mod tests {
         ];
 
         for error in cases {
-            assert!(error.contains("value_len="), "{error}");
+            assert!(
+                error.contains(&format!("value_len={}", secret.chars().count())),
+                "{error}"
+            );
+            assert!(
+                !error.contains(&format!("value_len={}", secret.len())),
+                "tag enum parser error used byte length instead of character count: {error}"
+            );
             assert!(
                 !error.contains(secret),
                 "tag enum parser error leaked raw invalid value: {error}"
