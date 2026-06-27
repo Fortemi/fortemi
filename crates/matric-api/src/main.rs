@@ -15120,9 +15120,13 @@ async fn get_template(
     let template = ctx
         .query(move |tx| Box::pin(async move { templates.get_tx(tx, id).await }))
         .await?
-        .ok_or_else(|| matric_core::Error::NotFound(format!("Template {} not found", id)))?;
+        .ok_or_else(|| template_not_found_error(id))?;
 
     Ok(Json(template))
+}
+
+fn template_not_found_error(_id: Uuid) -> matric_core::Error {
+    matric_core::Error::NotFound("Template not found; template_id_present=true".to_string())
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -15262,7 +15266,7 @@ async fn instantiate_template(
     let template = ctx
         .query(move |tx| Box::pin(async move { templates.get_tx(tx, template_id).await }))
         .await?
-        .ok_or_else(|| matric_core::Error::NotFound(format!("Template {} not found", id)))?;
+        .ok_or_else(|| template_not_found_error(id))?;
 
     // Substitute variables in the content
     let mut content = template.content.clone();
@@ -28344,6 +28348,19 @@ mod tests {
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
+    }
+
+    #[test]
+    fn template_not_found_errors_report_metadata_without_raw_ids() {
+        let template_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000017").unwrap();
+        let error = template_not_found_error(template_id);
+        let matric_core::Error::NotFound(message) = error else {
+            panic!("expected not-found error");
+        };
+
+        assert!(message.contains("Template not found"));
+        assert!(message.contains("template_id_present=true"));
+        assert!(!message.contains(&template_id.to_string()));
     }
 
     #[test]
