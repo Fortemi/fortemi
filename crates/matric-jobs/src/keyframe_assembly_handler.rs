@@ -38,6 +38,10 @@ fn keyframe_assembly_text_len(text: &str) -> usize {
     text.chars().count()
 }
 
+fn keyframe_assembly_job_type_len(job_type: &JobType) -> usize {
+    format!("{job_type:?}").chars().count()
+}
+
 fn keyframe_assembly_error_reason_code(error: &str) -> &'static str {
     let text = error.to_ascii_lowercase();
     if text.contains("permission") || text.contains("denied") {
@@ -491,7 +495,7 @@ async fn finish_propagation(
                         warn!(
                             error_len = keyframe_assembly_text_len(&error_text),
                             error_reason = keyframe_assembly_error_reason_code(&error_text),
-                            job_type = ?job_type,
+                            job_type_len = keyframe_assembly_job_type_len(job_type),
                             "Failed to queue downstream job"
                         );
                     }
@@ -539,9 +543,11 @@ mod tests {
     #[test]
     fn keyframe_assembly_runtime_telemetry_helpers_redact_private_values() {
         let raw_error = "postgres://user:mm_key_secret@db.internal/app failed at /srv/private";
+        let job_type = JobType::DocumentTypeInference;
         let rendered = format!(
-            "attachment_id_present=true; note_present=true; frame_count=3; base_name_len={}; error_len={}; error_reason={}",
+            "attachment_id_present=true; note_present=true; frame_count=3; base_name_len={}; job_type_len={}; error_len={}; error_reason={}",
             keyframe_assembly_text_len("video-mm_key_secret"),
+            keyframe_assembly_job_type_len(&job_type),
             keyframe_assembly_text_len(raw_error),
             keyframe_assembly_error_reason_code(raw_error)
         );
@@ -549,8 +555,10 @@ mod tests {
         assert!(rendered.contains("attachment_id_present=true"));
         assert!(rendered.contains("note_present=true"));
         assert!(rendered.contains("base_name_len="));
+        assert!(rendered.contains("job_type_len="));
         assert!(rendered.contains("error_len="));
         assert!(!rendered.contains("video-mm_key_secret"));
+        assert!(!rendered.contains("DocumentTypeInference"));
         assert!(!rendered.contains("mm_key_secret"));
         assert!(!rendered.contains("postgres://"));
         assert!(!rendered.contains("db.internal"));
