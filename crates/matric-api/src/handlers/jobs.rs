@@ -165,6 +165,26 @@ fn ai_revision_job_result(
     })
 }
 
+fn ai_contextual_revision_job_result(
+    revised_len: usize,
+    revision_mode: RevisionMode,
+    related_count: usize,
+    context_filtered: bool,
+    doc_type_name: Option<&str>,
+    is_chunked: bool,
+    total_chunks: usize,
+) -> serde_json::Value {
+    serde_json::json!({
+        "revised_length": revised_len,
+        "revision_mode": revision_mode,
+        "related_notes_used": related_count,
+        "context_filtered": context_filtered,
+        "content_type_name_len": doc_type_name.map(diagnostic_len),
+        "chunked": is_chunked,
+        "chunk_count": total_chunks
+    })
+}
+
 fn title_generation_job_result(title: &str) -> serde_json::Value {
     serde_json::json!({
         "title_len": diagnostic_len(title)
@@ -2137,15 +2157,15 @@ Output the revised note in clean markdown format. Do not add any labels, markers
             "AI contextual revision completed"
         );
 
-        JobResult::Success(Some(serde_json::json!({
-            "revised_length": revised.len(),
-            "revision_mode": revision_mode,
-            "related_notes_used": related_count,
-            "context_filtered": context_filter.is_some(),
-            "content_type": content_type_name,
-            "chunked": is_chunked,
-            "chunk_count": total_chunks
-        })))
+        JobResult::Success(Some(ai_contextual_revision_job_result(
+            revised.len(),
+            revision_mode,
+            related_count,
+            context_filter.is_some(),
+            content_type_name.as_deref(),
+            is_chunked,
+            total_chunks,
+        )))
     }
 }
 
@@ -7646,7 +7666,7 @@ mod tests {
         let doc_type = "Confidential Lab Report /srv/private";
         let filename = "patient-secret-mm_key_file.jpg";
         let result = format!(
-            "{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}",
             ai_revision_job_result(
                 42,
                 RevisionMode::Standard,
@@ -7655,6 +7675,15 @@ mod tests {
                 false,
                 1,
                 Some(doc_type),
+            ),
+            ai_contextual_revision_job_result(
+                84,
+                RevisionMode::ContextualFiltered,
+                2,
+                true,
+                Some(doc_type),
+                true,
+                3,
             ),
             title_generation_job_result(title),
             exif_no_metadata_job_result(filename),
