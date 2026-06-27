@@ -37,7 +37,7 @@ const MIN_SEMANTIC_SIMILARITY: f32 = 0.3;
 const MIN_SEMANTIC_SIMILARITY_NO_FTS: f32 = 0.55;
 
 /// Configuration for hybrid search.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HybridSearchConfig {
     /// Weight for FTS results (0.0 to 1.0)
     pub fts_weight: f32,
@@ -65,6 +65,51 @@ pub struct HybridSearchConfig {
     /// MMR diversity weight (0.0 = pure relevance, 1.0 = max diversity).
     /// When None or 0.0, MMR re-ranking is skipped.
     pub diversity: Option<f32>,
+}
+
+impl fmt::Debug for HybridSearchConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HybridSearchConfig")
+            .field("fts_weight", &self.fts_weight)
+            .field("semantic_weight", &self.semantic_weight)
+            .field("exclude_archived", &self.exclude_archived)
+            .field("min_score", &self.min_score)
+            .field("embedding_set_id_set", &self.embedding_set_id.is_some())
+            .field(
+                "deduplication_deduplicate_chains",
+                &self.deduplication.deduplicate_chains,
+            )
+            .field(
+                "deduplication_expand_chains",
+                &self.deduplication.expand_chains,
+            )
+            .field("strict_filter_set", &self.strict_filter.is_some())
+            .field("unified_filter_set", &self.unified_filter.is_some())
+            .field("lang_hint_len", &self.lang_hint.as_ref().map(String::len))
+            .field(
+                "script_hint_len",
+                &self.script_hint.as_ref().map(String::len),
+            )
+            .field(
+                "fts_flags_websearch_to_tsquery",
+                &self.fts_flags.websearch_to_tsquery,
+            )
+            .field(
+                "fts_flags_trigram_fallback",
+                &self.fts_flags.trigram_fallback,
+            )
+            .field("fts_flags_bigram_cjk", &self.fts_flags.bigram_cjk)
+            .field(
+                "fts_flags_script_detection",
+                &self.fts_flags.script_detection,
+            )
+            .field(
+                "fts_flags_multilingual_configs",
+                &self.fts_flags.multilingual_configs,
+            )
+            .field("diversity", &self.diversity)
+            .finish()
+    }
 }
 
 impl Default for HybridSearchConfig {
@@ -1339,6 +1384,76 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "SearchRequest Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_hybrid_search_config_debug_redacts_filter_and_hint_values() {
+        let mut strict_filter = StrictTagFilter::new();
+        strict_filter
+            .required_string_tags
+            .push("private-tag@example.test".to_string());
+        strict_filter
+            .any_string_tags
+            .push("/tmp/private/search-tag".to_string());
+        strict_filter
+            .excluded_string_tags
+            .push("sk-live-filter-secret".to_string());
+
+        let mut unified_tags = StrictTagFilter::new();
+        unified_tags
+            .required_string_tags
+            .push("private-unified-tag".to_string());
+        unified_tags
+            .any_string_tags
+            .push("https://example.test/path?token=secret".to_string());
+        let unified_filter = StrictFilter::new().with_tags(unified_tags);
+
+        let config = HybridSearchConfig::default()
+            .with_strict_filter(strict_filter)
+            .with_unified_filter(unified_filter)
+            .with_lang_hint("private-language@example.test")
+            .with_script_hint("private-script-sk-live-secret")
+            .with_deduplication_enabled(false)
+            .with_chain_expansion(true)
+            .with_diversity(0.65);
+
+        let debug = format!("{config:?}");
+
+        for secret in [
+            "private-tag@example.test",
+            "/tmp/private/search-tag",
+            "sk-live-filter-secret",
+            "private-unified-tag",
+            "https://example.test/path?token=secret",
+            "token=secret",
+            "private-language@example.test",
+            "private-script-sk-live-secret",
+        ] {
+            assert!(
+                !debug.contains(secret),
+                "HybridSearchConfig Debug output leaked sensitive value {secret:?}: {debug}"
+            );
+        }
+
+        for expected in [
+            "fts_weight",
+            "semantic_weight",
+            "embedding_set_id_set",
+            "deduplication_deduplicate_chains",
+            "deduplication_expand_chains",
+            "strict_filter_set",
+            "unified_filter_set",
+            "lang_hint_len",
+            "script_hint_len",
+            "fts_flags_websearch_to_tsquery",
+            "fts_flags_multilingual_configs",
+            "diversity",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "HybridSearchConfig Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
