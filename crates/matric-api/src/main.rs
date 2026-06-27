@@ -1568,6 +1568,39 @@ fn telemetry_text_len(value: &str) -> usize {
     value.chars().count()
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SseFilterTelemetry {
+    memory_len: Option<usize>,
+    type_filter_count: usize,
+    type_filter_total_len: usize,
+    entity_id_present: bool,
+}
+
+fn sse_filter_telemetry(
+    memory_filter: Option<&str>,
+    type_filters: Option<&[String]>,
+    entity_id_filter: Option<&str>,
+) -> SseFilterTelemetry {
+    let (type_filter_count, type_filter_total_len) = type_filters
+        .map(|filters| {
+            (
+                filters.len(),
+                filters
+                    .iter()
+                    .map(|filter| telemetry_text_len(filter))
+                    .sum(),
+            )
+        })
+        .unwrap_or((0, 0));
+
+    SseFilterTelemetry {
+        memory_len: memory_filter.map(telemetry_text_len),
+        type_filter_count,
+        type_filter_total_len,
+        entity_id_present: entity_id_filter.is_some(),
+    }
+}
+
 #[derive(Clone, Copy)]
 struct StartupPathTelemetry {
     path_len: usize,
@@ -4430,10 +4463,16 @@ async fn sse_events(
         .connections_total
         .fetch_add(1, Ordering::Relaxed);
     let disconnect_bus = state.event_bus.clone();
+    let filter_telemetry = sse_filter_telemetry(
+        memory_filter.as_deref(),
+        type_filters.as_deref(),
+        params.entity_id.as_deref(),
+    );
     tracing::info!(
-        memory = ?memory_filter,
-        types = ?params.types,
-        entity_id = ?params.entity_id,
+        memory_filter_len = filter_telemetry.memory_len,
+        type_filter_count = filter_telemetry.type_filter_count,
+        type_filter_total_len = filter_telemetry.type_filter_total_len,
+        entity_id_filter_present = filter_telemetry.entity_id_present,
         active_connections = state.event_bus.metrics.snapshot().active_connections,
         "SSE client connected"
     );
@@ -31941,6 +31980,35 @@ mod tests {
             telemetry_text_len(secret_query),
             secret_query.chars().count()
         );
+    }
+
+    #[test]
+    fn sse_filter_telemetry_redacts_filter_values() {
+        let memory = "tenant-alpha/private-mm_key_secret";
+        let type_filters = vec![
+            "note.secret.created".to_string(),
+            "webhook.token=sk-secret".to_string(),
+        ];
+        let entity_id = "entity-secret-user@example.com";
+
+        let telemetry = sse_filter_telemetry(Some(memory), Some(&type_filters), Some(entity_id));
+        let rendered = format!("{telemetry:?}");
+
+        assert_eq!(telemetry.memory_len, Some(memory.chars().count()));
+        assert_eq!(telemetry.type_filter_count, 2);
+        assert_eq!(
+            telemetry.type_filter_total_len,
+            type_filters
+                .iter()
+                .map(|f| f.chars().count())
+                .sum::<usize>()
+        );
+        assert!(telemetry.entity_id_present);
+        assert!(!rendered.contains("tenant-alpha"));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("note.secret"));
+        assert!(!rendered.contains("sk-secret"));
+        assert!(!rendered.contains("user@example.com"));
     }
 
     #[test]
