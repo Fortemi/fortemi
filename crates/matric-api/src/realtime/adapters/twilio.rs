@@ -263,7 +263,7 @@ pub fn translate_media_stream_json(input: &str) -> Result<TwilioTranslatedEvent>
             sequence_number,
         } => Ok(TwilioTranslatedEvent::Control(CallControlEvent::Custom {
             event_type: "media_mark".to_string(),
-            payload: serde_json::json!({"name": mark.name}),
+            payload: twilio_mark_reference_metadata(&mark.name),
         }))
         .map(|event| with_sequence(event, sequence_number)),
         TwilioMediaEnvelope::Dtmf {
@@ -538,6 +538,13 @@ fn twilio_provider_call_reference_metadata(provider_call_id: &str) -> Value {
     serde_json::json!({
         "provider_call_id_present": true,
         "provider_call_id_len": twilio_text_len(provider_call_id),
+    })
+}
+
+fn twilio_mark_reference_metadata(name: &str) -> Value {
+    serde_json::json!({
+        "name_present": true,
+        "name_len": twilio_text_len(name),
     })
 }
 
@@ -951,6 +958,31 @@ mod tests {
         let rendered = serde_json::to_string(&payload).expect("serialize stop payload");
         assert!(!rendered.contains(provider_call_id));
         assert!(!rendered.contains("secret-provider"));
+    }
+
+    #[test]
+    fn mark_envelope_redacts_provider_mark_name_in_custom_payload() {
+        let mark_name = "customer@example.com-sk-live-mark";
+        let envelope =
+            format!(r#"{{"event":"mark","sequenceNumber":"10","mark":{{"name":"{mark_name}"}}}}"#);
+        let event = translate_media_stream_json(&envelope).unwrap();
+        let payload = match event {
+            TwilioTranslatedEvent::Control(CallControlEvent::Custom {
+                event_type,
+                payload,
+            }) => {
+                assert_eq!(event_type, "media_mark");
+                payload
+            }
+            other => panic!("unexpected translated event: {other:?}"),
+        };
+
+        assert_eq!(payload["name_present"], true);
+        assert_eq!(payload["name_len"], mark_name.chars().count());
+        let rendered = serde_json::to_string(&payload).expect("serialize mark payload");
+        assert!(!rendered.contains(mark_name));
+        assert!(!rendered.contains("customer@example.com"));
+        assert!(!rendered.contains("sk-live-mark"));
     }
 
     #[tokio::test]
