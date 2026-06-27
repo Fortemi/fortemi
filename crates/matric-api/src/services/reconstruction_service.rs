@@ -131,10 +131,7 @@ impl ReconstructionService {
         let notes = self.get_chain_notes(chain_id).await?;
 
         if notes.is_empty() {
-            return Err(Error::NotFound(format!(
-                "No chunks found for chain {}",
-                chain_id
-            )));
+            return Err(chunk_chain_not_found_error(chain_id));
         }
 
         // Sort by sequence
@@ -359,6 +356,10 @@ fn extract_original_title(title: &str) -> String {
     cleaned.trim().to_string()
 }
 
+fn chunk_chain_not_found_error(_chain_id: Uuid) -> Error {
+    Error::NotFound("No chunks found for chain; chain_id_present=true".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -415,6 +416,21 @@ mod tests {
 
         let overlap = detect_overlap(accumulated, next_chunk);
         assert_eq!(overlap, 0);
+    }
+
+    #[test]
+    fn chunk_chain_not_found_errors_report_metadata_without_raw_ids() {
+        let chain_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000e001").unwrap();
+        let err = chunk_chain_not_found_error(chain_id);
+
+        match err {
+            Error::NotFound(message) => {
+                assert!(message.contains("No chunks found for chain"));
+                assert!(message.contains("chain_id_present=true"));
+                assert!(!message.contains("018fd1a0-0000-7000-8000-00000000e001"));
+            }
+            other => panic!("expected NotFound error, got {other:?}"),
+        }
     }
 
     #[test]
