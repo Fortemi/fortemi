@@ -6,6 +6,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::fmt;
 use uuid::Uuid;
 
 use crate::error::Result;
@@ -16,7 +17,7 @@ use crate::models::*;
 // =============================================================================
 
 /// Request for listing notes.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct ListNotesRequest {
     /// Field to sort by: "created_at_utc", "updated_at", "accessed_at"
     pub sort_by: Option<String>,
@@ -42,6 +43,34 @@ pub struct ListNotesRequest {
     pub updated_before: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+impl fmt::Debug for ListNotesRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ListNotesRequest")
+            .field("sort_by_len", &optional_str_len(self.sort_by.as_deref()))
+            .field(
+                "sort_order_len",
+                &optional_str_len(self.sort_order.as_deref()),
+            )
+            .field("filter_len", &optional_str_len(self.filter.as_deref()))
+            .field("limit", &self.limit)
+            .field("offset", &self.offset)
+            .field("collection_id_present", &self.collection_id.is_some())
+            .field("tags_count", &self.tags.as_ref().map(Vec::len))
+            .field(
+                "tag_lens",
+                &self
+                    .tags
+                    .as_ref()
+                    .map(|tags| tags.iter().map(|tag| tag.len()).collect::<Vec<_>>()),
+            )
+            .field("created_after", &self.created_after)
+            .field("created_before", &self.created_before)
+            .field("updated_after", &self.updated_after)
+            .field("updated_before", &self.updated_before)
+            .finish()
+    }
+}
+
 /// Response for listing notes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListNotesResponse {
@@ -57,15 +86,32 @@ pub struct ListGlobalAttachmentsResponse {
 }
 
 /// Request for updating note status.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct UpdateNoteStatusRequest {
     pub starred: Option<bool>,
     pub archived: Option<bool>,
     pub metadata: Option<serde_json::Value>,
 }
 
+impl fmt::Debug for UpdateNoteStatusRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateNoteStatusRequest")
+            .field("starred", &self.starred)
+            .field("archived", &self.archived)
+            .field(
+                "metadata_class",
+                &self.metadata.as_ref().map(json_debug_class),
+            )
+            .field(
+                "metadata_serialized_len",
+                &self.metadata.as_ref().map(json_serialized_len),
+            )
+            .finish()
+    }
+}
+
 /// Request for creating a new note.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CreateNoteRequest {
     pub content: String,
     pub format: String,
@@ -82,6 +128,35 @@ pub struct CreateNoteRequest {
     /// bulk-load tools) can set titles deterministically without
     /// depending on inference.
     pub title: Option<String>,
+}
+
+impl fmt::Debug for CreateNoteRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateNoteRequest")
+            .field("content_len", &self.content.len())
+            .field("format_len", &self.format.len())
+            .field("source_len", &self.source.len())
+            .field("collection_id_present", &self.collection_id.is_some())
+            .field("tags_count", &self.tags.as_ref().map(Vec::len))
+            .field(
+                "tag_lens",
+                &self
+                    .tags
+                    .as_ref()
+                    .map(|tags| tags.iter().map(|tag| tag.len()).collect::<Vec<_>>()),
+            )
+            .field(
+                "metadata_class",
+                &self.metadata.as_ref().map(json_debug_class),
+            )
+            .field(
+                "metadata_serialized_len",
+                &self.metadata.as_ref().map(json_serialized_len),
+            )
+            .field("document_type_id_present", &self.document_type_id.is_some())
+            .field("title_len", &optional_str_len(self.title.as_deref()))
+            .finish()
+    }
 }
 
 /// Repository for note CRUD operations.
@@ -520,7 +595,7 @@ pub trait InferenceBackend: EmbeddingBackend + GenerationBackend {
 // =============================================================================
 
 /// Configuration for search queries.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct SearchQuery {
     pub query: String,
     pub mode: SearchMode,
@@ -529,6 +604,24 @@ pub struct SearchQuery {
     pub collection_id: Option<Uuid>,
     pub tags: Vec<String>,
     pub include_archived: bool,
+}
+
+impl fmt::Debug for SearchQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SearchQuery")
+            .field("query_len", &self.query.len())
+            .field("mode", &self.mode)
+            .field("limit", &self.limit)
+            .field("offset", &self.offset)
+            .field("collection_id_present", &self.collection_id.is_some())
+            .field("tags_count", &self.tags.len())
+            .field(
+                "tag_lens",
+                &self.tags.iter().map(|tag| tag.len()).collect::<Vec<_>>(),
+            )
+            .field("include_archived", &self.include_archived)
+            .finish()
+    }
 }
 
 /// Provider for search operations.
@@ -587,7 +680,7 @@ impl JobNotifier for NoOpNotifier {
 ///
 /// Used by adapters that decompose compound files into child attachments.
 /// The extraction handler creates derived attachments for each entry.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DerivedFile {
     /// Filename for the extracted file.
     pub filename: String,
@@ -609,8 +702,35 @@ pub struct DerivedFile {
     pub source_path: Option<std::path::PathBuf>,
 }
 
+impl fmt::Debug for DerivedFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DerivedFile")
+            .field("filename_len", &self.filename.len())
+            .field("content_type_len", &self.content_type.len())
+            .field("data_len", &self.data.len())
+            .field("derivation_type_len", &self.derivation_type.len())
+            .field(
+                "ai_description_len",
+                &optional_str_len(self.ai_description.as_deref()),
+            )
+            .field(
+                "metadata_class",
+                &self.metadata.as_ref().map(json_debug_class),
+            )
+            .field(
+                "metadata_serialized_len",
+                &self.metadata.as_ref().map(json_serialized_len),
+            )
+            .field(
+                "source_path_len",
+                &self.source_path.as_ref().map(|path| path_display_len(path)),
+            )
+            .finish()
+    }
+}
+
 /// Result of content extraction from a file attachment.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct ExtractionResult {
     /// Extracted text content, if any.
     pub extracted_text: Option<String>,
@@ -625,6 +745,39 @@ pub struct ExtractionResult {
     /// Each entry becomes a derived attachment linked to the parent.
     #[serde(skip)]
     pub derived_files: Vec<DerivedFile>,
+}
+
+impl fmt::Debug for ExtractionResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExtractionResult")
+            .field(
+                "extracted_text_len",
+                &optional_str_len(self.extracted_text.as_deref()),
+            )
+            .field("metadata_class", &json_debug_class(&self.metadata))
+            .field(
+                "metadata_serialized_len",
+                &json_serialized_len(&self.metadata),
+            )
+            .field(
+                "ai_description_len",
+                &optional_str_len(self.ai_description.as_deref()),
+            )
+            .field(
+                "preview_data_len",
+                &self.preview_data.as_ref().map(Vec::len),
+            )
+            .field("derived_files_count", &self.derived_files.len())
+            .field(
+                "derived_file_data_lens",
+                &self
+                    .derived_files
+                    .iter()
+                    .map(|file| file.data.len())
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 /// Progress callback for extraction adapters.
@@ -684,13 +837,53 @@ pub trait ExtractionAdapter: Send + Sync {
 // =============================================================================
 
 /// AI metadata extracted from content.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AiMetadata {
     pub categories: Vec<String>,
     pub topics: Vec<String>,
     pub keywords: Vec<String>,
     pub entities: serde_json::Value,
     pub summary: Option<String>,
+}
+
+impl fmt::Debug for AiMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AiMetadata")
+            .field("categories_count", &self.categories.len())
+            .field(
+                "category_lens",
+                &self
+                    .categories
+                    .iter()
+                    .map(|category| category.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("topics_count", &self.topics.len())
+            .field(
+                "topic_lens",
+                &self
+                    .topics
+                    .iter()
+                    .map(|topic| topic.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("keywords_count", &self.keywords.len())
+            .field(
+                "keyword_lens",
+                &self
+                    .keywords
+                    .iter()
+                    .map(|keyword| keyword.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("entities_class", &json_debug_class(&self.entities))
+            .field(
+                "entities_serialized_len",
+                &json_serialized_len(&self.entities),
+            )
+            .field("summary_len", &optional_str_len(self.summary.as_deref()))
+            .finish()
+    }
 }
 
 /// Processor for AI-enhanced content operations.
@@ -715,7 +908,7 @@ pub trait ContentProcessor: Send + Sync {
 // =============================================================================
 
 /// Request for creating a new template.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CreateTemplateRequest {
     pub name: String,
     pub description: Option<String>,
@@ -725,14 +918,91 @@ pub struct CreateTemplateRequest {
     pub collection_id: Option<Uuid>,
 }
 
+impl fmt::Debug for CreateTemplateRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateTemplateRequest")
+            .field("name_len", &self.name.len())
+            .field(
+                "description_len",
+                &optional_str_len(self.description.as_deref()),
+            )
+            .field("content_len", &self.content.len())
+            .field("format_len", &optional_str_len(self.format.as_deref()))
+            .field(
+                "default_tags_count",
+                &self.default_tags.as_ref().map(Vec::len),
+            )
+            .field(
+                "default_tag_lens",
+                &self
+                    .default_tags
+                    .as_ref()
+                    .map(|tags| tags.iter().map(|tag| tag.len()).collect::<Vec<_>>()),
+            )
+            .field("collection_id_present", &self.collection_id.is_some())
+            .finish()
+    }
+}
+
 /// Request for updating a template.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct UpdateTemplateRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub content: Option<String>,
     pub default_tags: Option<Vec<String>>,
     pub collection_id: Option<Option<Uuid>>,
+}
+
+impl fmt::Debug for UpdateTemplateRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateTemplateRequest")
+            .field("name_len", &optional_str_len(self.name.as_deref()))
+            .field(
+                "description_len",
+                &optional_str_len(self.description.as_deref()),
+            )
+            .field("content_len", &optional_str_len(self.content.as_deref()))
+            .field(
+                "default_tags_count",
+                &self.default_tags.as_ref().map(Vec::len),
+            )
+            .field(
+                "default_tag_lens",
+                &self
+                    .default_tags
+                    .as_ref()
+                    .map(|tags| tags.iter().map(|tag| tag.len()).collect::<Vec<_>>()),
+            )
+            .field(
+                "collection_id_update_present",
+                &self.collection_id.as_ref().map(|value| value.is_some()),
+            )
+            .finish()
+    }
+}
+
+fn optional_str_len(value: Option<&str>) -> Option<usize> {
+    value.map(str::len)
+}
+
+fn json_debug_class(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "bool",
+        JsonValue::Number(_) => "number",
+        JsonValue::String(_) => "string",
+        JsonValue::Array(_) => "array",
+        JsonValue::Object(_) => "object",
+    }
+}
+
+fn json_serialized_len(value: &JsonValue) -> usize {
+    serde_json::to_string(value).map_or(0, |serialized| serialized.len())
+}
+
+fn path_display_len(path: &std::path::Path) -> usize {
+    path.display().to_string().len()
 }
 
 /// Repository for note template operations.
@@ -894,6 +1164,16 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use serde_json::json;
+    use std::path::PathBuf;
+
+    fn assert_debug_excludes(debug: &str, secrets: &[&str]) {
+        for secret in secrets {
+            assert!(
+                !debug.contains(secret),
+                "debug output leaked secret `{secret}`: {debug}"
+            );
+        }
+    }
 
     // =============================================================================
     // Request/Response Tests
@@ -1087,6 +1367,231 @@ mod tests {
         assert_eq!(req.name.unwrap(), "Updated Name");
         assert_eq!(req.content.unwrap(), "New content");
         assert!(req.description.is_none());
+    }
+
+    #[test]
+    fn trait_request_and_extraction_debug_redacts_content_metadata_and_paths() {
+        let note_req = CreateNoteRequest {
+            content: "Private note content includes owner@example.internal and sk-live-secret"
+                .to_string(),
+            format: "markdown-private-format".to_string(),
+            source: "https://source.example.test/import?token=secret".to_string(),
+            collection_id: Some(Uuid::new_v4()),
+            tags: Some(vec![
+                "secret-tag-owner@example.internal".to_string(),
+                "postgres://user:secret@db.internal/fortemi".to_string(),
+            ]),
+            metadata: Some(json!({
+                "provider_url": "https://provider.example.test/v1?token=secret",
+                "api_key": "sk-live-secret"
+            })),
+            document_type_id: Some(Uuid::new_v4()),
+            title: Some("Private roadmap title".to_string()),
+        };
+        let note_debug = format!("{note_req:?}");
+        assert!(note_debug.contains("CreateNoteRequest"));
+        assert!(note_debug.contains("content_len"));
+        assert!(note_debug.contains("metadata_class"));
+        assert_debug_excludes(
+            &note_debug,
+            &[
+                "Private note content",
+                "owner@example.internal",
+                "sk-live-secret",
+                "markdown-private-format",
+                "https://source.example.test/import?token=secret",
+                "secret-tag-owner@example.internal",
+                "postgres://user:secret@db.internal/fortemi",
+                "https://provider.example.test/v1?token=secret",
+                "Private roadmap title",
+            ],
+        );
+
+        let list_req = ListNotesRequest {
+            sort_by: Some("private-sort-field".to_string()),
+            sort_order: Some("desc-secret".to_string()),
+            filter: Some("filter-owner@example.internal".to_string()),
+            limit: Some(25),
+            offset: Some(5),
+            collection_id: Some(Uuid::new_v4()),
+            tags: Some(vec!["sk-list-secret".to_string()]),
+            created_after: Some(Utc::now()),
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+        };
+        let list_debug = format!("{list_req:?}");
+        assert!(list_debug.contains("ListNotesRequest"));
+        assert!(list_debug.contains("tags_count"));
+        assert_debug_excludes(
+            &list_debug,
+            &[
+                "private-sort-field",
+                "desc-secret",
+                "filter-owner@example.internal",
+                "sk-list-secret",
+            ],
+        );
+
+        let status_req = UpdateNoteStatusRequest {
+            starred: Some(true),
+            archived: Some(false),
+            metadata: Some(json!({
+                "path": "/srv/fortemi/private/status.json",
+                "token": "sk-status-secret"
+            })),
+        };
+        let status_debug = format!("{status_req:?}");
+        assert!(status_debug.contains("UpdateNoteStatusRequest"));
+        assert!(status_debug.contains("metadata_serialized_len"));
+        assert_debug_excludes(
+            &status_debug,
+            &["/srv/fortemi/private/status.json", "sk-status-secret"],
+        );
+
+        let search_query = SearchQuery {
+            query: "find private@example.internal with sk-search-secret".to_string(),
+            mode: SearchMode::Hybrid,
+            limit: Some(10),
+            offset: Some(0),
+            collection_id: Some(Uuid::new_v4()),
+            tags: vec!["private-search-tag".to_string()],
+            include_archived: true,
+        };
+        let search_debug = format!("{search_query:?}");
+        assert!(search_debug.contains("SearchQuery"));
+        assert!(search_debug.contains("query_len"));
+        assert_debug_excludes(
+            &search_debug,
+            &[
+                "private@example.internal",
+                "sk-search-secret",
+                "private-search-tag",
+            ],
+        );
+
+        let derived_file = DerivedFile {
+            filename: "private-keyframe-owner@example.internal.jpg".to_string(),
+            content_type: "image/private-jpeg".to_string(),
+            data: b"binary-secret-sk-derived".to_vec(),
+            derivation_type: "secret-keyframe".to_string(),
+            ai_description: Some("Generated description mentions sk-derived-secret".to_string()),
+            metadata: Some(json!({
+                "source": "https://metadata.example.test/?token=secret"
+            })),
+            source_path: Some(PathBuf::from("/tmp/fortemi/private/keyframe.jpg")),
+        };
+        let derived_debug = format!("{derived_file:?}");
+        assert!(derived_debug.contains("DerivedFile"));
+        assert!(derived_debug.contains("filename_len"));
+        assert_debug_excludes(
+            &derived_debug,
+            &[
+                "private-keyframe-owner@example.internal.jpg",
+                "image/private-jpeg",
+                "binary-secret-sk-derived",
+                "secret-keyframe",
+                "sk-derived-secret",
+                "https://metadata.example.test/?token=secret",
+                "/tmp/fortemi/private/keyframe.jpg",
+            ],
+        );
+
+        let extraction = ExtractionResult {
+            extracted_text: Some(
+                "Extracted text includes customer@example.internal and sk-extract-secret"
+                    .to_string(),
+            ),
+            metadata: json!({
+                "filename": "/srv/customer/private.pdf",
+                "api_key": "sk-extract-secret"
+            }),
+            ai_description: Some("AI description includes private diagnosis".to_string()),
+            preview_data: Some(b"preview-secret".to_vec()),
+            derived_files: vec![derived_file],
+        };
+        let extraction_debug = format!("{extraction:?}");
+        assert!(extraction_debug.contains("ExtractionResult"));
+        assert!(extraction_debug.contains("derived_files_count"));
+        assert_debug_excludes(
+            &extraction_debug,
+            &[
+                "Extracted text",
+                "customer@example.internal",
+                "sk-extract-secret",
+                "/srv/customer/private.pdf",
+                "private diagnosis",
+                "preview-secret",
+                "private-keyframe-owner@example.internal.jpg",
+            ],
+        );
+
+        let ai_metadata = AiMetadata {
+            categories: vec!["secret-category@example.internal".to_string()],
+            topics: vec!["https://topic.example.test/?token=secret".to_string()],
+            keywords: vec!["sk-keyword-secret".to_string()],
+            entities: json!({
+                "person": ["Private Person"],
+                "url": "https://entity.example.test/?token=secret"
+            }),
+            summary: Some("Summary includes private@example.internal".to_string()),
+        };
+        let ai_debug = format!("{ai_metadata:?}");
+        assert!(ai_debug.contains("AiMetadata"));
+        assert!(ai_debug.contains("entities_class"));
+        assert_debug_excludes(
+            &ai_debug,
+            &[
+                "secret-category@example.internal",
+                "https://topic.example.test/?token=secret",
+                "sk-keyword-secret",
+                "Private Person",
+                "https://entity.example.test/?token=secret",
+                "private@example.internal",
+            ],
+        );
+
+        let create_template = CreateTemplateRequest {
+            name: "private-template-name".to_string(),
+            description: Some("Template description with secret@example.internal".to_string()),
+            content: "Template body with sk-template-secret".to_string(),
+            format: Some("private-template-format".to_string()),
+            default_tags: Some(vec!["private-default-tag".to_string()]),
+            collection_id: Some(Uuid::new_v4()),
+        };
+        let template_debug = format!("{create_template:?}");
+        assert!(template_debug.contains("CreateTemplateRequest"));
+        assert!(template_debug.contains("content_len"));
+        assert_debug_excludes(
+            &template_debug,
+            &[
+                "private-template-name",
+                "secret@example.internal",
+                "sk-template-secret",
+                "private-template-format",
+                "private-default-tag",
+            ],
+        );
+
+        let update_template = UpdateTemplateRequest {
+            name: Some("updated-private-template".to_string()),
+            description: Some("Updated description with private@example.internal".to_string()),
+            content: Some("Updated body with sk-updated-template-secret".to_string()),
+            default_tags: Some(vec!["updated-private-tag".to_string()]),
+            collection_id: Some(Some(Uuid::new_v4())),
+        };
+        let update_template_debug = format!("{update_template:?}");
+        assert!(update_template_debug.contains("UpdateTemplateRequest"));
+        assert!(update_template_debug.contains("collection_id_update_present"));
+        assert_debug_excludes(
+            &update_template_debug,
+            &[
+                "updated-private-template",
+                "private@example.internal",
+                "sk-updated-template-secret",
+                "updated-private-tag",
+            ],
+        );
     }
 
     // =============================================================================
