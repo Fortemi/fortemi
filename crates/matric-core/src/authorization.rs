@@ -5,6 +5,7 @@
 //! transport/session scope from becoming generic REST mutation authority.
 
 use std::collections::HashMap;
+use std::fmt;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -41,11 +42,29 @@ pub trait AuthorizationPolicy: Send + Sync {
     fn policy_version(&self) -> &'static str;
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Action {
     pub name: String,
     pub scope_family: ScopeFamily,
     pub required_scopes: Vec<String>,
+}
+
+impl fmt::Debug for Action {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Action")
+            .field("name_len", &self.name.chars().count())
+            .field("scope_family", &self.scope_family)
+            .field("required_scope_count", &self.required_scopes.len())
+            .field(
+                "required_scope_total_len",
+                &self
+                    .required_scopes
+                    .iter()
+                    .map(|scope| scope.chars().count())
+                    .sum::<usize>(),
+            )
+            .finish()
+    }
 }
 
 impl Action {
@@ -87,12 +106,31 @@ pub enum ScopeFamily {
     System,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Resource {
     pub kind: ResourceKind,
     pub id: Option<String>,
     pub tenant_id: Option<String>,
     pub attrs: HashMap<String, Value>,
+}
+
+impl fmt::Debug for Resource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Resource")
+            .field("kind", &self.kind)
+            .field("id_present", &self.id.is_some())
+            .field("tenant_id_present", &self.tenant_id.is_some())
+            .field("attr_count", &self.attrs.len())
+            .field(
+                "attr_key_total_len",
+                &self
+                    .attrs
+                    .keys()
+                    .map(|key| key.chars().count())
+                    .sum::<usize>(),
+            )
+            .finish()
+    }
 }
 
 impl Resource {
@@ -116,7 +154,7 @@ impl Resource {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ResourceKind {
     PublicRoute,
     Note,
@@ -139,11 +177,58 @@ pub enum ResourceKind {
     Other(String),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for ResourceKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PublicRoute => f.write_str("PublicRoute"),
+            Self::Note => f.write_str("Note"),
+            Self::Attachment => f.write_str("Attachment"),
+            Self::Archive => f.write_str("Archive"),
+            Self::Collection => f.write_str("Collection"),
+            Self::Template => f.write_str("Template"),
+            Self::Taxonomy => f.write_str("Taxonomy"),
+            Self::DocumentType => f.write_str("DocumentType"),
+            Self::Provenance => f.write_str("Provenance"),
+            Self::Job => f.write_str("Job"),
+            Self::ModelConfig => f.write_str("ModelConfig"),
+            Self::Inference => f.write_str("Inference"),
+            Self::Webhook => f.write_str("Webhook"),
+            Self::Backup => f.write_str("Backup"),
+            Self::ApiKey => f.write_str("ApiKey"),
+            Self::McpTool => f.write_str("McpTool"),
+            Self::Tenant => f.write_str("Tenant"),
+            Self::System => f.write_str("System"),
+            Self::Other(value) => f
+                .debug_tuple("Other")
+                .field(&format_args!("len={}", value.chars().count()))
+                .finish(),
+        }
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AuthzContext {
     pub tenant_id: Option<String>,
     pub environment: HashMap<String, Value>,
     pub correlation_id: Option<String>,
+}
+
+impl fmt::Debug for AuthzContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthzContext")
+            .field("tenant_id_present", &self.tenant_id.is_some())
+            .field("environment_count", &self.environment.len())
+            .field(
+                "environment_key_total_len",
+                &self
+                    .environment
+                    .keys()
+                    .map(|key| key.chars().count())
+                    .sum::<usize>(),
+            )
+            .field("correlation_id_present", &self.correlation_id.is_some())
+            .finish()
+    }
 }
 
 impl AuthzContext {
@@ -164,7 +249,7 @@ impl AuthzContext {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Decision {
     Allow {
         obligations: Vec<Obligation>,
@@ -183,6 +268,43 @@ pub enum Decision {
     },
 }
 
+impl fmt::Debug for Decision {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Allow {
+                obligations,
+                policy_id,
+                policy_version,
+            } => f
+                .debug_struct("Allow")
+                .field("obligation_count", &obligations.len())
+                .field("policy_id_len", &policy_id.chars().count())
+                .field("policy_version_len", &policy_version.chars().count())
+                .finish(),
+            Self::Deny {
+                reason,
+                policy_id,
+                policy_version,
+            } => f
+                .debug_struct("Deny")
+                .field("reason", reason)
+                .field("policy_id_len", &policy_id.chars().count())
+                .field("policy_version_len", &policy_version.chars().count())
+                .finish(),
+            Self::Indeterminate {
+                reason,
+                policy_id,
+                policy_version,
+            } => f
+                .debug_struct("Indeterminate")
+                .field("reason", reason)
+                .field("policy_id_len", &policy_id.chars().count())
+                .field("policy_version_len", &policy_version.chars().count())
+                .finish(),
+        }
+    }
+}
+
 impl Decision {
     pub fn is_allow(&self) -> bool {
         matches!(self, Self::Allow { .. })
@@ -193,7 +315,7 @@ impl Decision {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Obligation {
     LogPii { fields: Vec<String> },
     RequireMfa,
@@ -202,7 +324,38 @@ pub enum Obligation {
     CacheControl { value: String },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+impl fmt::Debug for Obligation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LogPii { fields } => f
+                .debug_struct("LogPii")
+                .field("field_count", &fields.len())
+                .field(
+                    "field_total_len",
+                    &fields
+                        .iter()
+                        .map(|field| field.chars().count())
+                        .sum::<usize>(),
+                )
+                .finish(),
+            Self::RequireMfa => f.write_str("RequireMfa"),
+            Self::RecordReason { template } => f
+                .debug_struct("RecordReason")
+                .field("template_len", &template.chars().count())
+                .finish(),
+            Self::EnforceTtl { seconds } => f
+                .debug_struct("EnforceTtl")
+                .field("seconds", seconds)
+                .finish(),
+            Self::CacheControl { value } => f
+                .debug_struct("CacheControl")
+                .field("value_len", &value.chars().count())
+                .finish(),
+        }
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum DenyReason {
     Anonymous,
     MissingScope,
@@ -213,10 +366,38 @@ pub enum DenyReason {
     Other(String),
 }
 
-#[derive(Debug, Error)]
+impl fmt::Debug for DenyReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Anonymous => f.write_str("Anonymous"),
+            Self::MissingScope => f.write_str("MissingScope"),
+            Self::TenantMismatch => f.write_str("TenantMismatch"),
+            Self::PolicyDisabled => f.write_str("PolicyDisabled"),
+            Self::InvalidResource => f.write_str("InvalidResource"),
+            Self::PolicyError => f.write_str("PolicyError"),
+            Self::Other(value) => f
+                .debug_tuple("Other")
+                .field(&format_args!("len={}", value.chars().count()))
+                .finish(),
+        }
+    }
+}
+
+#[derive(Error)]
 pub enum AuthzError {
-    #[error("authorization policy error: {0}")]
+    #[error("authorization policy error")]
     Policy(String),
+}
+
+impl fmt::Debug for AuthzError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Policy(message) => f
+                .debug_struct("Policy")
+                .field("message_len", &message.chars().count())
+                .finish(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -338,6 +519,88 @@ fn family_allows_legacy_scope(family: &ScopeFamily, granted: &str, required: &st
 mod tests {
     use super::*;
     use uuid::Uuid;
+
+    #[test]
+    fn authorization_contract_debug_reports_metadata_without_raw_policy_inputs() {
+        let action = Action {
+            name: "notes:update:tenant-alpha".to_string(),
+            scope_family: ScopeFamily::Rest,
+            required_scopes: vec![
+                "notes:write".to_string(),
+                "Bearer should-not-be-here".to_string(),
+            ],
+        };
+
+        let mut resource = Resource::new(ResourceKind::Other("custom-secret-resource".to_string()))
+            .with_id("note-raw-id-123")
+            .with_tenant("tenant-alpha");
+        resource.attrs.insert(
+            "authorization".to_string(),
+            Value::String("Bearer attr-token".to_string()),
+        );
+        resource.attrs.insert(
+            "path".to_string(),
+            Value::String("/srv/private/note.md".to_string()),
+        );
+
+        let mut ctx = AuthzContext::hosted("tenant-alpha");
+        ctx.environment.insert(
+            "DATABASE_URL".to_string(),
+            Value::String("postgres://user:pass@localhost/db".to_string()),
+        );
+        ctx.correlation_id = Some("correlation-raw-id".to_string());
+
+        let decision = Decision::Deny {
+            reason: DenyReason::Other("missing secret scope for tenant-alpha".to_string()),
+            policy_id: "custom-policy-id".to_string(),
+            policy_version: "2026-secret-version".to_string(),
+        };
+
+        let obligation = Obligation::RecordReason {
+            template: "denied tenant-alpha for notes:update".to_string(),
+        };
+
+        let debug = format!("{action:?}\n{resource:?}\n{ctx:?}\n{decision:?}\n{obligation:?}");
+
+        assert!(debug.contains("name_len"));
+        assert!(debug.contains("required_scope_count: 2"));
+        assert!(debug.contains("id_present: true"));
+        assert!(debug.contains("tenant_id_present: true"));
+        assert!(debug.contains("environment_count: 1"));
+        assert!(debug.contains("template_len"));
+        assert!(!debug.contains("notes:update:tenant-alpha"));
+        assert!(!debug.contains("notes:write"));
+        assert!(!debug.contains("Bearer should-not-be-here"));
+        assert!(!debug.contains("custom-secret-resource"));
+        assert!(!debug.contains("note-raw-id-123"));
+        assert!(!debug.contains("tenant-alpha"));
+        assert!(!debug.contains("authorization"));
+        assert!(!debug.contains("Bearer attr-token"));
+        assert!(!debug.contains("/srv/private/note.md"));
+        assert!(!debug.contains("DATABASE_URL"));
+        assert!(!debug.contains("postgres://user:pass@localhost/db"));
+        assert!(!debug.contains("correlation-raw-id"));
+        assert!(!debug.contains("missing secret scope"));
+        assert!(!debug.contains("custom-policy-id"));
+        assert!(!debug.contains("2026-secret-version"));
+    }
+
+    #[test]
+    fn authz_error_debug_and_display_do_not_echo_policy_detail() {
+        let error = AuthzError::Policy(
+            "backend policy failed for postgres://user:pass@localhost/db".to_string(),
+        );
+
+        let debug = format!("{error:?}");
+        let display = error.to_string();
+
+        assert!(debug.contains("message_len"));
+        assert_eq!(display, "authorization policy error");
+        assert!(!debug.contains("postgres://user:pass@localhost/db"));
+        assert!(!display.contains("postgres://user:pass@localhost/db"));
+        assert!(!debug.contains("backend policy failed"));
+        assert!(!display.contains("backend policy failed"));
+    }
 
     #[tokio::test]
     async fn allow_all_policy_preserves_personal_mode_behavior() {
