@@ -48,8 +48,20 @@ matric-pke keygen --passphrase-stdin -o ~/.matric-keys
 # Output:
 # {
 #   "address": "mm:ULnxkCj4TCc8QnFsar8Be4DVV4TkWivXE",
-#   "private_key_path": "/home/user/.matric-keys/private.key.enc",
-#   "public_key_path": "/home/user/.matric-keys/public.key"
+#   "private_key_path_metadata": {
+#     "present": true,
+#     "path_len": 35,
+#     "filename_len": 15,
+#     "extension_len": 3,
+#     "absolute": true
+#   },
+#   "public_key_path_metadata": {
+#     "present": true,
+#     "path_len": 30,
+#     "filename_len": 10,
+#     "extension_len": 3,
+#     "absolute": true
+#   }
 # }
 ```
 
@@ -101,7 +113,7 @@ matric-pke decrypt \
 │   ],                                 │
 │   "data_nonce": "<base64>",          │
 │   "created_at": "2026-01-22T...",    │
-│   "original_filename": "doc.pdf"     │
+│   "original_filename": "<ORIGINAL_FILENAME>" │
 │ }                                    │
 ├──────────────────────────────────────┤
 │ Encrypted Data                       │ Variable

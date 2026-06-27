@@ -136,7 +136,7 @@ Encrypted files use the MMPKE01 format:
 │     }                                                       │
 │   ],                                                        │
 │   "data_nonce": "<base64>",                                 │
-│   "original_filename": "backup.json"                        │
+│   "original_filename": "<ORIGINAL_FILENAME>"                 │
 │ }                                                           │
 ├─────────────────────────────────────────────────────────────┤
 │ Encrypted Data (AES-256-GCM ciphertext + 16-byte tag)       │

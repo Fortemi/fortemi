@@ -417,8 +417,8 @@ encrypt_pke({
 // Decrypt
 decrypt_pke({
   file_base64: "...",
-  private_key_path: "~/.matric/mykey.key.enc",
-  passphrase: "..."
+  private_key_path: "<PRIVATE_KEY_PATH>",
+  passphrase: "<PKE_PASSPHRASE>"
 })
 ```
 

@@ -227,6 +227,28 @@ fn trim_passphrase_input(mut value: String) -> String {
     value
 }
 
+fn path_metadata(path: &Path) -> serde_json::Value {
+    serde_json::json!({
+        "present": true,
+        "path_len": path.to_string_lossy().chars().count(),
+        "filename_len": path.file_name().map(|name| name.to_string_lossy().chars().count()),
+        "extension_len": path.extension().map(|ext| ext.to_string_lossy().chars().count()),
+        "absolute": path.is_absolute(),
+    })
+}
+
+fn optional_filename_metadata(filename: Option<&str>) -> serde_json::Value {
+    serde_json::json!({
+        "present": filename.is_some(),
+        "filename_len": filename.map(|name| name.chars().count()),
+        "extension_len": filename.and_then(|name| {
+            Path::new(name)
+                .extension()
+                .map(|ext| ext.to_string_lossy().chars().count())
+        }),
+    })
+}
+
 fn cmd_keygen(
     passphrase: &str,
     output_dir: &Path,
@@ -250,8 +272,8 @@ fn cmd_keygen(
     // Output JSON for MCP consumption
     let output = serde_json::json!({
         "address": address.to_string(),
-        "private_key_path": private_path.to_string_lossy(),
-        "public_key_path": public_path.to_string_lossy(),
+        "private_key_path_metadata": path_metadata(&private_path),
+        "public_key_path_metadata": path_metadata(&public_path),
     });
 
     println!("{}", serde_json::to_string_pretty(&output)?);
@@ -302,18 +324,12 @@ fn cmd_encrypt(
     // Write output
     std::fs::write(output_path, &ciphertext)?;
 
-    // Get recipient addresses for output
-    let addresses: Vec<String> = recipients
-        .iter()
-        .map(|p| p.to_address().to_string())
-        .collect();
-
     let output = serde_json::json!({
-        "input": input_path.to_string_lossy(),
-        "output": output_path.to_string_lossy(),
+        "input_path_metadata": path_metadata(input_path),
+        "output_path_metadata": path_metadata(output_path),
         "input_size": plaintext.len(),
         "output_size": ciphertext.len(),
-        "recipients": addresses,
+        "recipient_count": recipients.len(),
     });
 
     println!("{}", serde_json::to_string_pretty(&output)?);
@@ -340,11 +356,11 @@ fn cmd_decrypt(
     std::fs::write(output_path, &plaintext)?;
 
     let output = serde_json::json!({
-        "input": input_path.to_string_lossy(),
-        "output": output_path.to_string_lossy(),
+        "input_path_metadata": path_metadata(input_path),
+        "output_path_metadata": path_metadata(output_path),
         "input_size": ciphertext.len(),
         "output_size": plaintext.len(),
-        "original_filename": header.original_filename,
+        "original_filename_metadata": optional_filename_metadata(header.original_filename.as_deref()),
         "created_at": header.created_at,
     });
 
@@ -363,7 +379,7 @@ fn cmd_recipients(input_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let addresses: Vec<String> = recipients.iter().map(|a| a.to_string()).collect();
 
     let output = serde_json::json!({
-        "file": input_path.to_string_lossy(),
+        "file_path_metadata": path_metadata(input_path),
         "recipients": addresses,
         "count": addresses.len(),
     });
@@ -448,5 +464,37 @@ mod tests {
             trim_passphrase_input(" safe passphrase value \r\n".to_string()),
             " safe passphrase value "
         );
+    }
+
+    #[test]
+    fn test_path_metadata_redacts_raw_path_segments() {
+        let secret_path = Path::new("/tmp/alice@example.com/mm_at_secret-token/private.key.enc");
+        let metadata = path_metadata(secret_path);
+        let rendered = serde_json::to_string(&metadata).unwrap();
+
+        assert_eq!(metadata["present"], true);
+        assert_eq!(metadata["absolute"], true);
+        assert_eq!(metadata["filename_len"], 15);
+        assert_eq!(metadata["extension_len"], 3);
+        assert!(!rendered.contains("alice@example.com"));
+        assert!(!rendered.contains("mm_at_secret-token"));
+        assert!(!rendered.contains("private.key.enc"));
+    }
+
+    #[test]
+    fn test_optional_filename_metadata_redacts_original_filename() {
+        let metadata = optional_filename_metadata(Some("backup-mm_key_secret.json"));
+        let rendered = serde_json::to_string(&metadata).unwrap();
+
+        assert_eq!(metadata["present"], true);
+        assert_eq!(metadata["filename_len"], 25);
+        assert_eq!(metadata["extension_len"], 4);
+        assert!(!rendered.contains("backup-mm_key_secret.json"));
+        assert!(!rendered.contains("mm_key_secret"));
+
+        let absent = optional_filename_metadata(None);
+        assert_eq!(absent["present"], false);
+        assert!(absent["filename_len"].is_null());
+        assert!(absent["extension_len"].is_null());
     }
 }
