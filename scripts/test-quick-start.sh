@@ -22,7 +22,10 @@ NC='\033[0m' # No Color
 # Configuration
 DB_CONTAINER="matric-test-db-$$"
 DB_PORT="${TEST_DB_PORT:-15432}"
-DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+DB_USER="${TEST_DB_USER:-matric}"
+DB_PASSWORD="${TEST_DB_PASSWORD:-fortemi-test-${RANDOM:-0}-$$}"
+DB_NAME="${TEST_DB_NAME:-matric_test}"
+DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "$DB_USER" "$DB_PASSWORD" "$DB_PORT" "$DB_NAME")"
 
 # Docker image for test database (pgvector + PostGIS)
 # Default: builds local image from build/Dockerfile.testdb
@@ -137,7 +140,7 @@ start_postgres() {
     # Find available port if default is in use
     if [ -z "$TEST_DB_PORT" ]; then
         DB_PORT=$(find_available_port 15432)
-        DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+        DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "$DB_USER" "$DB_PASSWORD" "$DB_PORT" "$DB_NAME")"
     fi
 
     print_info "Starting PostgreSQL with pgvector + PostGIS..."
@@ -154,9 +157,9 @@ start_postgres() {
     # Start new container using configured TESTDB_IMAGE
     if ! docker run -d --name "$DB_CONTAINER" \
         -p "${DB_PORT}:5432" \
-        -e POSTGRES_USER=matric \
-        -e POSTGRES_PASSWORD=matric \
-        -e POSTGRES_DB=matric_test \
+        -e POSTGRES_USER="$DB_USER" \
+        -e POSTGRES_PASSWORD="$DB_PASSWORD" \
+        -e POSTGRES_DB="$DB_NAME" \
         "$TESTDB_IMAGE" >/dev/null 2>&1; then
         print_error "Failed to start container with image: $TESTDB_IMAGE"
         print_error "Try pulling the image first: docker pull $TESTDB_IMAGE"
@@ -166,7 +169,7 @@ start_postgres() {
     # Wait for PostgreSQL to be ready
     print_info "Waiting for PostgreSQL to be ready..."
     for i in {1..30}; do
-        if docker exec "$DB_CONTAINER" pg_isready -U matric >/dev/null 2>&1; then
+        if docker exec "$DB_CONTAINER" pg_isready -U "$DB_USER" >/dev/null 2>&1; then
             print_info "PostgreSQL is ready!"
             break
         fi
@@ -181,7 +184,7 @@ start_postgres() {
 
     # Enable pgvector extension
     print_info "Enabling pgvector extension..."
-    docker exec "$DB_CONTAINER" psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS vector;" >/dev/null 2>&1 || true
+    docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS vector;" >/dev/null 2>&1 || true
 
     # Run migrations
     print_info "Running database migrations..."
@@ -189,11 +192,11 @@ start_postgres() {
     for migration in migrations/*.sql; do
         if [ -f "$migration" ]; then
             print_info "  → $(basename "$migration")"
-            if ! docker exec -i "$DB_CONTAINER" psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$migration" >/dev/null 2>&1; then
+            if ! docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 < "$migration" >/dev/null 2>&1; then
                 print_error "Migration failed: $(basename "$migration")"
                 print_error "Run with VERBOSE=1 for details"
                 if [ -n "$VERBOSE" ]; then
-                    docker exec -i "$DB_CONTAINER" psql -U matric -d matric_test < "$migration"
+                    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" < "$migration"
                 fi
                 exit 1
             fi

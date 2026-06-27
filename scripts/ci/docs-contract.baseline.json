@@ -359,20 +359,6 @@
       "review_after": "2026-07-31"
     },
     {
-      "fingerprint": "989b1d86f54e8acd",
-      "rule": "docs-credential-dsn",
-      "issue": "#1001",
-      "profile": "hosted_strict",
-      "severity": "high",
-      "category": "credential_bearing_database_url",
-      "file": "mcp-server/tests/api-errors.test.js",
-      "line": 36,
-      "classification": "test_fixture_secret",
-      "reason": "MCP API error test fixture; cleanup/classification tracked by #1001/#1004.",
-      "owner_issue": "#1001",
-      "review_after": "2026-07-31"
-    },
-    {
       "fingerprint": "8de1ab25d330717e",
       "rule": "docs-default-pgpassword",
       "issue": "#1001",
@@ -397,62 +383,6 @@
       "line": 96,
       "classification": "ci_test_fixture",
       "reason": "CI shard rebuild test database fixture; cleanup/classification tracked by #1001/#1004.",
-      "owner_issue": "#1001",
-      "review_after": "2026-07-31"
-    },
-    {
-      "fingerprint": "f9a57d08b47d23d2",
-      "rule": "docs-default-pgpassword",
-      "issue": "#1001",
-      "profile": "hosted_strict",
-      "severity": "high",
-      "category": "default_database_password",
-      "file": "scripts/production-test.sh",
-      "line": 9,
-      "classification": "test_fixture_secret",
-      "reason": "Production-smoke test fixture; cleanup/classification tracked by #1001/#1004.",
-      "owner_issue": "#1001",
-      "review_after": "2026-07-31"
-    },
-    {
-      "fingerprint": "763417f0993f5150",
-      "rule": "docs-credential-dsn",
-      "issue": "#1001",
-      "profile": "hosted_strict",
-      "severity": "high",
-      "category": "credential_bearing_database_url",
-      "file": "scripts/test-quick-start.sh",
-      "line": 25,
-      "classification": "test_fixture_secret",
-      "reason": "Quick-start test fixture; cleanup/classification tracked by #1001/#1004.",
-      "owner_issue": "#1001",
-      "review_after": "2026-07-31"
-    },
-    {
-      "fingerprint": "f2e4a31cbdf26464",
-      "rule": "docs-credential-dsn",
-      "issue": "#1001",
-      "profile": "hosted_strict",
-      "severity": "high",
-      "category": "credential_bearing_database_url",
-      "file": "scripts/test-quick-start.sh",
-      "line": 140,
-      "classification": "test_fixture_secret",
-      "reason": "Quick-start test fixture; cleanup/classification tracked by #1001/#1004.",
-      "owner_issue": "#1001",
-      "review_after": "2026-07-31"
-    },
-    {
-      "fingerprint": "a4f15ffe54d69f33",
-      "rule": "docs-default-pgpassword",
-      "issue": "#1001",
-      "profile": "hosted_strict",
-      "severity": "high",
-      "category": "default_database_password",
-      "file": "scripts/test-quick-start.sh",
-      "line": 158,
-      "classification": "test_fixture_secret",
-      "reason": "Quick-start test fixture; cleanup/classification tracked by #1001/#1004.",
       "owner_issue": "#1001",
       "review_after": "2026-07-31"
     }

@@ -4,9 +4,10 @@
 #
 # Usage: ./scripts/production-test.sh [BASE_URL]
 # Example: ./scripts/production-test.sh http://localhost:3000
+# Requires MATRIC_DB_PASSWORD for database validation.
 
 set -e
-export PGPASSWORD=matric
+export PGPASSWORD="${MATRIC_DB_PASSWORD:?MATRIC_DB_PASSWORD must be set for database validation}"
 BASE_URL="${1:-${MATRIC_API_URL:-http://localhost:3000}}"
 
 echo "========================================"

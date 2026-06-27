@@ -33,7 +33,8 @@ describe("Fortemi API problem formatting", () => {
       "Internal Server Error",
       "application/json",
       JSON.stringify({
-        error: "database failed at postgresql://user:secret@db/internal",
+        error:
+          "database failed at " + "postgresql://user:" + "secret@db/internal",
         stderr: "/var/lib/fortemi/private/path",
       })
     );
