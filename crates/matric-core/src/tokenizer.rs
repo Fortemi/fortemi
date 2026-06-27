@@ -6,6 +6,33 @@
 
 use crate::error::{Error, Result};
 
+fn tokenizer_error_reason_code(error: &str) -> &'static str {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("model") {
+        "model_lookup"
+    } else if lower.contains("bpe") || lower.contains("rank") || lower.contains("token") {
+        "bpe_init"
+    } else if lower.contains("io")
+        || lower.contains("file")
+        || lower.contains("path")
+        || lower.contains("permission")
+    {
+        "io"
+    } else {
+        "backend_error"
+    }
+}
+
+fn tokenizer_init_failure_detail(tokenizer: &str, error: impl std::fmt::Display) -> String {
+    let error_text = error.to_string();
+    format!(
+        "Failed to initialize tokenizer; tokenizer={}; error_len={}; error_reason={}",
+        tokenizer,
+        error_text.chars().count(),
+        tokenizer_error_reason_code(&error_text)
+    )
+}
+
 /// Trait for tokenization operations.
 ///
 /// Implementations should be thread-safe and support common tokenization
@@ -43,7 +70,7 @@ impl TiktokenTokenizer {
     /// Returns an error if the model is not recognized or BPE initialization fails.
     pub fn new(model: &str) -> Result<Self> {
         let bpe = tiktoken_rs::get_bpe_from_model(model)
-            .map_err(|e| Error::Internal(format!("Failed to initialize tokenizer: {}", e)))?;
+            .map_err(|e| Error::Internal(tokenizer_init_failure_detail("model", e)))?;
 
         Ok(Self {
             bpe,
@@ -56,7 +83,7 @@ impl TiktokenTokenizer {
     /// This is the tokenizer used by text-embedding-ada-002 and similar models.
     pub fn for_embeddings() -> Result<Self> {
         let bpe = tiktoken_rs::cl100k_base()
-            .map_err(|e| Error::Internal(format!("Failed to initialize cl100k_base: {}", e)))?;
+            .map_err(|e| Error::Internal(tokenizer_init_failure_detail("cl100k_base", e)))?;
 
         Ok(Self {
             bpe,
@@ -152,6 +179,42 @@ mod tests {
 
         let tokenizer = tokenizer.unwrap();
         assert_eq!(tokenizer.name(), "gpt-4");
+    }
+
+    #[test]
+    fn tokenizer_init_failure_detail_redacts_backend_error() {
+        let diagnostic = "BPE load failed for /srv/tenant/acme.tiktoken with api_key=sk-test-123 and postgres://user:pass@db";
+
+        let detail = tokenizer_init_failure_detail("model", diagnostic);
+
+        assert!(detail.contains("Failed to initialize tokenizer"));
+        assert!(detail.contains("tokenizer=model"));
+        assert!(detail.contains("error_len="));
+        assert!(detail.contains("error_reason=bpe_init"));
+        assert!(!detail.contains("/srv/tenant/acme.tiktoken"));
+        assert!(!detail.contains("sk-test-123"));
+        assert!(!detail.contains("postgres://user:pass@db"));
+        assert!(!detail.contains(diagnostic));
+    }
+
+    #[test]
+    fn tokenizer_error_reason_code_uses_stable_classes() {
+        assert_eq!(
+            tokenizer_error_reason_code("unknown model: tenant-model"),
+            "model_lookup"
+        );
+        assert_eq!(
+            tokenizer_error_reason_code("failed to read BPE ranks"),
+            "bpe_init"
+        );
+        assert_eq!(
+            tokenizer_error_reason_code("permission denied for path"),
+            "io"
+        );
+        assert_eq!(
+            tokenizer_error_reason_code("unexpected backend state"),
+            "backend_error"
+        );
     }
 
     #[test]
