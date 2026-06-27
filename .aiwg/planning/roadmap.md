@@ -198,6 +198,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: Twilio media-stream mark custom control payloads now carry mark-name presence/length metadata instead of raw provider mark names.
   - 2026-06-27 continuation: Event-bus telemetry mirror logs now emit job/note identifier presence/length metadata and job-type lengths instead of raw job IDs, note IDs, or job-type strings.
   - 2026-06-27 continuation: Worker job-processing, handler-registration, completion/failure, and NLP queue-failure telemetry now reports job-type lengths instead of raw job-type labels.
+  - 2026-06-27 continuation: Attachment extraction queue success/failure logs now report note/attachment/job id presence/length metadata plus strategy and filename lengths instead of raw ids, strategy labels, or filenames.
   - 2026-06-26 continuation: extraction setup job telemetry and failure text now report filename lengths, available-strategy counts, and stable reason codes instead of raw schema names, attachment UUIDs, filenames, storage paths, parser diagnostics, database/storage diagnostics, DSNs, paths, hostnames, or token-shaped values.
   - 2026-06-26 continuation: extraction adapter failure job/status text now stores stable reason codes instead of raw adapter/backend errors, DSNs, paths, hostnames, filenames, or token-shaped values.
   - 2026-06-26 continuation: media optimize setup job failure text now stores stable reason codes for schema, temp-dir, transaction, download, commit, and temp-file write failures instead of raw schema names, database/storage diagnostics, filesystem paths, DSNs, hostnames, or token-shaped values.
@@ -883,3 +884,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 Twilio media-stream mark custom control payloads now carry mark-name presence/length metadata instead of raw provider mark names.
 - 2026-06-27 — #968/#974 Event-bus telemetry mirror logs now emit job/note identifier presence/length metadata and job-type lengths instead of raw job IDs, note IDs, or job-type strings.
 - 2026-06-27 — #968/#974 Worker job-processing, handler-registration, completion/failure, and NLP queue-failure telemetry now reports job-type lengths instead of raw job-type labels.
+- 2026-06-27 — #968/#974 Attachment extraction queue success/failure logs now report note/attachment/job id presence/length metadata plus strategy and filename lengths instead of raw ids, strategy labels, or filenames.

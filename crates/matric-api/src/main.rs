@@ -230,12 +230,18 @@ async fn queue_extraction_job(
         .await
     {
         Ok(job_id) => {
+            let note_id_telemetry = event_text_telemetry(&note_id.to_string());
+            let attachment_id_telemetry = event_text_telemetry(&attachment_id.to_string());
+            let job_id_telemetry = event_text_telemetry(&job_id.to_string());
             info!(
-                %note_id,
-                %attachment_id,
-                %job_id,
-                strategy = %strategy,
-                filename,
+                note_id_present = note_id_telemetry.present,
+                note_id_len = note_id_telemetry.len,
+                attachment_id_present = attachment_id_telemetry.present,
+                attachment_id_len = attachment_id_telemetry.len,
+                job_id_present = job_id_telemetry.present,
+                job_id_len = job_id_telemetry.len,
+                strategy_len = telemetry_text_len(&strategy.to_string()),
+                filename_len = telemetry_text_len(filename),
                 "Extraction job queued for attachment"
             );
             event_bus.emit(ServerEvent::JobQueued {
@@ -249,7 +255,7 @@ async fn queue_extraction_job(
                 error_len = telemetry_text_len(&e.to_string()),
                 detail = API_JOB_QUEUE_DIAGNOSTIC_FAILURE_DETAIL,
                 operation = "queue_attachment_extraction",
-                strategy = %strategy,
+                strategy_len = telemetry_text_len(&strategy.to_string()),
                 filename_len = telemetry_text_len(filename),
                 "Failed to queue extraction job"
             );
@@ -32147,25 +32153,37 @@ mod tests {
     fn event_text_telemetry_redacts_event_bus_identifiers() {
         let job_id = Uuid::new_v4().to_string();
         let note_id = Uuid::new_v4().to_string();
+        let attachment_id = Uuid::new_v4().to_string();
         let job_type = "tenant-alpha-private-embedding";
+        let filename = "tenant-alpha-private-scan.pdf";
+        let strategy = ExtractionStrategy::PdfText.to_string();
         let backend_error = "database connect failed for postgres://user:secret@db.internal/matric";
 
         let job_id_telemetry = event_text_telemetry(&job_id);
         let note_id_telemetry = event_text_telemetry(&note_id);
+        let attachment_id_telemetry = event_text_telemetry(&attachment_id);
         let job_type_telemetry = event_text_telemetry(job_type);
         let rendered = format!(
-            "{job_id_telemetry:?} {note_id_telemetry:?} {job_type_telemetry:?} error_class={}",
+            "{job_id_telemetry:?} {note_id_telemetry:?} {attachment_id_telemetry:?} \
+             {job_type_telemetry:?} strategy_len={} filename_len={} error_class={}",
+            telemetry_text_len(&strategy),
+            telemetry_text_len(filename),
             telemetry_error_class(backend_error)
         );
 
         assert!(job_id_telemetry.present);
         assert!(note_id_telemetry.present);
+        assert!(attachment_id_telemetry.present);
         assert_eq!(job_id_telemetry.len, job_id.chars().count());
         assert_eq!(note_id_telemetry.len, note_id.chars().count());
+        assert_eq!(attachment_id_telemetry.len, attachment_id.chars().count());
         assert_eq!(job_type_telemetry.len, job_type.chars().count());
         assert!(!rendered.contains(&job_id));
         assert!(!rendered.contains(&note_id));
+        assert!(!rendered.contains(&attachment_id));
         assert!(!rendered.contains("tenant-alpha"));
+        assert!(!rendered.contains("private-scan.pdf"));
+        assert!(!rendered.contains("PdfText"));
         assert!(!rendered.contains("postgres://"));
         assert!(!rendered.contains("secret"));
         assert!(!rendered.contains("db.internal"));
