@@ -57,7 +57,7 @@ impl fmt::Debug for MediaFrame {
 }
 
 /// Codec identification aligned with VoIP/IANA media names.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Codec {
     /// G.711 PCMU / mu-law.
     PcmuG711 { sample_rate: u32 },
@@ -69,6 +69,41 @@ pub enum Codec {
     L16 { sample_rate: u32, channels: u8 },
     /// RFC 4733 telephone-event payload such as DTMF.
     Telephone { event_code: u8 },
+}
+
+impl fmt::Debug for Codec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PcmuG711 { sample_rate } => f
+                .debug_struct("PcmuG711")
+                .field("sample_rate", sample_rate)
+                .finish(),
+            Self::PcmaG711 { sample_rate } => f
+                .debug_struct("PcmaG711")
+                .field("sample_rate", sample_rate)
+                .finish(),
+            Self::Opus {
+                sample_rate,
+                channels,
+            } => f
+                .debug_struct("Opus")
+                .field("sample_rate", sample_rate)
+                .field("channels", channels)
+                .finish(),
+            Self::L16 {
+                sample_rate,
+                channels,
+            } => f
+                .debug_struct("L16")
+                .field("sample_rate", sample_rate)
+                .field("channels", channels)
+                .finish(),
+            Self::Telephone { .. } => f
+                .debug_struct("Telephone")
+                .field("event_code_present", &true)
+                .finish(),
+        }
+    }
 }
 
 /// SIP-style call lifecycle state.
@@ -380,6 +415,13 @@ mod tests {
                 "payload": "postgres://user:pass@db.internal/app",
             }),
         };
+        let telephone_frame = MediaFrame {
+            codec: Codec::Telephone { event_code: 7 },
+            timestamp_rtp: 43,
+            sequence: 8,
+            marker: false,
+            payload: vec![7],
+        };
         let session = ActiveCallSession {
             call_id: Uuid::new_v4(),
             provider: "twilio-private".to_string(),
@@ -390,7 +432,7 @@ mod tests {
         let manager = CallSessionManager::new();
 
         let combined = format!(
-            "{frame:?}\n{started:?}\n{dtmf:?}\n{recording:?}\n{dropped:?}\n{custom:?}\n{session:?}\n{manager:?}"
+            "{frame:?}\n{started:?}\n{dtmf:?}\n{recording:?}\n{dropped:?}\n{custom:?}\n{telephone_frame:?}\n{session:?}\n{manager:?}"
         );
 
         assert!(combined.contains("payload_len"));
@@ -399,6 +441,7 @@ mod tests {
         assert!(combined.contains("digit_present"));
         assert!(combined.contains("url_len"));
         assert!(combined.contains("reason_len"));
+        assert!(combined.contains("event_code_present"));
         assert!(combined.contains("sessions_redacted"));
 
         for raw in [
@@ -419,6 +462,7 @@ mod tests {
             "customer@example.com",
             "recording_url",
             "consent_confirmed",
+            "event_code: 7",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
