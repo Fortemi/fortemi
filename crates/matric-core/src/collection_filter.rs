@@ -23,6 +23,7 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use uuid::Uuid;
 
 // =============================================================================
@@ -60,7 +61,7 @@ use uuid::Uuid;
 /// - All child collections (recursively)
 ///
 /// This is useful for queries like "all notes in the 'Work' folder and subfolders".
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct StrictCollectionFilter {
     /// Collections to include (OR logic) - notes must be in ANY of these.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -84,6 +85,22 @@ pub struct StrictCollectionFilter {
     /// This takes precedence over `any_collections` when set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exact_collection: Option<Uuid>,
+}
+
+impl fmt::Debug for StrictCollectionFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StrictCollectionFilter")
+            .field("any_collections_count", &self.any_collections.len())
+            .field(
+                "excluded_collections_count",
+                &self.excluded_collections.len(),
+            )
+            .field("include_descendants", &self.include_descendants)
+            .field("include_uncategorized", &self.include_uncategorized)
+            .field("exact_collection_set", &self.exact_collection.is_some())
+            .field("requires_recursive_query", &self.requires_recursive_query())
+            .finish()
+    }
 }
 
 fn default_true() -> bool {
@@ -176,7 +193,7 @@ impl StrictCollectionFilter {
 ///
 /// This provides a string-based alternative to UUID-based filtering,
 /// useful for API endpoints and human-readable queries.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct CollectionPathFilter {
     /// Collection paths to include (OR logic).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -193,6 +210,33 @@ pub struct CollectionPathFilter {
     /// Whether to include uncategorized notes.
     #[serde(default = "default_true")]
     pub include_uncategorized: bool,
+}
+
+impl fmt::Debug for CollectionPathFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CollectionPathFilter")
+            .field("include_paths_count", &self.include_paths.len())
+            .field(
+                "include_path_lens",
+                &self
+                    .include_paths
+                    .iter()
+                    .map(|path| path.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("exclude_paths_count", &self.exclude_paths.len())
+            .field(
+                "exclude_path_lens",
+                &self
+                    .exclude_paths
+                    .iter()
+                    .map(|path| path.len())
+                    .collect::<Vec<_>>(),
+            )
+            .field("include_descendants", &self.include_descendants)
+            .field("include_uncategorized", &self.include_uncategorized)
+            .finish()
+    }
 }
 
 impl CollectionPathFilter {
@@ -326,5 +370,84 @@ mod tests {
         assert_eq!(filter.include_paths.len(), 1);
         assert_eq!(filter.exclude_paths.len(), 1);
         assert!(filter.include_descendants);
+    }
+
+    #[test]
+    fn strict_collection_filter_debug_redacts_collection_ids() {
+        let include_id = Uuid::new_v4();
+        let exclude_id = Uuid::new_v4();
+        let exact_id = Uuid::new_v4();
+        let filter = StrictCollectionFilter::new()
+            .in_collection(include_id)
+            .exclude_collection(exclude_id)
+            .in_exact_collection(exact_id)
+            .with_descendants(true)
+            .with_uncategorized(false);
+
+        let debug = format!("{filter:?}");
+
+        for secret in [
+            include_id.to_string(),
+            exclude_id.to_string(),
+            exact_id.to_string(),
+        ] {
+            assert!(
+                !debug.contains(&secret),
+                "StrictCollectionFilter Debug output leaked collection id {secret:?}: {debug}"
+            );
+        }
+
+        for expected in [
+            "any_collections_count",
+            "excluded_collections_count",
+            "include_descendants",
+            "include_uncategorized",
+            "exact_collection_set",
+            "requires_recursive_query",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "StrictCollectionFilter Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn collection_path_filter_debug_redacts_raw_paths() {
+        let filter = CollectionPathFilter::new()
+            .include_path("Customers/private@example.test/sk-live-token")
+            .include_path("/tmp/private/customer/project")
+            .exclude_path("Archive/https://example.test/path?token=secret")
+            .with_descendants(true);
+
+        let debug = format!("{filter:?}");
+
+        for secret in [
+            "Customers/private@example.test/sk-live-token",
+            "/tmp/private/customer/project",
+            "Archive/https://example.test/path?token=secret",
+            "private@example.test",
+            "sk-live-token",
+            "token=secret",
+        ] {
+            assert!(
+                !debug.contains(secret),
+                "CollectionPathFilter Debug output leaked path value {secret:?}: {debug}"
+            );
+        }
+
+        for expected in [
+            "include_paths_count",
+            "include_path_lens",
+            "exclude_paths_count",
+            "exclude_path_lens",
+            "include_descendants",
+            "include_uncategorized",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "CollectionPathFilter Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
     }
 }
