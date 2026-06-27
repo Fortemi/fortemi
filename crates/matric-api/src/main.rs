@@ -22780,6 +22780,7 @@ async fn tus_create_upload(
     let mut filename = "upload".to_string();
     let mut content_type = "application/octet-stream".to_string();
     let mut extra_metadata = serde_json::Map::new();
+    let mut tus_extra_metadata = TusExtraMetadataTelemetry::default();
 
     if let Some(meta_header) = headers.get("Upload-Metadata").and_then(|v| v.to_str().ok()) {
         for pair in meta_header.split(',') {
@@ -22795,11 +22796,12 @@ async fn tus_create_upload(
                 "filename" => filename = decoded,
                 "content_type" | "filetype" => content_type = decoded,
                 other => {
-                    extra_metadata.insert(other.to_string(), serde_json::Value::String(decoded));
+                    tus_extra_metadata.record(other, &decoded);
                 }
             }
         }
     }
+    tus_extra_metadata.insert_into(&mut extra_metadata);
 
     // Store query params in metadata for finalization
     if let Some(doc_type_id) = query.document_type_id {
@@ -22815,10 +22817,7 @@ async fn tus_create_upload(
         );
     }
     if let Some(ref vm) = query.vision_mode {
-        extra_metadata.insert(
-            "vision_mode".to_string(),
-            serde_json::Value::String(vm.clone()),
-        );
+        insert_tus_vision_mode_metadata(&mut extra_metadata, vm);
     }
 
     // Validate note exists
@@ -23374,6 +23373,86 @@ fn base64_decode_metadata(b64: &str) -> Option<String> {
         .decode(b64.trim())
         .ok()
         .and_then(|bytes| String::from_utf8(bytes).ok())
+}
+
+#[derive(Default)]
+struct TusExtraMetadataTelemetry {
+    count: usize,
+    key_total_len: usize,
+    value_total_len: usize,
+    secret_candidate_count: usize,
+}
+
+impl TusExtraMetadataTelemetry {
+    fn record(&mut self, key: &str, value: &str) {
+        self.count += 1;
+        self.key_total_len += telemetry_text_len(key);
+        self.value_total_len += telemetry_text_len(value);
+        if webhook_delivery_text_has_secret_candidate(key)
+            || webhook_delivery_text_has_secret_candidate(value)
+        {
+            self.secret_candidate_count += 1;
+        }
+    }
+
+    fn insert_into(self, metadata: &mut serde_json::Map<String, serde_json::Value>) {
+        if self.count == 0 {
+            return;
+        }
+
+        metadata.insert(
+            "extra_metadata_count".to_string(),
+            serde_json::json!(self.count),
+        );
+        metadata.insert(
+            "extra_metadata_key_total_len".to_string(),
+            serde_json::json!(self.key_total_len),
+        );
+        metadata.insert(
+            "extra_metadata_value_total_len".to_string(),
+            serde_json::json!(self.value_total_len),
+        );
+        metadata.insert(
+            "extra_metadata_secret_candidate_count".to_string(),
+            serde_json::json!(self.secret_candidate_count),
+        );
+    }
+}
+
+fn insert_tus_vision_mode_metadata(
+    metadata: &mut serde_json::Map<String, serde_json::Value>,
+    vision_mode: &str,
+) {
+    let normalized = vision_mode.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "standard" | "full" => {
+            metadata.insert(
+                "vision_mode".to_string(),
+                serde_json::Value::String(normalized),
+            );
+        }
+        "" => {
+            metadata.insert(
+                "vision_mode_class".to_string(),
+                serde_json::Value::String("empty".to_string()),
+            );
+            metadata.insert("vision_mode_len".to_string(), serde_json::json!(0));
+        }
+        _ => {
+            metadata.insert(
+                "vision_mode_class".to_string(),
+                serde_json::Value::String("custom".to_string()),
+            );
+            metadata.insert(
+                "vision_mode_len".to_string(),
+                serde_json::json!(telemetry_text_len(vision_mode)),
+            );
+            metadata.insert(
+                "vision_mode_secret_candidate".to_string(),
+                serde_json::json!(webhook_delivery_text_has_secret_candidate(vision_mode)),
+            );
+        }
+    }
 }
 
 // =============================================================================
@@ -39431,6 +39510,48 @@ mod tests {
         let padded = format!("  {}  ", raw);
         let result = base64_decode_metadata(&padded);
         assert_eq!(result, Some("trimmed".to_string()));
+    }
+
+    #[test]
+    fn tus_extra_metadata_telemetry_redacts_keys_and_values() {
+        let mut telemetry = TusExtraMetadataTelemetry::default();
+        telemetry.record("api_key", "sk-live-secret");
+        telemetry.record(
+            "callback_url",
+            "https://provider.example.test/callback?token=secret",
+        );
+
+        let mut metadata = serde_json::Map::new();
+        telemetry.insert_into(&mut metadata);
+        let value = serde_json::Value::Object(metadata);
+        let serialized = value.to_string();
+
+        assert_eq!(value["extra_metadata_count"], 2);
+        assert_eq!(value["extra_metadata_secret_candidate_count"], 2);
+        assert!(serialized.contains("extra_metadata_key_total_len"));
+        assert!(serialized.contains("extra_metadata_value_total_len"));
+        assert!(!serialized.contains("api_key"));
+        assert!(!serialized.contains("callback_url"));
+        assert!(!serialized.contains("sk-live-secret"));
+        assert!(!serialized.contains("provider.example.test"));
+        assert!(!serialized.contains("token=secret"));
+    }
+
+    #[test]
+    fn tus_vision_mode_metadata_keeps_only_finite_modes_raw() {
+        let mut full = serde_json::Map::new();
+        insert_tus_vision_mode_metadata(&mut full, " Full ");
+        assert_eq!(full.get("vision_mode").unwrap(), "full");
+
+        let mut custom = serde_json::Map::new();
+        insert_tus_vision_mode_metadata(&mut custom, "custom-sk-secret@example.test");
+        let serialized = serde_json::Value::Object(custom).to_string();
+
+        assert!(serialized.contains("vision_mode_class"));
+        assert!(serialized.contains("vision_mode_len"));
+        assert!(serialized.contains("vision_mode_secret_candidate"));
+        assert!(!serialized.contains("custom-sk-secret"));
+        assert!(!serialized.contains("example.test"));
     }
 
     #[test]
