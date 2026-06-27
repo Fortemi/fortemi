@@ -860,9 +860,11 @@ fn test_error_message_no_migration_path() {
 
             // Check error display message
             let err_msg = format!("{}", MigrationError::NoMigrationPath { from, to });
-            assert!(err_msg.contains("No migration path"));
-            assert!(err_msg.contains("1.0.0"));
-            assert!(err_msg.contains("2.0.0"));
+            assert!(err_msg.contains("no shard migration path"));
+            assert!(err_msg.contains("from_len="));
+            assert!(err_msg.contains("to_len="));
+            assert!(!err_msg.contains("1.0.0"));
+            assert!(!err_msg.contains("2.0.0"));
         }
         _ => panic!("Expected NoMigrationPath error"),
     }

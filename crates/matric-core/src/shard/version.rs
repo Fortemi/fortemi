@@ -19,18 +19,18 @@ impl Version {
     pub fn parse(s: &str) -> Result<Self, String> {
         let parts: Vec<&str> = s.split('.').collect();
         if parts.len() != 3 {
-            return Err(format!("Invalid version format: {}", s));
+            return Err(format!("Invalid version format; value_len={}", s.len()));
         }
 
         let major = parts[0]
             .parse::<u64>()
-            .map_err(|_| format!("Invalid major version: {}", parts[0]))?;
+            .map_err(|_| format!("Invalid major version; component_len={}", parts[0].len()))?;
         let minor = parts[1]
             .parse::<u64>()
-            .map_err(|_| format!("Invalid minor version: {}", parts[1]))?;
+            .map_err(|_| format!("Invalid minor version; component_len={}", parts[1].len()))?;
         let patch = parts[2]
             .parse::<u64>()
-            .map_err(|_| format!("Invalid patch version: {}", parts[2]))?;
+            .map_err(|_| format!("Invalid patch version; component_len={}", parts[2].len()))?;
 
         Ok(Version {
             major,
@@ -90,6 +90,40 @@ mod tests {
         assert!(Version::parse("1.0.0.0").is_err());
         assert!(Version::parse("a.b.c").is_err());
         assert!(Version::parse("1.0.x").is_err());
+    }
+
+    #[test]
+    fn version_parse_errors_report_lengths_without_raw_values() {
+        for raw in [
+            "postgres://admin:secret@db.internal/fortemi",
+            "sk-live-token.1.0",
+            "1.customer@example.com.0",
+            "1.0./srv/private/path",
+        ] {
+            let err = Version::parse(raw).unwrap_err();
+            assert!(err.contains("Invalid"));
+            assert!(
+                err.contains("value_len=") || err.contains("component_len="),
+                "parse error should retain only length metadata: {err}"
+            );
+            assert!(
+                !err.contains(raw),
+                "version parse error leaked raw input: {err}"
+            );
+            for fragment in [
+                "postgres://",
+                "admin:secret",
+                "db.internal",
+                "sk-live",
+                "customer@example.com",
+                "/srv/private",
+            ] {
+                assert!(
+                    !err.contains(fragment),
+                    "version parse error leaked raw fragment {fragment}: {err}"
+                );
+            }
+        }
     }
 
     #[test]

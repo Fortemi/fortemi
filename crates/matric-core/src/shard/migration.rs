@@ -2,30 +2,92 @@
 
 use super::warning::MigrationWarning;
 use serde_json::Value;
-use std::collections::HashMap;
-use thiserror::Error;
+use std::{collections::HashMap, fmt};
 
 /// Error types for migration operations.
-#[derive(Debug, Error)]
 pub enum MigrationError {
-    #[error("No migration path found from {from} to {to}")]
     NoMigrationPath { from: String, to: String },
 
-    #[error("Migration failed: {0}")]
     MigrationFailed(String),
 
-    #[error("Invalid version: {0}")]
     InvalidVersion(String),
 
-    #[error("Circular migration detected")]
     CircularMigration,
 }
 
-#[derive(Debug)]
+impl fmt::Debug for MigrationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoMigrationPath { from, to } => f
+                .debug_struct("NoMigrationPath")
+                .field("from_len", &from.len())
+                .field("to_len", &to.len())
+                .finish(),
+            Self::MigrationFailed(message) => f
+                .debug_tuple("MigrationFailed")
+                .field(&format_args!("message_len={}", message.len()))
+                .finish(),
+            Self::InvalidVersion(version) => f
+                .debug_tuple("InvalidVersion")
+                .field(&format_args!("version_len={}", version.len()))
+                .finish(),
+            Self::CircularMigration => f.write_str("CircularMigration"),
+        }
+    }
+}
+
+impl fmt::Display for MigrationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoMigrationPath { from, to } => write!(
+                f,
+                "no shard migration path found; from_len={}, to_len={}",
+                from.len(),
+                to.len()
+            ),
+            Self::MigrationFailed(message) => {
+                write!(f, "shard migration failed; message_len={}", message.len())
+            }
+            Self::InvalidVersion(version) => {
+                write!(
+                    f,
+                    "invalid shard migration version; version_len={}",
+                    version.len()
+                )
+            }
+            Self::CircularMigration => f.write_str("circular shard migration detected"),
+        }
+    }
+}
+
+impl std::error::Error for MigrationError {}
+
 /// Result of a successful migration.
 pub struct MigrationResult {
     pub data: Value,
     pub warnings: Vec<MigrationWarning>,
+}
+
+impl fmt::Debug for MigrationResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let data_class = match &self.data {
+            Value::Null => "null",
+            Value::Bool(_) => "bool",
+            Value::Number(_) => "number",
+            Value::String(_) => "string",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+        };
+        let data_len = serde_json::to_string(&self.data)
+            .map(|serialized| serialized.len())
+            .unwrap_or_default();
+
+        f.debug_struct("MigrationResult")
+            .field("data_class", &data_class)
+            .field("data_len", &data_len)
+            .field("warnings_len", &self.warnings.len())
+            .finish()
+    }
 }
 
 /// Trait for implementing shard data migrations.
@@ -277,6 +339,80 @@ mod tests {
                 assert_eq!(to, "2.0.0");
             }
             _ => panic!("Expected NoMigrationPath error"),
+        }
+    }
+
+    #[test]
+    fn migration_error_display_and_debug_redact_versions_and_backend_messages() {
+        let errors = [
+            MigrationError::NoMigrationPath {
+                from: "postgres://admin:secret@db.internal/fortemi".to_string(),
+                to: "2.0.0-sk-live-customer@example.com".to_string(),
+            },
+            MigrationError::MigrationFailed(
+                "backend returned /srv/private/shard.tar bearer-secret".to_string(),
+            ),
+            MigrationError::InvalidVersion("version customer@example.com sk-live".to_string()),
+        ];
+
+        for error in errors {
+            let display = error.to_string();
+            let debug = format!("{error:?}");
+            let combined = format!("{display}\n{debug}");
+
+            assert!(
+                combined.contains("_len=") || combined.contains("CircularMigration"),
+                "migration error should retain only metadata: {combined}"
+            );
+            for raw in [
+                "postgres://",
+                "admin:secret",
+                "db.internal",
+                "fortemi",
+                "sk-live",
+                "customer@example.com",
+                "/srv/private",
+                "bearer-secret",
+            ] {
+                assert!(
+                    !combined.contains(raw),
+                    "migration error output leaked raw fragment {raw}: {combined}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn migration_result_debug_redacts_migrated_json_payload() {
+        let result = MigrationResult {
+            data: serde_json::json!({
+                "database_url": "postgres://admin:secret@db.internal/fortemi",
+                "owner": "customer@example.com",
+                "path": "/srv/private/shard.tar",
+                "token": "sk-live-secret"
+            }),
+            warnings: vec![],
+        };
+
+        let debug = format!("{result:?}");
+        assert!(debug.contains("MigrationResult"));
+        assert!(debug.contains("data_class"));
+        assert!(debug.contains("data_len"));
+        assert!(debug.contains("warnings_len"));
+
+        for raw in [
+            "database_url",
+            "postgres://",
+            "admin:secret",
+            "db.internal",
+            "customer@example.com",
+            "/srv/private",
+            "sk-live",
+        ] {
+            assert!(
+                !debug.contains(raw),
+                "migration result Debug leaked raw payload fragment {raw}: {debug}"
+            );
         }
     }
 }
