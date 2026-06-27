@@ -170,7 +170,7 @@ pub fn extract_exif(data: &[u8]) -> Result<ExifMetadata> {
     let exif = reader
         .read_from_container(&mut cursor)
         .or_else(|e| e.distill_partial_result(|_| {}))
-        .map_err(|e| Error::InvalidInput(format!("Failed to read EXIF data: {}", e)))?;
+        .map_err(exif_read_error)?;
 
     let mut metadata = ExifMetadata {
         datetime: None,
@@ -196,6 +196,13 @@ pub fn extract_exif(data: &[u8]) -> Result<ExifMetadata> {
     metadata.dimensions = extract_dimensions(&exif);
 
     Ok(metadata)
+}
+
+fn exif_read_error(diagnostic: impl fmt::Display) -> Error {
+    Error::InvalidInput(format!(
+        "Failed to read EXIF data; diagnostic_len={}",
+        diagnostic.to_string().len()
+    ))
 }
 
 /// Extract datetime from EXIF, trying multiple fields in priority order
@@ -418,6 +425,26 @@ mod tests {
         match result {
             Err(Error::InvalidInput(msg)) => {
                 assert!(msg.contains("Failed to read EXIF data"));
+                assert!(msg.contains("diagnostic_len="));
+            }
+            _ => panic!("Expected InvalidInput error"),
+        }
+    }
+
+    #[test]
+    fn exif_read_errors_report_metadata_without_raw_diagnostics() {
+        let diagnostic =
+            "bad EXIF parser detail for /home/user/private.jpg sk-live-secret customer@example.com";
+        let err = exif_read_error(diagnostic);
+
+        match err {
+            Error::InvalidInput(msg) => {
+                assert!(msg.contains("Failed to read EXIF data"));
+                assert!(msg.contains("diagnostic_len=85"));
+                assert!(!msg.contains("/home/user/private.jpg"));
+                assert!(!msg.contains("sk-live-secret"));
+                assert!(!msg.contains("customer@example.com"));
+                assert!(!msg.contains("bad EXIF parser detail"));
             }
             _ => panic!("Expected InvalidInput error"),
         }

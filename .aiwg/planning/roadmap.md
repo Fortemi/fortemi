@@ -189,6 +189,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: API route-policy Debug output now reports route/action-family lengths and nested authorization metadata instead of raw route templates, action-family labels, action names/scopes, resource ids, tenant ids, or context environment values.
   - 2026-06-27 continuation: Reconstruction chunk-chain not-found errors now report chain-id presence metadata instead of raw chain UUIDs.
   - 2026-06-27 continuation: Tag resolver required tag/scheme not-found errors now report notation length metadata instead of raw tag or scheme notation strings.
+  - 2026-06-27 continuation: Core EXIF read errors now report parser diagnostic length metadata instead of raw EXIF parser diagnostics.
   - 2026-06-27 continuation: Deepgram realtime ASR transport, parser, and provider error paths now report stable diagnostic classes and lengths instead of raw request, WebSocket, JSON parser, or provider error text.
   - 2026-06-27 continuation: DB PKE keyset import and duplicate-name validation errors now report stable diagnostic classes/name lengths instead of raw base64 parser diagnostics or keyset names.
   - 2026-06-27 continuation: DB incoming-webhook schema validation errors now report schema/path/diagnostic metadata as lengths/classes instead of raw schema refs, JSON pointer paths, property names, payload values, or parser diagnostics.
@@ -1125,3 +1126,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 Realtime call-session not-found errors now report call-id presence metadata instead of raw call UUIDs.
 - 2026-06-27 — #968/#974 Reconstruction chunk-chain not-found errors now report chain-id presence metadata instead of raw chain UUIDs.
 - 2026-06-27 — #968/#974 Tag resolver required tag/scheme not-found errors now report notation length metadata instead of raw tag or scheme notation strings.
+- 2026-06-27 — #968/#974 Core EXIF read errors now report parser diagnostic length metadata instead of raw EXIF parser diagnostics.
