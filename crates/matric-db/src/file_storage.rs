@@ -52,6 +52,14 @@ fn storage_identifier_telemetry(id: &Uuid) -> StorageIdentifierTelemetry {
     StorageIdentifierTelemetry { id_present: true }
 }
 
+fn attachment_not_found_error(attachment_id: Uuid) -> Error {
+    let attachment = storage_identifier_telemetry(&attachment_id);
+    Error::NotFound(format!(
+        "Attachment not found; attachment_id_present={}",
+        attachment.id_present
+    ))
+}
+
 fn storage_io_error_kind(error: &std::io::Error) -> &'static str {
     match error.kind() {
         std::io::ErrorKind::NotFound => "not_found",
@@ -640,7 +648,7 @@ impl PgFileStorageRepository {
             .bind(attachment_id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Attachment {} not found", attachment_id)))?;
+            .ok_or_else(|| attachment_not_found_error(attachment_id))?;
 
         // Delete the attachment row (trigger decrements reference_count)
         sqlx::query("DELETE FROM attachment WHERE id = $1")
@@ -1224,7 +1232,7 @@ impl PgFileStorageRepository {
             .bind(attachment_id)
             .fetch_optional(&mut **tx)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Attachment {} not found", attachment_id)))?;
+            .ok_or_else(|| attachment_not_found_error(attachment_id))?;
 
         // Delete the attachment row (trigger decrements reference_count)
         sqlx::query("DELETE FROM attachment WHERE id = $1")
@@ -1781,6 +1789,16 @@ mod sweep_tests {
         assert!(id_metadata.id_present);
         assert!(rendered.contains("id_present"));
         assert!(!rendered.contains(&id.to_string()));
+
+        let not_found = attachment_not_found_error(id);
+        let message = match not_found {
+            Error::NotFound(message) => message,
+            other => panic!("unexpected error: {other:?}"),
+        };
+        assert!(message.contains("Attachment not found"));
+        assert!(message.contains("attachment_id_present=true"));
+        assert!(!message.contains(&id.to_string()));
+        assert!(!message.contains("018f5c7a"));
     }
 
     /// Atomic-write produces a `.bin.tmp` -> renamed `.bin` and the rename
