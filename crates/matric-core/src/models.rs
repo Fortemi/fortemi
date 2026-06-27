@@ -3790,6 +3790,10 @@ fn json_serialized_len(value: &JsonValue) -> usize {
     value.to_string().len()
 }
 
+fn json_debug_len(value: &JsonValue) -> usize {
+    debug_len(&value.to_string())
+}
+
 fn debug_len(value: &str) -> usize {
     value.chars().count()
 }
@@ -7843,9 +7847,38 @@ mod tests {
         let webhook_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f201").unwrap();
         let delivery_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f202").unwrap();
         let receiver_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f203").unwrap();
+        let webhook_url = "https://höoks.example/tenant/path?token=webhook-url-secret";
+        let delivery_event_type = "incöming_webhook.received.secret";
+        let delivery_payload = json!({
+            "token": "payload-secret",
+            "url": "https://provider.example/callback?api_key=payload-secret"
+        });
+        let delivery_response_body = "prövider response body secret";
+        let create_url = "https://höoks.example/create?token=create-url-secret";
+        let incoming_slug = "sénsitive-slug";
+        let incoming_provider = "sénsitive-provider";
+        let incoming_schema_ref = "custom.sécret.schema";
+        let incoming_signature_header = "X-Sécret-Signature";
+        let receiver_slug = "stored-sénsitive-slug";
+        let receiver_provider = "stored-sénsitive-provider";
+        let receiver_schema_ref = "stored.custom.sécret.schema";
+        let receiver_signature_header = "X-Stored-Sécret-Signature";
+        let receiver_schema_doc = json!({"stored_secret": "stored-schema-doc-sécret"});
+        let update_schema_ref = "updated.custom.sécret.schema";
+        let update_schema_doc = json!({"updated_secret": "updated-schema-doc-sécret"});
+        let update_signature_header = "X-Updated-Sécret-Signature";
+        let validation_schema_ref = "validate.custom.sécret.schema";
+        let validation_payload = json!({
+            "token": "validation-payload-secret",
+            "url": "https://provider.example/validate?api_key=validation-secret"
+        });
+        let validation_response_schema_ref = "response.custom.sécret.schema";
+        let validation_error_one = "validation error leaked token validation-response-sécret";
+        let validation_error_two =
+            "payload.url contained https://provider.example/error?api_key=sécret";
         let webhook = Webhook {
             id: webhook_id,
-            url: "https://hooks.example/tenant/path?token=webhook-url-secret".to_string(),
+            url: webhook_url.to_string(),
             secret: Some("outbound-webhook-signing-secret".to_string()),
             events: vec!["note.created.secret".to_string()],
             is_active: true,
@@ -7858,62 +7891,56 @@ mod tests {
         let delivery = WebhookDelivery {
             id: delivery_id,
             webhook_id: webhook.id,
-            event_type: "incoming_webhook.received.secret".to_string(),
-            payload: json!({
-                "token": "payload-secret",
-                "url": "https://provider.example/callback?api_key=payload-secret"
-            }),
+            event_type: delivery_event_type.to_string(),
+            payload: delivery_payload.clone(),
             status_code: Some(500),
-            response_body: Some("provider response body secret".to_string()),
+            response_body: Some(delivery_response_body.to_string()),
             delivered_at: now,
             success: false,
         };
         let create = CreateWebhookRequest {
-            url: "https://hooks.example/create?token=create-url-secret".to_string(),
+            url: create_url.to_string(),
             secret: Some("create-webhook-secret".to_string()),
             events: vec!["note.updated.secret".to_string()],
             max_retries: 5,
         };
         let incoming = CreateIncomingWebhookReceiverRequest {
-            slug: "sensitive-slug".to_string(),
-            provider: "sensitive-provider".to_string(),
-            schema_ref: "custom.secret.schema".to_string(),
+            slug: incoming_slug.to_string(),
+            provider: incoming_provider.to_string(),
+            schema_ref: incoming_schema_ref.to_string(),
             hmac_secret: "incoming-hmac-secret".to_string(),
-            signature_header: "X-Secret-Signature".to_string(),
+            signature_header: incoming_signature_header.to_string(),
             is_active: true,
             schema_doc: Some(json!({"secret": "schema-doc-secret"})),
         };
         let receiver = IncomingWebhookReceiver {
             id: receiver_id,
-            slug: "stored-sensitive-slug".to_string(),
-            provider: "stored-sensitive-provider".to_string(),
-            schema_ref: "stored.custom.secret.schema".to_string(),
-            signature_header: "X-Stored-Secret-Signature".to_string(),
+            slug: receiver_slug.to_string(),
+            provider: receiver_provider.to_string(),
+            schema_ref: receiver_schema_ref.to_string(),
+            signature_header: receiver_signature_header.to_string(),
             secret_set: true,
             is_active: true,
-            schema_doc: Some(json!({"stored_secret": "stored-schema-doc-secret"})),
+            schema_doc: Some(receiver_schema_doc.clone()),
             created_at: now,
             updated_at: now,
         };
         let update = UpdateIncomingWebhookReceiverRequest {
-            schema_ref: Some("updated.custom.secret.schema".to_string()),
-            schema_doc: Some(json!({"updated_secret": "updated-schema-doc-secret"})),
-            signature_header: Some("X-Updated-Secret-Signature".to_string()),
+            schema_ref: Some(update_schema_ref.to_string()),
+            schema_doc: Some(update_schema_doc.clone()),
+            signature_header: Some(update_signature_header.to_string()),
             is_active: Some(false),
         };
         let validation_request = ValidateIncomingWebhookPayloadRequest {
-            schema_ref: "validate.custom.secret.schema".to_string(),
-            payload: json!({
-                "token": "validation-payload-secret",
-                "url": "https://provider.example/validate?api_key=validation-secret"
-            }),
+            schema_ref: validation_schema_ref.to_string(),
+            payload: validation_payload.clone(),
         };
         let validation_response = IncomingWebhookValidationResponse {
             valid: false,
-            schema_ref: "response.custom.secret.schema".to_string(),
+            schema_ref: validation_response_schema_ref.to_string(),
             errors: vec![
-                "validation error leaked token validation-response-secret".to_string(),
-                "payload.url contained https://provider.example/error?api_key=secret".to_string(),
+                validation_error_one.to_string(),
+                validation_error_two.to_string(),
             ],
         };
 
@@ -7927,32 +7954,32 @@ mod tests {
                 "webhook-url-secret",
                 "outbound-webhook-signing-secret",
                 "note.created.secret",
-                "incoming_webhook.received.secret",
+                "incöming_webhook.received.secret",
                 "payload-secret",
-                "provider response body secret",
+                "prövider response body secret",
                 "create-url-secret",
                 "create-webhook-secret",
                 "note.updated.secret",
-                "sensitive-slug",
-                "sensitive-provider",
-                "custom.secret.schema",
+                "sénsitive-slug",
+                "sénsitive-provider",
+                "custom.sécret.schema",
                 "incoming-hmac-secret",
-                "X-Secret-Signature",
+                "X-Sécret-Signature",
                 "schema-doc-secret",
-                "stored-sensitive-slug",
-                "stored-sensitive-provider",
-                "stored.custom.secret.schema",
-                "X-Stored-Secret-Signature",
-                "stored-schema-doc-secret",
-                "updated.custom.secret.schema",
-                "updated-schema-doc-secret",
-                "X-Updated-Secret-Signature",
-                "validate.custom.secret.schema",
+                "stored-sénsitive-slug",
+                "stored-sénsitive-provider",
+                "stored.custom.sécret.schema",
+                "X-Stored-Sécret-Signature",
+                "stored-schema-doc-sécret",
+                "updated.custom.sécret.schema",
+                "updated-schema-doc-sécret",
+                "X-Updated-Sécret-Signature",
+                "validate.custom.sécret.schema",
                 "validation-payload-secret",
                 "validation-secret",
-                "response.custom.secret.schema",
-                "validation-response-secret",
-                "https://hooks.example",
+                "response.custom.sécret.schema",
+                "validation-response-sécret",
+                "https://höoks.example",
                 "https://provider.example",
                 "018fd1a0-0000-7000-8000-00000000f201",
                 "018fd1a0-0000-7000-8000-00000000f202",
@@ -7970,40 +7997,110 @@ mod tests {
         assert!(debug.contains("schema_ref_len"));
         assert!(debug.contains("error_count"));
         assert!(debug.contains("error_lens"));
+
+        let expected_error_lens = format!(
+            "error_lens: [{}, {}]",
+            validation_error_one.chars().count(),
+            validation_error_two.chars().count()
+        );
+        for expected in [
+            format!("url_len: {}", webhook_url.chars().count()),
+            format!("url_len: {}", create_url.chars().count()),
+            format!("event_type_len: {}", delivery_event_type.chars().count()),
+            format!(
+                "payload_len: {}",
+                delivery_payload.to_string().chars().count()
+            ),
+            format!(
+                "response_body_len: Some({})",
+                delivery_response_body.chars().count()
+            ),
+            format!("slug_len: {}", incoming_slug.chars().count()),
+            format!("provider_len: {}", incoming_provider.chars().count()),
+            format!("schema_ref_len: {}", incoming_schema_ref.chars().count()),
+            format!(
+                "signature_header_len: {}",
+                incoming_signature_header.chars().count()
+            ),
+            format!("slug_len: {}", receiver_slug.chars().count()),
+            format!("provider_len: {}", receiver_provider.chars().count()),
+            format!("schema_ref_len: {}", receiver_schema_ref.chars().count()),
+            format!(
+                "signature_header_len: {}",
+                receiver_signature_header.chars().count()
+            ),
+            format!(
+                "schema_doc_len: Some({})",
+                receiver_schema_doc.to_string().chars().count()
+            ),
+            format!(
+                "schema_ref_len: Some({})",
+                update_schema_ref.chars().count()
+            ),
+            format!(
+                "schema_doc_len: Some({})",
+                update_schema_doc.to_string().chars().count()
+            ),
+            format!(
+                "signature_header_len: Some({})",
+                update_signature_header.chars().count()
+            ),
+            format!("schema_ref_len: {}", validation_schema_ref.chars().count()),
+            format!(
+                "payload_len: {}",
+                validation_payload.to_string().chars().count()
+            ),
+            format!(
+                "schema_ref_len: {}",
+                validation_response_schema_ref.chars().count()
+            ),
+            expected_error_lens,
+        ] {
+            assert!(
+                debug.contains(&expected),
+                "Debug output should retain exact character-count metadata {expected:?}: {debug}"
+            );
+        }
     }
 
     #[test]
     fn inbound_source_debug_redacts_config_and_identifiers() {
         let now = Utc::now();
         let source_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f301").unwrap();
+        let source_name = "tenant-sécret-inbound-source";
+        let source_kind = "ssé-secret-kind";
+        let source_config = json!({
+            "url": "https://user:pass@provider.example/stream?api_key=inbound-secret-token",
+            "headers": {
+                "Authorization": "Bearer inbound-secret-token",
+                "X-Api-Key": "inbound-api-key-secret"
+            },
+            "event_type_field": "tenant_secret_event_type",
+            "default_event_type": "secret.default.v1",
+            "event_type_filter": ["tenant.secret.v1"]
+        });
+        let create_name = "create-sécret-inbound-source";
+        let create_kind = "rédis-secret-kind";
+        let create_config = json!({
+            "redis_url": "redis://user:pass@redis.example:6379/0",
+            "stream": "tenant-secret-stream",
+            "group": "tenant-secret-group",
+            "consumer": "tenant-secret-consumer",
+            "event_type_field": "tenant_secret_event_type"
+        });
         let source = InboundSource {
             id: source_id,
-            name: "tenant-secret-inbound-source".to_string(),
-            kind: "sse-secret-kind".to_string(),
-            config: json!({
-                "url": "https://user:pass@provider.example/stream?api_key=inbound-secret-token",
-                "headers": {
-                    "Authorization": "Bearer inbound-secret-token",
-                    "X-Api-Key": "inbound-api-key-secret"
-                },
-                "event_type_field": "tenant_secret_event_type",
-                "default_event_type": "secret.default.v1",
-                "event_type_filter": ["tenant.secret.v1"]
-            }),
+            name: source_name.to_string(),
+            kind: source_kind.to_string(),
+            config: source_config.clone(),
             enabled: true,
             created_at: now,
             updated_at: now,
         };
         let create = CreateInboundSourceRequest {
-            name: "create-secret-inbound-source".to_string(),
-            kind: "redis-secret-kind".to_string(),
-            config: json!({
-                "redis_url": "redis://user:pass@redis.example:6379/0",
-                "stream": "tenant-secret-stream",
-                "group": "tenant-secret-group",
-                "consumer": "tenant-secret-consumer",
-                "event_type_field": "tenant_secret_event_type"
-            }),
+            name: create_name.to_string(),
+            kind: create_kind.to_string(),
+            config: create_config.clone(),
             enabled: true,
         };
 
@@ -8012,10 +8109,10 @@ mod tests {
         assert_debug_excludes(
             &debug,
             &[
-                "tenant-secret-inbound-source",
-                "sse-secret-kind",
-                "create-secret-inbound-source",
-                "redis-secret-kind",
+                "tenant-sécret-inbound-source",
+                "ssé-secret-kind",
+                "create-sécret-inbound-source",
+                "rédis-secret-kind",
                 "https://user:pass@provider.example",
                 "api_key=inbound-secret-token",
                 "Authorization",
@@ -8038,6 +8135,20 @@ mod tests {
         assert!(debug.contains("config_class"));
         assert!(debug.contains("config_len"));
         assert!(debug.contains("config_key_count"));
+
+        for expected in [
+            format!("name_len: {}", source_name.chars().count()),
+            format!("kind_len: {}", source_kind.chars().count()),
+            format!("config_len: {}", source_config.to_string().chars().count()),
+            format!("name_len: {}", create_name.chars().count()),
+            format!("kind_len: {}", create_kind.chars().count()),
+            format!("config_len: {}", create_config.to_string().chars().count()),
+        ] {
+            assert!(
+                debug.contains(&expected),
+                "Debug output should retain exact character-count metadata {expected:?}: {debug}"
+            );
+        }
     }
 
     #[test]
@@ -10809,7 +10920,7 @@ impl std::fmt::Debug for Webhook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Webhook")
             .field("id_set", &true)
-            .field("url_len", &self.url.chars().count())
+            .field("url_len", &debug_len(&self.url))
             .field("secret_set", &self.secret.is_some())
             .field("event_count", &self.events.len())
             .field("is_active", &self.is_active)
@@ -10840,13 +10951,13 @@ impl std::fmt::Debug for WebhookDelivery {
         f.debug_struct("WebhookDelivery")
             .field("id_set", &true)
             .field("webhook_id_set", &true)
-            .field("event_type_len", &self.event_type.chars().count())
+            .field("event_type_len", &debug_len(&self.event_type))
             .field("payload_class", &json_value_class(&self.payload))
-            .field("payload_len", &self.payload.to_string().chars().count())
+            .field("payload_len", &json_debug_len(&self.payload))
             .field("status_code", &self.status_code)
             .field(
                 "response_body_len",
-                &self.response_body.as_ref().map(|body| body.chars().count()),
+                &optional_debug_len(self.response_body.as_ref()),
             )
             .field("delivered_at", &self.delivered_at)
             .field("success", &self.success)
@@ -10867,7 +10978,7 @@ pub struct CreateWebhookRequest {
 impl std::fmt::Debug for CreateWebhookRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CreateWebhookRequest")
-            .field("url_len", &self.url.chars().count())
+            .field("url_len", &debug_len(&self.url))
             .field("secret_set", &self.secret.is_some())
             .field("event_count", &self.events.len())
             .field("max_retries", &self.max_retries)
@@ -10902,13 +11013,10 @@ impl std::fmt::Debug for IncomingWebhookReceiver {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IncomingWebhookReceiver")
             .field("id_set", &true)
-            .field("slug_len", &self.slug.chars().count())
-            .field("provider_len", &self.provider.chars().count())
-            .field("schema_ref_len", &self.schema_ref.chars().count())
-            .field(
-                "signature_header_len",
-                &self.signature_header.chars().count(),
-            )
+            .field("slug_len", &debug_len(&self.slug))
+            .field("provider_len", &debug_len(&self.provider))
+            .field("schema_ref_len", &debug_len(&self.schema_ref))
+            .field("signature_header_len", &debug_len(&self.signature_header))
             .field("secret_set", &self.secret_set)
             .field("is_active", &self.is_active)
             .field(
@@ -10917,10 +11025,7 @@ impl std::fmt::Debug for IncomingWebhookReceiver {
             )
             .field(
                 "schema_doc_len",
-                &self
-                    .schema_doc
-                    .as_ref()
-                    .map(|schema_doc| schema_doc.to_string().chars().count()),
+                &self.schema_doc.as_ref().map(json_debug_len),
             )
             .field("created_at", &self.created_at)
             .field("updated_at", &self.updated_at)
@@ -10949,14 +11054,11 @@ pub struct CreateIncomingWebhookReceiverRequest {
 impl std::fmt::Debug for CreateIncomingWebhookReceiverRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CreateIncomingWebhookReceiverRequest")
-            .field("slug_len", &self.slug.chars().count())
-            .field("provider_len", &self.provider.chars().count())
-            .field("schema_ref_len", &self.schema_ref.chars().count())
+            .field("slug_len", &debug_len(&self.slug))
+            .field("provider_len", &debug_len(&self.provider))
+            .field("schema_ref_len", &debug_len(&self.schema_ref))
             .field("hmac_secret_set", &!self.hmac_secret.is_empty())
-            .field(
-                "signature_header_len",
-                &self.signature_header.chars().count(),
-            )
+            .field("signature_header_len", &debug_len(&self.signature_header))
             .field("is_active", &self.is_active)
             .field(
                 "schema_doc_class",
@@ -10989,7 +11091,7 @@ impl std::fmt::Debug for UpdateIncomingWebhookReceiverRequest {
         f.debug_struct("UpdateIncomingWebhookReceiverRequest")
             .field(
                 "schema_ref_len",
-                &self.schema_ref.as_ref().map(|value| value.chars().count()),
+                &optional_debug_len(self.schema_ref.as_ref()),
             )
             .field(
                 "schema_doc_class",
@@ -10997,17 +11099,11 @@ impl std::fmt::Debug for UpdateIncomingWebhookReceiverRequest {
             )
             .field(
                 "schema_doc_len",
-                &self
-                    .schema_doc
-                    .as_ref()
-                    .map(|schema_doc| schema_doc.to_string().chars().count()),
+                &self.schema_doc.as_ref().map(json_debug_len),
             )
             .field(
                 "signature_header_len",
-                &self
-                    .signature_header
-                    .as_ref()
-                    .map(|value| value.chars().count()),
+                &optional_debug_len(self.signature_header.as_ref()),
             )
             .field("is_active", &self.is_active)
             .finish()
@@ -11024,9 +11120,9 @@ pub struct ValidateIncomingWebhookPayloadRequest {
 impl std::fmt::Debug for ValidateIncomingWebhookPayloadRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ValidateIncomingWebhookPayloadRequest")
-            .field("schema_ref_len", &self.schema_ref.chars().count())
+            .field("schema_ref_len", &debug_len(&self.schema_ref))
             .field("payload_class", &json_value_class(&self.payload))
-            .field("payload_len", &self.payload.to_string().chars().count())
+            .field("payload_len", &json_debug_len(&self.payload))
             .finish()
     }
 }
@@ -11043,14 +11139,14 @@ impl std::fmt::Debug for IncomingWebhookValidationResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IncomingWebhookValidationResponse")
             .field("valid", &self.valid)
-            .field("schema_ref_len", &self.schema_ref.chars().count())
+            .field("schema_ref_len", &debug_len(&self.schema_ref))
             .field("error_count", &self.errors.len())
             .field(
                 "error_lens",
                 &self
                     .errors
                     .iter()
-                    .map(|error| error.chars().count())
+                    .map(|error| debug_len(error))
                     .collect::<Vec<_>>(),
             )
             .finish()
@@ -11095,10 +11191,10 @@ impl std::fmt::Debug for InboundSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InboundSource")
             .field("id_set", &true)
-            .field("name_len", &self.name.chars().count())
-            .field("kind_len", &self.kind.chars().count())
+            .field("name_len", &debug_len(&self.name))
+            .field("kind_len", &debug_len(&self.kind))
             .field("config_class", &json_value_class(&self.config))
-            .field("config_len", &self.config.to_string().chars().count())
+            .field("config_len", &json_debug_len(&self.config))
             .field(
                 "config_key_count",
                 &self.config.as_object().map(serde_json::Map::len),
@@ -11124,10 +11220,10 @@ pub struct CreateInboundSourceRequest {
 impl std::fmt::Debug for CreateInboundSourceRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CreateInboundSourceRequest")
-            .field("name_len", &self.name.chars().count())
-            .field("kind_len", &self.kind.chars().count())
+            .field("name_len", &debug_len(&self.name))
+            .field("kind_len", &debug_len(&self.kind))
             .field("config_class", &json_value_class(&self.config))
-            .field("config_len", &self.config.to_string().chars().count())
+            .field("config_len", &json_debug_len(&self.config))
             .field(
                 "config_key_count",
                 &self.config.as_object().map(serde_json::Map::len),
