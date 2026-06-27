@@ -229,10 +229,9 @@ impl DiarizationBackend for PyAnnoteBackend {
             self.circuit_breaker.record_failure();
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(matric_core::Error::Internal(format!(
-                "Diarization API returned {}: {}",
-                status, body
-            )));
+            return Err(matric_core::Error::Internal(
+                crate::diagnostics::backend_status_error("Diarization", status, &body),
+            ));
         }
 
         self.circuit_breaker.record_success();

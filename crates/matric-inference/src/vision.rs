@@ -116,10 +116,9 @@ impl VisionBackend for OllamaVisionBackend {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(matric_core::Error::Internal(format!(
-                "Vision API returned {}: {}",
-                status, body
-            )));
+            return Err(matric_core::Error::Internal(
+                crate::diagnostics::backend_status_error("Vision", status, &body),
+            ));
         }
 
         let result: OllamaGenerateResponse = response.json().await.map_err(|e| {

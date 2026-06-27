@@ -189,10 +189,9 @@ impl WhisperBackend {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            return Err(matric_core::Error::Internal(format!(
-                "Model download returned {}: {}",
-                status, body
-            )));
+            return Err(matric_core::Error::Internal(
+                crate::diagnostics::backend_status_error("Whisper model download", status, &body),
+            ));
         }
 
         Ok(())
@@ -290,10 +289,9 @@ impl TranscriptionBackend for WhisperBackend {
             self.circuit_breaker.record_failure();
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(matric_core::Error::Internal(format!(
-                "Whisper API returned {}: {}",
-                status, body
-            )));
+            return Err(matric_core::Error::Internal(
+                crate::diagnostics::backend_status_error("Whisper", status, &body),
+            ));
         }
 
         self.circuit_breaker.record_success();

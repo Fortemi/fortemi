@@ -184,10 +184,9 @@ impl NerBackend for GlinerBackend {
             self.circuit_breaker.record_failure();
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(matric_core::Error::Internal(format!(
-                "GLiNER API returned {}: {}",
-                status, body
-            )));
+            return Err(matric_core::Error::Internal(
+                crate::diagnostics::backend_status_error("GLiNER", status, &body),
+            ));
         }
 
         self.circuit_breaker.record_success();
