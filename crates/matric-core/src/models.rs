@@ -1131,21 +1131,28 @@ impl fmt::Debug for EmbeddingSet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EmbeddingSet")
             .field("id_set", &true)
-            .field("name_len", &self.name.len())
-            .field("slug_len", &self.slug.len())
+            .field("name_len", &debug_len(&self.name))
+            .field("slug_len", &debug_len(&self.slug))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self.description.as_ref().map(|value| debug_len(value)),
             )
-            .field("purpose_len", &self.purpose.as_ref().map(String::len))
+            .field(
+                "purpose_len",
+                &self.purpose.as_ref().map(|value| debug_len(value)),
+            )
             .field(
                 "usage_hints_len",
-                &self.usage_hints.as_ref().map(String::len),
+                &self.usage_hints.as_ref().map(|value| debug_len(value)),
             )
             .field("keywords_count", &self.keywords.len())
             .field(
                 "keyword_lens",
-                &self.keywords.iter().map(String::len).collect::<Vec<_>>(),
+                &self
+                    .keywords
+                    .iter()
+                    .map(|keyword| debug_len(keyword))
+                    .collect::<Vec<_>>(),
             )
             .field("set_type", &self.set_type)
             .field("mode", &self.mode)
@@ -1167,7 +1174,10 @@ impl fmt::Debug for EmbeddingSet {
             .field("agent_metadata", &self.agent_metadata)
             .field("created_at", &self.created_at)
             .field("updated_at", &self.updated_at)
-            .field("created_by_len", &self.created_by.as_ref().map(String::len))
+            .field(
+                "created_by_len",
+                &self.created_by.as_ref().map(|value| debug_len(value)),
+            )
             .finish()
     }
 }
@@ -1204,13 +1214,16 @@ impl fmt::Debug for EmbeddingSetSummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EmbeddingSetSummary")
             .field("id_set", &true)
-            .field("name_len", &self.name.len())
-            .field("slug_len", &self.slug.len())
+            .field("name_len", &debug_len(&self.name))
+            .field("slug_len", &debug_len(&self.slug))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self.description.as_ref().map(|value| debug_len(value)),
             )
-            .field("purpose_len", &self.purpose.as_ref().map(String::len))
+            .field(
+                "purpose_len",
+                &self.purpose.as_ref().map(|value| debug_len(value)),
+            )
             .field("set_type", &self.set_type)
             .field("document_count", &self.document_count)
             .field("embedding_count", &self.embedding_count)
@@ -1219,9 +1232,16 @@ impl fmt::Debug for EmbeddingSetSummary {
             .field("keywords_count", &self.keywords.len())
             .field(
                 "keyword_lens",
-                &self.keywords.iter().map(String::len).collect::<Vec<_>>(),
+                &self
+                    .keywords
+                    .iter()
+                    .map(|keyword| debug_len(keyword))
+                    .collect::<Vec<_>>(),
             )
-            .field("model_len", &self.model.as_ref().map(String::len))
+            .field(
+                "model_len",
+                &self.model.as_ref().map(|value| debug_len(value)),
+            )
             .field("dimension", &self.dimension)
             .field("truncate_dim", &self.truncate_dim)
             .field("supports_mrl", &self.supports_mrl)
@@ -1262,21 +1282,31 @@ pub struct CreateEmbeddingSetRequest {
 impl fmt::Debug for CreateEmbeddingSetRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CreateEmbeddingSetRequest")
-            .field("name_len", &self.name.len())
-            .field("slug_len", &self.slug.as_ref().map(String::len))
+            .field("name_len", &debug_len(&self.name))
+            .field(
+                "slug_len",
+                &self.slug.as_ref().map(|value| debug_len(value)),
+            )
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self.description.as_ref().map(|value| debug_len(value)),
             )
-            .field("purpose_len", &self.purpose.as_ref().map(String::len))
+            .field(
+                "purpose_len",
+                &self.purpose.as_ref().map(|value| debug_len(value)),
+            )
             .field(
                 "usage_hints_len",
-                &self.usage_hints.as_ref().map(String::len),
+                &self.usage_hints.as_ref().map(|value| debug_len(value)),
             )
             .field("keywords_count", &self.keywords.len())
             .field(
                 "keyword_lens",
-                &self.keywords.iter().map(String::len).collect::<Vec<_>>(),
+                &self
+                    .keywords
+                    .iter()
+                    .map(|keyword| debug_len(keyword))
+                    .collect::<Vec<_>>(),
             )
             .field("set_type", &self.set_type)
             .field("mode", &self.mode)
@@ -1320,23 +1350,31 @@ pub struct UpdateEmbeddingSetRequest {
 impl fmt::Debug for UpdateEmbeddingSetRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UpdateEmbeddingSetRequest")
-            .field("name_len", &self.name.as_ref().map(String::len))
+            .field(
+                "name_len",
+                &self.name.as_ref().map(|value| debug_len(value)),
+            )
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self.description.as_ref().map(|value| debug_len(value)),
             )
-            .field("purpose_len", &self.purpose.as_ref().map(String::len))
+            .field(
+                "purpose_len",
+                &self.purpose.as_ref().map(|value| debug_len(value)),
+            )
             .field(
                 "usage_hints_len",
-                &self.usage_hints.as_ref().map(String::len),
+                &self.usage_hints.as_ref().map(|value| debug_len(value)),
             )
             .field("keywords_count", &self.keywords.as_ref().map(Vec::len))
             .field(
                 "keyword_lens",
-                &self
-                    .keywords
-                    .as_ref()
-                    .map(|keywords| keywords.iter().map(String::len).collect::<Vec<_>>()),
+                &self.keywords.as_ref().map(|keywords| {
+                    keywords
+                        .iter()
+                        .map(|keyword| debug_len(keyword))
+                        .collect::<Vec<_>>()
+                }),
             )
             .field("mode", &self.mode)
             .field("criteria", &self.criteria)
@@ -1363,9 +1401,12 @@ impl fmt::Debug for EmbeddingSetMember {
         f.debug_struct("EmbeddingSetMember")
             .field("embedding_set_id_set", &true)
             .field("note_id_set", &true)
-            .field("membership_type_len", &self.membership_type.len())
+            .field("membership_type_len", &debug_len(&self.membership_type))
             .field("added_at", &self.added_at)
-            .field("added_by_len", &self.added_by.as_ref().map(String::len))
+            .field(
+                "added_by_len",
+                &self.added_by.as_ref().map(|value| debug_len(value)),
+            )
             .finish()
     }
 }
@@ -1382,7 +1423,10 @@ impl fmt::Debug for AddMembersRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AddMembersRequest")
             .field("note_ids_count", &self.note_ids.len())
-            .field("added_by_len", &self.added_by.as_ref().map(String::len))
+            .field(
+                "added_by_len",
+                &self.added_by.as_ref().map(|value| debug_len(value)),
+            )
             .finish()
     }
 }
@@ -6656,12 +6700,12 @@ mod tests {
         };
         let set = EmbeddingSet {
             id: Uuid::new_v4(),
-            name: "Private embedding set".to_string(),
-            slug: "private-embedding-set".to_string(),
-            description: Some("Set description private@example.test".to_string()),
-            purpose: Some("Purpose with https://purpose.example.test/?token=secret".to_string()),
-            usage_hints: Some("Hints mention sk-live-secret".to_string()),
-            keywords: vec!["private-keyword".to_string()],
+            name: "Prïvate embedding set".to_string(),
+            slug: "prïvate-embedding-set".to_string(),
+            description: Some("Sët description private@example.test".to_string()),
+            purpose: Some("Pürpose with https://purpose.example.test/?token=secret".to_string()),
+            usage_hints: Some("Hïnts mention sk-live-secret".to_string()),
+            keywords: vec!["prïvate-keyword".to_string()],
             set_type: EmbeddingSetType::Full,
             mode: EmbeddingSetMode::Auto,
             criteria: criteria.clone(),
@@ -6679,32 +6723,32 @@ mod tests {
             agent_metadata: agent_metadata.clone(),
             created_at: now,
             updated_at: now,
-            created_by: Some("creator-private@example.test".to_string()),
+            created_by: Some("creatör-private@example.test".to_string()),
         };
         let summary = EmbeddingSetSummary {
             id: Uuid::new_v4(),
-            name: "Summary private set".to_string(),
-            slug: "summary-private-set".to_string(),
-            description: Some("Summary description /tmp/customer/summary.md".to_string()),
-            purpose: Some("Summary purpose private@example.test".to_string()),
+            name: "Sümmary private set".to_string(),
+            slug: "sümmary-private-set".to_string(),
+            description: Some("Sümmary description /tmp/customer/summary.md".to_string()),
+            purpose: Some("Sümmary purpose private@example.test".to_string()),
             set_type: EmbeddingSetType::Filter,
             document_count: 5,
             embedding_count: 4,
             index_status: EmbeddingIndexStatus::Stale,
             is_system: false,
-            keywords: vec!["summary-private-keyword".to_string()],
-            model: Some("summary-private-model".to_string()),
+            keywords: vec!["sümmary-private-keyword".to_string()],
+            model: Some("sümmary-private-model".to_string()),
             dimension: Some(384),
             truncate_dim: Some(256),
             supports_mrl: true,
         };
         let create = CreateEmbeddingSetRequest {
-            name: "Create private set".to_string(),
-            slug: Some("create-private-set".to_string()),
-            description: Some("Create description private@example.test".to_string()),
-            purpose: Some("Create purpose https://create.example.test/?token=secret".to_string()),
-            usage_hints: Some("Create hints sk-live-secret".to_string()),
-            keywords: vec!["create-private-keyword".to_string()],
+            name: "Créate private set".to_string(),
+            slug: Some("créate-private-set".to_string()),
+            description: Some("Créate description private@example.test".to_string()),
+            purpose: Some("Créate purpose https://create.example.test/?token=secret".to_string()),
+            usage_hints: Some("Créate hints sk-live-secret".to_string()),
+            keywords: vec!["créate-private-keyword".to_string()],
             set_type: EmbeddingSetType::Full,
             mode: EmbeddingSetMode::Mixed,
             criteria: criteria.clone(),
@@ -6714,11 +6758,11 @@ mod tests {
             auto_embed_rules: rules.clone(),
         };
         let update = UpdateEmbeddingSetRequest {
-            name: Some("Update private set".to_string()),
-            description: Some("Update description /tmp/customer/update.md".to_string()),
-            purpose: Some("Update purpose private@example.test".to_string()),
-            usage_hints: Some("Update hints https://update.example.test/?token=secret".to_string()),
-            keywords: Some(vec!["update-private-keyword".to_string()]),
+            name: Some("Üpdate private set".to_string()),
+            description: Some("Üpdate description /tmp/customer/update.md".to_string()),
+            purpose: Some("Üpdate purpose private@example.test".to_string()),
+            usage_hints: Some("Üpdate hints https://update.example.test/?token=secret".to_string()),
+            keywords: Some(vec!["üpdate-private-keyword".to_string()]),
             mode: Some(EmbeddingSetMode::Manual),
             criteria: Some(criteria),
             agent_metadata: Some(agent_metadata),
@@ -6728,13 +6772,13 @@ mod tests {
         let member = EmbeddingSetMember {
             embedding_set_id: Uuid::new_v4(),
             note_id: Uuid::new_v4(),
-            membership_type: "private-membership-type".to_string(),
+            membership_type: "prïvate-membership-type".to_string(),
             added_at: now,
-            added_by: Some("member-private@example.test".to_string()),
+            added_by: Some("mémber-private@example.test".to_string()),
         };
         let add_members = AddMembersRequest {
             note_ids: vec![Uuid::new_v4(), Uuid::new_v4()],
-            added_by: Some("adder-private@example.test".to_string()),
+            added_by: Some("addér-private@example.test".to_string()),
         };
         let coarse = CoarseEmbedding {
             note_id: Uuid::new_v4(),
@@ -6772,28 +6816,28 @@ mod tests {
                 "api_key",
                 "/tmp/customer/provider.json",
                 "prïvate-content-type",
-                "Private embedding set",
-                "private-embedding-set",
-                "Set description",
+                "Prïvate embedding set",
+                "prïvate-embedding-set",
+                "Sët description",
                 "purpose.example.test",
-                "Hints mention",
-                "private-keyword",
-                "creator-private@example.test",
-                "Summary private set",
-                "summary-private-set",
-                "summary-private-keyword",
-                "summary-private-model",
-                "Create private set",
-                "create-private-set",
+                "Hïnts mention",
+                "prïvate-keyword",
+                "creatör-private@example.test",
+                "Sümmary private set",
+                "sümmary-private-set",
+                "sümmary-private-keyword",
+                "sümmary-private-model",
+                "Créate private set",
+                "créate-private-set",
                 "create.example.test",
-                "create-private-keyword",
-                "Update private set",
+                "créate-private-keyword",
+                "Üpdate private set",
                 "/tmp/customer/update.md",
                 "update.example.test",
-                "update-private-keyword",
-                "private-membership-type",
-                "member-private@example.test",
-                "adder-private@example.test",
+                "üpdate-private-keyword",
+                "prïvate-membership-type",
+                "mémber-private@example.test",
+                "addér-private@example.test",
                 "0.11111",
                 "0.22222",
                 "0.33333",
@@ -6814,6 +6858,14 @@ mod tests {
             "description_len: Some(40)",
             "model_len: 23",
             "content_type_lens: [20]",
+            "slug_len: 21",
+            "purpose_len: Some(55)",
+            "usage_hints_len: Some(28)",
+            "keyword_lens: [15]",
+            "created_by_len: Some(28)",
+            "slug_len: Some(18)",
+            "membership_type_len: 23",
+            "added_by_len: Some(27)",
             "tags_count",
             "tag_lens",
             "fts_query_len",
