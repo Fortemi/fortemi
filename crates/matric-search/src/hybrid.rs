@@ -5,6 +5,7 @@
 //! - Language hints for explicit routing
 //! - Trigram/bigram fallback for CJK, emoji, and symbols
 
+use std::fmt;
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -994,7 +995,7 @@ impl HybridSearch for HybridSearchEngine {
 }
 
 /// Builder for creating hybrid search requests.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SearchRequest {
     query: String,
     embedding: Option<Vector>,
@@ -1013,6 +1014,53 @@ pub struct SearchRequest {
     sort_by: Option<String>,
     /// Sort order: "asc" or "desc"
     sort_order: Option<String>,
+}
+
+impl fmt::Debug for SearchRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SearchRequest")
+            .field("query_len", &self.query.len())
+            .field(
+                "embedding_dimensions",
+                &self
+                    .embedding
+                    .as_ref()
+                    .map(|embedding| embedding.as_slice().len()),
+            )
+            .field("filters_len", &self.filters.as_ref().map(String::len))
+            .field("limit", &self.limit)
+            .field("config_fts_weight", &self.config.fts_weight)
+            .field("config_semantic_weight", &self.config.semantic_weight)
+            .field("config_exclude_archived", &self.config.exclude_archived)
+            .field("config_min_score", &self.config.min_score)
+            .field(
+                "config_embedding_set_id_set",
+                &self.config.embedding_set_id.is_some(),
+            )
+            .field(
+                "config_strict_filter_set",
+                &self.config.strict_filter.is_some(),
+            )
+            .field(
+                "config_unified_filter_set",
+                &self.config.unified_filter.is_some(),
+            )
+            .field(
+                "config_lang_hint_len",
+                &self.config.lang_hint.as_ref().map(String::len),
+            )
+            .field(
+                "config_script_hint_len",
+                &self.config.script_hint.as_ref().map(String::len),
+            )
+            .field("created_after_set", &self.created_after.is_some())
+            .field("created_before_set", &self.created_before.is_some())
+            .field("updated_after_set", &self.updated_after.is_some())
+            .field("updated_before_set", &self.updated_before.is_some())
+            .field("sort_by_len", &self.sort_by.as_ref().map(String::len))
+            .field("sort_order_len", &self.sort_order.as_ref().map(String::len))
+            .finish()
+    }
 }
 
 impl SearchRequest {
@@ -1236,6 +1284,63 @@ mod tests {
         assert_eq!(request.filters, Some("tag:rust".to_string()));
         assert_eq!(request.config.fts_weight, 1.0);
         assert_eq!(request.config.semantic_weight, 0.0);
+    }
+
+    #[test]
+    fn test_search_request_debug_redacts_query_filters_and_vectors() {
+        let request =
+            SearchRequest::new("private query includes private@example.test and sk-live-secret")
+                .with_embedding(Vector::from(vec![0.12345, 0.67891, 0.22222]))
+                .with_filters("tag:private path:/tmp/customer/note.md token=secret")
+                .with_limit(15)
+                .with_config(HybridSearchConfig {
+                    lang_hint: Some("private-language-hint".to_string()),
+                    script_hint: Some("private-script-hint".to_string()),
+                    ..HybridSearchConfig::default()
+                })
+                .with_sort_by("private-title-sort")
+                .with_sort_order("private-desc-order");
+
+        let debug = format!("{request:?}");
+
+        for secret in [
+            "private query",
+            "private@example.test",
+            "sk-live-secret",
+            "0.12345",
+            "0.67891",
+            "0.22222",
+            "tag:private",
+            "/tmp/customer/note.md",
+            "token=secret",
+            "private-language-hint",
+            "private-script-hint",
+            "private-title-sort",
+            "private-desc-order",
+        ] {
+            assert!(
+                !debug.contains(secret),
+                "SearchRequest Debug output leaked sensitive value {secret:?}: {debug}"
+            );
+        }
+
+        for expected in [
+            "query_len",
+            "embedding_dimensions",
+            "filters_len",
+            "limit",
+            "config_fts_weight",
+            "config_semantic_weight",
+            "config_lang_hint_len",
+            "config_script_hint_len",
+            "sort_by_len",
+            "sort_order_len",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "SearchRequest Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
     }
 
     #[test]
