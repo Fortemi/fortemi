@@ -27118,19 +27118,28 @@ impl fmt::Debug for EmbeddingSetInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EmbeddingSetInfo")
             .field("id_set", &true)
-            .field("name_len", &self.name.len())
-            .field("slug_len", &self.slug.len())
+            .field("name_len", &telemetry_text_len(&self.name))
+            .field("slug_len", &telemetry_text_len(&self.slug))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self
+                    .description
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
             )
             .field("document_count", &self.document_count)
             .field("embedding_count", &self.embedding_count)
             .field("dimension", &self.dimension)
             .field("vector_storage_bytes", &self.vector_storage_bytes)
-            .field("vector_storage_human_len", &self.vector_storage_human.len())
-            .field("model_len", &self.model.as_ref().map(String::len))
-            .field("index_status_len", &self.index_status.len())
+            .field(
+                "vector_storage_human_len",
+                &telemetry_text_len(&self.vector_storage_human),
+            )
+            .field(
+                "model_len",
+                &self.model.as_ref().map(|value| telemetry_text_len(value)),
+            )
+            .field("index_status_len", &telemetry_text_len(&self.index_status))
             .field("is_system", &self.is_system)
             .finish()
     }
@@ -27171,29 +27180,47 @@ impl fmt::Debug for StorageBreakdown {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("StorageBreakdown")
             .field("database_total_bytes", &self.database_total_bytes)
-            .field("database_total_human_len", &self.database_total_human.len())
+            .field(
+                "database_total_human_len",
+                &telemetry_text_len(&self.database_total_human),
+            )
             .field("embedding_table_bytes", &self.embedding_table_bytes)
             .field(
                 "embedding_table_human_len",
-                &self.embedding_table_human.len(),
+                &telemetry_text_len(&self.embedding_table_human),
             )
             .field("embedding_index_bytes", &self.embedding_index_bytes)
             .field(
                 "embedding_index_human_len",
-                &self.embedding_index_human.len(),
+                &telemetry_text_len(&self.embedding_index_human),
             )
             .field("notes_table_bytes", &self.notes_table_bytes)
-            .field("notes_table_human_len", &self.notes_table_human.len())
+            .field(
+                "notes_table_human_len",
+                &telemetry_text_len(&self.notes_table_human),
+            )
             .field("fts_index_bytes", &self.fts_index_bytes)
-            .field("fts_index_human_len", &self.fts_index_human.len())
+            .field(
+                "fts_index_human_len",
+                &telemetry_text_len(&self.fts_index_human),
+            )
             .field("blob_table_bytes", &self.blob_table_bytes)
-            .field("blob_table_human_len", &self.blob_table_human.len())
+            .field(
+                "blob_table_human_len",
+                &telemetry_text_len(&self.blob_table_human),
+            )
             .field("blob_content_bytes", &self.blob_content_bytes)
-            .field("blob_content_human_len", &self.blob_content_human.len())
+            .field(
+                "blob_content_human_len",
+                &telemetry_text_len(&self.blob_content_human),
+            )
             .field("blob_count", &self.blob_count)
             .field("orphaned_blob_count", &self.orphaned_blob_count)
             .field("orphaned_blob_bytes", &self.orphaned_blob_bytes)
-            .field("orphaned_blob_human_len", &self.orphaned_blob_human.len())
+            .field(
+                "orphaned_blob_human_len",
+                &telemetry_text_len(&self.orphaned_blob_human),
+            )
             .finish()
     }
 }
@@ -27222,7 +27249,11 @@ impl fmt::Debug for HardwareRecommendations {
             .field("notes_count", &self.notes.len())
             .field(
                 "note_lens",
-                &self.notes.iter().map(String::len).collect::<Vec<_>>(),
+                &self
+                    .notes
+                    .iter()
+                    .map(|value| telemetry_text_len(value))
+                    .collect::<Vec<_>>(),
             )
             .finish()
     }
@@ -27912,23 +27943,40 @@ mod tests {
     #[test]
     fn memory_info_debug_redacts_embedding_metadata_and_recommendation_notes() {
         let embedding_set_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000e001").unwrap();
+        let embedding_name = "cüstomer-private-embedding-set";
+        let embedding_slug = "cüstomer-postgres-secret-mm_key_embeddings";
+        let embedding_description =
+            "Embeddings for /srv/private/cüstomer with sk-live-vector-token";
+        let vector_storage_human = "102 KiB private-labël";
+        let model = "nomic-embed-text-private-db.internål";
+        let index_status = "ReadyWithSëcretIndexName";
         let embedding_set = EmbeddingSetInfo {
             id: embedding_set_id,
-            name: "customer-private-embedding-set".to_string(),
-            slug: "customer-postgres-secret-mm_key_embeddings".to_string(),
-            description: Some(
-                "Embeddings for /srv/private/customer with sk-live-vector-token".to_string(),
-            ),
+            name: embedding_name.to_string(),
+            slug: embedding_slug.to_string(),
+            description: Some(embedding_description.to_string()),
             document_count: 12,
             embedding_count: 34,
             dimension: 768,
             vector_storage_bytes: 104448,
-            vector_storage_human: "102 KiB private-label".to_string(),
-            model: Some("nomic-embed-text-private-db.internal".to_string()),
-            index_status: "ReadyWithSecretIndexName".to_string(),
+            vector_storage_human: vector_storage_human.to_string(),
+            model: Some(model.to_string()),
+            index_status: index_status.to_string(),
             is_system: false,
         };
         let rendered_embedding_set = format!("{embedding_set:?}");
+        let database_total_human = "4 KiB tenant-db.internål";
+        let embedding_table_human = "2 KiB embeddings-privaté";
+        let embedding_index_human = "512 B hnsw-sëcret";
+        let notes_table_human = "1 KiB notes-privaté";
+        let fts_index_human = "256 B fts-privaté";
+        let blob_table_human = "128 B blob-privaté";
+        let blob_content_human = "64 B blob-content-privaté";
+        let orphaned_blob_human = "32 B orphan-privaté";
+        let hardware_notes = vec![
+            "Run model nomic-embed-text-private-db.internål for cüstomer@example.com".to_string(),
+            "Cache /srv/private/vector-store sk-live-hårdware".to_string(),
+        ];
         let response = MemoryInfoResponse {
             summary: MemorySummary {
                 total_notes: 12,
@@ -27941,34 +27989,30 @@ mod tests {
             embedding_sets: vec![embedding_set],
             storage: StorageBreakdown {
                 database_total_bytes: 4096,
-                database_total_human: "4 KiB tenant-db.internal".to_string(),
+                database_total_human: database_total_human.to_string(),
                 embedding_table_bytes: 2048,
-                embedding_table_human: "2 KiB embeddings-private".to_string(),
+                embedding_table_human: embedding_table_human.to_string(),
                 embedding_index_bytes: 512,
-                embedding_index_human: "512 B hnsw-secret".to_string(),
+                embedding_index_human: embedding_index_human.to_string(),
                 notes_table_bytes: 1024,
-                notes_table_human: "1 KiB notes-private".to_string(),
+                notes_table_human: notes_table_human.to_string(),
                 fts_index_bytes: 256,
-                fts_index_human: "256 B fts-private".to_string(),
+                fts_index_human: fts_index_human.to_string(),
                 blob_table_bytes: 128,
-                blob_table_human: "128 B blob-private".to_string(),
+                blob_table_human: blob_table_human.to_string(),
                 blob_content_bytes: 64,
-                blob_content_human: "64 B blob-content-private".to_string(),
+                blob_content_human: blob_content_human.to_string(),
                 blob_count: 1,
                 orphaned_blob_count: 1,
                 orphaned_blob_bytes: 32,
-                orphaned_blob_human: "32 B orphan-private".to_string(),
+                orphaned_blob_human: orphaned_blob_human.to_string(),
             },
             recommendations: HardwareRecommendations {
                 min_inference_ram_gb: 2.0,
                 recommended_ram_gb: 4.0,
                 gpu_vram_needed_gb: 1.5,
                 gpu_required: false,
-                notes: vec![
-                    "Run model nomic-embed-text-private-db.internal for customer@example.com"
-                        .to_string(),
-                    "Cache /srv/private/vector-store sk-live-hardware".to_string(),
-                ],
+                notes: hardware_notes.clone(),
             },
         };
 
@@ -27983,25 +28027,82 @@ mod tests {
         assert!(rendered_response.contains("HardwareRecommendations"));
         assert!(rendered_response.contains("notes_count"));
         assert!(rendered_response.contains("note_lens"));
+        for expected in [
+            format!("name_len: {}", embedding_name.chars().count()),
+            format!("slug_len: {}", embedding_slug.chars().count()),
+            format!(
+                "description_len: Some({})",
+                embedding_description.chars().count()
+            ),
+            format!(
+                "vector_storage_human_len: {}",
+                vector_storage_human.chars().count()
+            ),
+            format!("model_len: Some({})", model.chars().count()),
+            format!("index_status_len: {}", index_status.chars().count()),
+        ] {
+            assert!(
+                rendered_embedding_set.contains(&expected),
+                "EmbeddingSetInfo Debug output should retain exact character-count metadata {expected:?}: {rendered_embedding_set}"
+            );
+        }
+        for expected in [
+            format!(
+                "database_total_human_len: {}",
+                database_total_human.chars().count()
+            ),
+            format!(
+                "embedding_table_human_len: {}",
+                embedding_table_human.chars().count()
+            ),
+            format!(
+                "embedding_index_human_len: {}",
+                embedding_index_human.chars().count()
+            ),
+            format!(
+                "notes_table_human_len: {}",
+                notes_table_human.chars().count()
+            ),
+            format!("fts_index_human_len: {}", fts_index_human.chars().count()),
+            format!("blob_table_human_len: {}", blob_table_human.chars().count()),
+            format!(
+                "blob_content_human_len: {}",
+                blob_content_human.chars().count()
+            ),
+            format!(
+                "orphaned_blob_human_len: {}",
+                orphaned_blob_human.chars().count()
+            ),
+            format!(
+                "note_lens: [{}, {}]",
+                hardware_notes[0].chars().count(),
+                hardware_notes[1].chars().count()
+            ),
+        ] {
+            assert!(
+                rendered_response.contains(&expected),
+                "MemoryInfoResponse Debug output should retain exact character-count metadata {expected:?}: {rendered_response}"
+            );
+        }
 
         for raw in [
-            "customer-private-embedding-set",
-            "customer-postgres-secret",
+            "cüstomer-private-embedding-set",
+            "cüstomer-postgres-secret",
             "mm_key_embeddings",
             "/srv/private",
             "sk-live-vector-token",
-            "private-label",
-            "nomic-embed-text-private-db.internal",
-            "ReadyWithSecretIndexName",
-            "tenant-db.internal",
-            "embeddings-private",
-            "hnsw-secret",
-            "notes-private",
-            "fts-private",
-            "blob-private",
-            "orphan-private",
-            "customer@example.com",
-            "sk-live-hardware",
+            "private-labël",
+            "nomic-embed-text-private-db.internål",
+            "ReadyWithSëcretIndexName",
+            "tenant-db.internål",
+            "embeddings-privaté",
+            "hnsw-sëcret",
+            "notes-privaté",
+            "fts-privaté",
+            "blob-privaté",
+            "orphan-privaté",
+            "cüstomer@example.com",
+            "sk-live-hårdware",
             "018fd1a0-0000-7000-8000-00000000e001",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
