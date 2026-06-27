@@ -27,7 +27,7 @@ pub struct PkeKeyset {
 impl std::fmt::Debug for PkeKeyset {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PkeKeyset")
-            .field("id", &self.id)
+            .field("id_set", &true)
             .field("name_len", &self.name.chars().count())
             .field("public_key_len", &self.public_key.len())
             .field(
@@ -57,7 +57,7 @@ pub struct PkeKeysetSummary {
 impl std::fmt::Debug for PkeKeysetSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PkeKeysetSummary")
-            .field("id", &self.id)
+            .field("id_set", &true)
             .field("name_len", &self.name.chars().count())
             .field("address_len", &self.address.chars().count())
             .field("label_len", &optional_text_len(&self.label))
@@ -436,10 +436,13 @@ mod tests {
         };
 
         let rendered = format!("{keyset:?}\n{summary:?}\n{create:?}\n{exported:?}");
+        assert!(rendered.contains("id_set"));
         assert!(rendered.contains("public_key_len"));
         assert!(rendered.contains("encrypted_private_key_len"));
         assert!(rendered.contains("encrypted_private_key_base64_len"));
         assert!(rendered.contains("address_len"));
+        assert!(!rendered.contains("018fd1a0-0000-7000-8000-000000000301"));
+        assert!(!rendered.contains("018fd1a0-0000-7000-8000-000000000302"));
         assert!(!rendered.contains("tenant-secret-keyset"));
         assert!(!rendered.contains("public-key-material"));
         assert!(!rendered.contains("encrypted-private-key-secret"));
