@@ -49,6 +49,7 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use uuid::Uuid;
 
 use crate::collection_filter::StrictCollectionFilter;
@@ -63,7 +64,7 @@ use crate::temporal::StrictTemporalFilter;
 ///
 /// This is the primary entry point for multi-dimensional note filtering,
 /// combining tags, temporal, collections, security, and semantic scope.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct StrictFilter {
     /// Tag-based filtering using SKOS concepts.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -90,6 +91,31 @@ pub struct StrictFilter {
     /// Additional metadata filters (starred, archived, format).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<MetadataFilter>,
+}
+
+impl fmt::Debug for StrictFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StrictFilter")
+            .field("active_dimension_count", &self.active_dimension_count())
+            .field("has_tag_constraints", &self.has_tag_constraints())
+            .field("has_temporal_constraints", &self.has_temporal_constraints())
+            .field(
+                "has_collection_constraints",
+                &self.has_collection_constraints(),
+            )
+            .field("has_security_constraints", &self.has_security_constraints())
+            .field(
+                "has_semantic_scope_constraints",
+                &self.has_semantic_scope_constraints(),
+            )
+            .field("has_metadata_constraints", &self.has_metadata_constraints())
+            .field("requires_recursive_cte", &self.requires_recursive_cte())
+            .field(
+                "can_use_uuid_temporal_optimization",
+                &self.can_use_uuid_temporal_optimization(),
+            )
+            .finish()
+    }
 }
 
 impl StrictFilter {
@@ -275,7 +301,7 @@ impl StrictFilter {
 /// - Visibility levels (private, shared, public)
 /// - Tenant isolation for multi-tenant deployments
 /// - Share grant verification
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct StrictSecurityFilter {
     /// Required owner ID (exact match).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -301,6 +327,19 @@ pub struct StrictSecurityFilter {
     /// Whether to include notes shared with the user.
     #[serde(default = "default_true")]
     pub include_shared: bool,
+}
+
+impl fmt::Debug for StrictSecurityFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StrictSecurityFilter")
+            .field("owner_id_set", &self.owner_id.is_some())
+            .field("tenant_id_set", &self.tenant_id.is_some())
+            .field("visibility_count", &self.visibility.len())
+            .field("shared_with_user_set", &self.shared_with_user.is_some())
+            .field("include_owned", &self.include_owned)
+            .field("include_shared", &self.include_shared)
+            .finish()
+    }
 }
 
 fn default_true() -> bool {
@@ -371,7 +410,7 @@ impl StrictSecurityFilter {
 ///
 /// This filter restricts search to specific embedding sets,
 /// enabling isolated semantic namespaces for different use cases.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct SemanticScopeFilter {
     /// Embedding set ID to search within.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -388,6 +427,20 @@ pub struct SemanticScopeFilter {
     /// Whether to include the default embedding set.
     #[serde(default = "default_true")]
     pub include_default_set: bool,
+}
+
+impl fmt::Debug for SemanticScopeFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SemanticScopeFilter")
+            .field("embedding_set_id_set", &self.embedding_set_id.is_some())
+            .field("any_embedding_sets_count", &self.any_embedding_sets.len())
+            .field(
+                "excluded_embedding_sets_count",
+                &self.excluded_embedding_sets.len(),
+            )
+            .field("include_default_set", &self.include_default_set)
+            .finish()
+    }
 }
 
 impl SemanticScopeFilter {
@@ -436,7 +489,7 @@ impl SemanticScopeFilter {
 ///
 /// This filter handles boolean flags and simple attributes that
 /// don't fit into other filter dimensions.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct MetadataFilter {
     /// Filter by starred status.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -461,6 +514,19 @@ pub struct MetadataFilter {
     /// Minimum access count.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_access_count: Option<i32>,
+}
+
+impl fmt::Debug for MetadataFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MetadataFilter")
+            .field("starred", &self.starred)
+            .field("archived", &self.archived)
+            .field("format_len", &self.format.as_ref().map(String::len))
+            .field("source_len", &self.source.as_ref().map(String::len))
+            .field("include_deleted", &self.include_deleted)
+            .field("min_access_count", &self.min_access_count)
+            .finish()
+    }
 }
 
 impl MetadataFilter {
@@ -622,5 +688,144 @@ mod tests {
         assert_eq!(filter.starred, Some(true));
         assert_eq!(filter.archived, Some(false));
         assert_eq!(filter.format.as_deref(), Some("markdown"));
+    }
+
+    #[test]
+    fn strict_filter_debug_redacts_nested_filter_values() {
+        let owner_id = Uuid::new_v4();
+        let tenant_id = Uuid::new_v4();
+        let embedding_set_id = Uuid::new_v4();
+        let collection_id = Uuid::new_v4();
+        let excluded_collection_id = Uuid::new_v4();
+
+        let mut tag_filter = StrictTagFilter::new();
+        tag_filter
+            .required_string_tags
+            .push("private-tag@example.test".to_string());
+        tag_filter
+            .any_string_tags
+            .push("/tmp/private/tag".to_string());
+        tag_filter
+            .excluded_string_tags
+            .push("sk-live-tag-secret".to_string());
+
+        let filter = StrictFilter::new()
+            .with_tags(tag_filter)
+            .with_temporal(StrictTemporalFilter::new().created_within(NamedTemporalRange::ThisWeek))
+            .with_collections(
+                StrictCollectionFilter::new()
+                    .in_collection(collection_id)
+                    .exclude_collection(excluded_collection_id)
+                    .with_descendants(true),
+            )
+            .with_security(
+                StrictSecurityFilter::new()
+                    .for_owner(owner_id)
+                    .for_tenant(tenant_id)
+                    .with_visibility(Visibility::Private),
+            )
+            .with_semantic_scope(SemanticScopeFilter::new().in_set(embedding_set_id))
+            .with_metadata(
+                MetadataFilter::new()
+                    .with_format("private-format@example.test")
+                    .with_source("https://example.test/source?token=secret")
+                    .include_deleted()
+                    .with_min_access_count(3),
+            );
+
+        let debug = format!("{filter:?}");
+
+        for secret in [
+            owner_id.to_string(),
+            tenant_id.to_string(),
+            embedding_set_id.to_string(),
+            collection_id.to_string(),
+            excluded_collection_id.to_string(),
+            "private-tag@example.test".to_string(),
+            "/tmp/private/tag".to_string(),
+            "sk-live-tag-secret".to_string(),
+            "private-format@example.test".to_string(),
+            "https://example.test/source?token=secret".to_string(),
+            "token=secret".to_string(),
+        ] {
+            assert!(
+                !debug.contains(&secret),
+                "StrictFilter Debug output leaked sensitive value {secret:?}: {debug}"
+            );
+        }
+
+        for expected in [
+            "active_dimension_count",
+            "has_tag_constraints",
+            "has_temporal_constraints",
+            "has_collection_constraints",
+            "has_security_constraints",
+            "has_semantic_scope_constraints",
+            "has_metadata_constraints",
+            "requires_recursive_cte",
+            "can_use_uuid_temporal_optimization",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "StrictFilter Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn strict_filter_component_debug_redacts_ids_and_strings() {
+        let owner_id = Uuid::new_v4();
+        let tenant_id = Uuid::new_v4();
+        let embedding_set_id = Uuid::new_v4();
+        let included_set_id = Uuid::new_v4();
+        let excluded_set_id = Uuid::new_v4();
+
+        let security = StrictSecurityFilter::new()
+            .for_owner(owner_id)
+            .for_tenant(tenant_id)
+            .with_visibility(Visibility::Internal);
+        let semantic_scope = SemanticScopeFilter::new()
+            .in_set(embedding_set_id)
+            .include_set(included_set_id)
+            .exclude_set(excluded_set_id);
+        let metadata = MetadataFilter::new()
+            .with_format("private-format-sk-live-secret")
+            .with_source("/tmp/private/source@example.test")
+            .include_deleted()
+            .with_min_access_count(9);
+
+        let debug = format!("{security:?}\n{semantic_scope:?}\n{metadata:?}");
+
+        for secret in [
+            owner_id.to_string(),
+            tenant_id.to_string(),
+            embedding_set_id.to_string(),
+            included_set_id.to_string(),
+            excluded_set_id.to_string(),
+            "private-format-sk-live-secret".to_string(),
+            "/tmp/private/source@example.test".to_string(),
+            "sk-live-secret".to_string(),
+        ] {
+            assert!(
+                !debug.contains(&secret),
+                "Strict filter component Debug output leaked sensitive value {secret:?}: {debug}"
+            );
+        }
+
+        for expected in [
+            "owner_id_set",
+            "tenant_id_set",
+            "visibility_count",
+            "embedding_set_id_set",
+            "any_embedding_sets_count",
+            "excluded_embedding_sets_count",
+            "format_len",
+            "source_len",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Strict filter component Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
     }
 }
