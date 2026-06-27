@@ -1,9 +1,9 @@
 //! Redis-backed buffer for SSE chat-stream resumption (#815, epic #811 A4).
 //!
 //! Each `POST /api/v1/chat/stream` response is assigned a session id. Every
-//! emitted frame (`delta`/`done`/`error`) is appended to a Redis list keyed by
-//! that session, with a rolling 60-second TTL. SSE events carry an id of the
-//! form `{session}-{seq}`, so a client reconnecting with a `Last-Event-ID`
+//! emitted frame (`delta`/`done`/`error`) is appended to a Redis list keyed by a
+//! session fingerprint, with a rolling 60-second TTL. SSE events carry an id of
+//! the form `{session}-{seq}`, so a client reconnecting with a `Last-Event-ID`
 //! header lets the server replay the frames *after* that sequence without
 //! duplicating already-delivered tokens.
 //!
@@ -26,6 +26,7 @@
 use redis::aio::ConnectionManager;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -64,6 +65,12 @@ impl StoredFrame {
 
 fn chat_store_text_len(value: &str) -> usize {
     value.chars().count()
+}
+
+fn chat_store_session_fingerprint(session: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(session.as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 fn chat_store_json_text_class(value: &str) -> &'static str {
@@ -248,7 +255,11 @@ impl ChatStreamStore {
     }
 
     fn key(&self, session: &str) -> String {
-        format!("{}{}", self.inner.prefix, session)
+        format!(
+            "{}{}",
+            self.inner.prefix,
+            chat_store_session_fingerprint(session)
+        )
     }
 
     /// Append a frame to the session buffer and refresh the TTL. No-op (and
@@ -370,6 +381,21 @@ mod tests {
         assert!(rendered.contains("after_seq: 42"));
         assert!(!rendered.contains("tenant-secret-session"));
         assert!(!rendered.contains("11111111-2222-3333-4444-555555555555"));
+    }
+
+    #[test]
+    fn chat_stream_redis_key_uses_session_fingerprint_without_raw_session_id() {
+        let store = ChatStreamStore::disabled();
+        let session = "tenant-secret-session-11111111-2222-3333-4444-555555555555";
+        let key = store.key(session);
+
+        assert!(key.starts_with("mm:chatstream:"));
+        assert_eq!(key.len(), "mm:chatstream:".len() + 64);
+        assert_eq!(key, store.key(session));
+        assert_ne!(key, store.key("different-session"));
+        assert!(!key.contains(session));
+        assert!(!key.contains("tenant-secret-session"));
+        assert!(!key.contains("11111111-2222-3333-4444-555555555555"));
     }
 
     #[test]
