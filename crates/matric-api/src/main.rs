@@ -9740,6 +9740,17 @@ impl fmt::Debug for HealthQuery {
     }
 }
 
+fn orphan_tag_health_telemetry(
+    tag_name: &str,
+    created_at_utc: chrono::DateTime<chrono::Utc>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "tag_present": true,
+        "tag_len": telemetry_text_len(tag_name),
+        "created_at": created_at_utc,
+    })
+}
+
 /// Get overall knowledge health metrics.
 #[utoipa::path(
     get,
@@ -9969,12 +9980,7 @@ async fn get_orphan_tags(
         .into_iter()
         .filter(|tag| tag.note_count == 0)
         .take(limit)
-        .map(|tag| {
-            serde_json::json!({
-                "tag": tag.name,
-                "created_at": tag.created_at_utc
-            })
-        })
+        .map(|tag| orphan_tag_health_telemetry(&tag.name, tag.created_at_utc))
         .collect();
 
     Ok(Json(serde_json::json!({
@@ -28105,6 +28111,27 @@ mod tests {
             &collection_id.to_string(),
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn orphan_tag_health_payload_uses_metadata_only() {
+        let tag_name = "customer@example.com /srv/private/mm_key_orphan_tag";
+        let created_at = chrono::DateTime::parse_from_rfc3339("2026-06-27T00:00:00Z")
+            .expect("valid timestamp")
+            .with_timezone(&chrono::Utc);
+        let payload = orphan_tag_health_telemetry(tag_name, created_at);
+        let rendered = serde_json::to_string(&payload).expect("payload serializes");
+
+        assert_eq!(payload["tag_present"], true);
+        assert_eq!(
+            payload["tag_len"].as_u64(),
+            Some(tag_name.chars().count() as u64)
+        );
+        assert!(!payload.as_object().unwrap().contains_key("tag"));
+
+        for raw in ["customer@example.com", "/srv/private", "mm_key_orphan_tag"] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 
