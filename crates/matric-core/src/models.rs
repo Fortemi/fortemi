@@ -4685,7 +4685,7 @@ pub struct CreateApiKeyResponse {
 impl std::fmt::Debug for CreateApiKeyResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CreateApiKeyResponse")
-            .field("id", &self.id)
+            .field("id_set", &true)
             .field("api_key_set", &!self.api_key.is_empty())
             .field("api_key_len", &self.api_key.chars().count())
             .field("key_prefix_len", &self.key_prefix.chars().count())
@@ -7269,8 +7269,9 @@ mod tests {
 
     #[test]
     fn api_key_creation_response_debug_redacts_one_time_key() {
+        let api_key_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f601").unwrap();
         let response = CreateApiKeyResponse {
-            id: Uuid::new_v4(),
+            id: api_key_id,
             api_key: "mm_key_super_secret_once".to_string(),
             key_prefix: "mm_key_super".to_string(),
             name: "Production key".to_string(),
@@ -7283,8 +7284,14 @@ mod tests {
 
         assert_debug_excludes(
             &debug,
-            &["mm_key_super_secret_once", "mm_key_super", "Production key"],
+            &[
+                "mm_key_super_secret_once",
+                "mm_key_super",
+                "Production key",
+                "018fd1a0-0000-7000-8000-00000000f601",
+            ],
         );
+        assert!(debug.contains("id_set"));
         assert!(debug.contains("api_key_set"));
         assert!(debug.contains("key_prefix_len"));
     }
