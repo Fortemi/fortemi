@@ -61,6 +61,13 @@ fn sprite_error_reason_code(error: &str) -> &'static str {
     }
 }
 
+fn sprite_skip_result(reason: &'static str) -> serde_json::Value {
+    json!({
+        "skipped": true,
+        "reason": reason,
+    })
+}
+
 /// Format seconds as a WebVTT timestamp (HH:MM:SS.mmm).
 fn format_vtt_ts(secs: f64) -> String {
     let total_ms = (secs * 1000.0).round() as u64;
@@ -343,10 +350,7 @@ impl JobHandler for ThumbnailSpriteHandler {
                 attachment_id_present = true,
                 "No keyframes found, skipping sprite generation"
             );
-            return JobResult::Success(Some(json!({
-                "skipped": true,
-                "reason": "No keyframe derived attachments found",
-            })));
+            return JobResult::Success(Some(sprite_skip_result("no_keyframes")));
         }
 
         // Skip very short videos (<5s or single frame)
@@ -356,10 +360,7 @@ impl JobHandler for ThumbnailSpriteHandler {
                 frames = keyframes.len(),
                 "Too few keyframes for sprite sheet"
             );
-            return JobResult::Success(Some(json!({
-                "skipped": true,
-                "reason": "Too few keyframes for meaningful sprite sheet",
-            })));
+            return JobResult::Success(Some(sprite_skip_result("too_few_keyframes")));
         }
 
         info!(
@@ -606,5 +607,20 @@ mod tests {
         assert!(!rendered.contains("db.internal"));
         assert!(!rendered.contains("/srv/private"));
         assert!(!rendered.contains("mm_key_sprite"));
+    }
+
+    #[test]
+    fn sprite_skip_results_use_stable_reason_codes() {
+        let no_keyframes = sprite_skip_result("no_keyframes");
+        let too_few = sprite_skip_result("too_few_keyframes");
+        let rendered = format!("{}{}", no_keyframes, too_few);
+
+        assert_eq!(no_keyframes["skipped"], json!(true));
+        assert_eq!(no_keyframes["reason"], json!("no_keyframes"));
+        assert_eq!(too_few["skipped"], json!(true));
+        assert_eq!(too_few["reason"], json!("too_few_keyframes"));
+        assert!(!rendered.contains("No keyframe"));
+        assert!(!rendered.contains("Too few"));
+        assert!(!rendered.contains("meaningful sprite sheet"));
     }
 }
