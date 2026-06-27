@@ -42,8 +42,8 @@ The encryption system provides:
 ### Generate a Keypair
 
 ```bash
-# Using CLI
-matric-pke keygen -p "<PKE_PASSPHRASE>" -o ~/.matric-keys
+# Using CLI. Type or paste the passphrase, then press Ctrl-D.
+matric-pke keygen --passphrase-stdin -o ~/.matric-keys
 
 # Output:
 # {
@@ -71,12 +71,12 @@ matric-pke encrypt \
 ### Decrypt with Your Private Key
 
 ```bash
-# Decrypt using your private key
+# Decrypt using your private key. Type or paste the passphrase, then press Ctrl-D.
 matric-pke decrypt \
   -i document.pdf.mmpke \
   -o document.pdf \
   -k ~/.matric-keys/private.key.enc \
-  -p "<PKE_PASSPHRASE>"
+  --passphrase-stdin
 ```
 
 ## File Format (MMPKE01)

@@ -8,6 +8,7 @@ use matric_crypto::pke::{
     decrypt_pke, encrypt_pke, get_pke_recipients, load_private_key, load_public_key,
     save_private_key, save_public_key, Address, Keypair,
 };
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -24,9 +25,17 @@ struct Cli {
 enum Commands {
     /// Generate a new X25519 keypair
     Keygen {
-        /// Passphrase to protect the private key (min 12 characters)
+        /// Passphrase to protect the private key (min 12 characters). Prefer --passphrase-stdin or --passphrase-file.
         #[arg(short, long)]
-        passphrase: String,
+        passphrase: Option<String>,
+
+        /// Read the private-key passphrase from stdin.
+        #[arg(long)]
+        passphrase_stdin: bool,
+
+        /// Read the private-key passphrase from a file.
+        #[arg(long)]
+        passphrase_file: Option<PathBuf>,
 
         /// Output directory for keys (default: current directory)
         #[arg(short, long, default_value = ".")]
@@ -73,9 +82,17 @@ enum Commands {
         #[arg(short, long)]
         key: PathBuf,
 
-        /// Passphrase for the private key
+        /// Passphrase for the private key. Prefer --passphrase-stdin or --passphrase-file.
         #[arg(short, long)]
-        passphrase: String,
+        passphrase: Option<String>,
+
+        /// Read the private-key passphrase from stdin.
+        #[arg(long)]
+        passphrase_stdin: bool,
+
+        /// Read the private-key passphrase from a file.
+        #[arg(long)]
+        passphrase_file: Option<PathBuf>,
     },
 
     /// List recipients who can decrypt a file
@@ -108,9 +125,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Commands::Keygen {
             passphrase,
+            passphrase_stdin,
+            passphrase_file,
             output,
             label,
         } => {
+            let passphrase = resolve_passphrase(
+                passphrase.as_deref(),
+                passphrase_stdin,
+                passphrase_file.as_deref(),
+            )?;
             cmd_keygen(&passphrase, &output, label.as_deref())?;
         }
         Commands::Address { public_key } => {
@@ -128,7 +152,14 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             output,
             key,
             passphrase,
+            passphrase_stdin,
+            passphrase_file,
         } => {
+            let passphrase = resolve_passphrase(
+                passphrase.as_deref(),
+                passphrase_stdin,
+                passphrase_file.as_deref(),
+            )?;
             cmd_decrypt(&input, &output, &key, &passphrase)?;
         }
         Commands::Recipients { input } => {
@@ -142,16 +173,51 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn resolve_passphrase(
+    inline: Option<&str>,
+    from_stdin: bool,
+    file: Option<&Path>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let source_count =
+        usize::from(inline.is_some()) + usize::from(from_stdin) + usize::from(file.is_some());
+    if source_count != 1 {
+        return Err(
+            "Provide exactly one passphrase source: --passphrase, --passphrase-stdin, or --passphrase-file."
+                .into(),
+        );
+    }
+
+    let passphrase = if let Some(value) = inline {
+        value.to_string()
+    } else if from_stdin {
+        let mut value = String::new();
+        io::stdin().read_to_string(&mut value)?;
+        trim_passphrase_input(value)
+    } else if let Some(path) = file {
+        trim_passphrase_input(std::fs::read_to_string(path)?)
+    } else {
+        unreachable!("source_count validation requires one passphrase source")
+    };
+
+    if passphrase.len() < 12 {
+        return Err("Passphrase must be at least 12 characters".into());
+    }
+
+    Ok(passphrase)
+}
+
+fn trim_passphrase_input(mut value: String) -> String {
+    while value.ends_with(['\n', '\r']) {
+        value.pop();
+    }
+    value
+}
+
 fn cmd_keygen(
     passphrase: &str,
     output_dir: &Path,
     label: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Validate passphrase length
-    if passphrase.len() < 12 {
-        return Err("Passphrase must be at least 12 characters".into());
-    }
-
     // Generate keypair
     let keypair = Keypair::generate();
 
@@ -315,4 +381,45 @@ fn cmd_verify(address: &str) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_passphrase_rejects_missing_or_multiple_sources() {
+        assert!(resolve_passphrase(None, false, None).is_err());
+
+        let dir = tempfile::tempdir().unwrap();
+        let passphrase_file = dir.path().join("passphrase.txt");
+        std::fs::write(&passphrase_file, "safe-passphrase-from-file").unwrap();
+
+        assert!(resolve_passphrase(
+            Some("safe-passphrase-inline"),
+            false,
+            Some(&passphrase_file),
+        )
+        .is_err());
+        assert!(resolve_passphrase(Some("safe-passphrase-inline"), true, None).is_err());
+    }
+
+    #[test]
+    fn test_resolve_passphrase_reads_file_without_trailing_newline() {
+        let dir = tempfile::tempdir().unwrap();
+        let passphrase_file = dir.path().join("passphrase.txt");
+        std::fs::write(&passphrase_file, "safe-passphrase-from-file\n").unwrap();
+
+        let passphrase = resolve_passphrase(None, false, Some(&passphrase_file)).unwrap();
+
+        assert_eq!(passphrase, "safe-passphrase-from-file");
+    }
+
+    #[test]
+    fn test_trim_passphrase_input_preserves_inner_whitespace() {
+        assert_eq!(
+            trim_passphrase_input(" safe passphrase value \r\n".to_string()),
+            " safe passphrase value "
+        );
+    }
 }
