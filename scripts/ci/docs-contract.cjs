@@ -31,6 +31,8 @@ const DEFAULT_SCAN_PATHS = [
   "docker-compose.yml",
   "docker-compose.bundle.yml",
   "docker-compose.workstation.yml",
+  "crates/matric-crypto/src/lib.rs",
+  "crates/matric-crypto/src/pke/mod.rs",
   "docs",
   "mcp-server/index.js",
   "mcp-server/tests",
@@ -116,7 +118,12 @@ const RULES = [
     severity: "high",
     category: "passphrase_or_webhook_secret_placeholder",
     appliesTo(relativePath) {
-      return relativePath.startsWith("docs/") || relativePath === "mcp-server/index.js";
+      return (
+        relativePath.startsWith("docs/") ||
+        relativePath === "mcp-server/index.js" ||
+        relativePath === "crates/matric-crypto/src/lib.rs" ||
+        relativePath === "crates/matric-crypto/src/pke/mod.rs"
+      );
     },
     detect(line) {
       return (
@@ -225,6 +232,10 @@ function fingerprint(ruleId, relativePath, lineNumber, line) {
     .replace(/postgres(?:ql)?:\/\/[^/\s"'`:@]+:[^@\s"'`]+@/gi, "postgres://<USER>:<PASSWORD>@")
     .replace(/\bpassphrase["']?\s*[:=]\s*["'][^"']+["']/gi, "passphrase: <PKE_PASSPHRASE>")
     .replace(/\bsecret["']?\s*[:=]\s*["'][^"']+["']/gi, "secret: <SECRET>")
+    .replace(
+      /\b(save_private_key|load_private_key|encrypt_private_key|decrypt_private_key)\(([^)]*)["'][^"']*passphrase[^"']*["']/gi,
+      "$1($2<PKE_PASSPHRASE>"
+    )
     .replace(/(?:^|\s)-p\s+["'][^"']+["']/g, " -p <PKE_PASSPHRASE>")
     .replace(/\b(?:PGPASSWORD|POSTGRES_PASSWORD)\s*=\s*\S+/g, "<DB_PASSWORD_ASSIGNMENT>");
   return crypto

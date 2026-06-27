@@ -42,7 +42,7 @@
 //! # let temp = tempfile::tempdir().unwrap();
 //! # let private_path = temp.path().join("private.key");
 //! # let public_path = temp.path().join("public.key");
-//! save_private_key(&keypair.private, &private_path, "my-passphrase!").unwrap();
+//! save_private_key(&keypair.private, &private_path, "<PKE_PASSPHRASE>").unwrap();
 //! save_public_key(&keypair.public, &public_path, Some("My Key")).unwrap();
 //! ```
 //!
