@@ -7567,8 +7567,11 @@ mod tests {
     #[test]
     fn webhook_model_debug_redacts_secret_material() {
         let now = Utc::now();
+        let webhook_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f201").unwrap();
+        let delivery_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f202").unwrap();
+        let receiver_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f203").unwrap();
         let webhook = Webhook {
-            id: Uuid::new_v4(),
+            id: webhook_id,
             url: "https://hooks.example/tenant/path?token=webhook-url-secret".to_string(),
             secret: Some("outbound-webhook-signing-secret".to_string()),
             events: vec!["note.created.secret".to_string()],
@@ -7580,7 +7583,7 @@ mod tests {
             max_retries: 3,
         };
         let delivery = WebhookDelivery {
-            id: Uuid::new_v4(),
+            id: delivery_id,
             webhook_id: webhook.id,
             event_type: "incoming_webhook.received.secret".to_string(),
             payload: json!({
@@ -7608,7 +7611,7 @@ mod tests {
             schema_doc: Some(json!({"secret": "schema-doc-secret"})),
         };
         let receiver = IncomingWebhookReceiver {
-            id: Uuid::new_v4(),
+            id: receiver_id,
             slug: "stored-sensitive-slug".to_string(),
             provider: "stored-sensitive-provider".to_string(),
             schema_ref: "stored.custom.secret.schema".to_string(),
@@ -7678,8 +7681,13 @@ mod tests {
                 "validation-response-secret",
                 "https://hooks.example",
                 "https://provider.example",
+                "018fd1a0-0000-7000-8000-00000000f201",
+                "018fd1a0-0000-7000-8000-00000000f202",
+                "018fd1a0-0000-7000-8000-00000000f203",
             ],
         );
+        assert!(debug.contains("id_set"));
+        assert!(debug.contains("webhook_id_set"));
         assert!(debug.contains("secret_set"));
         assert!(debug.contains("hmac_secret_set"));
         assert!(debug.contains("payload_class"));
@@ -10470,7 +10478,7 @@ pub struct Webhook {
 impl std::fmt::Debug for Webhook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Webhook")
-            .field("id", &self.id)
+            .field("id_set", &true)
             .field("url_len", &self.url.chars().count())
             .field("secret_set", &self.secret.is_some())
             .field("event_count", &self.events.len())
@@ -10500,8 +10508,8 @@ pub struct WebhookDelivery {
 impl std::fmt::Debug for WebhookDelivery {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WebhookDelivery")
-            .field("id", &self.id)
-            .field("webhook_id", &self.webhook_id)
+            .field("id_set", &true)
+            .field("webhook_id_set", &true)
             .field("event_type_len", &self.event_type.chars().count())
             .field("payload_class", &json_value_class(&self.payload))
             .field("payload_len", &self.payload.to_string().chars().count())
@@ -10563,7 +10571,7 @@ pub struct IncomingWebhookReceiver {
 impl std::fmt::Debug for IncomingWebhookReceiver {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IncomingWebhookReceiver")
-            .field("id", &self.id)
+            .field("id_set", &true)
             .field("slug_len", &self.slug.chars().count())
             .field("provider_len", &self.provider.chars().count())
             .field("schema_ref_len", &self.schema_ref.chars().count())
