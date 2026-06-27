@@ -9777,6 +9777,16 @@ fn unlinked_note_health_telemetry(
     })
 }
 
+fn tag_cooccurrence_health_telemetry(tag_a: &str, tag_b: &str, count: i64) -> serde_json::Value {
+    serde_json::json!({
+        "tag_a_present": true,
+        "tag_a_len": telemetry_text_len(tag_a),
+        "tag_b_present": true,
+        "tag_b_len": telemetry_text_len(tag_b),
+        "count": count,
+    })
+}
+
 /// Get overall knowledge health metrics.
 #[utoipa::path(
     get,
@@ -10222,13 +10232,7 @@ async fn get_tag_cooccurrence(
     let top_pairs: Vec<serde_json::Value> = pairs
         .into_iter()
         .take(limit)
-        .map(|((tag_a, tag_b), count)| {
-            serde_json::json!({
-                "tag_a": tag_a,
-                "tag_b": tag_b,
-                "count": count
-            })
-        })
+        .map(|((tag_a, tag_b), count)| tag_cooccurrence_health_telemetry(&tag_a, &tag_b, count))
         .collect();
 
     Ok(Json(serde_json::json!({
@@ -28206,6 +28210,38 @@ mod tests {
             "/srv/private",
             "mm_key_unlinked_note",
             "private note",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn tag_cooccurrence_health_payload_uses_metadata_only() {
+        let tag_a = "customer@example.com /srv/private/mm_key_tag_a";
+        let tag_b = "private-tag-b token-bearing-tag";
+        let payload = tag_cooccurrence_health_telemetry(tag_a, tag_b, 4);
+        let rendered = serde_json::to_string(&payload).expect("payload serializes");
+
+        assert_eq!(payload["tag_a_present"], true);
+        assert_eq!(payload["tag_b_present"], true);
+        assert_eq!(
+            payload["tag_a_len"].as_u64(),
+            Some(tag_a.chars().count() as u64)
+        );
+        assert_eq!(
+            payload["tag_b_len"].as_u64(),
+            Some(tag_b.chars().count() as u64)
+        );
+        assert_eq!(payload["count"], 4);
+        assert!(!payload.as_object().unwrap().contains_key("tag_a"));
+        assert!(!payload.as_object().unwrap().contains_key("tag_b"));
+
+        for raw in [
+            "customer@example.com",
+            "/srv/private",
+            "mm_key_tag_a",
+            "private-tag-b",
+            "token-bearing-tag",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
