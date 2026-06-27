@@ -145,7 +145,7 @@ pub(crate) fn transcript_error_payload(call_id: Uuid, reason: &str, sequence: i3
         "event_type": "asr_error",
         "payload": {
             "reason_class": classify_asr_error_reason(reason),
-            "reason_len": reason.len(),
+            "reason_len": reason.chars().count(),
             "sequence": sequence,
         }
     })
@@ -216,19 +216,20 @@ mod tests {
     #[test]
     fn error_payload_redacts_provider_reason_text() {
         let call_id = Uuid::nil();
-        let raw_reason = "Deepgram JSON parse failed for https://api.example.test/listen?token=sk-live-secret at /tmp/customer/audio.wav";
+        let raw_reason = "Deepgram JSON parse failed for 東京 https://api.example.test/listen?token=sk-live-secret at /tmp/customer/audio.wav";
         let payload = transcript_error_payload(call_id, raw_reason, 9);
         let rendered = payload.to_string();
 
         assert_eq!(payload["call_id"], serde_json::json!(call_id));
         assert_eq!(payload["event_type"], "asr_error");
         assert_eq!(payload["payload"]["reason_class"], "auth");
-        assert_eq!(payload["payload"]["reason_len"], raw_reason.len());
+        assert_eq!(payload["payload"]["reason_len"], raw_reason.chars().count());
         assert_eq!(payload["payload"]["sequence"], 9);
 
         for raw in [
             "Deepgram",
             "JSON parse failed",
+            "東京",
             "api.example.test",
             "sk-live-secret",
             "/tmp/customer/audio.wav",
