@@ -12,6 +12,7 @@
 //! Unsupported formats (.rar, .7z) produce metadata-only output with a note
 //! that extraction was skipped.
 
+use std::fmt;
 use std::io::{Cursor, Read};
 
 use async_trait::async_trait;
@@ -99,7 +100,6 @@ enum ArchiveFormat {
 }
 
 /// Metadata for a single entry inside an archive.
-#[derive(Debug)]
 struct EntryInfo {
     name: String,
     size: u64,
@@ -108,6 +108,59 @@ struct EntryInfo {
     extracted: bool,
     /// Reason text extraction was skipped, if any.
     skip_reason: Option<String>,
+}
+
+impl fmt::Debug for EntryInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EntryInfo")
+            .field("name_len", &self.name.chars().count())
+            .field("extension_class", &entry_extension_class(&self.name))
+            .field("size", &self.size)
+            .field("is_dir", &self.is_dir)
+            .field("extracted", &self.extracted)
+            .field(
+                "skip_reason_len",
+                &self.skip_reason.as_deref().map(str::len),
+            )
+            .finish()
+    }
+}
+
+fn entry_extension_class(name: &str) -> &'static str {
+    match name.rsplit('.').next().map(str::to_ascii_lowercase) {
+        Some(ext) if ext.is_empty() || ext == name.to_ascii_lowercase() => "none",
+        Some(ext) if BINARY_EXTENSIONS.contains(&ext.as_str()) => "known_binary",
+        Some(ext)
+            if matches!(
+                ext.as_str(),
+                "txt"
+                    | "md"
+                    | "json"
+                    | "csv"
+                    | "xml"
+                    | "html"
+                    | "rs"
+                    | "py"
+                    | "js"
+                    | "ts"
+                    | "go"
+                    | "java"
+                    | "c"
+                    | "cpp"
+                    | "h"
+                    | "hpp"
+                    | "yaml"
+                    | "yml"
+                    | "toml"
+                    | "sql"
+                    | "log"
+            ) =>
+        {
+            "text_like"
+        }
+        Some(_) => "other",
+        None => "none",
+    }
 }
 
 impl ArchiveAdapter {
@@ -1210,6 +1263,48 @@ mod tests {
         if let Some(text) = result.extracted_text {
             // If there's text, the binary file should be labeled
             assert!(text.contains("data.exe"), "Binary file should be listed");
+        }
+    }
+
+    #[test]
+    fn entry_info_debug_redacts_names_paths_and_skip_reasons() {
+        let entry = EntryInfo {
+            name: "customer@example.internal/secrets/postgres://user:pass@db.internal/mm_key.txt"
+                .to_string(),
+            size: 42,
+            is_dir: false,
+            extracted: false,
+            skip_reason: Some(
+                "parser failed for /srv/private/mm_key_archive with token sk-live-secret"
+                    .to_string(),
+            ),
+        };
+
+        let rendered = format!("{entry:?}");
+
+        for expected in [
+            "EntryInfo",
+            "name_len",
+            "extension_class",
+            "text_like",
+            "size",
+            "is_dir",
+            "extracted",
+            "skip_reason_len",
+        ] {
+            assert!(rendered.contains(expected), "missing field: {expected}");
+        }
+
+        for raw in [
+            "customer@example.internal",
+            "postgres://user:pass",
+            "db.internal",
+            "mm_key.txt",
+            "/srv/private",
+            "mm_key_archive",
+            "sk-live-secret",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 }

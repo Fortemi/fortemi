@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use serde_json::{json, Value as JsonValue};
+use std::fmt;
 
 use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Result};
 
@@ -16,12 +17,23 @@ use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Resul
 pub struct CodeAstAdapter;
 
 /// A detected code declaration.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 struct Declaration {
     kind: String, // "function", "class", "struct", "enum", "trait", "interface", "method", "impl"
     name: String,
     line_start: usize,
     line_end: usize, // estimated end (next declaration or EOF)
+}
+
+impl fmt::Debug for Declaration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Declaration")
+            .field("kind", &self.kind)
+            .field("name_len", &self.name.chars().count())
+            .field("line_start", &self.line_start)
+            .field("line_end", &self.line_end)
+            .finish()
+    }
 }
 
 /// Detect programming language from filename extension.
@@ -638,5 +650,35 @@ func (m *MyStruct) Method() error {
     async fn test_code_ast_health_check() {
         let adapter = CodeAstAdapter;
         assert!(adapter.health_check().await.unwrap());
+    }
+
+    #[test]
+    fn declaration_debug_redacts_symbol_names_without_changing_serialization() {
+        let declaration = Declaration {
+            kind: "function".to_string(),
+            name: "customer_email_sk_live_secret_handler".to_string(),
+            line_start: 12,
+            line_end: 20,
+        };
+
+        let rendered = format!("{declaration:?}");
+
+        for expected in [
+            "Declaration",
+            "kind",
+            "function",
+            "name_len",
+            "line_start",
+            "line_end",
+        ] {
+            assert!(rendered.contains(expected), "missing field: {expected}");
+        }
+
+        for raw in ["customer_email", "sk_live_secret", "handler"] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+
+        let serialized = serde_json::to_value(&declaration).unwrap();
+        assert_eq!(serialized["name"], "customer_email_sk_live_secret_handler");
     }
 }
