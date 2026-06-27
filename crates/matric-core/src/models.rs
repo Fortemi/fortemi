@@ -2405,13 +2405,13 @@ impl fmt::Debug for AttachmentBlob {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AttachmentBlob")
             .field("id_set", &true)
-            .field("content_hash_len", &self.content_hash.len())
-            .field("content_type_len", &self.content_type.len())
+            .field("content_hash_len", &debug_len(&self.content_hash))
+            .field("content_type_len", &debug_len(&self.content_type))
             .field("size_bytes", &self.size_bytes)
-            .field("storage_backend_len", &self.storage_backend.len())
+            .field("storage_backend_len", &debug_len(&self.storage_backend))
             .field(
                 "storage_path_len",
-                &self.storage_path.as_ref().map(String::len),
+                &optional_debug_len(self.storage_path.as_ref()),
             )
             .field("reference_count", &self.reference_count)
             .field("created_at", &self.created_at)
@@ -2451,17 +2451,17 @@ impl fmt::Debug for Attachment {
             .field("id_set", &true)
             .field("note_id_set", &true)
             .field("blob_id_set", &true)
-            .field("filename_len", &self.filename.len())
+            .field("filename_len", &debug_len(&self.filename))
             .field(
                 "original_filename_len",
-                &self.original_filename.as_ref().map(String::len),
+                &optional_debug_len(self.original_filename.as_ref()),
             )
             .field("document_type_id_set", &self.document_type_id.is_some())
             .field("status", &self.status)
             .field("extraction_strategy", &self.extraction_strategy)
             .field(
                 "extracted_text_len",
-                &self.extracted_text.as_ref().map(String::len),
+                &optional_debug_len(self.extracted_text.as_ref()),
             )
             .field(
                 "extracted_metadata_class",
@@ -2473,9 +2473,9 @@ impl fmt::Debug for Attachment {
             )
             .field(
                 "ai_description_len",
-                &self.ai_description.as_ref().map(String::len),
+                &optional_debug_len(self.ai_description.as_ref()),
             )
-            .field("ai_model_len", &self.ai_model.as_ref().map(String::len))
+            .field("ai_model_len", &optional_debug_len(self.ai_model.as_ref()))
             .field("has_preview", &self.has_preview)
             .field("is_canonical_content", &self.is_canonical_content)
             .field(
@@ -2485,7 +2485,7 @@ impl fmt::Debug for Attachment {
             .field("detection_confidence", &self.detection_confidence)
             .field(
                 "detection_method_len",
-                &self.detection_method.as_ref().map(String::len),
+                &optional_debug_len(self.detection_method.as_ref()),
             )
             .field("created_at", &self.created_at)
             .field("updated_at", &self.updated_at)
@@ -2556,17 +2556,17 @@ impl fmt::Debug for AttachmentSummary {
         f.debug_struct("AttachmentSummary")
             .field("id_set", &true)
             .field("note_id_set", &true)
-            .field("filename_len", &self.filename.len())
-            .field("content_type_len", &self.content_type.len())
+            .field("filename_len", &debug_len(&self.filename))
+            .field("content_type_len", &debug_len(&self.content_type))
             .field("size_bytes", &self.size_bytes)
             .field("status", &self.status)
             .field(
                 "document_type_name_len",
-                &self.document_type_name.as_ref().map(String::len),
+                &optional_debug_len(self.document_type_name.as_ref()),
             )
             .field(
                 "detected_document_type_name_len",
-                &self.detected_document_type_name.as_ref().map(String::len),
+                &optional_debug_len(self.detected_document_type_name.as_ref()),
             )
             .field("detection_confidence", &self.detection_confidence)
             .field("has_preview", &self.has_preview)
@@ -2599,18 +2599,21 @@ impl fmt::Debug for GlobalAttachmentSummary {
         f.debug_struct("GlobalAttachmentSummary")
             .field("id_set", &true)
             .field("note_id_set", &true)
-            .field("note_title_len", &self.note_title.as_ref().map(String::len))
-            .field("filename_len", &self.filename.len())
-            .field("content_type_len", &self.content_type.len())
+            .field(
+                "note_title_len",
+                &optional_debug_len(self.note_title.as_ref()),
+            )
+            .field("filename_len", &debug_len(&self.filename))
+            .field("content_type_len", &debug_len(&self.content_type))
             .field("size_bytes", &self.size_bytes)
             .field("status", &self.status)
             .field(
                 "document_type_name_len",
-                &self.document_type_name.as_ref().map(String::len),
+                &optional_debug_len(self.document_type_name.as_ref()),
             )
             .field(
                 "detected_document_type_name_len",
-                &self.detected_document_type_name.as_ref().map(String::len),
+                &optional_debug_len(self.detected_document_type_name.as_ref()),
             )
             .field("detection_confidence", &self.detection_confidence)
             .field("has_preview", &self.has_preview)
@@ -2649,11 +2652,11 @@ impl fmt::Debug for TusUpload {
         f.debug_struct("TusUpload")
             .field("id_set", &true)
             .field("note_id_set", &true)
-            .field("filename_len", &self.filename.len())
-            .field("content_type_len", &self.content_type.len())
+            .field("filename_len", &debug_len(&self.filename))
+            .field("content_type_len", &debug_len(&self.content_type))
             .field("total_size", &self.total_size)
             .field("current_offset", &self.current_offset)
-            .field("storage_path_len", &self.storage_path.len())
+            .field("storage_path_len", &debug_len(&self.storage_path))
             .field("metadata_class", &json_value_class(&self.metadata))
             .field("metadata_len", &json_serialized_len(&self.metadata))
             .field("created_at", &self.created_at)
@@ -2687,18 +2690,21 @@ impl fmt::Debug for CallSession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CallSession")
             .field("call_id_set", &true)
-            .field("provider_len", &self.provider.len())
-            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field("provider_len", &debug_len(&self.provider))
+            .field("provider_call_id_len", &debug_len(&self.provider_call_id))
             .field("started_at", &self.started_at)
             .field("ended_at_set", &self.ended_at.is_some())
-            .field("end_reason_len", &self.end_reason.as_ref().map(String::len))
+            .field(
+                "end_reason_len",
+                &optional_debug_len(self.end_reason.as_ref()),
+            )
             .field(
                 "asr_backend_len",
-                &self.asr_backend.as_ref().map(String::len),
+                &optional_debug_len(self.asr_backend.as_ref()),
             )
             .field(
                 "remote_party_len",
-                &self.remote_party.as_ref().map(String::len),
+                &optional_debug_len(self.remote_party.as_ref()),
             )
             .field("archive_id_set", &self.archive_id.is_some())
             .field("metadata_class", &json_value_class(&self.metadata))
@@ -2723,16 +2729,16 @@ pub struct CreateCallSessionRequest {
 impl fmt::Debug for CreateCallSessionRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CreateCallSessionRequest")
-            .field("provider_len", &self.provider.len())
-            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field("provider_len", &debug_len(&self.provider))
+            .field("provider_call_id_len", &debug_len(&self.provider_call_id))
             .field("started_at_set", &self.started_at.is_some())
             .field(
                 "asr_backend_len",
-                &self.asr_backend.as_ref().map(String::len),
+                &optional_debug_len(self.asr_backend.as_ref()),
             )
             .field(
                 "remote_party_len",
-                &self.remote_party.as_ref().map(String::len),
+                &optional_debug_len(self.remote_party.as_ref()),
             )
             .field("archive_id_set", &self.archive_id.is_some())
             .field("metadata_class", &json_value_class(&self.metadata))
@@ -2756,14 +2762,17 @@ impl fmt::Debug for UpdateCallSessionRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UpdateCallSessionRequest")
             .field("ended_at_set", &self.ended_at.is_some())
-            .field("end_reason_len", &self.end_reason.as_ref().map(String::len))
+            .field(
+                "end_reason_len",
+                &optional_debug_len(self.end_reason.as_ref()),
+            )
             .field(
                 "asr_backend_len",
-                &self.asr_backend.as_ref().map(String::len),
+                &optional_debug_len(self.asr_backend.as_ref()),
             )
             .field(
                 "remote_party_len",
-                &self.remote_party.as_ref().map(String::len),
+                &optional_debug_len(self.remote_party.as_ref()),
             )
             .field("archive_id_set", &self.archive_id.is_some())
             .field(
@@ -2799,9 +2808,9 @@ impl fmt::Debug for TranscriptSegment {
             .field("call_id_set", &true)
             .field(
                 "speaker_label_len",
-                &self.speaker_label.as_ref().map(String::len),
+                &optional_debug_len(self.speaker_label.as_ref()),
             )
-            .field("text_len", &self.text.len())
+            .field("text_len", &debug_len(&self.text))
             .field("start_ts_set", &self.start_ts.is_some())
             .field("end_ts_set", &self.end_ts.is_some())
             .field("confidence", &self.confidence)
@@ -2829,9 +2838,9 @@ impl fmt::Debug for CreateTranscriptSegmentRequest {
             .field("call_id_set", &true)
             .field(
                 "speaker_label_len",
-                &self.speaker_label.as_ref().map(String::len),
+                &optional_debug_len(self.speaker_label.as_ref()),
             )
-            .field("text_len", &self.text.len())
+            .field("text_len", &debug_len(&self.text))
             .field("start_ts_set", &self.start_ts.is_some())
             .field("end_ts_set", &self.end_ts.is_some())
             .field("confidence", &self.confidence)
@@ -5571,11 +5580,11 @@ mod tests {
         let now = Utc::now();
         let blob = AttachmentBlob {
             id: Uuid::new_v4(),
-            content_hash: "sha256-secret-content-hash-private@example.test".to_string(),
-            content_type: "application/private-report".to_string(),
+            content_hash: "éé".to_string(),
+            content_type: "éé".to_string(),
             size_bytes: 4096,
-            storage_backend: "customer-storage-secret".to_string(),
-            storage_path: Some("/tmp/customer/private/sk-live-secret/report.pdf".to_string()),
+            storage_backend: "éé".to_string(),
+            storage_path: Some("éé".to_string()),
             reference_count: 2,
             created_at: now,
         };
@@ -5583,38 +5592,36 @@ mod tests {
             id: Uuid::new_v4(),
             note_id: Uuid::new_v4(),
             blob_id: Uuid::new_v4(),
-            filename: "private-report-sk-live-secret.pdf".to_string(),
-            original_filename: Some("original-private@example.test.pdf".to_string()),
+            filename: "éé".to_string(),
+            original_filename: Some("éé".to_string()),
             document_type_id: Some(Uuid::new_v4()),
             status: AttachmentStatus::Completed,
             extraction_strategy: Some(ExtractionStrategy::PdfOcr),
-            extracted_text: Some(
-                "Extracted text includes 555-1212 and /tmp/customer/raw.txt".to_string(),
-            ),
+            extracted_text: Some("éé".to_string()),
             extracted_metadata: Some(json!({
                 "provider_url": "https://provider.example.test/?token=secret",
                 "api_key": "sk-live-secret",
                 "path": "/tmp/customer/raw.txt"
             })),
-            ai_description: Some("AI description includes private@example.test".to_string()),
-            ai_model: Some("private-model-name".to_string()),
+            ai_description: Some("éé".to_string()),
+            ai_model: Some("éé".to_string()),
             has_preview: true,
             is_canonical_content: true,
             detected_document_type_id: Some(Uuid::new_v4()),
             detection_confidence: Some(0.88),
-            detection_method: Some("private-filename-pattern".to_string()),
+            detection_method: Some("éé".to_string()),
             created_at: now,
             updated_at: now,
         };
         let summary = AttachmentSummary {
             id: Uuid::new_v4(),
             note_id: Uuid::new_v4(),
-            filename: "summary-secret-file.pdf".to_string(),
-            content_type: "application/private-summary".to_string(),
+            filename: "éé".to_string(),
+            content_type: "éé".to_string(),
             size_bytes: 1024,
             status: AttachmentStatus::Processing,
-            document_type_name: Some("Private document type".to_string()),
-            detected_document_type_name: Some("Detected private type".to_string()),
+            document_type_name: Some("éé".to_string()),
+            detected_document_type_name: Some("éé".to_string()),
             detection_confidence: Some(0.77),
             has_preview: false,
             is_canonical_content: false,
@@ -5623,13 +5630,13 @@ mod tests {
         let global = GlobalAttachmentSummary {
             id: Uuid::new_v4(),
             note_id: Uuid::new_v4(),
-            note_title: Some("Private note title private@example.test".to_string()),
-            filename: "global-secret-file.pdf".to_string(),
-            content_type: "application/private-global".to_string(),
+            note_title: Some("éé".to_string()),
+            filename: "éé".to_string(),
+            content_type: "éé".to_string(),
             size_bytes: 2048,
             status: AttachmentStatus::Completed,
-            document_type_name: Some("Global private document type".to_string()),
-            detected_document_type_name: Some("Global detected private type".to_string()),
+            document_type_name: Some("éé".to_string()),
+            detected_document_type_name: Some("éé".to_string()),
             detection_confidence: Some(0.79),
             has_preview: true,
             is_canonical_content: false,
@@ -5641,6 +5648,7 @@ mod tests {
         assert_debug_excludes(
             &debug,
             &[
+                "éé",
                 "sha256-secret-content-hash",
                 "private@example.test",
                 "application/private-report",
@@ -5667,6 +5675,19 @@ mod tests {
         );
 
         for expected in [
+            "content_hash_len: 2",
+            "content_type_len: 2",
+            "storage_backend_len: 2",
+            "storage_path_len: Some(2)",
+            "filename_len: 2",
+            "original_filename_len: Some(2)",
+            "extracted_text_len: Some(2)",
+            "ai_description_len: Some(2)",
+            "ai_model_len: Some(2)",
+            "detection_method_len: Some(2)",
+            "document_type_name_len: Some(2)",
+            "detected_document_type_name_len: Some(2)",
+            "note_title_len: Some(2)",
             "content_hash_len",
             "content_type_len",
             "storage_backend_len",
@@ -6199,12 +6220,11 @@ mod tests {
         let upload = TusUpload {
             id: Uuid::new_v4(),
             note_id: Uuid::new_v4(),
-            filename: "private-upload-sk-live-secret.pdf".to_string(),
-            content_type: "application/private-upload".to_string(),
+            filename: "éé".to_string(),
+            content_type: "éé".to_string(),
             total_size: 8192,
             current_offset: 4096,
-            storage_path: "/tmp/customer/uploads/private@example.test/sk-live-secret.part"
-                .to_string(),
+            storage_path: "éé".to_string(),
             metadata: json!({
                 "original_filename": "customer-private-file.pdf",
                 "callback_url": "https://provider.example.test/upload?token=secret-token",
@@ -6222,6 +6242,7 @@ mod tests {
         assert_debug_excludes(
             &debug,
             &[
+                "éé",
                 "private-upload",
                 "sk-live-secret",
                 "application/private-upload",
@@ -6236,6 +6257,9 @@ mod tests {
         );
 
         for expected in [
+            "filename_len: 2",
+            "content_type_len: 2",
+            "storage_path_len: 2",
             "id_set",
             "note_id_set",
             "filename_len",
@@ -6261,15 +6285,13 @@ mod tests {
         let now = Utc::now();
         let session = CallSession {
             call_id: Uuid::new_v4(),
-            provider: "twilio-private-provider".to_string(),
-            provider_call_id: "CA-secret-provider-call-id".to_string(),
+            provider: "éé".to_string(),
+            provider_call_id: "éé".to_string(),
             started_at: now,
             ended_at: Some(now),
-            end_reason: Some(
-                "Ended after callback https://provider.example.test/?token=secret".to_string(),
-            ),
-            asr_backend: Some("deepgram-private-model".to_string()),
-            remote_party: Some("+15551212 private@example.test".to_string()),
+            end_reason: Some("éé".to_string()),
+            asr_backend: Some("éé".to_string()),
+            remote_party: Some("éé".to_string()),
             archive_id: Some(Uuid::new_v4()),
             metadata: json!({
                 "recording_url": "https://recordings.example.test/call?token=secret-token",
@@ -6278,11 +6300,11 @@ mod tests {
             }),
         };
         let create = CreateCallSessionRequest {
-            provider: "create-private-provider".to_string(),
-            provider_call_id: "CA-create-secret-call-id".to_string(),
+            provider: "éé".to_string(),
+            provider_call_id: "éé".to_string(),
             started_at: Some(now),
-            asr_backend: Some("create-private-asr".to_string()),
-            remote_party: Some("+15559876 caller@example.test".to_string()),
+            asr_backend: Some("éé".to_string()),
+            remote_party: Some("éé".to_string()),
             archive_id: Some(Uuid::new_v4()),
             metadata: json!({
                 "webhook_url": "https://hooks.example.test/call?token=create-secret",
@@ -6291,11 +6313,9 @@ mod tests {
         };
         let update = UpdateCallSessionRequest {
             ended_at: Some(now),
-            end_reason: Some(
-                "Update reason includes sk-live-secret and /tmp/customer/end.txt".to_string(),
-            ),
-            asr_backend: Some("updated-private-asr".to_string()),
-            remote_party: Some("+15550000 updated@example.test".to_string()),
+            end_reason: Some("éé".to_string()),
+            asr_backend: Some("éé".to_string()),
+            remote_party: Some("éé".to_string()),
             archive_id: Some(Uuid::new_v4()),
             metadata: Some(json!({
                 "provider_error": "https://provider.example.test/error?token=update-secret",
@@ -6308,6 +6328,7 @@ mod tests {
         assert_debug_excludes(
             &debug,
             &[
+                "éé",
                 "twilio-private-provider",
                 "CA-secret-provider-call-id",
                 "Ended after callback",
@@ -6338,6 +6359,11 @@ mod tests {
         );
 
         for expected in [
+            "provider_len: 2",
+            "provider_call_id_len: 2",
+            "end_reason_len: Some(2)",
+            "asr_backend_len: Some(2)",
+            "remote_party_len: Some(2)",
             "call_id_set",
             "provider_len",
             "provider_call_id_len",
@@ -7134,9 +7160,8 @@ mod tests {
         let segment = TranscriptSegment {
             id: Uuid::new_v4(),
             call_id: Uuid::new_v4(),
-            speaker_label: Some("Private speaker private@example.test".to_string()),
-            text: "Transcript includes 555-1212, sk-live-secret, and /tmp/customer/audio.wav"
-                .to_string(),
+            speaker_label: Some("éé".to_string()),
+            text: "éé".to_string(),
             start_ts: Some(1.25),
             end_ts: Some(3.5),
             confidence: Some(0.91),
@@ -7145,9 +7170,8 @@ mod tests {
         };
         let request = CreateTranscriptSegmentRequest {
             call_id: Uuid::new_v4(),
-            speaker_label: Some("Caller with secret-token label".to_string()),
-            text: "Request transcript mentions https://provider.example.test/?token=secret"
-                .to_string(),
+            speaker_label: Some("éé".to_string()),
+            text: "éé".to_string(),
             start_ts: Some(5.0),
             end_ts: Some(8.0),
             confidence: Some(0.82),
@@ -7159,6 +7183,7 @@ mod tests {
         assert_debug_excludes(
             &debug,
             &[
+                "éé",
                 "Private speaker",
                 "private@example.test",
                 "Transcript includes",
@@ -7173,6 +7198,8 @@ mod tests {
         );
 
         for expected in [
+            "speaker_label_len: Some(2)",
+            "text_len: 2",
             "speaker_label_len",
             "text_len",
             "start_ts_set",
