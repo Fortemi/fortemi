@@ -16,10 +16,19 @@ use tracing::{debug, info, warn};
 use matric_core::{Error, JobPauseQueueStats, JobPauseState, Result};
 
 /// Persisted pause state shape (stored as JSON in `system_config`).
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 struct PersistedPauseState {
     global_paused: bool,
     paused_archives: Vec<String>,
+}
+
+impl std::fmt::Debug for PersistedPauseState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PersistedPauseState")
+            .field("global_paused", &self.global_paused)
+            .field("paused_archive_count", &self.paused_archives.len())
+            .finish()
+    }
 }
 
 const CONFIG_KEY: &str = "job_pause_state";
@@ -229,6 +238,27 @@ mod tests {
         let recovered: PersistedPauseState = serde_json::from_str(&json).unwrap();
         assert!(recovered.global_paused);
         assert_eq!(recovered.paused_archives.len(), 2);
+    }
+
+    #[test]
+    fn persisted_pause_state_debug_redacts_archive_names() {
+        let state = PersistedPauseState {
+            global_paused: true,
+            paused_archives: vec![
+                "tenant-secret-archive".to_string(),
+                "customer@example.test".to_string(),
+                "postgres://user:secret@db/internal".to_string(),
+            ],
+        };
+
+        let debug = format!("{state:?}");
+
+        assert!(debug.contains("PersistedPauseState"));
+        assert!(debug.contains("global_paused"));
+        assert!(debug.contains("paused_archive_count"));
+        assert!(!debug.contains("tenant-secret-archive"));
+        assert!(!debug.contains("customer@example.test"));
+        assert!(!debug.contains("postgres://user:secret@db/internal"));
     }
 
     #[test]
