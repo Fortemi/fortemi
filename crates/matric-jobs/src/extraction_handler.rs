@@ -84,6 +84,60 @@ fn telemetry_strategy_len(strategy: ExtractionStrategy) -> usize {
     strategy.to_string().len()
 }
 
+fn extraction_json_class(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "bool",
+        JsonValue::Number(_) => "number",
+        JsonValue::String(_) => "string",
+        JsonValue::Array(_) => "array",
+        JsonValue::Object(_) => "object",
+    }
+}
+
+fn extraction_json_secret_candidate(value: &JsonValue) -> bool {
+    match value {
+        JsonValue::String(value) => extraction_text_secret_candidate(value),
+        JsonValue::Array(values) => values.iter().any(extraction_json_secret_candidate),
+        JsonValue::Object(values) => values.iter().any(|(key, value)| {
+            extraction_text_secret_candidate(key) || extraction_json_secret_candidate(value)
+        }),
+        _ => false,
+    }
+}
+
+fn extraction_text_secret_candidate(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains("secret")
+        || lower.contains("token")
+        || lower.contains("password")
+        || lower.contains("api_key")
+        || lower.contains("apikey")
+        || lower.contains("bearer ")
+        || lower.contains("postgres://")
+        || lower.contains("mm_key")
+        || lower.contains("sk-")
+}
+
+fn extraction_job_result_payload(
+    strategy: ExtractionStrategy,
+    extracted_text: Option<&str>,
+    ai_description: Option<&str>,
+    metadata: &JsonValue,
+) -> JsonValue {
+    json!({
+        "strategy_len": telemetry_strategy_len(strategy),
+        "has_text": extracted_text.is_some(),
+        "text_length": extracted_text.map(telemetry_text_len).unwrap_or(0),
+        "has_description": ai_description.is_some(),
+        "description_length": ai_description.map(telemetry_text_len).unwrap_or(0),
+        "metadata_class": extraction_json_class(metadata),
+        "metadata_len": metadata.to_string().len(),
+        "metadata_key_count": metadata.as_object().map(|object| object.len()).unwrap_or(0),
+        "metadata_secret_candidate": extraction_json_secret_candidate(metadata),
+    })
+}
+
 fn extraction_error_reason_code(error: &str) -> &'static str {
     let lower = error.to_ascii_lowercase();
     if lower.contains("permission denied") || lower.contains("access denied") {
@@ -1757,13 +1811,12 @@ impl JobHandler for ExtractionHandler {
 
                 ctx.report_progress(95, Some("Downstream jobs queued"));
 
-                let result_json = json!({
-                    "strategy": strategy.to_string(),
-                    "has_text": result.extracted_text.is_some(),
-                    "text_length": result.extracted_text.as_ref().map(|t| t.len()).unwrap_or(0),
-                    "has_description": result.ai_description.is_some(),
-                    "metadata": result.metadata,
-                });
+                let result_json = extraction_job_result_payload(
+                    strategy,
+                    result.extracted_text.as_deref(),
+                    result.ai_description.as_deref(),
+                    &result.metadata,
+                );
 
                 info!(
                     strategy_len = telemetry_strategy_len(strategy),
@@ -1939,6 +1992,44 @@ mod tests {
         assert!(!rendered.contains("postgres://"));
         assert!(!rendered.contains("db.internal"));
         assert!(!rendered.contains("/srv/private"));
+    }
+
+    #[test]
+    fn extraction_job_result_payload_redacts_strategy_and_metadata() {
+        let metadata = json!({
+            "model": "private-model-mm_key_secret",
+            "source_url": "postgres://user:token@db.internal/archive",
+            "nested": {
+                "api_key": "sk-secret"
+            }
+        });
+        let result = extraction_job_result_payload(
+            ExtractionStrategy::VideoMultimodal,
+            Some("extracted text with token mm_key_secret"),
+            Some("generated description with private data"),
+            &metadata,
+        );
+        let rendered = serde_json::to_string(&result).unwrap();
+
+        assert_eq!(
+            result["strategy_len"],
+            json!(ExtractionStrategy::VideoMultimodal.to_string().len())
+        );
+        assert_eq!(result["has_text"], json!(true));
+        assert_eq!(result["has_description"], json!(true));
+        assert_eq!(result["metadata_class"], json!("object"));
+        assert_eq!(result["metadata_key_count"], json!(3));
+        assert_eq!(result["metadata_secret_candidate"], json!(true));
+        assert!(rendered.contains("metadata_len"));
+        assert!(!rendered.contains("video_multimodal"));
+        assert!(!rendered.contains("private-model"));
+        assert!(!rendered.contains("source_url"));
+        assert!(!rendered.contains("postgres://"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("api_key"));
+        assert!(!rendered.contains("sk-secret"));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("generated description"));
     }
 
     #[tokio::test]
