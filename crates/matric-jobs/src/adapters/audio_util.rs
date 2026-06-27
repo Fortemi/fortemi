@@ -91,6 +91,22 @@ fn audio_duration_parse_failure_detail(stdout: &str, error: &dyn std::fmt::Displ
     )
 }
 
+fn audio_transcription_failure_detail(
+    phase: &'static str,
+    backend_name: &str,
+    audio_size_bytes: usize,
+    error: &dyn std::fmt::Display,
+) -> String {
+    let error_text = error.to_string();
+    format!(
+        "Audio transcription failed; phase={phase}; backend_name_len={}; audio_size_bytes={}; error_len={}; error_reason={}",
+        audio_telemetry_text_len(backend_name),
+        audio_size_bytes,
+        audio_telemetry_text_len(&error_text),
+        audio_error_reason_code(&error_text)
+    )
+}
+
 /// Transcode any audio/video file to 16kHz mono PCM WAV for speech processing.
 ///
 /// This normalizes the input to the standard format accepted by all speech
@@ -475,11 +491,11 @@ pub async fn transcribe_with_chunking(
             .transcribe(&chunk_data, "audio/wav", language)
             .await
             .map_err(|e| {
-                matric_core::Error::Internal(format!(
-                    "Transcription failed for chunk {} (offset {:.1}s): {}",
-                    i + 1,
-                    offset,
-                    e
+                matric_core::Error::Internal(audio_transcription_failure_detail(
+                    "chunk",
+                    backend.model_name(),
+                    chunk_data.len(),
+                    &e,
                 ))
             })?;
 
@@ -524,11 +540,11 @@ async fn transcribe_single_pass(
         .transcribe(&wav_data, "audio/wav", language)
         .await
         .map_err(|e| {
-            matric_core::Error::Internal(format!(
-                "Audio transcription failed (backend: {}, size: {} bytes): {}",
+            matric_core::Error::Internal(audio_transcription_failure_detail(
+                "single_pass",
                 backend.model_name(),
                 wav_data.len(),
-                e
+                &e,
             ))
         })
 }
@@ -566,6 +582,26 @@ mod tests {
         assert!(!detail.contains("/srv/fortemi"));
         assert!(!detail.contains("mm_key_secret"));
         assert!(!detail.contains("invalid float literal"));
+    }
+
+    #[test]
+    fn audio_transcription_failure_detail_redacts_backend_metadata_and_error() {
+        let backend_name = "tenant-whisper-secret-model";
+        let error =
+            "backend failed at https://speech.internal/v1 token=mm_key_secret /srv/private.wav";
+        let detail = audio_transcription_failure_detail("single_pass", backend_name, 12345, &error);
+
+        assert!(detail.contains("Audio transcription failed"));
+        assert!(detail.contains("phase=single_pass"));
+        assert!(detail.contains("backend_name_len="));
+        assert!(detail.contains("audio_size_bytes=12345"));
+        assert!(detail.contains("error_len="));
+        assert!(detail.contains("error_reason=operation_failed"));
+        assert!(!detail.contains(backend_name));
+        assert!(!detail.contains("speech.internal"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("/srv/private.wav"));
+        assert!(!detail.contains("backend failed"));
     }
 
     #[test]
