@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use matric_core::{Job, JobType};
 
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use crate::worker::WorkerEvent;
 
@@ -87,7 +87,6 @@ impl JobContext {
 }
 
 /// Result of job execution.
-#[derive(Debug)]
 pub enum JobResult {
     /// Job completed successfully with optional result data.
     Success(Option<JsonValue>),
@@ -95,6 +94,44 @@ pub enum JobResult {
     Failed(String),
     /// Job should be retried after a delay.
     Retry(String),
+}
+
+impl fmt::Debug for JobResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            JobResult::Success(result) => f
+                .debug_struct("Success")
+                .field("result_present", &result.is_some())
+                .field("result_class", &result.as_ref().map(json_value_class))
+                .field(
+                    "result_serialized_len",
+                    &result
+                        .as_ref()
+                        .and_then(|value| serde_json::to_string(value).ok())
+                        .map(|serialized| serialized.len()),
+                )
+                .finish(),
+            JobResult::Failed(error) => f
+                .debug_struct("Failed")
+                .field("error_len", &error.len())
+                .finish_non_exhaustive(),
+            JobResult::Retry(error) => f
+                .debug_struct("Retry")
+                .field("error_len", &error.len())
+                .finish_non_exhaustive(),
+        }
+    }
+}
+
+fn json_value_class(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "bool",
+        JsonValue::Number(_) => "number",
+        JsonValue::String(_) => "string",
+        JsonValue::Array(_) => "array",
+        JsonValue::Object(_) => "object",
+    }
 }
 
 /// Trait for job handlers.
@@ -526,6 +563,44 @@ mod tests {
         // Test Retry
         let result4 = JobResult::Retry("retry reason".to_string());
         assert!(matches!(result4, JobResult::Retry(_)));
+    }
+
+    #[test]
+    fn test_job_result_debug_redacts_success_payload() {
+        use serde_json::json;
+
+        let result = JobResult::Success(Some(json!({
+            "transcript": "patient@example.com has token sk_live_sensitive",
+            "path": "/home/user/private/research.pdf"
+        })));
+
+        let debug = format!("{result:?}");
+
+        assert!(debug.contains("Success"));
+        assert!(debug.contains("result_present: true"));
+        assert!(debug.contains("result_class: Some(\"object\")"));
+        assert!(debug.contains("result_serialized_len: Some("));
+        assert!(!debug.contains("patient@example.com"));
+        assert!(!debug.contains("sk_live_sensitive"));
+        assert!(!debug.contains("/home/user/private/research.pdf"));
+    }
+
+    #[test]
+    fn test_job_result_debug_redacts_error_text() {
+        let failure = JobResult::Failed(
+            "failed for postgres://user:pass@example.com/db and /tmp/private.wav".to_string(),
+        );
+        let retry =
+            JobResult::Retry("retry after backend returned bearer token abc.def.ghi".to_string());
+
+        let debug = format!("{failure:?} {retry:?}");
+
+        assert!(debug.contains("Failed"));
+        assert!(debug.contains("Retry"));
+        assert!(debug.contains("error_len"));
+        assert!(!debug.contains("postgres://"));
+        assert!(!debug.contains("/tmp/private.wav"));
+        assert!(!debug.contains("abc.def.ghi"));
     }
 
     #[test]
