@@ -35,6 +35,10 @@ fn pause_parse_error_reason_code(error: &serde_json::Error) -> &'static str {
     }
 }
 
+fn archive_name_len(archive: &str) -> usize {
+    archive.chars().count()
+}
+
 /// Thread-safe pause state manager.
 ///
 /// The hot path (`is_globally_paused`, `is_archive_paused`) uses lock-free
@@ -136,7 +140,10 @@ impl PauseState {
             let mut archives = self.paused_archives.write().await;
             archives.insert(archive.to_string());
         }
-        info!(archive, "Job processing PAUSED for archive");
+        info!(
+            archive_name_len = archive_name_len(archive),
+            "Job processing PAUSED for archive"
+        );
         self.persist().await
     }
 
@@ -146,7 +153,10 @@ impl PauseState {
             let mut archives = self.paused_archives.write().await;
             archives.remove(archive);
         }
-        info!(archive, "Job processing RESUMED for archive");
+        info!(
+            archive_name_len = archive_name_len(archive),
+            "Job processing RESUMED for archive"
+        );
         self.persist().await
     }
 
@@ -263,5 +273,11 @@ mod tests {
 
         let eof_error = serde_json::from_str::<PersistedPauseState>("{").unwrap_err();
         assert_eq!(pause_parse_error_reason_code(&eof_error), "json_eof");
+    }
+
+    #[test]
+    fn archive_name_len_supports_redacted_pause_telemetry() {
+        let archive = "tenant-secret-archive";
+        assert_eq!(archive_name_len(archive), 21);
     }
 }

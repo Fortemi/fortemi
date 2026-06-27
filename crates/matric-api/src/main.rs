@@ -17687,7 +17687,7 @@ async fn pause_jobs_archive(
         .map_err(ApiError::Database)?;
 
     state.event_bus.emit(ServerEvent::JobsPaused {
-        scope: format!("archive:{archive}"),
+        scope: job_queue_event_scope("archive", Some(&archive)),
     });
     emit_job_queue_control_audit_event(job_queue_control_audit_event(
         &auth,
@@ -17724,7 +17724,7 @@ async fn resume_jobs_archive(
         .map_err(ApiError::Database)?;
 
     state.event_bus.emit(ServerEvent::JobsResumed {
-        scope: format!("archive:{archive}"),
+        scope: job_queue_event_scope("archive", Some(&archive)),
     });
     emit_job_queue_control_audit_event(job_queue_control_audit_event(
         &auth,
@@ -17740,6 +17740,14 @@ async fn resume_jobs_archive(
         "scope": "archive",
         "archive": archive
     })))
+}
+
+fn job_queue_event_scope(scope: &str, archive: Option<&str>) -> String {
+    if archive.is_some() && scope == "archive" {
+        "archive".to_string()
+    } else {
+        scope.to_string()
+    }
 }
 
 async fn emit_job_queue_control_audit_event(event: AuditEvent) {
@@ -32657,6 +32665,22 @@ mod tests {
 
         let serialized = serde_json::to_string(&event).expect("serialize audit event");
         assert!(!serialized.contains("client-secret-should-redact"));
+    }
+
+    #[test]
+    fn job_queue_control_server_event_scope_omits_archive_name() {
+        let archive = "tenant-secret-archive";
+        let paused = ServerEvent::JobsPaused {
+            scope: job_queue_event_scope("archive", Some(archive)),
+        };
+        let resumed = ServerEvent::JobsResumed {
+            scope: job_queue_event_scope("archive", Some(archive)),
+        };
+
+        let rendered = serde_json::to_string(&(paused, resumed)).expect("serialize server events");
+        assert!(rendered.contains("\"scope\":\"archive\""));
+        assert!(!rendered.contains(archive));
+        assert!(!rendered.contains("archive:tenant-secret-archive"));
     }
 
     #[test]
