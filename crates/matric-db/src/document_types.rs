@@ -9,6 +9,13 @@ use matric_core::{
 use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
+fn document_type_not_found_error(name: &str) -> Error {
+    Error::NotFound(format!(
+        "Document type not found; name_len={}",
+        name.chars().count()
+    ))
+}
+
 pub struct PgDocumentTypeRepository {
     pool: Pool<Postgres>,
 }
@@ -228,10 +235,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
                 ));
             }
         } else {
-            return Err(Error::NotFound(format!(
-                "Document type '{}' not found",
-                name
-            )));
+            return Err(document_type_not_found_error(name));
         }
 
         // Use simpler approach with conditional updates
@@ -274,10 +278,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
                 ));
             }
         } else {
-            return Err(Error::NotFound(format!(
-                "Document type '{}' not found",
-                name
-            )));
+            return Err(document_type_not_found_error(name));
         }
 
         // Check if in use by notes
@@ -456,6 +457,28 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
         .map_err(Error::Database)?;
 
         Ok(row.map(|r| self.row_to_document_type(&r)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn document_type_not_found_errors_report_metadata_without_raw_values() {
+        let raw_name = "secret-type-sk-live-123/path@example.com";
+        let err = document_type_not_found_error(raw_name);
+
+        let Error::NotFound(message) = err else {
+            panic!("expected not-found error");
+        };
+
+        assert!(message.contains("Document type not found"));
+        assert!(message.contains("name_len=40"));
+        assert!(!message.contains(raw_name));
+        assert!(!message.contains("secret-type"));
+        assert!(!message.contains("sk-live"));
+        assert!(!message.contains("path@example.com"));
     }
 }
 
