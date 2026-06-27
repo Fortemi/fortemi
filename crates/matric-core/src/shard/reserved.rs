@@ -1,6 +1,6 @@
 //! Reserved field registry to prevent data corruption from field name reuse.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt};
 
 /// A field that was removed in a previous version.
 /// These MUST NOT be reused to prevent data corruption when importing old shards.
@@ -74,14 +74,39 @@ pub fn reserved_names_for_component(component: FieldComponent) -> HashSet<&'stat
         .collect()
 }
 
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("Reserved field '{field}' used in {component:?}. This field was removed in v{removed_in}: {reason}")]
+#[derive(Clone)]
 pub struct ReservedFieldError {
     pub field: String,
     pub component: FieldComponent,
     pub removed_in: String,
     pub reason: String,
 }
+
+impl fmt::Debug for ReservedFieldError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReservedFieldError")
+            .field("field_len", &self.field.len())
+            .field("component", &self.component)
+            .field("removed_in_len", &self.removed_in.len())
+            .field("reason_len", &self.reason.len())
+            .finish()
+    }
+}
+
+impl fmt::Display for ReservedFieldError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "reserved field used in {:?}; field_len={}, removed_in_len={}, reason_len={}",
+            self.component,
+            self.field.len(),
+            self.removed_in.len(),
+            self.reason.len()
+        )
+    }
+}
+
+impl std::error::Error for ReservedFieldError {}
 
 #[cfg(test)]
 mod tests {
@@ -149,19 +174,44 @@ mod tests {
     }
 
     #[test]
-    fn test_reserved_error_formatting() {
+    fn reserved_field_error_display_and_debug_redact_field_version_and_reason() {
         let error = ReservedFieldError {
-            field: "old_field".to_string(),
+            field: "database_url_postgres://admin:secret@db.internal/fortemi".to_string(),
             component: FieldComponent::Note,
-            removed_in: "2.0.0".to_string(),
-            reason: "Replaced by new_field".to_string(),
+            removed_in: "2.0.0-sk-live-token".to_string(),
+            reason: "Replaced by /srv/private/customer@example.com bearer-secret".to_string(),
         };
 
-        let error_msg = error.to_string();
-        assert!(error_msg.contains("old_field"));
-        assert!(error_msg.contains("Note"));
-        assert!(error_msg.contains("2.0.0"));
-        assert!(error_msg.contains("Replaced by new_field"));
+        let display = error.to_string();
+        let debug = format!("{error:?}");
+        let combined = format!("{display}\n{debug}");
+
+        assert!(display.contains("reserved field used in Note"));
+        assert!(display.contains("field_len="));
+        assert!(display.contains("removed_in_len="));
+        assert!(display.contains("reason_len="));
+        assert!(debug.contains("ReservedFieldError"));
+        assert!(debug.contains("field_len"));
+        assert!(debug.contains("removed_in_len"));
+        assert!(debug.contains("reason_len"));
+
+        for raw in [
+            "database_url",
+            "postgres://",
+            "admin:secret",
+            "db.internal",
+            "fortemi",
+            "2.0.0",
+            "sk-live",
+            "/srv/private",
+            "customer@example.com",
+            "bearer-secret",
+        ] {
+            assert!(
+                !combined.contains(raw),
+                "reserved field error output leaked raw value fragment: {raw}"
+            );
+        }
     }
 
     #[test]
