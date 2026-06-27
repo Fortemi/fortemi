@@ -16,7 +16,7 @@
 #   BACKUP_COMPRESS      Compression: gzip, zstd, none (default: gzip)
 #   BACKUP_REMOTE_RSYNC  Rsync destination (user@host:/path)
 #   BACKUP_REMOTE_S3     S3 bucket path (s3://bucket/prefix)
-#   PGUSER, PGPASSWORD, PGHOST, PGPORT, PGDATABASE
+#   PGUSER, PGPASSWORD or PGPASSFILE, PGHOST, PGPORT, PGDATABASE
 #
 
 set -euo pipefail
@@ -37,7 +37,8 @@ BACKUP_REMOTE_S3="${BACKUP_REMOTE_S3:-}"
 
 # Database connection
 PGUSER="${PGUSER:-matric}"
-PGPASSWORD="${PGPASSWORD:-matric}"
+PGPASSWORD="${PGPASSWORD:-}"
+PGPASSFILE="${PGPASSFILE:-}"
 PGHOST="${PGHOST:-localhost}"
 PGPORT="${PGPORT:-5432}"
 PGDATABASE="${PGDATABASE:-matric}"
@@ -129,7 +130,8 @@ Environment Variables:
   BACKUP_REMOTE_RSYNC    Rsync destination (user@host:/path)
   BACKUP_REMOTE_S3       S3 bucket path (s3://bucket/prefix)
   PGUSER                 PostgreSQL user (default: matric)
-  PGPASSWORD             PostgreSQL password (default: matric)
+  PGPASSWORD             PostgreSQL password (required unless PGPASSFILE is set)
+  PGPASSFILE             PostgreSQL password file path (alternative to PGPASSWORD)
   PGHOST                 PostgreSQL host (default: localhost)
   PGPORT                 PostgreSQL port (default: 5432)
   PGDATABASE             PostgreSQL database (default: matric)
@@ -244,10 +246,19 @@ validate_environment() {
     log_verbose "Environment validated"
 }
 
+require_database_secret() {
+    if [[ -n "$PGPASSWORD" || -n "$PGPASSFILE" ]]; then
+        return 0
+    fi
+
+    error_exit "PGPASSWORD or PGPASSFILE must be set for database backup"
+}
+
 # Create database dump
 create_database_dump() {
     local output_file="$1"
     local temp_path="${BACKUP_TEMP_DIR}/${output_file}"
+    local -a pg_env=()
 
     log "Creating database dump: $output_file"
 
@@ -258,8 +269,16 @@ create_database_dump() {
         return 0
     fi
 
+    require_database_secret
+    if [[ -n "$PGPASSWORD" ]]; then
+        pg_env+=(PGPASSWORD="$PGPASSWORD")
+    fi
+    if [[ -n "$PGPASSFILE" ]]; then
+        pg_env+=(PGPASSFILE="$PGPASSFILE")
+    fi
+
     # Use pg_dump with custom format for better compression and selective restore
-    PGPASSWORD="$PGPASSWORD" pg_dump \
+    env "${pg_env[@]}" pg_dump \
         -U "$PGUSER" \
         -h "$PGHOST" \
         -p "$PGPORT" \
