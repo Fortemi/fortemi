@@ -7702,8 +7702,9 @@ mod tests {
     #[test]
     fn inbound_source_debug_redacts_config_and_identifiers() {
         let now = Utc::now();
+        let source_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f301").unwrap();
         let source = InboundSource {
-            id: Uuid::new_v4(),
+            id: source_id,
             name: "tenant-secret-inbound-source".to_string(),
             kind: "sse-secret-kind".to_string(),
             config: json!({
@@ -7755,8 +7756,10 @@ mod tests {
                 "tenant-secret-stream",
                 "tenant-secret-group",
                 "tenant-secret-consumer",
+                "018fd1a0-0000-7000-8000-00000000f301",
             ],
         );
+        assert!(debug.contains("id_set"));
         assert!(debug.contains("name_len"));
         assert!(debug.contains("kind_len"));
         assert!(debug.contains("config_class"));
@@ -10764,7 +10767,7 @@ pub struct InboundSource {
 impl std::fmt::Debug for InboundSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InboundSource")
-            .field("id", &self.id)
+            .field("id_set", &true)
             .field("name_len", &self.name.chars().count())
             .field("kind_len", &self.kind.chars().count())
             .field("config_class", &json_value_class(&self.config))
