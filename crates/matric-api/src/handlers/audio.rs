@@ -9,7 +9,7 @@ use serde::Serialize;
 use std::fmt;
 use tracing::warn;
 
-use crate::{ApiError, AppState};
+use crate::{telemetry_text_len, ApiError, AppState};
 use matric_inference::transcription::{TranscriptionSegment, WhisperBackend};
 
 const AUDIO_TRANSCRIPTION_PROVIDER_DETAIL: &str =
@@ -37,12 +37,17 @@ impl fmt::Debug for TranscribeAudioResponse {
         let segment_text_lens: Vec<usize> = self
             .segments
             .iter()
-            .map(|segment| segment.text.len())
+            .map(|segment| telemetry_text_len(&segment.text))
             .collect();
         let speaker_id_lens: Vec<Option<usize>> = self
             .segments
             .iter()
-            .map(|segment| segment.speaker_id.as_ref().map(String::len))
+            .map(|segment| {
+                segment
+                    .speaker_id
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value))
+            })
             .collect();
         let word_counts: Vec<usize> = self
             .segments
@@ -51,14 +56,20 @@ impl fmt::Debug for TranscribeAudioResponse {
             .collect();
 
         f.debug_struct("TranscribeAudioResponse")
-            .field("text_len", &self.text.len())
+            .field("text_len", &telemetry_text_len(&self.text))
             .field("segments_count", &self.segments.len())
             .field("segment_text_lens", &segment_text_lens)
             .field("speaker_id_lens", &speaker_id_lens)
             .field("segment_word_counts", &word_counts)
-            .field("language_len", &self.language.as_ref().map(String::len))
+            .field(
+                "language_len",
+                &self
+                    .language
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
+            )
             .field("duration_secs", &self.duration_secs)
-            .field("model_len", &self.model.len())
+            .field("model_len", &telemetry_text_len(&self.model))
             .field("audio_size", &self.audio_size)
             .finish()
     }
@@ -194,14 +205,18 @@ mod tests {
 
     #[test]
     fn transcribe_audio_response_debug_redacts_transcript_text_and_model() {
+        let text = "custómer@example.com transcript postgres://user:päss@db.internal/app";
+        let segment_text = "segment téxt has /srv/privaté/audio.wav and sk-live-aúdio";
+        let speaker_id = "speaker-custómer@example.com";
+        let language = "en-privaté-customer";
+        let model = "whisper-privaté-model-db.internal";
         let response = TranscribeAudioResponse {
-            text: "customer@example.com transcript postgres://user:pass@db.internal/app"
-                .to_string(),
+            text: text.to_string(),
             segments: vec![TranscriptionSegment {
                 start_secs: 0.0,
                 end_secs: 2.5,
-                text: "segment text has /srv/private/audio.wav and sk-live-audio".to_string(),
-                speaker_id: Some("speaker-customer@example.com".to_string()),
+                text: segment_text.to_string(),
+                speaker_id: Some(speaker_id.to_string()),
                 words: Some(vec![matric_inference::transcription::WordTimestamp {
                     word: "secret-word-token".to_string(),
                     start_secs: 0.1,
@@ -209,9 +224,9 @@ mod tests {
                     confidence: Some(0.9),
                 }]),
             }],
-            language: Some("en-private-customer".to_string()),
+            language: Some(language.to_string()),
             duration_secs: Some(2.5),
-            model: "whisper-private-model-db.internal".to_string(),
+            model: model.to_string(),
             audio_size: 4096,
         };
 
@@ -225,18 +240,32 @@ mod tests {
         assert!(rendered.contains("segment_word_counts"));
         assert!(rendered.contains("language_len"));
         assert!(rendered.contains("model_len"));
+        for expected in [
+            format!("text_len: {}", text.chars().count()),
+            "segments_count: 1".to_string(),
+            format!("segment_text_lens: [{}]", segment_text.chars().count()),
+            format!("speaker_id_lens: [Some({})]", speaker_id.chars().count()),
+            "segment_word_counts: [1]".to_string(),
+            format!("language_len: Some({})", language.chars().count()),
+            format!("model_len: {}", model.chars().count()),
+        ] {
+            assert!(
+                rendered.contains(&expected),
+                "audio Debug output should retain exact character-count metadata {expected:?}: {rendered}"
+            );
+        }
 
         for raw in [
-            "customer@example.com",
-            "postgres://user:pass",
+            "custómer@example.com",
+            "postgres://user:päss",
             "db.internal",
-            "segment text",
-            "/srv/private/audio.wav",
-            "sk-live-audio",
-            "speaker-customer",
+            "segment téxt",
+            "/srv/privaté/audio.wav",
+            "sk-live-aúdio",
+            "speaker-custómer",
             "secret-word-token",
-            "en-private-customer",
-            "whisper-private-model",
+            "en-privaté-customer",
+            "whisper-privaté-model",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }

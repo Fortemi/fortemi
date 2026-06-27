@@ -9,7 +9,7 @@ use serde::Serialize;
 use std::fmt;
 use tracing::warn;
 
-use crate::{ApiError, AppState};
+use crate::{telemetry_text_len, ApiError, AppState};
 use matric_inference::OllamaVisionBackend;
 
 const VISION_ANALYSIS_PROVIDER_DETAIL: &str =
@@ -29,8 +29,8 @@ pub struct DescribeImageResponse {
 impl fmt::Debug for DescribeImageResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DescribeImageResponse")
-            .field("description_len", &self.description.len())
-            .field("model_len", &self.model.len())
+            .field("description_len", &telemetry_text_len(&self.description))
+            .field("model_len", &telemetry_text_len(&self.model))
             .field("image_size", &self.image_size)
             .finish()
     }
@@ -165,9 +165,12 @@ mod tests {
 
     #[test]
     fn describe_image_response_debug_redacts_generated_description_and_model() {
+        let description =
+            "Generated descriptión mentions custómer@example.com, /srv/privaté/image.png, and sk-live-visión";
+        let model = "llava-privaté-model-db.internal";
         let response = DescribeImageResponse {
-            description: "Generated description mentions customer@example.com, /srv/private/image.png, and sk-live-vision".to_string(),
-            model: "llava-private-model-db.internal".to_string(),
+            description: description.to_string(),
+            model: model.to_string(),
             image_size: 8192,
         };
 
@@ -177,13 +180,23 @@ mod tests {
         assert!(rendered.contains("description_len"));
         assert!(rendered.contains("model_len"));
         assert!(rendered.contains("image_size"));
+        for expected in [
+            format!("description_len: {}", description.chars().count()),
+            format!("model_len: {}", model.chars().count()),
+            "image_size: 8192".to_string(),
+        ] {
+            assert!(
+                rendered.contains(&expected),
+                "vision Debug output should retain exact character-count metadata {expected:?}: {rendered}"
+            );
+        }
 
         for raw in [
-            "Generated description",
-            "customer@example.com",
-            "/srv/private/image.png",
-            "sk-live-vision",
-            "llava-private-model",
+            "Generated descriptión",
+            "custómer@example.com",
+            "/srv/privaté/image.png",
+            "sk-live-visión",
+            "llava-privaté-model",
             "db.internal",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
