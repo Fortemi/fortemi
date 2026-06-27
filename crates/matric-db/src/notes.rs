@@ -1268,7 +1268,7 @@ impl PgNoteRepository {
 // =============================================================================
 
 /// Request for listing notes with unified strict filter.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct ListNotesWithFilterRequest {
     /// Multi-dimensional strict filter.
     pub filter: StrictFilter,
@@ -1280,6 +1280,22 @@ pub struct ListNotesWithFilterRequest {
     pub sort_by: Option<String>,
     /// Sort order: "asc" or "desc".
     pub sort_order: Option<String>,
+}
+
+impl fmt::Debug for ListNotesWithFilterRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ListNotesWithFilterRequest")
+            .field(
+                "active_filter_dimensions",
+                &self.filter.active_dimension_count(),
+            )
+            .field("filter", &self.filter)
+            .field("limit", &self.limit)
+            .field("offset", &self.offset)
+            .field("sort_by_len", &self.sort_by.as_ref().map(String::len))
+            .field("sort_order_len", &self.sort_order.as_ref().map(String::len))
+            .finish()
+    }
 }
 
 /// Response for filtered note listing.
@@ -1508,6 +1524,9 @@ impl PgNoteRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use matric_core::{
+        SemanticScopeFilter, StrictCollectionFilter, StrictSecurityFilter, StrictTagFilter,
+    };
 
     #[test]
     fn test_hash_content() {
@@ -1537,6 +1556,54 @@ mod tests {
             assert!(!metadata.contains(raw), "raw value leaked: {raw}");
         }
         assert_eq!(PgNoteRepository::access_source_metadata(None), None);
+    }
+
+    #[test]
+    fn list_notes_with_filter_request_debug_redacts_sort_and_filter_values() {
+        let owner_id = Uuid::new_v4();
+        let collection_id = Uuid::new_v4();
+        let embedding_set_id = Uuid::new_v4();
+        let request = ListNotesWithFilterRequest {
+            filter: StrictFilter::new()
+                .with_tags(StrictTagFilter {
+                    required_string_tags: vec!["sk-proj-secret-tag".to_string()],
+                    ..StrictTagFilter::default()
+                })
+                .with_collections(
+                    StrictCollectionFilter::new()
+                        .in_collection(collection_id)
+                        .with_descendants(true),
+                )
+                .with_security(StrictSecurityFilter::new().for_owner(owner_id))
+                .with_semantic_scope(SemanticScopeFilter::new().in_set(embedding_set_id)),
+            limit: 25,
+            offset: 5,
+            sort_by: Some("title customer@example.com /srv/private".to_string()),
+            sort_order: Some("desc mm_key_sort_secret".to_string()),
+        };
+
+        let debug = format!("{:?}", request);
+
+        assert!(debug.contains("ListNotesWithFilterRequest"));
+        assert!(debug.contains("active_filter_dimensions"));
+        assert!(debug.contains("sort_by_len"));
+        assert!(debug.contains("sort_order_len"));
+        assert!(debug.contains("limit: 25"));
+        assert!(debug.contains("offset: 5"));
+
+        for raw in [
+            &owner_id.to_string(),
+            &collection_id.to_string(),
+            &embedding_set_id.to_string(),
+            "sk-proj-secret-tag",
+            "customer@example.com",
+            "/srv/private",
+            "mm_key_sort_secret",
+            "title customer",
+            "desc mm_key",
+        ] {
+            assert!(!debug.contains(raw), "raw value leaked in Debug: {raw}");
+        }
     }
 
     #[test]
