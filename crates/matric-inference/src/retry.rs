@@ -62,6 +62,32 @@ pub fn is_retryable_status(status: reqwest::StatusCode) -> bool {
         || status == reqwest::StatusCode::GATEWAY_TIMEOUT
 }
 
+fn reqwest_error_reason(err: &reqwest::Error) -> &'static str {
+    if err.is_timeout() {
+        "timeout"
+    } else if err.is_connect() {
+        "connect"
+    } else if err.is_body() {
+        "body"
+    } else if err.is_decode() {
+        "decode"
+    } else if err.is_builder() {
+        "builder"
+    } else if err.is_request() {
+        "request"
+    } else if err.is_redirect() {
+        "redirect"
+    } else if err.is_status() {
+        "status"
+    } else {
+        "unknown"
+    }
+}
+
+fn reqwest_error_message_len(err: &reqwest::Error) -> usize {
+    err.to_string().chars().count()
+}
+
 /// Result of a retry operation.
 pub enum RetryOutcome<T> {
     /// The operation succeeded.
@@ -124,11 +150,17 @@ where
                 return Ok(response);
             }
             Err(err) => {
+                let error_reason = reqwest_error_reason(&err);
+                let error_len = reqwest_error_message_len(&err);
+                let error_status = err.status().map(|status| status.as_u16());
+
                 if is_retryable_reqwest_error(&err) && attempt < config.max_retries {
                     let backoff = config.backoff_for(attempt);
                     warn!(
                         service = service_name,
-                        error = %err,
+                        error_reason,
+                        error_len,
+                        error_status,
                         attempt = attempt + 1,
                         max_attempts = total_attempts,
                         backoff_ms = backoff.as_millis() as u64,
@@ -147,10 +179,11 @@ where
                     );
                 }
                 return Err(matric_core::Error::Internal(format!(
-                    "{} request failed after {} attempt(s): {}",
+                    "{} request failed after {} attempt(s); reason={}; error_len={}",
                     service_name,
                     attempt + 1,
-                    err
+                    error_reason,
+                    error_len
                 )));
             }
         }
@@ -223,6 +256,35 @@ mod tests {
         assert!(!is_retryable_status(
             reqwest::StatusCode::INTERNAL_SERVER_ERROR
         ));
+    }
+
+    #[tokio::test]
+    async fn test_retry_error_output_redacts_reqwest_diagnostics() {
+        let client = reqwest::Client::new();
+        let url = "http://user:pass@127.0.0.1:9/private/path?token=sk-private".to_string();
+        let config = RetryConfig {
+            max_retries: 0,
+            initial_backoff: Duration::from_millis(1),
+            max_backoff: Duration::from_millis(1),
+            multiplier: 1.0,
+        };
+
+        let err = with_retry(&config, "test-service", || {
+            let client = client.clone();
+            let url = url.clone();
+            async move { client.get(&url).send().await }
+        })
+        .await
+        .expect_err("unreachable local port should fail");
+
+        let rendered = err.to_string();
+        assert!(rendered.contains("test-service request failed"));
+        assert!(rendered.contains("reason="));
+        assert!(rendered.contains("error_len="));
+        assert!(!rendered.contains("user:pass"));
+        assert!(!rendered.contains("sk-private"));
+        assert!(!rendered.contains("/private/path"));
+        assert!(!rendered.contains("127.0.0.1"));
     }
 
     #[tokio::test]
