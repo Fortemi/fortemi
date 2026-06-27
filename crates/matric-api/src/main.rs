@@ -20012,21 +20012,27 @@ impl std::fmt::Debug for BackupNoteData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BackupNoteData")
             .field("id_set", &self.id.is_some())
-            .field("title_len", &self.title.as_ref().map(|value| value.len()))
+            .field("title_len", &self.title.as_deref().map(telemetry_text_len))
             .field(
                 "original_content_len",
-                &self.original_content.as_ref().map(|value| value.len()),
+                &self.original_content.as_deref().map(telemetry_text_len),
             )
             .field(
                 "revised_content_len",
-                &self.revised_content.as_ref().map(|value| value.len()),
+                &self.revised_content.as_deref().map(telemetry_text_len),
             )
             .field(
                 "content_len",
-                &self.content.as_ref().map(|value| value.len()),
+                &self.content.as_deref().map(telemetry_text_len),
             )
-            .field("format_len", &self.format.as_ref().map(|value| value.len()))
-            .field("source_len", &self.source.as_ref().map(|value| value.len()))
+            .field(
+                "format_len",
+                &self.format.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "source_len",
+                &self.source.as_deref().map(telemetry_text_len),
+            )
             .field("starred", &self.starred)
             .field("archived", &self.archived)
             .field("collection_id_set", &self.collection_id.is_some())
@@ -20059,7 +20065,7 @@ struct BackupImportResponse {
 impl std::fmt::Debug for BackupImportResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BackupImportResponse")
-            .field("status_len", &self.status.len())
+            .field("status_len", &telemetry_text_len(&self.status))
             .field("dry_run", &self.dry_run)
             .field("imported", &self.imported)
             .field("skipped", &self.skipped)
@@ -29295,16 +29301,16 @@ mod tests {
                 })),
                 notes: vec![BackupNoteData {
                     id: Some(Uuid::parse_str("018fd1a0-0000-7000-8000-00000000b001").unwrap()),
-                    title: Some("Customer payroll import".to_string()),
+                    title: Some("Customer payroll import café".to_string()),
                     original_content: Some(
-                        "original note body contains sk-live-secret-token".to_string(),
+                        "original résumé contains sk-live-secret-token".to_string(),
                     ),
                     revised_content: Some(
-                        "revised note body contains customer@example.com".to_string(),
+                        "revised naïve note contains customer@example.com".to_string(),
                     ),
-                    content: Some("fallback import content bearer-token-shaped".to_string()),
-                    format: Some("markdown-private".to_string()),
-                    source: Some("mailbox/customer/private".to_string()),
+                    content: Some("fallback piñata content bearer-token-shaped".to_string()),
+                    format: Some("markdown-privé".to_string()),
+                    source: Some("mailbox/customer/privé".to_string()),
                     starred: Some(true),
                     archived: Some(false),
                     collection_id: Some(
@@ -29354,21 +29360,27 @@ mod tests {
         assert!(rendered_note.contains("title_len"));
         assert!(rendered_note.contains("original_content_len"));
         assert!(rendered_note.contains("revised_content_len"));
+        assert!(rendered_note.contains("title_len: Some(28)"));
+        assert!(rendered_note.contains("original_content_len: Some(45)"));
+        assert!(rendered_note.contains("revised_content_len: Some(48)"));
+        assert!(rendered_note.contains("content_len: Some(43)"));
+        assert!(rendered_note.contains("format_len: Some(14)"));
+        assert!(rendered_note.contains("source_len: Some(22)"));
         assert!(rendered_note.contains("collection_id_set"));
         assert!(rendered_note.contains("tags_count"));
         assert!(rendered_response.contains("BackupImportResponse"));
-        assert!(rendered_response.contains("status_len"));
+        assert!(rendered_response.contains("status_len: 27"));
         assert!(rendered_response.contains("errors_count"));
 
         for raw in [
             "customer-private-manifest",
             "sk-live-manifest-secret",
-            "Customer payroll import",
+            "Customer payroll import café",
             "sk-live-secret-token",
             "customer@example.com",
             "bearer-token-shaped",
-            "markdown-private",
-            "mailbox/customer/private",
+            "markdown-privé",
+            "mailbox/customer/privé",
             "customer-private",
             "mm_key_import_secret",
             "customer-private-collection",
