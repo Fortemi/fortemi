@@ -2347,7 +2347,7 @@ impl fmt::Debug for TopologyStats {
 }
 
 /// Graph diagnostics response (#483).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphDiagnostics {
     pub computed_at: DateTime<Utc>,
     pub note_count: i64,
@@ -2358,8 +2358,22 @@ pub struct GraphDiagnostics {
     pub normalized_edges: NormalizedEdgeMetrics,
 }
 
+impl fmt::Debug for GraphDiagnostics {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GraphDiagnostics")
+            .field("computed_at", &self.computed_at)
+            .field("note_count", &self.note_count)
+            .field("embedding_count", &self.embedding_count)
+            .field("edge_count", &self.edge_count)
+            .field("embedding_space", &self.embedding_space)
+            .field("topology", &self.topology)
+            .field("normalized_edges", &self.normalized_edges)
+            .finish()
+    }
+}
+
 /// Embedding space health metrics (#483).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct EmbeddingSpaceMetrics {
     /// 10-bin histogram of pairwise cosine similarities over [0.0, 1.0].
     pub similarity_histogram: Vec<i64>,
@@ -2373,8 +2387,28 @@ pub struct EmbeddingSpaceMetrics {
     pub sample_count: i64,
 }
 
+impl fmt::Debug for EmbeddingSpaceMetrics {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EmbeddingSpaceMetrics")
+            .field(
+                "similarity_histogram_count",
+                &self.similarity_histogram.len(),
+            )
+            .field(
+                "similarity_histogram_total",
+                &self.similarity_histogram.iter().sum::<i64>(),
+            )
+            .field("similarity_mean", &self.similarity_mean)
+            .field("similarity_std", &self.similarity_std)
+            .field("effective_range", &self.effective_range)
+            .field("anisotropy_score", &self.anisotropy_score)
+            .field("sample_count", &self.sample_count)
+            .finish()
+    }
+}
+
 /// Graph topology diagnostics (#483).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct TopologyDiagnostics {
     /// Louvain modularity Q (requires #473).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2394,8 +2428,25 @@ pub struct TopologyDiagnostics {
     pub bridge_edge_ratio: Option<f64>,
 }
 
+impl fmt::Debug for TopologyDiagnostics {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TopologyDiagnostics")
+            .field("modularity_q_set", &self.modularity_q.is_some())
+            .field("degree_mean", &self.degree_mean)
+            .field("degree_std", &self.degree_std)
+            .field("degree_cv", &self.degree_cv)
+            .field("community_count_set", &self.community_count.is_some())
+            .field(
+                "largest_community_ratio_set",
+                &self.largest_community_ratio.is_some(),
+            )
+            .field("bridge_edge_ratio_set", &self.bridge_edge_ratio.is_some())
+            .finish()
+    }
+}
+
 /// Normalized edge metrics (#483).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct NormalizedEdgeMetrics {
     /// Raw [min, max] cosine similarity scores in the link table.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2409,6 +2460,26 @@ pub struct NormalizedEdgeMetrics {
     /// % of edges retained after PFNET (requires #476).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pfnet_retention_ratio: Option<f64>,
+}
+
+impl fmt::Debug for NormalizedEdgeMetrics {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NormalizedEdgeMetrics")
+            .field(
+                "raw_score_range_count",
+                &self.raw_score_range.as_ref().map(Vec::len),
+            )
+            .field(
+                "normalized_weight_spread_count",
+                &self.normalized_weight_spread.as_ref().map(Vec::len),
+            )
+            .field("snn_coverage_set", &self.snn_coverage.is_some())
+            .field(
+                "pfnet_retention_ratio_set",
+                &self.pfnet_retention_ratio.is_some(),
+            )
+            .finish()
+    }
 }
 
 /// Stored diagnostics snapshot for before/after comparison (#484).
@@ -3158,6 +3229,57 @@ mod tests {
         for (a, b) in result1.iter().zip(result2.iter()) {
             assert_eq!(a.community_id, b.community_id);
         }
+    }
+
+    #[test]
+    fn graph_diagnostics_debug_summarizes_metric_payloads() {
+        let diagnostics = GraphDiagnostics {
+            computed_at: Utc::now(),
+            note_count: 42,
+            embedding_count: 40,
+            edge_count: 99,
+            embedding_space: EmbeddingSpaceMetrics {
+                similarity_histogram: vec![11, 22, 33],
+                similarity_mean: 0.42,
+                similarity_std: 0.07,
+                effective_range: 0.88,
+                anisotropy_score: 0.12,
+                sample_count: 66,
+            },
+            topology: TopologyDiagnostics {
+                modularity_q: Some(0.31),
+                degree_mean: 2.5,
+                degree_std: 1.25,
+                degree_cv: 0.5,
+                community_count: Some(7),
+                largest_community_ratio: Some(0.4),
+                bridge_edge_ratio: Some(0.2),
+            },
+            normalized_edges: NormalizedEdgeMetrics {
+                raw_score_range: Some(vec![0.12345, 0.98765]),
+                normalized_weight_spread: Some(vec![0.2, 0.8, 1.5]),
+                snn_coverage: Some(0.67),
+                pfnet_retention_ratio: Some(0.45),
+            },
+        };
+
+        let debug = format!("{diagnostics:?}");
+
+        for forbidden in ["0.12345", "0.98765", "0.2, 0.8, 1.5"] {
+            assert!(
+                !debug.contains(forbidden),
+                "graph diagnostics debug leaked raw metric payload {forbidden}"
+            );
+        }
+
+        assert!(debug.contains("GraphDiagnostics"));
+        assert!(debug.contains("similarity_histogram_count"));
+        assert!(debug.contains("similarity_histogram_total"));
+        assert!(debug.contains("raw_score_range_count"));
+        assert!(debug.contains("normalized_weight_spread_count"));
+        assert!(debug.contains("modularity_q_set"));
+        assert!(debug.contains("community_count_set"));
+        assert!(debug.contains("pfnet_retention_ratio_set"));
     }
 
     // PFNET sparsification tests (#476)
