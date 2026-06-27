@@ -5791,22 +5791,22 @@ mod tests {
             heading_degrees: Some(180.0),
             speed_mps: Some(1.5),
             named_location_id: Some(Uuid::new_v4()),
-            source: "gps_private_device_sk-live-secret".to_string(),
-            confidence: "private-confidence-private@example.test".to_string(),
+            source: "éé".to_string(),
+            confidence: "åå".to_string(),
         };
         let named_location = CreateNamedLocationRequest {
-            name: "Private clinic location 555-1212".to_string(),
-            location_type: "private-home".to_string(),
+            name: "ö丼".to_string(),
+            location_type: "üü".to_string(),
             latitude: 37.774929,
             longitude: -122.419416,
             radius_m: Some(1234.5),
-            address_line: Some("123 Private St private@example.test".to_string()),
-            locality: Some("Private City".to_string()),
-            admin_area: Some("Secret State".to_string()),
-            country: Some("Private Country".to_string()),
+            address_line: Some("ññ".to_string()),
+            locality: Some("øø".to_string()),
+            admin_area: Some("çç".to_string()),
+            country: Some("îî".to_string()),
             country_code: Some("PC".to_string()),
-            postal_code: Some("12345-SECRET".to_string()),
-            timezone: Some("Private/Timezone".to_string()),
+            postal_code: Some("ßß".to_string()),
+            timezone: Some("áá".to_string()),
             altitude_m: Some(33.3),
             is_private: Some(true),
             metadata: Some(json!({
@@ -5816,34 +5816,34 @@ mod tests {
             })),
         };
         let device = CreateProvDeviceRequest {
-            device_make: "Private Make".to_string(),
-            device_model: "Secret Model".to_string(),
-            device_os: Some("PrivateOS".to_string()),
-            device_os_version: Some("private-version-1.2.3".to_string()),
-            software: Some("SecretCameraApp".to_string()),
-            software_version: Some("private-build-sk-live-secret".to_string()),
+            device_make: "èè".to_string(),
+            device_model: "ôô".to_string(),
+            device_os: Some("ùù".to_string()),
+            device_os_version: Some("ââ".to_string()),
+            software: Some("êê".to_string()),
+            software_version: Some("óó".to_string()),
             has_gps: Some(true),
             has_accelerometer: Some(true),
             sensor_metadata: Some(json!({
                 "serial": "private-serial-private@example.test",
                 "path": "/tmp/customer/sensor.json"
             })),
-            device_name: Some("Alice private phone 555-1212".to_string()),
+            device_name: Some("úú".to_string()),
         };
         let file = CreateFileProvenanceRequest {
             attachment_id: Uuid::new_v4(),
             note_id: Some(Uuid::new_v4()),
             capture_time_start: Some(now),
             capture_time_end: Some(now),
-            capture_timezone: Some("Private/Timezone".to_string()),
+            capture_timezone: Some("ää".to_string()),
             capture_duration_seconds: Some(12.5),
-            time_source: Some("private-camera-clock".to_string()),
-            time_confidence: Some("private-confidence".to_string()),
+            time_source: Some("ëë".to_string()),
+            time_confidence: Some("íí".to_string()),
             location_id: Some(Uuid::new_v4()),
             device_id: Some(Uuid::new_v4()),
-            event_type: Some("private-event-type-private@example.test".to_string()),
-            event_title: Some("Private event title 555-1212".to_string()),
-            event_description: Some("Private event description /tmp/customer/event.md".to_string()),
+            event_type: Some("ìì".to_string()),
+            event_title: Some("òò".to_string()),
+            event_description: Some("œœ".to_string()),
             raw_metadata: Some(json!({
                 "recording_url": "https://recordings.example.test/private?token=secret",
                 "api_key": "sk-live-secret"
@@ -5853,14 +5853,14 @@ mod tests {
             note_id: Uuid::new_v4(),
             capture_time_start: Some(now),
             capture_time_end: Some(now),
-            capture_timezone: Some("Private/Timezone".to_string()),
-            time_source: Some("private-manual-source".to_string()),
-            time_confidence: Some("private-confidence".to_string()),
+            capture_timezone: Some("ää".to_string()),
+            time_source: Some("ëë".to_string()),
+            time_confidence: Some("íí".to_string()),
             location_id: Some(Uuid::new_v4()),
             device_id: Some(Uuid::new_v4()),
-            event_type: Some("private-note-event".to_string()),
-            event_title: Some("Private note event title".to_string()),
-            event_description: Some("Private note event private@example.test".to_string()),
+            event_type: Some("ìì".to_string()),
+            event_title: Some("òò".to_string()),
+            event_description: Some("œœ".to_string()),
         };
 
         let debug = format!("{location:?}{named_location:?}{device:?}{file:?}{note:?}");
@@ -5868,6 +5868,29 @@ mod tests {
         assert_debug_excludes(
             &debug,
             &[
+                "éé",
+                "åå",
+                "ö丼",
+                "üü",
+                "ññ",
+                "øø",
+                "çç",
+                "îî",
+                "ßß",
+                "áá",
+                "èè",
+                "ôô",
+                "ùù",
+                "ââ",
+                "êê",
+                "óó",
+                "úú",
+                "ää",
+                "ëë",
+                "íí",
+                "ìì",
+                "òò",
+                "œœ",
                 "37.774929",
                 "-122.419416",
                 "33.3",
@@ -5904,26 +5927,38 @@ mod tests {
         for expected in [
             "latitude_set",
             "longitude_set",
-            "source_len",
-            "confidence_len",
-            "name_len",
-            "location_type_len",
-            "address_line_len",
+            "source_len: 2",
+            "confidence_len: 2",
+            "name_len: 2",
+            "location_type_len: 2",
+            "address_line_len: Some(2)",
+            "locality_len: Some(2)",
+            "admin_area_len: Some(2)",
+            "country_len: Some(2)",
+            "country_code_len: Some(2)",
+            "postal_code_len: Some(2)",
+            "timezone_len: Some(2)",
             "metadata_class",
             "metadata_len",
-            "device_make_len",
-            "device_model_len",
+            "device_make_len: 2",
+            "device_model_len: 2",
+            "device_os_len: Some(2)",
+            "device_os_version_len: Some(2)",
+            "software_len: Some(2)",
+            "software_version_len: Some(2)",
             "sensor_metadata_class",
             "sensor_metadata_len",
-            "device_name_len",
+            "device_name_len: Some(2)",
             "attachment_id_set",
             "note_id_set",
             "capture_time_start_set",
             "capture_time_end_set",
-            "capture_timezone_len",
-            "event_type_len",
-            "event_title_len",
-            "event_description_len",
+            "capture_timezone_len: Some(2)",
+            "time_source_len: Some(2)",
+            "time_confidence_len: Some(2)",
+            "event_type_len: Some(2)",
+            "event_title_len: Some(2)",
+            "event_description_len: Some(2)",
             "raw_metadata_class",
             "raw_metadata_len",
         ] {
@@ -10404,8 +10439,8 @@ impl fmt::Debug for CreateProvLocationRequest {
             .field("heading_degrees_set", &self.heading_degrees.is_some())
             .field("speed_mps_set", &self.speed_mps.is_some())
             .field("named_location_id_set", &self.named_location_id.is_some())
-            .field("source_len", &self.source.len())
-            .field("confidence_len", &self.confidence.len())
+            .field("source_len", &debug_len(&self.source))
+            .field("confidence_len", &debug_len(&self.confidence))
             .finish()
     }
 }
@@ -10433,27 +10468,30 @@ pub struct CreateNamedLocationRequest {
 impl fmt::Debug for CreateNamedLocationRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CreateNamedLocationRequest")
-            .field("name_len", &self.name.len())
-            .field("location_type_len", &self.location_type.len())
+            .field("name_len", &debug_len(&self.name))
+            .field("location_type_len", &debug_len(&self.location_type))
             .field("latitude_set", &true)
             .field("longitude_set", &true)
             .field("radius_m_set", &self.radius_m.is_some())
             .field(
                 "address_line_len",
-                &self.address_line.as_ref().map(String::len),
+                &optional_debug_len(self.address_line.as_ref()),
             )
-            .field("locality_len", &self.locality.as_ref().map(String::len))
-            .field("admin_area_len", &self.admin_area.as_ref().map(String::len))
-            .field("country_len", &self.country.as_ref().map(String::len))
+            .field("locality_len", &optional_debug_len(self.locality.as_ref()))
+            .field(
+                "admin_area_len",
+                &optional_debug_len(self.admin_area.as_ref()),
+            )
+            .field("country_len", &optional_debug_len(self.country.as_ref()))
             .field(
                 "country_code_len",
-                &self.country_code.as_ref().map(String::len),
+                &optional_debug_len(self.country_code.as_ref()),
             )
             .field(
                 "postal_code_len",
-                &self.postal_code.as_ref().map(String::len),
+                &optional_debug_len(self.postal_code.as_ref()),
             )
-            .field("timezone_len", &self.timezone.as_ref().map(String::len))
+            .field("timezone_len", &optional_debug_len(self.timezone.as_ref()))
             .field("altitude_m_set", &self.altitude_m.is_some())
             .field("is_private", &self.is_private)
             .field(
@@ -10486,17 +10524,20 @@ pub struct CreateProvDeviceRequest {
 impl fmt::Debug for CreateProvDeviceRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CreateProvDeviceRequest")
-            .field("device_make_len", &self.device_make.len())
-            .field("device_model_len", &self.device_model.len())
-            .field("device_os_len", &self.device_os.as_ref().map(String::len))
+            .field("device_make_len", &debug_len(&self.device_make))
+            .field("device_model_len", &debug_len(&self.device_model))
+            .field(
+                "device_os_len",
+                &optional_debug_len(self.device_os.as_ref()),
+            )
             .field(
                 "device_os_version_len",
-                &self.device_os_version.as_ref().map(String::len),
+                &optional_debug_len(self.device_os_version.as_ref()),
             )
-            .field("software_len", &self.software.as_ref().map(String::len))
+            .field("software_len", &optional_debug_len(self.software.as_ref()))
             .field(
                 "software_version_len",
-                &self.software_version.as_ref().map(String::len),
+                &optional_debug_len(self.software_version.as_ref()),
             )
             .field("has_gps", &self.has_gps)
             .field("has_accelerometer", &self.has_accelerometer)
@@ -10510,7 +10551,7 @@ impl fmt::Debug for CreateProvDeviceRequest {
             )
             .field(
                 "device_name_len",
-                &self.device_name.as_ref().map(String::len),
+                &optional_debug_len(self.device_name.as_ref()),
             )
             .finish()
     }
@@ -10544,7 +10585,7 @@ impl fmt::Debug for CreateFileProvenanceRequest {
             .field("capture_time_end_set", &self.capture_time_end.is_some())
             .field(
                 "capture_timezone_len",
-                &self.capture_timezone.as_ref().map(String::len),
+                &optional_debug_len(self.capture_timezone.as_ref()),
             )
             .field(
                 "capture_duration_seconds_set",
@@ -10552,22 +10593,25 @@ impl fmt::Debug for CreateFileProvenanceRequest {
             )
             .field(
                 "time_source_len",
-                &self.time_source.as_ref().map(String::len),
+                &optional_debug_len(self.time_source.as_ref()),
             )
             .field(
                 "time_confidence_len",
-                &self.time_confidence.as_ref().map(String::len),
+                &optional_debug_len(self.time_confidence.as_ref()),
             )
             .field("location_id_set", &self.location_id.is_some())
             .field("device_id_set", &self.device_id.is_some())
-            .field("event_type_len", &self.event_type.as_ref().map(String::len))
+            .field(
+                "event_type_len",
+                &optional_debug_len(self.event_type.as_ref()),
+            )
             .field(
                 "event_title_len",
-                &self.event_title.as_ref().map(String::len),
+                &optional_debug_len(self.event_title.as_ref()),
             )
             .field(
                 "event_description_len",
-                &self.event_description.as_ref().map(String::len),
+                &optional_debug_len(self.event_description.as_ref()),
             )
             .field(
                 "raw_metadata_class",
@@ -10605,26 +10649,29 @@ impl fmt::Debug for CreateNoteProvenanceRequest {
             .field("capture_time_end_set", &self.capture_time_end.is_some())
             .field(
                 "capture_timezone_len",
-                &self.capture_timezone.as_ref().map(String::len),
+                &optional_debug_len(self.capture_timezone.as_ref()),
             )
             .field(
                 "time_source_len",
-                &self.time_source.as_ref().map(String::len),
+                &optional_debug_len(self.time_source.as_ref()),
             )
             .field(
                 "time_confidence_len",
-                &self.time_confidence.as_ref().map(String::len),
+                &optional_debug_len(self.time_confidence.as_ref()),
             )
             .field("location_id_set", &self.location_id.is_some())
             .field("device_id_set", &self.device_id.is_some())
-            .field("event_type_len", &self.event_type.as_ref().map(String::len))
+            .field(
+                "event_type_len",
+                &optional_debug_len(self.event_type.as_ref()),
+            )
             .field(
                 "event_title_len",
-                &self.event_title.as_ref().map(String::len),
+                &optional_debug_len(self.event_title.as_ref()),
             )
             .field(
                 "event_description_len",
-                &self.event_description.as_ref().map(String::len),
+                &optional_debug_len(self.event_description.as_ref()),
             )
             .finish()
     }
