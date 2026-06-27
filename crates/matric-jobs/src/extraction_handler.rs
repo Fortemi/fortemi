@@ -372,7 +372,7 @@ impl JobHandler for ExtractionHandler {
                 obj.insert("_skip_vision".to_string(), json!(true));
             }
             debug!(
-                strategy = ?strategy,
+                strategy_len = telemetry_strategy_len(strategy),
                 filename_len = telemetry_text_len(filename),
                 "_skip_vision injected — vision LLM calls deferred to atomic jobs"
             );
@@ -385,7 +385,7 @@ impl JobHandler for ExtractionHandler {
                 obj.insert("_skip_transcription".to_string(), json!(true));
             }
             debug!(
-                strategy = ?strategy,
+                strategy_len = telemetry_strategy_len(strategy),
                 filename_len = telemetry_text_len(filename),
                 "_skip_transcription injected — transcription deferred to AudioTranscription job"
             );
@@ -1143,14 +1143,14 @@ impl JobHandler for ExtractionHandler {
                             info!(
                                 note_present = true,
                                 attachment_present = true,
-                                strategy = ?strategy,
+                                strategy_len = telemetry_strategy_len(strategy),
                                 "Diarization skipped: DIARIZATION_BASE_URL not set"
                             );
                         } else if !has_transcript_segments {
                             info!(
                                 note_present = true,
                                 attachment_present = true,
-                                strategy = ?strategy,
+                                strategy_len = telemetry_strategy_len(strategy),
                                 "Diarization skipped: no transcript segments"
                             );
                         }
