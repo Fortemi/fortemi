@@ -425,7 +425,7 @@ impl std::fmt::Display for EmbeddingStatus {
 pub use pgvector::Vector;
 
 /// An embedding record linking text to its vector representation.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Embedding {
     pub id: Uuid,
     pub note_id: Uuid,
@@ -435,8 +435,21 @@ pub struct Embedding {
     pub model: String,
 }
 
+impl fmt::Debug for Embedding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Embedding")
+            .field("id_set", &true)
+            .field("note_id_set", &true)
+            .field("chunk_index", &self.chunk_index)
+            .field("text_len", &self.text.len())
+            .field("vector_dimensions", &self.vector.as_slice().len())
+            .field("model_len", &self.model.len())
+            .finish()
+    }
+}
+
 /// Configuration for embedding generation.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingConfig {
     /// Maximum characters per chunk
     pub chunk_size: usize,
@@ -446,6 +459,17 @@ pub struct EmbeddingConfig {
     pub model: String,
     /// Expected vector dimension
     pub dimension: usize,
+}
+
+impl fmt::Debug for EmbeddingConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EmbeddingConfig")
+            .field("chunk_size", &self.chunk_size)
+            .field("chunk_overlap", &self.chunk_overlap)
+            .field("model_len", &self.model.len())
+            .field("dimension", &self.dimension)
+            .finish()
+    }
 }
 
 impl Default for EmbeddingConfig {
@@ -5091,6 +5115,57 @@ mod tests {
             assert!(
                 !debug.contains(secret),
                 "debug output leaked secret `{secret}`: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn embedding_debug_redacts_text_vectors_and_model_identifiers() {
+        let embedding = Embedding {
+            id: Uuid::new_v4(),
+            note_id: Uuid::new_v4(),
+            chunk_index: 7,
+            text: "Private chunk text includes private@example.test and sk-live-secret".to_string(),
+            vector: Vector::from(vec![0.12345, 0.67891, 0.22222]),
+            model: "private-embedding-model-sk-live-secret".to_string(),
+        };
+        let config = EmbeddingConfig {
+            chunk_size: 2048,
+            chunk_overlap: 128,
+            model: "private-config-model-private@example.test".to_string(),
+            dimension: 3,
+        };
+
+        let debug = format!("{embedding:?}{config:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "Private chunk text",
+                "private@example.test",
+                "sk-live-secret",
+                "0.12345",
+                "0.67891",
+                "0.22222",
+                "private-embedding-model",
+                "private-config-model",
+            ],
+        );
+
+        for expected in [
+            "id_set",
+            "note_id_set",
+            "chunk_index",
+            "text_len",
+            "vector_dimensions",
+            "model_len",
+            "chunk_size",
+            "chunk_overlap",
+            "dimension",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Embedding Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
