@@ -165,6 +165,20 @@ fn media_probe_skip_result(error: &str) -> serde_json::Value {
     })
 }
 
+fn media_static_skip_result(reason: &'static str) -> serde_json::Value {
+    json!({
+        "skipped": true,
+        "reason": reason,
+    })
+}
+
+fn media_no_variants_result(reason: &'static str) -> serde_json::Value {
+    json!({
+        "variants_created": 0,
+        "reason": reason,
+    })
+}
+
 fn media_error_reason_code(error: &str) -> &'static str {
     let text = error.to_ascii_lowercase();
     if text.contains("permission") || text.contains("denied") {
@@ -771,10 +785,7 @@ impl JobHandler for MediaOptimizeHandler {
             self.optimize_audio(&input_path, &probe, work_dir.path())
                 .await
         } else {
-            return JobResult::Success(Some(json!({
-                "skipped": true,
-                "reason": "Not a recognized audio/video content type",
-            })));
+            return JobResult::Success(Some(media_static_skip_result("unsupported_content_type")));
         };
 
         if variants.is_empty() {
@@ -782,10 +793,7 @@ impl JobHandler for MediaOptimizeHandler {
                 attachment_id_present = true,
                 "No optimization needed for this file"
             );
-            return JobResult::Success(Some(json!({
-                "variants_created": 0,
-                "reason": "No applicable optimizations for this format/size",
-            })));
+            return JobResult::Success(Some(media_no_variants_result("no_applicable_variants")));
         }
 
         ctx.report_progress(70, Some("Storing generated variants"));
@@ -1030,6 +1038,21 @@ mod tests {
         assert!(!rendered.contains("private.mov"));
         assert!(!rendered.contains("mm_key_secret"));
         assert!(!rendered.contains("ffprobe failed for"));
+    }
+
+    #[test]
+    fn media_static_skip_results_use_stable_codes() {
+        let unsupported = media_static_skip_result("unsupported_content_type");
+        let no_variants = media_no_variants_result("no_applicable_variants");
+        let rendered = format!("{}{}", unsupported, no_variants);
+
+        assert_eq!(unsupported["skipped"], json!(true));
+        assert_eq!(unsupported["reason"], json!("unsupported_content_type"));
+        assert_eq!(no_variants["variants_created"], json!(0));
+        assert_eq!(no_variants["reason"], json!("no_applicable_variants"));
+        assert!(!rendered.contains("Not a recognized"));
+        assert!(!rendered.contains("No applicable optimizations"));
+        assert!(!rendered.contains("format/size"));
     }
 
     #[test]
