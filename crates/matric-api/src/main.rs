@@ -13970,10 +13970,10 @@ struct CreateCollectionBody {
 impl fmt::Debug for CreateCollectionBody {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CreateCollectionBody")
-            .field("name_len", &self.name.len())
+            .field("name_len", &telemetry_text_len(&self.name))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self.description.as_deref().map(telemetry_text_len),
             )
             .field("parent_id_set", &self.parent_id.is_some())
             .finish()
@@ -14040,10 +14040,10 @@ struct UpdateCollectionBody {
 impl fmt::Debug for UpdateCollectionBody {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UpdateCollectionBody")
-            .field("name_len", &self.name.len())
+            .field("name_len", &telemetry_text_len(&self.name))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self.description.as_deref().map(telemetry_text_len),
             )
             .finish()
     }
@@ -15098,23 +15098,27 @@ struct CreateTemplateBody {
 impl fmt::Debug for CreateTemplateBody {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CreateTemplateBody")
-            .field("name_len", &self.name.len())
+            .field("name_len", &telemetry_text_len(&self.name))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self.description.as_deref().map(telemetry_text_len),
             )
-            .field("content_len", &self.content.len())
-            .field("format_len", &self.format.as_ref().map(String::len))
+            .field("content_len", &telemetry_text_len(&self.content))
+            .field(
+                "format_len",
+                &self.format.as_deref().map(telemetry_text_len),
+            )
             .field(
                 "default_tags_count",
                 &self.default_tags.as_ref().map(Vec::len),
             )
             .field(
                 "default_tag_lens",
-                &self
-                    .default_tags
-                    .as_ref()
-                    .map(|tags| tags.iter().map(String::len).collect::<Vec<_>>()),
+                &self.default_tags.as_ref().map(|tags| {
+                    tags.iter()
+                        .map(|tag| telemetry_text_len(tag))
+                        .collect::<Vec<_>>()
+                }),
             )
             .field("collection_id_set", &self.collection_id.is_some())
             .finish()
@@ -15188,22 +15192,26 @@ struct UpdateTemplateBody {
 impl fmt::Debug for UpdateTemplateBody {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UpdateTemplateBody")
-            .field("name_len", &self.name.as_ref().map(String::len))
+            .field("name_len", &self.name.as_deref().map(telemetry_text_len))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self.description.as_deref().map(telemetry_text_len),
             )
-            .field("content_len", &self.content.as_ref().map(String::len))
+            .field(
+                "content_len",
+                &self.content.as_deref().map(telemetry_text_len),
+            )
             .field(
                 "default_tags_count",
                 &self.default_tags.as_ref().map(Vec::len),
             )
             .field(
                 "default_tag_lens",
-                &self
-                    .default_tags
-                    .as_ref()
-                    .map(|tags| tags.iter().map(String::len).collect::<Vec<_>>()),
+                &self.default_tags.as_ref().map(|tags| {
+                    tags.iter()
+                        .map(|tag| telemetry_text_len(tag))
+                        .collect::<Vec<_>>()
+                }),
             )
             .field("collection_id_state_set", &self.collection_id.is_some())
             .finish()
@@ -15271,24 +15279,33 @@ impl fmt::Debug for InstantiateTemplateBody {
             .field("variables_count", &self.variables.len())
             .field(
                 "variable_key_lens",
-                &self.variables.keys().map(String::len).collect::<Vec<_>>(),
+                &self
+                    .variables
+                    .keys()
+                    .map(|key| telemetry_text_len(key))
+                    .collect::<Vec<_>>(),
             )
             .field(
                 "variable_value_lens",
-                &self.variables.values().map(String::len).collect::<Vec<_>>(),
+                &self
+                    .variables
+                    .values()
+                    .map(|value| telemetry_text_len(value))
+                    .collect::<Vec<_>>(),
             )
             .field("tags_count", &self.tags.as_ref().map(Vec::len))
             .field(
                 "tag_lens",
-                &self
-                    .tags
-                    .as_ref()
-                    .map(|tags| tags.iter().map(String::len).collect::<Vec<_>>()),
+                &self.tags.as_ref().map(|tags| {
+                    tags.iter()
+                        .map(|tag| telemetry_text_len(tag))
+                        .collect::<Vec<_>>()
+                }),
             )
             .field("collection_id_set", &self.collection_id.is_some())
             .field(
                 "revision_mode_len",
-                &self.revision_mode.as_ref().map(String::len),
+                &self.revision_mode.as_deref().map(telemetry_text_len),
             )
             .finish()
     }
@@ -28241,15 +28258,16 @@ mod tests {
         let parent_id = Uuid::new_v4();
         let collection_id = Uuid::new_v4();
         let create = CreateCollectionBody {
-            name: "Customer Payroll postgres://user:pass@db.internal/app".to_string(),
+            name: "Customer Payroll café postgres://user:pass@db.internal/app".to_string(),
             description: Some(
-                "Private collection for customer@example.com with sk-live-collection".to_string(),
+                "Private collection café for customer@example.com with sk-live-collection"
+                    .to_string(),
             ),
             parent_id: Some(parent_id),
         };
         let update = UpdateCollectionBody {
-            name: "Updated Confidential Collection".to_string(),
-            description: Some("/srv/private/collection-notes and mm_key_collection".to_string()),
+            name: "Updated Confidential Café Collection".to_string(),
+            description: Some("/srv/privaté/collection-notes and mm_key_collection".to_string()),
         };
         let move_note = MoveNoteBody {
             collection_id: Some(collection_id),
@@ -28267,9 +28285,13 @@ mod tests {
 
         assert!(rendered_create.contains("CreateCollectionBody"));
         assert!(rendered_create.contains("name_len"));
+        assert!(rendered_create.contains("name_len: 58"));
         assert!(rendered_create.contains("description_len"));
+        assert!(rendered_create.contains("description_len: Some(72)"));
         assert!(rendered_create.contains("parent_id_set"));
         assert!(rendered_update.contains("UpdateCollectionBody"));
+        assert!(rendered_update.contains("name_len: 36"));
+        assert!(rendered_update.contains("description_len: Some(51)"));
         assert!(rendered_move.contains("MoveNoteBody"));
         assert!(rendered_move.contains("collection_id_set"));
         assert!(rendered_list.contains("ListCollectionsQuery"));
@@ -28281,8 +28303,8 @@ mod tests {
             "db.internal",
             "customer@example.com",
             "sk-live-collection",
-            "Updated Confidential Collection",
-            "/srv/private/collection-notes",
+            "Updated Confidential Café Collection",
+            "/srv/privaté/collection-notes",
             "mm_key_collection",
             &parent_id.to_string(),
             &collection_id.to_string(),
@@ -28541,21 +28563,23 @@ mod tests {
         let update_collection_id = Uuid::new_v4();
         let instantiate_collection_id = Uuid::new_v4();
         let create = CreateTemplateBody {
-            name: "Customer payroll template".to_string(),
-            description: Some("Contains customer@example.com and sk-live-template".to_string()),
-            content: "Template body uses postgres://user:pass@db.internal/app".to_string(),
-            format: Some("markdown-private".to_string()),
+            name: "Customer payroll templäte".to_string(),
+            description: Some(
+                "Contains customer@example.com and sk-live-template café".to_string(),
+            ),
+            content: "Template body résumé uses postgres://user:pass@db.internal/app".to_string(),
+            format: Some("markdown-privé".to_string()),
             default_tags: Some(vec![
-                "customer/private/template".to_string(),
-                "mm_key_template_tag".to_string(),
+                "customer/privaté/template".to_string(),
+                "mm_key_template_täg".to_string(),
             ]),
             collection_id: Some(create_collection_id),
         };
         let update = UpdateTemplateBody {
-            name: Some("Updated customer template".to_string()),
-            description: Some("/srv/private/template.md".to_string()),
-            content: Some("Updated content with sk-live-update-template".to_string()),
-            default_tags: Some(vec!["updated/private/tag".to_string()]),
+            name: Some("Updated customer templäte".to_string()),
+            description: Some("/srv/privaté/template.md".to_string()),
+            content: Some("Updated résumé content with sk-live-update-template".to_string()),
+            default_tags: Some(vec!["updated/privaté/tag".to_string()]),
             collection_id: Some(Some(update_collection_id)),
         };
         let instantiate = InstantiateTemplateBody {
@@ -28564,11 +28588,11 @@ mod tests {
                     "customer_email".to_string(),
                     "customer@example.com".to_string(),
                 ),
-                ("token".to_string(), "sk-live-variable-token".to_string()),
+                ("tøken".to_string(), "sk-live-variable-tøken".to_string()),
             ]),
-            tags: Some(vec!["instantiate/private/tag".to_string()]),
+            tags: Some(vec!["instantiate/privaté/tag".to_string()]),
             collection_id: Some(instantiate_collection_id),
-            revision_mode: Some("contextual-private-template".to_string()),
+            revision_mode: Some("contextual-privaté-template".to_string()),
         };
 
         let rendered_create = format!("{create:?}");
@@ -28577,31 +28601,50 @@ mod tests {
         let combined = format!("{rendered_create}\n{rendered_update}\n{rendered_instantiate}");
 
         assert!(rendered_create.contains("CreateTemplateBody"));
+        assert!(rendered_create.contains("name_len: 25"));
+        assert!(rendered_create.contains("description_len: Some(55)"));
         assert!(rendered_create.contains("content_len"));
+        assert!(rendered_create.contains("content_len: 62"));
+        assert!(rendered_create.contains("format_len: Some(14)"));
+        assert!(rendered_create.contains("default_tag_lens: Some([25, 19])"));
         assert!(rendered_update.contains("UpdateTemplateBody"));
+        assert!(rendered_update.contains("name_len: Some(25)"));
+        assert!(rendered_update.contains("description_len: Some(24)"));
+        assert!(rendered_update.contains("content_len: Some(51)"));
         assert!(rendered_update.contains("default_tag_lens"));
+        assert!(rendered_update.contains("default_tag_lens: Some([19])"));
         assert!(rendered_instantiate.contains("InstantiateTemplateBody"));
         assert!(rendered_instantiate.contains("variables_count"));
         assert!(rendered_instantiate.contains("variable_key_lens"));
+        assert!(
+            rendered_instantiate.contains("variable_key_lens: [14, 5]")
+                || rendered_instantiate.contains("variable_key_lens: [5, 14]")
+        );
         assert!(rendered_instantiate.contains("variable_value_lens"));
+        assert!(
+            rendered_instantiate.contains("variable_value_lens: [20, 22]")
+                || rendered_instantiate.contains("variable_value_lens: [22, 20]")
+        );
+        assert!(rendered_instantiate.contains("tag_lens: Some([23])"));
+        assert!(rendered_instantiate.contains("revision_mode_len: Some(27)"));
 
         for raw in [
-            "Customer payroll template",
+            "Customer payroll templäte",
             "customer@example.com",
             "sk-live-template",
             "postgres://user:pass",
             "db.internal",
-            "markdown-private",
-            "customer/private/template",
-            "mm_key_template_tag",
-            "Updated customer template",
-            "/srv/private/template.md",
+            "markdown-privé",
+            "customer/privaté/template",
+            "mm_key_template_täg",
+            "Updated customer templäte",
+            "/srv/privaté/template.md",
             "sk-live-update-template",
-            "updated/private/tag",
+            "updated/privaté/tag",
             "customer_email",
-            "sk-live-variable-token",
-            "instantiate/private/tag",
-            "contextual-private-template",
+            "sk-live-variable-tøken",
+            "instantiate/privaté/tag",
+            "contextual-privaté-template",
             &create_collection_id.to_string(),
             &update_collection_id.to_string(),
             &instantiate_collection_id.to_string(),
