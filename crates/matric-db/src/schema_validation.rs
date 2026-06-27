@@ -49,8 +49,8 @@ pub fn validate_schema_name(name: &str) -> Result<()> {
     if let Some(first) = name.chars().next() {
         if !first.is_ascii_alphabetic() && first != '_' {
             return Err(Error::InvalidInput(format!(
-                "Schema name must start with a letter or underscore, found: '{}'",
-                first
+                "Schema name must start with a letter or underscore; first_char_class={}",
+                schema_name_char_class(first)
             )));
         }
     }
@@ -59,8 +59,9 @@ pub fn validate_schema_name(name: &str) -> Result<()> {
     for ch in name.chars() {
         if !ch.is_ascii_alphanumeric() && ch != '_' {
             return Err(Error::InvalidInput(format!(
-                "Schema name contains invalid character: '{}'. Only alphanumeric and underscore allowed",
-                ch
+                "Schema name contains invalid character; char_class={}; name_len={}",
+                schema_name_char_class(ch),
+                name.chars().count()
             )));
         }
     }
@@ -87,12 +88,30 @@ pub fn validate_schema_name(name: &str) -> Result<()> {
 
     if RESERVED_KEYWORDS.contains(&lowercase.as_str()) {
         return Err(Error::InvalidInput(format!(
-            "Schema name '{}' is a reserved SQL keyword",
-            name
+            "Schema name is a reserved SQL keyword; name_len={}",
+            name.chars().count()
         )));
     }
 
     Ok(())
+}
+
+fn schema_name_char_class(ch: char) -> &'static str {
+    if ch.is_ascii_digit() {
+        "digit"
+    } else if ch.is_ascii_alphabetic() {
+        "letter"
+    } else if ch == '_' {
+        "underscore"
+    } else if ch.is_ascii_whitespace() {
+        "whitespace"
+    } else if ch.is_control() {
+        "control"
+    } else if ch.is_ascii_punctuation() {
+        "punctuation"
+    } else {
+        "non_ascii"
+    }
 }
 
 #[cfg(test)]
@@ -262,5 +281,57 @@ mod tests {
 
         let result = validate_schema_name("schema日本");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn schema_name_errors_report_metadata_without_raw_values() {
+        let cases = [
+            (
+                "1secret_schema",
+                "first_char_class=digit",
+                ["1secret_schema", "secret_schema"].as_slice(),
+            ),
+            (
+                "tenant_secret'; DROP TABLE notes; --",
+                "char_class=punctuation",
+                ["tenant_secret", "DROP TABLE", "notes"].as_slice(),
+            ),
+            (
+                "schema_sk-live-secret",
+                "char_class=punctuation",
+                ["sk-live-secret", "schema_sk"].as_slice(),
+            ),
+            (
+                "information_schema",
+                "name_len=18",
+                ["information_schema"].as_slice(),
+            ),
+            (
+                "schema日本",
+                "char_class=non_ascii",
+                ["schema日本"].as_slice(),
+            ),
+        ];
+
+        for (name, expected_metadata, raw_values) in cases {
+            let err = validate_schema_name(name).expect_err("schema name must be rejected");
+            let message = match err {
+                Error::InvalidInput(message) => message,
+                other => panic!("unexpected error: {other:?}"),
+            };
+
+            assert!(
+                message.contains(expected_metadata),
+                "expected metadata {expected_metadata:?} in {message:?}"
+            );
+            assert!(
+                message.contains(&format!("name_len={}", name.chars().count()))
+                    || message.contains("first_char_class="),
+                "expected length or first-character metadata in {message:?}"
+            );
+            for raw in raw_values {
+                assert!(!message.contains(raw), "raw schema value leaked: {raw}");
+            }
+        }
     }
 }
