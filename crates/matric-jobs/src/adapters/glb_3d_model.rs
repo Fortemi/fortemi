@@ -83,6 +83,15 @@ fn glb_error_reason_code(error: &str) -> &'static str {
     }
 }
 
+fn renderer_test_status_class(status: &str) -> &'static str {
+    match status {
+        "passed" | "healthy" | "ok" | "success" => "success",
+        "failed" | "degraded" | "unhealthy" | "error" => "failure",
+        "" => "empty",
+        _ => "custom",
+    }
+}
+
 /// Health check response from renderer.
 #[derive(Deserialize)]
 struct RendererHealthResponse {
@@ -170,7 +179,8 @@ impl Glb3DModelAdapter {
                 // Renderer is up and test render passed
                 if let Some(ref test) = health.render_test {
                     debug!(
-                        test_status = %test.status,
+                        test_status_class = renderer_test_status_class(&test.status),
+                        test_status_len = glb_text_len(&test.status),
                         content_ratio = ?test.content_ratio,
                         "Renderer test render result"
                     );
@@ -867,6 +877,25 @@ mod tests {
             glb_error_reason_code("opaque backend text /srv/fortemi/model.glb"),
             "operation_failed"
         );
+    }
+
+    #[test]
+    fn renderer_test_status_telemetry_uses_class_and_length() {
+        let status = "failed token=mm_key_secret /srv/fortemi/private/model.glb";
+        let rendered = format!(
+            "test_status_class={} test_status_len={}",
+            renderer_test_status_class(status),
+            glb_text_len(status)
+        );
+
+        assert_eq!(renderer_test_status_class("passed"), "success");
+        assert_eq!(renderer_test_status_class("degraded"), "failure");
+        assert_eq!(renderer_test_status_class(status), "custom");
+        assert!(rendered.contains("test_status_class=custom"));
+        assert!(rendered.contains("test_status_len="));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("/srv/fortemi"));
+        assert!(!rendered.contains("model.glb"));
     }
 
     #[tokio::test]
