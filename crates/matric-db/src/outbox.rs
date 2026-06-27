@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use matric_core::{new_v7, Error, Result};
 
-#[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
+#[derive(Clone, PartialEq, sqlx::FromRow)]
 pub struct EventOutboxRecord {
     pub id: Uuid,
     pub event_type: String,
@@ -22,13 +22,69 @@ pub struct EventOutboxRecord {
     pub published_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl std::fmt::Debug for EventOutboxRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EventOutboxRecord")
+            .field("id", &self.id)
+            .field("event_type_len", &text_len(&self.event_type))
+            .field("entity_type_len", &text_len(&self.entity_type))
+            .field("entity_id_present", &true)
+            .field("payload_class", &json_class(&self.payload))
+            .field(
+                "payload_serialized_len",
+                &json_serialized_len(&self.payload),
+            )
+            .field("memory_len", &self.memory.as_deref().map(text_len))
+            .field("created_at", &self.created_at)
+            .field("published_at", &self.published_at)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq)]
 pub struct CreateOutboxEvent {
     pub event_type: String,
     pub entity_type: String,
     pub entity_id: Uuid,
     pub payload: JsonValue,
     pub memory: Option<String>,
+}
+
+impl std::fmt::Debug for CreateOutboxEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateOutboxEvent")
+            .field("event_type_len", &text_len(&self.event_type))
+            .field("entity_type_len", &text_len(&self.entity_type))
+            .field("entity_id_present", &true)
+            .field("payload_class", &json_class(&self.payload))
+            .field(
+                "payload_serialized_len",
+                &json_serialized_len(&self.payload),
+            )
+            .field("memory_len", &self.memory.as_deref().map(text_len))
+            .finish()
+    }
+}
+
+fn text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn json_class(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "bool",
+        JsonValue::Number(_) => "number",
+        JsonValue::String(_) => "string",
+        JsonValue::Array(_) => "array",
+        JsonValue::Object(_) => "object",
+    }
+}
+
+fn json_serialized_len(value: &JsonValue) -> usize {
+    serde_json::to_string(value)
+        .map(|serialized| serialized.chars().count())
+        .unwrap_or_default()
 }
 
 impl CreateOutboxEvent {
@@ -161,6 +217,48 @@ fn validate_event(event: &CreateOutboxEvent) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn outbox_debug_redacts_payload_and_memory() {
+        let payload = serde_json::json!({
+            "provider_call_id": "CA-secret-provider-call",
+            "recording_url": "https://api.twilio.example/recordings?token=sk-secret",
+            "nested": {
+                "email": "operator@example.internal"
+            }
+        });
+        let event = CreateOutboxEvent::new(
+            "call_event.secret_type",
+            "inbound_event",
+            Uuid::nil(),
+            payload.clone(),
+            Some("archive-secret-memory".to_string()),
+        );
+        let record = EventOutboxRecord {
+            id: Uuid::nil(),
+            event_type: "call_event.secret_type".to_string(),
+            entity_type: "inbound_event".to_string(),
+            entity_id: Uuid::nil(),
+            payload,
+            memory: Some("archive-secret-memory".to_string()),
+            created_at: Utc::now(),
+            published_at: None,
+        };
+
+        let rendered = format!("{event:?}\n{record:?}");
+
+        assert!(rendered.contains("CreateOutboxEvent"));
+        assert!(rendered.contains("EventOutboxRecord"));
+        assert!(rendered.contains("payload_class"));
+        assert!(rendered.contains("payload_serialized_len"));
+        assert!(rendered.contains("memory_len"));
+        assert!(!rendered.contains("CA-secret-provider-call"));
+        assert!(!rendered.contains("recordings?token"));
+        assert!(!rendered.contains("sk-secret"));
+        assert!(!rendered.contains("operator@example.internal"));
+        assert!(!rendered.contains("archive-secret-memory"));
+        assert!(!rendered.contains("call_event.secret_type"));
+    }
 
     #[test]
     fn rejects_empty_event_type() {
