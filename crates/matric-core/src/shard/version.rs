@@ -19,18 +19,30 @@ impl Version {
     pub fn parse(s: &str) -> Result<Self, String> {
         let parts: Vec<&str> = s.split('.').collect();
         if parts.len() != 3 {
-            return Err(format!("Invalid version format; value_len={}", s.len()));
+            return Err(format!(
+                "Invalid version format; value_len={}",
+                s.chars().count()
+            ));
         }
 
-        let major = parts[0]
-            .parse::<u64>()
-            .map_err(|_| format!("Invalid major version; component_len={}", parts[0].len()))?;
-        let minor = parts[1]
-            .parse::<u64>()
-            .map_err(|_| format!("Invalid minor version; component_len={}", parts[1].len()))?;
-        let patch = parts[2]
-            .parse::<u64>()
-            .map_err(|_| format!("Invalid patch version; component_len={}", parts[2].len()))?;
+        let major = parts[0].parse::<u64>().map_err(|_| {
+            format!(
+                "Invalid major version; component_len={}",
+                parts[0].chars().count()
+            )
+        })?;
+        let minor = parts[1].parse::<u64>().map_err(|_| {
+            format!(
+                "Invalid minor version; component_len={}",
+                parts[1].chars().count()
+            )
+        })?;
+        let patch = parts[2].parse::<u64>().map_err(|_| {
+            format!(
+                "Invalid patch version; component_len={}",
+                parts[2].chars().count()
+            )
+        })?;
 
         Ok(Version {
             major,
@@ -95,10 +107,10 @@ mod tests {
     #[test]
     fn version_parse_errors_report_lengths_without_raw_values() {
         for raw in [
-            "postgres://admin:secret@db.internal/fortemi",
-            "sk-live-token.1.0",
-            "1.customer@example.com.0",
-            "1.0./srv/private/path",
+            "postgres://admin:秘密@db.internal/fortemi",
+            "sk-live-秘密.1.0",
+            "1.customer-秘密@example.com.0",
+            "1.0./srv/private/秘密-path",
         ] {
             let err = Version::parse(raw).unwrap_err();
             assert!(err.contains("Invalid"));
@@ -107,15 +119,23 @@ mod tests {
                 "parse error should retain only length metadata: {err}"
             );
             assert!(
+                err.contains("value_len=39")
+                    || err.contains("component_len=10")
+                    || err.contains("value_len=27")
+                    || err.contains("component_len=20"),
+                "parse error should use Unicode character-count lengths: {err}"
+            );
+            assert!(
                 !err.contains(raw),
                 "version parse error leaked raw input: {err}"
             );
             for fragment in [
                 "postgres://",
-                "admin:secret",
+                "admin:秘密",
                 "db.internal",
                 "sk-live",
-                "customer@example.com",
+                "customer-秘密@example.com",
+                "秘密",
                 "/srv/private",
             ] {
                 assert!(
