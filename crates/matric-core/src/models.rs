@@ -5553,6 +5553,161 @@ mod tests {
     }
 
     #[test]
+    fn provenance_create_request_debug_redacts_location_device_event_and_metadata() {
+        let now = Utc::now();
+        let location = CreateProvLocationRequest {
+            latitude: 37.774929,
+            longitude: -122.419416,
+            altitude_m: Some(33.3),
+            horizontal_accuracy_m: Some(4.2),
+            vertical_accuracy_m: Some(6.7),
+            heading_degrees: Some(180.0),
+            speed_mps: Some(1.5),
+            named_location_id: Some(Uuid::new_v4()),
+            source: "gps_private_device_sk-live-secret".to_string(),
+            confidence: "private-confidence-private@example.test".to_string(),
+        };
+        let named_location = CreateNamedLocationRequest {
+            name: "Private clinic location 555-1212".to_string(),
+            location_type: "private-home".to_string(),
+            latitude: 37.774929,
+            longitude: -122.419416,
+            radius_m: Some(1234.5),
+            address_line: Some("123 Private St private@example.test".to_string()),
+            locality: Some("Private City".to_string()),
+            admin_area: Some("Secret State".to_string()),
+            country: Some("Private Country".to_string()),
+            country_code: Some("PC".to_string()),
+            postal_code: Some("12345-SECRET".to_string()),
+            timezone: Some("Private/Timezone".to_string()),
+            altitude_m: Some(33.3),
+            is_private: Some(true),
+            metadata: Some(json!({
+                "provider_url": "https://provider.example.test/?token=secret",
+                "path": "/tmp/customer/location.json",
+                "api_key": "sk-live-secret"
+            })),
+        };
+        let device = CreateProvDeviceRequest {
+            device_make: "Private Make".to_string(),
+            device_model: "Secret Model".to_string(),
+            device_os: Some("PrivateOS".to_string()),
+            device_os_version: Some("private-version-1.2.3".to_string()),
+            software: Some("SecretCameraApp".to_string()),
+            software_version: Some("private-build-sk-live-secret".to_string()),
+            has_gps: Some(true),
+            has_accelerometer: Some(true),
+            sensor_metadata: Some(json!({
+                "serial": "private-serial-private@example.test",
+                "path": "/tmp/customer/sensor.json"
+            })),
+            device_name: Some("Alice private phone 555-1212".to_string()),
+        };
+        let file = CreateFileProvenanceRequest {
+            attachment_id: Uuid::new_v4(),
+            note_id: Some(Uuid::new_v4()),
+            capture_time_start: Some(now),
+            capture_time_end: Some(now),
+            capture_timezone: Some("Private/Timezone".to_string()),
+            capture_duration_seconds: Some(12.5),
+            time_source: Some("private-camera-clock".to_string()),
+            time_confidence: Some("private-confidence".to_string()),
+            location_id: Some(Uuid::new_v4()),
+            device_id: Some(Uuid::new_v4()),
+            event_type: Some("private-event-type-private@example.test".to_string()),
+            event_title: Some("Private event title 555-1212".to_string()),
+            event_description: Some("Private event description /tmp/customer/event.md".to_string()),
+            raw_metadata: Some(json!({
+                "recording_url": "https://recordings.example.test/private?token=secret",
+                "api_key": "sk-live-secret"
+            })),
+        };
+        let note = CreateNoteProvenanceRequest {
+            note_id: Uuid::new_v4(),
+            capture_time_start: Some(now),
+            capture_time_end: Some(now),
+            capture_timezone: Some("Private/Timezone".to_string()),
+            time_source: Some("private-manual-source".to_string()),
+            time_confidence: Some("private-confidence".to_string()),
+            location_id: Some(Uuid::new_v4()),
+            device_id: Some(Uuid::new_v4()),
+            event_type: Some("private-note-event".to_string()),
+            event_title: Some("Private note event title".to_string()),
+            event_description: Some("Private note event private@example.test".to_string()),
+        };
+
+        let debug = format!("{location:?}{named_location:?}{device:?}{file:?}{note:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "37.774929",
+                "-122.419416",
+                "33.3",
+                "1234.5",
+                "Private clinic location",
+                "555-1212",
+                "private-home",
+                "123 Private St",
+                "private@example.test",
+                "Private City",
+                "Secret State",
+                "Private Country",
+                "12345-SECRET",
+                "Private/Timezone",
+                "provider.example.test",
+                "/tmp/customer/location.json",
+                "sk-live-secret",
+                "Private Make",
+                "Secret Model",
+                "PrivateOS",
+                "SecretCameraApp",
+                "private-serial",
+                "/tmp/customer/sensor.json",
+                "Alice private phone",
+                "private-event-type",
+                "Private event title",
+                "Private event description",
+                "/tmp/customer/event.md",
+                "recordings.example.test",
+                "Private note event",
+            ],
+        );
+
+        for expected in [
+            "latitude_set",
+            "longitude_set",
+            "source_len",
+            "confidence_len",
+            "name_len",
+            "location_type_len",
+            "address_line_len",
+            "metadata_class",
+            "metadata_len",
+            "device_make_len",
+            "device_model_len",
+            "sensor_metadata_class",
+            "sensor_metadata_len",
+            "device_name_len",
+            "attachment_id_set",
+            "note_id_set",
+            "capture_time_start_set",
+            "capture_time_end_set",
+            "capture_timezone_len",
+            "event_type_len",
+            "event_title_len",
+            "event_description_len",
+            "raw_metadata_class",
+            "raw_metadata_len",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Provenance request Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
     fn tus_upload_debug_redacts_paths_filenames_and_metadata() {
         let now = Utc::now();
         let upload = TusUpload {
@@ -9187,7 +9342,7 @@ pub struct MemoryProvenance {
 // =============================================================================
 
 /// Request to create a provenance location record.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateProvLocationRequest {
     pub latitude: f64,
     pub longitude: f64,
@@ -9201,8 +9356,31 @@ pub struct CreateProvLocationRequest {
     pub confidence: String, // high, medium, low, unknown
 }
 
+impl fmt::Debug for CreateProvLocationRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateProvLocationRequest")
+            .field("latitude_set", &true)
+            .field("longitude_set", &true)
+            .field("altitude_m_set", &self.altitude_m.is_some())
+            .field(
+                "horizontal_accuracy_m_set",
+                &self.horizontal_accuracy_m.is_some(),
+            )
+            .field(
+                "vertical_accuracy_m_set",
+                &self.vertical_accuracy_m.is_some(),
+            )
+            .field("heading_degrees_set", &self.heading_degrees.is_some())
+            .field("speed_mps_set", &self.speed_mps.is_some())
+            .field("named_location_id_set", &self.named_location_id.is_some())
+            .field("source_len", &self.source.len())
+            .field("confidence_len", &self.confidence.len())
+            .finish()
+    }
+}
+
 /// Request to create a named location (landmark, address).
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateNamedLocationRequest {
     pub name: String,
     pub location_type: String, // home, work, poi, city, region, country
@@ -9221,8 +9399,46 @@ pub struct CreateNamedLocationRequest {
     pub metadata: Option<serde_json::Value>,
 }
 
+impl fmt::Debug for CreateNamedLocationRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateNamedLocationRequest")
+            .field("name_len", &self.name.len())
+            .field("location_type_len", &self.location_type.len())
+            .field("latitude_set", &true)
+            .field("longitude_set", &true)
+            .field("radius_m_set", &self.radius_m.is_some())
+            .field(
+                "address_line_len",
+                &self.address_line.as_ref().map(String::len),
+            )
+            .field("locality_len", &self.locality.as_ref().map(String::len))
+            .field("admin_area_len", &self.admin_area.as_ref().map(String::len))
+            .field("country_len", &self.country.as_ref().map(String::len))
+            .field(
+                "country_code_len",
+                &self.country_code.as_ref().map(String::len),
+            )
+            .field(
+                "postal_code_len",
+                &self.postal_code.as_ref().map(String::len),
+            )
+            .field("timezone_len", &self.timezone.as_ref().map(String::len))
+            .field("altitude_m_set", &self.altitude_m.is_some())
+            .field("is_private", &self.is_private)
+            .field(
+                "metadata_class",
+                &self.metadata.as_ref().map(json_value_class),
+            )
+            .field(
+                "metadata_len",
+                &self.metadata.as_ref().map(json_serialized_len),
+            )
+            .finish()
+    }
+}
+
 /// Request to create a provenance device record.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateProvDeviceRequest {
     pub device_make: String,
     pub device_model: String,
@@ -9236,8 +9452,41 @@ pub struct CreateProvDeviceRequest {
     pub device_name: Option<String>,
 }
 
+impl fmt::Debug for CreateProvDeviceRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateProvDeviceRequest")
+            .field("device_make_len", &self.device_make.len())
+            .field("device_model_len", &self.device_model.len())
+            .field("device_os_len", &self.device_os.as_ref().map(String::len))
+            .field(
+                "device_os_version_len",
+                &self.device_os_version.as_ref().map(String::len),
+            )
+            .field("software_len", &self.software.as_ref().map(String::len))
+            .field(
+                "software_version_len",
+                &self.software_version.as_ref().map(String::len),
+            )
+            .field("has_gps", &self.has_gps)
+            .field("has_accelerometer", &self.has_accelerometer)
+            .field(
+                "sensor_metadata_class",
+                &self.sensor_metadata.as_ref().map(json_value_class),
+            )
+            .field(
+                "sensor_metadata_len",
+                &self.sensor_metadata.as_ref().map(json_serialized_len),
+            )
+            .field(
+                "device_name_len",
+                &self.device_name.as_ref().map(String::len),
+            )
+            .finish()
+    }
+}
+
 /// Request to create a file provenance record linking an attachment to spatial-temporal context.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateFileProvenanceRequest {
     pub attachment_id: Uuid,
     pub note_id: Option<Uuid>,
@@ -9255,8 +9504,54 @@ pub struct CreateFileProvenanceRequest {
     pub raw_metadata: Option<serde_json::Value>,
 }
 
+impl fmt::Debug for CreateFileProvenanceRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateFileProvenanceRequest")
+            .field("attachment_id_set", &true)
+            .field("note_id_set", &self.note_id.is_some())
+            .field("capture_time_start_set", &self.capture_time_start.is_some())
+            .field("capture_time_end_set", &self.capture_time_end.is_some())
+            .field(
+                "capture_timezone_len",
+                &self.capture_timezone.as_ref().map(String::len),
+            )
+            .field(
+                "capture_duration_seconds_set",
+                &self.capture_duration_seconds.is_some(),
+            )
+            .field(
+                "time_source_len",
+                &self.time_source.as_ref().map(String::len),
+            )
+            .field(
+                "time_confidence_len",
+                &self.time_confidence.as_ref().map(String::len),
+            )
+            .field("location_id_set", &self.location_id.is_some())
+            .field("device_id_set", &self.device_id.is_some())
+            .field("event_type_len", &self.event_type.as_ref().map(String::len))
+            .field(
+                "event_title_len",
+                &self.event_title.as_ref().map(String::len),
+            )
+            .field(
+                "event_description_len",
+                &self.event_description.as_ref().map(String::len),
+            )
+            .field(
+                "raw_metadata_class",
+                &self.raw_metadata.as_ref().map(json_value_class),
+            )
+            .field(
+                "raw_metadata_len",
+                &self.raw_metadata.as_ref().map(json_serialized_len),
+            )
+            .finish()
+    }
+}
+
 /// Request to create a note provenance record linking a note to spatial-temporal context.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateNoteProvenanceRequest {
     pub note_id: Uuid,
     pub capture_time_start: Option<DateTime<Utc>>,
@@ -9269,6 +9564,39 @@ pub struct CreateNoteProvenanceRequest {
     pub event_type: Option<String>, // created, modified, accessed, shared
     pub event_title: Option<String>,
     pub event_description: Option<String>,
+}
+
+impl fmt::Debug for CreateNoteProvenanceRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateNoteProvenanceRequest")
+            .field("note_id_set", &true)
+            .field("capture_time_start_set", &self.capture_time_start.is_some())
+            .field("capture_time_end_set", &self.capture_time_end.is_some())
+            .field(
+                "capture_timezone_len",
+                &self.capture_timezone.as_ref().map(String::len),
+            )
+            .field(
+                "time_source_len",
+                &self.time_source.as_ref().map(String::len),
+            )
+            .field(
+                "time_confidence_len",
+                &self.time_confidence.as_ref().map(String::len),
+            )
+            .field("location_id_set", &self.location_id.is_some())
+            .field("device_id_set", &self.device_id.is_some())
+            .field("event_type_len", &self.event_type.as_ref().map(String::len))
+            .field(
+                "event_title_len",
+                &self.event_title.as_ref().map(String::len),
+            )
+            .field(
+                "event_description_len",
+                &self.event_description.as_ref().map(String::len),
+            )
+            .finish()
+    }
 }
 
 // =============================================================================
