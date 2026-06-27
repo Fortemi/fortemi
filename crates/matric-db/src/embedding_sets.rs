@@ -975,6 +975,18 @@ impl PgEmbeddingSetRepository {
         Ok(slugs)
     }
 
+    /// Find IDs of embedding sets that use a given config ID.
+    /// Used to queue re-embedding without storing raw slugs in job payloads.
+    pub async fn find_set_ids_by_config(&self, config_id: Uuid) -> Result<Vec<Uuid>> {
+        let ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM embedding_set WHERE embedding_config_id = $1")
+                .bind(config_id)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(Error::Database)?;
+        Ok(ids)
+    }
+
     /// Get configs by provider type.
     pub async fn get_configs_by_provider(
         &self,

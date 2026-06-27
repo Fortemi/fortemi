@@ -17014,7 +17014,7 @@ async fn refresh_embedding_set(
                 None,
                 matric_core::JobType::RefreshEmbeddingSet,
                 matric_core::JobType::RefreshEmbeddingSet.default_priority(),
-                Some(serde_json::json!({ "set_slug": slug })),
+                Some(serde_json::json!({ "set_id": set.id.to_string() })),
                 None,
             )
             .await?;
@@ -17101,8 +17101,8 @@ async fn update_embedding_config(
     // Auto re-embed: when document_composition changes, queue RefreshEmbeddingSet
     // for every set using this config (#485).
     if composition_changed {
-        if let Ok(slugs) = state.db.embedding_sets.find_set_slugs_by_config(id).await {
-            for slug in slugs {
+        if let Ok(set_ids) = state.db.embedding_sets.find_set_ids_by_config(id).await {
+            for set_id in set_ids {
                 let _ = state
                     .db
                     .jobs
@@ -17110,7 +17110,7 @@ async fn update_embedding_config(
                         None,
                         matric_core::JobType::RefreshEmbeddingSet,
                         matric_core::JobType::RefreshEmbeddingSet.default_priority(),
-                        Some(serde_json::json!({ "set_slug": slug, "reason": "composition_changed" })),
+                        Some(serde_json::json!({ "set_id": set_id.to_string(), "reason": "composition_changed" })),
                         None,
                     )
                     .await;

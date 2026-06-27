@@ -118,6 +118,33 @@ fn embedding_set_progress_message(slug: &str) -> String {
     )
 }
 
+fn reembed_all_job_result(
+    queued: usize,
+    failed: usize,
+    total_notes: usize,
+    embedding_set_slug: Option<&str>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "notes_queued": queued,
+        "notes_failed": failed,
+        "total_notes": total_notes,
+        "embedding_set_slug_len": embedding_set_slug.map(diagnostic_len)
+    })
+}
+
+fn refresh_embedding_set_job_result(
+    set_slug: &str,
+    missing_count: usize,
+    jobs_queued: usize,
+) -> serde_json::Value {
+    serde_json::json!({
+        "set_id_present": true,
+        "set_slug_len": diagnostic_len(set_slug),
+        "missing_count": missing_count,
+        "jobs_queued": jobs_queued
+    })
+}
+
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
         error_len = diagnostic_len(error),
@@ -6506,12 +6533,12 @@ impl JobHandler for ReEmbedAllHandler {
             "Bulk re-embedding completed"
         );
 
-        JobResult::Success(Some(serde_json::json!({
-            "notes_queued": queued,
-            "notes_failed": failed,
-            "total_notes": total_notes,
-            "embedding_set": embedding_set_slug
-        })))
+        JobResult::Success(Some(reembed_all_job_result(
+            queued,
+            failed,
+            total_notes,
+            embedding_set_slug.as_deref(),
+        )))
     }
 }
 
@@ -6693,26 +6720,42 @@ impl JobHandler for RefreshEmbeddingSetHandler {
     async fn execute(&self, ctx: JobContext) -> JobResult {
         let start = Instant::now();
 
-        let set_slug = match ctx
-            .payload()
+        ctx.report_progress(10, Some("Looking up embedding set..."));
+
+        let payload = ctx.payload();
+        let set = if let Some(set_id) = payload
+            .and_then(|p| p.get("set_id"))
+            .and_then(|v| v.as_str())
+        {
+            match uuid::Uuid::parse_str(set_id) {
+                Ok(id) => match self.db.embedding_sets.get_by_id(id).await {
+                    Ok(Some(s)) => s,
+                    Ok(None) => {
+                        return refresh_embedding_set_job_failure(
+                            "embedding set not found",
+                            "lookup_set_id_not_found",
+                        )
+                    }
+                    Err(e) => return refresh_embedding_set_job_failure(e, "lookup_set_id"),
+                },
+                Err(e) => return refresh_embedding_set_job_failure(e, "parse_set_id"),
+            }
+        } else if let Some(set_slug) = payload
             .and_then(|p| p.get("set_slug"))
             .and_then(|v| v.as_str())
         {
-            Some(s) => s.to_string(),
-            None => return JobResult::Failed("No set_slug in payload".into()),
-        };
-
-        ctx.report_progress(10, Some("Looking up embedding set..."));
-
-        let set = match self.db.embedding_sets.get_by_slug(&set_slug).await {
-            Ok(Some(s)) => s,
-            Ok(None) => {
-                return refresh_embedding_set_job_failure(
-                    "embedding set not found",
-                    "lookup_set_not_found",
-                )
+            match self.db.embedding_sets.get_by_slug(set_slug).await {
+                Ok(Some(s)) => s,
+                Ok(None) => {
+                    return refresh_embedding_set_job_failure(
+                        "embedding set not found",
+                        "lookup_legacy_set_slug_not_found",
+                    )
+                }
+                Err(e) => return refresh_embedding_set_job_failure(e, "lookup_legacy_set_slug"),
             }
-            Err(e) => return refresh_embedding_set_job_failure(e, "lookup_set"),
+        } else {
+            return JobResult::Failed("No embedding set reference in payload".into());
         };
 
         ctx.report_progress(20, Some("Finding members missing embeddings..."));
@@ -6771,18 +6814,19 @@ impl JobHandler for RefreshEmbeddingSetHandler {
 
         ctx.report_progress(100, Some("Refresh complete"));
         info!(
-            set_slug = %set_slug,
+            set_id_present = true,
+            set_slug_len = diagnostic_len(&set.slug),
             missing = missing_note_ids.len(),
             queued = queued,
             duration_ms = start.elapsed().as_millis() as u64,
             "Embedding set refresh completed"
         );
 
-        JobResult::Success(Some(serde_json::json!({
-            "set_slug": set_slug,
-            "missing_count": missing_note_ids.len(),
-            "jobs_queued": queued
-        })))
+        JobResult::Success(Some(refresh_embedding_set_job_result(
+            &set.slug,
+            missing_note_ids.len(),
+            queued,
+        )))
     }
 }
 
@@ -7498,6 +7542,21 @@ mod tests {
         assert!(!rendered.contains("mm_key_secret"));
         assert!(!rendered.contains("Confidential Lab Report"));
         assert!(!rendered.contains("private-client-archive"));
+    }
+
+    #[test]
+    fn embedding_set_job_results_redact_raw_slugs() {
+        let slug = "private-client-archive /srv/fortemi token=sk-secret";
+        let bulk_result = reembed_all_job_result(5, 1, 6, Some(slug));
+        let refresh_result = refresh_embedding_set_job_result(slug, 3, 2);
+        let rendered = format!("{}\n{}", bulk_result, refresh_result);
+
+        assert!(rendered.contains("embedding_set_slug_len"));
+        assert!(rendered.contains("set_slug_len"));
+        assert!(rendered.contains("set_id_present"));
+        assert!(!rendered.contains("private-client-archive"));
+        assert!(!rendered.contains("/srv/fortemi"));
+        assert!(!rendered.contains("sk-secret"));
     }
 
     #[test]
