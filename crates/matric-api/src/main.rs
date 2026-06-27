@@ -7078,7 +7078,7 @@ async fn lookup_template_for_authorization(
     Ok(template)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct ApiKeyResourceMetadata {
     id: Uuid,
     key_prefix: String,
@@ -7087,6 +7087,20 @@ struct ApiKeyResourceMetadata {
     is_active: bool,
     has_expiration: bool,
     has_rate_limit: bool,
+}
+
+impl fmt::Debug for ApiKeyResourceMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ApiKeyResourceMetadata")
+            .field("id_present", &true)
+            .field("key_prefix_len", &telemetry_text_len(&self.key_prefix))
+            .field("name_len", &telemetry_text_len(&self.name))
+            .field("scope_len", &telemetry_text_len(&self.scope))
+            .field("is_active", &self.is_active)
+            .field("has_expiration", &self.has_expiration)
+            .field("has_rate_limit", &self.has_rate_limit)
+            .finish()
+    }
 }
 
 impl From<matric_core::ApiKey> for ApiKeyResourceMetadata {
@@ -8448,12 +8462,23 @@ where
     input
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct PkeKeysetResourceMetadata {
     id: Uuid,
     name: String,
     address: String,
     label: Option<String>,
+}
+
+impl fmt::Debug for PkeKeysetResourceMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PkeKeysetResourceMetadata")
+            .field("id_present", &true)
+            .field("name_len", &telemetry_text_len(&self.name))
+            .field("address_len", &telemetry_text_len(&self.address))
+            .field("label_len", &self.label.as_deref().map(telemetry_text_len))
+            .finish()
+    }
 }
 
 impl From<matric_db::PkeKeyset> for PkeKeysetResourceMetadata {
@@ -33780,6 +33805,34 @@ mod tests {
         }
     }
 
+    #[test]
+    fn authorization_credential_metadata_debug_redacts_api_key_fields() {
+        let api_key_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000012").unwrap();
+        let metadata = ApiKeyResourceMetadata {
+            id: api_key_id,
+            key_prefix: "mm_key_secret_prefix".to_string(),
+            name: "Operator key for ops@example.com".to_string(),
+            scope: "admin:sk-secret-scope".to_string(),
+            is_active: true,
+            has_expiration: true,
+            has_rate_limit: true,
+        };
+
+        let debug = format!("{metadata:?}");
+
+        assert!(debug.contains("ApiKeyResourceMetadata"));
+        assert!(debug.contains("id_present"));
+        assert!(debug.contains("key_prefix_len"));
+        assert!(debug.contains("name_len"));
+        assert!(debug.contains("scope_len"));
+        assert!(!debug.contains(&api_key_id.to_string()));
+        assert!(!debug.contains("mm_key_secret_prefix"));
+        assert!(!debug.contains("Operator key"));
+        assert!(!debug.contains("ops@example.com"));
+        assert!(!debug.contains("admin:sk-secret-scope"));
+        assert!(!debug.contains("sk-secret"));
+    }
+
     #[tokio::test]
     async fn existing_api_key_route_id_is_marked_normalized_with_safe_metadata() {
         let api_key_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000012").unwrap();
@@ -35932,6 +35985,31 @@ mod tests {
             address: "mm:example-address".to_string(),
             label: Some("Primary".to_string()),
         }
+    }
+
+    #[test]
+    fn authorization_pke_metadata_debug_redacts_keyset_fields() {
+        let keyset_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000008").unwrap();
+        let metadata = PkeKeysetResourceMetadata {
+            id: keyset_id,
+            name: "primary-customer@example.com".to_string(),
+            address: "mm:secret-address-token".to_string(),
+            label: Some("Primary sk-keyset-label".to_string()),
+        };
+
+        let debug = format!("{metadata:?}");
+
+        assert!(debug.contains("PkeKeysetResourceMetadata"));
+        assert!(debug.contains("id_present"));
+        assert!(debug.contains("name_len"));
+        assert!(debug.contains("address_len"));
+        assert!(debug.contains("label_len"));
+        assert!(!debug.contains(&keyset_id.to_string()));
+        assert!(!debug.contains("primary-customer"));
+        assert!(!debug.contains("customer@example.com"));
+        assert!(!debug.contains("mm:secret-address-token"));
+        assert!(!debug.contains("Primary sk-keyset-label"));
+        assert!(!debug.contains("sk-keyset"));
     }
 
     #[tokio::test]
