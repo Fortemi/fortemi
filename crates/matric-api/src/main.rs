@@ -25329,25 +25329,37 @@ struct BackupMetadata {
 impl fmt::Debug for BackupMetadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BackupMetadata")
-            .field("title_len", &self.title.len())
+            .field("title_len", &telemetry_text_len(&self.title))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self
+                    .description
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
             )
-            .field("backup_type_len", &self.backup_type.len())
+            .field("backup_type_len", &telemetry_text_len(&self.backup_type))
             .field("created_at", &self.created_at)
             .field("note_count", &self.note_count)
             .field("db_size_bytes", &self.db_size_bytes)
-            .field("source_len", &self.source.len())
+            .field("source_len", &telemetry_text_len(&self.source))
             .field("extra_count", &self.extra.len())
             .field("matric_version_set", &self.matric_version.is_some())
             .field("matric_version_min_set", &self.matric_version_min.is_some())
             .field("matric_version_max_set", &self.matric_version_max.is_some())
-            .field("pg_version_len", &self.pg_version.as_ref().map(String::len))
+            .field(
+                "pg_version_len",
+                &self
+                    .pg_version
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
+            )
             .field("schema_migration_count", &self.schema_migration_count)
             .field(
                 "last_migration_len",
-                &self.last_migration.as_ref().map(String::len),
+                &self
+                    .last_migration
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
             )
             .finish()
     }
@@ -25536,12 +25548,21 @@ struct BackupMetadataEcho {
 impl fmt::Debug for BackupMetadataEcho {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BackupMetadataEcho")
-            .field("title_len", &self.title.as_ref().map(String::len))
+            .field(
+                "title_len",
+                &self.title.as_ref().map(|value| telemetry_text_len(value)),
+            )
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self
+                    .description
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
             )
-            .field("metadata_file_len", &self.metadata_file.len())
+            .field(
+                "metadata_file_len",
+                &telemetry_text_len(&self.metadata_file),
+            )
             .finish()
     }
 }
@@ -25564,11 +25585,11 @@ impl fmt::Debug for DatabaseBackupResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DatabaseBackupResponse")
             .field("success", &self.success)
-            .field("filename_len", &self.filename.len())
-            .field("path_len", &self.path.len())
+            .field("filename_len", &telemetry_text_len(&self.filename))
+            .field("path_len", &telemetry_text_len(&self.path))
             .field("size_bytes", &self.size_bytes)
-            .field("size_human_len", &self.size_human.len())
-            .field("backup_type_len", &self.backup_type.len())
+            .field("size_human_len", &telemetry_text_len(&self.size_human))
+            .field("backup_type_len", &telemetry_text_len(&self.backup_type))
             .field("created_at", &self.created_at)
             .field("metadata_set", &self.metadata.is_some())
             .finish()
@@ -25604,11 +25625,20 @@ struct SnapshotRequest {
 impl fmt::Debug for SnapshotRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SnapshotRequest")
-            .field("name_len", &self.name.as_ref().map(String::len))
-            .field("title_len", &self.title.as_ref().map(String::len))
+            .field(
+                "name_len",
+                &self.name.as_ref().map(|value| telemetry_text_len(value)),
+            )
+            .field(
+                "title_len",
+                &self.title.as_ref().map(|value| telemetry_text_len(value)),
+            )
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self
+                    .description
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
             )
             .finish()
     }
@@ -26878,10 +26908,16 @@ struct UpdateMetadataRequest {
 impl fmt::Debug for UpdateMetadataRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UpdateMetadataRequest")
-            .field("title_len", &self.title.as_ref().map(String::len))
+            .field(
+                "title_len",
+                &self.title.as_ref().map(|value| telemetry_text_len(value)),
+            )
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self
+                    .description
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
             )
             .finish()
     }
@@ -27729,21 +27765,24 @@ mod tests {
 
     #[test]
     fn backup_metadata_debug_redacts_titles_descriptions_paths_and_versions() {
+        let title = "Uploaded cüstomer payroll backup";
+        let description =
+            "Restore from postgres://user:pass@db.internal/app at /srv/backups/cüstomer.sql";
+        let source = "operatör@customer.example";
+        let pg_version = "PostgreSQL 16 on private-db.internål";
+        let last_migration = "tenant sëcret schema migration";
         let metadata = BackupMetadata {
-            title: "Uploaded customer payroll backup".to_string(),
-            description: Some(
-                "Restore from postgres://user:pass@db.internal/app at /srv/backups/customer.sql"
-                    .to_string(),
-            ),
+            title: title.to_string(),
+            description: Some(description.to_string()),
             backup_type: backup_prefix::UPLOAD.to_string(),
             created_at: Utc::now(),
             note_count: Some(42),
             db_size_bytes: Some(1024),
-            source: "operator@customer.example".to_string(),
+            source: source.to_string(),
             extra: [
                 (
                     "original_filename".to_string(),
-                    "customer-payroll-mm_key_secret.sql".to_string(),
+                    "cüstomer-payroll-mm_key_secret.sql".to_string(),
                 ),
                 (
                     "restoring_from".to_string(),
@@ -27755,9 +27794,9 @@ mod tests {
             matric_version: Some("2026.6.0-internal".to_string()),
             matric_version_min: Some("2026.6.0".to_string()),
             matric_version_max: Some("2026.7.0-private".to_string()),
-            pg_version: Some("PostgreSQL 16 on private-db.internal".to_string()),
+            pg_version: Some(pg_version.to_string()),
             schema_migration_count: Some(7),
-            last_migration: Some("tenant secret schema migration".to_string()),
+            last_migration: Some(last_migration.to_string()),
         };
 
         let rendered = format!("{metadata:?}");
@@ -27768,19 +27807,35 @@ mod tests {
         assert!(rendered.contains("extra_count"));
         assert!(rendered.contains("pg_version_len"));
         assert!(rendered.contains("last_migration_len"));
+        for expected in [
+            format!("title_len: {}", title.chars().count()),
+            format!("description_len: Some({})", description.chars().count()),
+            format!("backup_type_len: {}", backup_prefix::UPLOAD.chars().count()),
+            format!("source_len: {}", source.chars().count()),
+            format!("pg_version_len: Some({})", pg_version.chars().count()),
+            format!(
+                "last_migration_len: Some({})",
+                last_migration.chars().count()
+            ),
+        ] {
+            assert!(
+                rendered.contains(&expected),
+                "BackupMetadata Debug output should retain exact character-count metadata {expected:?}: {rendered}"
+            );
+        }
 
         for raw in [
-            "Uploaded customer payroll backup",
+            "Uploaded cüstomer payroll backup",
             "postgres://user:pass",
             "db.internal",
             "/srv/backups",
-            "operator@customer.example",
-            "customer-payroll-mm_key_secret.sql",
+            "operatör@customer.example",
+            "cüstomer-payroll-mm_key_secret.sql",
             "/srv/private/restore-token.dump",
             "2026.6.0-internal",
             "2026.7.0-private",
-            "private-db.internal",
-            "tenant secret schema migration",
+            "private-db.internål",
+            "tenant sëcret schema migration",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
@@ -27788,12 +27843,12 @@ mod tests {
 
     #[test]
     fn update_metadata_request_debug_redacts_title_and_description() {
+        let title = "Cüstomer payroll metadata update";
+        let description =
+            "Move /srv/backups/cüstomer after postgres://user:pass@db.internal/app sk-live-metadata";
         let request = UpdateMetadataRequest {
-            title: Some("Customer payroll metadata update".to_string()),
-            description: Some(
-                "Move /srv/backups/customer after postgres://user:pass@db.internal/app sk-live-metadata"
-                    .to_string(),
-            ),
+            title: Some(title.to_string()),
+            description: Some(description.to_string()),
         };
 
         let rendered = format!("{request:?}");
@@ -27801,10 +27856,19 @@ mod tests {
         assert!(rendered.contains("UpdateMetadataRequest"));
         assert!(rendered.contains("title_len"));
         assert!(rendered.contains("description_len"));
+        for expected in [
+            format!("title_len: Some({})", title.chars().count()),
+            format!("description_len: Some({})", description.chars().count()),
+        ] {
+            assert!(
+                rendered.contains(&expected),
+                "UpdateMetadataRequest Debug output should retain exact character-count metadata {expected:?}: {rendered}"
+            );
+        }
 
         for raw in [
-            "Customer payroll metadata update",
-            "/srv/backups/customer",
+            "Cüstomer payroll metadata update",
+            "/srv/backups/cüstomer",
             "postgres://user:pass",
             "db.internal",
             "sk-live-metadata",
@@ -29023,18 +29087,24 @@ mod tests {
 
     #[test]
     fn database_backup_response_debug_redacts_paths_and_metadata_echo() {
+        let filename = "snapshot-cüstomer-mm_key_secret.dump";
+        let path = "/srv/backups/cüstomer/postgres://user:pass@db.internal/app.dump";
+        let size_human = "4.0 KiB";
+        let metadata_title = "Cüstomer payroll snapshot";
+        let metadata_description = "Contains private restore notes and sk-live-sécret";
+        let metadata_file = "snapshot-cüstomer-mm_key_secret.dump.meta.json";
         let response = DatabaseBackupResponse {
             success: true,
-            filename: "snapshot-customer-mm_key_secret.dump".to_string(),
-            path: "/srv/backups/customer/postgres://user:pass@db.internal/app.dump".to_string(),
+            filename: filename.to_string(),
+            path: path.to_string(),
             size_bytes: 4096,
-            size_human: "4.0 KiB".to_string(),
+            size_human: size_human.to_string(),
             backup_type: backup_prefix::SNAPSHOT.to_string(),
             created_at: Utc::now(),
             metadata: Some(BackupMetadataEcho {
-                title: Some("Customer payroll snapshot".to_string()),
-                description: Some("Contains private restore notes and sk-live-secret".to_string()),
-                metadata_file: "snapshot-customer-mm_key_secret.dump.meta.json".to_string(),
+                title: Some(metadata_title.to_string()),
+                description: Some(metadata_description.to_string()),
+                metadata_file: metadata_file.to_string(),
             }),
         };
 
@@ -29049,16 +29119,54 @@ mod tests {
         assert!(metadata_rendered.contains("title_len"));
         assert!(metadata_rendered.contains("description_len"));
         assert!(metadata_rendered.contains("metadata_file_len"));
+        for (rendered_value, expected) in [
+            (
+                &rendered,
+                format!("filename_len: {}", filename.chars().count()),
+            ),
+            (&rendered, format!("path_len: {}", path.chars().count())),
+            (
+                &rendered,
+                format!("size_human_len: {}", size_human.chars().count()),
+            ),
+            (
+                &rendered,
+                format!(
+                    "backup_type_len: {}",
+                    backup_prefix::SNAPSHOT.chars().count()
+                ),
+            ),
+            (
+                &metadata_rendered,
+                format!("title_len: Some({})", metadata_title.chars().count()),
+            ),
+            (
+                &metadata_rendered,
+                format!(
+                    "description_len: Some({})",
+                    metadata_description.chars().count()
+                ),
+            ),
+            (
+                &metadata_rendered,
+                format!("metadata_file_len: {}", metadata_file.chars().count()),
+            ),
+        ] {
+            assert!(
+                rendered_value.contains(&expected),
+                "backup response Debug output should retain exact character-count metadata {expected:?}: {rendered_value}"
+            );
+        }
 
         let combined = format!("{rendered}\n{metadata_rendered}");
         for raw in [
-            "snapshot-customer-mm_key_secret.dump",
+            "snapshot-cüstomer-mm_key_secret.dump",
             "/srv/backups",
             "postgres://user:pass",
             "db.internal",
-            "Customer payroll snapshot",
+            "Cüstomer payroll snapshot",
             "private restore notes",
-            "sk-live-secret",
+            "sk-live-sécret",
             "meta.json",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
@@ -29232,13 +29340,13 @@ mod tests {
 
     #[test]
     fn snapshot_request_debug_redacts_name_title_and_description() {
+        let name = "cüstomer-postgres-secret-mm_key_snapshot";
+        let title = "Cüstomer payroll snapshot";
+        let description = "Contains /srv/backups/cüstomer and postgres://user:pass@db.internal/app";
         let request = SnapshotRequest {
-            name: Some("customer-postgres-secret-mm_key_snapshot".to_string()),
-            title: Some("Customer payroll snapshot".to_string()),
-            description: Some(
-                "Contains /srv/backups/customer and postgres://user:pass@db.internal/app"
-                    .to_string(),
-            ),
+            name: Some(name.to_string()),
+            title: Some(title.to_string()),
+            description: Some(description.to_string()),
         };
 
         let rendered = format!("{request:?}");
@@ -29247,12 +29355,22 @@ mod tests {
         assert!(rendered.contains("name_len"));
         assert!(rendered.contains("title_len"));
         assert!(rendered.contains("description_len"));
+        for expected in [
+            format!("name_len: Some({})", name.chars().count()),
+            format!("title_len: Some({})", title.chars().count()),
+            format!("description_len: Some({})", description.chars().count()),
+        ] {
+            assert!(
+                rendered.contains(&expected),
+                "SnapshotRequest Debug output should retain exact character-count metadata {expected:?}: {rendered}"
+            );
+        }
 
         for raw in [
-            "customer-postgres-secret",
+            "cüstomer-postgres-secret",
             "mm_key_snapshot",
-            "Customer payroll snapshot",
-            "/srv/backups/customer",
+            "Cüstomer payroll snapshot",
+            "/srv/backups/cüstomer",
             "postgres://user:pass",
             "db.internal",
         ] {

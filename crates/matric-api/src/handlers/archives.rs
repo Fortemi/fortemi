@@ -14,7 +14,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::{ApiError, AppState};
+use crate::{telemetry_text_len, ApiError, AppState};
 use matric_core::{ArchiveInfo, ArchiveRepository, ServerEvent};
 
 const ARCHIVE_ALREADY_EXISTS_MESSAGE: &str = "Archive already exists.";
@@ -42,10 +42,13 @@ pub struct CreateArchiveRequest {
 impl fmt::Debug for CreateArchiveRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CreateArchiveRequest")
-            .field("name_len", &self.name.len())
+            .field("name_len", &telemetry_text_len(&self.name))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self
+                    .description
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
             )
             .finish()
     }
@@ -63,7 +66,10 @@ impl fmt::Debug for UpdateArchiveRequest {
         f.debug_struct("UpdateArchiveRequest")
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self
+                    .description
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
             )
             .finish()
     }
@@ -81,10 +87,13 @@ pub struct CloneArchiveRequest {
 impl fmt::Debug for CloneArchiveRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CloneArchiveRequest")
-            .field("new_name_len", &self.new_name.len())
+            .field("new_name_len", &telemetry_text_len(&self.new_name))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self
+                    .description
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
             )
             .finish()
     }
@@ -106,10 +115,10 @@ pub struct ArchiveStatsResponse {
 impl fmt::Debug for ArchiveStatsResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ArchiveStatsResponse")
-            .field("name_len", &self.name.len())
+            .field("name_len", &telemetry_text_len(&self.name))
             .field("note_count", &self.note_count)
             .field("size_bytes", &self.size_bytes)
-            .field("schema_name_len", &self.schema_name.len())
+            .field("schema_name_len", &telemetry_text_len(&self.schema_name))
             .finish()
     }
 }
@@ -487,12 +496,13 @@ mod tests {
 
     #[test]
     fn archive_stats_response_debug_redacts_archive_and_schema_names() {
+        let name = "tenant-alpha/cüstomer@example.com/postgres://user:pass@db.internal/app";
+        let schema_name = "archive_tenant_alpha_private_schëma_sk_live_secret";
         let stats = ArchiveStatsResponse {
-            name: "tenant-alpha/customer@example.com/postgres://user:pass@db.internal/app"
-                .to_string(),
+            name: name.to_string(),
             note_count: 42,
             size_bytes: 1024,
-            schema_name: "archive_tenant_alpha_private_schema_sk_live_secret".to_string(),
+            schema_name: schema_name.to_string(),
         };
 
         let rendered = format!("{stats:?}");
@@ -502,13 +512,23 @@ mod tests {
         assert!(rendered.contains("note_count"));
         assert!(rendered.contains("size_bytes"));
         assert!(rendered.contains("schema_name_len"));
+        for expected in [
+            format!("name_len: {}", name.chars().count()),
+            format!("schema_name_len: {}", schema_name.chars().count()),
+        ] {
+            assert!(
+                rendered.contains(&expected),
+                "ArchiveStatsResponse Debug output should retain exact character-count metadata {expected:?}: {rendered}"
+            );
+        }
 
         for raw in [
             "tenant-alpha",
-            "customer@example.com",
+            "cüstomer@example.com",
             "postgres://user:pass",
             "db.internal",
             "archive_tenant_alpha_private_schema",
+            "archive_tenant_alpha_private_schëma",
             "sk_live_secret",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
@@ -652,17 +672,21 @@ mod tests {
 
     #[test]
     fn archive_request_debug_redacts_names_and_descriptions() {
+        let create_name = "tenant-alpha/cüstomer@example.com/postgres://user:pass@db.internal/app";
+        let create_description = "Archive stored at /srv/private/mm_key_archivé";
+        let update_description = "Updated archivé notes with sk-live-archive-secret";
+        let clone_name = "tenant-alpha-cloné/private-path";
+        let clone_description = "Clone for cüstomer@example.com";
         let create = CreateArchiveRequest {
-            name: "tenant-alpha/customer@example.com/postgres://user:pass@db.internal/app"
-                .to_string(),
-            description: Some("Archive stored at /srv/private/mm_key_archive".to_string()),
+            name: create_name.to_string(),
+            description: Some(create_description.to_string()),
         };
         let update = UpdateArchiveRequest {
-            description: Some("Updated archive notes with sk-live-archive-secret".to_string()),
+            description: Some(update_description.to_string()),
         };
         let clone = CloneArchiveRequest {
-            new_name: "tenant-alpha-clone/private-path".to_string(),
-            description: Some("Clone for customer@example.com".to_string()),
+            new_name: clone_name.to_string(),
+            description: Some(clone_description.to_string()),
         };
 
         let rendered_create = format!("{create:?}");
@@ -677,16 +701,52 @@ mod tests {
         assert!(rendered_update.contains("description_len"));
         assert!(rendered_clone.contains("CloneArchiveRequest"));
         assert!(rendered_clone.contains("new_name_len"));
+        for (rendered, expected) in [
+            (
+                &rendered_create,
+                format!("name_len: {}", create_name.chars().count()),
+            ),
+            (
+                &rendered_create,
+                format!(
+                    "description_len: Some({})",
+                    create_description.chars().count()
+                ),
+            ),
+            (
+                &rendered_update,
+                format!(
+                    "description_len: Some({})",
+                    update_description.chars().count()
+                ),
+            ),
+            (
+                &rendered_clone,
+                format!("new_name_len: {}", clone_name.chars().count()),
+            ),
+            (
+                &rendered_clone,
+                format!(
+                    "description_len: Some({})",
+                    clone_description.chars().count()
+                ),
+            ),
+        ] {
+            assert!(
+                rendered.contains(&expected),
+                "archive request Debug output should retain exact character-count metadata {expected:?}: {rendered}"
+            );
+        }
 
         for raw in [
             "tenant-alpha",
-            "customer@example.com",
+            "cüstomer@example.com",
             "postgres://user:pass",
             "db.internal",
             "/srv/private",
-            "mm_key_archive",
+            "mm_key_archivé",
             "sk-live-archive-secret",
-            "tenant-alpha-clone",
+            "tenant-alpha-cloné",
             "private-path",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
