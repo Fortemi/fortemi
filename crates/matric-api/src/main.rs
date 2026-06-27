@@ -14631,6 +14631,27 @@ struct ColdSpotQuery {
     max_accesses: Option<i32>,
 }
 
+#[derive(sqlx::FromRow)]
+struct ColdNote {
+    id: Uuid,
+    title: Option<String>,
+    access_count: Option<i32>,
+    last_accessed_at: Option<chrono::DateTime<chrono::Utc>>,
+    created_at_utc: chrono::DateTime<chrono::Utc>,
+}
+
+impl fmt::Debug for ColdNote {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ColdNote")
+            .field("id_set", &true)
+            .field("title_len", &self.title.as_ref().map(String::len))
+            .field("access_count", &self.access_count)
+            .field("last_accessed_at_set", &self.last_accessed_at.is_some())
+            .field("created_at_utc", &self.created_at_utc)
+            .finish()
+    }
+}
+
 /// Detect underexplored knowledge clusters ("cold spots") in the graph.
 ///
 /// Combines graph isolation (degree 0), low access frequency, and temporal
@@ -14663,15 +14684,6 @@ async fn get_cold_spots(
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
 
     // --- Isolated notes (degree 0 in link graph) ---
-    #[derive(sqlx::FromRow, Debug)]
-    struct ColdNote {
-        id: Uuid,
-        title: Option<String>,
-        access_count: Option<i32>,
-        last_accessed_at: Option<chrono::DateTime<chrono::Utc>>,
-        created_at_utc: chrono::DateTime<chrono::Utc>,
-    }
-
     let isolated: Vec<ColdNote> = {
         let lim = limit;
         ctx.query(move |tx| {
@@ -28027,11 +28039,22 @@ mod tests {
                 "snapshot_mm_key_graph".to_string(),
             ]),
         };
+        let cold_note_id = Uuid::new_v4();
+        let cold_note = ColdNote {
+            id: cold_note_id,
+            title: Some("cold note customer@example.com sk-live-cold".to_string()),
+            access_count: Some(1),
+            last_accessed_at: None,
+            created_at_utc: chrono::Utc::now(),
+        };
 
         let rendered_query = format!("{query:?}");
         let rendered_snapshot = format!("{snapshot:?}");
         let rendered_maintenance = format!("{maintenance:?}");
-        let combined = format!("{rendered_query}\n{rendered_snapshot}\n{rendered_maintenance}");
+        let rendered_cold_note = format!("{cold_note:?}");
+        let combined = format!(
+            "{rendered_query}\n{rendered_snapshot}\n{rendered_maintenance}\n{rendered_cold_note}"
+        );
 
         assert!(rendered_query.contains("GraphQuery"));
         assert!(rendered_query.contains("edge_filter_len"));
@@ -28040,6 +28063,9 @@ mod tests {
         assert!(rendered_maintenance.contains("GraphMaintenanceBody"));
         assert!(rendered_maintenance.contains("steps_count"));
         assert!(rendered_maintenance.contains("step_lens"));
+        assert!(rendered_cold_note.contains("ColdNote"));
+        assert!(rendered_cold_note.contains("title_len"));
+        assert!(rendered_cold_note.contains("id_set"));
 
         for raw in [
             "customer@example.com",
@@ -28050,6 +28076,9 @@ mod tests {
             "/srv/private/graph.json",
             "normalize_private_customer",
             "snapshot_mm_key_graph",
+            "cold note",
+            "sk-live-cold",
+            &cold_note_id.to_string(),
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
