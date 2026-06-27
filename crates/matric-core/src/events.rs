@@ -47,7 +47,7 @@ pub struct EventActor {
 impl fmt::Debug for EventActor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EventActor")
-            .field("kind_len", &self.kind.len())
+            .field("kind_len", &text_len(&self.kind))
             .field("id_len", &optional_str_len(self.id.as_deref()))
             .field("name_len", &optional_str_len(self.name.as_deref()))
             .finish()
@@ -174,7 +174,7 @@ impl fmt::Debug for EventEnvelope {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EventEnvelope")
             .field("event_id_present", &true)
-            .field("event_type_len", &self.event_type.len())
+            .field("event_type_len", &text_len(&self.event_type))
             .field("occurred_at", &self.occurred_at)
             .field("memory_len", &optional_str_len(self.memory.as_deref()))
             .field(
@@ -196,7 +196,7 @@ impl fmt::Debug for EventEnvelope {
             .field("payload_variant", &self.payload.event_type())
             .field(
                 "payload_type_len",
-                &self.payload.namespaced_event_type().len(),
+                &text_len(self.payload.namespaced_event_type()),
             )
             .finish()
     }
@@ -517,7 +517,7 @@ impl fmt::Debug for ServerEvent {
             } => {
                 debug
                     .field("job_id_present", &true)
-                    .field("job_type_len", &job_type.len())
+                    .field("job_type_len", &text_len(job_type))
                     .field("note_id_present", &note_id.is_some());
             }
             ServerEvent::JobProgress {
@@ -540,7 +540,7 @@ impl fmt::Debug for ServerEvent {
             } => {
                 debug
                     .field("job_id_present", &true)
-                    .field("job_type_len", &job_type.len())
+                    .field("job_type_len", &text_len(job_type))
                     .field("note_id_present", &note_id.is_some())
                     .field("duration_ms", duration_ms);
             }
@@ -552,9 +552,9 @@ impl fmt::Debug for ServerEvent {
             } => {
                 debug
                     .field("job_id_present", &true)
-                    .field("job_type_len", &job_type.len())
+                    .field("job_type_len", &text_len(job_type))
                     .field("note_id_present", &note_id.is_some())
-                    .field("error_len", &error.len());
+                    .field("error_len", &text_len(error));
             }
             ServerEvent::NoteUpdated {
                 title,
@@ -614,7 +614,7 @@ impl fmt::Debug for ServerEvent {
             | ServerEvent::CollectionUpdated { name, .. } => {
                 debug
                     .field("collection_id_present", &true)
-                    .field("name_len", &name.len());
+                    .field("name_len", &text_len(name));
             }
             ServerEvent::CollectionMembershipChanged { collection_id, .. } => {
                 debug
@@ -623,13 +623,13 @@ impl fmt::Debug for ServerEvent {
             }
             ServerEvent::ArchiveCreated { name, archive_id } => {
                 debug
-                    .field("name_len", &name.len())
+                    .field("name_len", &text_len(name))
                     .field("archive_id_present", &archive_id.is_some());
             }
             ServerEvent::ArchiveUpdated { name }
             | ServerEvent::ArchiveDeleted { name }
             | ServerEvent::ArchiveDefaultChanged { name } => {
-                debug.field("name_len", &name.len());
+                debug.field("name_len", &text_len(name));
             }
             ServerEvent::ConceptCreated { scheme_id, .. } => {
                 debug
@@ -639,7 +639,7 @@ impl fmt::Debug for ServerEvent {
             ServerEvent::ConceptRelationsUpdated { relation_type, .. } => {
                 debug
                     .field("concept_id_present", &true)
-                    .field("relation_type_len", &relation_type.len());
+                    .field("relation_type_len", &text_len(relation_type));
             }
             ServerEvent::ConceptSchemeChanged { scheme_id, .. } => {
                 debug
@@ -652,12 +652,12 @@ impl fmt::Debug for ServerEvent {
                     .field("collection_id_present", &collection_id.is_some());
             }
             ServerEvent::TagCreated { tag } | ServerEvent::TagDeleted { tag } => {
-                debug.field("tag_len", &tag.len());
+                debug.field("tag_len", &text_len(tag));
             }
             ServerEvent::TagRenamed { old_name, new_name } => {
                 debug
-                    .field("old_name_len", &old_name.len())
-                    .field("new_name_len", &new_name.len());
+                    .field("old_name_len", &text_len(old_name))
+                    .field("new_name_len", &text_len(new_name));
             }
             ServerEvent::TagMerged {
                 source_tag,
@@ -665,13 +665,13 @@ impl fmt::Debug for ServerEvent {
                 affected_count,
             } => {
                 debug
-                    .field("source_tag_len", &source_tag.len())
-                    .field("target_tag_len", &target_tag.len())
+                    .field("source_tag_len", &text_len(source_tag))
+                    .field("target_tag_len", &text_len(target_tag))
                     .field("affected_count", affected_count);
             }
             ServerEvent::TagStatsUpdated => {}
             ServerEvent::JobsPaused { scope } | ServerEvent::JobsResumed { scope } => {
-                debug.field("scope_len", &scope.len());
+                debug.field("scope_len", &text_len(scope));
             }
             ServerEvent::IndexEmbeddingUpdated { job_id, .. }
             | ServerEvent::IndexLinkingUpdated { job_id, .. }
@@ -692,7 +692,7 @@ impl fmt::Debug for ServerEvent {
                 changed_fields,
             } => {
                 debug
-                    .field("default_backend_len", &default_backend.len())
+                    .field("default_backend_len", &text_len(default_backend))
                     .field(
                         "embedding_backend_len",
                         &optional_str_len(embedding_backend.as_deref()),
@@ -1020,11 +1020,15 @@ impl ServerEvent {
 }
 
 fn optional_str_len(value: Option<&str>) -> Option<usize> {
-    value.map(str::len)
+    value.map(text_len)
 }
 
 fn string_lens(values: &[String]) -> Vec<usize> {
-    values.iter().map(|value| value.len()).collect()
+    values.iter().map(|value| text_len(value)).collect()
+}
+
+fn text_len(value: &str) -> usize {
+    value.chars().count()
 }
 
 // ============================================================================
@@ -1053,7 +1057,7 @@ impl fmt::Debug for EventVariantMeta {
             .field("variant_name", &self.variant_name)
             .field("entity_type", &self.entity_type)
             .field("priority", &self.priority)
-            .field("description_len", &self.description.len())
+            .field("description_len", &text_len(self.description))
             .finish()
     }
 }
@@ -1426,7 +1430,7 @@ struct EventBusTelemetry {
 
 fn event_bus_telemetry(envelope: &EventEnvelope) -> EventBusTelemetry {
     EventBusTelemetry {
-        event_type_len: envelope.event_type.len(),
+        event_type_len: text_len(&envelope.event_type),
         event_id_present: true,
         memory_len: optional_str_len(envelope.memory.as_deref()),
     }
@@ -1655,9 +1659,9 @@ mod tests {
     fn event_debug_redacts_payload_context_actor_and_config_values() {
         let event = ServerEvent::NoteUpdated {
             note_id: Uuid::new_v4(),
-            title: Some("Private note title for owner@example.internal".to_string()),
+            title: Some("Priváté note title for owner@example.internal".to_string()),
             tags: vec![
-                "secret-tag-owner@example.internal".to_string(),
+                "sëcret-tag-owner@example.internal".to_string(),
                 "postgres://user:secret@db.internal/fortemi".to_string(),
             ],
             has_ai_content: true,
@@ -1671,23 +1675,26 @@ mod tests {
             &event_debug,
             &[
                 "Private note title",
+                "Priváté note title",
                 "owner@example.internal",
-                "secret-tag-owner@example.internal",
+                "sëcret-tag-owner@example.internal",
                 "postgres://user:secret@db.internal/fortemi",
             ],
         );
+        assert!(event_debug.contains("title_len: Some(45)"));
+        assert!(event_debug.contains("tag_lens: [33, 42]"));
 
         let mut context = EventContext::default();
-        context.memory = Some("customer-private-memory@example.internal".to_string());
+        context.memory = Some("custömér-private-memory@example.internal".to_string());
         let envelope = EventEnvelope::with_context(event.clone(), context);
         let telemetry = event_bus_telemetry(&envelope);
         let telemetry_debug = format!("{telemetry:?}");
 
-        assert_eq!(telemetry.event_type_len, "note.updated".len());
+        assert_eq!(telemetry.event_type_len, "note.updated".chars().count());
         assert!(telemetry.event_id_present);
         assert_eq!(
             telemetry.memory_len,
-            Some("customer-private-memory@example.internal".chars().count())
+            Some("custömér-private-memory@example.internal".chars().count())
         );
         let event_id = envelope.event_id.to_string();
         assert_debug_excludes(
@@ -1695,23 +1702,25 @@ mod tests {
             &[
                 &event_id,
                 "note.updated",
-                "customer-private-memory@example.internal",
+                "custömér-private-memory@example.internal",
             ],
         );
 
         let failed = ServerEvent::JobFailed {
             job_id: Uuid::new_v4(),
-            job_type: "ExtractionJobPrivate".to_string(),
+            job_type: "ExtráctiönJobPrivate".to_string(),
             note_id: Some(Uuid::new_v4()),
-            error: "backend failed at /srv/private/file.pdf with sk-job-secret".to_string(),
+            error: "backend failed at /srv/priváté/file.pdf with sk-job-secret".to_string(),
         };
         let failed_debug = format!("{failed:?}");
         assert!(failed_debug.contains("error_len"));
+        assert!(failed_debug.contains("job_type_len: 20"));
+        assert!(failed_debug.contains("error_len: 58"));
         assert_debug_excludes(
             &failed_debug,
             &[
-                "ExtractionJobPrivate",
-                "/srv/private/file.pdf",
+                "ExtráctiönJobPrivate",
+                "/srv/priváté/file.pdf",
                 "sk-job-secret",
             ],
         );
@@ -1720,7 +1729,7 @@ mod tests {
             job_id: Uuid::new_v4(),
             note_id: Some(Uuid::new_v4()),
             progress: 42,
-            message: Some("Processing private@example.internal via /tmp/private".to_string()),
+            message: Some("Pröcessing private@example.internal via /tmp/private".to_string()),
         };
         let progress_debug = format!("{progress:?}");
         assert!(progress_debug.contains("message_len"));
@@ -1732,56 +1741,63 @@ mod tests {
         let attachment = ServerEvent::AttachmentCreated {
             attachment_id: Uuid::new_v4(),
             note_id: Uuid::new_v4(),
-            filename: Some("secret-owner@example.internal.pdf".to_string()),
+            filename: Some("sëcret-owner@example.internal.pdf".to_string()),
         };
         let attachment_debug = format!("{attachment:?}");
         assert!(attachment_debug.contains("filename_len"));
-        assert_debug_excludes(&attachment_debug, &["secret-owner@example.internal.pdf"]);
+        assert!(attachment_debug.contains("filename_len: Some(33)"));
+        assert_debug_excludes(&attachment_debug, &["sëcret-owner@example.internal.pdf"]);
 
         let archive = ServerEvent::ArchiveCreated {
-            name: "customer-private-archive".to_string(),
+            name: "custömér-private-archive".to_string(),
             archive_id: Some(Uuid::new_v4()),
         };
         let archive_debug = format!("{archive:?}");
         assert!(archive_debug.contains("name_len"));
-        assert_debug_excludes(&archive_debug, &["customer-private-archive"]);
+        assert!(archive_debug.contains("name_len: 24"));
+        assert_debug_excludes(&archive_debug, &["custömér-private-archive"]);
 
         let config = ServerEvent::InferenceConfigChanged {
-            default_backend: "openrouter-private".to_string(),
-            embedding_backend: Some("embedding-private".to_string()),
+            default_backend: "öpenrouter-private".to_string(),
+            embedding_backend: Some("embëdding-private".to_string()),
             changed_fields: vec![
-                "openrouter.api_key".to_string(),
-                "openrouter.base_url".to_string(),
+                "öpenrouter.api_key".to_string(),
+                "öpenrouter.base_url".to_string(),
             ],
         };
         let config_debug = format!("{config:?}");
         assert!(config_debug.contains("changed_fields_count"));
+        assert!(config_debug.contains("default_backend_len: 18"));
+        assert!(config_debug.contains("embedding_backend_len: Some(17)"));
+        assert!(config_debug.contains("changed_field_lens: [18, 19]"));
         assert_debug_excludes(
             &config_debug,
             &[
-                "openrouter-private",
-                "embedding-private",
-                "openrouter.api_key",
-                "openrouter.base_url",
+                "öpenrouter-private",
+                "embëdding-private",
+                "öpenrouter.api_key",
+                "öpenrouter.base_url",
             ],
         );
 
         let actor = EventActor::user(
-            "user-secret-owner@example.internal",
-            Some("Private Operator".to_string()),
+            "usér-secret-owner@example.internal",
+            Some("Priváté Operator".to_string()),
         );
         let actor_debug = format!("{actor:?}");
         assert!(actor_debug.contains("EventActor"));
+        assert!(actor_debug.contains("id_len: Some(34)"));
+        assert!(actor_debug.contains("name_len: Some(16)"));
         assert_debug_excludes(
             &actor_debug,
-            &["user-secret-owner@example.internal", "Private Operator"],
+            &["usér-secret-owner@example.internal", "Priváté Operator"],
         );
 
         let envelope = EventEnvelope::with_context(
             failed,
             EventContext {
-                memory: Some("archive-secret-name".to_string()),
-                tenant_id: Some("tenant-secret-id".to_string()),
+                memory: Some("archivé-secret-name".to_string()),
+                tenant_id: Some("tenánt-secret-id".to_string()),
                 actor: Some(actor),
                 correlation_id: Some(Uuid::new_v4()),
                 causation_id: Some(Uuid::new_v4()),
@@ -1791,15 +1807,17 @@ mod tests {
         assert!(envelope_debug.contains("EventEnvelope"));
         assert!(envelope_debug.contains("payload_variant"));
         assert!(envelope_debug.contains("payload_type_len"));
+        assert!(envelope_debug.contains("memory_len: Some(19)"));
+        assert!(envelope_debug.contains("tenant_id_len: Some(16)"));
         assert!(!envelope_debug.contains("error_len"));
         assert_debug_excludes(
             &envelope_debug,
             &[
-                "archive-secret-name",
-                "tenant-secret-id",
-                "user-secret-owner@example.internal",
-                "Private Operator",
-                "/srv/private/file.pdf",
+                "archivé-secret-name",
+                "tenánt-secret-id",
+                "usér-secret-owner@example.internal",
+                "Priváté Operator",
+                "/srv/priváté/file.pdf",
                 "sk-job-secret",
             ],
         );
