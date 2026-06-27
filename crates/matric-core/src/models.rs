@@ -2930,14 +2930,14 @@ impl fmt::Debug for NoteEntity {
         f.debug_struct("NoteEntity")
             .field("id_set", &true)
             .field("note_id_set", &true)
-            .field("entity_text_len", &self.entity_text.len())
+            .field("entity_text_len", &debug_len(&self.entity_text))
             .field("entity_type", &self.entity_type)
             .field("start_offset_set", &self.start_offset.is_some())
             .field("end_offset_set", &self.end_offset.is_some())
             .field("confidence", &self.confidence)
             .field(
                 "normalized_text_len",
-                &self.normalized_text.as_ref().map(String::len),
+                &optional_debug_len(self.normalized_text.as_ref()),
             )
             .field("created_at", &self.created_at)
             .finish()
@@ -2957,7 +2957,7 @@ pub struct EntityStats {
 impl fmt::Debug for EntityStats {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EntityStats")
-            .field("entity_text_len", &self.entity_text.len())
+            .field("entity_text_len", &debug_len(&self.entity_text))
             .field("doc_frequency", &self.doc_frequency)
             .field("idf_score", &self.idf_score)
             .field("last_updated", &self.last_updated)
@@ -2988,7 +2988,7 @@ impl fmt::Debug for NoteGraphEmbedding {
                 &self
                     .entity_types
                     .iter()
-                    .map(String::len)
+                    .map(|entity_type| debug_len(entity_type))
                     .collect::<Vec<_>>(),
             )
             .field("created_at", &self.created_at)
@@ -3041,11 +3041,11 @@ impl fmt::Debug for FineTuningConfig {
             .field("queries_per_doc", &self.queries_per_doc)
             .field(
                 "query_generator_model_len",
-                &self.query_generator_model.as_ref().map(String::len),
+                &optional_debug_len(self.query_generator_model.as_ref()),
             )
             .field(
                 "quality_filter_model_len",
-                &self.quality_filter_model.as_ref().map(String::len),
+                &optional_debug_len(self.quality_filter_model.as_ref()),
             )
             .field("min_quality_score", &self.min_quality_score)
             .field("include_hard_negatives", &self.include_hard_negatives)
@@ -3091,13 +3091,13 @@ impl fmt::Debug for FineTuningDataset {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FineTuningDataset")
             .field("id_set", &true)
-            .field("name_len", &self.name.len())
+            .field("name_len", &debug_len(&self.name))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &optional_debug_len(self.description.as_ref()),
             )
-            .field("source_type_len", &self.source_type.len())
-            .field("source_id_len", &self.source_id.len())
+            .field("source_type_len", &debug_len(&self.source_type))
+            .field("source_id_len", &debug_len(&self.source_id))
             .field("config", &self.config)
             .field("status", &self.status)
             .field("sample_count", &self.sample_count)
@@ -3107,7 +3107,7 @@ impl fmt::Debug for FineTuningDataset {
             .field("completed_at_set", &self.completed_at.is_some())
             .field(
                 "error_message_len",
-                &self.error_message.as_ref().map(String::len),
+                &optional_debug_len(self.error_message.as_ref()),
             )
             .finish()
     }
@@ -3134,8 +3134,11 @@ impl fmt::Debug for FineTuningSample {
             .field("id_set", &true)
             .field("dataset_id_set", &true)
             .field("note_id_set", &true)
-            .field("query_len", &self.query.len())
-            .field("query_type_len", &self.query_type.as_ref().map(String::len))
+            .field("query_len", &debug_len(&self.query))
+            .field(
+                "query_type_len",
+                &optional_debug_len(self.query_type.as_ref()),
+            )
             .field("quality_score", &self.quality_score)
             .field("is_validation", &self.is_validation)
             .field("created_at", &self.created_at)
@@ -3160,13 +3163,13 @@ pub struct CreateFineTuningDatasetRequest {
 impl fmt::Debug for CreateFineTuningDatasetRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CreateFineTuningDatasetRequest")
-            .field("name_len", &self.name.len())
+            .field("name_len", &debug_len(&self.name))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &optional_debug_len(self.description.as_ref()),
             )
-            .field("source_type_len", &self.source_type.len())
-            .field("source_id_len", &self.source_id.len())
+            .field("source_type_len", &debug_len(&self.source_type))
+            .field("source_id_len", &debug_len(&self.source_id))
             .field("config", &self.config)
             .finish()
     }
@@ -6390,17 +6393,16 @@ mod tests {
         let entity = NoteEntity {
             id: Uuid::new_v4(),
             note_id: Uuid::new_v4(),
-            entity_text: "Private Person private@example.test 555-1212".to_string(),
+            entity_text: "éé".to_string(),
             entity_type: EntityType::Person,
             start_offset: Some(12),
             end_offset: Some(42),
             confidence: Some(0.93),
-            normalized_text: Some("normalized-private-person-sk-live-secret".to_string()),
+            normalized_text: Some("éé".to_string()),
             created_at: now,
         };
         let stats = EntityStats {
-            entity_text: "Private Organization https://provider.example.test/?token=secret"
-                .to_string(),
+            entity_text: "éé".to_string(),
             doc_frequency: 7,
             idf_score: Some(1.25),
             last_updated: now,
@@ -6409,27 +6411,24 @@ mod tests {
             note_id: Uuid::new_v4(),
             vector: Vector::from(vec![0.12345, 0.67891, 0.22222]),
             entity_count: 3,
-            entity_types: vec![
-                "private-person-type".to_string(),
-                "secret-org-type@example.test".to_string(),
-            ],
+            entity_types: vec!["éé".to_string()],
             created_at: now,
             updated_at: now,
         };
         let config = FineTuningConfig {
             queries_per_doc: 4,
-            query_generator_model: Some("private-query-model-sk-live-secret".to_string()),
-            quality_filter_model: Some("private-quality-model".to_string()),
+            query_generator_model: Some("éé".to_string()),
+            quality_filter_model: Some("éé".to_string()),
             min_quality_score: 3.5,
             include_hard_negatives: true,
             validation_split: 0.2,
         };
         let dataset = FineTuningDataset {
             id: Uuid::new_v4(),
-            name: "Private dataset private@example.test".to_string(),
-            description: Some("Dataset description includes /tmp/customer/source.md".to_string()),
-            source_type: "private-source-type".to_string(),
-            source_id: "source-id-token-secret".to_string(),
+            name: "éé".to_string(),
+            description: Some("éé".to_string()),
+            source_type: "éé".to_string(),
+            source_id: "éé".to_string(),
             config: config.clone(),
             status: FineTuningStatus::Failed,
             sample_count: 10,
@@ -6437,27 +6436,23 @@ mod tests {
             validation_count: 2,
             created_at: now,
             completed_at: Some(now),
-            error_message: Some(
-                "Provider error at https://provider.example.test/?token=secret".to_string(),
-            ),
+            error_message: Some("éé".to_string()),
         };
         let sample = FineTuningSample {
             id: Uuid::new_v4(),
             dataset_id: Uuid::new_v4(),
             note_id: Uuid::new_v4(),
-            query: "Generated query asks about private@example.test and sk-live-secret".to_string(),
-            query_type: Some("private-query-type".to_string()),
+            query: "éé".to_string(),
+            query_type: Some("éé".to_string()),
             quality_score: Some(4.2),
             is_validation: true,
             created_at: now,
         };
         let request = CreateFineTuningDatasetRequest {
-            name: "Create private dataset".to_string(),
-            description: Some(
-                "Create description https://create.example.test/?token=secret".to_string(),
-            ),
-            source_type: "tag".to_string(),
-            source_id: "private-tag/source-id".to_string(),
+            name: "éé".to_string(),
+            description: Some("éé".to_string()),
+            source_type: "éé".to_string(),
+            source_id: "éé".to_string(),
             config,
         };
 
@@ -6466,6 +6461,7 @@ mod tests {
         assert_debug_excludes(
             &debug,
             &[
+                "éé",
                 "Private Person",
                 "private@example.test",
                 "555-1212",
@@ -6495,6 +6491,18 @@ mod tests {
         );
 
         for expected in [
+            "entity_text_len: 2",
+            "normalized_text_len: Some(2)",
+            "entity_type_lens: [2]",
+            "query_generator_model_len: Some(2)",
+            "quality_filter_model_len: Some(2)",
+            "name_len: 2",
+            "description_len: Some(2)",
+            "source_type_len: 2",
+            "source_id_len: 2",
+            "error_message_len: Some(2)",
+            "query_len: 2",
+            "query_type_len: Some(2)",
             "entity_text_len",
             "normalized_text_len",
             "vector_dimensions",
