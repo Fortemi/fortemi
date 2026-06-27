@@ -6,6 +6,7 @@
 //! making every externally registered route carry policy/docs/cache metadata.
 
 use std::collections::HashMap;
+use std::fmt;
 
 use axum::http::Method;
 use matric_core::{Action, AuthzContext, Resource, ResourceKind, ScopeFamily};
@@ -41,7 +42,7 @@ pub enum CacheHeaderClass {
     NoStore,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct RoutePolicy {
     pub path: &'static str,
     pub class: PolicyClass,
@@ -50,12 +51,35 @@ pub struct RoutePolicy {
     pub cache: CacheHeaderClass,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+impl fmt::Debug for RoutePolicy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RoutePolicy")
+            .field("path_len", &self.path.chars().count())
+            .field("class", &self.class)
+            .field("action_family_len", &self.action_family.chars().count())
+            .field("docs", &self.docs)
+            .field("cache", &self.cache)
+            .finish()
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
 pub struct RoutePolicyInput {
     pub policy: &'static RoutePolicy,
     pub action: Action,
     pub resource: Resource,
     pub context: AuthzContext,
+}
+
+impl fmt::Debug for RoutePolicyInput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RoutePolicyInput")
+            .field("policy", self.policy)
+            .field("action", &self.action)
+            .field("resource", &self.resource)
+            .field("context", &self.context)
+            .finish()
+    }
 }
 
 struct ResourceIdCandidate {
@@ -1796,6 +1820,87 @@ mod tests {
             input.resource.attrs["requires_backing_resource_normalization"],
             json!(false)
         );
+    }
+
+    #[test]
+    fn route_policy_debug_redacts_route_and_authorization_metadata() {
+        static POLICY: RoutePolicy = RoutePolicy {
+            path: "/api/v1/archives/customer-private@example.internal/{secret}",
+            class: TenantObject,
+            action_family: "archive-secret-action-family",
+            docs: Authenticated,
+            cache: PrivateUserData,
+        };
+
+        let mut resource = Resource::new(ResourceKind::Other(
+            "customer-private-resource-kind".to_string(),
+        ))
+        .with_id("archive-id-secret-123")
+        .with_tenant("tenant-secret-456");
+        resource.attrs.insert(
+            "route_param_secret_key".to_string(),
+            json!("route-param-secret-value"),
+        );
+        resource
+            .attrs
+            .insert("route_template".to_string(), json!(POLICY.path));
+
+        let mut context = AuthzContext::hosted("tenant-secret-456");
+        context.environment.insert(
+            "private-context-key".to_string(),
+            json!("private-context-value"),
+        );
+        context.correlation_id = Some("correlation-secret-789".to_string());
+
+        let input = RoutePolicyInput {
+            policy: &POLICY,
+            action: Action::rest("archive-secret-action", "scope:archive-secret"),
+            resource,
+            context,
+        };
+
+        let output = format!("{:?}\n{:?}", POLICY, input);
+
+        for expected in [
+            "RoutePolicy",
+            "path_len",
+            "action_family_len",
+            "RoutePolicyInput",
+            "Action",
+            "name_len",
+            "required_scope_count",
+            "Resource",
+            "id_present: true",
+            "tenant_id_present: true",
+            "AuthzContext",
+            "environment_count",
+            "correlation_id_present: true",
+        ] {
+            assert!(
+                output.contains(expected),
+                "debug output should contain metadata marker {expected}: {output}"
+            );
+        }
+
+        for raw in [
+            POLICY.path,
+            POLICY.action_family,
+            "customer-private-resource-kind",
+            "archive-id-secret-123",
+            "tenant-secret-456",
+            "route_param_secret_key",
+            "route-param-secret-value",
+            "private-context-key",
+            "private-context-value",
+            "correlation-secret-789",
+            "archive-secret-action",
+            "scope:archive-secret",
+        ] {
+            assert!(
+                !output.contains(raw),
+                "debug output leaked raw policy/authz value {raw}: {output}"
+            );
+        }
     }
 
     #[test]
