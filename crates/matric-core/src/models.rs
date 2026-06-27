@@ -3864,7 +3864,7 @@ impl std::fmt::Display for ProvRelation {
 }
 
 /// Edge in the provenance graph (W3C PROV Entity relationship).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ProvenanceEdge {
     pub id: Uuid,
     pub revision_id: Uuid,
@@ -3874,8 +3874,21 @@ pub struct ProvenanceEdge {
     pub created_at_utc: DateTime<Utc>,
 }
 
+impl fmt::Debug for ProvenanceEdge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProvenanceEdge")
+            .field("id_set", &true)
+            .field("revision_id_set", &true)
+            .field("source_note_id_set", &self.source_note_id.is_some())
+            .field("source_url_len", &self.source_url.as_ref().map(String::len))
+            .field("relation_len", &self.relation.len())
+            .field("created_at_utc", &self.created_at_utc)
+            .finish()
+    }
+}
+
 /// W3C PROV Activity - tracks an AI processing operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ProvenanceActivity {
     pub id: Uuid,
     pub note_id: Uuid,
@@ -3887,8 +3900,30 @@ pub struct ProvenanceActivity {
     pub metadata: Option<serde_json::Value>,
 }
 
+impl fmt::Debug for ProvenanceActivity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProvenanceActivity")
+            .field("id_set", &true)
+            .field("note_id_set", &true)
+            .field("revision_id_set", &self.revision_id.is_some())
+            .field("activity_type_len", &self.activity_type.len())
+            .field("model_name_len", &self.model_name.as_ref().map(String::len))
+            .field("started_at", &self.started_at)
+            .field("ended_at_set", &self.ended_at.is_some())
+            .field(
+                "metadata_class",
+                &self.metadata.as_ref().map(json_value_class),
+            )
+            .field(
+                "metadata_len",
+                &self.metadata.as_ref().map(json_serialized_len),
+            )
+            .finish()
+    }
+}
+
 /// Complete provenance chain for a note's revision.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ProvenanceChain {
     pub note_id: Uuid,
     pub revision_id: Uuid,
@@ -3896,12 +3931,33 @@ pub struct ProvenanceChain {
     pub edges: Vec<ProvenanceEdge>,
 }
 
+impl fmt::Debug for ProvenanceChain {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProvenanceChain")
+            .field("note_id_set", &true)
+            .field("revision_id_set", &true)
+            .field("activity_set", &self.activity.is_some())
+            .field("edges_count", &self.edges.len())
+            .finish()
+    }
+}
+
 /// Node in the revision tree.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct RevisionNode {
     pub id: Uuid,
     pub parent_revision_id: Option<Uuid>,
     pub created_at_utc: DateTime<Utc>,
+}
+
+impl fmt::Debug for RevisionNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RevisionNode")
+            .field("id_set", &true)
+            .field("parent_revision_id_set", &self.parent_revision_id.is_some())
+            .field("created_at_utc", &self.created_at_utc)
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -6156,6 +6212,78 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "Collection/archive/user metadata Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn provenance_debug_redacts_urls_activity_models_and_metadata() {
+        let now = Utc::now();
+        let edge = ProvenanceEdge {
+            id: Uuid::new_v4(),
+            revision_id: Uuid::new_v4(),
+            source_note_id: Some(Uuid::new_v4()),
+            source_url: Some("https://source.example.test/private?token=secret".to_string()),
+            relation: "used-private-source-sk-live-secret".to_string(),
+            created_at_utc: now,
+        };
+        let activity = ProvenanceActivity {
+            id: Uuid::new_v4(),
+            note_id: Uuid::new_v4(),
+            revision_id: Some(Uuid::new_v4()),
+            activity_type: "private-ai-revision".to_string(),
+            model_name: Some("private-model-name".to_string()),
+            started_at: now,
+            ended_at: Some(now),
+            metadata: Some(json!({
+                "prompt": "Rewrite private@example.test using sk-live-secret",
+                "source_path": "/tmp/customer/provenance.md",
+                "provider_url": "https://provider.example.test/?token=secret"
+            })),
+        };
+        let chain = ProvenanceChain {
+            note_id: Uuid::new_v4(),
+            revision_id: Uuid::new_v4(),
+            activity: Some(activity.clone()),
+            edges: vec![edge.clone()],
+        };
+        let node = RevisionNode {
+            id: Uuid::new_v4(),
+            parent_revision_id: Some(Uuid::new_v4()),
+            created_at_utc: now,
+        };
+
+        let debug = format!("{edge:?}{activity:?}{chain:?}{node:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "source.example.test",
+                "token=secret",
+                "used-private-source",
+                "sk-live-secret",
+                "private-ai-revision",
+                "private-model-name",
+                "Rewrite private@example.test",
+                "/tmp/customer/provenance.md",
+                "provider.example.test",
+            ],
+        );
+
+        for expected in [
+            "source_url_len",
+            "relation_len",
+            "activity_type_len",
+            "model_name_len",
+            "metadata_class",
+            "metadata_len",
+            "activity_set",
+            "edges_count",
+            "parent_revision_id_set",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Provenance Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
