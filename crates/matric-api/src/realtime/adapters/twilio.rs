@@ -231,17 +231,18 @@ pub fn translate_media_stream_json(input: &str) -> Result<TwilioTranslatedEvent>
             media,
             sequence_number,
         } => {
-            let payload = BASE64.decode(media.payload.as_bytes()).map_err(|err| {
-                Error::InvalidInput(format!("invalid Twilio media payload: {err}"))
-            })?;
-            let timestamp_rtp = media.timestamp.parse::<u32>().map_err(|err| {
-                Error::InvalidInput(format!("invalid Twilio media timestamp: {err}"))
-            })?;
+            let payload = BASE64
+                .decode(media.payload.as_bytes())
+                .map_err(|err| twilio_adapter_parse_error("media payload", err))?;
+            let timestamp_rtp = media
+                .timestamp
+                .parse::<u32>()
+                .map_err(|err| twilio_adapter_parse_error("media timestamp", err))?;
             let sequence = sequence_number
                 .as_deref()
                 .unwrap_or(&media.chunk)
                 .parse::<u32>()
-                .map_err(|err| Error::InvalidInput(format!("invalid Twilio sequence: {err}")))?;
+                .map_err(|err| twilio_adapter_parse_error("sequence", err))?;
             Ok(TwilioTranslatedEvent::Media(MediaFrame {
                 codec: Codec::PcmuG711 { sample_rate: 8_000 },
                 timestamp_rtp,
@@ -552,6 +553,38 @@ fn twilio_text_len(value: &str) -> usize {
     value.chars().count()
 }
 
+fn twilio_adapter_parse_error(kind: &'static str, err: impl fmt::Display) -> Error {
+    let diagnostic = err.to_string();
+    Error::InvalidInput(format!(
+        "invalid Twilio {kind}; diagnostic_class={}; diagnostic_len={}",
+        twilio_parse_diagnostic_class(&diagnostic),
+        twilio_text_len(&diagnostic)
+    ))
+}
+
+fn twilio_parse_diagnostic_class(value: &str) -> &'static str {
+    let lower = value.to_ascii_lowercase();
+    if value.is_empty() {
+        "empty"
+    } else if value.chars().any(char::is_control) {
+        "control_chars"
+    } else if lower.contains("secret")
+        || lower.contains("token")
+        || lower.contains("password")
+        || lower.contains("apikey")
+        || lower.contains("api_key")
+        || lower.contains("sk-")
+    {
+        "secret_candidate"
+    } else if lower.contains("://") || lower.starts_with("http") {
+        "url_like"
+    } else if value.contains('/') || value.contains('\\') {
+        "path_like"
+    } else {
+        "text"
+    }
+}
+
 fn twilio_url_class(raw: &str) -> &'static str {
     let lower = raw.to_ascii_lowercase();
     if !(lower.starts_with("http://") || lower.starts_with("https://")) {
@@ -602,7 +635,7 @@ fn twilio_url_class(raw: &str) -> &'static str {
 
 pub fn translate_voice_webhook_form(input: &[u8]) -> Result<TwilioVoiceWebhookEvent> {
     let form: TwilioVoiceWebhookForm = serde_urlencoded::from_bytes(input)
-        .map_err(|err| Error::InvalidInput(format!("invalid Twilio webhook form: {err}")))?;
+        .map_err(|err| twilio_adapter_parse_error("webhook form", err))?;
     form.into_event()
 }
 
@@ -898,6 +931,62 @@ mod tests {
             "consent_confirmed",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn twilio_parse_errors_report_classes_without_raw_diagnostics() {
+        let secret_diagnostic =
+            "failed to parse token sk-live-secret from postgres://user:pass@db.internal/app";
+        let error = twilio_adapter_parse_error("webhook form", secret_diagnostic);
+        let message = match error {
+            Error::InvalidInput(message) => message,
+            other => panic!("unexpected error: {other:?}"),
+        };
+
+        assert!(message.contains("invalid Twilio webhook form"));
+        assert!(message.contains("diagnostic_class=secret_candidate"));
+        assert!(message.contains(&format!(
+            "diagnostic_len={}",
+            secret_diagnostic.chars().count()
+        )));
+        for raw in [
+            "sk-live-secret",
+            "postgres://user:pass",
+            "db.internal",
+            "token ",
+        ] {
+            assert!(!message.contains(raw), "raw diagnostic leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn twilio_media_parse_errors_redact_provider_values() {
+        for (input, raw_values) in [
+            (
+                r#"{"event":"media","sequenceNumber":"7","media":{"payload":"sk-live-secret","timestamp":"160","chunk":"3"}}"#,
+                ["sk-live-secret", "sequenceNumber", "chunk"],
+            ),
+            (
+                r#"{"event":"media","sequenceNumber":"7","media":{"payload":"AQIDBA==","timestamp":"postgres://user:pass@db.internal/app","chunk":"3"}}"#,
+                ["postgres://user:pass", "db.internal", "AQIDBA=="],
+            ),
+            (
+                r#"{"event":"media","sequenceNumber":"sk-live-sequence","media":{"payload":"AQIDBA==","timestamp":"160","chunk":"3"}}"#,
+                ["sk-live-sequence", "AQIDBA==", "chunk"],
+            ),
+        ] {
+            let error = translate_media_stream_json(input).expect_err("input should fail parsing");
+            let message = match error {
+                Error::InvalidInput(message) => message,
+                other => panic!("unexpected error: {other:?}"),
+            };
+
+            assert!(message.contains("diagnostic_class="));
+            assert!(message.contains("diagnostic_len="));
+            for raw in raw_values {
+                assert!(!message.contains(raw), "raw provider value leaked: {raw}");
+            }
         }
     }
 
