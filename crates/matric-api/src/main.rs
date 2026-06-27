@@ -601,6 +601,12 @@ fn collection_not_found() -> ApiError {
     ApiError::NotFound("Collection not found.".to_string())
 }
 
+fn collection_not_empty_error(_note_count: i64) -> matric_core::Error {
+    matric_core::Error::InvalidInput(
+        "Collection is not empty; note_count_present=true; force_required=true".to_string(),
+    )
+}
+
 fn note_not_found() -> ApiError {
     ApiError::NotFound("Note not found.".to_string())
 }
@@ -14058,10 +14064,7 @@ async fn delete_collection(
             if !force {
                 let count = repo.count_notes_tx(tx, id).await?;
                 if count > 0 {
-                    return Err(matric_core::Error::InvalidInput(format!(
-                        "Collection contains {} note(s). Use force=true to delete anyway.",
-                        count
-                    )));
+                    return Err(collection_not_empty_error(count));
                 }
             }
             repo.delete_tx(tx, id).await
@@ -14069,7 +14072,7 @@ async fn delete_collection(
     })
     .await
     .map_err(|err| match &err {
-        matric_core::Error::InvalidInput(msg) if msg.contains("force=true") => {
+        matric_core::Error::InvalidInput(msg) if msg.contains("force_required=true") => {
             ApiError::Conflict(msg.clone())
         }
         _ => ApiError::from(err),
@@ -30720,6 +30723,30 @@ mod tests {
         assert!(!body.contains(&submitted_collection_id.to_string()));
         assert!(!body.contains("018ff7d2"));
         assert!(!body.contains("abcdef123456"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn collection_not_empty_error_does_not_echo_note_count() {
+        let submitted_note_count = 42_i64;
+        let err = ApiError::Conflict(match collection_not_empty_error(submitted_note_count) {
+            matric_core::Error::InvalidInput(msg) => msg,
+            other => panic!("expected invalid input error, got {other:?}"),
+        });
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/conflict");
+        assert_eq!(
+            problem["detail"],
+            "Collection is not empty; note_count_present=true; force_required=true"
+        );
+
+        let body = problem.to_string();
+        assert!(!body.contains(&submitted_note_count.to_string()));
+        assert!(!body.contains("note(s)"));
+        assert!(body.contains("force_required=true"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
     }
