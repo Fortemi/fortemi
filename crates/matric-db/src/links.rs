@@ -2553,7 +2553,7 @@ impl fmt::Debug for DiagnosticsDelta {
 }
 
 /// Result of SNN recomputation (#474).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct SnnResult {
     pub total_edges: usize,
     pub updated: usize,
@@ -2565,8 +2565,29 @@ pub struct SnnResult {
     pub snn_score_distribution: Vec<i64>,
 }
 
+impl fmt::Debug for SnnResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SnnResult")
+            .field("total_edges", &self.total_edges)
+            .field("updated", &self.updated)
+            .field("pruned", &self.pruned)
+            .field("k_used", &self.k_used)
+            .field("threshold_used", &self.threshold_used)
+            .field("dry_run", &self.dry_run)
+            .field(
+                "snn_score_distribution_count",
+                &self.snn_score_distribution.len(),
+            )
+            .field(
+                "snn_score_distribution_total",
+                &self.snn_score_distribution.iter().sum::<i64>(),
+            )
+            .finish()
+    }
+}
+
 /// Result of PFNET sparsification (#476).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct PfnetResult {
     pub total_edges: usize,
     pub retained: usize,
@@ -2574,6 +2595,19 @@ pub struct PfnetResult {
     pub retention_ratio: f64,
     pub q_used: usize,
     pub dry_run: bool,
+}
+
+impl fmt::Debug for PfnetResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PfnetResult")
+            .field("total_edges", &self.total_edges)
+            .field("retained", &self.retained)
+            .field("pruned", &self.pruned)
+            .field("retention_ratio", &self.retention_ratio)
+            .field("q_used", &self.q_used)
+            .field("dry_run", &self.dry_run)
+            .finish()
+    }
 }
 
 /// Result of MRL 64-dim coarse community detection (#477).
@@ -3280,6 +3314,44 @@ mod tests {
         assert!(debug.contains("modularity_q_set"));
         assert!(debug.contains("community_count_set"));
         assert!(debug.contains("pfnet_retention_ratio_set"));
+    }
+
+    #[test]
+    fn graph_maintenance_result_debug_summarizes_metric_distribution() {
+        let snn = SnnResult {
+            total_edges: 123,
+            updated: 45,
+            pruned: 6,
+            k_used: 7,
+            threshold_used: 0.33333,
+            dry_run: true,
+            snn_score_distribution: vec![101, 202, 303],
+        };
+        let pfnet = PfnetResult {
+            total_edges: 123,
+            retained: 98,
+            pruned: 25,
+            retention_ratio: 0.7967,
+            q_used: 2,
+            dry_run: true,
+        };
+
+        let snn_debug = format!("{snn:?}");
+        let pfnet_debug = format!("{pfnet:?}");
+
+        for forbidden in ["101, 202, 303", "[101", "303]"] {
+            assert!(
+                !snn_debug.contains(forbidden),
+                "SNN result debug leaked raw score distribution {forbidden}"
+            );
+        }
+
+        assert!(snn_debug.contains("SnnResult"));
+        assert!(snn_debug.contains("snn_score_distribution_count"));
+        assert!(snn_debug.contains("snn_score_distribution_total"));
+        assert!(pfnet_debug.contains("PfnetResult"));
+        assert!(pfnet_debug.contains("retention_ratio"));
+        assert!(pfnet_debug.contains("q_used"));
     }
 
     // PFNET sparsification tests (#476)
