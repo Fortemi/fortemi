@@ -20411,9 +20411,17 @@ async fn backup_trigger(
     };
 
     // Run pg_dump
-    let output = std::process::Command::new("pg_dump")
-        .args(["-U", "matric", "-h", "localhost", "matric"])
-        .env("PGPASSWORD", "matric")
+    let pg = backup_pg_connection("Database backup")?;
+    let mut command = std::process::Command::new("pg_dump");
+    command.args([
+        "-U",
+        pg.user.as_str(),
+        "-h",
+        pg.host.as_str(),
+        pg.database.as_str(),
+    ]);
+    apply_backup_pg_env(&mut command, &pg);
+    let output = command
         .output()
         .map_err(|e| backup_operation_failed("Database backup", "spawn pg_dump", e))?;
 
@@ -20569,6 +20577,48 @@ fn log_backup_post_restore_warning(command: &'static str, status_code: Option<i3
         stderr_len = stderr.len(),
         "backup post-restore maintenance completed with warnings"
     );
+}
+
+#[derive(Clone)]
+struct BackupPgConnection {
+    user: String,
+    host: String,
+    database: String,
+    password: Option<String>,
+    passfile: Option<String>,
+}
+
+fn backup_pg_connection(operation: &'static str) -> Result<BackupPgConnection, ApiError> {
+    let password = std::env::var("PGPASSWORD")
+        .ok()
+        .filter(|value| !value.is_empty());
+    let passfile = std::env::var("PGPASSFILE")
+        .ok()
+        .filter(|value| !value.is_empty());
+
+    if password.is_none() && passfile.is_none() {
+        return Err(ApiError::OperationFailed {
+            operation,
+            detail: "database credential source missing; set PGPASSWORD or PGPASSFILE".to_string(),
+        });
+    }
+
+    Ok(BackupPgConnection {
+        user: std::env::var("PGUSER").unwrap_or_else(|_| "matric".to_string()),
+        host: std::env::var("PGHOST").unwrap_or_else(|_| "localhost".to_string()),
+        database: std::env::var("PGDATABASE").unwrap_or_else(|_| "matric".to_string()),
+        password,
+        passfile,
+    })
+}
+
+fn apply_backup_pg_env(command: &mut std::process::Command, pg: &BackupPgConnection) {
+    if let Some(password) = &pg.password {
+        command.env("PGPASSWORD", password);
+    }
+    if let Some(passfile) = &pg.passfile {
+        command.env("PGPASSFILE", passfile);
+    }
 }
 
 #[derive(Serialize)]
@@ -25496,17 +25546,19 @@ async fn memory_backup_download(
     let filename = memory_backup_download_filename(&name, &timestamp);
 
     // Run pg_dump with --schema to export only this memory's schema
-    let output = std::process::Command::new("pg_dump")
-        .args([
-            "-U",
-            "matric",
-            "-h",
-            "localhost",
-            "--schema",
-            &archive.schema_name,
-            "matric",
-        ])
-        .env("PGPASSWORD", "matric")
+    let pg = backup_pg_connection("Memory backup")?;
+    let mut command = std::process::Command::new("pg_dump");
+    command.args([
+        "-U",
+        pg.user.as_str(),
+        "-h",
+        pg.host.as_str(),
+        "--schema",
+        archive.schema_name.as_str(),
+        pg.database.as_str(),
+    ]);
+    apply_backup_pg_env(&mut command, &pg);
+    let output = command
         .output()
         .map_err(|e| backup_operation_failed("Memory backup", "spawn pg_dump", e))?;
 
@@ -25552,9 +25604,17 @@ async fn database_backup_download(
     let filename = format!("{}_database_{}.sql.gz", backup_prefix::SNAPSHOT, timestamp);
 
     // Run pg_dump and stream output
-    let output = std::process::Command::new("pg_dump")
-        .args(["-U", "matric", "-h", "localhost", "matric"])
-        .env("PGPASSWORD", "matric")
+    let pg = backup_pg_connection("Database backup")?;
+    let mut command = std::process::Command::new("pg_dump");
+    command.args([
+        "-U",
+        pg.user.as_str(),
+        "-h",
+        pg.host.as_str(),
+        pg.database.as_str(),
+    ]);
+    apply_backup_pg_env(&mut command, &pg);
+    let output = command
         .output()
         .map_err(|e| backup_operation_failed("Database backup", "spawn pg_dump", e))?;
 
@@ -25644,9 +25704,17 @@ async fn database_backup_snapshot(
     let path = std::path::Path::new(&backup_dir).join(&filename);
 
     // Run pg_dump
-    let output = std::process::Command::new("pg_dump")
-        .args(["-U", "matric", "-h", "localhost", "matric"])
-        .env("PGPASSWORD", "matric")
+    let pg = backup_pg_connection("Database backup snapshot")?;
+    let mut command = std::process::Command::new("pg_dump");
+    command.args([
+        "-U",
+        pg.user.as_str(),
+        "-h",
+        pg.host.as_str(),
+        pg.database.as_str(),
+    ]);
+    apply_backup_pg_env(&mut command, &pg);
+    let output = command
         .output()
         .map_err(|e| backup_operation_failed("Database backup snapshot", "spawn pg_dump", e))?;
 
@@ -25966,14 +26034,23 @@ async fn memory_scoped_restore(
 
     // Step 2: Feed the dump SQL to psql.
     // The dump (from pg_dump --schema) will CREATE SCHEMA + all objects.
+    let pg = backup_pg_connection("Memory restore")?;
     let output = tokio::task::spawn_blocking(move || {
-        let mut child = std::process::Command::new("psql")
-            .args(["-U", "matric", "-h", "localhost", "-d", "matric"])
-            .env("PGPASSWORD", "matric")
+        let mut command = std::process::Command::new("psql");
+        command
+            .args([
+                "-U",
+                pg.user.as_str(),
+                "-h",
+                pg.host.as_str(),
+                "-d",
+                pg.database.as_str(),
+            ])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()?;
+            .stderr(std::process::Stdio::piped());
+        apply_backup_pg_env(&mut command, &pg);
+        let mut child = command.spawn()?;
 
         let stdin = child.stdin.take();
         let writer = std::thread::spawn(move || {
@@ -26101,13 +26178,19 @@ async fn database_backup_restore(
         );
         let prerestore_path = std::path::Path::new(&backup_dir).join(&filename);
 
-        let output = std::process::Command::new("pg_dump")
-            .args(["-U", "matric", "-h", "localhost", "matric"])
-            .env("PGPASSWORD", "matric")
-            .output()
-            .map_err(|e| {
-                backup_operation_failed("Database restore", "create pre-restore snapshot", e)
-            })?;
+        let pg = backup_pg_connection("Database restore")?;
+        let mut command = std::process::Command::new("pg_dump");
+        command.args([
+            "-U",
+            pg.user.as_str(),
+            "-h",
+            pg.host.as_str(),
+            pg.database.as_str(),
+        ]);
+        apply_backup_pg_env(&mut command, &pg);
+        let output = command.output().map_err(|e| {
+            backup_operation_failed("Database restore", "create pre-restore snapshot", e)
+        })?;
 
         if output.status.success() {
             use flate2::write::GzEncoder;
@@ -26159,14 +26242,23 @@ async fn database_backup_restore(
     // 64KB pipe buffer while we're still writing to stdin, both sides deadlock.
     // Solution: write stdin in a separate thread while wait_with_output() drains
     // stdout/stderr on the main thread.
+    let pg = backup_pg_connection("Database restore")?;
     let output = tokio::task::spawn_blocking(move || {
-        let mut child = std::process::Command::new("psql")
-            .args(["-U", "matric", "-h", "localhost", "-d", "matric"])
-            .env("PGPASSWORD", "matric")
+        let mut command = std::process::Command::new("psql");
+        command
+            .args([
+                "-U",
+                pg.user.as_str(),
+                "-h",
+                pg.host.as_str(),
+                "-d",
+                pg.database.as_str(),
+            ])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()?;
+            .stderr(std::process::Stdio::piped());
+        apply_backup_pg_env(&mut command, &pg);
+        let mut child = command.spawn()?;
 
         // Write to stdin in a separate thread to avoid pipe deadlock.
         let stdin = child.stdin.take();
@@ -26353,14 +26445,23 @@ ANALYZE embedding;
 CREATE INDEX IF NOT EXISTS idx_revised_current_tsv ON note_revised_current USING GIN(tsv);
 "#;
         let post_sql = post_restore_sql.to_string();
+        let pg = backup_pg_connection("Database restore")?;
         let reindex_result = tokio::task::spawn_blocking(move || {
-            let mut child = std::process::Command::new("psql")
-                .args(["-U", "matric", "-h", "localhost", "-d", "matric"])
-                .env("PGPASSWORD", "matric")
+            let mut command = std::process::Command::new("psql");
+            command
+                .args([
+                    "-U",
+                    pg.user.as_str(),
+                    "-h",
+                    pg.host.as_str(),
+                    "-d",
+                    pg.database.as_str(),
+                ])
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn()?;
+                .stderr(std::process::Stdio::piped());
+            apply_backup_pg_env(&mut command, &pg);
+            let mut child = command.spawn()?;
 
             let stdin = child.stdin.take();
             let writer = std::thread::spawn(move || {
@@ -27165,22 +27266,23 @@ async fn get_storage_breakdown(_db: &Database) -> StorageBreakdown {
 
 /// Get database size using psql command.
 fn get_db_size_via_psql(expr: &str) -> Option<i64> {
-    let output = std::process::Command::new("psql")
-        .args([
-            "-U",
-            "matric",
-            "-h",
-            "localhost",
-            "-d",
-            "matric",
-            "-t", // Tuples only (no header)
-            "-A", // Unaligned output
-            "-c",
-            &format!("SELECT {}", expr),
-        ])
-        .env("PGPASSWORD", "matric")
-        .output()
-        .ok()?;
+    let pg = backup_pg_connection("Database size").ok()?;
+    let query = format!("SELECT {}", expr);
+    let mut command = std::process::Command::new("psql");
+    command.args([
+        "-U",
+        pg.user.as_str(),
+        "-h",
+        pg.host.as_str(),
+        "-d",
+        pg.database.as_str(),
+        "-t", // Tuples only (no header)
+        "-A", // Unaligned output
+        "-c",
+        query.as_str(),
+    ]);
+    apply_backup_pg_env(&mut command, &pg);
+    let output = command.output().ok()?;
 
     if output.status.success() {
         String::from_utf8_lossy(&output.stdout)
