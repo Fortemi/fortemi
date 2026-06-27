@@ -192,6 +192,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: Event envelope Debug output now reports payload variant/type metadata instead of delegating to nested event payload Debug output.
   - 2026-06-27 continuation: Backup import note Debug output now reports note/collection id presence instead of raw imported note or collection UUIDs.
   - 2026-06-27 continuation: Related/federated search Debug output now reports note-id presence instead of raw related/search result note UUIDs.
+  - 2026-06-27 continuation: Reconstruction service Debug output now reports document/chunk id presence instead of raw reconstructed document or chunk UUIDs.
   - 2026-06-27 continuation: Core strict-filter Debug output now reports active dimensions, constraint presence, query-planning flags, identifier presence/counts, metadata string lengths, and boolean/numeric controls instead of raw tag strings, collection/security/embedding identifiers, metadata format/source strings, paths, URLs, emails, or token-shaped values.
   - 2026-06-27 continuation: Core collection-filter Debug output now reports collection identifier counts/presence, recursive-query flags, collection path counts, and path lengths instead of raw collection UUIDs, collection path strings, paths, URLs, emails, or token-shaped values.
   - 2026-06-27 continuation: Core embedding-provider request Debug output now reports config/model/content-type lengths, provider-config JSON class/length, MRL/HNSW numeric settings, and document-composition presence instead of raw config names, descriptions, model IDs, provider URLs/API-key fields, content types, paths, emails, or token-shaped values.
@@ -995,3 +996,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 Event envelope Debug output now reports payload variant/type metadata instead of delegating to nested event payload Debug output.
 - 2026-06-27 — #968/#974 Backup import note Debug output now reports note/collection id presence instead of raw imported note or collection UUIDs.
 - 2026-06-27 — #968/#974 Related/federated search Debug output now reports note-id presence instead of raw related/search result note UUIDs.
+- 2026-06-27 — #968/#974 Reconstruction service Debug output now reports document/chunk id presence instead of raw reconstructed document or chunk UUIDs.

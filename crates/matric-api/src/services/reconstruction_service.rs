@@ -25,7 +25,7 @@ pub struct ChunkSummary {
 impl fmt::Debug for ChunkSummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ChunkSummary")
-            .field("id", &self.id)
+            .field("id_set", &true)
             .field("sequence", &self.sequence)
             .field("title_len", &self.title.len())
             .field("byte_range", &self.byte_range)
@@ -50,7 +50,7 @@ pub struct FullDocumentResponse {
 impl fmt::Debug for FullDocumentResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FullDocumentResponse")
-            .field("id", &self.id)
+            .field("id_set", &true)
             .field("title_len", &self.title.len())
             .field("content_len", &self.content.len())
             .field("chunks_count", &self.chunks.as_ref().map(Vec::len))
@@ -419,8 +419,9 @@ mod tests {
 
     #[test]
     fn chunk_summary_debug_redacts_title() {
+        let chunk_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000c001").unwrap();
         let chunk = ChunkSummary {
-            id: Uuid::nil(),
+            id: chunk_id,
             sequence: 3,
             title: "Executive payroll sk-live-secret-token".to_string(),
             byte_range: (128, 512),
@@ -429,22 +430,26 @@ mod tests {
         let rendered = format!("{chunk:?}");
 
         assert!(rendered.contains("ChunkSummary"));
+        assert!(rendered.contains("id_set"));
         assert!(rendered.contains("title_len"));
         assert!(rendered.contains("sequence"));
         assert!(!rendered.contains("Executive payroll"));
         assert!(!rendered.contains("sk-live-secret-token"));
+        assert!(!rendered.contains("018fd1a0-0000-7000-8000-00000000c001"));
     }
 
     #[test]
     fn full_document_response_debug_redacts_content_title_tags_and_chunk_titles() {
         let now = Utc::now();
+        let document_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000d001").unwrap();
+        let chunk_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000d002").unwrap();
         let response = FullDocumentResponse {
-            id: Uuid::nil(),
+            id: document_id,
             title: "Incident notes for tenant secret-project".to_string(),
             content: "Full reconstructed content with bearer token and copied private notes"
                 .to_string(),
             chunks: Some(vec![ChunkSummary {
-                id: Uuid::nil(),
+                id: chunk_id,
                 sequence: 1,
                 title: "Chunk title with customer@example.com".to_string(),
                 byte_range: (0, 64),
@@ -462,6 +467,7 @@ mod tests {
         let rendered = format!("{response:?}");
 
         assert!(rendered.contains("FullDocumentResponse"));
+        assert!(rendered.contains("id_set"));
         assert!(rendered.contains("content_len"));
         assert!(rendered.contains("title_len"));
         assert!(rendered.contains("tags_count"));
@@ -473,6 +479,8 @@ mod tests {
         assert!(!rendered.contains("customer@example.com"));
         assert!(!rendered.contains("customer-private"));
         assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("018fd1a0-0000-7000-8000-00000000d001"));
+        assert!(!rendered.contains("018fd1a0-0000-7000-8000-00000000d002"));
     }
 
     // Integration tests would require database connection
