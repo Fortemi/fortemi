@@ -187,6 +187,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: Public `matric-crypto` Rustdoc entry points now use `<PKE_PASSPHRASE>` placeholders in key-save examples, and docs-contract scans those Rustdoc surfaces for realistic helper-call passphrase literals.
   - 2026-06-27 continuation: SSE EventSource API docs now use `<STREAM_TOKEN>` and `<ACCESS_TOKEN>` placeholders instead of `mm_at_xxx`/`mm_key_xxx` token-shaped examples in query/header auth guidance.
   - 2026-06-27 continuation: PKE CLI success JSON now reports path and original-filename metadata lengths/presence instead of raw local paths or embedded filenames, and public examples use the metadata-only shape.
+  - 2026-06-27 continuation: PKE CLI invalid address verification now reports submitted-address metadata and stable error codes instead of echoing arbitrary invalid address strings or parser diagnostics.
   - 2026-06-27 continuation: Chat-stream replay/resumption Redis keys now use SHA-256 session fingerprints instead of storing raw session ids in Redis keyspace while preserving public SSE resume cursor format.
   - 2026-06-27 continuation: Ingest stream cursor Redis keys now use SHA-256 stream fingerprints instead of storing raw stream ids in Redis keyspace while preserving public cursor format.
   - 2026-06-27 continuation: Ingest stream token Redis keys and reverse-index values now use SHA-256 token fingerprints instead of storing raw bearer tokens in Redis keyspace or revoke-by-id index values.
@@ -1236,3 +1237,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 Public `matric-crypto` Rustdoc PKE examples now use passphrase placeholders and are covered by docs-contract.
 - 2026-06-27 — #968/#974 SSE EventSource API docs now use token placeholders instead of token-shaped query/header examples.
 - 2026-06-27 — #968/#974 PKE CLI success JSON now uses metadata-only path/original-filename fields instead of raw local paths or embedded filenames.
+- 2026-06-27 — #968/#974 PKE CLI invalid address verification now redacts arbitrary invalid input from JSON/stdout and stderr.

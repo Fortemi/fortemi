@@ -249,6 +249,32 @@ fn optional_filename_metadata(filename: Option<&str>) -> serde_json::Value {
     })
 }
 
+fn address_input_metadata(address: &str) -> serde_json::Value {
+    serde_json::json!({
+        "present": true,
+        "length": address.chars().count(),
+        "has_expected_prefix": address.starts_with("mm:"),
+        "contains_control": address.chars().any(char::is_control),
+    })
+}
+
+fn address_parse_error_code(error: &dyn std::error::Error) -> &'static str {
+    let message = error.to_string();
+    if message.contains("must start with") {
+        "invalid_prefix"
+    } else if message.contains("Invalid Base58") {
+        "invalid_base58"
+    } else if message.contains("Invalid address length") {
+        "invalid_length"
+    } else if message.contains("Unsupported address version") {
+        "unsupported_version"
+    } else if message.contains("Invalid checksum") {
+        "invalid_checksum"
+    } else {
+        "invalid_address"
+    }
+}
+
 fn cmd_keygen(
     passphrase: &str,
     output_dir: &Path,
@@ -401,12 +427,12 @@ fn cmd_verify(address: &str) -> Result<(), Box<dyn std::error::Error>> {
         }
         Err(e) => {
             let output = serde_json::json!({
-                "address": address,
                 "valid": false,
-                "error": e.to_string(),
+                "address_input_metadata": address_input_metadata(address),
+                "error_code": address_parse_error_code(&e),
             });
             println!("{}", serde_json::to_string_pretty(&output)?);
-            return Err(e.into());
+            return Err("Invalid address".into());
         }
     }
 
@@ -496,5 +522,37 @@ mod tests {
         assert_eq!(absent["present"], false);
         assert!(absent["filename_len"].is_null());
         assert!(absent["extension_len"].is_null());
+    }
+
+    #[test]
+    fn test_invalid_address_metadata_redacts_raw_input() {
+        let input = "mm_at_secret-token\nalice@example.com";
+        let metadata = address_input_metadata(input);
+        let rendered = serde_json::to_string(&metadata).unwrap();
+
+        assert_eq!(metadata["present"], true);
+        assert_eq!(metadata["length"], 36);
+        assert_eq!(metadata["has_expected_prefix"], false);
+        assert_eq!(metadata["contains_control"], true);
+        assert!(!rendered.contains("mm_at_secret-token"));
+        assert!(!rendered.contains("alice@example.com"));
+    }
+
+    #[test]
+    fn test_address_parse_error_code_is_stable_metadata() {
+        let invalid_prefix = "mm_at_secret-token"
+            .parse::<Address>()
+            .expect_err("invalid prefix should fail");
+        assert_eq!(address_parse_error_code(&invalid_prefix), "invalid_prefix");
+
+        let invalid_base58 = "mm:0"
+            .parse::<Address>()
+            .expect_err("invalid base58 should fail");
+        assert_eq!(address_parse_error_code(&invalid_base58), "invalid_base58");
+
+        let invalid_length = "mm:1"
+            .parse::<Address>()
+            .expect_err("invalid length should fail");
+        assert_eq!(address_parse_error_code(&invalid_length), "invalid_length");
     }
 }
