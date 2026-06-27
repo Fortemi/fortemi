@@ -932,7 +932,7 @@ curl -X GET http://localhost:3000/api/v1/attachments/{attachment_id}/download \
 
 **Response:**
 - `Content-Type`: `application/pdf` (original MIME type)
-- `Content-Disposition`: `attachment; filename="research-paper.pdf"`
+- `Content-Disposition`: metadata-only attachment filename, for example `attachment; filename="attachment_filename_len_18_{attachment_id}"`
 - Binary file data
 
 ### List Attachments for Note

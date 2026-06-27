@@ -491,7 +491,7 @@ Downloads the raw binary file content with appropriate Content-Type and Content-
 **Response Headers:**
 
 - `Content-Type`: Original file MIME type (e.g., `image/jpeg`)
-- `Content-Disposition`: `attachment; filename="photo.jpg"`
+- `Content-Disposition`: metadata-only attachment filename, for example `attachment; filename="attachment_filename_len_9_660e8400-e29b-41d4-a716-446655440000"`
 - `Content-Length`: File size in bytes
 
 **Example:**
@@ -2559,7 +2559,7 @@ Downloads a gzip-compressed `pg_dump` of a single memory archive schema. Unlike 
 **Response Headers:**
 
 - `Content-Type`: `application/gzip`
-- `Content-Disposition`: `attachment; filename="memory_{name}_{timestamp}.sql.gz"`
+- `Content-Disposition`: metadata-only archive filename, for example `attachment; filename="memory_name_len_10_20260627_120000.sql.gz"`
 
 **Example:**
 
