@@ -35,6 +35,11 @@ impl PgNoteRepository {
         hasher.update(content.as_bytes());
         format!("sha256:{}", hex::encode(hasher.finalize()))
     }
+
+    fn access_source_metadata(source: Option<&str>) -> Option<String> {
+        source.map(|value| format!("source_present=true;source_len={}", value.chars().count()))
+    }
+
     /// Merge explicit tags with inline hashtags extracted from content.
     ///
     /// Returns a deduplicated, sorted vector of all tags.
@@ -734,7 +739,7 @@ impl PgNoteRepository {
         .bind(id)
         .bind(now)
         .bind(access_type)
-        .bind(source)
+        .bind(Self::access_source_metadata(source))
         .execute(&mut **tx)
         .await;
         if log_result.is_err() {
@@ -1497,5 +1502,28 @@ mod tests {
         let hash = PgNoteRepository::hash_content("test");
         assert!(hash.starts_with("sha256:"));
         assert_eq!(hash.len(), 7 + 64); // "sha256:" + 64 hex chars
+    }
+
+    #[test]
+    fn access_source_metadata_redacts_raw_source() {
+        let source =
+            "customer@example.com https://tenant.example/app?token=mm_key_note_access /srv/private";
+        let metadata = PgNoteRepository::access_source_metadata(Some(source))
+            .expect("source metadata present");
+
+        assert_eq!(
+            metadata,
+            format!("source_present=true;source_len={}", source.chars().count())
+        );
+
+        for raw in [
+            "customer@example.com",
+            "https://tenant.example",
+            "token=mm_key_note_access",
+            "/srv/private",
+        ] {
+            assert!(!metadata.contains(raw), "raw value leaked: {raw}");
+        }
+        assert_eq!(PgNoteRepository::access_source_metadata(None), None);
     }
 }
