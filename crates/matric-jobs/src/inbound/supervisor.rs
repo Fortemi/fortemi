@@ -223,12 +223,7 @@ impl InboundSupervisor {
             event.event_type.as_str(),
             "inbound_event",
             matric_core::new_v7(),
-            json!({
-                "source": source_name,
-                "offset": event.offset,
-                "event_type": event.event_type,
-                "payload": event.payload,
-            }),
+            inbound_outbox_payload(source_name, event),
             None,
         );
         self.db
@@ -259,6 +254,18 @@ fn inbound_payload_telemetry(payload: &serde_json::Value) -> InboundPayloadTelem
         serialized_len: payload.to_string().chars().count(),
         secret_candidate: inbound_payload_contains_secret_candidate(payload),
     }
+}
+
+fn inbound_outbox_payload(source_name: &str, event: &InboundEvent) -> serde_json::Value {
+    json!({
+        "source_present": true,
+        "source_len": telemetry_text_len(source_name),
+        "offset_present": true,
+        "offset_len": telemetry_text_len(&event.offset),
+        "event_type_present": true,
+        "event_type_len": telemetry_text_len(&event.event_type),
+        "payload": event.payload,
+    })
 }
 
 fn inbound_payload_class(payload: &serde_json::Value) -> &'static str {
@@ -355,5 +362,38 @@ mod tests {
         assert_eq!(telemetry.class, "object");
         assert!(telemetry.serialized_len > 0);
         assert!(!telemetry.secret_candidate);
+    }
+
+    #[test]
+    fn inbound_outbox_payload_redacts_wrapper_metadata() {
+        let event_type = "external.customer@example.internal.metric.v1";
+        let offset = "redis://user:secret@redis.internal:6379/0-1";
+        let source_name = "tenant-alpha postgres://user:secret@db.internal/mm_key_source";
+        let event = InboundEvent::new(event_type, json!({"value": 42}), offset);
+        let payload = inbound_outbox_payload(source_name, &event);
+        let rendered = serde_json::to_string(&payload).expect("payload serializes");
+
+        assert_eq!(payload["source_present"], true);
+        assert_eq!(payload["offset_present"], true);
+        assert_eq!(payload["event_type_present"], true);
+        assert_eq!(payload["source_len"], source_name.chars().count() as u64);
+        assert_eq!(payload["offset_len"], offset.chars().count() as u64);
+        assert_eq!(payload["event_type_len"], event_type.chars().count() as u64);
+        assert_eq!(payload["payload"]["value"], 42);
+        assert!(!payload.as_object().unwrap().contains_key("source"));
+        assert!(!payload.as_object().unwrap().contains_key("offset"));
+        assert!(!payload.as_object().unwrap().contains_key("event_type"));
+
+        for raw in [
+            "tenant-alpha",
+            "postgres://user:secret",
+            "db.internal",
+            "mm_key_source",
+            "redis://user:secret",
+            "redis.internal",
+            "customer@example.internal",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
     }
 }

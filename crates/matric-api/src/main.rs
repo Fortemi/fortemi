@@ -40142,9 +40142,11 @@ mod tests {
 
         let outbox_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM event_outbox \
-             WHERE entity_type = 'inbound_event' AND payload->>'source' = $1",
+             WHERE entity_type = 'inbound_event' \
+             AND event_type = 'external.metric.v1' \
+             AND payload->>'source_present' = 'true' \
+             AND payload->'payload'->>'v' IN ('1', '3')",
         )
-        .bind(&source_name)
         .fetch_one(db.pool())
         .await
         .expect("count outbox");
@@ -40164,11 +40166,16 @@ mod tests {
         assert_eq!(snap[&source_name]["events_total"], 2);
         assert_eq!(snap[&source_name]["errors_total"], 1);
 
-        sqlx::query("DELETE FROM event_outbox WHERE payload->>'source' = $1")
-            .bind(&source_name)
-            .execute(db.pool())
-            .await
-            .ok();
+        sqlx::query(
+            "DELETE FROM event_outbox \
+             WHERE entity_type = 'inbound_event' \
+             AND event_type = 'external.metric.v1' \
+             AND payload->>'source_present' = 'true' \
+             AND payload->'payload'->>'v' IN ('1', '3')",
+        )
+        .execute(db.pool())
+        .await
+        .ok();
         sqlx::query("DELETE FROM inbound_dlq WHERE source_name = $1")
             .bind(&source_name)
             .execute(db.pool())
