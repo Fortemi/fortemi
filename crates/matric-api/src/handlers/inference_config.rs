@@ -2141,7 +2141,7 @@ pub async fn update_inference_config(
                 );
             } else {
                 info!(
-                    embedding_provider = %embed_id,
+                    embedding_provider_len = telemetry_text_len(embed_id),
                     "Independent embedding routing applied via runtime config"
                 );
             }
@@ -2744,7 +2744,7 @@ pub async fn test_connection(
     info!(
         base_url_class = telemetry_url_class(&base_url),
         base_url_len = telemetry_text_len(&base_url),
-        provider = %req.provider,
+        provider_len = telemetry_text_len(&req.provider),
         "Testing inference endpoint connection"
     );
 
@@ -2779,7 +2779,7 @@ pub async fn test_connection(
             Ok(result) => {
                 let caps = infer_capabilities(provider, &result.models);
                 debug!(
-                    provider = %result.provider,
+                    provider_len = telemetry_text_len(&result.provider),
                     models = result.models.len(),
                     latency_ms = result.latency_ms,
                     "Inference provider detected"
@@ -2800,7 +2800,7 @@ pub async fn test_connection(
             }
             Err(e) => {
                 debug!(
-                    provider = %provider,
+                    provider_len = telemetry_text_len(provider),
                     reason_code = probe_failure_reason(&e),
                     error_len = telemetry_text_len(&e),
                     "Provider probe failed"
@@ -3684,6 +3684,28 @@ mod tests_connection {
         assert!(!rendered.contains("token=secret"));
         assert!(!rendered.contains("secret-console"));
         assert!(!rendered.contains(&req.base_url));
+    }
+
+    #[test]
+    fn inference_provider_telemetry_uses_lengths_only() {
+        let request_provider = "tenant-secret-provider/openai-compatible";
+        let detected_provider = "tenant-secret-detected-provider";
+        let embedding_provider = "tenant-secret-embedding-provider";
+
+        let rendered = format!(
+            "provider_len={} detected_provider_len={} embedding_provider_len={}",
+            telemetry_text_len(request_provider),
+            telemetry_text_len(detected_provider),
+            telemetry_text_len(embedding_provider)
+        );
+
+        assert!(rendered.contains("provider_len"));
+        assert!(rendered.contains("detected_provider_len"));
+        assert!(rendered.contains("embedding_provider_len"));
+        assert!(!rendered.contains("tenant-secret-provider"));
+        assert!(!rendered.contains("tenant-secret-detected-provider"));
+        assert!(!rendered.contains("tenant-secret-embedding-provider"));
+        assert!(!rendered.contains("openai-compatible"));
     }
 
     #[test]
