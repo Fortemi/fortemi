@@ -177,6 +177,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: Backup script database credentials now require explicit `PGPASSWORD` or `PGPASSFILE` instead of defaulting to the reusable `matric` password.
   - 2026-06-27 continuation: OAuth/API-key Debug metadata now uses character-count lengths for token introspection, OAuth errors, authorization-server metadata, API-key records, and API-key creation requests while preserving raw-value redaction.
   - 2026-06-27 continuation: Realtime call-detail Debug metadata now uses character-count provider and end-reason lengths while preserving redaction of provider-call metadata, recording URLs, remote parties, transcripts, and raw call identifiers.
+  - 2026-06-27 continuation: Core note/link/search Debug metadata now uses character-count lengths for note metadata, revisions, concept summaries, note summaries, links, and search hits while preserving raw content, URL, tag, metadata, and identifier redaction.
   - 2026-06-27 continuation: API backup, restore, post-restore maintenance, and psql size-query subprocesses now require explicit `PGPASSWORD` or `PGPASSFILE` instead of injecting the reusable `matric` password.
   - 2026-06-27 continuation: Backup script scratch handling now requires an explicit private `BACKUP_TEMP_DIR`, rejects shared `/tmp`, verifies mode/ownership, and requires tmpfs/ramfs or operator-marked encrypted scratch for real backups.
   - 2026-06-27 continuation: Backup status/list/info path response metadata now uses structured length-only `path_metadata` tokens with path, filename, and extension lengths instead of raw absolute paths, DSNs, hostnames, or token-shaped path fragments.
@@ -1242,3 +1243,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 PKE CLI invalid address verification now redacts arbitrary invalid input from JSON/stdout and stderr.
 - 2026-06-27 — #968/#974 OAuth/API-key Debug metadata now uses character-count lengths for token introspection, OAuth errors, authorization-server metadata, API-key records, and API-key creation requests while preserving raw-value redaction.
 - 2026-06-27 — #968/#974 Realtime call-detail Debug metadata now uses character-count provider and end-reason lengths while preserving provider/transcript redaction.
+- 2026-06-27 — #968/#974 Core note/link/search Debug metadata now uses character-count lengths while preserving raw content, URL, tag, metadata, and identifier redaction.

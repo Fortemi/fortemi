@@ -43,15 +43,15 @@ impl fmt::Debug for NoteMeta {
         f.debug_struct("NoteMeta")
             .field("id_set", &(!self.id.is_nil()))
             .field("collection_id_set", &self.collection_id.is_some())
-            .field("format_len", &self.format.len())
-            .field("source_len", &self.source.len())
+            .field("format_len", &debug_len(&self.format))
+            .field("source_len", &debug_len(&self.source))
             .field("created_at_utc", &self.created_at_utc)
             .field("updated_at_utc", &self.updated_at_utc)
             .field("starred", &self.starred)
             .field("archived", &self.archived)
             .field("last_accessed_at_set", &self.last_accessed_at.is_some())
             .field("access_count", &self.access_count)
-            .field("title_len", &self.title.as_ref().map(String::len))
+            .field("title_len", &optional_debug_len(self.title.as_ref()))
             .field("metadata_class", &json_value_class(&self.metadata))
             .field("metadata_len", &json_serialized_len(&self.metadata))
             .field(
@@ -79,8 +79,8 @@ pub struct NoteOriginal {
 impl fmt::Debug for NoteOriginal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NoteOriginal")
-            .field("content_len", &self.content.len())
-            .field("hash_len", &self.hash.len())
+            .field("content_len", &debug_len(&self.content))
+            .field("hash_len", &debug_len(&self.hash))
             .field("user_created_at_set", &self.user_created_at.is_some())
             .field(
                 "user_last_edited_at_set",
@@ -106,7 +106,7 @@ pub struct NoteRevised {
 impl fmt::Debug for NoteRevised {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NoteRevised")
-            .field("content_len", &self.content.len())
+            .field("content_len", &debug_len(&self.content))
             .field("last_revision_id_set", &self.last_revision_id.is_some())
             .field(
                 "ai_metadata_class",
@@ -123,7 +123,7 @@ impl fmt::Debug for NoteRevised {
             )
             .field("is_user_edited", &self.is_user_edited)
             .field("generation_count", &self.generation_count)
-            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("model_len", &optional_debug_len(self.model.as_ref()))
             .finish()
     }
 }
@@ -177,9 +177,12 @@ impl fmt::Debug for NoteConceptSummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NoteConceptSummary")
             .field("concept_id_set", &true)
-            .field("notation_len", &self.notation.as_ref().map(String::len))
-            .field("pref_label_len", &self.pref_label.as_ref().map(String::len))
-            .field("source_len", &self.source.len())
+            .field("notation_len", &optional_debug_len(self.notation.as_ref()))
+            .field(
+                "pref_label_len",
+                &optional_debug_len(self.pref_label.as_ref()),
+            )
+            .field("source_len", &debug_len(&self.source))
             .field("confidence", &self.confidence)
             .field("relevance_score", &self.relevance_score)
             .field("is_primary", &self.is_primary)
@@ -210,12 +213,15 @@ impl fmt::Debug for RevisionVersion {
             .field("id_set", &true)
             .field("note_id_set", &true)
             .field("revision_number", &self.revision_number)
-            .field("content_len", &self.content.len())
-            .field("revision_type_len", &self.revision_type.len())
-            .field("summary_len", &self.summary.as_ref().map(String::len))
-            .field("rationale_len", &self.rationale.as_ref().map(String::len))
+            .field("content_len", &debug_len(&self.content))
+            .field("revision_type_len", &debug_len(&self.revision_type))
+            .field("summary_len", &optional_debug_len(self.summary.as_ref()))
+            .field(
+                "rationale_len",
+                &optional_debug_len(self.rationale.as_ref()),
+            )
             .field("created_at_utc", &self.created_at_utc)
-            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("model_len", &optional_debug_len(self.model.as_ref()))
             .field("is_user_edited", &self.is_user_edited)
             .finish()
     }
@@ -249,8 +255,8 @@ impl fmt::Debug for NoteSummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NoteSummary")
             .field("id_set", &true)
-            .field("title_len", &self.title.len())
-            .field("snippet_len", &self.snippet.len())
+            .field("title_len", &debug_len(&self.title))
+            .field("snippet_len", &debug_len(&self.snippet))
             .field("embedding_status", &self.embedding_status)
             .field("created_at_utc", &self.created_at_utc)
             .field("updated_at_utc", &self.updated_at_utc)
@@ -263,7 +269,7 @@ impl fmt::Debug for NoteSummary {
             .field("document_type_id_set", &self.document_type_id.is_some())
             .field(
                 "document_type_name_len",
-                &self.document_type_name.as_ref().map(String::len),
+                &optional_debug_len(self.document_type_name.as_ref()),
             )
             .finish()
     }
@@ -293,11 +299,11 @@ impl fmt::Debug for Link {
             .field("id_set", &true)
             .field("from_note_id_set", &true)
             .field("to_note_id_set", &self.to_note_id.is_some())
-            .field("to_url_len", &self.to_url.as_ref().map(String::len))
-            .field("kind_len", &self.kind.len())
+            .field("to_url_len", &optional_debug_len(self.to_url.as_ref()))
+            .field("kind_len", &debug_len(&self.kind))
             .field("score", &self.score)
             .field("created_at_utc", &self.created_at_utc)
-            .field("snippet_len", &self.snippet.as_ref().map(String::len))
+            .field("snippet_len", &optional_debug_len(self.snippet.as_ref()))
             .field(
                 "metadata_class",
                 &self.metadata.as_ref().map(json_value_class),
@@ -336,8 +342,8 @@ impl fmt::Debug for SearchHit {
         f.debug_struct("SearchHit")
             .field("note_id_set", &true)
             .field("score", &self.score)
-            .field("snippet_len", &self.snippet.as_ref().map(String::len))
-            .field("title_len", &self.title.as_ref().map(String::len))
+            .field("snippet_len", &optional_debug_len(self.snippet.as_ref()))
+            .field("title_len", &optional_debug_len(self.title.as_ref()))
             .field("tags_count", &self.tags.len())
             .field("embedding_status", &self.embedding_status)
             .finish()
@@ -3687,6 +3693,10 @@ fn json_serialized_len(value: &JsonValue) -> usize {
     value.to_string().len()
 }
 
+fn debug_len(value: &str) -> usize {
+    value.chars().count()
+}
+
 /// Queue statistics summary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueStats {
@@ -5254,15 +5264,15 @@ mod tests {
         let meta = NoteMeta {
             id: Uuid::new_v4(),
             collection_id: Some(Uuid::new_v4()),
-            format: "markdown-private-format".to_string(),
-            source: "https://source.example.test/private?token=secret-token".to_string(),
+            format: "éé".to_string(),
+            source: "éé".to_string(),
             created_at_utc: now,
             updated_at_utc: now,
             starred: true,
             archived: false,
             last_accessed_at: Some(now),
             access_count: 7,
-            title: Some("Private title private@example.test".to_string()),
+            title: Some("éé".to_string()),
             metadata: json!({
                 "provider_url": "https://provider.example.test/v1?token=secret-token",
                 "api_key": "sk-live-secret"
@@ -5308,6 +5318,7 @@ mod tests {
             &[
                 "markdown-private-format",
                 "source.example.test",
+                "éé",
                 "secret-token",
                 "Private title",
                 "provider.example.test",
@@ -5326,6 +5337,9 @@ mod tests {
         );
 
         for expected in [
+            "format_len: 2",
+            "source_len: 2",
+            "title_len: Some(2)",
             "title_len",
             "metadata_class",
             "chunk_metadata_len",
@@ -5454,11 +5468,11 @@ mod tests {
             id: Uuid::new_v4(),
             from_note_id: Uuid::new_v4(),
             to_note_id: Some(Uuid::new_v4()),
-            to_url: Some("https://links.example.test/private?token=secret-token".to_string()),
-            kind: "private-reference-kind".to_string(),
+            to_url: Some("éé".to_string()),
+            kind: "éé".to_string(),
             score: 0.74,
             created_at_utc: now,
-            snippet: Some("Linked snippet includes private@example.test and 555-1212".to_string()),
+            snippet: Some("éé".to_string()),
             metadata: Some(json!({
                 "path": "/tmp/customer/link.md",
                 "api_key": "sk-live-secret",
@@ -5492,6 +5506,7 @@ mod tests {
         assert_debug_excludes(
             &debug,
             &[
+                "éé",
                 "links.example.test",
                 "secret-token",
                 "private-reference-kind",
@@ -5512,6 +5527,9 @@ mod tests {
         );
 
         for expected in [
+            "to_url_len: Some(2)",
+            "kind_len: 2",
+            "snippet_len: Some(2)",
             "to_url_len",
             "kind_len",
             "snippet_len",
