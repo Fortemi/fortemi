@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value as JsonValue;
 use sqlx::{Pool, Postgres, Row, Transaction};
+use std::fmt;
 use uuid::Uuid;
 
 use matric_core::{new_v7, Error, Link, LinkRepository, Result};
@@ -190,7 +191,7 @@ impl LinkRepository for PgLinkRepository {
 }
 
 /// Graph node in v1 payload contract (#467).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphNode {
     pub id: Uuid,
     pub title: Option<String>,
@@ -209,8 +210,28 @@ pub struct GraphNode {
     pub community_confidence: Option<f32>,
 }
 
+impl fmt::Debug for GraphNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GraphNode")
+            .field("id_set", &(!self.id.is_nil()))
+            .field("title_len", &self.title.as_ref().map(String::len))
+            .field("depth", &self.depth)
+            .field("collection_id_set", &self.collection_id.is_some())
+            .field("archived", &self.archived)
+            .field("created_at_utc", &self.created_at_utc)
+            .field("updated_at_utc", &self.updated_at_utc)
+            .field("community_id", &self.community_id)
+            .field(
+                "community_label_len",
+                &self.community_label.as_ref().map(String::len),
+            )
+            .field("community_confidence", &self.community_confidence)
+            .finish()
+    }
+}
+
 /// Graph edge in v1 payload contract (#467).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphEdge {
     pub source: Uuid,
     pub target: Uuid,
@@ -231,8 +252,27 @@ pub struct GraphEdge {
     pub normalized_weight: Option<f32>,
 }
 
+impl fmt::Debug for GraphEdge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GraphEdge")
+            .field("source_set", &(!self.source.is_nil()))
+            .field("target_set", &(!self.target.is_nil()))
+            .field("edge_type_len", &self.edge_type.len())
+            .field("score", &self.score)
+            .field("rank", &self.rank)
+            .field(
+                "embedding_set_len",
+                &self.embedding_set.as_ref().map(String::len),
+            )
+            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("computed_at_set", &self.computed_at.is_some())
+            .field("normalized_weight", &self.normalized_weight)
+            .finish()
+    }
+}
+
 /// Truncation and guardrail metadata (#469).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphMeta {
     pub total_nodes: i64,
     pub total_edges: i64,
@@ -246,13 +286,51 @@ pub struct GraphMeta {
     pub truncation_reasons: Vec<String>,
 }
 
+impl fmt::Debug for GraphMeta {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GraphMeta")
+            .field("total_nodes", &self.total_nodes)
+            .field("total_edges", &self.total_edges)
+            .field("truncated_nodes", &self.truncated_nodes)
+            .field("truncated_edges", &self.truncated_edges)
+            .field("effective_depth", &self.effective_depth)
+            .field("effective_max_nodes", &self.effective_max_nodes)
+            .field("effective_min_score", &self.effective_min_score)
+            .field(
+                "effective_max_edges_per_node",
+                &self.effective_max_edges_per_node,
+            )
+            .field("truncation_reasons_count", &self.truncation_reasons.len())
+            .field(
+                "truncation_reason_lens",
+                &self
+                    .truncation_reasons
+                    .iter()
+                    .map(String::len)
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
+}
+
 /// Versioned result of graph traversal (v1 contract, #467).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphResult {
     pub graph_version: String,
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
     pub meta: GraphMeta,
+}
+
+impl fmt::Debug for GraphResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GraphResult")
+            .field("graph_version_len", &self.graph_version.len())
+            .field("nodes_count", &self.nodes.len())
+            .field("edges_count", &self.edges.len())
+            .field("meta", &self.meta)
+            .finish()
+    }
 }
 
 impl PgLinkRepository {
@@ -2237,7 +2315,7 @@ impl PgLinkRepository {
 }
 
 /// Graph topology statistics.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct TopologyStats {
     pub total_notes: i64,
     pub total_links: i64,
@@ -2249,6 +2327,23 @@ pub struct TopologyStats {
     pub median_degree: f64,
     pub linking_strategy: String,
     pub effective_k: usize,
+}
+
+impl fmt::Debug for TopologyStats {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TopologyStats")
+            .field("total_notes", &self.total_notes)
+            .field("total_links", &self.total_links)
+            .field("isolated_nodes", &self.isolated_nodes)
+            .field("connected_components", &self.connected_components)
+            .field("avg_degree", &self.avg_degree)
+            .field("max_degree", &self.max_degree)
+            .field("min_degree_linked", &self.min_degree_linked)
+            .field("median_degree", &self.median_degree)
+            .field("linking_strategy_len", &self.linking_strategy.len())
+            .field("effective_k", &self.effective_k)
+            .finish()
+    }
 }
 
 /// Graph diagnostics response (#483).
@@ -2317,7 +2412,7 @@ pub struct NormalizedEdgeMetrics {
 }
 
 /// Stored diagnostics snapshot for before/after comparison (#484).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct DiagnosticsSnapshot {
     pub id: Uuid,
     pub label: String,
@@ -2325,16 +2420,38 @@ pub struct DiagnosticsSnapshot {
     pub captured_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for DiagnosticsSnapshot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DiagnosticsSnapshot")
+            .field("id_set", &(!self.id.is_nil()))
+            .field("label_len", &self.label.len())
+            .field("metrics_class", &json_debug_class(&self.metrics))
+            .field("metrics_len", &json_serialized_len(&self.metrics))
+            .field("captured_at", &self.captured_at)
+            .finish()
+    }
+}
+
 /// Delta comparison between two diagnostics snapshots (#484).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct DiagnosticsComparison {
     pub before: DiagnosticsSnapshot,
     pub after: DiagnosticsSnapshot,
     pub delta: DiagnosticsDelta,
 }
 
+impl fmt::Debug for DiagnosticsComparison {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DiagnosticsComparison")
+            .field("before", &self.before)
+            .field("after", &self.after)
+            .field("delta", &self.delta)
+            .finish()
+    }
+}
+
 /// Computed deltas between before/after diagnostics (#484).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct DiagnosticsDelta {
     /// Change in mean pairwise cosine similarity.
     pub similarity_mean_delta: Option<f64>,
@@ -2346,6 +2463,22 @@ pub struct DiagnosticsDelta {
     pub degree_cv_delta: Option<f64>,
     /// Human-readable summary of improvements/regressions.
     pub summary: Vec<String>,
+}
+
+impl fmt::Debug for DiagnosticsDelta {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DiagnosticsDelta")
+            .field("similarity_mean_delta", &self.similarity_mean_delta)
+            .field("effective_range_delta", &self.effective_range_delta)
+            .field("anisotropy_delta", &self.anisotropy_delta)
+            .field("degree_cv_delta", &self.degree_cv_delta)
+            .field("summary_count", &self.summary.len())
+            .field(
+                "summary_lens",
+                &self.summary.iter().map(String::len).collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 /// Result of SNN recomputation (#474).
@@ -2373,7 +2506,7 @@ pub struct PfnetResult {
 }
 
 /// Result of MRL 64-dim coarse community detection (#477).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct CoarseCommunityResult {
     /// Number of notes with embeddings.
     pub note_count: usize,
@@ -2393,12 +2526,37 @@ pub struct CoarseCommunityResult {
     pub communities: Vec<CoarseCommunity>,
 }
 
+impl fmt::Debug for CoarseCommunityResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CoarseCommunityResult")
+            .field("note_count", &self.note_count)
+            .field("edge_count", &self.edge_count)
+            .field("coarse_dim", &self.coarse_dim)
+            .field("similarity_threshold", &self.similarity_threshold)
+            .field("community_count", &self.community_count)
+            .field("modularity_q", &self.modularity_q)
+            .field("largest_community_ratio", &self.largest_community_ratio)
+            .field("communities_count", &self.communities.len())
+            .finish()
+    }
+}
+
 /// A single community from coarse detection.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct CoarseCommunity {
     pub community_id: i64,
     pub size: usize,
     pub note_ids: Vec<Uuid>,
+}
+
+impl fmt::Debug for CoarseCommunity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CoarseCommunity")
+            .field("community_id", &self.community_id)
+            .field("size", &self.size)
+            .field("note_ids_count", &self.note_ids.len())
+            .finish()
+    }
 }
 
 /// Internal helper for community diagnostics (#473).
@@ -2408,6 +2566,21 @@ struct CommunityMetrics {
     community_count: Option<i64>,
     largest_community_ratio: Option<f64>,
     bridge_edge_ratio: Option<f64>,
+}
+
+fn json_debug_class(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "bool",
+        JsonValue::Number(_) => "number",
+        JsonValue::String(_) => "string",
+        JsonValue::Array(_) => "array",
+        JsonValue::Object(_) => "object",
+    }
+}
+
+fn json_serialized_len(value: &JsonValue) -> usize {
+    serde_json::to_string(value).map_or(0, |serialized| serialized.len())
 }
 
 impl DiagnosticsComparison {
@@ -2578,6 +2751,201 @@ mod tests {
         // Original scores must remain untouched
         assert!((edges[0].score - 0.70).abs() < f32::EPSILON);
         assert!((edges[1].score - 0.94).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn graph_result_debug_redacts_labels_ids_and_provenance_strings() {
+        let node_id = Uuid::new_v4();
+        let collection_id = Uuid::new_v4();
+        let source_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
+        let graph = GraphResult {
+            graph_version: "v1-private@example.test".to_string(),
+            nodes: vec![GraphNode {
+                id: node_id,
+                title: Some("Payroll plan customer@example.test sk-live-secret".to_string()),
+                depth: 1,
+                collection_id: Some(collection_id),
+                archived: false,
+                created_at_utc: Utc::now(),
+                updated_at_utc: Utc::now(),
+                community_id: Some(7),
+                community_label: Some("Private community /srv/fortemi/private".to_string()),
+                community_confidence: Some(0.88),
+            }],
+            edges: vec![GraphEdge {
+                source: source_id,
+                target: target_id,
+                edge_type: "semantic-private-edge".to_string(),
+                score: 0.77,
+                rank: Some(1),
+                embedding_set: Some("private-embedding-set".to_string()),
+                model: Some("secret-model-id".to_string()),
+                computed_at: Some(Utc::now()),
+                normalized_weight: Some(0.7),
+            }],
+            meta: GraphMeta {
+                total_nodes: 1,
+                total_edges: 1,
+                truncated_nodes: 0,
+                truncated_edges: 0,
+                effective_depth: 1,
+                effective_max_nodes: 10,
+                effective_min_score: 0.2,
+                effective_max_edges_per_node: Some(3),
+                truncation_reasons: vec![
+                    "private reason customer@example.test postgres://user:secret@db.internal"
+                        .to_string(),
+                ],
+            },
+        };
+
+        let debug = format!("{graph:?}{:?}{:?}", graph.nodes[0], graph.edges[0]);
+
+        for expected in [
+            "GraphResult",
+            "graph_version_len",
+            "nodes_count",
+            "edges_count",
+            "GraphNode",
+            "title_len",
+            "community_label_len",
+            "GraphEdge",
+            "edge_type_len",
+            "embedding_set_len",
+            "model_len",
+            "GraphMeta",
+            "truncation_reasons_count",
+            "truncation_reason_lens",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+
+        for raw in [
+            node_id.to_string(),
+            collection_id.to_string(),
+            source_id.to_string(),
+            target_id.to_string(),
+            "v1-private@example.test".to_string(),
+            "Payroll plan".to_string(),
+            "customer@example.test".to_string(),
+            "sk-live-secret".to_string(),
+            "Private community".to_string(),
+            "/srv/fortemi/private".to_string(),
+            "semantic-private-edge".to_string(),
+            "private-embedding-set".to_string(),
+            "secret-model-id".to_string(),
+            "postgres://user:secret@db.internal".to_string(),
+        ] {
+            assert!(!debug.contains(&raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn diagnostics_and_community_debug_redacts_labels_metrics_summaries_and_note_ids() {
+        let before_id = Uuid::new_v4();
+        let after_id = Uuid::new_v4();
+        let note_id = Uuid::new_v4();
+        let before = DiagnosticsSnapshot {
+            id: before_id,
+            label: "before-private@example.test".to_string(),
+            metrics: serde_json::json!({
+                "dsn": "postgres://user:secret@db.internal/fortemi",
+                "api_key": "sk-live-secret",
+                "path": "/srv/fortemi/private"
+            }),
+            captured_at: Utc::now(),
+        };
+        let after = DiagnosticsSnapshot {
+            id: after_id,
+            label: "after-private@example.test".to_string(),
+            metrics: serde_json::json!({
+                "summary": "customer@example.test regression detail",
+                "token": "mm_key_secret"
+            }),
+            captured_at: Utc::now(),
+        };
+        let comparison = DiagnosticsComparison {
+            before,
+            after,
+            delta: DiagnosticsDelta {
+                similarity_mean_delta: Some(0.1),
+                effective_range_delta: Some(0.2),
+                anisotropy_delta: Some(-0.1),
+                degree_cv_delta: Some(0.3),
+                summary: vec![
+                    "Private summary customer@example.test /srv/fortemi/private".to_string()
+                ],
+            },
+        };
+        let topology = TopologyStats {
+            total_notes: 10,
+            total_links: 20,
+            isolated_nodes: 1,
+            connected_components: 2,
+            avg_degree: 3.4,
+            max_degree: 7,
+            min_degree_linked: 1,
+            median_degree: 3.0,
+            linking_strategy: "private-strategy-sk-live-secret".to_string(),
+            effective_k: 5,
+        };
+        let community = CoarseCommunity {
+            community_id: 4,
+            size: 1,
+            note_ids: vec![note_id],
+        };
+        let community_result = CoarseCommunityResult {
+            note_count: 1,
+            edge_count: 0,
+            coarse_dim: 64,
+            similarity_threshold: 0.3,
+            community_count: 1,
+            modularity_q: 0.5,
+            largest_community_ratio: 1.0,
+            communities: vec![community],
+        };
+
+        let debug = format!("{comparison:?}{topology:?}{community_result:?}");
+
+        for expected in [
+            "DiagnosticsSnapshot",
+            "label_len",
+            "metrics_class",
+            "metrics_len",
+            "DiagnosticsDelta",
+            "summary_count",
+            "summary_lens",
+            "TopologyStats",
+            "linking_strategy_len",
+            "CoarseCommunityResult",
+            "communities_count",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+
+        for raw in [
+            before_id.to_string(),
+            after_id.to_string(),
+            note_id.to_string(),
+            "before-private@example.test".to_string(),
+            "after-private@example.test".to_string(),
+            "postgres://user:secret@db.internal".to_string(),
+            "sk-live-secret".to_string(),
+            "/srv/fortemi/private".to_string(),
+            "customer@example.test".to_string(),
+            "mm_key_secret".to_string(),
+            "Private summary".to_string(),
+            "private-strategy".to_string(),
+        ] {
+            assert!(!debug.contains(&raw), "raw value leaked: {raw}");
+        }
     }
 
     // SNN scoring tests (#474)
