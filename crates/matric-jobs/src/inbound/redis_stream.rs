@@ -19,8 +19,8 @@ use tokio::sync::Mutex as AsyncMutex;
 use tracing::info;
 
 use super::source::{
-    telemetry_destination_class, telemetry_text_len, InboundError, InboundEvent,
-    InboundEventSource, InboundResult, Offset,
+    inbound_transient_detail, telemetry_destination_class, telemetry_text_len, InboundError,
+    InboundEvent, InboundEventSource, InboundResult, Offset,
 };
 
 /// Connector config, deserialized from the `inbound_source.config` JSONB.
@@ -103,8 +103,9 @@ pub struct RedisStreamSource {
 impl RedisStreamSource {
     /// Build from JSON config (sync; used by the connector registry).
     pub fn from_config(name: &str, config: &Value) -> InboundResult<Self> {
-        let cfg: RedisStreamConfig = serde_json::from_value(config.clone())
-            .map_err(|e| InboundError::Transient(format!("invalid redis-stream config: {e}")))?;
+        let cfg: RedisStreamConfig = serde_json::from_value(config.clone()).map_err(|e| {
+            InboundError::Transient(inbound_transient_detail("redis_stream", "config_parse", &e))
+        })?;
         if cfg.url.trim().is_empty() || cfg.stream.trim().is_empty() || cfg.group.trim().is_empty()
         {
             return Err(InboundError::Transient(
@@ -123,11 +124,12 @@ impl RedisStreamSource {
         if guard.is_some() {
             return Ok(());
         }
-        let client = redis::Client::open(self.config.url.as_str())
-            .map_err(|e| InboundError::Transient(format!("redis open: {e}")))?;
-        let mut conn = ConnectionManager::new(client)
-            .await
-            .map_err(|e| InboundError::Transient(format!("redis connect: {e}")))?;
+        let client = redis::Client::open(self.config.url.as_str()).map_err(|e| {
+            InboundError::Transient(inbound_transient_detail("redis_stream", "open", &e))
+        })?;
+        let mut conn = ConnectionManager::new(client).await.map_err(|e| {
+            InboundError::Transient(inbound_transient_detail("redis_stream", "connect", &e))
+        })?;
         // Idempotently create the consumer group (ignores BUSYGROUP when it
         // already exists); MKSTREAM creates the stream if absent.
         let _: redis::RedisResult<()> = redis::cmd("XGROUP")
@@ -200,7 +202,11 @@ impl InboundEventSource for RedisStreamSource {
                     // Drop the connection so the next attempt reconnects, and
                     // surface a transient error so the supervisor backs off.
                     *self.conn.lock().await = None;
-                    return Err(InboundError::Transient(format!("XREADGROUP failed: {e}")));
+                    return Err(InboundError::Transient(inbound_transient_detail(
+                        "redis_stream",
+                        "read_group",
+                        &e,
+                    )));
                 }
             }
         }
@@ -214,7 +220,9 @@ impl InboundEventSource for RedisStreamSource {
         let _: i64 = conn
             .xack(&self.config.stream, &self.config.group, &[offset.as_str()])
             .await
-            .map_err(|e| InboundError::Transient(format!("XACK failed: {e}")))?;
+            .map_err(|e| {
+                InboundError::Transient(inbound_transient_detail("redis_stream", "ack", &e))
+            })?;
         Ok(())
     }
 

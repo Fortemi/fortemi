@@ -157,6 +157,21 @@ pub(crate) fn inbound_error_reason_code(error: &str) -> &'static str {
     }
 }
 
+/// Build a connector-facing transient error that preserves support-safe
+/// routing metadata without retaining raw backend/config diagnostics.
+pub(crate) fn inbound_transient_detail(
+    connector: &'static str,
+    phase: &'static str,
+    error: &dyn fmt::Display,
+) -> String {
+    let error_text = error.to_string();
+    format!(
+        "inbound connector transient; connector={connector}; phase={phase}; error_len={}; reason_code={}",
+        telemetry_text_len(&error_text),
+        inbound_error_reason_code(&error_text)
+    )
+}
+
 /// A pluggable inbound event source. Concrete connectors (#834 Redis Stream,
 /// #835 SSE, #836 Kafka) implement this; the supervisor drives it.
 #[async_trait]
@@ -260,6 +275,22 @@ mod tests {
         assert!(!code.contains("secret"));
         assert!(!code.contains("example"));
         assert!(!code.contains("https://"));
+    }
+
+    #[test]
+    fn inbound_transient_detail_redacts_backend_error_text() {
+        let raw = "connect failed for redis://user:mm_key_secret@redis.internal:6379/0";
+        let detail = inbound_transient_detail("redis_stream", "connect", &raw);
+
+        assert!(detail.contains("inbound connector transient"));
+        assert!(detail.contains("connector=redis_stream"));
+        assert!(detail.contains("phase=connect"));
+        assert!(detail.contains("error_len="));
+        assert!(detail.contains("reason_code=connection_failed"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("redis.internal"));
+        assert!(!detail.contains("redis://"));
+        assert!(!detail.contains("connect failed for"));
     }
 
     #[test]

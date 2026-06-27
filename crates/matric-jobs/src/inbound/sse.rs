@@ -21,8 +21,8 @@ use tokio::sync::Mutex as AsyncMutex;
 use tracing::info;
 
 use super::source::{
-    telemetry_destination_class, telemetry_text_len, InboundError, InboundEvent,
-    InboundEventSource, InboundResult, Offset,
+    inbound_transient_detail, telemetry_destination_class, telemetry_text_len, InboundError,
+    InboundEvent, InboundEventSource, InboundResult, Offset,
 };
 
 /// Connector config, deserialized from the `inbound_source.config` JSONB.
@@ -98,8 +98,9 @@ pub struct SseSource {
 impl SseSource {
     /// Build from JSON config (sync; used by the connector registry).
     pub fn from_config(name: &str, config: &Value) -> InboundResult<Self> {
-        let cfg: SseConfig = serde_json::from_value(config.clone())
-            .map_err(|e| InboundError::Transient(format!("invalid sse config: {e}")))?;
+        let cfg: SseConfig = serde_json::from_value(config.clone()).map_err(|e| {
+            InboundError::Transient(inbound_transient_detail("sse", "config_parse", &e))
+        })?;
         let url = cfg.url.trim();
         if !(url.starts_with("http://") || url.starts_with("https://")) {
             return Err(InboundError::Transient(
@@ -109,7 +110,9 @@ impl SseSource {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(cfg.connect_timeout_secs))
             .build()
-            .map_err(|e| InboundError::Transient(format!("sse client build: {e}")))?;
+            .map_err(|e| {
+                InboundError::Transient(inbound_transient_detail("sse", "client_build", &e))
+            })?;
         Ok(Self {
             name: name.to_string(),
             config: cfg,
@@ -135,7 +138,7 @@ impl SseSource {
         let resp = req
             .send()
             .await
-            .map_err(|e| InboundError::Transient(format!("sse connect: {e}")))?;
+            .map_err(|e| InboundError::Transient(inbound_transient_detail("sse", "connect", &e)))?;
         if !resp.status().is_success() {
             return Err(InboundError::Transient(format!(
                 "sse upstream returned HTTP {}",
@@ -175,7 +178,9 @@ impl InboundEventSource for SseSource {
                 }
                 Err(e) => {
                     *guard = None;
-                    return Err(InboundError::Transient(format!("sse read: {e}")));
+                    return Err(InboundError::Transient(inbound_transient_detail(
+                        "sse", "read", &e,
+                    )));
                 }
             }
         }
