@@ -61,6 +61,10 @@ fn audio_error_reason_code(error: &str) -> &'static str {
     }
 }
 
+fn audio_telemetry_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
 fn audio_command_failure_detail(
     command: &'static str,
     phase: &'static str,
@@ -487,7 +491,7 @@ pub async fn transcribe_with_chunking(
     info!(
         total_segments = merged.segments.len(),
         duration = ?merged.duration_secs,
-        language = ?merged.language,
+        language_len = ?merged.language.as_deref().map(audio_telemetry_text_len),
         chunks = total_chunks,
         "Chunked transcription complete — merged {} chunks",
         total_chunks
@@ -577,6 +581,19 @@ mod tests {
             audio_error_reason_code("opaque backend text /srv/private/audio.wav"),
             "operation_failed"
         );
+    }
+
+    #[test]
+    fn audio_language_telemetry_uses_length_only() {
+        let language = "tenant-secret-language@example.com";
+        let rendered = format!(
+            "language_len={:?}",
+            Some(language).map(audio_telemetry_text_len)
+        );
+
+        assert!(rendered.contains("language_len=Some"));
+        assert!(!rendered.contains("tenant-secret-language"));
+        assert!(!rendered.contains("example.com"));
     }
 
     #[test]
