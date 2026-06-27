@@ -49,6 +49,33 @@ use matric_core::{DerivedFile, ExtractionAdapter, ExtractionResult, ExtractionSt
 /// Uses `mailparse` for RFC 2822/MIME parsing.
 pub struct EmailAdapter;
 
+fn email_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn email_parse_error_reason_code(error: &str) -> &'static str {
+    let lower = error.to_ascii_lowercase();
+
+    if lower.contains("boundary") {
+        "mime_boundary"
+    } else if lower.contains("header") {
+        "header_parse"
+    } else if lower.contains("utf") || lower.contains("encoding") || lower.contains("charset") {
+        "encoding"
+    } else {
+        "parse_failed"
+    }
+}
+
+fn email_parse_failure_detail(error: &dyn std::fmt::Display) -> String {
+    let error_text = error.to_string();
+    format!(
+        "Failed to parse email; error_len={}; error_reason={}",
+        email_text_len(&error_text),
+        email_parse_error_reason_code(&error_text)
+    )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ExtractionAdapter impl
 // ─────────────────────────────────────────────────────────────────────────────
@@ -110,7 +137,7 @@ fn extract_eml(data: &[u8]) -> Result<ExtractionResult> {
     }
 
     let parsed = parse_mail(data)
-        .map_err(|e| matric_core::Error::Internal(format!("Failed to parse email: {e}")))?;
+        .map_err(|e| matric_core::Error::Internal(email_parse_failure_detail(&e)))?;
 
     let msg_meta = extract_message_metadata(&parsed);
     let body = extract_body(&parsed);
@@ -757,6 +784,24 @@ mod tests {
         assert!(result.extracted_text.is_none());
         assert_eq!(result.metadata["format"], "mbox");
         assert_eq!(result.metadata["message_count"], 0);
+    }
+
+    #[test]
+    fn email_parse_failure_detail_redacts_parser_diagnostic() {
+        let diagnostic = concat!(
+            "invalid header for alice@example.com at /srv/tenant/mail/inbox.eml ",
+            "token=sk-test-secret with postgres://user:pass@db.internal/mail"
+        );
+        let detail = email_parse_failure_detail(&diagnostic);
+
+        assert!(detail.starts_with("Failed to parse email;"));
+        assert!(detail.contains("error_len="));
+        assert!(detail.contains("error_reason=header_parse"));
+        assert!(!detail.contains("alice@example.com"));
+        assert!(!detail.contains("/srv/tenant/mail/inbox.eml"));
+        assert!(!detail.contains("sk-test-secret"));
+        assert!(!detail.contains("postgres://user:pass"));
+        assert!(!detail.contains(diagnostic));
     }
 
     // ── Single .eml header extraction ─────────────────────────────────────
