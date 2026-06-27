@@ -104,6 +104,70 @@ fn related_concepts_progress_message(a_label: &str, b_label: &str) -> String {
     )
 }
 
+fn job_text_secret_candidate(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains("secret")
+        || lower.contains("token")
+        || lower.contains("password")
+        || lower.contains("api_key")
+        || lower.contains("apikey")
+        || lower.contains("bearer ")
+        || lower.contains("postgres://")
+        || lower.contains("mm_key")
+        || lower.contains("sk-")
+}
+
+fn label_list_metadata(labels: &[String]) -> serde_json::Value {
+    let total_len: usize = labels.iter().map(diagnostic_len).sum();
+    let max_len = labels.iter().map(diagnostic_len).max().unwrap_or(0);
+    serde_json::json!({
+        "label_count": labels.len(),
+        "label_total_len": total_len,
+        "label_max_len": max_len,
+        "label_secret_candidate": labels.iter().any(|label| job_text_secret_candidate(label)),
+    })
+}
+
+fn concept_tagging_summary_metadata(
+    concepts_tagged: usize,
+    concepts_suggested: usize,
+    extraction_method: &str,
+    labels: &[String],
+    target_concepts: usize,
+    content_preview_chars: Option<usize>,
+) -> serde_json::Value {
+    let mut metadata = serde_json::json!({
+        "concepts_tagged": concepts_tagged,
+        "concepts_suggested": concepts_suggested,
+        "extraction_method_len": diagnostic_len(extraction_method),
+        "target_concepts": target_concepts,
+        "labels": label_list_metadata(labels),
+    });
+    if let Some(chars) = content_preview_chars {
+        metadata["content_preview_chars"] = serde_json::json!(chars);
+    }
+    metadata
+}
+
+fn reference_extraction_summary_metadata(
+    references_tagged: usize,
+    references_found: usize,
+    labels: &[String],
+    extraction_method: &str,
+    content_preview_chars: Option<usize>,
+) -> serde_json::Value {
+    let mut metadata = serde_json::json!({
+        "references_tagged": references_tagged,
+        "references_found": references_found,
+        "labels": label_list_metadata(labels),
+        "extraction_method_len": diagnostic_len(extraction_method),
+    });
+    if let Some(chars) = content_preview_chars {
+        metadata["content_preview_chars"] = serde_json::json!(chars);
+    }
+    metadata
+}
+
 fn document_type_progress_message(document_type_name: &str) -> String {
     format!(
         "Detected document type; name_len={}",
@@ -4719,14 +4783,14 @@ impl JobHandler for ConceptTaggingHandler {
 
         // Complete provenance activity (#430)
         if let Some(act_id) = activity_id {
-            let prov_metadata = serde_json::json!({
-                "concepts_tagged": tagged_count,
-                "concepts_suggested": concept_labels.len(),
-                "extraction_method": extraction_method,
-                "target_concepts": self.target_concepts,
-                "labels": &concept_labels,
-                "content_preview_chars": content_preview.len(),
-            });
+            let prov_metadata = concept_tagging_summary_metadata(
+                tagged_count,
+                concept_labels.len(),
+                extraction_method,
+                &concept_labels,
+                self.target_concepts,
+                Some(content_preview.len()),
+            );
             if let Err(e) = self
                 .db
                 .provenance
@@ -4753,12 +4817,14 @@ impl JobHandler for ConceptTaggingHandler {
             "Concept tagging completed"
         );
 
-        JobResult::Success(Some(serde_json::json!({
-            "concepts_tagged": tagged_count,
-            "concepts_suggested": concept_labels.len(),
-            "extraction_method": extraction_method,
-            "labels": concept_labels
-        })))
+        JobResult::Success(Some(concept_tagging_summary_metadata(
+            tagged_count,
+            concept_labels.len(),
+            extraction_method,
+            &concept_labels,
+            self.target_concepts,
+            None,
+        )))
     }
 }
 
@@ -5208,7 +5274,7 @@ impl JobHandler for ReferenceExtractionHandler {
                             return JobResult::Success(Some(serde_json::json!({
                                 "references": 0,
                                 "reason": "parse_error",
-                                "extraction_method": extraction_method,
+                                "extraction_method_len": diagnostic_len(extraction_method),
                             })));
                         }
                     },
@@ -5334,13 +5400,13 @@ impl JobHandler for ReferenceExtractionHandler {
 
         // Complete provenance activity
         if let Some(act_id) = activity_id {
-            let prov_metadata = serde_json::json!({
-                "references_tagged": tagged_count,
-                "references_found": entities.len(),
-                "labels": &labels,
-                "content_preview_chars": content_preview.len(),
-                "extraction_method": extraction_method,
-            });
+            let prov_metadata = reference_extraction_summary_metadata(
+                tagged_count,
+                entities.len(),
+                &labels,
+                extraction_method,
+                Some(content_preview.len()),
+            );
             if let Err(e) = self
                 .db
                 .provenance
@@ -5367,12 +5433,13 @@ impl JobHandler for ReferenceExtractionHandler {
             "Reference extraction completed"
         );
 
-        JobResult::Success(Some(serde_json::json!({
-            "references_tagged": tagged_count,
-            "references_found": entities.len(),
-            "labels": labels,
-            "extraction_method": extraction_method,
-        })))
+        JobResult::Success(Some(reference_extraction_summary_metadata(
+            tagged_count,
+            entities.len(),
+            &labels,
+            extraction_method,
+            None,
+        )))
     }
 }
 
@@ -7661,6 +7728,43 @@ mod tests {
         assert!(!rendered.contains("mm_key_secret"));
         assert!(!rendered.contains("Confidential Lab Report"));
         assert!(!rendered.contains("private-client-archive"));
+    }
+
+    #[test]
+    fn concept_and_reference_summaries_redact_raw_labels() {
+        let labels = vec![
+            "Sensitive Concept /srv/fortemi/private token=sk-secret".to_string(),
+            "organization/acme-secret-mm_key".to_string(),
+        ];
+        let concept = concept_tagging_summary_metadata(1, 2, "llm_private", &labels, 12, Some(500));
+        let reference =
+            reference_extraction_summary_metadata(1, 2, &labels, "gliner_private", Some(300));
+        let rendered = format!("{concept}\n{reference}");
+
+        assert_eq!(concept["concepts_tagged"], 1);
+        assert_eq!(concept["concepts_suggested"], 2);
+        assert_eq!(
+            concept["extraction_method_len"],
+            diagnostic_len("llm_private")
+        );
+        assert_eq!(concept["labels"]["label_count"], 2);
+        assert_eq!(concept["labels"]["label_secret_candidate"], true);
+        assert_eq!(reference["references_tagged"], 1);
+        assert_eq!(reference["references_found"], 2);
+        assert_eq!(
+            reference["extraction_method_len"],
+            diagnostic_len("gliner_private")
+        );
+        assert_eq!(reference["labels"]["label_count"], 2);
+        assert!(rendered.contains("label_total_len"));
+        assert!(rendered.contains("label_max_len"));
+        assert!(!rendered.contains("Sensitive Concept"));
+        assert!(!rendered.contains("/srv/fortemi"));
+        assert!(!rendered.contains("sk-secret"));
+        assert!(!rendered.contains("organization/acme"));
+        assert!(!rendered.contains("mm_key"));
+        assert!(!rendered.contains("llm_private"));
+        assert!(!rendered.contains("gliner_private"));
     }
 
     #[test]
