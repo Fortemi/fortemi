@@ -3,7 +3,7 @@
 //! Clients may send an `Idempotency-Key` header on
 //! `POST /api/v1/webhooks/incoming/{slug}`. The first request with a given key
 //! is processed normally and its accepted response is cached under
-//! `idem:{slug}:{key}` for 24 hours, alongside a hash of the request body.
+//! a fingerprinted Redis key for 24 hours, alongside a hash of the request body.
 //!
 //! - Repeat key + **matching** body hash → the cached response is replayed
 //!   verbatim (no re-processing, no duplicate outbox row).
@@ -27,6 +27,7 @@
 use redis::aio::ConnectionManager;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -85,7 +86,7 @@ struct Inner {
     connection: RwLock<Option<ConnectionManager>>,
     /// Replay window in seconds.
     ttl_seconds: u64,
-    /// Key prefix (`idem:`); full key is `idem:{slug}:{key}`.
+    /// Key prefix (`idem:`); full key is `idem:{sha256(slug + key)}`.
     prefix: String,
 }
 
@@ -144,7 +145,11 @@ impl IdempotencyStore {
     }
 
     fn key(&self, slug: &str, idem_key: &str) -> String {
-        format!("{}{}:{}", self.inner.prefix, slug, idem_key)
+        format!(
+            "{}{}",
+            self.inner.prefix,
+            idempotency_key_fingerprint(slug, idem_key)
+        )
     }
 
     /// Look up a cached outcome for `(slug, idem_key)`. Returns `None` when the
@@ -264,6 +269,14 @@ fn idempotency_text_len(value: &str) -> usize {
     value.chars().count()
 }
 
+fn idempotency_key_fingerprint(slug: &str, idem_key: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(slug.as_bytes());
+    hasher.update([0]);
+    hasher.update(idem_key.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
 fn idempotency_diagnostic_reason(value: &str) -> &'static str {
     let value = value.to_ascii_lowercase();
     if value.contains("invalid") || value.contains("parse") {
@@ -351,12 +364,22 @@ mod tests {
     }
 
     #[test]
-    fn key_format_matches_spec() {
+    fn key_format_uses_fingerprint_without_raw_slug_or_idempotency_key() {
         let store = IdempotencyStore::disabled();
-        assert_eq!(
-            store.key("twilio-voice", "abc-123"),
-            "idem:twilio-voice:abc-123"
-        );
+        let slug = "receiver-secret-slug";
+        let idem_key = "tenant-alpha-secret-idempotency-key-token";
+        let rendered = store.key(slug, idem_key);
+
+        assert!(rendered.starts_with("idem:"));
+        assert_eq!(rendered.len(), "idem:".len() + 64);
+        assert_eq!(rendered, store.key(slug, idem_key));
+        assert_ne!(rendered, store.key(slug, "different-key"));
+        assert_ne!(rendered, store.key("different-slug", idem_key));
+        assert!(!rendered.contains(slug));
+        assert!(!rendered.contains(idem_key));
+        assert!(!rendered.contains("receiver-secret"));
+        assert!(!rendered.contains("idempotency-key"));
+        assert!(!rendered.contains("tenant-alpha"));
     }
 
     #[test]
