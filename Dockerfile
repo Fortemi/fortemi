@@ -2,7 +2,7 @@
 #
 # Usage:
 #   docker build -t fortemi:api .
-#   docker run -d -p 3000:3000 -e DATABASE_URL=postgres://... fortemi:api
+#   docker run -d -p 3000:3000 -e DATABASE_URL=<DATABASE_URL> fortemi:api
 #
 # For all-in-one deployment with embedded PostgreSQL, use Dockerfile.bundle instead.
 #
@@ -93,7 +93,7 @@ ENV MATRIC_BUILD_DATE=${BUILD_DATE}
 # API Server environment
 # =============================================================================
 # DATABASE_URL must be provided at runtime (required)
-# ENV DATABASE_URL=postgres://matric:matric@db:5432/matric
+# ENV DATABASE_URL=<DATABASE_URL>
 
 ENV HOST=0.0.0.0
 ENV PORT=3000

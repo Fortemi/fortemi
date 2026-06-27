@@ -153,14 +153,15 @@ ENV MATRIC_BUILD_DATE=${BUILD_DATE}
 # PostgreSQL environment
 # =============================================================================
 ENV POSTGRES_USER=matric
-ENV POSTGRES_PASSWORD=matric
+ENV POSTGRES_PASSWORD=fortemi-local-dev
 ENV POSTGRES_DB=matric
 ENV PGDATA=/var/lib/postgresql/data
 
 # =============================================================================
 # Matric API environment
 # =============================================================================
-ENV DATABASE_URL=postgres://matric:matric@localhost:5432/matric
+# DATABASE_URL is constructed by docker/bundle-entrypoint.sh at container start
+# when not provided explicitly.
 ENV HOST=0.0.0.0
 ENV PORT=3000
 ENV RUST_LOG=info

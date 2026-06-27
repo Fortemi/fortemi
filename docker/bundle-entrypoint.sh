@@ -17,6 +17,15 @@ echo "Version: ${MATRIC_VERSION:-unknown}"
 
 # PostgreSQL data directory
 PGDATA="${PGDATA:-/var/lib/postgresql/data}"
+POSTGRES_USER="${POSTGRES_USER:-matric}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-fortemi-local-dev}"
+POSTGRES_DB="${POSTGRES_DB:-matric}"
+export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
+
+if [ -z "${DATABASE_URL:-}" ]; then
+    DATABASE_URL="$(printf '%s%s:%s@localhost:5432/%s' 'postgres://' "$POSTGRES_USER" "$POSTGRES_PASSWORD" "$POSTGRES_DB")"
+    export DATABASE_URL
+fi
 
 # Ensure PGDATA directory exists and is owned by postgres
 # (Required for fresh volumes where the mount point may be owned by root)
@@ -73,19 +82,19 @@ if [ "$FRESH_INSTALL" = true ]; then
     echo ">>> Creating database and user..."
 
     # Create user and database
-    su postgres -c "psql -c \"CREATE USER ${POSTGRES_USER:-matric} WITH PASSWORD '${POSTGRES_PASSWORD:-matric}' CREATEDB;\""
-    su postgres -c "psql -c \"CREATE DATABASE ${POSTGRES_DB:-matric} OWNER ${POSTGRES_USER:-matric};\""
+    su postgres -c "psql -c \"CREATE USER ${POSTGRES_USER} WITH PASSWORD '${POSTGRES_PASSWORD}' CREATEDB;\""
+    su postgres -c "psql -c \"CREATE DATABASE ${POSTGRES_DB} OWNER ${POSTGRES_USER};\""
 
     # Enable required extensions (must be done as superuser)
     echo ">>> Enabling extensions..."
-    su postgres -c "psql -d ${POSTGRES_DB:-matric} -c 'CREATE EXTENSION IF NOT EXISTS vector;'"
-    su postgres -c "psql -d ${POSTGRES_DB:-matric} -c 'CREATE EXTENSION IF NOT EXISTS postgis;'"
+    su postgres -c "psql -d ${POSTGRES_DB} -c 'CREATE EXTENSION IF NOT EXISTS vector;'"
+    su postgres -c "psql -d ${POSTGRES_DB} -c 'CREATE EXTENSION IF NOT EXISTS postgis;'"
 fi
 
 # Ensure required extensions exist (idempotent, must run as superuser before migrations)
 echo ">>> Ensuring PostgreSQL extensions..."
-su postgres -c "psql -d ${POSTGRES_DB:-matric} -c 'CREATE EXTENSION IF NOT EXISTS vector;'" 2>/dev/null || true
-su postgres -c "psql -d ${POSTGRES_DB:-matric} -c 'CREATE EXTENSION IF NOT EXISTS postgis;'" 2>/dev/null || true
+su postgres -c "psql -d ${POSTGRES_DB} -c 'CREATE EXTENSION IF NOT EXISTS vector;'" 2>/dev/null || true
+su postgres -c "psql -d ${POSTGRES_DB} -c 'CREATE EXTENSION IF NOT EXISTS postgis;'" 2>/dev/null || true
 
 # NOTE: Database schema migrations are handled automatically by the API on startup
 # via sqlx::migrate!() with _sqlx_migrations tracking table.

@@ -272,7 +272,7 @@ services:
     environment:
       # ── PostgreSQL ──────────────────────────────────────────────────────
       - POSTGRES_USER=matric
-      - POSTGRES_PASSWORD=matric
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-fortemi-local-dev}
       - POSTGRES_DB=matric
 
       # ── API Server ─────────────────────────────────────────────────────

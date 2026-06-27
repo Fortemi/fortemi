@@ -12,7 +12,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - DATABASE_URL=postgres://matric:matric@db:5432/matric
+      - DATABASE_URL=postgres://db:5432/matric?user=matric&password=${POSTGRES_PASSWORD:-fortemi-local-dev}
       - RUST_LOG=info
       - HOST=0.0.0.0
       - PORT=3000
@@ -31,7 +31,7 @@ services:
       dockerfile: build/Dockerfile.testdb
     environment:
       - POSTGRES_USER=matric
-      - POSTGRES_PASSWORD=matric
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-fortemi-local-dev}
       - POSTGRES_DB=matric
     volumes:
       - pgdata:/var/lib/postgresql
@@ -49,7 +49,7 @@ services:
     build: .
     command: ["/app/matric-api", "--worker-only"]
     environment:
-      - DATABASE_URL=postgres://matric:matric@db:5432/matric
+      - DATABASE_URL=postgres://db:5432/matric?user=matric&password=${POSTGRES_PASSWORD:-fortemi-local-dev}
       - RUST_LOG=info
       - WORKER_MODE=true
     depends_on:

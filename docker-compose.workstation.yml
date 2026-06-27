@@ -83,7 +83,7 @@ services:
     container_name: workstation-postgres
     environment:
       POSTGRES_USER: matric
-      POSTGRES_PASSWORD: matric
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fortemi-local-dev}
       POSTGRES_DB: matric
     ports:
       # Host port 5434 to avoid colliding with native postgres on 5432
@@ -124,7 +124,7 @@ services:
       - path: .env.workstation
         required: false
     environment:
-      - DATABASE_URL=postgres://matric:matric@postgres:5432/matric
+      - DATABASE_URL=postgres://postgres:5432/matric?user=matric&password=${POSTGRES_PASSWORD:-fortemi-local-dev}
       - OLLAMA_BASE=http://ollama:11434
       - OLLAMA_EMBED_MODEL=nomic-embed-text
       - OLLAMA_GEN_MODEL=qwen3.5:9b
