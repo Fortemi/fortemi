@@ -16,6 +16,14 @@ fn document_type_not_found_error(name: &str) -> Error {
     ))
 }
 
+fn document_type_in_use_error(name: &str, reference_count: i64) -> Error {
+    Error::InvalidInput(format!(
+        "Cannot delete document type; name_len={}; reference_count={}",
+        name.chars().count(),
+        reference_count
+    ))
+}
+
 pub struct PgDocumentTypeRepository {
     pool: Pool<Postgres>,
 }
@@ -291,10 +299,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
         .map_err(Error::Database)?;
 
         if count > 0 {
-            return Err(Error::InvalidInput(format!(
-                "Cannot delete document type '{}': {} notes reference it",
-                name, count
-            )));
+            return Err(document_type_in_use_error(name, count));
         }
 
         sqlx::query("DELETE FROM document_type WHERE name = $1 AND is_system = FALSE")
@@ -477,6 +482,24 @@ mod tests {
         assert!(message.contains("name_len=40"));
         assert!(!message.contains(raw_name));
         assert!(!message.contains("secret-type"));
+        assert!(!message.contains("sk-live"));
+        assert!(!message.contains("path@example.com"));
+    }
+
+    #[test]
+    fn document_type_in_use_errors_report_metadata_without_raw_values() {
+        let raw_name = "customer-report-sk-live-123/path@example.com";
+        let err = document_type_in_use_error(raw_name, 7);
+
+        let Error::InvalidInput(message) = err else {
+            panic!("expected invalid-input error");
+        };
+
+        assert!(message.contains("Cannot delete document type"));
+        assert!(message.contains("name_len=44"));
+        assert!(message.contains("reference_count=7"));
+        assert!(!message.contains(raw_name));
+        assert!(!message.contains("customer-report"));
         assert!(!message.contains("sk-live"));
         assert!(!message.contains("path@example.com"));
     }
