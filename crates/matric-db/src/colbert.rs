@@ -10,7 +10,7 @@ use uuid::Uuid;
 use matric_core::{Error, Result};
 
 /// Token embedding data structure.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TokenEmbedding {
     pub id: Uuid,
     pub note_id: Uuid,
@@ -19,6 +19,20 @@ pub struct TokenEmbedding {
     pub token_text: String,
     pub embedding: Vector,
     pub model: String,
+}
+
+impl std::fmt::Debug for TokenEmbedding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenEmbedding")
+            .field("id_set", &true)
+            .field("note_id_set", &true)
+            .field("chunk_id_set", &self.chunk_id.is_some())
+            .field("token_position", &self.token_position)
+            .field("token_text_len", &self.token_text.len())
+            .field("embedding_dimensions", &self.embedding.as_slice().len())
+            .field("model_len", &self.model.len())
+            .finish()
+    }
 }
 
 /// ColBERT repository for token embeddings.
@@ -265,6 +279,49 @@ mod tests {
         assert_eq!(embedding.token_text, "test");
         assert_eq!(embedding.model, "colbert-v2");
         assert!(embedding.chunk_id.is_some());
+    }
+
+    #[test]
+    fn token_embedding_debug_redacts_ids_text_vectors_and_model() {
+        let embedding = TokenEmbedding {
+            id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000006").unwrap(),
+            note_id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000007").unwrap(),
+            chunk_id: Some(Uuid::parse_str("018fd1a0-0000-7000-8000-000000000008").unwrap()),
+            token_position: 7,
+            token_text: "customer@example.com postgres://user:secret@db.internal/app sk-live-token"
+                .to_string(),
+            embedding: Vector::from(vec![0.11111, 0.22222, 0.33333]),
+            model: "tenant-private-colbert-model".to_string(),
+        };
+
+        let debug = format!("{embedding:?}");
+
+        for forbidden in [
+            "018fd1a0-0000-7000-8000-000000000006",
+            "018fd1a0-0000-7000-8000-000000000007",
+            "018fd1a0-0000-7000-8000-000000000008",
+            "customer@example.com",
+            "postgres://user:secret@db.internal/app",
+            "sk-live-token",
+            "0.11111",
+            "0.22222",
+            "0.33333",
+            "tenant-private-colbert-model",
+        ] {
+            assert!(
+                !debug.contains(forbidden),
+                "token embedding debug leaked {forbidden}"
+            );
+        }
+
+        assert!(debug.contains("TokenEmbedding"));
+        assert!(debug.contains("id_set"));
+        assert!(debug.contains("note_id_set"));
+        assert!(debug.contains("chunk_id_set"));
+        assert!(debug.contains("token_position"));
+        assert!(debug.contains("token_text_len"));
+        assert!(debug.contains("embedding_dimensions"));
+        assert!(debug.contains("model_len"));
     }
 
     #[test]
