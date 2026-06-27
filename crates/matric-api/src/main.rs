@@ -1814,6 +1814,15 @@ fn authorization_policy_for_mode(multi_tenant: bool) -> Arc<dyn AuthorizationPol
     }
 }
 
+fn startup_log_format_class(log_format: &str) -> &'static str {
+    match log_format {
+        "json" => "json",
+        "text" => "text",
+        "" => "empty",
+        _ => "custom",
+    }
+}
+
 fn process_startup_audit_event(
     log_format: &str,
     log_file_enabled: bool,
@@ -1821,7 +1830,8 @@ fn process_startup_audit_event(
     build_date: &str,
 ) -> AuditEvent {
     let mut event = AuditEvent::new("process", "startup", AuditOutcome::Success)
-        .with_attr("log_format", log_format.to_string())
+        .with_attr("log_format_class", startup_log_format_class(log_format))
+        .with_attr("log_format_len", telemetry_text_len(log_format) as u64)
         .with_attr(
             "log_destination",
             if log_file_enabled { "file" } else { "stdout" },
@@ -1950,7 +1960,8 @@ async fn main() -> anyhow::Result<()> {
     };
 
     info!(
-        log_format = %log_format,
+        log_format_class = startup_log_format_class(&log_format),
+        log_format_len = telemetry_text_len(&log_format),
         log_file = log_file.as_deref().unwrap_or("(stdout)"),
         "Logging initialized"
     );
@@ -32426,17 +32437,26 @@ mod tests {
 
     #[test]
     fn process_startup_audit_event_uses_safe_metadata() {
-        let event =
-            process_startup_audit_event("json", true, "abc123", "2026-06-25\nbad|delimiter");
+        let event = process_startup_audit_event(
+            "json token:secret@example.com",
+            true,
+            "abc123",
+            "2026-06-25\nbad|delimiter",
+        );
 
         assert_eq!(event.category, "process");
         assert_eq!(event.action, "startup");
         assert_eq!(event.outcome, AuditOutcome::Success);
         assert_eq!(event.source, AuditSource::Api);
-        assert_eq!(event.attrs["log_format"], "json");
+        assert_eq!(event.attrs["log_format_class"], "custom");
+        assert_eq!(event.attrs["log_format_len"], 29);
         assert_eq!(event.attrs["log_destination"], "file");
         assert_eq!(event.attrs["git_sha"], "abc123");
         assert_eq!(event.attrs["build_date"], "2026-06-25 bad,delimiter");
+        assert!(!event.attrs.contains_key("log_format"));
+        let serialized = serde_json::to_string(&event).expect("startup event serializes");
+        assert!(!serialized.contains("token:secret"));
+        assert!(!serialized.contains("example.com"));
     }
 
     #[test]
