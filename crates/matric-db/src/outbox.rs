@@ -25,7 +25,7 @@ pub struct EventOutboxRecord {
 impl std::fmt::Debug for EventOutboxRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EventOutboxRecord")
-            .field("id", &self.id)
+            .field("id_present", &true)
             .field("event_type_len", &text_len(&self.event_type))
             .field("entity_type_len", &text_len(&self.entity_type))
             .field("entity_id_present", &true)
@@ -220,6 +220,8 @@ mod tests {
 
     #[test]
     fn outbox_debug_redacts_payload_and_memory() {
+        let record_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f501").unwrap();
+        let entity_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f502").unwrap();
         let payload = serde_json::json!({
             "provider_call_id": "CA-secret-provider-call",
             "recording_url": "https://api.twilio.example/recordings?token=sk-secret",
@@ -230,15 +232,15 @@ mod tests {
         let event = CreateOutboxEvent::new(
             "call_event.secret_type",
             "inbound_event",
-            Uuid::nil(),
+            entity_id,
             payload.clone(),
             Some("archive-secret-memory".to_string()),
         );
         let record = EventOutboxRecord {
-            id: Uuid::nil(),
+            id: record_id,
             event_type: "call_event.secret_type".to_string(),
             entity_type: "inbound_event".to_string(),
-            entity_id: Uuid::nil(),
+            entity_id,
             payload,
             memory: Some("archive-secret-memory".to_string()),
             created_at: Utc::now(),
@@ -249,9 +251,13 @@ mod tests {
 
         assert!(rendered.contains("CreateOutboxEvent"));
         assert!(rendered.contains("EventOutboxRecord"));
+        assert!(rendered.contains("id_present"));
+        assert!(rendered.contains("entity_id_present"));
         assert!(rendered.contains("payload_class"));
         assert!(rendered.contains("payload_serialized_len"));
         assert!(rendered.contains("memory_len"));
+        assert!(!rendered.contains("018fd1a0-0000-7000-8000-00000000f501"));
+        assert!(!rendered.contains("018fd1a0-0000-7000-8000-00000000f502"));
         assert!(!rendered.contains("CA-secret-provider-call"));
         assert!(!rendered.contains("recordings?token"));
         assert!(!rendered.contains("sk-secret"));
