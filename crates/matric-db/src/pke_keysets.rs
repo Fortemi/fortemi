@@ -131,6 +131,17 @@ fn pke_keyset_text_len(value: &str) -> usize {
     value.chars().count()
 }
 
+fn keyset_not_found_by_id_error(_id: Uuid) -> Error {
+    Error::NotFound("Keyset not found; keyset_id_present=true".to_string())
+}
+
+fn keyset_not_found_by_name_error(name: &str) -> Error {
+    Error::NotFound(format!(
+        "Keyset not found; name_len={}",
+        name.chars().count()
+    ))
+}
+
 fn pke_keyset_decode_error(field: &'static str, err: impl std::fmt::Display) -> Error {
     let diagnostic = err.to_string();
     Error::InvalidInput(format!(
@@ -319,10 +330,7 @@ impl PgPkeKeysetRepository {
         .map_err(Error::Database)?;
 
         if !exists {
-            return Err(Error::NotFound(format!(
-                "Keyset with id '{}' not found",
-                keyset_id
-            )));
+            return Err(keyset_not_found_by_id_error(keyset_id));
         }
 
         sqlx::query(
@@ -345,7 +353,7 @@ impl PgPkeKeysetRepository {
         let keyset = self
             .get_by_name(name)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Keyset '{}' not found", name)))?;
+            .ok_or_else(|| keyset_not_found_by_name_error(name))?;
 
         self.set_active(keyset.id).await
     }
@@ -507,6 +515,30 @@ mod tests {
         ] {
             assert!(!message.contains(raw), "raw diagnostic leaked: {raw}");
         }
+    }
+
+    #[test]
+    fn pke_keyset_not_found_errors_report_metadata_without_raw_values() {
+        let keyset_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000303").unwrap();
+        let raw_name = "tenant-keyset-sk-live-123/path@example.com";
+
+        let id_message = match keyset_not_found_by_id_error(keyset_id) {
+            Error::NotFound(message) => message,
+            other => panic!("unexpected error: {other:?}"),
+        };
+        assert_eq!(id_message, "Keyset not found; keyset_id_present=true");
+        assert!(!id_message.contains(&keyset_id.to_string()));
+
+        let name_message = match keyset_not_found_by_name_error(raw_name) {
+            Error::NotFound(message) => message,
+            other => panic!("unexpected error: {other:?}"),
+        };
+        assert!(name_message.contains("Keyset not found"));
+        assert!(name_message.contains(&format!("name_len={}", raw_name.chars().count())));
+        assert!(!name_message.contains(raw_name));
+        assert!(!name_message.contains("tenant-keyset"));
+        assert!(!name_message.contains("sk-live"));
+        assert!(!name_message.contains("path@example.com"));
     }
 
     /// Returns pool if integration test DB is available, None to skip.

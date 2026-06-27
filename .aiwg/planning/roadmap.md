@@ -196,6 +196,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: DB document-type not-found errors now report document-type name length metadata instead of raw document-type names or lookup values.
   - 2026-06-27 continuation: DB archive not-found errors now report archive-name length metadata instead of raw archive names or source archive lookup values.
   - 2026-06-27 continuation: DB embedding-set/config not-found errors now report slug length and id-presence metadata instead of raw embedding-set slugs or config/set UUIDs.
+  - 2026-06-27 continuation: DB PKE keyset not-found errors now report keyset id presence or name length metadata instead of raw keyset UUIDs or names.
   - 2026-06-27 continuation: Core split memory-search model source now mirrors the compiled memory/search Debug redaction contract, keeping memory hits, timelines, cross-archive search requests/results, attachment filters, filenames, snippets, tags, locations, device IDs, and archive names represented as lengths/counts/presence flags instead of raw user/content/topology strings.
   - 2026-06-27 continuation: Hybrid search config Debug output now reports weighting, archive behavior, embedding-set presence, deduplication options, strict/unified filter presence, language/script hint lengths, feature-flag metadata, and diversity metadata instead of raw filter values, language/script hints, paths, emails, or token-shaped values.
   - 2026-06-27 continuation: Media optimization ffprobe skip results now store stable reason codes and error lengths instead of raw subprocess diagnostic text in retained `job_queue.result` payloads.
@@ -1109,3 +1110,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 DB document-type not-found errors now report document-type name length metadata instead of raw document-type names or lookup values.
 - 2026-06-27 — #968/#974 DB archive not-found errors now report archive-name length metadata instead of raw archive names or source archive lookup values.
 - 2026-06-27 — #968/#974 DB embedding-set/config not-found errors now report slug length and id-presence metadata instead of raw embedding-set slugs or config/set UUIDs.
+- 2026-06-27 — #968/#974 DB PKE keyset not-found errors now report keyset id presence or name length metadata instead of raw keyset UUIDs or names.
