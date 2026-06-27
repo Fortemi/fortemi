@@ -22200,7 +22200,7 @@ async fn download_attachment(
     drop(tx); // Release DB connection before file I/O
 
     let content_type = info.content_type;
-    let filename = info.filename;
+    let filename = attachment_media_download_filename(&info.filename, target_id);
     let total_size = info.size_bytes as usize;
 
     let ct_header: HeaderValue = content_type
@@ -22215,13 +22215,9 @@ async fn download_attachment(
     } else {
         "attachment"
     };
-    let cd_header: HeaderValue = format!(
-        "{}; filename=\"{}\"",
-        disposition,
-        filename.replace('"', "\\\"")
-    )
-    .parse()
-    .unwrap_or_else(|_| HeaderValue::from_static(disposition));
+    let cd_header: HeaderValue = format!("{}; filename=\"{}\"", disposition, filename)
+        .parse()
+        .unwrap_or_else(|_| HeaderValue::from_static(disposition));
 
     // Graduated serving strategy (#500):
     // - Small files / inline DB blobs: full-buffer then send
@@ -22531,12 +22527,8 @@ async fn get_attachment_subtitles(
         ),
     };
 
-    let base_name = attachment
-        .filename
-        .rsplit_once('.')
-        .map(|(name, _)| name)
-        .unwrap_or(&attachment.filename);
-    let subtitle_filename = format!("{}.{}", base_name, extension);
+    let subtitle_filename =
+        attachment_subtitle_download_filename(&attachment.filename, attachment_id, extension);
 
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -22545,15 +22537,33 @@ async fn get_attachment_subtitles(
     );
     headers.insert(
         header::CONTENT_DISPOSITION,
-        format!(
-            "inline; filename=\"{}\"",
-            subtitle_filename.replace('"', "\\\"")
-        )
-        .parse()
-        .unwrap(),
+        format!("inline; filename=\"{}\"", subtitle_filename)
+            .parse()
+            .unwrap(),
     );
 
     Ok((StatusCode::OK, headers, body))
+}
+
+fn attachment_media_download_filename(filename: &str, attachment_id: Uuid) -> String {
+    format!(
+        "attachment_filename_len_{}_{}",
+        telemetry_text_len(filename),
+        attachment_id
+    )
+}
+
+fn attachment_subtitle_download_filename(
+    filename: &str,
+    attachment_id: Uuid,
+    extension: &str,
+) -> String {
+    format!(
+        "attachment_filename_len_{}_{}_captions.{}",
+        telemetry_text_len(filename),
+        attachment_id,
+        extension
+    )
 }
 
 /// Serve the thumbnail for a media attachment.
@@ -29387,6 +29397,43 @@ mod tests {
             note_export_download_filename(None, note_id),
             format!("note_{}.md", note_id)
         );
+    }
+
+    #[test]
+    fn attachment_download_filenames_use_metadata_only() {
+        let attachment_id = Uuid::new_v4();
+        let raw_filename = "customer-private/path/report-mm_key_attachment_secret@example.com.pdf";
+        let media_filename = attachment_media_download_filename(raw_filename, attachment_id);
+        let media_content_disposition = format!("inline; filename=\"{}\"", media_filename);
+        let subtitle_filename =
+            attachment_subtitle_download_filename(raw_filename, attachment_id, "vtt");
+        let subtitle_content_disposition = format!("inline; filename=\"{}\"", subtitle_filename);
+
+        assert!(media_filename.starts_with("attachment_filename_len_"));
+        assert!(media_filename.ends_with(&attachment_id.to_string()));
+        assert!(subtitle_filename.starts_with("attachment_filename_len_"));
+        assert!(subtitle_filename.ends_with(&format!("_{}_captions.vtt", attachment_id)));
+        assert!(HeaderValue::from_str(&media_content_disposition).is_ok());
+        assert!(HeaderValue::from_str(&subtitle_content_disposition).is_ok());
+        for raw in [
+            "customer-private",
+            "path/report",
+            "mm_key_attachment_secret",
+            "example.com",
+            ".pdf",
+            raw_filename,
+        ] {
+            assert!(!media_filename.contains(raw), "raw value leaked: {raw}");
+            assert!(
+                !media_content_disposition.contains(raw),
+                "raw value leaked: {raw}"
+            );
+            assert!(!subtitle_filename.contains(raw), "raw value leaked: {raw}");
+            assert!(
+                !subtitle_content_disposition.contains(raw),
+                "raw value leaked: {raw}"
+            );
+        }
     }
 
     #[test]
