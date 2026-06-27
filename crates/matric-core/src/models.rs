@@ -4012,8 +4012,11 @@ impl fmt::Debug for ProvenanceEdge {
             .field("id_set", &true)
             .field("revision_id_set", &true)
             .field("source_note_id_set", &self.source_note_id.is_some())
-            .field("source_url_len", &self.source_url.as_ref().map(String::len))
-            .field("relation_len", &self.relation.len())
+            .field(
+                "source_url_len",
+                &optional_debug_len(self.source_url.as_ref()),
+            )
+            .field("relation_len", &debug_len(&self.relation))
             .field("created_at_utc", &self.created_at_utc)
             .finish()
     }
@@ -4038,8 +4041,11 @@ impl fmt::Debug for ProvenanceActivity {
             .field("id_set", &true)
             .field("note_id_set", &true)
             .field("revision_id_set", &self.revision_id.is_some())
-            .field("activity_type_len", &self.activity_type.len())
-            .field("model_name_len", &self.model_name.as_ref().map(String::len))
+            .field("activity_type_len", &debug_len(&self.activity_type))
+            .field(
+                "model_name_len",
+                &optional_debug_len(self.model_name.as_ref()),
+            )
             .field("started_at", &self.started_at)
             .field("ended_at_set", &self.ended_at.is_some())
             .field(
@@ -7102,16 +7108,16 @@ mod tests {
             id: Uuid::new_v4(),
             revision_id: Uuid::new_v4(),
             source_note_id: Some(Uuid::new_v4()),
-            source_url: Some("https://source.example.test/private?token=secret".to_string()),
-            relation: "used-private-source-sk-live-secret".to_string(),
+            source_url: Some("éé".to_string()),
+            relation: "åå".to_string(),
             created_at_utc: now,
         };
         let activity = ProvenanceActivity {
             id: Uuid::new_v4(),
             note_id: Uuid::new_v4(),
             revision_id: Some(Uuid::new_v4()),
-            activity_type: "private-ai-revision".to_string(),
-            model_name: Some("private-model-name".to_string()),
+            activity_type: "ö丼".to_string(),
+            model_name: Some("üü".to_string()),
             started_at: now,
             ended_at: Some(now),
             metadata: Some(json!({
@@ -7137,6 +7143,10 @@ mod tests {
         assert_debug_excludes(
             &debug,
             &[
+                "éé",
+                "åå",
+                "ö丼",
+                "üü",
                 "source.example.test",
                 "token=secret",
                 "used-private-source",
@@ -7150,10 +7160,10 @@ mod tests {
         );
 
         for expected in [
-            "source_url_len",
-            "relation_len",
-            "activity_type_len",
-            "model_name_len",
+            "source_url_len: Some(2)",
+            "relation_len: 2",
+            "activity_type_len: 2",
+            "model_name_len: Some(2)",
             "metadata_class",
             "metadata_len",
             "activity_set",
