@@ -141,6 +141,13 @@ fn relabel_text_len(text: &str) -> usize {
     text.chars().count()
 }
 
+fn speaker_relabel_no_mappings_result() -> serde_json::Value {
+    json!({
+        "status": "no_mappings",
+        "mappings": 0,
+    })
+}
+
 pub struct SpeakerRelabelHandler {
     db: Database,
 }
@@ -231,10 +238,7 @@ impl JobHandler for SpeakerRelabelHandler {
             };
 
         if speaker_map.is_empty() {
-            return JobResult::Success(Some(json!({
-                "status": "no_mappings",
-                "message": "Speaker map is empty, nothing to relabel"
-            })));
+            return JobResult::Success(Some(speaker_relabel_no_mappings_result()));
         }
 
         ctx.report_progress(20, Some("Loading attachment metadata"));
@@ -597,6 +601,15 @@ Edit speaker names below to re-label the transcript.
     fn test_speaker_config_empty_speakers() {
         let config = SpeakerConfig { speakers: vec![] };
         assert!(config.name_map().is_empty());
+    }
+
+    #[test]
+    fn speaker_relabel_no_mappings_result_uses_stable_metadata() {
+        let result = speaker_relabel_no_mappings_result();
+
+        assert_eq!(result["status"], "no_mappings");
+        assert_eq!(result["mappings"], 0);
+        assert!(result.get("message").is_none());
     }
 
     #[test]
