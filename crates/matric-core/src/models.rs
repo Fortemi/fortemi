@@ -4349,7 +4349,7 @@ impl std::fmt::Debug for OAuthToken {
                 "refresh_token_hash_len",
                 &optional_debug_len(self.refresh_token_hash.as_ref()),
             )
-            .field("token_type", &self.token_type)
+            .field("token_type_len", &self.token_type.chars().count())
             .field("scope_len", &self.scope.chars().count())
             .field("client_id_len", &self.client_id.chars().count())
             .field("user_id_len", &optional_debug_len(self.user_id.as_ref()))
@@ -4387,7 +4387,7 @@ impl std::fmt::Debug for TokenResponse {
         f.debug_struct("TokenResponse")
             .field("access_token_set", &!self.access_token.is_empty())
             .field("access_token_len", &self.access_token.chars().count())
-            .field("token_type", &self.token_type)
+            .field("token_type_len", &self.token_type.chars().count())
             .field("expires_in", &self.expires_in)
             .field("refresh_token_set", &self.refresh_token.is_some())
             .field("scope_len", &optional_debug_len(self.scope.as_ref()))
@@ -7197,7 +7197,7 @@ mod tests {
             id: oauth_token_id,
             access_token_hash: "hashed-mm_at_secret_value".to_string(),
             refresh_token_hash: Some("hashed-mm_rt_secret_value".to_string()),
-            token_type: "Bearer".to_string(),
+            token_type: "Bearer mm_at_token_type_secret".to_string(),
             scope: "read write".to_string(),
             client_id: "oauth-client-secret-id".to_string(),
             user_id: Some("user-secret-id".to_string()),
@@ -7218,7 +7218,7 @@ mod tests {
         };
         let token_response = TokenResponse {
             access_token: "mm_at_access_secret".to_string(),
-            token_type: "Bearer".to_string(),
+            token_type: "Bearer mm_at_response_type_secret".to_string(),
             expires_in: 3600,
             refresh_token: Some("mm_rt_refresh_secret".to_string()),
             scope: Some("read write".to_string()),
@@ -7243,6 +7243,8 @@ mod tests {
                 "authorization_code_secret",
                 "hashed-mm_at_secret_value",
                 "hashed-mm_rt_secret_value",
+                "Bearer mm_at_token_type_secret",
+                "Bearer mm_at_response_type_secret",
                 "mm_rt_refresh_secret",
                 "pkce-verifier-secret",
                 "pkce-challenge-secret",
@@ -7265,6 +7267,7 @@ mod tests {
         assert!(debug.contains("client_secret_set"));
         assert!(debug.contains("access_token_set"));
         assert!(debug.contains("refresh_token_hash_len"));
+        assert!(debug.contains("token_type_len"));
     }
 
     #[test]

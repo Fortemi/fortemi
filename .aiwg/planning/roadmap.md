@@ -195,6 +195,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: Core audit sink error Display/Debug output now reports sink message class and length instead of raw backend failure text, paths, or token-shaped values.
   - 2026-06-27 continuation: Core MatricError Display/Debug output now reports message classes, lengths, and id-presence flags instead of raw backend errors, resource ids, paths, URLs, or token-shaped values.
   - 2026-06-27 continuation: DB ColBERT stats Debug output now reports total-size string length instead of raw human-size text that can carry backend strings, paths, URLs, or token-shaped values.
+  - 2026-06-27 continuation: Core OAuth token Debug output now reports token-type lengths instead of raw token-type strings that can carry token-shaped values.
   - 2026-06-27 continuation: Speaker relabel no-op results now store stable status/count metadata instead of prose diagnostic text in retained `job_queue.result` payloads.
   - 2026-06-27 continuation: AI revision/contextual revision and bulk re-embed skip results now store stable reason codes instead of prose diagnostic text in retained `job_queue.result` payloads.
   - 2026-06-27 continuation: Archive adapter empty-input metadata now stores a stable error code instead of prose diagnostic text in retained extraction metadata.
@@ -1075,3 +1076,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 Core audit sink error Display/Debug output now reports sink message class and length instead of raw backend failure text, paths, or token-shaped values.
 - 2026-06-27 — #968/#974 Core MatricError Display/Debug output now reports message classes, lengths, and id-presence flags instead of raw backend errors, resource ids, paths, URLs, or token-shaped values.
 - 2026-06-27 — #968/#974 DB ColBERT stats Debug output now reports total-size string length instead of raw human-size text that can carry backend strings, paths, URLs, or token-shaped values.
+- 2026-06-27 — #968/#974 Core OAuth token Debug output now reports token-type lengths instead of raw token-type strings that can carry token-shaped values.
