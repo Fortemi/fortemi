@@ -750,7 +750,7 @@ async fn queue_nlp_pipeline_inner(
                 error!(
                     error_len = telemetry_text_len(&e.to_string()),
                     detail = API_JOB_PIPELINE_DIAGNOSTIC_FAILURE_DETAIL,
-                    job_type = ?job_type,
+                    job_type_len = telemetry_text_len(&format!("{job_type:?}")),
                     operation = "queue_nlp_pipeline_job",
                     "Failed to queue NLP pipeline job"
                 );

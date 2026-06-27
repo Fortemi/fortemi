@@ -74,6 +74,10 @@ fn worker_failure_telemetry(error: &str) -> (usize, &'static str) {
     (error.len(), worker_error_reason_code(error))
 }
 
+fn worker_job_type_len(job_type: &JobType) -> usize {
+    format!("{job_type:?}").len()
+}
+
 impl WorkerConfig {
     /// Create config from environment variables (with defaults).
     ///
@@ -165,13 +169,13 @@ impl fmt::Debug for WorkerEvent {
             } => f
                 .debug_struct("JobQueued")
                 .field("job_id_set", &job_id_set(job_id))
-                .field("job_type", job_type)
+                .field("job_type_len", &worker_job_type_len(job_type))
                 .field("note_id_set", &note_id.is_some())
                 .finish(),
             Self::JobStarted { job_id, job_type } => f
                 .debug_struct("JobStarted")
                 .field("job_id_set", &job_id_set(job_id))
-                .field("job_type", job_type)
+                .field("job_type_len", &worker_job_type_len(job_type))
                 .finish(),
             Self::JobProgress {
                 job_id,
@@ -186,7 +190,7 @@ impl fmt::Debug for WorkerEvent {
             Self::JobCompleted { job_id, job_type } => f
                 .debug_struct("JobCompleted")
                 .field("job_id_set", &job_id_set(job_id))
-                .field("job_type", job_type)
+                .field("job_type_len", &worker_job_type_len(job_type))
                 .finish(),
             Self::JobFailed {
                 job_id,
@@ -196,7 +200,7 @@ impl fmt::Debug for WorkerEvent {
                 let (error_len, reason_code) = worker_failure_telemetry(error);
                 f.debug_struct("JobFailed")
                     .field("job_id_set", &job_id_set(job_id))
-                    .field("job_type", job_type)
+                    .field("job_type_len", &worker_job_type_len(job_type))
                     .field("error_len", &error_len)
                     .field("reason_code", &reason_code)
                     .finish()
@@ -318,7 +322,10 @@ impl JobWorker {
         let job_type = handler.job_type();
         let mut handlers = self.handlers.write().await;
         handlers.insert(job_type, Arc::new(handler));
-        debug!(?job_type, "Registered job handler");
+        debug!(
+            job_type_len = worker_job_type_len(&job_type),
+            "Registered job handler"
+        );
     }
 
     /// Get a reference to the extraction registry (if configured).
@@ -762,8 +769,9 @@ impl JobWorkerRef {
         let start = Instant::now();
         let job_id = job.id;
         let job_type = job.job_type;
+        let job_type_len = worker_job_type_len(&job_type);
 
-        info!(job_id_present = true, ?job_type, "Processing job");
+        info!(job_id_present = true, job_type_len, "Processing job");
 
         let _ = self
             .event_tx
@@ -796,17 +804,14 @@ impl JobWorkerRef {
                     Err(_) => {
                         warn!(
                             job_id_present = true,
-                            ?job_type,
-                            timeout_secs,
-                            "Job exceeded timeout of {}s",
-                            timeout_secs
+                            job_type_len, timeout_secs, "Job exceeded timeout of {}s", timeout_secs
                         );
                         JobResult::Failed(format!("Job exceeded timeout of {}s", timeout_secs))
                     }
                 }
             }
             None => {
-                warn!(?job_type, "No handler registered for job type");
+                warn!(job_type_len, "No handler registered for job type");
                 JobResult::Failed(format!("No handler for job type: {:?}", job_type))
             }
         };
@@ -826,7 +831,7 @@ impl JobWorkerRef {
                 } else {
                     info!(
                         job_id_present = true,
-                        ?job_type,
+                        job_type_len,
                         duration_ms = start.elapsed().as_millis() as u64,
                         "Job completed successfully"
                     );
@@ -849,7 +854,7 @@ impl JobWorkerRef {
                     let (error_len, error_reason) = worker_failure_telemetry(&error);
                     warn!(
                         job_id_present = true,
-                        ?job_type,
+                        job_type_len,
                         error_len,
                         error_reason,
                         is_retry,
@@ -1002,16 +1007,21 @@ mod tests {
     #[test]
     fn worker_operational_telemetry_uses_presence_and_reason_fields() {
         let raw_job_id = Uuid::new_v4().to_string();
+        let job_type = JobType::Embedding;
+        let job_type_len = worker_job_type_len(&job_type);
         let raw_error =
             "panic for job /srv/private/mm_key_worker postgres://user:pass@db.internal/app";
         let (error_len, error_reason) = worker_failure_telemetry(raw_error);
-        let rendered =
-            format!("job_id_present=true; error_len={error_len}; error_reason={error_reason}");
+        let rendered = format!(
+            "job_id_present=true; job_type_len={job_type_len}; error_len={error_len}; error_reason={error_reason}"
+        );
 
         assert!(rendered.contains("job_id_present=true"));
+        assert!(rendered.contains("job_type_len="));
         assert!(rendered.contains("error_len="));
         assert!(rendered.contains("error_reason=database_error"));
         assert!(!rendered.contains(&raw_job_id));
+        assert!(!rendered.contains("Embedding"));
         assert!(!rendered.contains("postgres://user:pass"));
         assert!(!rendered.contains("/srv/private"));
         assert!(!rendered.contains("mm_key_worker"));
@@ -1266,7 +1276,8 @@ mod tests {
 
         let debug_str = format!("{:?}", event);
         assert!(debug_str.contains("JobStarted"));
-        assert!(debug_str.contains("Embedding"));
+        assert!(debug_str.contains("job_type_len"));
+        assert!(!debug_str.contains("Embedding"));
         assert!(debug_str.contains("job_id_set"));
         assert!(!debug_str.contains(&job_id.to_string()));
     }
@@ -1374,6 +1385,7 @@ mod tests {
             "JobFailed",
             "job_id_set",
             "note_id_set",
+            "job_type_len",
             "message_len",
             "error_len",
             "reason_code",
@@ -1385,6 +1397,8 @@ mod tests {
         for raw in [
             job_id.to_string(),
             note_id.to_string(),
+            "Embedding".to_string(),
+            "AiRevision".to_string(),
             "customer@example.internal".to_string(),
             "sk-live-secret".to_string(),
             "postgres://user:secret".to_string(),
