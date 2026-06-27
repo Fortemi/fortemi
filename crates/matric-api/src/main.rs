@@ -4618,6 +4618,7 @@ async fn deliver_webhook(
             let status = response.status().as_u16() as i32;
             let success = response.status().is_success();
             let body = response.text().await.unwrap_or_default();
+            let diagnostic = webhook_delivery_response_diagnostic(Some(status), &body);
             let _ = db
                 .webhooks
                 .record_delivery(
@@ -4625,12 +4626,13 @@ async fn deliver_webhook(
                     event_type,
                     payload,
                     Some(status),
-                    Some(&body),
+                    Some(&diagnostic),
                     success,
                 )
                 .await;
         }
         Err(e) => {
+            let diagnostic = webhook_delivery_response_diagnostic(None, &e.to_string());
             let _ = db
                 .webhooks
                 .record_delivery(
@@ -4638,7 +4640,7 @@ async fn deliver_webhook(
                     event_type,
                     payload,
                     None,
-                    Some(&e.to_string()),
+                    Some(&diagnostic),
                     false,
                 )
                 .await;
@@ -4882,6 +4884,61 @@ fn webhook_delivery_text_has_secret_candidate(value: &str) -> bool {
         || lower.contains("bearer ")
         || lower.contains("authorization")
         || lower.contains("client_secret")
+}
+
+fn webhook_delivery_body_reason(value: &str) -> &'static str {
+    let lower = value.to_ascii_lowercase();
+    if lower.contains("timeout") || lower.contains("timed out") {
+        "timeout"
+    } else if lower.contains("connect")
+        || lower.contains("connection")
+        || lower.contains("dns")
+        || lower.contains("network")
+    {
+        "connection"
+    } else if lower.contains("unauthorized")
+        || lower.contains("forbidden")
+        || lower.contains("permission")
+    {
+        "auth_or_permission"
+    } else if lower.contains("not found") || lower.contains("missing") {
+        "not_found"
+    } else if lower.contains("invalid")
+        || lower.contains("parse")
+        || lower.contains("json")
+        || lower.contains("schema")
+    {
+        "invalid_response"
+    } else if lower.contains("too large") || lower.contains("payload") || lower.contains("size") {
+        "payload_size"
+    } else if lower.contains("rate")
+        || lower.contains("overloaded")
+        || lower.contains("unavailable")
+        || lower.contains("busy")
+    {
+        "unavailable"
+    } else if value.trim().is_empty() {
+        "empty"
+    } else {
+        "other"
+    }
+}
+
+fn webhook_delivery_response_diagnostic(status: Option<i32>, body: &str) -> String {
+    match status {
+        Some(status) => format!(
+            "status={status}; response_body_len={}; response_body_reason={}; response_body_secret_candidate={}",
+            telemetry_text_len(body),
+            webhook_delivery_body_reason(body),
+            webhook_delivery_text_has_secret_candidate(body)
+        ),
+        None => format!(
+            "error_len={}; error_reason={}; error_secret_candidate={}",
+            telemetry_text_len(body),
+            webhook_delivery_body_reason(body),
+            webhook_delivery_text_has_secret_candidate(body)
+        ),
+    }
 }
 
 fn incoming_webhook_accepted_response(
@@ -31884,6 +31941,33 @@ mod tests {
             telemetry_text_len(secret_query),
             secret_query.chars().count()
         );
+    }
+
+    #[test]
+    fn webhook_delivery_response_diagnostic_redacts_response_body() {
+        let body = "permission denied for /srv/private/file.txt token=webhook-secret";
+        let diagnostic = webhook_delivery_response_diagnostic(Some(403), body);
+
+        assert!(diagnostic.contains("status=403"));
+        assert!(diagnostic.contains("response_body_len="));
+        assert!(diagnostic.contains("response_body_reason=auth_or_permission"));
+        assert!(diagnostic.contains("response_body_secret_candidate=true"));
+        assert!(!diagnostic.contains("/srv/private/file.txt"));
+        assert!(!diagnostic.contains("webhook-secret"));
+        assert!(!diagnostic.contains("permission denied"));
+    }
+
+    #[test]
+    fn webhook_delivery_response_diagnostic_redacts_request_errors() {
+        let error = "connection failed for https://user:pass@tenant.example/hook?token=secret";
+        let diagnostic = webhook_delivery_response_diagnostic(None, error);
+
+        assert!(diagnostic.contains("error_len="));
+        assert!(diagnostic.contains("error_reason=connection"));
+        assert!(diagnostic.contains("error_secret_candidate=true"));
+        assert!(!diagnostic.contains("tenant.example"));
+        assert!(!diagnostic.contains("user:pass"));
+        assert!(!diagnostic.contains("token=secret"));
     }
 
     #[test]
