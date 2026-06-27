@@ -375,6 +375,14 @@ fn graph_maintenance_job_result(
     })
 }
 
+fn purge_job_result(affected_embedding_sets: usize, stats_updated: usize) -> serde_json::Value {
+    serde_json::json!({
+        "deleted_note_id_present": true,
+        "affected_embedding_sets": affected_embedding_sets,
+        "stats_updated": stats_updated,
+    })
+}
+
 fn ai_revision_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     let diagnostic = error.to_string();
     warn!(
@@ -3780,11 +3788,7 @@ impl JobHandler for PurgeNoteHandler {
             "Note purged"
         );
 
-        JobResult::Success(Some(serde_json::json!({
-            "deleted_note_id": note_id.to_string(),
-            "affected_embedding_sets": affected_sets.len(),
-            "stats_updated": stats_updated
-        })))
+        JobResult::Success(Some(purge_job_result(affected_sets.len(), stats_updated)))
     }
 }
 
@@ -7857,6 +7861,17 @@ mod tests {
         assert!(!rendered.contains("tenant_secret_schema"));
         assert!(!rendered.contains("/srv/fortemi"));
         assert!(!rendered.contains("sk-secret"));
+    }
+
+    #[test]
+    fn purge_job_result_redacts_deleted_note_id() {
+        let deleted_note_id = "018f8d6d-1111-7222-8333-c44444444444";
+        let result = purge_job_result(3, 2);
+
+        assert_eq!(result["deleted_note_id_present"], true);
+        assert_eq!(result["affected_embedding_sets"], 3);
+        assert_eq!(result["stats_updated"], 2);
+        assert!(!result.to_string().contains(deleted_note_id));
     }
 
     #[test]
