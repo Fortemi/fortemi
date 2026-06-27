@@ -34,7 +34,7 @@ impl std::fmt::Debug for PkeKeyset {
                 "encrypted_private_key_len",
                 &self.encrypted_private_key.len(),
             )
-            .field("address", &self.address)
+            .field("address_len", &self.address.chars().count())
             .field("label_len", &optional_text_len(&self.label))
             .field("created_at", &self.created_at)
             .field("updated_at", &self.updated_at)
@@ -43,7 +43,7 @@ impl std::fmt::Debug for PkeKeyset {
 }
 
 /// Summary view of a keyset (without key material).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PkeKeysetSummary {
     pub id: Uuid,
     pub name: String,
@@ -52,6 +52,20 @@ pub struct PkeKeysetSummary {
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl std::fmt::Debug for PkeKeysetSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PkeKeysetSummary")
+            .field("id", &self.id)
+            .field("name_len", &self.name.chars().count())
+            .field("address_len", &self.address.chars().count())
+            .field("label_len", &optional_text_len(&self.label))
+            .field("is_active", &self.is_active)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
 }
 
 /// Request to create a new keyset.
@@ -73,7 +87,7 @@ impl std::fmt::Debug for CreateKeysetRequest {
                 "encrypted_private_key_len",
                 &self.encrypted_private_key.len(),
             )
-            .field("address", &self.address)
+            .field("address_len", &self.address.chars().count())
             .field("label_len", &optional_text_len(&self.label))
             .finish()
     }
@@ -102,7 +116,7 @@ impl std::fmt::Debug for ExportedKeyset {
                 "encrypted_private_key_base64_len",
                 &self.encrypted_private_key_base64.chars().count(),
             )
-            .field("address", &self.address)
+            .field("address_len", &self.address.chars().count())
             .field("label_len", &optional_text_len(&self.label))
             .field("exported_at", &self.exported_at)
             .finish()
@@ -391,8 +405,17 @@ mod tests {
             name: "tenant-secret-keyset".to_string(),
             public_key: b"public-key-material".to_vec(),
             encrypted_private_key: b"encrypted-private-key-secret".to_vec(),
-            address: "mm:example-address".to_string(),
+            address: "mm:example-address-secret-fragment".to_string(),
             label: Some("private label".to_string()),
+            created_at: now,
+            updated_at: now,
+        };
+        let summary = PkeKeysetSummary {
+            id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000302").unwrap(),
+            name: "tenant-secret-keyset".to_string(),
+            address: "mm:example-address-secret-fragment".to_string(),
+            label: Some("private label".to_string()),
+            is_active: true,
             created_at: now,
             updated_at: now,
         };
@@ -400,25 +423,27 @@ mod tests {
             name: "tenant-secret-keyset".to_string(),
             public_key: b"public-key-material".to_vec(),
             encrypted_private_key: b"encrypted-private-key-secret".to_vec(),
-            address: "mm:example-address".to_string(),
+            address: "mm:example-address-secret-fragment".to_string(),
             label: Some("private label".to_string()),
         };
         let exported = ExportedKeyset {
             name: "tenant-secret-keyset".to_string(),
             public_key_base64: "public-key-material".to_string(),
             encrypted_private_key_base64: "encrypted-private-key-secret".to_string(),
-            address: "mm:example-address".to_string(),
+            address: "mm:example-address-secret-fragment".to_string(),
             label: Some("private label".to_string()),
             exported_at: now,
         };
 
-        let rendered = format!("{keyset:?}\n{create:?}\n{exported:?}");
+        let rendered = format!("{keyset:?}\n{summary:?}\n{create:?}\n{exported:?}");
         assert!(rendered.contains("public_key_len"));
         assert!(rendered.contains("encrypted_private_key_len"));
         assert!(rendered.contains("encrypted_private_key_base64_len"));
+        assert!(rendered.contains("address_len"));
         assert!(!rendered.contains("tenant-secret-keyset"));
         assert!(!rendered.contains("public-key-material"));
         assert!(!rendered.contains("encrypted-private-key-secret"));
+        assert!(!rendered.contains("example-address-secret-fragment"));
         assert!(!rendered.contains("private label"));
     }
 
