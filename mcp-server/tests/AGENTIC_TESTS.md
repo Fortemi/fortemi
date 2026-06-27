@@ -346,7 +346,7 @@ services:
   api:
     build: .
     environment:
-      DATABASE_URL: postgres://matric:matric@db/matric
+      DATABASE_URL: <DATABASE_URL>
 
   mcp:
     build: ./mcp-server

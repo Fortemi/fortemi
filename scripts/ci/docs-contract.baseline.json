@@ -343,48 +343,6 @@
       "reason": "Bundle image local default pending generated-secret migration under #992/#1001.",
       "owner_issue": "#1001",
       "review_after": "2026-07-31"
-    },
-    {
-      "fingerprint": "8034f44b8a4c90ba",
-      "rule": "docs-credential-dsn",
-      "issue": "#1001",
-      "profile": "hosted_strict",
-      "severity": "high",
-      "category": "credential_bearing_database_url",
-      "file": "mcp-server/tests/AGENTIC_TESTS.md",
-      "line": 349,
-      "classification": "test_fixture_secret",
-      "reason": "MCP test documentation fixture; cleanup/classification tracked by #1001/#1004.",
-      "owner_issue": "#1001",
-      "review_after": "2026-07-31"
-    },
-    {
-      "fingerprint": "8de1ab25d330717e",
-      "rule": "docs-default-pgpassword",
-      "issue": "#1001",
-      "profile": "hosted_strict",
-      "severity": "high",
-      "category": "default_database_password",
-      "file": "scripts/ci/rebuild-shard-in-ci.sh",
-      "line": 59,
-      "classification": "ci_test_fixture",
-      "reason": "CI shard rebuild test database fixture; cleanup/classification tracked by #1001/#1004.",
-      "owner_issue": "#1001",
-      "review_after": "2026-07-31"
-    },
-    {
-      "fingerprint": "96f771a28b0c484b",
-      "rule": "docs-credential-dsn",
-      "issue": "#1001",
-      "profile": "hosted_strict",
-      "severity": "high",
-      "category": "credential_bearing_database_url",
-      "file": "scripts/ci/rebuild-shard-in-ci.sh",
-      "line": 96,
-      "classification": "ci_test_fixture",
-      "reason": "CI shard rebuild test database fixture; cleanup/classification tracked by #1001/#1004.",
-      "owner_issue": "#1001",
-      "review_after": "2026-07-31"
     }
   ]
 }

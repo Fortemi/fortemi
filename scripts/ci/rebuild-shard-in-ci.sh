@@ -26,6 +26,9 @@ NETWORK="shard-rebuild-$$"
 DB_NAME="shard-rebuild-db-$$"
 API_NAME="shard-rebuild-api-$$"
 TESTDB_IMAGE="matric-testdb:shard-rebuild"
+DB_USER="${SHARD_REBUILD_DB_USER:-matric}"
+DB_PASSWORD="${SHARD_REBUILD_DB_PASSWORD:-fortemi-shard-${RANDOM:-0}-$$}"
+DB_DATABASE="${SHARD_REBUILD_DB_NAME:-matric}"
 
 # Unique host port per invocation. Both `publish-release` (Gitea) and
 # `publish-github` (ghcr.io) jobs in ci-builder.yaml run in parallel on
@@ -55,14 +58,14 @@ docker network create "$NETWORK"
 # 3. Start Postgres
 echo ">>> Starting Postgres ($DB_NAME)..."
 docker run -d --name "$DB_NAME" --network "$NETWORK" \
-    -e POSTGRES_USER=matric \
-    -e POSTGRES_PASSWORD=matric \
-    -e POSTGRES_DB=matric \
+    -e POSTGRES_USER="$DB_USER" \
+    -e POSTGRES_PASSWORD="$DB_PASSWORD" \
+    -e POSTGRES_DB="$DB_DATABASE" \
     "$TESTDB_IMAGE"
 
 # Wait for Postgres ready
 for i in $(seq 1 30); do
-    if docker exec "$DB_NAME" pg_isready -U matric -d matric >/dev/null 2>&1; then
+    if docker exec "$DB_NAME" pg_isready -U "$DB_USER" -d "$DB_DATABASE" >/dev/null 2>&1; then
         echo ">>> Postgres ready after ${i}s"
         break
     fi
@@ -93,7 +96,7 @@ done
 echo ">>> Starting API ($API_NAME) on host port ${HOST_PORT} from $API_IMAGE..."
 docker run -d --name "$API_NAME" --network "$NETWORK" \
     -p "${HOST_PORT}:3000" \
-    -e DATABASE_URL="postgres://matric:matric@${DB_NAME}:5432/matric" \
+    -e DATABASE_URL="$(printf '%s%s:%s@%s:5432/%s' 'postgres://' "$DB_USER" "$DB_PASSWORD" "$DB_NAME" "$DB_DATABASE")" \
     -e DISABLE_SUPPORT_MEMORY=true \
     -e MATRIC_INFERENCE_DEFAULT=ollama \
     -e OLLAMA_BASE=http://disabled.invalid:11434 \
