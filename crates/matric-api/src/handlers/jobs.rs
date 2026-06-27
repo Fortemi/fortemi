@@ -247,6 +247,13 @@ fn reembed_all_job_result(
     })
 }
 
+fn reembed_all_no_notes_job_result() -> serde_json::Value {
+    serde_json::json!({
+        "notes_queued": 0,
+        "reason": "no_active_notes"
+    })
+}
+
 fn refresh_embedding_set_job_result(
     set_slug: &str,
     missing_count: usize,
@@ -280,6 +287,20 @@ fn ai_revision_job_result(
     })
 }
 
+fn ai_revision_skip_job_result(reason: &'static str) -> serde_json::Value {
+    serde_json::json!({
+        "skipped": true,
+        "reason": reason
+    })
+}
+
+fn ai_revision_deferred_job_result(reason: &'static str) -> serde_json::Value {
+    serde_json::json!({
+        "deferred": true,
+        "reason": reason
+    })
+}
+
 fn ai_contextual_revision_job_result(
     revised_len: usize,
     revision_mode: RevisionMode,
@@ -297,6 +318,17 @@ fn ai_contextual_revision_job_result(
         "content_type_name_len": doc_type_name.map(diagnostic_len),
         "chunked": is_chunked,
         "chunk_count": total_chunks
+    })
+}
+
+fn ai_contextual_revision_skip_job_result(
+    reason: &'static str,
+    phase1_preserved: bool,
+) -> serde_json::Value {
+    serde_json::json!({
+        "skipped": true,
+        "reason": reason,
+        "phase1_preserved": phase1_preserved
     })
 }
 
@@ -1119,10 +1151,7 @@ impl JobHandler for AiRevisionHandler {
 
         // Skip if mode is None (shouldn't happen as we don't queue, but safety check)
         if revision_mode == RevisionMode::None {
-            return JobResult::Success(Some(serde_json::json!({
-                "skipped": true,
-                "reason": "revision_mode is none"
-            })));
+            return JobResult::Success(Some(ai_revision_skip_job_result("revision_mode_none")));
         }
 
         // Resolve model override via provider registry (supports provider-qualified slugs)
@@ -1202,10 +1231,9 @@ impl JobHandler for AiRevisionHandler {
                     "Deferring AI revision — note has media attachments; \
                      extraction pipeline will re-queue after content assembly"
                 );
-                return JobResult::Success(Some(serde_json::json!({
-                    "deferred": true,
-                    "reason": "media attachments present — extraction pipeline owns revision timing"
-                })));
+                return JobResult::Success(Some(ai_revision_deferred_job_result(
+                    "media_attachments_defer_revision",
+                )));
             }
         }
 
@@ -1934,10 +1962,10 @@ impl JobHandler for AiRevisionContextualHandler {
                 .await;
                 self.queue_concept_tagging(&ctx, note_id, schema, &model_override)
                     .await;
-                return JobResult::Success(Some(serde_json::json!({
-                    "skipped": true,
-                    "reason": "embedding failed, Phase 1 output preserved",
-                })));
+                return JobResult::Success(Some(ai_contextual_revision_skip_job_result(
+                    "embedding_failed",
+                    true,
+                )));
             }
         };
 
@@ -1952,10 +1980,10 @@ impl JobHandler for AiRevisionContextualHandler {
                 .await;
                 self.queue_concept_tagging(&ctx, note_id, schema, &model_override)
                     .await;
-                return JobResult::Success(Some(serde_json::json!({
-                    "skipped": true,
-                    "reason": "no embedding vector produced",
-                })));
+                return JobResult::Success(Some(ai_contextual_revision_skip_job_result(
+                    "no_embedding_vector",
+                    true,
+                )));
             }
         };
 
@@ -2040,11 +2068,10 @@ impl JobHandler for AiRevisionContextualHandler {
             .await;
             self.queue_concept_tagging(&ctx, note_id, schema, &model_override)
                 .await;
-            return JobResult::Success(Some(serde_json::json!({
-                "skipped": true,
-                "reason": "no related notes found above similarity threshold",
-                "phase1_preserved": true,
-            })));
+            return JobResult::Success(Some(ai_contextual_revision_skip_job_result(
+                "no_related_notes",
+                true,
+            )));
         }
 
         // --- Phase 2: Contextual re-revision with strong guardrails ---
@@ -6733,10 +6760,7 @@ impl JobHandler for ReEmbedAllHandler {
 
         let total_notes = note_ids.len();
         if total_notes == 0 {
-            return JobResult::Success(Some(serde_json::json!({
-                "notes_queued": 0,
-                "message": "No notes to re-embed"
-            })));
+            return JobResult::Success(Some(reembed_all_no_notes_job_result()));
         }
 
         ctx.report_progress(
@@ -7957,7 +7981,7 @@ mod tests {
         let doc_type = "Confidential Lab Report /srv/private";
         let filename = "patient-secret-mm_key_file.jpg";
         let result = format!(
-            "{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             ai_revision_job_result(
                 42,
                 RevisionMode::Standard,
@@ -7986,7 +8010,11 @@ mod tests {
                 Some(uuid::Uuid::nil()),
                 true,
                 12,
-            )
+            ),
+            ai_revision_skip_job_result("revision_mode_none"),
+            ai_revision_deferred_job_result("media_attachments_defer_revision"),
+            ai_contextual_revision_skip_job_result("no_related_notes", true),
+            reembed_all_no_notes_job_result()
         );
 
         assert!(result.contains("content_type_name_len"));
@@ -7994,6 +8022,10 @@ mod tests {
         assert!(result.contains("effective_mode_len"));
         assert!(result.contains("title_len"));
         assert!(result.contains("no_image_attachments"));
+        assert!(result.contains("revision_mode_none"));
+        assert!(result.contains("media_attachments_defer_revision"));
+        assert!(result.contains("no_related_notes"));
+        assert!(result.contains("no_active_notes"));
         assert!(result.contains("filename_len"));
         assert!(result.contains("attachment_id_present"));
         assert!(result.contains("location_id_present"));
@@ -8006,6 +8038,10 @@ mod tests {
         assert!(!result.contains("patient-secret"));
         assert!(!result.contains("mm_key_file"));
         assert!(!result.contains("No image attachments found"));
+        assert!(!result.contains("revision_mode is none"));
+        assert!(!result.contains("media attachments present"));
+        assert!(!result.contains("similarity threshold"));
+        assert!(!result.contains("No notes to re-embed"));
         assert!(!result.contains(&uuid::Uuid::nil().to_string()));
     }
 
