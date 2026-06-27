@@ -251,12 +251,19 @@ impl fmt::Debug for ActiveCallSession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ActiveCallSession")
             .field("call_id_set", &true)
-            .field("provider_len", &self.provider.len())
-            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field("provider_len", &realtime_text_len(&self.provider))
+            .field(
+                "provider_call_id_len",
+                &realtime_text_len(&self.provider_call_id),
+            )
             .field("state", &self.state)
             .field("started_at", &self.started_at)
             .finish()
     }
+}
+
+fn realtime_text_len(value: &str) -> usize {
+    value.chars().count()
 }
 
 /// In-memory registry for active real-time sessions.
@@ -386,6 +393,8 @@ mod tests {
 
     #[test]
     fn realtime_debug_redacts_payloads_provider_ids_and_control_values() {
+        let session_provider = "twilió-private";
+        let session_provider_call_id = "CAcustómer@example.com";
         let frame = MediaFrame {
             codec: Codec::Opus {
                 sample_rate: 48_000,
@@ -428,8 +437,8 @@ mod tests {
         };
         let session = ActiveCallSession {
             call_id: Uuid::new_v4(),
-            provider: "twilio-private".to_string(),
-            provider_call_id: "CAcustomer@example.com".to_string(),
+            provider: session_provider.to_string(),
+            provider_call_id: session_provider_call_id.to_string(),
             state: CallState::Active,
             started_at: Utc::now(),
         };
@@ -447,10 +456,23 @@ mod tests {
         assert!(combined.contains("reason_len"));
         assert!(combined.contains("event_code_present"));
         assert!(combined.contains("sessions_redacted"));
+        for expected in [
+            format!("provider_len: {}", session_provider.chars().count()),
+            format!(
+                "provider_call_id_len: {}",
+                session_provider_call_id.chars().count()
+            ),
+        ] {
+            assert!(
+                combined.contains(&expected),
+                "realtime Debug output should retain exact character-count metadata {expected:?}: {combined}"
+            );
+        }
 
         for raw in [
             "sk-live-media-payload",
             "twilio-private",
+            "twilió-private",
             "CApostgres",
             "postgres://user:pass",
             "db.internal",
@@ -462,8 +484,8 @@ mod tests {
             "sk-live-drop",
             "private.provider.event",
             "CAprivate-custom",
-            "CAcustomer",
-            "customer@example.com",
+            "CAcustómer",
+            "custómer@example.com",
             "recording_url",
             "consent_confirmed",
             "event_code: 7",

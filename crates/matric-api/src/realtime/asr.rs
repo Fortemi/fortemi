@@ -29,9 +29,15 @@ impl fmt::Debug for AsrSessionConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AsrSessionConfig")
             .field("sample_rate_hz", &self.sample_rate_hz)
-            .field("language_len", &self.language.as_ref().map(String::len))
+            .field(
+                "language_len",
+                &self.language.as_ref().map(|value| realtime_text_len(value)),
+            )
             .field("metadata_class", &asr_json_class(&self.metadata))
-            .field("metadata_len", &self.metadata.to_string().len())
+            .field(
+                "metadata_len",
+                &realtime_text_len(&self.metadata.to_string()),
+            )
             .finish()
     }
 }
@@ -59,7 +65,7 @@ impl fmt::Debug for TranscriptEvent {
         match self {
             Self::Partial { text, ts } => f
                 .debug_struct("TranscriptEvent::Partial")
-                .field("text_len", &text.len())
+                .field("text_len", &realtime_text_len(text))
                 .field("timestamp_set", &true)
                 .field("timestamp_millis", &ts.timestamp_millis())
                 .finish(),
@@ -71,10 +77,10 @@ impl fmt::Debug for TranscriptEvent {
                 confidence,
             } => f
                 .debug_struct("TranscriptEvent::Final")
-                .field("text_len", &text.len())
+                .field("text_len", &realtime_text_len(text))
                 .field(
                     "speaker_label_len",
-                    &speaker_label.as_ref().map(String::len),
+                    &speaker_label.as_ref().map(|value| realtime_text_len(value)),
                 )
                 .field("start_ts_set", &start_ts.is_some())
                 .field("end_ts_set", &end_ts.is_some())
@@ -82,10 +88,14 @@ impl fmt::Debug for TranscriptEvent {
                 .finish(),
             Self::Error { reason } => f
                 .debug_struct("TranscriptEvent::Error")
-                .field("reason_len", &reason.len())
+                .field("reason_len", &realtime_text_len(reason))
                 .finish(),
         }
     }
+}
+
+fn realtime_text_len(value: &str) -> usize {
+    value.chars().count()
 }
 
 fn asr_json_class(value: &serde_json::Value) -> &'static str {
@@ -235,28 +245,33 @@ mod tests {
 
     #[test]
     fn asr_debug_redacts_transcripts_metadata_and_reasons() {
+        let language = "en-US-privaté";
+        let partial_text = "patient said 555-1212 and sk-live-secrét-token";
+        let final_text = "final transcript contains privaté@example.test";
+        let speaker_label = "speaker_privaté_label";
+        let error_reason = "Deepgram returned https://api.example.test?token=secrét-token";
         let config = AsrSessionConfig {
             sample_rate_hz: 16_000,
-            language: Some("en-US-private".to_string()),
+            language: Some(language.to_string()),
             metadata: json!({
                 "provider_call_id": "CA1234567890abcdef",
-                "recording_url": "https://media.example.test/recording?token=secret-token",
-                "database_url": "postgres://user:password@db.example.test/fortemi"
+                "recording_url": "https://media.example.test/recording?token=secrét-token",
+                "database_url": "postgres://user:pässword@db.example.test/fortemi"
             }),
         };
         let partial = TranscriptEvent::Partial {
-            text: "patient said 555-1212 and sk-live-secret-token".to_string(),
+            text: partial_text.to_string(),
             ts: Utc::now(),
         };
         let final_event = TranscriptEvent::Final {
-            text: "final transcript contains private@example.test".to_string(),
-            speaker_label: Some("speaker_private_label".to_string()),
+            text: final_text.to_string(),
+            speaker_label: Some(speaker_label.to_string()),
             start_ts: Some(0.25),
             end_ts: Some(1.5),
             confidence: Some(0.91),
         };
         let error = TranscriptEvent::Error {
-            reason: "Deepgram returned https://api.example.test?token=secret-token".to_string(),
+            reason: error_reason.to_string(),
         };
         let backend =
             MockAsrBackend::new(vec![partial.clone(), final_event.clone(), error.clone()]);
@@ -264,15 +279,15 @@ mod tests {
         let rendered = format!("{config:?}\n{partial:?}\n{final_event:?}\n{error:?}\n{backend:?}");
 
         for raw in [
-            "en-US-private",
+            "en-US-privaté",
             "CA1234567890abcdef",
             "recording_url",
-            "secret-token",
-            "postgres://user:password@db.example.test/fortemi",
+            "secrét-token",
+            "postgres://user:pässword@db.example.test/fortemi",
             "555-1212",
-            "sk-live-secret-token",
-            "private@example.test",
-            "speaker_private_label",
+            "sk-live-secrét-token",
+            "privaté@example.test",
+            "speaker_privaté_label",
             "Deepgram returned",
             "https://api.example.test",
         ] {
@@ -282,16 +297,19 @@ mod tests {
             );
         }
 
+        let metadata_len = config.metadata.to_string().chars().count();
         for expected in [
-            "language_len",
-            "metadata_class",
-            "text_len",
-            "speaker_label_len",
-            "reason_len",
-            "events_count",
+            format!("language_len: Some({})", language.chars().count()),
+            "metadata_class: \"object\"".to_string(),
+            format!("metadata_len: {metadata_len}"),
+            format!("text_len: {}", partial_text.chars().count()),
+            format!("text_len: {}", final_text.chars().count()),
+            format!("speaker_label_len: Some({})", speaker_label.chars().count()),
+            format!("reason_len: {}", error_reason.chars().count()),
+            "events_count: 3".to_string(),
         ] {
             assert!(
-                rendered.contains(expected),
+                rendered.contains(&expected),
                 "ASR Debug output should retain safe metadata field {expected:?}: {rendered}"
             );
         }

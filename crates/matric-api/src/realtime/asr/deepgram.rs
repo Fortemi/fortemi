@@ -493,15 +493,27 @@ struct DeepgramEnvelope {
 impl fmt::Debug for DeepgramEnvelope {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeepgramEnvelope")
-            .field("event_type_len", &self.event_type.as_ref().map(String::len))
+            .field(
+                "event_type_len",
+                &self
+                    .event_type
+                    .as_ref()
+                    .map(|value| deepgram_text_len(value)),
+            )
             .field("channel_set", &self.channel.is_some())
             .field("is_final", &self.is_final)
             .field("speech_final", &self.speech_final)
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &self
+                    .description
+                    .as_ref()
+                    .map(|value| deepgram_text_len(value)),
             )
-            .field("message_len", &self.message.as_ref().map(String::len))
+            .field(
+                "message_len",
+                &self.message.as_ref().map(|value| deepgram_text_len(value)),
+            )
             .finish()
     }
 }
@@ -530,7 +542,13 @@ struct DeepgramAlternative {
 impl fmt::Debug for DeepgramAlternative {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeepgramAlternative")
-            .field("transcript_len", &self.transcript.as_ref().map(String::len))
+            .field(
+                "transcript_len",
+                &self
+                    .transcript
+                    .as_ref()
+                    .map(|value| deepgram_text_len(value)),
+            )
             .field("confidence", &self.confidence)
             .field("words_count", &self.words.as_ref().map(Vec::len))
             .field("words", &self.words)
@@ -725,24 +743,26 @@ mod tests {
 
     #[test]
     fn deepgram_wire_debug_redacts_transcripts_and_provider_messages() {
-        let envelope: DeepgramEnvelope = serde_json::from_str(
-            r#"{
-              "type": "Results",
-              "is_final": true,
-              "speech_final": true,
-              "channel": {"alternatives": [{
-                "transcript": "customer@example.com said sk-live-deepgram near /srv/private",
+        let event_type = "Résults";
+        let transcript = "custómer@example.com said sk-live-deepgram near /srv/privaté";
+        let description = "postgres://user:päss@db.internal/app";
+        let message = "provider message with mm_key_deepgrám";
+        let json = serde_json::json!({
+            "type": event_type,
+            "is_final": true,
+            "speech_final": true,
+            "channel": {"alternatives": [{
+                "transcript": transcript,
                 "confidence": 0.97,
                 "words": [
                   {"start": 0.1, "end": 0.4, "speaker": 2},
                   {"start": 0.4, "end": 0.9, "speaker": 2}
                 ]
-              }]},
-              "description": "postgres://user:pass@db.internal/app",
-              "message": "provider message with mm_key_deepgram"
-            }"#,
-        )
-        .unwrap();
+            }]},
+            "description": description,
+            "message": message
+        });
+        let envelope: DeepgramEnvelope = serde_json::from_str(&json.to_string()).unwrap();
 
         let rendered_envelope = format!("{envelope:?}");
         let rendered_channel = format!("{:?}", envelope.channel.as_ref().unwrap());
@@ -782,15 +802,38 @@ mod tests {
         assert!(rendered_alternative.contains("transcript_len"));
         assert!(rendered_alternative.contains("words_count"));
         assert!(rendered_word.contains("speaker_set"));
+        for (rendered, expected) in [
+            (
+                &rendered_envelope,
+                format!("event_type_len: Some({})", event_type.chars().count()),
+            ),
+            (
+                &rendered_envelope,
+                format!("description_len: Some({})", description.chars().count()),
+            ),
+            (
+                &rendered_envelope,
+                format!("message_len: Some({})", message.chars().count()),
+            ),
+            (
+                &rendered_alternative,
+                format!("transcript_len: Some({})", transcript.chars().count()),
+            ),
+        ] {
+            assert!(
+                rendered.contains(&expected),
+                "Deepgram Debug output should retain exact character-count metadata {expected:?}: {rendered}"
+            );
+        }
 
         for raw in [
-            "customer@example.com",
+            "custómer@example.com",
             "sk-live-deepgram",
-            "/srv/private",
-            "postgres://user:pass",
+            "/srv/privaté",
+            "postgres://user:päss",
             "db.internal",
             "provider message",
-            "mm_key_deepgram",
+            "mm_key_deepgrám",
             "speaker_2",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
