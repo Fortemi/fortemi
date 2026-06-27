@@ -255,7 +255,7 @@ pub fn translate_media_stream_json(input: &str) -> Result<TwilioTranslatedEvent>
             sequence_number,
         } => Ok(TwilioTranslatedEvent::Control(CallControlEvent::Custom {
             event_type: "call_media_stopped".to_string(),
-            payload: serde_json::json!({"provider_call_id": stop.call_sid}),
+            payload: twilio_provider_call_reference_metadata(&stop.call_sid),
         }))
         .map(|event| with_sequence(event, sequence_number)),
         TwilioMediaEnvelope::Mark {
@@ -532,6 +532,13 @@ fn twilio_json_class(value: &Value) -> &'static str {
         Value::Array(_) => "array",
         Value::Object(_) => "object",
     }
+}
+
+fn twilio_provider_call_reference_metadata(provider_call_id: &str) -> Value {
+    serde_json::json!({
+        "provider_call_id_present": true,
+        "provider_call_id_len": twilio_text_len(provider_call_id),
+    })
 }
 
 fn twilio_text_len(value: &str) -> usize {
@@ -916,6 +923,34 @@ mod tests {
             event,
             TwilioTranslatedEvent::Control(CallControlEvent::DtmfDigit { digit: '#' })
         ));
+    }
+
+    #[test]
+    fn stop_envelope_redacts_provider_call_id_in_custom_payload() {
+        let provider_call_id = "CA-secret-provider-call-id";
+        let envelope = format!(
+            r#"{{"event":"stop","sequenceNumber":"9","stop":{{"callSid":"{provider_call_id}"}}}}"#
+        );
+        let event = translate_media_stream_json(&envelope).unwrap();
+        let payload = match event {
+            TwilioTranslatedEvent::Control(CallControlEvent::Custom {
+                event_type,
+                payload,
+            }) => {
+                assert_eq!(event_type, "call_media_stopped");
+                payload
+            }
+            other => panic!("unexpected translated event: {other:?}"),
+        };
+
+        assert_eq!(payload["provider_call_id_present"], true);
+        assert_eq!(
+            payload["provider_call_id_len"],
+            provider_call_id.chars().count()
+        );
+        let rendered = serde_json::to_string(&payload).expect("serialize stop payload");
+        assert!(!rendered.contains(provider_call_id));
+        assert!(!rendered.contains("secret-provider"));
     }
 
     #[tokio::test]
