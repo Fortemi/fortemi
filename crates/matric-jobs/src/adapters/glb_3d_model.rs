@@ -43,6 +43,57 @@ fn glb_text_len(text: &str) -> usize {
     text.len()
 }
 
+fn glb_filename_metadata(filename: &str) -> String {
+    format!("filename_len={}", glb_text_len(filename))
+}
+
+fn glb_view_prompt(
+    custom_prompt: Option<&str>,
+    filename: &str,
+    view_index: usize,
+    total_views: usize,
+    angle_degrees: f64,
+    elevation: &str,
+) -> String {
+    let filename_metadata = glb_filename_metadata(filename);
+    if let Some(custom) = custom_prompt {
+        format!(
+            "{}\n\nThis is view {} of {} (angle: {:.0}°, elevation: {}) of a 3D model ({}).",
+            custom,
+            view_index + 1,
+            total_views,
+            angle_degrees,
+            elevation,
+            filename_metadata
+        )
+    } else {
+        format!(
+            "Describe this rendered view of a 3D model in detail. \
+             This is view {} of {} (camera angle: {:.0}°, elevation: {}). \
+             The model file metadata is {}. \
+             Describe the shape, materials, textures, colors, and any notable features visible from this angle.",
+            view_index + 1,
+            total_views,
+            angle_degrees,
+            elevation,
+            filename_metadata
+        )
+    }
+}
+
+fn glb_synthesis_prompt(filename: &str, view_count: usize, views_text: &str) -> String {
+    format!(
+        "Below are descriptions of the same 3D model ({}) viewed from {} different camera angles.\n\n\
+         {}\n\n\
+         Provide a single comprehensive description of this 3D model, \
+         combining information from all views. \
+         Describe the overall shape, geometry, materials, colors, and purpose of the object.",
+        glb_filename_metadata(filename),
+        view_count,
+        views_text
+    )
+}
+
 fn renderer_destination_class(url: &str) -> &'static str {
     let lower = url.to_ascii_lowercase();
     if lower.contains('@')
@@ -439,20 +490,14 @@ impl ExtractionAdapter for Glb3DModelAdapter {
         if !skip_vision {
             // Inline vision: describe each view immediately (original behavior)
             for view in &rendered_views {
-                let prompt = if let Some(custom) = custom_prompt {
-                    format!(
-                        "{}\n\nThis is view {} of {} (angle: {:.0}°, elevation: {}) of a 3D model from file '{}'.",
-                        custom, view.index + 1, total_views, view.angle_degrees, view.elevation, filename
-                    )
-                } else {
-                    format!(
-                        "Describe this rendered view of a 3D model in detail. \
-                         This is view {} of {} (camera angle: {:.0}°, elevation: {}). \
-                         The model file is '{}'. \
-                         Describe the shape, materials, textures, colors, and any notable features visible from this angle.",
-                        view.index + 1, total_views, view.angle_degrees, view.elevation, filename
-                    )
-                };
+                let prompt = glb_view_prompt(
+                    custom_prompt,
+                    filename,
+                    view.index as usize,
+                    total_views,
+                    view.angle_degrees,
+                    &view.elevation,
+                );
 
                 match self
                     .backend
@@ -491,16 +536,8 @@ impl ExtractionAdapter for Glb3DModelAdapter {
                     .collect::<Vec<_>>()
                     .join("\n\n");
 
-                let synthesis_prompt = format!(
-                    "Below are descriptions of the same 3D model ('{}') viewed from {} different camera angles.\n\n\
-                     {}\n\n\
-                     Provide a single comprehensive description of this 3D model, \
-                     combining information from all views. \
-                     Describe the overall shape, geometry, materials, colors, and purpose of the object.",
-                    filename,
-                    view_descriptions.len(),
-                    views_text
-                );
+                let synthesis_prompt =
+                    glb_synthesis_prompt(filename, view_descriptions.len(), &views_text);
 
                 let dummy_png = create_placeholder_png();
                 match self
@@ -896,6 +933,24 @@ mod tests {
         assert!(!rendered.contains("mm_key_secret"));
         assert!(!rendered.contains("/srv/fortemi"));
         assert!(!rendered.contains("model.glb"));
+    }
+
+    #[test]
+    fn glb_vision_prompts_use_filename_metadata_only() {
+        let filename = "/srv/fortemi/private/customer@example.com/mm_key_secret_model.glb";
+        let custom_prompt = "Describe visible geometry";
+        let view_prompt = glb_view_prompt(Some(custom_prompt), filename, 0, 6, 45.0, "front");
+        let default_prompt = glb_view_prompt(None, filename, 1, 6, 90.0, "side");
+        let synthesis_prompt = glb_synthesis_prompt(filename, 2, "View 1: box\n\nView 2: sphere");
+        let rendered = format!("{view_prompt}\n{default_prompt}\n{synthesis_prompt}");
+
+        assert!(rendered.contains(custom_prompt));
+        assert!(rendered.contains("filename_len="));
+        assert!(!rendered.contains("/srv/fortemi"));
+        assert!(!rendered.contains("customer@example.com"));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("secret_model.glb"));
+        assert!(!rendered.contains(filename));
     }
 
     #[tokio::test]
