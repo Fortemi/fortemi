@@ -15,6 +15,14 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
 
+fn debug_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn optional_debug_len(value: Option<&String>) -> Option<usize> {
+    value.map(|value| debug_len(value))
+}
+
 // =============================================================================
 // DUBLIN CORE EXPORT (ISO 15836)
 // =============================================================================
@@ -60,57 +68,48 @@ pub struct DublinCoreExport {
 impl fmt::Debug for DublinCoreExport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DublinCoreExport")
-            .field("identifier_len", &self.identifier.len())
-            .field("title_len", &self.title.len())
-            .field(
-                "creator_len",
-                &self.creator.as_ref().map(|value| value.len()),
-            )
+            .field("identifier_len", &debug_len(&self.identifier))
+            .field("title_len", &debug_len(&self.title))
+            .field("creator_len", &optional_debug_len(self.creator.as_ref()))
             .field("subject_count", &self.subject.len())
             .field(
                 "subject_lens",
                 &self
                     .subject
                     .iter()
-                    .map(|value| value.len())
+                    .map(|value| debug_len(value))
                     .collect::<Vec<_>>(),
             )
             .field(
                 "description_len",
-                &self.description.as_ref().map(|value| value.len()),
+                &optional_debug_len(self.description.as_ref()),
             )
-            .field("publisher_len", &self.publisher.len())
+            .field("publisher_len", &debug_len(&self.publisher))
             .field("contributor_count", &self.contributor.len())
             .field(
                 "contributor_lens",
                 &self
                     .contributor
                     .iter()
-                    .map(|value| value.len())
+                    .map(|value| debug_len(value))
                     .collect::<Vec<_>>(),
             )
             .field("date", &self.date)
-            .field("dc_type_len", &self.dc_type.len())
-            .field("format_len", &self.format.len())
-            .field("source_len", &self.source.as_ref().map(|value| value.len()))
-            .field(
-                "language_len",
-                &self.language.as_ref().map(|value| value.len()),
-            )
+            .field("dc_type_len", &debug_len(&self.dc_type))
+            .field("format_len", &debug_len(&self.format))
+            .field("source_len", &optional_debug_len(self.source.as_ref()))
+            .field("language_len", &optional_debug_len(self.language.as_ref()))
             .field("relation_count", &self.relation.len())
             .field(
                 "relation_lens",
                 &self
                     .relation
                     .iter()
-                    .map(|value| value.len())
+                    .map(|value| debug_len(value))
                     .collect::<Vec<_>>(),
             )
-            .field(
-                "coverage_len",
-                &self.coverage.as_ref().map(|value| value.len()),
-            )
-            .field("rights_len", &self.rights.as_ref().map(|value| value.len()))
+            .field("coverage_len", &optional_debug_len(self.coverage.as_ref()))
+            .field("rights_len", &optional_debug_len(self.rights.as_ref()))
             .finish()
     }
 }
@@ -208,10 +207,10 @@ pub struct JsonLdContext {
 impl fmt::Debug for JsonLdContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("JsonLdContext")
-            .field("dc_len", &self.dc.len())
-            .field("skos_len", &self.skos.len())
-            .field("prov_len", &self.prov.len())
-            .field("schema_len", &self.schema.len())
+            .field("dc_len", &debug_len(&self.dc))
+            .field("skos_len", &debug_len(&self.skos))
+            .field("prov_len", &debug_len(&self.prov))
+            .field("schema_len", &debug_len(&self.schema))
             .finish()
     }
 }
@@ -257,8 +256,8 @@ impl fmt::Debug for JsonLdExport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("JsonLdExport")
             .field("context_namespace_count", &4)
-            .field("id_len", &self.id.len())
-            .field("ld_type_len", &self.ld_type.len())
+            .field("id_len", &debug_len(&self.id))
+            .field("ld_type_len", &debug_len(&self.ld_type))
             .field("dublin_core", &self.dublin_core)
             .field("skos_concepts_count", &self.skos_concepts.len())
             .field(
@@ -266,7 +265,7 @@ impl fmt::Debug for JsonLdExport {
                 &self
                     .skos_concepts
                     .iter()
-                    .map(|value| value.len())
+                    .map(|value| debug_len(value))
                     .collect::<Vec<_>>(),
             )
             .field("prov_derived_from_count", &self.prov_derived_from.len())
@@ -275,12 +274,12 @@ impl fmt::Debug for JsonLdExport {
                 &self
                     .prov_derived_from
                     .iter()
-                    .map(|value| value.len())
+                    .map(|value| debug_len(value))
                     .collect::<Vec<_>>(),
             )
             .field(
                 "prov_generated_by_len",
-                &self.prov_generated_by.as_ref().map(|value| value.len()),
+                &optional_debug_len(self.prov_generated_by.as_ref()),
             )
             .finish()
     }
@@ -342,7 +341,7 @@ impl fmt::Debug for FairScore {
                 &self
                     .issues
                     .iter()
-                    .map(|issue| issue.len())
+                    .map(|issue| debug_len(issue))
                     .collect::<Vec<_>>(),
             )
             .finish()
@@ -769,6 +768,111 @@ mod tests {
                 "token=secret",
             ],
         );
+    }
+
+    #[test]
+    fn fair_export_debug_reports_character_counts_for_unicode_metadata() {
+        let now = Utc::now();
+        let dc = DublinCoreExport {
+            identifier: "id".to_string(),
+            title: "éé".to_string(),
+            creator: Some("åå".to_string()),
+            subject: vec!["ö丼".to_string(), "üü".to_string()],
+            description: Some("ññ".to_string()),
+            publisher: "øø".to_string(),
+            contributor: vec!["çç".to_string()],
+            date: now,
+            dc_type: "îî".to_string(),
+            format: "ßß".to_string(),
+            source: Some("áá".to_string()),
+            language: Some("èè".to_string()),
+            relation: vec!["ôô".to_string()],
+            coverage: Some("ùù".to_string()),
+            rights: Some("ââ".to_string()),
+        };
+
+        let dc_debug = format!("{dc:?}");
+        for expected in [
+            "identifier_len: 2",
+            "title_len: 2",
+            "creator_len: Some(2)",
+            "subject_lens: [2, 2]",
+            "description_len: Some(2)",
+            "publisher_len: 2",
+            "contributor_lens: [2]",
+            "dc_type_len: 2",
+            "format_len: 2",
+            "source_len: Some(2)",
+            "language_len: Some(2)",
+            "relation_lens: [2]",
+            "coverage_len: Some(2)",
+            "rights_len: Some(2)",
+        ] {
+            assert!(
+                dc_debug.contains(expected),
+                "expected {expected:?} in {dc_debug}"
+            );
+        }
+        assert_debug_excludes(
+            &dc_debug,
+            &[
+                "éé", "åå", "ö丼", "üü", "ññ", "øø", "çç", "îî", "ßß", "áá", "èè", "ôô", "ùù", "ââ",
+            ],
+        );
+
+        let context = JsonLdContext {
+            dc: "êê".to_string(),
+            skos: "óó".to_string(),
+            prov: "úú".to_string(),
+            schema: "ää".to_string(),
+        };
+        let context_debug = format!("{context:?}");
+        for expected in ["dc_len: 2", "skos_len: 2", "prov_len: 2", "schema_len: 2"] {
+            assert!(
+                context_debug.contains(expected),
+                "expected {expected:?} in {context_debug}"
+            );
+        }
+        assert_debug_excludes(&context_debug, &["êê", "óó", "úú", "ää"]);
+
+        let ld = JsonLdExport {
+            context,
+            id: "ëë".to_string(),
+            ld_type: "íí".to_string(),
+            dublin_core: dc,
+            skos_concepts: vec!["ìì".to_string()],
+            prov_derived_from: vec!["òò".to_string()],
+            prov_generated_by: Some("œœ".to_string()),
+        };
+        let ld_debug = format!("{ld:?}");
+        for expected in [
+            "id_len: 2",
+            "ld_type_len: 2",
+            "skos_concept_lens: [2]",
+            "prov_derived_from_lens: [2]",
+            "prov_generated_by_len: Some(2)",
+        ] {
+            assert!(
+                ld_debug.contains(expected),
+                "expected {expected:?} in {ld_debug}"
+            );
+        }
+        assert_debug_excludes(&ld_debug, &["ëë", "íí", "ìì", "òò", "œœ"]);
+
+        let score = FairScore {
+            findable: 0.1,
+            accessible: 0.2,
+            interoperable: 0.3,
+            reusable: 0.4,
+            overall: 0.25,
+            issues: vec!["ýý".to_string(), "þþ".to_string()],
+        };
+        let score_debug = format!("{score:?}");
+        assert!(
+            score_debug.contains("issue_lens: [2, 2]"),
+            "expected character-count issue_lens in {score_debug}"
+        );
+        assert_debug_excludes(&score_debug, &["ýý", "þþ"]);
     }
 
     // =========================================================================
