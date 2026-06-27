@@ -6117,7 +6117,7 @@ async fn apply_twilio_voice_webhook(
             {
                 return Ok(serde_json::json!({
                     "type": "call_session_blocked_consent_required",
-                    "provider_call_id": provider_call_id,
+                    "provider_call": twilio_provider_call_reference_metadata(&provider_call_id),
                     "disclosure": call_recording_disclosure_config(state.call_recording_require_confirmation),
                 }));
             }
@@ -6148,7 +6148,7 @@ async fn apply_twilio_voice_webhook(
                 return Ok(serde_json::json!({
                     "type": "call_session_existing",
                     "call_id": session.call_id,
-                    "provider_call_id": provider_call_id,
+                    "provider_call": twilio_provider_call_reference_metadata(&provider_call_id),
                 }));
             }
 
@@ -6187,7 +6187,7 @@ async fn apply_twilio_voice_webhook(
             Ok(serde_json::json!({
                 "type": "call_session_created",
                 "call_id": session.call_id,
-                "provider_call_id": provider_call_id,
+                "provider_call": twilio_provider_call_reference_metadata(&provider_call_id),
             }))
         }
         matric_api::realtime::CallControlEvent::StateChanged {
@@ -6219,12 +6219,12 @@ async fn apply_twilio_voice_webhook(
                 return Ok(serde_json::json!({
                     "type": "call_session_active",
                     "call_id": session.call_id,
-                    "provider_call_id": provider_call_id,
+                    "provider_call": twilio_provider_call_reference_metadata(&provider_call_id),
                 }));
             }
             Ok(serde_json::json!({
                 "type": "call_session_missing",
-                "provider_call_id": provider_call_id,
+                "provider_call": twilio_provider_call_reference_metadata(&provider_call_id),
             }))
         }
         matric_api::realtime::CallControlEvent::StateChanged {
@@ -6266,12 +6266,12 @@ async fn apply_twilio_voice_webhook(
                 return Ok(serde_json::json!({
                     "type": "call_session_ended",
                     "call_id": ended.map(|session| session.call_id),
-                    "provider_call_id": provider_call_id,
+                    "provider_call": twilio_provider_call_reference_metadata(&provider_call_id),
                 }));
             }
             Ok(serde_json::json!({
                 "type": "call_session_missing",
-                "provider_call_id": provider_call_id,
+                "provider_call": twilio_provider_call_reference_metadata(&provider_call_id),
             }))
         }
         matric_api::realtime::CallControlEvent::RecordingAvailable { url } => {
@@ -6305,14 +6305,14 @@ async fn apply_twilio_voice_webhook(
             Ok(serde_json::json!({
                 "type": "recording_available",
                 "call_id": session.map(|session| session.call_id),
-                "provider_call_id": provider_call_id,
-                "url": url,
+                "provider_call": twilio_provider_call_reference_metadata(&provider_call_id),
+                "recording": twilio_recording_reference_metadata(url),
                 "audio_transcription_job_id": transcription_job_id,
             }))
         }
         other => Ok(serde_json::json!({
             "type": "control_event_observed",
-            "provider_call_id": provider_call_id,
+            "provider_call": twilio_provider_call_reference_metadata(&provider_call_id),
             "event": format!("{:?}", other),
         })),
     }
@@ -39214,23 +39214,39 @@ mod tests {
             .await
             .expect("apply started webhook");
         let call_id = Uuid::parse_str(started["call_id"].as_str().unwrap()).unwrap();
+        assert_eq!(started["provider_call"]["provider_call_id_present"], true);
+        assert_eq!(
+            started["provider_call"]["provider_call_id_len"],
+            provider_call_id.chars().count()
+        );
 
         let active_body = format!("CallSid={provider_call_id}&CallStatus=in-progress");
-        apply_twilio_voice_webhook(&state, active_body.as_bytes())
+        let active = apply_twilio_voice_webhook(&state, active_body.as_bytes())
             .await
             .expect("apply active webhook");
 
         let recording_body = format!(
             "CallSid={provider_call_id}&RecordingStatus=completed&RecordingSid=RE123&RecordingUrl=https%3A%2F%2Fapi.twilio.com%2Frecording.wav"
         );
-        apply_twilio_voice_webhook(&state, recording_body.as_bytes())
+        let recording = apply_twilio_voice_webhook(&state, recording_body.as_bytes())
             .await
             .expect("apply recording webhook");
+        assert_eq!(recording["recording"]["recording_url_class"], "twilio_api");
+        assert_eq!(
+            recording["recording"]["recording_url_len"],
+            "https://api.twilio.com/recording.wav".chars().count()
+        );
 
         let ended_body = format!("CallSid={provider_call_id}&CallStatus=completed");
-        apply_twilio_voice_webhook(&state, ended_body.as_bytes())
+        let ended = apply_twilio_voice_webhook(&state, ended_body.as_bytes())
             .await
             .expect("apply completed webhook");
+        let serialized_responses = serde_json::to_string(&vec![started, active, recording, ended])
+            .expect("serialize Twilio webhook responses");
+        assert!(!serialized_responses.contains(&provider_call_id));
+        assert!(!serialized_responses.contains("+15551230000"));
+        assert!(!serialized_responses.contains("api.twilio.com"));
+        assert!(!serialized_responses.contains("recording.wav"));
 
         let rows = sqlx::query(
             r#"
