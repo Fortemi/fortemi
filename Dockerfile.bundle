@@ -237,8 +237,8 @@ ENV MATRIC_API_URL=http://localhost:3000
 
 # MCP OAuth client credentials (required for token introspection)
 # Register a client via POST /oauth/register then set these
-# ENV MCP_CLIENT_ID=mm_xxx
-# ENV MCP_CLIENT_SECRET=xxx
+# ENV MCP_CLIENT_ID=<MCP_CLIENT_ID>
+# ENV MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>
 
 # Expose API and MCP ports
 EXPOSE 3000 3001

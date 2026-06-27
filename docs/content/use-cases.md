@@ -119,8 +119,8 @@ EMBEDDING_DIMENSION=768
 
 # OAuth2 configuration
 ISSUER_URL=https://docs.example.com
-MCP_CLIENT_ID=mm_xxxxx
-MCP_CLIENT_SECRET=xxxxx
+MCP_CLIENT_ID=<MCP_CLIENT_ID>
+MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>
 
 # Rate limiting
 RATE_LIMIT_ENABLED=true
@@ -399,8 +399,8 @@ EMBEDDING_DIMENSION=768
 
 # OAuth2 configuration
 ISSUER_URL=https://memory.enterprise.com
-MCP_CLIENT_ID=mm_xxxxx
-MCP_CLIENT_SECRET=xxxxx
+MCP_CLIENT_ID=<MCP_CLIENT_ID>
+MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>
 OAUTH_SCOPES=read,write,delete,admin
 
 # PKE encryption
@@ -619,8 +619,8 @@ GENERATION_FALLBACK=ollama
 
 # OAuth2 for external access
 ISSUER_URL=https://memory.example.com
-MCP_CLIENT_ID=mm_xxxxx
-MCP_CLIENT_SECRET=xxxxx
+MCP_CLIENT_ID=<MCP_CLIENT_ID>
+MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>
 
 # MCP restricted to private network
 MCP_BIND_ADDRESS=10.0.0.100

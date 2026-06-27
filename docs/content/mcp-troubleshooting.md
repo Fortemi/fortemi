@@ -170,8 +170,8 @@ location /mcp/ {
 **Fix:** Remove or comment out `MCP_CLIENT_ID` and `MCP_CLIENT_SECRET` from `.env` to let auto-management handle it:
 ```bash
 # Edit .env - comment out or remove these lines:
-# MCP_CLIENT_ID=mm_xxxxx
-# MCP_CLIENT_SECRET=xxxxx
+# MCP_CLIENT_ID=<MCP_CLIENT_ID>
+# MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>
 
 # Restart
 docker compose -f docker-compose.bundle.yml down

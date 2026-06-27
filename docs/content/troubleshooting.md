@@ -930,8 +930,8 @@ curl -X POST http://localhost:3000/oauth/register \
 # Save the returned client_id and client_secret
 
 # Add to .env file
-echo "MCP_CLIENT_ID=mm_xxxxx" >> .env
-echo "MCP_CLIENT_SECRET=xxxxx" >> .env
+echo "MCP_CLIENT_ID=<MCP_CLIENT_ID>" >> .env
+echo "MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>" >> .env
 
 # Restart container
 docker compose -f docker-compose.bundle.yml down

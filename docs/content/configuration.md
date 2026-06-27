@@ -409,8 +409,8 @@ The MCP (Model Context Protocol) server provides Claude/AI integration.
 **Example (Docker Bundle):**
 ```bash
 ISSUER_URL=https://memory.example.com
-MCP_CLIENT_ID=mm_xxxxxxxxxxxxx
-MCP_CLIENT_SECRET=xxxxxxxxxxxxx
+MCP_CLIENT_ID=<MCP_CLIENT_ID>
+MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>
 MCP_BASE_URL=https://memory.example.com/mcp
 MCP_TRANSPORT=http
 MCP_PORT=3001
@@ -882,8 +882,8 @@ Add the credentials to `.env`:
 ```bash
 # .env
 ISSUER_URL=https://memory.example.com
-MCP_CLIENT_ID=mm_xxxxxxxxxxxxx
-MCP_CLIENT_SECRET=xxxxxxxxxxxxx
+MCP_CLIENT_ID=<MCP_CLIENT_ID>
+MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>
 ```
 
 **Step 4: Restart Services**
@@ -1028,8 +1028,8 @@ RATE_LIMIT_PERIOD_SECS=60
 ISSUER_URL=https://memory.team.com
 
 # MCP (for Claude integration)
-MCP_CLIENT_ID=mm_xxxxxxxxxxxxx
-MCP_CLIENT_SECRET=xxxxxxxxxxxxx
+MCP_CLIENT_ID=<MCP_CLIENT_ID>
+MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>
 MCP_BASE_URL=https://memory.team.com/mcp
 MCP_TRANSPORT=http
 MCP_PORT=3001
@@ -1077,8 +1077,8 @@ RATE_LIMIT_PERIOD_SECS=60
 ISSUER_URL=https://knowledge.corp.com
 
 # MCP server
-MCP_CLIENT_ID=mm_xxxxxxxxxxxxx
-MCP_CLIENT_SECRET=xxxxxxxxxxxxx
+MCP_CLIENT_ID=<MCP_CLIENT_ID>
+MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>
 MCP_BASE_URL=https://knowledge.corp.com/mcp
 MCP_TRANSPORT=http
 MCP_PORT=3001
