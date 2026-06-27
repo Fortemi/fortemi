@@ -8922,15 +8922,20 @@ fn build_rtp_metrics(
     deepgram_rate: f64,
     deepgram_metrics: Option<matric_api::realtime::asr::deepgram::DeepgramMetricsSnapshot>,
 ) -> serde_json::Value {
-    let backend_seconds = metrics
+    let backend_seconds_by_label = metrics
         .duration_seconds_by_backend
         .as_object()
         .cloned()
         .unwrap_or_default();
-    let deepgram_seconds = backend_seconds
+    let deepgram_seconds = backend_seconds_by_label
         .get("deepgram")
         .and_then(|value| value.as_f64())
         .unwrap_or(0.0);
+    let backend_total_seconds: f64 = backend_seconds_by_label
+        .values()
+        .filter_map(|value| value.as_f64())
+        .sum();
+    let backend_count = backend_seconds_by_label.len();
     let estimated_cost = (deepgram_seconds / 60.0) * deepgram_rate;
     let deepgram_metrics = deepgram_metrics.unwrap_or(
         matric_api::realtime::asr::deepgram::DeepgramMetricsSnapshot {
@@ -9019,7 +9024,11 @@ fn build_rtp_metrics(
             "type": "counter",
             "value": estimated_cost,
             "rates_per_minute": {"deepgram": deepgram_rate},
-            "duration_seconds_by_backend": backend_seconds
+            "duration_seconds_by_backend": {
+                "backend_count": backend_count,
+                "total_seconds": backend_total_seconds,
+                "deepgram_seconds": deepgram_seconds
+            }
         },
         "session_totals": {
             "total": metrics.total_sessions,
@@ -39446,7 +39455,8 @@ mod tests {
             },
             duration_seconds_by_backend: serde_json::json!({
                 "deepgram": 120.0,
-                "mock": 30.0
+                "mock": 30.0,
+                "https://customer.example.com/asr/mm_key_backend/private": 15.0
             }),
         };
 
@@ -39487,6 +39497,30 @@ mod tests {
             rtp["rtp_estimated_asr_cost_dollars_total"]["rates_per_minute"]["deepgram"],
             0.006
         );
+        assert_eq!(
+            rtp["rtp_estimated_asr_cost_dollars_total"]["duration_seconds_by_backend"]
+                ["backend_count"],
+            3
+        );
+        assert_eq!(
+            rtp["rtp_estimated_asr_cost_dollars_total"]["duration_seconds_by_backend"]
+                ["total_seconds"],
+            165.0
+        );
+        assert_eq!(
+            rtp["rtp_estimated_asr_cost_dollars_total"]["duration_seconds_by_backend"]
+                ["deepgram_seconds"],
+            120.0
+        );
+        let rendered = serde_json::to_string(&rtp).expect("rtp metrics serialize");
+        for raw in [
+            "https://customer.example.com",
+            "/asr/",
+            "mm_key_backend",
+            "private",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
     }
 
     /// Garbage input that is not valid base64 must return None.
