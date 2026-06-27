@@ -21561,7 +21561,10 @@ impl fmt::Debug for UploadAttachmentQuery {
             .field("media_optimize", &self.media_optimize)
             .field(
                 "vision_mode_len",
-                &self.vision_mode.as_ref().map(String::len),
+                &self
+                    .vision_mode
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
             )
             .finish()
     }
@@ -21585,14 +21588,17 @@ struct UploadAttachmentBody {
 impl fmt::Debug for UploadAttachmentBody {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UploadAttachmentBody")
-            .field("filename_len", &self.filename.len())
-            .field("content_type_len", &self.content_type.len())
-            .field("data_len", &self.data.len())
+            .field("filename_len", &telemetry_text_len(&self.filename))
+            .field("content_type_len", &telemetry_text_len(&self.content_type))
+            .field("data_len", &telemetry_text_len(&self.data))
             .field("document_type_id_set", &self.document_type_id.is_some())
             .field("media_optimize", &self.media_optimize)
             .field(
                 "vision_mode_len",
-                &self.vision_mode.as_ref().map(String::len),
+                &self
+                    .vision_mode
+                    .as_ref()
+                    .map(|value| telemetry_text_len(value)),
             )
             .finish()
     }
@@ -28111,18 +28117,22 @@ mod tests {
 
     #[test]
     fn attachment_upload_debug_redacts_filename_payload_and_options() {
+        let vision_mode = "full-privaté-customer-mode";
+        let filename = "cüstomer-postgres-secret-mm_key_attachment.pdf";
+        let content_type = "application/pdf; token=sk-live-content-typé";
+        let data = "cG9zdGdyZXM6Ly91c2VyOnPässNAZGIuaW50ZXJuYWwvYXBw";
         let query = UploadAttachmentQuery {
             document_type_id: Some(Uuid::new_v4()),
             media_optimize: Some(true),
-            vision_mode: Some("full-private-customer-mode".to_string()),
+            vision_mode: Some(vision_mode.to_string()),
         };
         let body = UploadAttachmentBody {
-            filename: "customer-postgres-secret-mm_key_attachment.pdf".to_string(),
-            content_type: "application/pdf; token=sk-live-content-type".to_string(),
-            data: "cG9zdGdyZXM6Ly91c2VyOnBhc3NAZGIuaW50ZXJuYWwvYXBw".to_string(),
+            filename: filename.to_string(),
+            content_type: content_type.to_string(),
+            data: data.to_string(),
             document_type_id: Some(Uuid::new_v4()),
             media_optimize: Some(true),
-            vision_mode: Some("full-private-customer-mode".to_string()),
+            vision_mode: Some(vision_mode.to_string()),
         };
 
         let rendered_query = format!("{query:?}");
@@ -28137,14 +28147,42 @@ mod tests {
         assert!(rendered_body.contains("content_type_len"));
         assert!(rendered_body.contains("data_len"));
         assert!(rendered_body.contains("vision_mode_len"));
+        for (rendered, expected) in [
+            (
+                &rendered_query,
+                format!("vision_mode_len: Some({})", vision_mode.chars().count()),
+            ),
+            (
+                &rendered_body,
+                format!("filename_len: {}", filename.chars().count()),
+            ),
+            (
+                &rendered_body,
+                format!("content_type_len: {}", content_type.chars().count()),
+            ),
+            (
+                &rendered_body,
+                format!("data_len: {}", data.chars().count()),
+            ),
+            (
+                &rendered_body,
+                format!("vision_mode_len: Some({})", vision_mode.chars().count()),
+            ),
+        ] {
+            assert!(
+                rendered.contains(&expected),
+                "attachment upload Debug output should retain exact character-count metadata {expected:?}: {rendered}"
+            );
+        }
 
         for raw in [
-            "full-private-customer-mode",
-            "customer-postgres-secret",
+            "full-privaté-customer-mode",
+            "cüstomer-postgres-secret",
             "mm_key_attachment",
             "application/pdf",
-            "sk-live-content-type",
-            "cG9zdGdyZXM6Ly91c2VyOnBhc3NAZGIuaW50ZXJuYWwvYXBw",
+            "sk-live-content-typé",
+            "cG9zdGdyZXM6Ly91c2VyOnPässNAZGIuaW50ZXJuYWwvYXBw",
+            "Päss",
             "postgres://user:pass",
             "db.internal",
         ] {
