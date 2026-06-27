@@ -3250,7 +3250,7 @@ impl Default for TriModalWeights {
 ///
 /// Provides metrics on staleness, orphaned data, and missing embeddings
 /// to guide maintenance operations.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingSetHealth {
     pub set_id: Uuid,
     /// Total documents in the set.
@@ -3271,14 +3271,46 @@ pub struct EmbeddingSetHealth {
     pub needs_pruning: bool,
 }
 
+impl fmt::Debug for EmbeddingSetHealth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EmbeddingSetHealth")
+            .field("set_id_set", &(!self.set_id.is_nil()))
+            .field("total_documents", &self.total_documents)
+            .field("total_embeddings", &self.total_embeddings)
+            .field("stale_embeddings", &self.stale_embeddings)
+            .field("orphaned_embeddings", &self.orphaned_embeddings)
+            .field("missing_embeddings", &self.missing_embeddings)
+            .field("health_score", &self.health_score)
+            .field("needs_refresh", &self.needs_refresh)
+            .field("needs_pruning", &self.needs_pruning)
+            .finish()
+    }
+}
+
 /// Result of a garbage collection operation on an embedding set.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct GarbageCollectionResult {
     pub set_id: Uuid,
     /// Number of orphaned memberships removed.
     pub orphaned_memberships_removed: i64,
     /// Number of orphaned embeddings removed.
     pub orphaned_embeddings_removed: i64,
+}
+
+impl fmt::Debug for GarbageCollectionResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GarbageCollectionResult")
+            .field("set_id_set", &(!self.set_id.is_nil()))
+            .field(
+                "orphaned_memberships_removed",
+                &self.orphaned_memberships_removed,
+            )
+            .field(
+                "orphaned_embeddings_removed",
+                &self.orphaned_embeddings_removed,
+            )
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -3692,7 +3724,7 @@ pub struct JobPauseQueueStats {
 }
 
 /// Extraction job statistics and analytics.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ExtractionStats {
     pub total_jobs: i64,
     pub completed_jobs: i64,
@@ -3702,6 +3734,27 @@ pub struct ExtractionStats {
     pub avg_duration_secs: Option<f64>,
     /// Count of jobs per extraction strategy.
     pub strategy_breakdown: HashMap<String, i64>,
+}
+
+impl fmt::Debug for ExtractionStats {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExtractionStats")
+            .field("total_jobs", &self.total_jobs)
+            .field("completed_jobs", &self.completed_jobs)
+            .field("failed_jobs", &self.failed_jobs)
+            .field("pending_jobs", &self.pending_jobs)
+            .field("avg_duration_secs", &self.avg_duration_secs)
+            .field("strategy_breakdown_count", &self.strategy_breakdown.len())
+            .field(
+                "strategy_name_lens",
+                &self
+                    .strategy_breakdown
+                    .keys()
+                    .map(String::len)
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -7444,6 +7497,69 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "JobPauseState Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn embedding_lifecycle_and_extraction_stats_debug_redacts_ids_and_strategy_names() {
+        let set_id = Uuid::new_v4();
+        let health = EmbeddingSetHealth {
+            set_id,
+            total_documents: 42,
+            total_embeddings: 84,
+            stale_embeddings: 3,
+            orphaned_embeddings: 2,
+            missing_embeddings: 1,
+            health_score: 97.5,
+            needs_refresh: true,
+            needs_pruning: false,
+        };
+        let gc = GarbageCollectionResult {
+            set_id,
+            orphaned_memberships_removed: 7,
+            orphaned_embeddings_removed: 11,
+        };
+        let stats = ExtractionStats {
+            total_jobs: 20,
+            completed_jobs: 17,
+            failed_jobs: 2,
+            pending_jobs: 1,
+            avg_duration_secs: Some(12.5),
+            strategy_breakdown: HashMap::from([
+                ("private-pdf@example.test".to_string(), 4),
+                ("postgres://user:secret@db.internal/strategy".to_string(), 2),
+                ("sk-live-secret-strategy".to_string(), 1),
+            ]),
+        };
+
+        let debug = format!("{health:?}{gc:?}{stats:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                &set_id.to_string(),
+                "private-pdf",
+                "private@example.test",
+                "postgres://user:secret@db.internal",
+                "sk-live-secret-strategy",
+            ],
+        );
+
+        for expected in [
+            "EmbeddingSetHealth",
+            "GarbageCollectionResult",
+            "set_id_set",
+            "total_documents",
+            "health_score",
+            "orphaned_memberships_removed",
+            "ExtractionStats",
+            "strategy_breakdown_count",
+            "strategy_name_lens",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
