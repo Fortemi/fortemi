@@ -209,6 +209,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: Search cache-hit telemetry now reports query and archive-schema lengths instead of raw query text or archive schema labels.
   - 2026-06-27 continuation: Audio chunked-transcription completion telemetry now reports language length instead of raw language/provider text.
   - 2026-06-27 continuation: AI revision completion telemetry now reports revision-mode and effective-mode lengths instead of raw mode labels.
+  - 2026-06-27 continuation: Authorization denial warning telemetry now reports deny-reason length instead of raw policy reason labels.
   - 2026-06-26 continuation: extraction setup job telemetry and failure text now report filename lengths, available-strategy counts, and stable reason codes instead of raw schema names, attachment UUIDs, filenames, storage paths, parser diagnostics, database/storage diagnostics, DSNs, paths, hostnames, or token-shaped values.
   - 2026-06-26 continuation: extraction adapter failure job/status text now stores stable reason codes instead of raw adapter/backend errors, DSNs, paths, hostnames, filenames, or token-shaped values.
   - 2026-06-26 continuation: media optimize setup job failure text now stores stable reason codes for schema, temp-dir, transaction, download, commit, and temp-file write failures instead of raw schema names, database/storage diagnostics, filesystem paths, DSNs, hostnames, or token-shaped values.
@@ -905,3 +906,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 Search cache-hit telemetry now reports query and archive-schema lengths instead of raw query text or archive schema labels.
 - 2026-06-27 — #968/#974 Audio chunked-transcription completion telemetry now reports language length instead of raw language/provider text.
 - 2026-06-27 — #968/#974 AI revision completion telemetry now reports revision-mode and effective-mode lengths instead of raw mode labels.
+- 2026-06-27 — #968/#974 Authorization denial warning telemetry now reports deny-reason length instead of raw policy reason labels.

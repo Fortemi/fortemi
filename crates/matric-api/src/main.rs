@@ -8549,7 +8549,10 @@ async fn authorize_policy_input(
                 &policy_version,
             ))
             .await;
-            tracing::warn!(reason = ?reason, "authorization denied");
+            tracing::warn!(
+                reason_len = telemetry_text_len(&format!("{reason:?}")),
+                "authorization denied"
+            );
             Err(problem_response(
                 StatusCode::FORBIDDEN,
                 ProblemType::Forbidden,
@@ -32511,6 +32514,17 @@ mod tests {
         assert_eq!(event.attrs["reason_code"], "MissingScope");
         assert_eq!(event.attrs["resource_id_normalized"], false);
         assert_eq!(event.attrs["requires_backing_resource_normalization"], true);
+    }
+
+    #[test]
+    fn auth_denial_log_metadata_redacts_reason_label() {
+        let reason = "MissingScope tenant:secret@example.com token=mm_key_secret";
+        let rendered = format!("reason_len={}", telemetry_text_len(reason));
+
+        assert!(rendered.contains("reason_len"));
+        assert!(!rendered.contains("MissingScope"));
+        assert!(!rendered.contains("tenant:secret"));
+        assert!(!rendered.contains("mm_key_secret"));
     }
 
     #[test]
