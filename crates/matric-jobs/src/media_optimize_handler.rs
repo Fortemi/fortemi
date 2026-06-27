@@ -136,6 +136,13 @@ fn media_text_len(text: &str) -> usize {
     text.chars().count()
 }
 
+fn media_variant_progress_message(derivation_type: &str) -> String {
+    format!(
+        "Storing generated variant; derivation_type_len={}",
+        media_text_len(derivation_type)
+    )
+}
+
 fn media_error_reason_code(error: &str) -> &'static str {
     let text = error.to_ascii_lowercase();
     if text.contains("permission") || text.contains("denied") {
@@ -765,10 +772,8 @@ impl JobHandler for MediaOptimizeHandler {
 
         for (i, variant) in variants.iter().enumerate() {
             let progress = 70 + (25 * (i + 1) / variants.len()) as i32;
-            ctx.report_progress(
-                progress,
-                Some(&format!("Storing variant: {}", variant.derivation_type)),
-            );
+            let progress_message = media_variant_progress_message(&variant.derivation_type);
+            ctx.report_progress(progress, Some(&progress_message));
 
             // Read the generated file
             let data = match tokio::fs::read(&variant.path).await {
@@ -948,6 +953,17 @@ mod tests {
         assert!(!rendered.contains("db.internal"));
         assert!(!rendered.contains("/srv/private"));
         assert!(!rendered.contains("mm_key_media"));
+    }
+
+    #[test]
+    fn media_variant_progress_message_redacts_derivation_type() {
+        let derivation_type = "private-client-preview /srv/media token=sk-secret";
+        let rendered = media_variant_progress_message(derivation_type);
+
+        assert!(rendered.contains("Storing generated variant; derivation_type_len="));
+        assert!(!rendered.contains("private-client-preview"));
+        assert!(!rendered.contains("/srv/media"));
+        assert!(!rendered.contains("sk-secret"));
     }
 
     #[test]

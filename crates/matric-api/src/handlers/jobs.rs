@@ -85,6 +85,39 @@ fn diagnostic_len(error: impl std::fmt::Display) -> usize {
     error.to_string().chars().count()
 }
 
+fn concept_tagging_progress_message(label: &str) -> String {
+    format!("Tagged concept; label_len={}", diagnostic_len(label))
+}
+
+fn reference_extraction_progress_message(entity_name: &str) -> String {
+    format!(
+        "Referenced entity; name_len={}",
+        diagnostic_len(entity_name)
+    )
+}
+
+fn related_concepts_progress_message(a_label: &str, b_label: &str) -> String {
+    format!(
+        "Related concepts identified; label_lens={},{}",
+        diagnostic_len(a_label),
+        diagnostic_len(b_label)
+    )
+}
+
+fn document_type_progress_message(document_type_name: &str) -> String {
+    format!(
+        "Detected document type; name_len={}",
+        diagnostic_len(document_type_name)
+    )
+}
+
+fn embedding_set_progress_message(slug: &str) -> String {
+    format!(
+        "Getting notes from embedding set; slug_len={}",
+        diagnostic_len(slug)
+    )
+}
+
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
         error_len = diagnostic_len(error),
@@ -4532,7 +4565,8 @@ impl JobHandler for ConceptTaggingHandler {
 
             // Update progress
             let progress = 60 + ((i + 1) * 30 / total) as i32;
-            ctx.report_progress(progress, Some(&format!("Tagged with: {}", label)));
+            let progress_message = concept_tagging_progress_message(label);
+            ctx.report_progress(progress, Some(&progress_message));
         }
 
         // Queue Phase 2 only if this tier is NOT escalating to a higher tier.
@@ -5157,7 +5191,8 @@ impl JobHandler for ReferenceExtractionHandler {
 
             // Update progress
             let progress = 60 + ((i + 1) * 30 / total) as i32;
-            ctx.report_progress(progress, Some(&format!("Referenced: {}", entity.name)));
+            let progress_message = reference_extraction_progress_message(&entity.name);
+            ctx.report_progress(progress, Some(&progress_message));
         }
 
         // Complete provenance activity
@@ -5738,10 +5773,8 @@ If no meaningful related pairs exist, output an empty array: []"#
             }
 
             let progress = 70 + ((i + 1) * 25 / total_pairs) as i32;
-            ctx.report_progress(
-                progress,
-                Some(&format!("Related: {} ↔ {}", a.label, b.label)),
-            );
+            let progress_message = related_concepts_progress_message(&a.label, &b.label);
+            ctx.report_progress(progress, Some(&progress_message));
         }
 
         ctx.report_progress(98, Some("Queuing embedding and linking..."));
@@ -6267,10 +6300,8 @@ impl JobHandler for DocumentTypeInferenceHandler {
 
         let (doc_type_id, detection_method, confidence) = match detection {
             Ok(Some(result)) => {
-                ctx.report_progress(
-                    60,
-                    Some(&format!("Detected: {}", result.document_type.name)),
-                );
+                let progress_message = document_type_progress_message(&result.document_type.name);
+                ctx.report_progress(60, Some(&progress_message));
                 (
                     result.document_type.id,
                     result.detection_method,
@@ -6397,7 +6428,8 @@ impl JobHandler for ReEmbedAllHandler {
 
         // Get note IDs to process
         let note_ids: Vec<uuid::Uuid> = if let Some(slug) = &embedding_set_slug {
-            ctx.report_progress(10, Some(&format!("Getting notes from set: {}", slug)));
+            let progress_message = embedding_set_progress_message(slug);
+            ctx.report_progress(10, Some(&progress_message));
 
             // Get notes from specific embedding set
             // Use a large limit to get all members
@@ -6469,7 +6501,7 @@ impl JobHandler for ReEmbedAllHandler {
             total_notes = total_notes,
             queued = queued,
             failed = failed,
-            embedding_set = ?embedding_set_slug,
+            embedding_set_slug_len = embedding_set_slug.as_deref().map(diagnostic_len),
             duration_ms = start.elapsed().as_millis() as u64,
             "Bulk re-embedding completed"
         );
@@ -7432,6 +7464,40 @@ mod tests {
         assert_eq!(diagnostic_len(wiki_target), wiki_target.chars().count());
         assert_eq!(diagnostic_len(concept_label), concept_label.chars().count());
         assert_eq!(diagnostic_len(camera_model), camera_model.chars().count());
+    }
+
+    #[test]
+    fn job_progress_messages_redact_content_derived_identifiers() {
+        let concept_label = "Sensitive Concept /srv/fortemi/private token=sk-secret";
+        let entity_name = "Jane Secret user@example.com";
+        let related_a = "Project Alpha postgres://user:pass@db.internal/app";
+        let related_b = "Client Beta mm_key_secret";
+        let document_type = "Confidential Lab Report";
+        let embedding_slug = "private-client-archive";
+
+        let rendered = [
+            concept_tagging_progress_message(concept_label),
+            reference_extraction_progress_message(entity_name),
+            related_concepts_progress_message(related_a, related_b),
+            document_type_progress_message(document_type),
+            embedding_set_progress_message(embedding_slug),
+        ]
+        .join("\n");
+
+        assert!(rendered.contains("Tagged concept; label_len="));
+        assert!(rendered.contains("Referenced entity; name_len="));
+        assert!(rendered.contains("Related concepts identified; label_lens="));
+        assert!(rendered.contains("Detected document type; name_len="));
+        assert!(rendered.contains("Getting notes from embedding set; slug_len="));
+        assert!(!rendered.contains("Sensitive Concept"));
+        assert!(!rendered.contains("/srv/fortemi"));
+        assert!(!rendered.contains("sk-secret"));
+        assert!(!rendered.contains("Jane Secret"));
+        assert!(!rendered.contains("user@example.com"));
+        assert!(!rendered.contains("postgres://user:pass"));
+        assert!(!rendered.contains("mm_key_secret"));
+        assert!(!rendered.contains("Confidential Lab Report"));
+        assert!(!rendered.contains("private-client-archive"));
     }
 
     #[test]
