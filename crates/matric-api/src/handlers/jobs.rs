@@ -168,6 +168,29 @@ fn reference_extraction_summary_metadata(
     metadata
 }
 
+fn metadata_extraction_result_metadata(
+    fields_extracted: usize,
+    metadata: &serde_json::Value,
+) -> serde_json::Value {
+    let keys: Vec<&str> = metadata
+        .as_object()
+        .map(|object| object.keys().map(String::as_str).collect())
+        .unwrap_or_default();
+    let key_total_len: usize = keys.iter().map(|key| diagnostic_len(key)).sum();
+    let key_max_len = keys
+        .iter()
+        .map(|key| diagnostic_len(key))
+        .max()
+        .unwrap_or(0);
+    serde_json::json!({
+        "fields_extracted": fields_extracted,
+        "key_count": keys.len(),
+        "key_total_len": key_total_len,
+        "key_max_len": key_max_len,
+        "key_secret_candidate": keys.iter().any(|key| job_text_secret_candidate(key)),
+    })
+}
+
 fn graph_linking_summary_metadata(
     links_created: usize,
     wiki_links_found: usize,
@@ -6435,10 +6458,10 @@ Example output:
             "Metadata extraction completed"
         );
 
-        JobResult::Success(Some(serde_json::json!({
-            "fields_extracted": fields_extracted,
-            "extracted_keys": extracted.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default()
-        })))
+        JobResult::Success(Some(metadata_extraction_result_metadata(
+            fields_extracted,
+            &extracted,
+        )))
     }
 }
 
@@ -7812,6 +7835,26 @@ mod tests {
         assert!(!rendered.contains("mm_key"));
         assert!(!rendered.contains("llm_private"));
         assert!(!rendered.contains("gliner_private"));
+    }
+
+    #[test]
+    fn metadata_extraction_result_redacts_raw_keys() {
+        let metadata = serde_json::json!({
+            "private_author_email": "author@example.test",
+            "/srv/fortemi/token_sk_secret_path": "secret",
+        });
+        let result = metadata_extraction_result_metadata(2, &metadata);
+        let rendered = result.to_string();
+
+        assert_eq!(result["fields_extracted"], 2);
+        assert_eq!(result["key_count"], 2);
+        assert_eq!(result["key_secret_candidate"], true);
+        assert!(rendered.contains("key_total_len"));
+        assert!(rendered.contains("key_max_len"));
+        assert!(!rendered.contains("private_author_email"));
+        assert!(!rendered.contains("/srv/fortemi"));
+        assert!(!rendered.contains("sk_secret"));
+        assert!(!rendered.contains("author@example"));
     }
 
     #[test]
