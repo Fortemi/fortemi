@@ -18174,6 +18174,30 @@ fn oauth_scope_count(scope: &str) -> i64 {
         .count() as i64
 }
 
+fn oauth_invalid_grant_type_detail(grant_type: &str) -> String {
+    format!(
+        "Invalid grant_type: grant_type_len={}, allowed_count={}",
+        telemetry_text_len(grant_type),
+        ALLOWED_GRANT_TYPES.len()
+    )
+}
+
+fn oauth_invalid_scope_detail(scope: &str) -> String {
+    format!(
+        "Invalid scope: scope_len={}, allowed_count={}",
+        telemetry_text_len(scope),
+        ALLOWED_SCOPES.len()
+    )
+}
+
+fn oauth_unsupported_grant_type_detail(grant_type: &str) -> String {
+    format!(
+        "Unsupported grant type: grant_type_len={}, allowed_count={}",
+        telemetry_text_len(grant_type),
+        ALLOWED_GRANT_TYPES.len()
+    )
+}
+
 fn oauth_token_issue_audit_event(
     client_id: &str,
     grant_type: &str,
@@ -18328,11 +18352,7 @@ async fn oauth_register(
     // Validate grant types (Issue #115 — AUTH-004)
     for gt in &req.grant_types {
         if !ALLOWED_GRANT_TYPES.contains(&gt.as_str()) {
-            let msg = format!(
-                "Invalid grant_type: '{}'. Allowed: {}",
-                gt,
-                ALLOWED_GRANT_TYPES.join(", ")
-            );
+            let msg = oauth_invalid_grant_type_detail(gt);
             return Err(OAuthApiError::OAuth(OAuthError::invalid_request(&msg)));
         }
     }
@@ -18341,11 +18361,7 @@ async fn oauth_register(
     if let Some(ref scope) = req.scope {
         for s in scope.split_whitespace() {
             if !ALLOWED_SCOPES.contains(&s) {
-                let msg = format!(
-                    "Invalid scope: '{}'. Allowed: {}",
-                    s,
-                    ALLOWED_SCOPES.join(", ")
-                );
+                let msg = oauth_invalid_scope_detail(s);
                 return Err(OAuthApiError::OAuth(OAuthError::invalid_request(&msg)));
             }
         }
@@ -18583,7 +18599,7 @@ async fn oauth_token(
         }
 
         _ => Err(OAuthApiError::OAuth(OAuthError::unsupported_grant_type(
-            &format!("Unsupported grant type: {}", req.grant_type),
+            &oauth_unsupported_grant_type_detail(&req.grant_type),
         ))),
     }
 }
@@ -31693,6 +31709,32 @@ mod tests {
         assert!(!debug.contains("postgres://"));
         assert!(!debug.contains("secret"));
         assert!(!debug.contains("db.internal"));
+    }
+
+    #[test]
+    fn oauth_validation_details_report_metadata_without_raw_inputs() {
+        let grant_type =
+            "urn:fortemi:grant:postgres://user:secret@db.internal/token?client_secret=raw";
+        let scope = "read customer@example.com /srv/fortemi/private sk-live-secret";
+
+        let invalid_grant = oauth_invalid_grant_type_detail(grant_type);
+        let unsupported_grant = oauth_unsupported_grant_type_detail(grant_type);
+        let invalid_scope = oauth_invalid_scope_detail(scope);
+        let rendered = format!("{invalid_grant} {unsupported_grant} {invalid_scope}");
+
+        assert!(rendered.contains("grant_type_len="));
+        assert!(rendered.contains("scope_len="));
+        assert!(rendered.contains("allowed_count="));
+        assert!(!rendered.contains("postgres://"));
+        assert!(!rendered.contains("client_secret"));
+        assert!(!rendered.contains("db.internal"));
+        assert!(!rendered.contains("customer@example.com"));
+        assert!(!rendered.contains("/srv/fortemi/private"));
+        assert!(!rendered.contains("sk-live-secret"));
+        assert!(!rendered.contains("authorization_code"));
+        assert!(!rendered.contains("client_credentials"));
+        assert!(!rendered.contains("refresh_token"));
+        assert!(!rendered.contains("admin"));
     }
 
     #[tokio::test]
