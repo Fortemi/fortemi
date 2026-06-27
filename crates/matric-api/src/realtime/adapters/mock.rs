@@ -11,6 +11,10 @@ use crate::realtime::{
     MediaFrameStream,
 };
 
+fn mock_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
 #[derive(Clone)]
 pub struct MockAdapter {
     provider_call_id: String,
@@ -23,7 +27,10 @@ pub struct MockAdapter {
 impl fmt::Debug for MockAdapter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MockAdapter")
-            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field(
+                "provider_call_id_len",
+                &mock_text_len(&self.provider_call_id),
+            )
             .field("frames_count", &self.frames.len())
             .field(
                 "frames_payload_bytes",
@@ -55,7 +62,10 @@ pub struct MockAdapterBuilder {
 impl fmt::Debug for MockAdapterBuilder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MockAdapterBuilder")
-            .field("provider_call_id_len", &self.provider_call_id.len())
+            .field(
+                "provider_call_id_len",
+                &mock_text_len(&self.provider_call_id),
+            )
             .field("codec", &self.codec)
             .field("frames_count", &self.frames.len())
             .field(
@@ -308,8 +318,9 @@ mod tests {
 
     #[test]
     fn mock_adapter_debug_redacts_fixture_identifiers_payloads_and_dtmf() {
+        let provider_call_id = "CApostgres://user:pass@db.internal/app-東京";
         let builder = MockAdapter::builder()
-            .provider_call_id("CApostgres://user:pass@db.internal/app")
+            .provider_call_id(provider_call_id)
             .fixture_payload(b"audio payload with sk-live-secret-token", 8)
             .dtmf_sequence(['4', '2', '#'])
             .drop_frame(1)
@@ -321,7 +332,8 @@ mod tests {
         let rendered = format!("{builder:?}\n{adapter:?}");
 
         for raw in [
-            "CApostgres://user:pass@db.internal/app",
+            provider_call_id,
+            "東京",
             "audio payload",
             "sk-live-secret-token",
             "'4'",
@@ -348,5 +360,10 @@ mod tests {
                 "Mock adapter Debug output should retain safe metadata field {expected:?}: {rendered}"
             );
         }
+
+        assert!(
+            rendered.contains("provider_call_id_len: 41"),
+            "Mock adapter Debug output should report provider call id character length, not bytes: {rendered}"
+        );
     }
 }
