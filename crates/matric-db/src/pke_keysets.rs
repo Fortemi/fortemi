@@ -127,6 +127,42 @@ fn optional_text_len(value: &Option<String>) -> Option<usize> {
     value.as_deref().map(|value| value.chars().count())
 }
 
+fn pke_keyset_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn pke_keyset_decode_error(field: &'static str, err: impl std::fmt::Display) -> Error {
+    let diagnostic = err.to_string();
+    Error::InvalidInput(format!(
+        "Invalid {field}; diagnostic_class={}; diagnostic_len={}",
+        pke_keyset_diagnostic_class(&diagnostic),
+        pke_keyset_text_len(&diagnostic)
+    ))
+}
+
+fn pke_keyset_diagnostic_class(value: &str) -> &'static str {
+    let lower = value.to_ascii_lowercase();
+    if value.is_empty() {
+        "empty"
+    } else if value.chars().any(char::is_control) {
+        "control_chars"
+    } else if lower.contains("secret")
+        || lower.contains("token")
+        || lower.contains("password")
+        || lower.contains("apikey")
+        || lower.contains("api_key")
+        || lower.contains("sk-")
+    {
+        "secret_candidate"
+    } else if lower.contains("://") || lower.starts_with("http") {
+        "url_like"
+    } else if value.contains('/') || value.contains('\\') {
+        "path_like"
+    } else {
+        "text"
+    }
+}
+
 /// PostgreSQL implementation of PKE keyset repository.
 pub struct PgPkeKeysetRepository {
     pool: Pool<Postgres>,
@@ -166,8 +202,8 @@ impl PgPkeKeysetRepository {
             if let sqlx::Error::Database(ref db_err) = e {
                 if db_err.constraint() == Some("pke_keysets_name_key") {
                     return Error::InvalidInput(format!(
-                        "Keyset '{}' already exists",
-                        req.name
+                        "Keyset already exists; name_len={}",
+                        pke_keyset_text_len(&req.name)
                     ));
                 }
             }
@@ -373,13 +409,13 @@ impl PgPkeKeysetRepository {
             &base64::engine::general_purpose::STANDARD,
             &exported.public_key_base64,
         )
-        .map_err(|e| Error::InvalidInput(format!("Invalid public_key_base64: {}", e)))?;
+        .map_err(|e| pke_keyset_decode_error("public_key_base64", e))?;
 
         let encrypted_private_key = base64::Engine::decode(
             &base64::engine::general_purpose::STANDARD,
             &exported.encrypted_private_key_base64,
         )
-        .map_err(|e| Error::InvalidInput(format!("Invalid encrypted_private_key_base64: {}", e)))?;
+        .map_err(|e| pke_keyset_decode_error("encrypted_private_key_base64", e))?;
 
         self.create(CreateKeysetRequest {
             name,
@@ -448,6 +484,29 @@ mod tests {
         assert!(!rendered.contains("encrypted-private-key-secret"));
         assert!(!rendered.contains("example-address-secret-fragment"));
         assert!(!rendered.contains("private label"));
+    }
+
+    #[test]
+    fn pke_keyset_decode_errors_report_classes_without_raw_diagnostics() {
+        let diagnostic =
+            "invalid token sk-live-secret from postgres://user:pass@db.internal/app at byte 3";
+        let error = pke_keyset_decode_error("encrypted_private_key_base64", diagnostic);
+        let message = match error {
+            Error::InvalidInput(message) => message,
+            other => panic!("unexpected error: {other:?}"),
+        };
+
+        assert!(message.contains("Invalid encrypted_private_key_base64"));
+        assert!(message.contains("diagnostic_class=secret_candidate"));
+        assert!(message.contains(&format!("diagnostic_len={}", diagnostic.chars().count())));
+        for raw in [
+            "sk-live-secret",
+            "postgres://user:pass",
+            "db.internal",
+            "token ",
+        ] {
+            assert!(!message.contains(raw), "raw diagnostic leaked: {raw}");
+        }
     }
 
     /// Returns pool if integration test DB is available, None to skip.
