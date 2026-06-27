@@ -19850,7 +19850,7 @@ struct BackupNoteData {
 impl std::fmt::Debug for BackupNoteData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BackupNoteData")
-            .field("id", &self.id)
+            .field("id_set", &self.id.is_some())
             .field("title_len", &self.title.as_ref().map(|value| value.len()))
             .field(
                 "original_content_len",
@@ -19868,7 +19868,7 @@ impl std::fmt::Debug for BackupNoteData {
             .field("source_len", &self.source.as_ref().map(|value| value.len()))
             .field("starred", &self.starred)
             .field("archived", &self.archived)
-            .field("collection_id", &self.collection_id)
+            .field("collection_id_set", &self.collection_id.is_some())
             .field("tags_count", &self.tags.as_ref().map(|tags| tags.len()))
             .finish()
     }
@@ -28875,7 +28875,7 @@ mod tests {
                     "token": "sk-live-manifest-secret"
                 })),
                 notes: vec![BackupNoteData {
-                    id: Some(Uuid::nil()),
+                    id: Some(Uuid::parse_str("018fd1a0-0000-7000-8000-00000000b001").unwrap()),
                     title: Some("Customer payroll import".to_string()),
                     original_content: Some(
                         "original note body contains sk-live-secret-token".to_string(),
@@ -28888,7 +28888,9 @@ mod tests {
                     source: Some("mailbox/customer/private".to_string()),
                     starred: Some(true),
                     archived: Some(false),
-                    collection_id: Some(Uuid::nil()),
+                    collection_id: Some(
+                        Uuid::parse_str("018fd1a0-0000-7000-8000-00000000b002").unwrap(),
+                    ),
                     tags: Some(vec![
                         "customer-private".to_string(),
                         "mm_key_import_secret".to_string(),
@@ -28929,9 +28931,11 @@ mod tests {
         assert!(rendered_body.contains("manifest_set"));
         assert!(rendered_body.contains("notes_count"));
         assert!(rendered_note.contains("BackupNoteData"));
+        assert!(rendered_note.contains("id_set"));
         assert!(rendered_note.contains("title_len"));
         assert!(rendered_note.contains("original_content_len"));
         assert!(rendered_note.contains("revised_content_len"));
+        assert!(rendered_note.contains("collection_id_set"));
         assert!(rendered_note.contains("tags_count"));
         assert!(rendered_response.contains("BackupImportResponse"));
         assert!(rendered_response.contains("status_len"));
@@ -28952,6 +28956,8 @@ mod tests {
             "archive-secret-tag",
             "Private restore template",
             "partial-with-private-detail",
+            "018fd1a0-0000-7000-8000-00000000b001",
+            "018fd1a0-0000-7000-8000-00000000b002",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
