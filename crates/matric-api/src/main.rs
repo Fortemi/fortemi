@@ -4307,10 +4307,16 @@ impl fmt::Debug for SseQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SseQuery")
             .field("token_set", &self.token.is_some())
-            .field("token_len", &self.token.as_ref().map(String::len))
-            .field("memory_len", &self.memory.as_ref().map(String::len))
-            .field("types_len", &self.types.as_ref().map(String::len))
-            .field("entity_id_len", &self.entity_id.as_ref().map(String::len))
+            .field("token_len", &self.token.as_deref().map(telemetry_text_len))
+            .field(
+                "memory_len",
+                &self.memory.as_deref().map(telemetry_text_len),
+            )
+            .field("types_len", &self.types.as_deref().map(telemetry_text_len))
+            .field(
+                "entity_id_len",
+                &self.entity_id.as_deref().map(telemetry_text_len),
+            )
             .finish()
     }
 }
@@ -28792,11 +28798,15 @@ mod tests {
 
     #[test]
     fn sse_query_debug_redacts_tokens_memory_filters_and_entity_ids() {
+        let token = "mm_at_cüstomer@example.com_sk-live-sse-token";
+        let memory = "tenant-alpha/private-mémory";
+        let types = "note.created,postgres://user:pass@db.internal/app,custom.sécret";
+        let entity_id = "entity-/srv/private/mm_key_ssé";
         let query = SseQuery {
-            token: Some("mm_at_customer@example.com_sk-live-sse-token".to_string()),
-            memory: Some("tenant-alpha/private-memory".to_string()),
-            types: Some("note.created,postgres://user:pass@db.internal/app".to_string()),
-            entity_id: Some("entity-/srv/private/mm_key_sse".to_string()),
+            token: Some(token.to_string()),
+            memory: Some(memory.to_string()),
+            types: Some(types.to_string()),
+            entity_id: Some(entity_id.to_string()),
         };
 
         let rendered = format!("{query:?}");
@@ -28807,18 +28817,30 @@ mod tests {
         assert!(rendered.contains("memory_len"));
         assert!(rendered.contains("types_len"));
         assert!(rendered.contains("entity_id_len"));
+        for expected in [
+            format!("token_len: Some({})", token.chars().count()),
+            format!("memory_len: Some({})", memory.chars().count()),
+            format!("types_len: Some({})", types.chars().count()),
+            format!("entity_id_len: Some({})", entity_id.chars().count()),
+        ] {
+            assert!(
+                rendered.contains(&expected),
+                "SseQuery Debug output should retain exact character-count metadata {expected:?}: {rendered}"
+            );
+        }
 
         for raw in [
             "mm_at_",
-            "customer@example.com",
+            "cüstomer@example.com",
             "sk-live-sse-token",
             "tenant-alpha",
-            "private-memory",
+            "private-mémory",
             "note.created",
             "postgres://user:pass",
             "db.internal",
             "entity-/srv/private",
-            "mm_key_sse",
+            "mm_key_ssé",
+            "custom.sécret",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
