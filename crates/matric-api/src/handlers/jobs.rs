@@ -145,6 +145,63 @@ fn refresh_embedding_set_job_result(
     })
 }
 
+fn ai_revision_job_result(
+    revised_len: usize,
+    revision_mode: RevisionMode,
+    effective_mode: RevisionMode,
+    phase2_queued: bool,
+    is_chunked: bool,
+    total_chunks: usize,
+    doc_type_name: Option<&str>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "revised_length": revised_len,
+        "revision_mode": revision_mode,
+        "effective_mode": effective_mode,
+        "phase2_queued": phase2_queued,
+        "chunked": is_chunked,
+        "chunk_count": total_chunks,
+        "content_type_name_len": doc_type_name.map(diagnostic_len)
+    })
+}
+
+fn title_generation_job_result(title: &str) -> serde_json::Value {
+    serde_json::json!({
+        "title_len": diagnostic_len(title)
+    })
+}
+
+fn exif_no_metadata_job_result(filename: &str) -> serde_json::Value {
+    serde_json::json!({
+        "status": "completed",
+        "exif_found": false,
+        "filename_len": diagnostic_len(filename)
+    })
+}
+
+fn exif_completed_job_result(
+    filename: &str,
+    location_id: Option<uuid::Uuid>,
+    device_id: Option<uuid::Uuid>,
+    provenance_id: Option<uuid::Uuid>,
+    has_capture_time: bool,
+    duration_ms: u64,
+) -> serde_json::Value {
+    serde_json::json!({
+        "status": "completed",
+        "exif_found": true,
+        "filename_len": diagnostic_len(filename),
+        "attachment_id_present": true,
+        "location_id_present": location_id.is_some(),
+        "device_id_present": device_id.is_some(),
+        "provenance_id_present": provenance_id.is_some(),
+        "has_gps": location_id.is_some(),
+        "has_device": device_id.is_some(),
+        "has_capture_time": has_capture_time,
+        "duration_ms": duration_ms,
+    })
+}
+
 fn ai_generation_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     warn!(
         error_len = diagnostic_len(error),
@@ -1339,7 +1396,9 @@ impl JobHandler for AiRevisionHandler {
             }
             // Pass detected content type so Phase 2 can preserve type-specific structure
             if let Some(ref dt) = doc_type {
-                phase2_payload["content_type"] = serde_json::json!(dt.name);
+                phase2_payload["content_type_id"] = serde_json::json!(dt.id.to_string());
+                phase2_payload["content_type_name_len"] =
+                    serde_json::json!(diagnostic_len(&dt.name));
             }
             match self
                 .db
@@ -1432,15 +1491,15 @@ impl JobHandler for AiRevisionHandler {
             "AI revision completed"
         );
 
-        JobResult::Success(Some(serde_json::json!({
-            "revised_length": revised.len(),
-            "revision_mode": revision_mode,
-            "effective_mode": effective_mode,
-            "phase2_queued": revision_mode.is_contextual(),
-            "chunked": is_chunked,
-            "chunk_count": total_chunks,
-            "content_type": doc_type.as_ref().map(|dt| &dt.name)
-        })))
+        JobResult::Success(Some(ai_revision_job_result(
+            revised.len(),
+            revision_mode,
+            effective_mode,
+            revision_mode.is_contextual(),
+            is_chunked,
+            total_chunks,
+            doc_type.as_ref().map(|dt| dt.name.as_str()),
+        )))
     }
 }
 
@@ -1578,12 +1637,27 @@ impl JobHandler for AiRevisionContextualHandler {
 
         let schema = extract_schema(&ctx);
         let model_override = extract_model_override(&ctx);
-        // Read content_type from Phase 1 payload (if present) to preserve type-specific structure
-        let content_type_name: Option<String> = ctx
+        // Read content type hint from Phase 1 payload, preferring id-based payloads.
+        // Legacy queued jobs may still carry raw `content_type`.
+        let content_type_name: Option<String> = if let Some(id) = ctx
             .payload()
-            .and_then(|p| p.get("content_type"))
+            .and_then(|p| p.get("content_type_id"))
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            .and_then(|s| uuid::Uuid::parse_str(s).ok())
+        {
+            self.db
+                .document_types
+                .get(id)
+                .await
+                .ok()
+                .flatten()
+                .map(|dt| dt.name)
+        } else {
+            ctx.payload()
+                .and_then(|p| p.get("content_type"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        };
         let schema_ctx = match schema_context(&self.db, schema) {
             Ok(ctx) => ctx,
             Err(e) => return e,
@@ -2660,7 +2734,7 @@ Content:
         // Complete provenance activity (#430)
         if let Some(act_id) = activity_id {
             let prov_metadata = serde_json::json!({
-                "title": &title,
+                "title_len": diagnostic_len(&title),
             });
             if let Err(e) = self
                 .db
@@ -2687,9 +2761,7 @@ Content:
 
         ctx.report_progress(100, Some("Title generation completed"));
 
-        JobResult::Success(Some(serde_json::json!({
-            "title": title,
-        })))
+        JobResult::Success(Some(title_generation_job_result(&title)))
     }
 }
 
@@ -7022,11 +7094,7 @@ impl JobHandler for ExifExtractionHandler {
                     }
                     let _ = tx.commit().await;
                 }
-                return JobResult::Success(Some(serde_json::json!({
-                    "status": "completed",
-                    "exif_found": false,
-                    "filename": filename
-                })));
+                return JobResult::Success(Some(exif_no_metadata_job_result(&filename)));
             }
         };
 
@@ -7035,11 +7103,7 @@ impl JobHandler for ExifExtractionHandler {
         let exif = match exif_data.get("exif") {
             Some(e) => e,
             None => {
-                return JobResult::Success(Some(serde_json::json!({
-                    "status": "completed",
-                    "exif_found": false,
-                    "filename": filename
-                })));
+                return JobResult::Success(Some(exif_no_metadata_job_result(&filename)));
             }
         };
 
@@ -7278,19 +7342,14 @@ impl JobHandler for ExifExtractionHandler {
 
         ctx.report_progress(100, Some("EXIF extraction complete"));
 
-        JobResult::Success(Some(serde_json::json!({
-            "status": "completed",
-            "exif_found": true,
-            "filename": filename,
-            "attachment_id": attachment_id.to_string(),
-            "location_id": location_id.map(|id| id.to_string()),
-            "device_id": device_id.map(|id| id.to_string()),
-            "provenance_id": provenance_id.map(|id| id.to_string()),
-            "has_gps": location_id.is_some(),
-            "has_device": device_id.is_some(),
-            "has_capture_time": capture_time.is_some(),
-            "duration_ms": duration_ms,
-        })))
+        JobResult::Success(Some(exif_completed_job_result(
+            &filename,
+            location_id,
+            device_id,
+            provenance_id,
+            capture_time.is_some(),
+            duration_ms,
+        )))
     }
 }
 
@@ -7557,6 +7616,48 @@ mod tests {
         assert!(!rendered.contains("private-client-archive"));
         assert!(!rendered.contains("/srv/fortemi"));
         assert!(!rendered.contains("sk-secret"));
+    }
+
+    #[test]
+    fn stored_job_results_redact_titles_content_types_and_filenames() {
+        let title = "Private Customer Plan sk-title-secret";
+        let doc_type = "Confidential Lab Report /srv/private";
+        let filename = "patient-secret-mm_key_file.jpg";
+        let result = format!(
+            "{}\n{}\n{}\n{}",
+            ai_revision_job_result(
+                42,
+                RevisionMode::Standard,
+                RevisionMode::Standard,
+                true,
+                false,
+                1,
+                Some(doc_type),
+            ),
+            title_generation_job_result(title),
+            exif_no_metadata_job_result(filename),
+            exif_completed_job_result(
+                filename,
+                Some(uuid::Uuid::nil()),
+                Some(uuid::Uuid::nil()),
+                Some(uuid::Uuid::nil()),
+                true,
+                12,
+            )
+        );
+
+        assert!(result.contains("content_type_name_len"));
+        assert!(result.contains("title_len"));
+        assert!(result.contains("filename_len"));
+        assert!(result.contains("attachment_id_present"));
+        assert!(result.contains("location_id_present"));
+        assert!(!result.contains("Private Customer"));
+        assert!(!result.contains("sk-title-secret"));
+        assert!(!result.contains("Confidential Lab Report"));
+        assert!(!result.contains("/srv/private"));
+        assert!(!result.contains("patient-secret"));
+        assert!(!result.contains("mm_key_file"));
+        assert!(!result.contains(&uuid::Uuid::nil().to_string()));
     }
 
     #[test]
