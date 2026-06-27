@@ -7,10 +7,11 @@
 use matric_core::SearchHit;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use uuid::Uuid;
 
 /// Information about a document chain (chunked document).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChainSearchInfo {
     /// The note ID that acts as the chain identifier
     pub chain_id: Uuid,
@@ -24,8 +25,20 @@ pub struct ChainSearchInfo {
     pub total_chunks: u32,
 }
 
+impl fmt::Debug for ChainSearchInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ChainSearchInfo")
+            .field("chain_id_set", &true)
+            .field("original_title_len", &self.original_title.len())
+            .field("chunks_matched", &self.chunks_matched)
+            .field("best_chunk_sequence", &self.best_chunk_sequence)
+            .field("total_chunks", &self.total_chunks)
+            .finish()
+    }
+}
+
 /// Extended search result with optional chain information.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct EnhancedSearchHit {
     /// The core search hit data
     #[serde(flatten)]
@@ -33,6 +46,30 @@ pub struct EnhancedSearchHit {
     /// Chain information if this result is from a chunked document
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chain_info: Option<ChainSearchInfo>,
+}
+
+impl fmt::Debug for EnhancedSearchHit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EnhancedSearchHit")
+            .field("hit", &self.hit)
+            .field("chain_info_set", &self.chain_info.is_some())
+            .field(
+                "chain_original_title_len",
+                &self
+                    .chain_info
+                    .as_ref()
+                    .map(|info| info.original_title.len()),
+            )
+            .field(
+                "chain_chunks_matched",
+                &self.chain_info.as_ref().map(|info| info.chunks_matched),
+            )
+            .field(
+                "chain_total_chunks",
+                &self.chain_info.as_ref().map(|info| info.total_chunks),
+            )
+            .finish()
+    }
 }
 
 /// Configuration for search result deduplication.
@@ -364,6 +401,65 @@ mod tests {
 
         assert_eq!(deserialized.hit.note_id, note_id);
         assert_eq!(deserialized.chain_info.as_ref().unwrap().chunks_matched, 2);
+    }
+
+    #[test]
+    fn test_chain_search_debug_redacts_titles_and_hit_content() {
+        let note_id = Uuid::new_v4();
+        let info = ChainSearchInfo {
+            chain_id: note_id,
+            original_title: "Private chain title private@example.test sk-live-secret".to_string(),
+            chunks_matched: 5,
+            best_chunk_sequence: 2,
+            total_chunks: 10,
+        };
+        let hit = EnhancedSearchHit {
+            hit: SearchHit {
+                note_id,
+                score: 0.91,
+                snippet: Some("Private snippet includes /tmp/customer/note.md".to_string()),
+                title: Some("Private hit title 555-1212".to_string()),
+                tags: vec!["private-tag-sk-live-secret".to_string()],
+                embedding_status: None,
+            },
+            chain_info: Some(info.clone()),
+        };
+
+        let debug = format!("{info:?}{hit:?}");
+
+        for secret in [
+            "Private chain title",
+            "private@example.test",
+            "sk-live-secret",
+            "Private snippet",
+            "/tmp/customer/note.md",
+            "Private hit title",
+            "555-1212",
+            "private-tag",
+        ] {
+            assert!(
+                !debug.contains(secret),
+                "search dedup Debug output leaked sensitive value {secret:?}: {debug}"
+            );
+        }
+
+        for expected in [
+            "chain_id_set",
+            "original_title_len",
+            "chunks_matched",
+            "best_chunk_sequence",
+            "total_chunks",
+            "chain_info_set",
+            "chain_original_title_len",
+            "snippet_len",
+            "title_len",
+            "tags_count",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "search dedup Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
     }
 
     #[test]
