@@ -210,10 +210,7 @@ impl TagResolver {
                     if self.simple_tag_exists(notation).await? {
                         filter.required_string_tags.push(notation.clone());
                     } else {
-                        return Err(Error::NotFound(format!(
-                            "Required tag '{}' not found (checked SKOS concepts and simple tags)",
-                            notation
-                        )));
+                        return Err(required_tag_not_found_error(notation));
                     }
                 }
             }
@@ -262,12 +259,7 @@ impl TagResolver {
         for notation in &input.required_schemes {
             match self.resolve_scheme(notation).await? {
                 Some(uuid) => filter.required_schemes.push(uuid),
-                None => {
-                    return Err(Error::NotFound(format!(
-                        "Required scheme '{}' not found",
-                        notation
-                    )))
-                }
+                None => return Err(required_scheme_not_found_error(notation)),
             }
         }
 
@@ -284,6 +276,20 @@ impl TagResolver {
 
         Ok(filter)
     }
+}
+
+fn required_tag_not_found_error(notation: &str) -> Error {
+    Error::NotFound(format!(
+        "Required tag not found; notation_len={}; checked_skos=true; checked_simple_tags=true",
+        notation.len()
+    ))
+}
+
+fn required_scheme_not_found_error(notation: &str) -> Error {
+    Error::NotFound(format!(
+        "Required scheme not found; notation_len={}",
+        notation.len()
+    ))
 }
 
 #[cfg(test)]
@@ -567,7 +573,30 @@ mod tests {
         assert!(result.is_err());
         match result {
             Err(Error::NotFound(msg)) => {
-                assert!(msg.contains("Required tag 'nonexistent-tag' not found"));
+                assert!(msg.contains("Required tag not found"));
+                assert!(msg.contains("notation_len=15"));
+                assert!(msg.contains("checked_skos=true"));
+                assert!(msg.contains("checked_simple_tags=true"));
+                assert!(!msg.contains("nonexistent-tag"));
+            }
+            _ => panic!("Expected NotFound error"),
+        }
+    }
+
+    #[test]
+    fn required_tag_not_found_error_reports_metadata_without_raw_notation() {
+        let notation = "finance/customer@example.com/sk-live-secret-token";
+        let err = required_tag_not_found_error(notation);
+
+        match err {
+            Error::NotFound(msg) => {
+                assert!(msg.contains("Required tag not found"));
+                assert!(msg.contains("notation_len=49"));
+                assert!(msg.contains("checked_skos=true"));
+                assert!(msg.contains("checked_simple_tags=true"));
+                assert!(!msg.contains("finance/customer"));
+                assert!(!msg.contains("customer@example.com"));
+                assert!(!msg.contains("sk-live-secret-token"));
             }
             _ => panic!("Expected NotFound error"),
         }
@@ -682,7 +711,26 @@ mod tests {
         assert!(result.is_err());
         match result {
             Err(Error::NotFound(msg)) => {
-                assert!(msg.contains("Required scheme 'nonexistent-scheme' not found"));
+                assert!(msg.contains("Required scheme not found"));
+                assert!(msg.contains("notation_len=18"));
+                assert!(!msg.contains("nonexistent-scheme"));
+            }
+            _ => panic!("Expected NotFound error"),
+        }
+    }
+
+    #[test]
+    fn required_scheme_not_found_error_reports_metadata_without_raw_notation() {
+        let notation = "scheme/customer@example.com/mm_key_secret";
+        let err = required_scheme_not_found_error(notation);
+
+        match err {
+            Error::NotFound(msg) => {
+                assert!(msg.contains("Required scheme not found"));
+                assert!(msg.contains("notation_len=41"));
+                assert!(!msg.contains("scheme/customer"));
+                assert!(!msg.contains("customer@example.com"));
+                assert!(!msg.contains("mm_key_secret"));
             }
             _ => panic!("Expected NotFound error"),
         }
