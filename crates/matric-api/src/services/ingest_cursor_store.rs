@@ -3,8 +3,8 @@
 //! Each ingest stream is assigned a `stream_id`; every per-line `ack` carries a
 //! cursor of the form `{stream_id}-{line}`. After each ack the server persists
 //! the last-processed (absolute) line number to Redis under
-//! `mm:ingestcursor:{stream_id}` with a rolling 60-second TTL. A client that
-//! drops mid-stream can reconnect within the window, send
+//! `mm:ingestcursor:{sha256(stream_id)}` with a rolling 60-second TTL. A client
+//! that drops mid-stream can reconnect within the window, send
 //! `X-Ingest-Cursor: {stream_id}-{N}` and re-send the body; the server reads the
 //! persisted line and **skips** the already-processed prefix (skip-ahead dedup),
 //! resuming inserts after it. Beyond the TTL the entry is gone → `410 Gone`.
@@ -29,6 +29,7 @@
 
 use redis::aio::ConnectionManager;
 use redis::AsyncCommands;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -106,7 +107,11 @@ impl IngestCursorStore {
     }
 
     fn key(&self, stream_id: &str) -> String {
-        format!("{}{}", self.inner.prefix, stream_id)
+        format!(
+            "{}{}",
+            self.inner.prefix,
+            ingest_cursor_stream_fingerprint(stream_id)
+        )
     }
 
     /// Persist the last-processed absolute line for a stream and refresh the TTL
@@ -201,6 +206,12 @@ fn ingest_cursor_text_len(value: &str) -> usize {
     value.chars().count()
 }
 
+fn ingest_cursor_stream_fingerprint(stream_id: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(stream_id.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
 fn ingest_cursor_diagnostic_reason(value: &str) -> &'static str {
     let value = value.to_ascii_lowercase();
     if value.contains("invalid") || value.contains("parse") {
@@ -234,6 +245,21 @@ mod tests {
         store.record("stream-abc", 42).await;
         assert!(store.get("stream-abc").await.is_none());
         assert_eq!(store.ttl_seconds(), DEFAULT_TTL_SECONDS);
+    }
+
+    #[test]
+    fn ingest_cursor_redis_key_uses_stream_fingerprint_without_raw_stream_id() {
+        let store = IngestCursorStore::disabled();
+        let stream_id = "tenant-secret-stream-11111111-2222-3333-4444-555555555555";
+        let key = store.key(stream_id);
+
+        assert!(key.starts_with("mm:ingestcursor:"));
+        assert_eq!(key.len(), "mm:ingestcursor:".len() + 64);
+        assert_eq!(key, store.key(stream_id));
+        assert_ne!(key, store.key("different-stream"));
+        assert!(!key.contains(stream_id));
+        assert!(!key.contains("tenant-secret-stream"));
+        assert!(!key.contains("11111111-2222-3333-4444-555555555555"));
     }
 
     #[test]
