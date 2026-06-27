@@ -122,6 +122,7 @@ const RULES = [
       return (
         /\bpassphrase["']?\s*[:=]\s*["'](?!(?:<PKE_PASSPHRASE>|\.\.\.))[^"']{6,}["']/i.test(line) ||
         /\bsecret["']?\s*[:=]\s*["'](?!(?:<WEBHOOK_SECRET>|<MCP_CLIENT_SECRET>|\.\.\.))[^"']{6,}["']/i.test(line) ||
+        /\b(?:save_private_key|load_private_key|encrypt_private_key|decrypt_private_key)\([^)]*["'](?!(?:<PKE_PASSPHRASE>|\.\.\.))[^"']*passphrase[^"']*["']/i.test(line) ||
         /(?:^|\s)(?<!mkdir\s)-p\s+["'](?!(?:<PKE_PASSPHRASE>|\.\.\.))[^"']{6,}["']/.test(line)
       );
     },
@@ -426,6 +427,7 @@ function runSelfTest() {
         "OPENAI_API_KEY=sk-proj-realisticExample",
         "MCP_CLIENT_SECRET=secret_xyz789",
         'passphrase: "secure-passphrase-123"',
+        'save_private_key(&keypair.private, "/path/to/private.key", "your-passphrase")?;',
         '-p "your-secure-passphrase-123"',
         '"secret": "my-webhook-secret"',
         "PGPASSWORD=matric",
@@ -440,6 +442,7 @@ function runSelfTest() {
         "OPENAI_API_KEY=<OPENAI_API_KEY>",
         "MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>",
         'passphrase: "<PKE_PASSPHRASE>"',
+        'load_private_key("/path/to/private.key", "<PKE_PASSPHRASE>")?;',
         '-p "<PKE_PASSPHRASE>"',
         '"secret": "<WEBHOOK_SECRET>"',
         "client_secret_basic is an OAuth auth method name",
@@ -451,8 +454,8 @@ function runSelfTest() {
     const findings = scan(tmp);
     const positiveFindings = findings.filter((finding) => finding.file.endsWith("positive.md"));
     const negativeFindings = findings.filter((finding) => finding.file.endsWith("negative.md"));
-    if (positiveFindings.length < 9) {
-      throw new Error(`expected at least 9 positive findings, got ${positiveFindings.length}`);
+    if (positiveFindings.length < 10) {
+      throw new Error(`expected at least 10 positive findings, got ${positiveFindings.length}`);
     }
     if (negativeFindings.length !== 0) {
       throw new Error(`expected zero negative findings, got ${negativeFindings.length}`);

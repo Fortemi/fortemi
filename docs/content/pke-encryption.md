@@ -27,7 +27,7 @@ println!("My address: {}", my_address);
 // Example: mm:7Xq9KmPvR3nYhW2sT8uJcL4bN6aF5gD1eZ
 
 // Save your keys
-save_private_key(&keypair.private, "/path/to/private.key", "your-passphrase")?;
+save_private_key(&keypair.private, "/path/to/private.key", "<PKE_PASSPHRASE>")?;
 save_public_key(&keypair.public, "/path/to/public.key", Some("My Key"))?;
 ```
 
@@ -70,7 +70,7 @@ std::fs::write("encrypted.mmpke", &encrypted)?;
 use matric_crypto::pke::{decrypt_pke, load_private_key};
 
 // Load your private key
-let private_key = load_private_key("/path/to/private.key", "your-passphrase")?;
+let private_key = load_private_key("/path/to/private.key", "<PKE_PASSPHRASE>")?;
 
 // Decrypt
 let encrypted = std::fs::read("encrypted.mmpke")?;
@@ -237,7 +237,7 @@ let keypair = Keypair::from_private(existing_private_key);
 use matric_crypto::pke::{save_private_key, save_public_key};
 
 // Private key (encrypted with passphrase)
-save_private_key(&keypair.private, "~/.matric/private.key", "strong-passphrase")?;
+save_private_key(&keypair.private, "~/.matric/private.key", "<PKE_PASSPHRASE>")?;
 
 // Public key (plaintext, shareable)
 save_public_key(&keypair.public, "~/.matric/public.key", Some("Work Key"))?;
@@ -248,7 +248,7 @@ save_public_key(&keypair.public, "~/.matric/public.key", Some("Work Key"))?;
 ```rust
 use matric_crypto::pke::{load_private_key, load_public_key};
 
-let private = load_private_key("~/.matric/private.key", "passphrase")?;
+let private = load_private_key("~/.matric/private.key", "<PKE_PASSPHRASE>")?;
 let public = load_public_key("~/.matric/public.key")?;
 ```
 

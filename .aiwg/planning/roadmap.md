@@ -183,6 +183,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: PKE crypto file/header Debug output now reports public-key, recipient, filename, encrypted-DEK, nonce, salt, and KDF string metadata as lengths/counts/presence instead of raw addresses, filenames, encrypted key material, salts, or nonces.
   - 2026-06-27 continuation: PKE CLI keygen/decrypt now support `--passphrase-stdin` and `--passphrase-file`, require exactly one passphrase source, keep legacy `--passphrase` explicit, and public encryption docs no longer show passphrases in argv.
   - 2026-06-27 continuation: PKE CLI legacy `--passphrase/-p` usage now warns that argv and shell history can expose secrets and points operators to stdin/file passphrase sources without echoing the submitted value.
+  - 2026-06-27 continuation: Public PKE Rust API docs now use `<PKE_PASSPHRASE>` placeholders for private-key save/load examples, and docs-contract now rejects realistic PKE passphrase literals in helper-call examples.
   - 2026-06-27 continuation: Chat-stream replay/resumption Redis keys now use SHA-256 session fingerprints instead of storing raw session ids in Redis keyspace while preserving public SSE resume cursor format.
   - 2026-06-27 continuation: Ingest stream cursor Redis keys now use SHA-256 stream fingerprints instead of storing raw stream ids in Redis keyspace while preserving public cursor format.
   - 2026-06-27 continuation: Ingest stream token Redis keys and reverse-index values now use SHA-256 token fingerprints instead of storing raw bearer tokens in Redis keyspace or revoke-by-id index values.
@@ -1228,3 +1229,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 PKE crypto file/header Debug output now reports lengths/counts/presence instead of raw addresses, filenames, encrypted key material, salts, or nonces.
 - 2026-06-27 — #968/#974 PKE CLI keygen/decrypt now support stdin/file passphrase sources and public docs no longer show passphrases in argv.
 - 2026-06-27 — #968/#974 PKE CLI legacy argv passphrase use now warns operators to use stdin/file sources without echoing the secret.
+- 2026-06-27 — #968/#974 PKE Rust API docs now use passphrase placeholders and docs-contract rejects realistic helper-call passphrase literals.
