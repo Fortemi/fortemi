@@ -322,28 +322,29 @@ pub struct TracingSink;
 impl AuditSink for TracingSink {
     async fn emit(&self, event: AuditEvent) -> Result<(), AuditError> {
         let event = event.sanitized();
+        let trace = audit_trace_fields(&event);
         tracing::info!(
             target: "fortemi.audit",
             audit_schema_version = event.schema_version,
-            audit_id = %event.id,
-            audit_idempotency_key = ?event.idempotency_key,
+            audit_id_present = trace.id_present,
+            audit_idempotency_key_present = trace.idempotency_key_present,
             audit_event_ts = %event.event_ts,
             audit_observed_ts = %event.observed_ts,
-            audit_tenant_id = ?event.tenant_id,
-            audit_principal_id = ?event.principal_id,
-            audit_resource_kind = ?event.resource_kind,
-            audit_resource_id = ?event.resource_id,
-            audit_correlation_id = ?event.correlation_id,
-            audit_category = %event.category,
-            audit_action = %event.action,
+            audit_tenant_id_present = trace.tenant_id_present,
+            audit_principal_id_present = trace.principal_id_present,
+            audit_resource_kind_len = trace.resource_kind_len,
+            audit_resource_id_present = trace.resource_id_present,
+            audit_correlation_id_present = trace.correlation_id_present,
+            audit_category_len = trace.category_len,
+            audit_action_len = trace.action_len,
             audit_outcome = ?event.outcome,
-            audit_reason = ?event.reason,
+            audit_reason_len = trace.reason_len,
             audit_severity = ?event.severity,
             audit_failure_policy = ?event.failure_policy,
             audit_visibility = ?event.visibility,
             audit_retention = ?event.retention,
             audit_source = ?event.source,
-            audit_attrs = ?event.attrs,
+            audit_attr_count = trace.attr_count,
             "audit event"
         );
         Ok(())
@@ -351,6 +352,40 @@ impl AuditSink for TracingSink {
 
     async fn flush(&self) -> Result<(), AuditError> {
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+struct AuditTraceFields {
+    id_present: bool,
+    idempotency_key_present: bool,
+    tenant_id_present: bool,
+    principal_id_present: bool,
+    resource_kind_len: Option<usize>,
+    resource_id_present: bool,
+    correlation_id_present: bool,
+    category_len: usize,
+    action_len: usize,
+    reason_len: Option<usize>,
+    attr_count: usize,
+}
+
+fn audit_trace_fields(event: &AuditEvent) -> AuditTraceFields {
+    AuditTraceFields {
+        id_present: true,
+        idempotency_key_present: event.idempotency_key.is_some(),
+        tenant_id_present: event.tenant_id.is_some(),
+        principal_id_present: event.principal_id.is_some(),
+        resource_kind_len: event
+            .resource_kind
+            .as_ref()
+            .map(|value| value.chars().count()),
+        resource_id_present: event.resource_id.is_some(),
+        correlation_id_present: event.correlation_id.is_some(),
+        category_len: event.category.chars().count(),
+        action_len: event.action.chars().count(),
+        reason_len: event.reason.as_ref().map(|value| value.chars().count()),
+        attr_count: event.attrs.len(),
     }
 }
 
@@ -611,6 +646,68 @@ mod tests {
         assert!(!debug.contains("private-plan.md"));
         assert!(!debug.contains("Bearer abc123"));
         assert!(!debug.contains(REDACTED));
+    }
+
+    #[test]
+    fn audit_trace_fields_report_metadata_without_raw_operator_strings() {
+        let mut event = AuditEvent::new(
+            "privacy/customer@example.com",
+            "download /srv/private/export",
+            AuditOutcome::Denied,
+        )
+        .with_principal("principal-user-123")
+        .with_tenant("tenant-alpha")
+        .with_resource("note", "note-raw-id-123")
+        .with_correlation_id("correlation-abc")
+        .with_attr("filename", "private-plan.md")
+        .with_attr("authorization", "Bearer abc123");
+        event.idempotency_key = Some("idempotency-private-key".to_string());
+        event.reason = Some("policy denied /srv/private/export".to_string());
+        event = event.sanitized();
+
+        let trace = audit_trace_fields(&event);
+        let debug = format!("{trace:?}");
+
+        assert_eq!(
+            trace.category_len,
+            "privacy/customer@example.com".chars().count()
+        );
+        assert_eq!(
+            trace.action_len,
+            "download /srv/private/export".chars().count()
+        );
+        assert_eq!(
+            trace.reason_len,
+            Some("policy denied /srv/private/export".chars().count())
+        );
+        assert_eq!(trace.resource_kind_len, Some(4));
+        assert_eq!(trace.attr_count, 2);
+        assert!(trace.id_present);
+        assert!(trace.idempotency_key_present);
+        assert!(trace.tenant_id_present);
+        assert!(trace.principal_id_present);
+        assert!(trace.resource_id_present);
+        assert!(trace.correlation_id_present);
+
+        for raw in [
+            "privacy/customer@example.com",
+            "download /srv/private/export",
+            "policy denied /srv/private/export",
+            "idempotency-private-key",
+            "principal-user-123",
+            "tenant-alpha",
+            "note-raw-id-123",
+            "correlation-abc",
+            "filename",
+            "private-plan.md",
+            "Bearer abc123",
+            REDACTED,
+        ] {
+            assert!(
+                !debug.contains(raw),
+                "trace metadata should not contain raw value {raw:?}: {debug}"
+            );
+        }
     }
 
     #[tokio::test]
