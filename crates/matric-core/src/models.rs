@@ -5190,9 +5190,12 @@ impl fmt::Debug for AttachmentSearchRequest {
             .field("note_id_set", &self.note_id.is_some())
             .field(
                 "content_type_len",
-                &self.content_type.as_ref().map(String::len),
+                &optional_debug_len(self.content_type.as_ref()),
             )
-            .field("event_type_len", &self.event_type.as_ref().map(String::len))
+            .field(
+                "event_type_len",
+                &optional_debug_len(self.event_type.as_ref()),
+            )
             .field("capture_after_set", &self.capture_after.is_some())
             .field("capture_before_set", &self.capture_before.is_some())
             .field("near_lat_set", &self.near_lat.is_some())
@@ -5200,7 +5203,7 @@ impl fmt::Debug for AttachmentSearchRequest {
             .field("radius_m_set", &self.radius_m.is_some())
             .field(
                 "location_name_len",
-                &self.location_name.as_ref().map(String::len),
+                &optional_debug_len(self.location_name.as_ref()),
             )
             .field("device_id_set", &self.device_id.is_some())
             .field("limit", &self.limit)
@@ -5724,14 +5727,14 @@ mod tests {
         let now = Utc::now();
         let request = AttachmentSearchRequest {
             note_id: Some(Uuid::new_v4()),
-            content_type: Some("image/private-report-sk-live-secret".to_string()),
-            event_type: Some("private-event-type-private@example.test".to_string()),
+            content_type: Some("éé".to_string()),
+            event_type: Some("åå".to_string()),
             capture_after: Some(now),
             capture_before: Some(now),
             near_lat: Some(37.774929),
             near_lon: Some(-122.419416),
             radius_m: Some(1234.5),
-            location_name: Some("Private clinic location 555-1212".to_string()),
+            location_name: Some("ö丼".to_string()),
             device_id: Some(Uuid::new_v4()),
             limit: 25,
         };
@@ -5741,6 +5744,9 @@ mod tests {
         assert_debug_excludes(
             &debug,
             &[
+                "éé",
+                "åå",
+                "ö丼",
                 "image/private-report",
                 "sk-live-secret",
                 "private-event-type",
@@ -5755,14 +5761,14 @@ mod tests {
 
         for expected in [
             "note_id_set",
-            "content_type_len",
-            "event_type_len",
+            "content_type_len: Some(2)",
+            "event_type_len: Some(2)",
             "capture_after_set",
             "capture_before_set",
             "near_lat_set",
             "near_lon_set",
             "radius_m_set",
-            "location_name_len",
+            "location_name_len: Some(2)",
             "device_id_set",
             "limit",
         ] {
