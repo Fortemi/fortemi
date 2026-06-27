@@ -30,8 +30,8 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use super::source::{
-    inbound_error_reason_code, telemetry_destination_class, telemetry_text_len, InboundError,
-    InboundEvent, InboundEventSource, InboundResult, Offset,
+    inbound_error_reason_code, inbound_transient_detail, telemetry_destination_class,
+    telemetry_text_len, InboundError, InboundEvent, InboundEventSource, InboundResult, Offset,
 };
 
 /// Connector config, deserialized from the `inbound_source.config` JSONB.
@@ -134,8 +134,9 @@ impl KafkaSource {
     /// Build from JSON config (sync; used by the connector registry). Creating
     /// the librdkafka client does not block on the network — it connects lazily.
     pub fn from_config(name: &str, config: &Value) -> InboundResult<Self> {
-        let cfg: KafkaConfig = serde_json::from_value(config.clone())
-            .map_err(|e| InboundError::Transient(format!("invalid kafka config: {e}")))?;
+        let cfg: KafkaConfig = serde_json::from_value(config.clone()).map_err(|e| {
+            InboundError::Transient(inbound_transient_detail("kafka", "config_parse", &e))
+        })?;
         if cfg.bootstrap_servers.trim().is_empty()
             || cfg.topic.trim().is_empty()
             || cfg.group_id.trim().is_empty()
@@ -154,25 +155,28 @@ impl KafkaSource {
         for (k, v) in &cfg.extra {
             cc.set(k, v);
         }
-        let consumer: StreamConsumer = cc
-            .create()
-            .map_err(|e| InboundError::Transient(format!("kafka consumer create: {e}")))?;
-        consumer
-            .subscribe(&[cfg.topic.as_str()])
-            .map_err(|e| InboundError::Transient(format!("kafka subscribe: {e}")))?;
+        let consumer: StreamConsumer = cc.create().map_err(|e| {
+            InboundError::Transient(inbound_transient_detail("kafka", "consumer_create", &e))
+        })?;
+        consumer.subscribe(&[cfg.topic.as_str()]).map_err(|e| {
+            InboundError::Transient(inbound_transient_detail("kafka", "subscribe", &e))
+        })?;
 
-        let producer =
-            match &cfg.dead_letter_topic {
-                Some(_) => {
-                    let mut pc = ClientConfig::new();
-                    pc.set("bootstrap.servers", &cfg.bootstrap_servers);
-                    apply_security(&mut pc, &cfg);
-                    Some(pc.create().map_err(|e| {
-                        InboundError::Transient(format!("kafka producer create: {e}"))
-                    })?)
-                }
-                None => None,
-            };
+        let producer = match &cfg.dead_letter_topic {
+            Some(_) => {
+                let mut pc = ClientConfig::new();
+                pc.set("bootstrap.servers", &cfg.bootstrap_servers);
+                apply_security(&mut pc, &cfg);
+                Some(pc.create().map_err(|e| {
+                    InboundError::Transient(inbound_transient_detail(
+                        "kafka",
+                        "producer_create",
+                        &e,
+                    ))
+                })?)
+            }
+            None => None,
+        };
 
         info!(
             source_name_len = telemetry_text_len(name),
@@ -194,10 +198,12 @@ impl KafkaSource {
         let mut tpl = TopicPartitionList::new();
         // Committed offset is the *next* message to read.
         tpl.add_partition_offset(topic, partition, RdOffset::Offset(offset + 1))
-            .map_err(|e| InboundError::Transient(format!("kafka tpl: {e}")))?;
+            .map_err(|e| {
+                InboundError::Transient(inbound_transient_detail("kafka", "commit_plan", &e))
+            })?;
         self.consumer
             .commit(&tpl, CommitMode::Async)
-            .map_err(|e| InboundError::Transient(format!("kafka commit: {e}")))
+            .map_err(|e| InboundError::Transient(inbound_transient_detail("kafka", "commit", &e)))
     }
 
     async fn dead_letter(&self, bytes: &[u8], key: &str) {
@@ -220,11 +226,9 @@ impl KafkaSource {
 impl InboundEventSource for KafkaSource {
     async fn next_event(&self) -> InboundResult<InboundEvent> {
         loop {
-            let msg = self
-                .consumer
-                .recv()
-                .await
-                .map_err(|e| InboundError::Transient(format!("kafka recv: {e}")))?;
+            let msg = self.consumer.recv().await.map_err(|e| {
+                InboundError::Transient(inbound_transient_detail("kafka", "recv", &e))
+            })?;
             // Copy everything we need to owned values, then drop the borrow so
             // no !Send borrowed message is held across an await.
             let topic = msg.topic().to_string();
@@ -260,8 +264,10 @@ impl InboundEventSource for KafkaSource {
     async fn commit(&self, offset: Offset) -> InboundResult<()> {
         match parse_offset_key(&offset) {
             Some((topic, partition, num)) => self.commit_offset(topic, partition, num).await,
-            None => Err(InboundError::Transient(format!(
-                "kafka commit: malformed offset key '{offset}'"
+            None => Err(InboundError::Transient(inbound_transient_detail(
+                "kafka",
+                "commit_offset_parse",
+                &"malformed offset key",
             ))),
         }
     }
@@ -413,6 +419,22 @@ mod tests {
         assert!(parse_offset_key("bad").is_none());
         assert!(parse_offset_key(":1:2").is_none());
         assert!(parse_offset_key("t:x:2").is_none());
+    }
+
+    #[test]
+    fn malformed_offset_error_detail_redacts_offset_key() {
+        let raw_offset = "tenant-secret-topic:partition:mm_key_secret";
+        let detail =
+            inbound_transient_detail("kafka", "commit_offset_parse", &"malformed offset key");
+
+        assert!(parse_offset_key(raw_offset).is_none());
+        assert!(detail.contains("connector=kafka"));
+        assert!(detail.contains("phase=commit_offset_parse"));
+        assert!(detail.contains("error_len="));
+        assert!(detail.contains("reason_code=invalid_config_or_payload"));
+        assert!(!detail.contains("tenant-secret-topic"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains(raw_offset));
     }
 
     #[test]
