@@ -6047,6 +6047,23 @@ fn twilio_asr_session_metadata(call_id: Uuid, provider_call_id: &str) -> serde_j
     })
 }
 
+fn twilio_recording_transcription_payload(
+    session: &matric_core::CallSession,
+    attachment_id: Uuid,
+    recording_url: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "parent_attachment_id": attachment_id.to_string(),
+        "audio_attachment_id": attachment_id.to_string(),
+        "is_video": false,
+        "call_id_present": session.call_id != Uuid::nil(),
+        "provider": session.provider,
+        "provider_call": twilio_provider_call_reference_metadata(&session.provider_call_id),
+        "recording": twilio_recording_reference_metadata(recording_url),
+        "batch_transcript_policy": "append_attachment_transcript",
+    })
+}
+
 async fn queue_twilio_recording_transcription(
     state: &AppState,
     session: &matric_core::CallSession,
@@ -6133,16 +6150,7 @@ async fn queue_twilio_recording_transcription(
         attachment
     };
 
-    let payload = serde_json::json!({
-        "parent_attachment_id": attachment.id.to_string(),
-        "audio_attachment_id": attachment.id.to_string(),
-        "is_video": false,
-        "call_id": session.call_id.to_string(),
-        "provider": session.provider,
-        "provider_call": twilio_provider_call_reference_metadata(&session.provider_call_id),
-        "recording": twilio_recording_reference_metadata(recording_url),
-        "batch_transcript_policy": "append_attachment_transcript",
-    });
+    let payload = twilio_recording_transcription_payload(session, attachment.id, recording_url);
     let job_id = state
         .db
         .jobs
@@ -32467,6 +32475,48 @@ mod tests {
             "secret-provider",
             &call_id.to_string(),
             "018fd1a0",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn twilio_recording_transcription_payload_redacts_call_and_provider_references() {
+        let call_id =
+            Uuid::parse_str("018fd1a0-0000-7000-8000-000000000704").expect("valid call uuid");
+        let attachment_id =
+            Uuid::parse_str("01911111-2222-7333-8444-555555555555").expect("valid attachment uuid");
+        let session = matric_core::CallSession {
+            call_id,
+            provider: "twilio".to_string(),
+            provider_call_id: "CA-secret-provider-call-id".to_string(),
+            started_at: chrono::Utc::now(),
+            ended_at: None,
+            end_reason: None,
+            asr_backend: None,
+            remote_party: None,
+            archive_id: None,
+            metadata: serde_json::json!({}),
+        };
+        let payload = twilio_recording_transcription_payload(
+            &session,
+            attachment_id,
+            "https://api.twilio.com/recording.wav?token=sk-live-recording",
+        );
+        let rendered = serde_json::to_string(&payload).expect("serialize payload");
+
+        assert_eq!(payload["call_id_present"], true);
+        assert!(payload.get("call_id").is_none());
+        assert_eq!(payload["provider"], "twilio");
+        assert_eq!(payload["provider_call"]["provider_call_id_present"], true);
+        assert_eq!(payload["recording"]["recording_url_class"], "twilio_api");
+        for raw in [
+            &call_id.to_string(),
+            "018fd1a0",
+            "CA-secret-provider-call-id",
+            "secret-provider",
+            "api.twilio.com",
+            "sk-live-recording",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
