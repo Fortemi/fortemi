@@ -3,7 +3,7 @@
 # Run all MCP integration tests sequentially to avoid PostgreSQL deadlocks.
 #
 # Usage:
-#   FORTEMI_API_KEY="mm_at_..." ./mcp-server/tests/run-all.sh
+#   FORTEMI_API_KEY="<ACCESS_TOKEN>" ./mcp-server/tests/run-all.sh
 #
 # The tests MUST be run sequentially because concurrent MCP sessions
 # cause PostgreSQL deadlocks due to shared database state.

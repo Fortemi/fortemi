@@ -3,8 +3,7 @@
   "profile": "hosted_strict",
   "generated_at": "2026-06-27",
   "owner_issues": [
-    "#1001",
-    "#999"
+    "#1001"
   ],
   "policy": "Redacted docs-contract baseline. Entries store stable fingerprints and finding metadata only; raw matched values are intentionally excluded.",
   "allowlist": "scripts/ci/docs-contract.allowlist.json",
@@ -371,20 +370,6 @@
       "classification": "test_fixture_secret",
       "reason": "MCP API error test fixture; cleanup/classification tracked by #1001/#1004.",
       "owner_issue": "#1001",
-      "review_after": "2026-07-31"
-    },
-    {
-      "fingerprint": "af1a1839f6b97a98",
-      "rule": "docs-token-placeholder",
-      "issue": "#999",
-      "profile": "hosted_strict",
-      "severity": "high",
-      "category": "fortemi_token_placeholder",
-      "file": "mcp-server/tests/run-all.sh",
-      "line": 6,
-      "classification": "test_fixture_secret",
-      "reason": "MCP test runner token fixture; cleanup/classification tracked by #999/#1004.",
-      "owner_issue": "#999",
       "review_after": "2026-07-31"
     },
     {
