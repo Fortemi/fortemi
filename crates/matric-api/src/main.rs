@@ -26720,7 +26720,7 @@ struct EmbeddingSetInfo {
 impl fmt::Debug for EmbeddingSetInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EmbeddingSetInfo")
-            .field("id", &self.id)
+            .field("id_set", &true)
             .field("name_len", &self.name.len())
             .field("slug_len", &self.slug.len())
             .field(
@@ -27464,6 +27464,24 @@ mod tests {
 
     #[test]
     fn memory_info_debug_redacts_embedding_metadata_and_recommendation_notes() {
+        let embedding_set_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000e001").unwrap();
+        let embedding_set = EmbeddingSetInfo {
+            id: embedding_set_id,
+            name: "customer-private-embedding-set".to_string(),
+            slug: "customer-postgres-secret-mm_key_embeddings".to_string(),
+            description: Some(
+                "Embeddings for /srv/private/customer with sk-live-vector-token".to_string(),
+            ),
+            document_count: 12,
+            embedding_count: 34,
+            dimension: 768,
+            vector_storage_bytes: 104448,
+            vector_storage_human: "102 KiB private-label".to_string(),
+            model: Some("nomic-embed-text-private-db.internal".to_string()),
+            index_status: "ReadyWithSecretIndexName".to_string(),
+            is_system: false,
+        };
+        let rendered_embedding_set = format!("{embedding_set:?}");
         let response = MemoryInfoResponse {
             summary: MemorySummary {
                 total_notes: 12,
@@ -27473,22 +27491,7 @@ mod tests {
                 total_tags: 3,
                 total_templates: 1,
             },
-            embedding_sets: vec![EmbeddingSetInfo {
-                id: Uuid::new_v4(),
-                name: "customer-private-embedding-set".to_string(),
-                slug: "customer-postgres-secret-mm_key_embeddings".to_string(),
-                description: Some(
-                    "Embeddings for /srv/private/customer with sk-live-vector-token".to_string(),
-                ),
-                document_count: 12,
-                embedding_count: 34,
-                dimension: 768,
-                vector_storage_bytes: 104448,
-                vector_storage_human: "102 KiB private-label".to_string(),
-                model: Some("nomic-embed-text-private-db.internal".to_string()),
-                index_status: "ReadyWithSecretIndexName".to_string(),
-                is_system: false,
-            }],
+            embedding_sets: vec![embedding_set],
             storage: StorageBreakdown {
                 database_total_bytes: 4096,
                 database_total_human: "4 KiB tenant-db.internal".to_string(),
@@ -27522,14 +27525,17 @@ mod tests {
             },
         };
 
-        let rendered = format!("{response:?}");
+        let rendered_response = format!("{response:?}");
+        let rendered = format!("{rendered_response}\n{rendered_embedding_set}");
 
-        assert!(rendered.contains("MemoryInfoResponse"));
-        assert!(rendered.contains("embedding_sets_count"));
-        assert!(rendered.contains("StorageBreakdown"));
-        assert!(rendered.contains("HardwareRecommendations"));
-        assert!(rendered.contains("notes_count"));
-        assert!(rendered.contains("note_lens"));
+        assert!(rendered_response.contains("MemoryInfoResponse"));
+        assert!(rendered_response.contains("embedding_sets_count"));
+        assert!(rendered_embedding_set.contains("EmbeddingSetInfo"));
+        assert!(rendered_embedding_set.contains("id_set"));
+        assert!(rendered_response.contains("StorageBreakdown"));
+        assert!(rendered_response.contains("HardwareRecommendations"));
+        assert!(rendered_response.contains("notes_count"));
+        assert!(rendered_response.contains("note_lens"));
 
         for raw in [
             "customer-private-embedding-set",
@@ -27549,6 +27555,7 @@ mod tests {
             "orphan-private",
             "customer@example.com",
             "sk-live-hardware",
+            "018fd1a0-0000-7000-8000-00000000e001",
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
