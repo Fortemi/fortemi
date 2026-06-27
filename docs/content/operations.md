@@ -549,7 +549,7 @@ All environment variables are optional unless marked as required. The API reads 
 |----------|----------|---------|-------------|---------|
 | `ISSUER_URL` | Yes | `http://HOST:PORT` | External OAuth issuer URL | `https://memory.example.com` |
 | `MCP_CLIENT_ID` | Yes | (none) | OAuth client ID for MCP server token introspection | `mm_abc123` |
-| `MCP_CLIENT_SECRET` | Yes | (none) | OAuth client secret for MCP server | `secret_xyz789` |
+| `MCP_CLIENT_SECRET` | Yes | (none) | OAuth client secret for MCP server | `<MCP_CLIENT_SECRET>` |
 | `MCP_BASE_URL` | No | `${ISSUER_URL}/mcp` | MCP protected resource URL | `https://memory.example.com/mcp` |
 
 #### Ollama Backend (Primary AI Backend)
