@@ -10240,6 +10240,30 @@ impl fmt::Debug for AccessFrequencyQuery {
     }
 }
 
+fn access_frequency_note_telemetry(
+    title: Option<&str>,
+    access_count: i32,
+    last_accessed_at: Option<chrono::DateTime<chrono::Utc>>,
+    days_since_access: i64,
+    created_at_utc: chrono::DateTime<chrono::Utc>,
+    archived: bool,
+    recent_7d: i64,
+    recent_30d: i64,
+) -> serde_json::Value {
+    serde_json::json!({
+        "note_id_present": true,
+        "title_present": title.is_some(),
+        "title_len": title.map(telemetry_text_len),
+        "access_count": access_count,
+        "recent_7d": recent_7d,
+        "recent_30d": recent_30d,
+        "last_accessed_at": last_accessed_at,
+        "days_since_access": days_since_access,
+        "created_at": created_at_utc,
+        "archived": archived,
+    })
+}
+
 /// Get note access frequency analytics.
 ///
 /// Returns notes ranked by access patterns: most/least accessed, recently hot/cold.
@@ -10286,7 +10310,7 @@ async fn get_access_frequency(
     let sql = format!(
         r#"
         SELECT
-            n.id, n.title, n.access_count, n.last_accessed_at, n.created_at_utc,
+            n.title, n.access_count, n.last_accessed_at, n.created_at_utc,
             n.updated_at_utc, n.archived,
             COALESCE(al.recent_7d, 0)::BIGINT AS recent_7d,
             COALESCE(al.recent_30d, 0)::BIGINT AS recent_30d
@@ -10309,7 +10333,6 @@ async fn get_access_frequency(
     // Use sqlx::query_as with a typed struct to avoid needing sqlx::Row trait in scope
     #[derive(sqlx::FromRow)]
     struct AccessRow {
-        id: Uuid,
         title: Option<String>,
         access_count: Option<i32>,
         last_accessed_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -10344,17 +10367,16 @@ async fn get_access_frequency(
                 .map(|la| (chrono::Utc::now() - la).num_days())
                 .unwrap_or(-1);
 
-            serde_json::json!({
-                "id": r.id,
-                "title": r.title,
-                "access_count": access_count,
-                "recent_7d": r.recent_7d,
-                "recent_30d": r.recent_30d,
-                "last_accessed_at": r.last_accessed_at,
-                "days_since_access": days_since_access,
-                "created_at": r.created_at_utc,
-                "archived": r.archived.unwrap_or(false),
-            })
+            access_frequency_note_telemetry(
+                r.title.as_deref(),
+                access_count,
+                r.last_accessed_at,
+                days_since_access,
+                r.created_at_utc,
+                r.archived.unwrap_or(false),
+                r.recent_7d,
+                r.recent_30d,
+            )
         })
         .collect();
 
@@ -28083,6 +28105,48 @@ mod tests {
             &collection_id.to_string(),
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn access_frequency_note_payload_uses_metadata_only() {
+        let title = "customer@example.com /srv/private/mm_key_access private note";
+        let note_id = Uuid::new_v4();
+        let created_at = chrono::DateTime::parse_from_rfc3339("2026-06-27T00:00:00Z")
+            .expect("valid timestamp")
+            .with_timezone(&chrono::Utc);
+        let payload = access_frequency_note_telemetry(
+            Some(title),
+            7,
+            Some(created_at),
+            2,
+            created_at,
+            false,
+            3,
+            5,
+        );
+        let rendered = serde_json::to_string(&payload).expect("payload serializes");
+
+        assert_eq!(payload["note_id_present"], true);
+        assert_eq!(payload["title_present"], true);
+        assert_eq!(
+            payload["title_len"].as_u64(),
+            Some(title.chars().count() as u64)
+        );
+        assert_eq!(payload["access_count"], 7);
+        assert_eq!(payload["recent_7d"], 3);
+        assert_eq!(payload["recent_30d"], 5);
+        assert!(!payload.as_object().unwrap().contains_key("id"));
+        assert!(!payload.as_object().unwrap().contains_key("title"));
+
+        for raw in [
+            &note_id.to_string(),
+            "customer@example.com",
+            "/srv/private",
+            "mm_key_access",
+            "private note",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
     }
 
