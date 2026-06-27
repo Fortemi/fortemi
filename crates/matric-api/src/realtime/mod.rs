@@ -162,11 +162,14 @@ impl fmt::Debug for CallControlEvent {
                 metadata,
             } => f
                 .debug_struct("CallControlEvent::CallStarted")
-                .field("provider_len", &provider.len())
-                .field("provider_call_id_len", &provider_call_id.len())
-                .field("remote_party_len", &remote_party.as_ref().map(String::len))
+                .field("provider_len", &realtime_text_len(provider))
+                .field("provider_call_id_len", &realtime_text_len(provider_call_id))
+                .field(
+                    "remote_party_len",
+                    &remote_party.as_ref().map(|value| realtime_text_len(value)),
+                )
                 .field("metadata_class", &realtime_json_class(metadata))
-                .field("metadata_len", &metadata.to_string().len())
+                .field("metadata_len", &realtime_text_len(&metadata.to_string()))
                 .finish(),
             Self::StateChanged { state } => f
                 .debug_struct("CallControlEvent::StateChanged")
@@ -178,20 +181,20 @@ impl fmt::Debug for CallControlEvent {
                 .finish(),
             Self::RecordingAvailable { url } => f
                 .debug_struct("CallControlEvent::RecordingAvailable")
-                .field("url_len", &url.len())
+                .field("url_len", &realtime_text_len(url))
                 .finish(),
             Self::Dropped { reason } => f
                 .debug_struct("CallControlEvent::Dropped")
-                .field("reason_len", &reason.len())
+                .field("reason_len", &realtime_text_len(reason))
                 .finish(),
             Self::Custom {
                 event_type,
                 payload,
             } => f
                 .debug_struct("CallControlEvent::Custom")
-                .field("event_type_len", &event_type.len())
+                .field("event_type_len", &realtime_text_len(event_type))
                 .field("payload_class", &realtime_json_class(payload))
-                .field("payload_len", &payload.to_string().len())
+                .field("payload_len", &realtime_text_len(&payload.to_string()))
                 .finish(),
         }
     }
@@ -406,25 +409,25 @@ mod tests {
             payload: b"sk-live-media-payload".to_vec(),
         };
         let started = CallControlEvent::CallStarted {
-            provider: "twilio-private".to_string(),
-            provider_call_id: "CApostgres://user:pass@db.internal/app".to_string(),
-            remote_party: Some("+15551230000".to_string()),
+            provider: "twilió-private".to_string(),
+            provider_call_id: "CApostgres://usér:pass@db.internal/app".to_string(),
+            remote_party: Some("+15551230000-éxt".to_string()),
             metadata: serde_json::json!({
-                "recording_url": "https://api.twilio.com/recording.wav?token=sk-live-recording",
+                "recording_url": "https://api.twilió.com/recording.wav?token=sk-live-recording",
                 "consent_confirmed": true,
             }),
         };
         let dtmf = CallControlEvent::DtmfDigit { digit: '#' };
         let recording = CallControlEvent::RecordingAvailable {
-            url: "https://api.twilio.com/recording.wav?token=sk-live-recording".to_string(),
+            url: "https://api.twilió.com/recording.wav?token=sk-live-recording".to_string(),
         };
         let dropped = CallControlEvent::Dropped {
-            reason: "socket closed for +15559870000 sk-live-drop".to_string(),
+            reason: "socket clósed for +15559870000 sk-live-drop".to_string(),
         };
         let custom = CallControlEvent::Custom {
-            event_type: "private.provider.event".to_string(),
+            event_type: "private.providér.event".to_string(),
             payload: serde_json::json!({
-                "provider_call_id": "CAprivate-custom",
+                "provider_call_id": "CAprivaté-custom",
                 "payload": "postgres://user:pass@db.internal/app",
             }),
         };
@@ -468,6 +471,54 @@ mod tests {
                 "realtime Debug output should retain exact character-count metadata {expected:?}: {combined}"
             );
         }
+        for expected in [
+            format!("provider_len: {}", realtime_text_len("twilió-private")),
+            format!(
+                "provider_call_id_len: {}",
+                realtime_text_len("CApostgres://usér:pass@db.internal/app")
+            ),
+            format!(
+                "remote_party_len: {:?}",
+                Some(realtime_text_len("+15551230000-éxt"))
+            ),
+            format!(
+                "metadata_len: {}",
+                realtime_text_len(
+                    &serde_json::json!({
+                        "recording_url": "https://api.twilió.com/recording.wav?token=sk-live-recording",
+                        "consent_confirmed": true,
+                    })
+                    .to_string()
+                )
+            ),
+            format!(
+                "url_len: {}",
+                realtime_text_len("https://api.twilió.com/recording.wav?token=sk-live-recording")
+            ),
+            format!(
+                "reason_len: {}",
+                realtime_text_len("socket clósed for +15559870000 sk-live-drop")
+            ),
+            format!(
+                "event_type_len: {}",
+                realtime_text_len("private.providér.event")
+            ),
+            format!(
+                "payload_len: {}",
+                realtime_text_len(
+                    &serde_json::json!({
+                        "provider_call_id": "CAprivaté-custom",
+                        "payload": "postgres://user:pass@db.internal/app",
+                    })
+                    .to_string()
+                )
+            ),
+        ] {
+            assert!(
+                combined.contains(&expected),
+                "realtime Debug output should retain exact character-count metadata {expected:?}: {combined}"
+            );
+        }
 
         for raw in [
             "sk-live-media-payload",
@@ -477,13 +528,14 @@ mod tests {
             "postgres://user:pass",
             "db.internal",
             "+15551230000",
-            "api.twilio.com",
+            "+15551230000-éxt",
+            "api.twilió.com",
             "sk-live-recording",
             "#",
             "+15559870000",
             "sk-live-drop",
-            "private.provider.event",
-            "CAprivate-custom",
+            "private.providér.event",
+            "CAprivaté-custom",
             "CAcustómer",
             "custómer@example.com",
             "recording_url",
