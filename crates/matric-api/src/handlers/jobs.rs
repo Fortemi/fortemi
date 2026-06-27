@@ -332,6 +332,13 @@ fn exif_no_metadata_job_result(filename: &str) -> serde_json::Value {
     })
 }
 
+fn exif_skip_job_result(reason: &'static str) -> serde_json::Value {
+    serde_json::json!({
+        "status": "skipped",
+        "reason": reason
+    })
+}
+
 fn exif_completed_job_result(
     filename: &str,
     location_id: Option<uuid::Uuid>,
@@ -7165,10 +7172,7 @@ impl JobHandler for ExifExtractionHandler {
                         operation = "exif_no_image_attachments",
                         "No image attachments found for EXIF extraction"
                     );
-                    return JobResult::Success(Some(serde_json::json!({
-                        "status": "skipped",
-                        "reason": "No image attachments found"
-                    })));
+                    return JobResult::Success(Some(exif_skip_job_result("no_image_attachments")));
                 }
             }
         };
@@ -7953,7 +7957,7 @@ mod tests {
         let doc_type = "Confidential Lab Report /srv/private";
         let filename = "patient-secret-mm_key_file.jpg";
         let result = format!(
-            "{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}",
             ai_revision_job_result(
                 42,
                 RevisionMode::Standard,
@@ -7973,6 +7977,7 @@ mod tests {
                 3,
             ),
             title_generation_job_result(title),
+            exif_skip_job_result("no_image_attachments"),
             exif_no_metadata_job_result(filename),
             exif_completed_job_result(
                 filename,
@@ -7988,6 +7993,7 @@ mod tests {
         assert!(result.contains("revision_mode_len"));
         assert!(result.contains("effective_mode_len"));
         assert!(result.contains("title_len"));
+        assert!(result.contains("no_image_attachments"));
         assert!(result.contains("filename_len"));
         assert!(result.contains("attachment_id_present"));
         assert!(result.contains("location_id_present"));
@@ -7999,6 +8005,7 @@ mod tests {
         assert!(!result.contains("/srv/private"));
         assert!(!result.contains("patient-secret"));
         assert!(!result.contains("mm_key_file"));
+        assert!(!result.contains("No image attachments found"));
         assert!(!result.contains(&uuid::Uuid::nil().to_string()));
     }
 
