@@ -25,6 +25,13 @@ fn source_archive_not_found_error(name: &str) -> Error {
     ))
 }
 
+fn archive_already_exists_error(name: &str) -> Error {
+    Error::Internal(format!(
+        "Archive already exists; name_len={}",
+        name.chars().count()
+    ))
+}
+
 /// FTS generated columns and functional indexes that use custom text search
 /// configurations from the `public` schema (e.g., `matric_english`, `matric_simple`).
 ///
@@ -1263,10 +1270,7 @@ impl ArchiveRepository for PgArchiveRepository {
 
         // Check new name doesn't already exist
         if self.get_archive_by_name(new_name).await?.is_some() {
-            return Err(Error::Internal(format!(
-                "Archive '{}' already exists",
-                new_name
-            )));
+            return Err(archive_already_exists_error(new_name));
         }
 
         // Create the new archive with empty tables
@@ -1410,6 +1414,22 @@ mod tests {
             assert!(!message.contains("sk-live"));
             assert!(!message.contains("path@example.com"));
         }
+    }
+
+    #[test]
+    fn archive_already_exists_error_reports_metadata_without_raw_name() {
+        let raw_name = "tenant-archive-sk-live-123/path@example.com";
+
+        let Error::Internal(message) = archive_already_exists_error(raw_name) else {
+            panic!("expected internal error");
+        };
+
+        assert!(message.contains("Archive already exists"));
+        assert!(message.contains("name_len=43"));
+        assert!(!message.contains(raw_name));
+        assert!(!message.contains("tenant-archive"));
+        assert!(!message.contains("sk-live"));
+        assert!(!message.contains("path@example.com"));
     }
 
     #[test]
