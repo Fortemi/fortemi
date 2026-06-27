@@ -3663,7 +3663,7 @@ pub struct QueueStats {
 ///
 /// Effective state: a job runs only if **both** global AND its archive are `RUNNING`.
 /// If either is `PAUSED`, the job is skipped during claim.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct JobPauseState {
     /// Global pause state: `"running"` or `"paused"`.
     pub global: String,
@@ -3672,6 +3672,16 @@ pub struct JobPauseState {
     /// Queue statistics with pause context.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub queue: Option<JobPauseQueueStats>,
+}
+
+impl fmt::Debug for JobPauseState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JobPauseState")
+            .field("global_len", &self.global.len())
+            .field("archives_count", &self.archives.len())
+            .field("queue", &self.queue)
+            .finish()
+    }
 }
 
 /// Queue statistics within the pause state response.
@@ -7386,6 +7396,54 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "Job Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn job_pause_state_debug_redacts_archive_names() {
+        let state = JobPauseState {
+            global: "paused-for-private-maintenance-sk-live-secret".to_string(),
+            archives: HashMap::from([
+                (
+                    "private-archive-private@example.test".to_string(),
+                    "paused".to_string(),
+                ),
+                (
+                    "https://tenant.example.test/archive?token=secret".to_string(),
+                    "running".to_string(),
+                ),
+            ]),
+            queue: Some(JobPauseQueueStats {
+                pending: 12,
+                running: 3,
+            }),
+        };
+
+        let debug = format!("{state:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "paused-for-private-maintenance",
+                "sk-live-secret",
+                "private-archive",
+                "private@example.test",
+                "tenant.example.test",
+                "token=secret",
+            ],
+        );
+
+        for expected in [
+            "global_len",
+            "archives_count",
+            "queue",
+            "pending",
+            "running",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "JobPauseState Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
