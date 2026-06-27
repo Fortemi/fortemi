@@ -193,7 +193,7 @@ impl DublinCoreExport {
 // =============================================================================
 
 /// JSON-LD context for linked data export.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct JsonLdContext {
     /// Dublin Core namespace
     pub dc: String,
@@ -203,6 +203,17 @@ pub struct JsonLdContext {
     pub prov: String,
     /// Schema.org namespace
     pub schema: String,
+}
+
+impl fmt::Debug for JsonLdContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JsonLdContext")
+            .field("dc_len", &self.dc.len())
+            .field("skos_len", &self.skos.len())
+            .field("prov_len", &self.prov.len())
+            .field("schema_len", &self.schema.len())
+            .finish()
+    }
 }
 
 impl Default for JsonLdContext {
@@ -301,7 +312,7 @@ impl JsonLdExport {
 // =============================================================================
 
 /// FAIR compliance assessment for a note's metadata.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct FairScore {
     /// Findable score (0.0-1.0)
     pub findable: f32,
@@ -315,6 +326,27 @@ pub struct FairScore {
     pub overall: f32,
     /// Specific issues found
     pub issues: Vec<String>,
+}
+
+impl fmt::Debug for FairScore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FairScore")
+            .field("findable", &self.findable)
+            .field("accessible", &self.accessible)
+            .field("interoperable", &self.interoperable)
+            .field("reusable", &self.reusable)
+            .field("overall", &self.overall)
+            .field("issues_count", &self.issues.len())
+            .field(
+                "issue_lens",
+                &self
+                    .issues
+                    .iter()
+                    .map(|issue| issue.len())
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 impl FairScore {
@@ -679,6 +711,7 @@ mod tests {
         assert!(ld_debug.contains("dublin_core"));
         assert!(ld_debug.contains("skos_concepts_count"));
         assert!(ld_debug.contains("prov_derived_from_count"));
+        assert!(ld_debug.contains("context_namespace_count"));
         assert_debug_excludes(
             &ld_debug,
             &[
@@ -694,6 +727,46 @@ mod tests {
                 "postgres://skos:secret@db.internal/skos",
                 "dddddddd-4444-4555-8666-dddddddddddd",
                 "activity-secret-token",
+                "http://purl.org/dc/elements/1.1/",
+                "http://www.w3.org/2004/02/skos/core#",
+                "http://www.w3.org/ns/prov#",
+                "https://schema.org/",
+            ],
+        );
+
+        let context_debug = format!("{:?}", JsonLdContext::default());
+        assert!(context_debug.contains("JsonLdContext"));
+        assert!(context_debug.contains("dc_len"));
+        assert_debug_excludes(
+            &context_debug,
+            &[
+                "http://purl.org/dc/elements/1.1/",
+                "http://www.w3.org/2004/02/skos/core#",
+                "http://www.w3.org/ns/prov#",
+                "https://schema.org/",
+            ],
+        );
+
+        let fair_score = FairScore {
+            findable: 0.1,
+            accessible: 0.2,
+            interoperable: 0.3,
+            reusable: 0.4,
+            overall: 0.25,
+            issues: vec![
+                "Missing relation for private@example.internal".to_string(),
+                "License URL contains https://rights.example.test/?token=secret".to_string(),
+            ],
+        };
+        let score_debug = format!("{fair_score:?}");
+        assert!(score_debug.contains("FairScore"));
+        assert!(score_debug.contains("issues_count"));
+        assert_debug_excludes(
+            &score_debug,
+            &[
+                "private@example.internal",
+                "https://rights.example.test/?token=secret",
+                "token=secret",
             ],
         );
     }
