@@ -3882,11 +3882,7 @@ async fn start_twilio_asr_pipeline(
         .start_session(matric_api::realtime::asr::AsrSessionConfig {
             sample_rate_hz: matric_api::realtime::codec::TARGET_SAMPLE_RATE_HZ,
             language: None,
-            metadata: serde_json::json!({
-                "provider": "twilio",
-                "provider_call_id": provider_call_id,
-                "call_id": call_id,
-            }),
+            metadata: twilio_asr_session_metadata(call_id, provider_call_id),
         })
         .await
     {
@@ -5937,6 +5933,14 @@ fn twilio_provider_call_reference_metadata(provider_call_id: &str) -> serde_json
     serde_json::json!({
         "provider_call_id_present": true,
         "provider_call_id_len": telemetry_text_len(provider_call_id),
+    })
+}
+
+fn twilio_asr_session_metadata(call_id: Uuid, provider_call_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "provider": matric_api::realtime::adapters::twilio::provider_name(),
+        "call_id_present": call_id != Uuid::nil(),
+        "provider_call": twilio_provider_call_reference_metadata(provider_call_id),
     })
 }
 
@@ -32008,6 +32012,32 @@ mod tests {
         );
         assert!(!rendered.contains("CA-secret-provider-call-id"));
         assert!(!rendered.contains("secret-provider"));
+    }
+
+    #[test]
+    fn twilio_asr_session_metadata_redacts_provider_and_call_ids() {
+        let call_id =
+            Uuid::parse_str("018fd1a0-0000-7000-8000-000000000704").expect("valid call uuid");
+        let provider_call_id = "CA-secret-provider-call-id";
+        let metadata = twilio_asr_session_metadata(call_id, provider_call_id);
+        let rendered = serde_json::to_string(&metadata).expect("serialize ASR metadata");
+
+        assert_eq!(metadata["provider"], "twilio");
+        assert_eq!(metadata["call_id_present"], true);
+        assert_eq!(metadata["provider_call"]["provider_call_id_present"], true);
+        assert_eq!(
+            metadata["provider_call"]["provider_call_id_len"],
+            provider_call_id.chars().count()
+        );
+
+        for raw in [
+            provider_call_id,
+            "secret-provider",
+            &call_id.to_string(),
+            "018fd1a0",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
     }
 
     #[test]
