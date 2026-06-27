@@ -109,6 +109,29 @@ error_exit() {
     exit 1
 }
 
+text_metadata() {
+    local label="$1"
+    local value="$2"
+    printf "%s_len=%s" "$label" "${#value}"
+}
+
+backup_destination_metadata() {
+    local class="$1"
+    local value="$2"
+    printf "destination_class=%s %s" "$class" "$(text_metadata destination "$value")"
+}
+
+backup_path_metadata() {
+    local path="$1"
+    printf "path_class=filesystem %s" "$(text_metadata path "$path")"
+}
+
+command_output_metadata() {
+    local command="$1"
+    local line="$2"
+    printf "command=%s %s" "$command" "$(text_metadata output "$line")"
+}
+
 # Show help
 show_help() {
     cat <<EOF
@@ -310,7 +333,7 @@ create_database_dump() {
     log "Creating database dump: $output_file"
 
     if [[ "$DRY_RUN" == "true" ]]; then
-        log "DRY RUN: Would create pg_dump to $temp_path"
+        log "DRY RUN: Would create pg_dump: $(backup_path_metadata "$temp_path")"
         return 0
     fi
 
@@ -332,7 +355,7 @@ create_database_dump() {
         --compress=0 \
         --file="$temp_path" \
         --verbose 2>&1 | while read -r line; do
-            log_verbose "pg_dump: $line"
+            log_verbose "pg_dump: $(command_output_metadata pg_dump "$line")"
         done
 
     if [[ ! -f "$temp_path" ]]; then
@@ -358,7 +381,7 @@ compress_backup() {
     log "Compressing backup with $BACKUP_COMPRESS..."
 
     if [[ "$DRY_RUN" == "true" ]]; then
-        log "DRY RUN: Would compress $input_path with $BACKUP_COMPRESS"
+        log "DRY RUN: Would compress backup: compression=$BACKUP_COMPRESS $(backup_path_metadata "$input_path")"
         return 0
     fi
 
@@ -394,7 +417,7 @@ encrypt_backup() {
     log "Encrypting backup with age..."
 
     if [[ "$DRY_RUN" == "true" ]]; then
-        log "DRY RUN: Would encrypt $input_path"
+        log "DRY RUN: Would encrypt backup: $(backup_path_metadata "$input_path")"
         return 0
     fi
 
@@ -437,10 +460,10 @@ copy_to_local() {
     local dest="${BACKUP_DEST}/${file}"
     source=$(backup_temp_path "$file")
 
-    log "Copying backup to local: $BACKUP_DEST"
+    log "Copying backup to local: $(backup_destination_metadata local "$BACKUP_DEST")"
 
     if [[ "$DRY_RUN" == "true" ]]; then
-        log "DRY RUN: Would copy $source -> $dest"
+        log "DRY RUN: Would copy backup: $(backup_path_metadata "$source") $(text_metadata destination_path "$dest")"
         return 0
     fi
 
@@ -449,7 +472,7 @@ copy_to_local() {
 
     local size
     size=$(stat -c%s "$dest" 2>/dev/null || stat -f%z "$dest" 2>/dev/null || echo "0")
-    log_success "Local backup: $dest ($(numfmt --to=iec "$size" 2>/dev/null || echo "${size} bytes"))"
+    log_success "Local backup: $(backup_path_metadata "$dest") size=$(numfmt --to=iec "$size" 2>/dev/null || echo "${size} bytes")"
 }
 
 # Sync to remote via rsync
@@ -463,18 +486,18 @@ sync_to_remote() {
         return 0
     fi
 
-    log "Syncing backup to rsync: $BACKUP_REMOTE_RSYNC"
+    log "Syncing backup to rsync: $(backup_destination_metadata rsync "$BACKUP_REMOTE_RSYNC")"
 
     if [[ "$DRY_RUN" == "true" ]]; then
-        log "DRY RUN: Would rsync $source -> $BACKUP_REMOTE_RSYNC/"
+        log "DRY RUN: Would rsync backup: $(backup_path_metadata "$source") $(text_metadata destination "$BACKUP_REMOTE_RSYNC")"
         return 0
     fi
 
     rsync -avz --timeout=300 "$source" "${BACKUP_REMOTE_RSYNC}/" 2>&1 | while read -r line; do
-        log_verbose "rsync: $line"
+        log_verbose "rsync: $(command_output_metadata rsync "$line")"
     done
 
-    log_success "Rsync backup: ${BACKUP_REMOTE_RSYNC}/${file}"
+    log_success "Rsync backup: $(backup_destination_metadata rsync "$BACKUP_REMOTE_RSYNC") $(text_metadata filename "$file")"
 }
 
 # Upload to S3
@@ -493,19 +516,19 @@ upload_to_s3() {
         return 1
     fi
 
-    log "Uploading backup to S3: $BACKUP_REMOTE_S3"
+    log "Uploading backup to S3: $(backup_destination_metadata s3 "$BACKUP_REMOTE_S3")"
 
     if [[ "$DRY_RUN" == "true" ]]; then
-        log "DRY RUN: Would upload $source -> ${BACKUP_REMOTE_S3}/${file}"
+        log "DRY RUN: Would upload backup: $(backup_path_metadata "$source") $(text_metadata destination "$BACKUP_REMOTE_S3") $(text_metadata filename "$file")"
         return 0
     fi
 
     aws s3 cp "$source" "${BACKUP_REMOTE_S3}/${file}" \
         --storage-class STANDARD_IA 2>&1 | while read -r line; do
-        log_verbose "s3: $line"
+        log_verbose "s3: $(command_output_metadata aws_s3 "$line")"
     done
 
-    log_success "S3 backup: ${BACKUP_REMOTE_S3}/${file}"
+    log_success "S3 backup: $(backup_destination_metadata s3 "$BACKUP_REMOTE_S3") $(text_metadata filename "$file")"
 }
 
 # Distribute backup to all configured destinations
@@ -557,7 +580,7 @@ cleanup_old_backups() {
         log "DRY RUN: Would cleanup backups older than $BACKUP_RETAIN days"
         if [[ -d "$BACKUP_DEST" ]]; then
             find "$BACKUP_DEST" -name "fortemi_backup_*.sql*" -type f -mtime "+$BACKUP_RETAIN" 2>/dev/null | while read -r file; do
-                log "DRY RUN: Would delete $file"
+                log "DRY RUN: Would delete backup: $(backup_path_metadata "$file")"
             done
         fi
         return 0
@@ -568,7 +591,7 @@ cleanup_old_backups() {
         local deleted=0
         while IFS= read -r -d '' file; do
             rm -f "$file"
-            log_verbose "Deleted old backup: $file"
+            log_verbose "Deleted old backup: $(backup_path_metadata "$file")"
             ((++deleted))
         done < <(find "$BACKUP_DEST" -name "fortemi_backup_*.sql*" -type f -mtime "+$BACKUP_RETAIN" -print0 2>/dev/null)
 
@@ -600,12 +623,12 @@ verify_backup() {
     log "Verifying backup..."
 
     if [[ "$DRY_RUN" == "true" ]]; then
-        log "DRY RUN: Would verify backup at $backup_path"
+        log "DRY RUN: Would verify backup: $(backup_path_metadata "$backup_path")"
         return 0
     fi
 
     if [[ ! -f "$backup_path" ]]; then
-        log_warn "Backup file not found at $backup_path"
+        log_warn "Backup file not found: $(backup_path_metadata "$backup_path")"
         return 1
     fi
 
