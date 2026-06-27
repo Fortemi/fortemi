@@ -107,6 +107,35 @@ fn video_command_failure_detail(
     )
 }
 
+fn video_io_failure_detail(phase: &'static str, error: &std::io::Error) -> String {
+    format!(
+        "Video local IO failed; phase={phase}; io_error_kind={}",
+        video_io_error_kind(error)
+    )
+}
+
+fn video_read_file_failure_detail(
+    phase: &'static str,
+    path: &Path,
+    error: &std::io::Error,
+) -> String {
+    format!(
+        "Video file read failed; phase={phase}; path_len={}; io_error_kind={}",
+        video_display_path_len(path),
+        video_io_error_kind(error)
+    )
+}
+
+fn video_duration_parse_failure_detail(duration: &str, error: &dyn std::fmt::Display) -> String {
+    let error_text = error.to_string();
+    format!(
+        "Failed to parse duration; duration_len={}; error_len={}; error_reason={}",
+        video_text_len(duration),
+        video_text_len(&error_text),
+        video_error_reason_code(&error_text)
+    )
+}
+
 /// Maximum number of previous frame descriptions to include as temporal context.
 const TEMPORAL_CONTEXT_WINDOW: usize = 3;
 
@@ -389,10 +418,10 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             ));
         } else {
             let mut tmpfile = NamedTempFile::new().map_err(|e| {
-                matric_core::Error::Internal(format!("Failed to create temp file: {}", e))
+                matric_core::Error::Internal(video_io_failure_detail("create_temp_file", &e))
             })?;
             tmpfile.write_all(data).map_err(|e| {
-                matric_core::Error::Internal(format!("Failed to write temp file: {}", e))
+                matric_core::Error::Internal(video_io_failure_detail("write_temp_file", &e))
             })?;
             let path = tmpfile.path().to_string_lossy().to_string();
             _tmpfile_guard = Some(tmpfile);
@@ -401,7 +430,7 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
 
         // Create temp dir for extracted assets
         let work_dir = TempDir::new().map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to create temp dir: {}", e))
+            matric_core::Error::Internal(video_io_failure_detail("create_temp_dir", &e))
         })?;
 
         debug!(
@@ -423,7 +452,7 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
 
         // Write descriptions to disk incrementally to cap memory usage
         let mut desc_writer = FrameDescriptionWriter::new(work_dir.path()).map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to create description writer: {}", e))
+            matric_core::Error::Internal(video_io_failure_detail("create_description_writer", &e))
         })?;
         let mut transcript_segments = Vec::new();
         let mut has_audio = false;
@@ -809,17 +838,17 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             src.to_string()
         } else {
             let mut tmpfile = NamedTempFile::new().map_err(|e| {
-                matric_core::Error::Internal(format!("Failed to create temp file: {}", e))
+                matric_core::Error::Internal(video_io_failure_detail("create_temp_file", &e))
             })?;
             tmpfile.write_all(data).map_err(|e| {
-                matric_core::Error::Internal(format!("Failed to write temp file: {}", e))
+                matric_core::Error::Internal(video_io_failure_detail("write_temp_file", &e))
             })?;
             let path = tmpfile.path().to_string_lossy().to_string();
             _tmpfile_guard = Some(tmpfile);
             path
         };
         let work_dir = TempDir::new().map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to create temp dir: {}", e))
+            matric_core::Error::Internal(video_io_failure_detail("create_temp_dir", &e))
         })?;
 
         progress(0, Some("Analyzing video"));
@@ -835,7 +864,7 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
 
         // Write descriptions to disk incrementally to cap memory usage
         let mut desc_writer = FrameDescriptionWriter::new(work_dir.path()).map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to create description writer: {}", e))
+            matric_core::Error::Internal(video_io_failure_detail("create_description_writer", &e))
         })?;
         let mut transcript_segments = Vec::new();
         let mut has_audio = false;
@@ -1484,10 +1513,9 @@ async fn get_video_duration(video_path: &str) -> Result<f64> {
     }
 
     let duration_str = String::from_utf8_lossy(&output.stdout);
-    duration_str
-        .trim()
-        .parse::<f64>()
-        .map_err(|e| matric_core::Error::Internal(format!("Failed to parse duration: {}", e)))
+    duration_str.trim().parse::<f64>().map_err(|e| {
+        matric_core::Error::Internal(video_duration_parse_failure_detail(duration_str.trim(), &e))
+    })
 }
 
 /// Extract audio track from video to WAV format.
@@ -1656,8 +1684,9 @@ async fn transcribe_audio(
     backend: &dyn TranscriptionBackend,
     audio_path: &PathBuf,
 ) -> Result<matric_inference::transcription::TranscriptionResult> {
-    let audio_data = fs::read(audio_path)
-        .map_err(|e| matric_core::Error::Internal(format!("Failed to read audio: {}", e)))?;
+    let audio_data = fs::read(audio_path).map_err(|e| {
+        matric_core::Error::Internal(video_read_file_failure_detail("read_audio", audio_path, &e))
+    })?;
 
     backend.transcribe(&audio_data, "audio/wav", None).await
 }
@@ -1700,8 +1729,9 @@ async fn describe_frame_with_context(
     previous_descriptions: &[String],
     transcript_context: Option<&str>,
 ) -> Result<String> {
-    let frame_data = fs::read(frame_path)
-        .map_err(|e| matric_core::Error::Internal(format!("Failed to read frame: {}", e)))?;
+    let frame_data = fs::read(frame_path).map_err(|e| {
+        matric_core::Error::Internal(video_read_file_failure_detail("read_frame", frame_path, &e))
+    })?;
 
     // Build a context-rich prompt
     let mut prompt_parts = Vec::new();
@@ -2176,6 +2206,55 @@ mod tests {
             video_io_error_kind(&std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
             "permission_denied"
         );
+    }
+
+    #[test]
+    fn video_io_failure_detail_redacts_os_diagnostics() {
+        let error = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "permission denied at /srv/fortemi/private/token=mm_key_secret/video.mp4",
+        );
+        let detail = video_io_failure_detail("create_temp_file", &error);
+
+        assert!(detail.contains("Video local IO failed"));
+        assert!(detail.contains("phase=create_temp_file"));
+        assert!(detail.contains("io_error_kind=permission_denied"));
+        assert!(!detail.contains("/srv/fortemi"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("permission denied at"));
+    }
+
+    #[test]
+    fn video_read_file_failure_detail_redacts_path_and_os_diagnostics() {
+        let path = PathBuf::from("/srv/fortemi/keyframes/token=mm_key_secret/frame-0001.jpg");
+        let error = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "permission denied at /srv/fortemi/keyframes/token=mm_key_secret/frame-0001.jpg",
+        );
+        let detail = video_read_file_failure_detail("read_frame", &path, &error);
+
+        assert!(detail.contains("Video file read failed"));
+        assert!(detail.contains("phase=read_frame"));
+        assert!(detail.contains("path_len="));
+        assert!(detail.contains("io_error_kind=permission_denied"));
+        assert!(!detail.contains("/srv/fortemi"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("permission denied at"));
+    }
+
+    #[test]
+    fn video_duration_parse_failure_detail_redacts_stdout_and_error() {
+        let duration = "/srv/fortemi/private/token=mm_key_secret/video.mp4";
+        let error = "invalid float literal at /srv/fortemi/private/video.mp4";
+        let detail = video_duration_parse_failure_detail(duration, &error);
+
+        assert!(detail.contains("Failed to parse duration"));
+        assert!(detail.contains("duration_len="));
+        assert!(detail.contains("error_len="));
+        assert!(detail.contains("error_reason=invalid_media"));
+        assert!(!detail.contains("/srv/fortemi"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("invalid float literal"));
     }
 
     // ── Mock backends ──────────────────────────────────────────────────
