@@ -1,7 +1,7 @@
 {
   "version": 1,
   "profile": "hosted_strict",
-  "generated_at": "2026-06-26",
+  "generated_at": "2026-06-27",
   "owner_issues": [
     "#1001",
     "#999"
@@ -318,20 +318,6 @@
       "review_after": "2026-07-31"
     },
     {
-      "fingerprint": "04bc7c303ac35387",
-      "rule": "docs-provider-key-placeholder",
-      "issue": "#999",
-      "profile": "hosted_strict",
-      "severity": "high",
-      "category": "provider_key_placeholder",
-      "file": "Dockerfile",
-      "line": 145,
-      "classification": "local_dev_image_placeholder",
-      "reason": "Docker image example placeholder pending final scanner-safe image config under #999/#1004.",
-      "owner_issue": "#999",
-      "review_after": "2026-07-31"
-    },
-    {
       "fingerprint": "3c4393f9518d9205",
       "rule": "docs-default-pgpassword",
       "issue": "#1001",
@@ -357,20 +343,6 @@
       "classification": "local_dev_image_default",
       "reason": "Bundle image local default pending generated-secret migration under #992/#1001.",
       "owner_issue": "#1001",
-      "review_after": "2026-07-31"
-    },
-    {
-      "fingerprint": "701eb301359fde44",
-      "rule": "docs-provider-key-placeholder",
-      "issue": "#999",
-      "profile": "hosted_strict",
-      "severity": "high",
-      "category": "provider_key_placeholder",
-      "file": "Dockerfile.bundle",
-      "line": 222,
-      "classification": "local_dev_image_placeholder",
-      "reason": "Bundle image example placeholder pending final scanner-safe image config under #999/#1004.",
-      "owner_issue": "#999",
       "review_after": "2026-07-31"
     },
     {

@@ -219,7 +219,7 @@ ENV RENDERER_PORT=8080
 # OpenAI configuration - alternative to Ollama
 # =============================================================================
 # ENV OPENAI_BASE_URL=https://api.openai.com/v1
-# ENV OPENAI_API_KEY=sk-xxx
+# ENV OPENAI_API_KEY=<OPENAI_API_KEY>
 # ENV OPENAI_EMBED_MODEL=text-embedding-3-small
 # ENV OPENAI_GEN_MODEL=gpt-4o-mini
 # ENV OPENAI_EMBED_DIM=1536

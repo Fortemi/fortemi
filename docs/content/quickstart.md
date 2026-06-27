@@ -509,7 +509,7 @@ pyannote identifies and labels individual speakers in audio. Requires a HuggingF
 
 ```bash
 # Add your HuggingFace token (required for model download)
-echo 'HF_TOKEN=hf_your_token_here' >> .env
+echo 'HF_TOKEN=<HF_TOKEN>' >> .env
 
 # GPU mode (default, requires NVIDIA Container Toolkit):
 docker compose -f docker-compose.bundle.yml up -d pyannote
