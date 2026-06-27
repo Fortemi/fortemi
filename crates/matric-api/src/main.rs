@@ -5904,7 +5904,8 @@ async fn emit_twilio_call_event_outbox(
             serde_json::json!({
                 "call_id": call_id,
                 "provider": matric_api::realtime::adapters::twilio::provider_name(),
-                "provider_call_id": provider_call_id,
+                "provider_call_id_present": true,
+                "provider_call_id_len": telemetry_text_len(provider_call_id),
                 "event_type": event.event_type,
                 "payload": event.payload,
             }),
@@ -39271,15 +39272,21 @@ mod tests {
         assert!(payloads.iter().all(|payload| {
             payload["call_id"] == serde_json::json!(call_id)
                 && payload["provider"] == "twilio"
-                && payload["provider_call_id"] == provider_call_id
+                && payload["provider_call_id_present"] == true
+                && payload["provider_call_id_len"] == provider_call_id.chars().count()
         }));
-        assert_eq!(payloads[0]["payload"]["remote_party"], "+15551230000");
+        assert_eq!(payloads[0]["payload"]["remote_party_present"], true);
+        assert_eq!(payloads[0]["payload"]["remote_party_len"], 12);
+        assert_eq!(payloads[0]["payload"]["metadata_class"], "object");
         assert_eq!(payloads[1]["payload"]["to"], "active");
-        assert_eq!(
-            payloads[2]["payload"]["url"],
-            "https://api.twilio.com/recording.wav"
-        );
+        assert_eq!(payloads[2]["payload"]["url_class"], "twilio_api");
         assert_eq!(payloads[3]["payload"]["reason"], "normal_hangup");
+        let serialized_payloads =
+            serde_json::to_string(&payloads).expect("serialize Twilio call event payloads");
+        assert!(!serialized_payloads.contains(&provider_call_id));
+        assert!(!serialized_payloads.contains("+15551230000"));
+        assert!(!serialized_payloads.contains("api.twilio.com"));
+        assert!(!serialized_payloads.contains("recording.wav"));
 
         sqlx::query("DELETE FROM event_outbox WHERE entity_id = $1")
             .bind(call_id)

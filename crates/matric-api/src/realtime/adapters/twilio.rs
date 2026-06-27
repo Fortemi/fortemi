@@ -534,6 +534,58 @@ fn twilio_json_class(value: &Value) -> &'static str {
     }
 }
 
+fn twilio_text_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn twilio_url_class(raw: &str) -> &'static str {
+    let lower = raw.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return "invalid_url";
+    }
+    let host = lower
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or_default()
+        .split('/')
+        .next()
+        .unwrap_or_default()
+        .split('@')
+        .next_back()
+        .unwrap_or_default()
+        .split(':')
+        .next()
+        .unwrap_or_default();
+    if host.contains("twilio.com") {
+        "twilio_api"
+    } else if host == "localhost"
+        || host.ends_with(".local")
+        || host.starts_with("127.")
+        || host.starts_with("10.")
+        || host.starts_with("192.168.")
+        || host.starts_with("172.16.")
+        || host.starts_with("172.17.")
+        || host.starts_with("172.18.")
+        || host.starts_with("172.19.")
+        || host.starts_with("172.20.")
+        || host.starts_with("172.21.")
+        || host.starts_with("172.22.")
+        || host.starts_with("172.23.")
+        || host.starts_with("172.24.")
+        || host.starts_with("172.25.")
+        || host.starts_with("172.26.")
+        || host.starts_with("172.27.")
+        || host.starts_with("172.28.")
+        || host.starts_with("172.29.")
+        || host.starts_with("172.30.")
+        || host.starts_with("172.31.")
+    {
+        "local_or_private"
+    } else {
+        "external"
+    }
+}
+
 pub fn translate_voice_webhook_form(input: &[u8]) -> Result<TwilioVoiceWebhookEvent> {
     let form: TwilioVoiceWebhookForm = serde_urlencoded::from_bytes(input)
         .map_err(|err| Error::InvalidInput(format!("invalid Twilio webhook form: {err}")))?;
@@ -552,8 +604,10 @@ pub fn call_event_outbox_for_control_event(
             ..
         } if provider == TWILIO_PROVIDER => {
             let mut payload = serde_json::json!({
-                "remote_party": remote_party,
-                "metadata": metadata,
+                "remote_party_present": remote_party.is_some(),
+                "remote_party_len": remote_party.as_deref().map(twilio_text_len),
+                "metadata_class": twilio_json_class(metadata),
+                "metadata_len": metadata.to_string().chars().count(),
             });
             if duplicate {
                 payload["duplicate"] = serde_json::json!(true);
@@ -577,7 +631,10 @@ pub fn call_event_outbox_for_control_event(
         }),
         CallControlEvent::RecordingAvailable { url } => Some(TwilioCallEventOutbox {
             event_type: "recording_available",
-            payload: serde_json::json!({"url": url}),
+            payload: serde_json::json!({
+                "url_class": twilio_url_class(url),
+                "url_len": twilio_text_len(url),
+            }),
         }),
         CallControlEvent::Dropped { .. } => Some(TwilioCallEventOutbox {
             event_type: "ended",
@@ -1024,11 +1081,14 @@ mod tests {
         let started_outbox =
             call_event_outbox_for_control_event(&started.control_event, false).unwrap();
         assert_eq!(started_outbox.event_type, "call_started");
-        assert_eq!(started_outbox.payload["remote_party"], "+15551230000");
-        assert_eq!(
-            started_outbox.payload["metadata"]["consent_confirmed"],
-            true
-        );
+        assert_eq!(started_outbox.payload["remote_party_present"], true);
+        assert_eq!(started_outbox.payload["remote_party_len"], 12);
+        assert_eq!(started_outbox.payload["metadata_class"], "object");
+        assert!(started_outbox.payload["metadata_len"].as_u64().unwrap() > 0);
+        let started_payload =
+            serde_json::to_string(&started_outbox.payload).expect("serialize started payload");
+        assert!(!started_payload.contains("+15551230000"));
+        assert!(!started_payload.contains("consent_confirmed"));
 
         let duplicate_started =
             call_event_outbox_for_control_event(&started.control_event, true).unwrap();
@@ -1046,5 +1106,20 @@ mod tests {
             call_event_outbox_for_control_event(&completed.control_event, false).unwrap();
         assert_eq!(completed_outbox.event_type, "ended");
         assert_eq!(completed_outbox.payload["reason"], "normal_hangup");
+
+        let recording = translate_voice_webhook_form(
+            b"CallSid=CA123&RecordingStatus=completed&RecordingSid=RE123&RecordingUrl=https%3A%2F%2Fapi.twilio.com%2Frecording.wav%3Ftoken%3Dsk-live-recording",
+        )
+        .unwrap();
+        let recording_outbox =
+            call_event_outbox_for_control_event(&recording.control_event, false).unwrap();
+        assert_eq!(recording_outbox.event_type, "recording_available");
+        assert_eq!(recording_outbox.payload["url_class"], "twilio_api");
+        assert!(recording_outbox.payload["url_len"].as_u64().unwrap() > 0);
+        let recording_payload =
+            serde_json::to_string(&recording_outbox.payload).expect("serialize recording payload");
+        assert!(!recording_payload.contains("api.twilio.com"));
+        assert!(!recording_payload.contains("recording.wav"));
+        assert!(!recording_payload.contains("sk-live-recording"));
     }
 }
