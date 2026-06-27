@@ -521,8 +521,14 @@ impl fmt::Debug for MetadataFilter {
         f.debug_struct("MetadataFilter")
             .field("starred", &self.starred)
             .field("archived", &self.archived)
-            .field("format_len", &self.format.as_ref().map(String::len))
-            .field("source_len", &self.source.as_ref().map(String::len))
+            .field(
+                "format_len",
+                &self.format.as_ref().map(|value| value.chars().count()),
+            )
+            .field(
+                "source_len",
+                &self.source.as_ref().map(|value| value.chars().count()),
+            )
             .field("include_deleted", &self.include_deleted)
             .field("min_access_count", &self.min_access_count)
             .finish()
@@ -789,8 +795,8 @@ mod tests {
             .include_set(included_set_id)
             .exclude_set(excluded_set_id);
         let metadata = MetadataFilter::new()
-            .with_format("private-format-sk-live-secret")
-            .with_source("/tmp/private/source@example.test")
+            .with_format("private-format-秘密@example.test")
+            .with_source("/tmp/private/source-秘密@example.test")
             .include_deleted()
             .with_min_access_count(9);
 
@@ -802,9 +808,9 @@ mod tests {
             embedding_set_id.to_string(),
             included_set_id.to_string(),
             excluded_set_id.to_string(),
-            "private-format-sk-live-secret".to_string(),
-            "/tmp/private/source@example.test".to_string(),
-            "sk-live-secret".to_string(),
+            "private-format-秘密@example.test".to_string(),
+            "/tmp/private/source-秘密@example.test".to_string(),
+            "秘密".to_string(),
         ] {
             assert!(
                 !debug.contains(&secret),
@@ -827,5 +833,8 @@ mod tests {
                 "Strict filter component Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
+
+        assert!(debug.contains("format_len: Some(30)"));
+        assert!(debug.contains("source_len: Some(35)"));
     }
 }

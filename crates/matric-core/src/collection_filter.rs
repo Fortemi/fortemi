@@ -221,7 +221,7 @@ impl fmt::Debug for CollectionPathFilter {
                 &self
                     .include_paths
                     .iter()
-                    .map(|path| path.len())
+                    .map(|path| path.chars().count())
                     .collect::<Vec<_>>(),
             )
             .field("exclude_paths_count", &self.exclude_paths.len())
@@ -230,7 +230,7 @@ impl fmt::Debug for CollectionPathFilter {
                 &self
                     .exclude_paths
                     .iter()
-                    .map(|path| path.len())
+                    .map(|path| path.chars().count())
                     .collect::<Vec<_>>(),
             )
             .field("include_descendants", &self.include_descendants)
@@ -415,20 +415,21 @@ mod tests {
     #[test]
     fn collection_path_filter_debug_redacts_raw_paths() {
         let filter = CollectionPathFilter::new()
-            .include_path("Customers/private@example.test/sk-live-token")
-            .include_path("/tmp/private/customer/project")
-            .exclude_path("Archive/https://example.test/path?token=secret")
+            .include_path("Customers/秘密/private@example.test/sk-live-token")
+            .include_path("/tmp/private/customer/秘密-project")
+            .exclude_path("Archive/秘密/https://example.test/path?token=secret")
             .with_descendants(true);
 
         let debug = format!("{filter:?}");
 
         for secret in [
-            "Customers/private@example.test/sk-live-token",
-            "/tmp/private/customer/project",
-            "Archive/https://example.test/path?token=secret",
+            "Customers/秘密/private@example.test/sk-live-token",
+            "/tmp/private/customer/秘密-project",
+            "Archive/秘密/https://example.test/path?token=secret",
             "private@example.test",
             "sk-live-token",
             "token=secret",
+            "秘密",
         ] {
             assert!(
                 !debug.contains(secret),
@@ -449,5 +450,8 @@ mod tests {
                 "CollectionPathFilter Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
+
+        assert!(debug.contains("include_path_lens: [47, 32]"));
+        assert!(debug.contains("exclude_path_lens: [49]"));
     }
 }

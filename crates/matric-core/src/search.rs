@@ -108,7 +108,7 @@ impl fmt::Debug for StrictTagFilter {
                 &self
                     .required_string_tags
                     .iter()
-                    .map(|value| value.len())
+                    .map(|value| value.chars().count())
                     .collect::<Vec<_>>(),
             )
             .field("any_string_tags_count", &self.any_string_tags.len())
@@ -117,7 +117,7 @@ impl fmt::Debug for StrictTagFilter {
                 &self
                     .any_string_tags
                     .iter()
-                    .map(|value| value.len())
+                    .map(|value| value.chars().count())
                     .collect::<Vec<_>>(),
             )
             .field(
@@ -129,7 +129,7 @@ impl fmt::Debug for StrictTagFilter {
                 &self
                     .excluded_string_tags
                     .iter()
-                    .map(|value| value.len())
+                    .map(|value| value.chars().count())
                     .collect::<Vec<_>>(),
             )
             .field("min_tag_count", &self.min_tag_count)
@@ -296,7 +296,7 @@ impl fmt::Debug for StrictTagFilterInput {
                 &self
                     .required_tags
                     .iter()
-                    .map(|value| value.len())
+                    .map(|value| value.chars().count())
                     .collect::<Vec<_>>(),
             )
             .field("any_tags_count", &self.any_tags.len())
@@ -305,7 +305,7 @@ impl fmt::Debug for StrictTagFilterInput {
                 &self
                     .any_tags
                     .iter()
-                    .map(|value| value.len())
+                    .map(|value| value.chars().count())
                     .collect::<Vec<_>>(),
             )
             .field("excluded_tags_count", &self.excluded_tags.len())
@@ -314,7 +314,7 @@ impl fmt::Debug for StrictTagFilterInput {
                 &self
                     .excluded_tags
                     .iter()
-                    .map(|value| value.len())
+                    .map(|value| value.chars().count())
                     .collect::<Vec<_>>(),
             )
             .field("required_schemes_count", &self.required_schemes.len())
@@ -323,7 +323,7 @@ impl fmt::Debug for StrictTagFilterInput {
                 &self
                     .required_schemes
                     .iter()
-                    .map(|value| value.len())
+                    .map(|value| value.chars().count())
                     .collect::<Vec<_>>(),
             )
             .field("excluded_schemes_count", &self.excluded_schemes.len())
@@ -332,7 +332,7 @@ impl fmt::Debug for StrictTagFilterInput {
                 &self
                     .excluded_schemes
                     .iter()
-                    .map(|value| value.len())
+                    .map(|value| value.chars().count())
                     .collect::<Vec<_>>(),
             )
             .field("min_tag_count", &self.min_tag_count)
@@ -579,18 +579,21 @@ mod tests {
             .with_include_untagged(false);
         filter
             .required_string_tags
-            .push("postgres://tag:secret@db.internal/notes".to_string());
+            .push("postgres://tag:秘密@db.internal/notes".to_string());
         filter
             .any_string_tags
-            .push("owner@example.internal".to_string());
+            .push("owner-秘密@example.internal".to_string());
         filter
             .excluded_string_tags
-            .push("sk-secret-strict-tag".to_string());
+            .push("sk-secret-strict-tag-秘密".to_string());
 
         let filter_debug = format!("{filter:?}");
         assert!(filter_debug.contains("StrictTagFilter"));
         assert!(filter_debug.contains("required_concepts_count"));
         assert!(filter_debug.contains("required_string_tag_lens"));
+        assert!(filter_debug.contains("required_string_tag_lens: [35]"));
+        assert!(filter_debug.contains("any_string_tag_lens: [25]"));
+        assert!(filter_debug.contains("excluded_string_tag_lens: [23]"));
         assert_debug_excludes(
             &filter_debug,
             &[
@@ -599,18 +602,19 @@ mod tests {
                 "cccccccc-3333-4444-8555-cccccccccccc",
                 "dddddddd-4444-4555-8666-dddddddddddd",
                 "eeeeeeee-5555-4666-8777-eeeeeeeeeeee",
-                "postgres://tag:secret@db.internal/notes",
-                "owner@example.internal",
-                "sk-secret-strict-tag",
+                "postgres://tag:秘密@db.internal/notes",
+                "owner-秘密@example.internal",
+                "sk-secret-strict-tag-秘密",
+                "秘密",
             ],
         );
 
         let input = StrictTagFilterInput {
-            required_tags: vec!["topic/secret-owner@example.internal".to_string()],
-            any_tags: vec!["postgres://tag:secret@db.internal/any".to_string()],
-            excluded_tags: vec!["sk-secret-filter-input".to_string()],
-            required_schemes: vec!["scheme-secret@example.internal".to_string()],
-            excluded_schemes: vec!["/srv/fortemi/private/scheme".to_string()],
+            required_tags: vec!["topic/秘密-owner@example.internal".to_string()],
+            any_tags: vec!["postgres://tag:秘密@db.internal/any".to_string()],
+            excluded_tags: vec!["sk-secret-filter-input-秘密".to_string()],
+            required_schemes: vec!["scheme-秘密@example.internal".to_string()],
+            excluded_schemes: vec!["/srv/fortemi/private/秘密-scheme".to_string()],
             min_tag_count: Some(1),
             include_untagged: false,
         };
@@ -619,14 +623,20 @@ mod tests {
         assert!(input_debug.contains("StrictTagFilterInput"));
         assert!(input_debug.contains("required_tags_count"));
         assert!(input_debug.contains("required_tag_lens"));
+        assert!(input_debug.contains("required_tag_lens: [31]"));
+        assert!(input_debug.contains("any_tag_lens: [33]"));
+        assert!(input_debug.contains("excluded_tag_lens: [25]"));
+        assert!(input_debug.contains("required_scheme_lens: [26]"));
+        assert!(input_debug.contains("excluded_scheme_lens: [30]"));
         assert_debug_excludes(
             &input_debug,
             &[
-                "topic/secret-owner@example.internal",
-                "postgres://tag:secret@db.internal/any",
-                "sk-secret-filter-input",
-                "scheme-secret@example.internal",
-                "/srv/fortemi/private/scheme",
+                "topic/秘密-owner@example.internal",
+                "postgres://tag:秘密@db.internal/any",
+                "sk-secret-filter-input-秘密",
+                "scheme-秘密@example.internal",
+                "/srv/fortemi/private/秘密-scheme",
+                "秘密",
             ],
         );
     }
