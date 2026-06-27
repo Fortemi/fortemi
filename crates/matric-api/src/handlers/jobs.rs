@@ -5703,6 +5703,29 @@ impl std::fmt::Debug for RelatedPair {
     }
 }
 
+struct ConceptInfo {
+    id: uuid::Uuid,
+    notation: String,
+    label: String,
+    broader_notation: Option<String>,
+    depth: i32,
+}
+
+impl std::fmt::Debug for ConceptInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConceptInfo")
+            .field("id_set", &true)
+            .field("notation_len", &diagnostic_len(&self.notation))
+            .field("label_len", &diagnostic_len(&self.label))
+            .field(
+                "broader_notation_len",
+                &self.broader_notation.as_ref().map(diagnostic_len),
+            )
+            .field("depth", &self.depth)
+            .finish()
+    }
+}
+
 #[async_trait]
 impl JobHandler for RelatedConceptHandler {
     fn job_type(&self) -> JobType {
@@ -5768,15 +5791,6 @@ impl JobHandler for RelatedConceptHandler {
                 return related_concept_job_failure(e, "fetch_concepts_begin_tx");
             }
         };
-
-        #[derive(Debug)]
-        struct ConceptInfo {
-            id: uuid::Uuid,
-            notation: String,
-            label: String,
-            broader_notation: Option<String>,
-            depth: i32,
-        }
 
         let rows: Vec<ConceptInfo> =
             sqlx::query_as::<_, (uuid::Uuid, String, String, Option<String>, i32)>(
@@ -9586,6 +9600,40 @@ Quick note about the meeting discussion and action items."#;
         assert!(debug.contains("concept_a_len"));
         assert!(debug.contains("concept_b_len"));
         assert!(debug.contains("confidence"));
+    }
+
+    #[test]
+    fn concept_info_debug_redacts_ids_notation_and_labels() {
+        let concept = ConceptInfo {
+            id: uuid::Uuid::parse_str("018fd1a0-0000-7000-8000-000000000005").unwrap(),
+            notation: "private.notation/user@example.com".to_string(),
+            label: "Sensitive Label postgres://user:secret@db.internal/app".to_string(),
+            broader_notation: Some("/taxonomy/private sk-live-concept-parent".to_string()),
+            depth: 3,
+        };
+
+        let debug = format!("{concept:?}");
+
+        for forbidden in [
+            "018fd1a0-0000-7000-8000-000000000005",
+            "private.notation",
+            "user@example.com",
+            "Sensitive Label",
+            "postgres://user:secret@db.internal/app",
+            "/taxonomy/private",
+            "sk-live-concept-parent",
+        ] {
+            assert!(
+                !debug.contains(forbidden),
+                "concept debug leaked {forbidden}"
+            );
+        }
+        assert!(debug.contains("ConceptInfo"));
+        assert!(debug.contains("id_set"));
+        assert!(debug.contains("notation_len"));
+        assert!(debug.contains("label_len"));
+        assert!(debug.contains("broader_notation_len"));
+        assert!(debug.contains("depth"));
     }
 
     #[test]
