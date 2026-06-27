@@ -81,6 +81,16 @@ fn audio_command_failure_detail(
     )
 }
 
+fn audio_duration_parse_failure_detail(stdout: &str, error: &dyn std::fmt::Display) -> String {
+    let error_text = error.to_string();
+    format!(
+        "Failed to parse ffprobe duration; stdout_len={}; error_len={}; error_reason={}",
+        audio_telemetry_text_len(stdout.trim()),
+        audio_telemetry_text_len(&error_text),
+        audio_error_reason_code(&error_text)
+    )
+}
+
 /// Transcode any audio/video file to 16kHz mono PCM WAV for speech processing.
 ///
 /// This normalizes the input to the standard format accepted by all speech
@@ -215,11 +225,7 @@ pub async fn probe_duration(input_path: &Path) -> matric_core::Result<f64> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let duration: f64 = stdout.trim().parse().map_err(|e| {
-        matric_core::Error::Internal(format!(
-            "Failed to parse ffprobe duration '{}': {}",
-            stdout.trim(),
-            e
-        ))
+        matric_core::Error::Internal(audio_duration_parse_failure_detail(stdout.as_ref(), &e))
     })?;
 
     debug!(
@@ -543,6 +549,23 @@ mod tests {
         assert!(!detail.contains("/srv/fortemi"));
         assert!(!detail.contains("mm_key_secret"));
         assert!(!detail.contains("Invalid data found"));
+    }
+
+    #[test]
+    fn audio_duration_parse_failure_detail_redacts_stdout_and_error() {
+        let stdout = "duration=/srv/fortemi/private/audio.wav token=mm_key_secret";
+        let error = "invalid float literal at /srv/fortemi/private/audio.wav";
+        let detail = audio_duration_parse_failure_detail(stdout, &error);
+
+        assert!(detail.contains("Failed to parse ffprobe duration"));
+        assert!(detail.contains("stdout_len="));
+        assert!(detail.contains("error_len="));
+        assert!(detail.contains("error_reason=invalid_input"));
+        assert!(!detail.contains(stdout));
+        assert!(!detail.contains(error));
+        assert!(!detail.contains("/srv/fortemi"));
+        assert!(!detail.contains("mm_key_secret"));
+        assert!(!detail.contains("invalid float literal"));
     }
 
     #[test]
