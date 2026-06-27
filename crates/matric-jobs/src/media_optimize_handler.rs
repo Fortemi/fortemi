@@ -242,6 +242,15 @@ fn media_command_failure_detail(
     )
 }
 
+fn media_json_parse_failure_detail(context: &'static str, error: &dyn std::fmt::Display) -> String {
+    let error_text = error.to_string();
+    format!(
+        "{context} parse failed; error_len={}; error_reason={}",
+        media_text_len(&error_text),
+        media_error_reason_code(&error_text)
+    )
+}
+
 /// Run ffprobe on a file and return structured metadata.
 async fn ffprobe(path: &Path) -> Result<ProbeResult, String> {
     let output = run_cmd(
@@ -266,7 +275,7 @@ async fn ffprobe(path: &Path) -> Result<ProbeResult, String> {
     }
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|e| format!("Failed to parse ffprobe JSON: {}", e))?;
+        .map_err(|e| media_json_parse_failure_detail("ffprobe_json", &e))?;
 
     let mut result = ProbeResult::default();
 
@@ -945,6 +954,23 @@ mod tests {
         assert!(!detail.contains("/srv/fortemi"));
         assert!(!detail.contains("mm_key_secret"));
         assert!(!detail.contains("invalid data at"));
+    }
+
+    #[test]
+    fn media_json_parse_failure_detail_redacts_parser_error() {
+        let raw_error = concat!(
+            "invalid JSON in /srv/private/video.mov ",
+            "token=sk-test-secret postgres://user:pass@db.internal/media"
+        );
+        let detail = media_json_parse_failure_detail("ffprobe_json", &raw_error);
+
+        assert!(detail.starts_with("ffprobe_json parse failed;"));
+        assert!(detail.contains("error_len="));
+        assert!(detail.contains("error_reason=database_error"));
+        assert!(!detail.contains("/srv/private/video.mov"));
+        assert!(!detail.contains("sk-test-secret"));
+        assert!(!detail.contains("postgres://user:pass"));
+        assert!(!detail.contains(raw_error));
     }
 
     #[test]
