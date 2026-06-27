@@ -555,7 +555,7 @@ impl ExtractionAdapter for ArchiveAdapter {
                     "total_dirs": 0,
                     "total_size_bytes": 0,
                     "files": [],
-                    "error": "empty input"
+                    "error_code": "empty_input"
                 }),
                 ai_description: None,
                 preview_data: None,
@@ -710,7 +710,9 @@ mod tests {
 
         assert!(result.extracted_text.is_none());
         assert_eq!(result.metadata["total_files"], 0);
-        assert!(result.metadata["error"].as_str().is_some());
+        assert_eq!(result.metadata["error_code"], "empty_input");
+        assert!(result.metadata.get("error").is_none());
+        assert!(!result.metadata.to_string().contains("empty input"));
     }
 
     // ── ZIP extraction ────────────────────────────────────────────────────────
