@@ -6,6 +6,7 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use sqlx::{Pool, Postgres, Row};
+use std::fmt;
 use uuid::Uuid;
 
 use matric_core::{new_v7, ArchiveInfo, ArchiveRepository, Error, Result};
@@ -40,6 +41,29 @@ struct FtsGeneratedColumn {
 struct FtsIndex {
     index_name: &'static str,
     definition: &'static str,
+}
+
+struct MissingColumn {
+    table_name: String,
+    column_name: String,
+    column_type: String,
+    is_not_null: bool,
+    column_default: Option<String>,
+}
+
+impl fmt::Debug for MissingColumn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MissingColumn")
+            .field("table_name_len", &self.table_name.len())
+            .field("column_name_len", &self.column_name.len())
+            .field("column_type_len", &self.column_type.len())
+            .field("is_not_null", &self.is_not_null)
+            .field(
+                "column_default_len",
+                &self.column_default.as_ref().map(String::len),
+            )
+            .finish()
+    }
 }
 
 const FTS_FIX_DEFINITIONS: &[FtsFixDefinition] = &[
@@ -574,15 +598,6 @@ impl PgArchiveRepository {
         .fetch_all(&self.pool)
         .await
         .map_err(Error::Database)?;
-
-        #[derive(Debug)]
-        struct MissingColumn {
-            table_name: String,
-            column_name: String,
-            column_type: String,
-            is_not_null: bool,
-            column_default: Option<String>,
-        }
 
         let missing_columns: Vec<MissingColumn> = if all_existing_tables.is_empty() {
             vec![]
@@ -1352,5 +1367,44 @@ impl ArchiveRepository for PgArchiveRepository {
         let _ = self.update_archive_stats(new_name).await;
 
         Ok(new_archive)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_column_debug_redacts_schema_names_and_defaults() {
+        let column = MissingColumn {
+            table_name: "tenant_secret_notes".to_string(),
+            column_name: "provider_api_key".to_string(),
+            column_type: "text".to_string(),
+            is_not_null: true,
+            column_default: Some(
+                "'postgres://user:secret@db.internal/app sk-live-default'::text".to_string(),
+            ),
+        };
+
+        let debug = format!("{column:?}");
+
+        for forbidden in [
+            "tenant_secret_notes",
+            "provider_api_key",
+            "postgres://user:secret@db.internal/app",
+            "sk-live-default",
+            "'::text",
+        ] {
+            assert!(
+                !debug.contains(forbidden),
+                "missing column debug leaked {forbidden}"
+            );
+        }
+
+        assert!(debug.contains("MissingColumn"));
+        assert!(debug.contains("table_name_len"));
+        assert!(debug.contains("column_name_len"));
+        assert!(debug.contains("column_type_len"));
+        assert!(debug.contains("column_default_len"));
     }
 }
