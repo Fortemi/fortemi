@@ -8191,7 +8191,7 @@ where
     input
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct DocumentTypeResourceMetadata {
     id: Uuid,
     name: String,
@@ -8199,6 +8199,19 @@ struct DocumentTypeResourceMetadata {
     is_system: bool,
     is_active: bool,
     requires_attachment: bool,
+}
+
+impl fmt::Debug for DocumentTypeResourceMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DocumentTypeResourceMetadata")
+            .field("id_present", &true)
+            .field("name_len", &telemetry_text_len(&self.name))
+            .field("category_len", &telemetry_text_len(&self.category))
+            .field("is_system", &self.is_system)
+            .field("is_active", &self.is_active)
+            .field("requires_attachment", &self.requires_attachment)
+            .finish()
+    }
 }
 
 impl From<matric_core::DocumentType> for DocumentTypeResourceMetadata {
@@ -35617,6 +35630,32 @@ mod tests {
             is_active: true,
             requires_attachment: false,
         }
+    }
+
+    #[test]
+    fn document_type_metadata_debug_redacts_names_categories_and_ids() {
+        let document_type_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000004").unwrap();
+        let metadata = DocumentTypeResourceMetadata {
+            id: document_type_id,
+            name: "private-markdown ops@example.com".to_string(),
+            category: "prose+/tmp/sk-document-type-secret".to_string(),
+            is_system: true,
+            is_active: true,
+            requires_attachment: false,
+        };
+
+        let debug = format!("{metadata:?}");
+
+        assert!(debug.contains("DocumentTypeResourceMetadata"));
+        assert!(debug.contains("id_present"));
+        assert!(debug.contains("name_len"));
+        assert!(debug.contains("category_len"));
+        assert!(debug.contains("requires_attachment"));
+        assert!(!debug.contains(&document_type_id.to_string()));
+        assert!(!debug.contains("private-markdown"));
+        assert!(!debug.contains("ops@example.com"));
+        assert!(!debug.contains("prose+/tmp/sk-document-type-secret"));
+        assert!(!debug.contains("sk-document-type-secret"));
     }
 
     #[tokio::test]
