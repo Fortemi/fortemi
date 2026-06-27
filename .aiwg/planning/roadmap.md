@@ -177,6 +177,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: Backup script database credentials now require explicit `PGPASSWORD` or `PGPASSFILE` instead of defaulting to the reusable `matric` password.
   - 2026-06-27 continuation: API backup, restore, post-restore maintenance, and psql size-query subprocesses now require explicit `PGPASSWORD` or `PGPASSFILE` instead of injecting the reusable `matric` password.
   - 2026-06-27 continuation: Backup script scratch handling now requires an explicit private `BACKUP_TEMP_DIR`, rejects shared `/tmp`, verifies mode/ownership, and requires tmpfs/ramfs or operator-marked encrypted scratch for real backups.
+  - 2026-06-27 continuation: Backup status/list/info path response metadata now uses structured length-only `path_metadata` tokens with path, filename, and extension lengths instead of raw absolute paths, DSNs, hostnames, or token-shaped path fragments.
   - 2026-06-27 continuation: Chat-stream replay/resumption Redis keys now use SHA-256 session fingerprints instead of storing raw session ids in Redis keyspace while preserving public SSE resume cursor format.
   - 2026-06-27 continuation: Ingest stream cursor Redis keys now use SHA-256 stream fingerprints instead of storing raw stream ids in Redis keyspace while preserving public cursor format.
   - 2026-06-27 continuation: Ingest stream token Redis keys and reverse-index values now use SHA-256 token fingerprints instead of storing raw bearer tokens in Redis keyspace or revoke-by-id index values.
@@ -1215,3 +1216,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 Backup script database credentials now require explicit `PGPASSWORD` or `PGPASSFILE` instead of defaulting to the reusable `matric` password.
 - 2026-06-27 — #968/#974 API backup, restore, post-restore maintenance, and psql size-query subprocesses now require explicit `PGPASSWORD` or `PGPASSFILE` instead of injecting the reusable `matric` password.
 - 2026-06-27 — #968/#974 Backup script scratch handling now requires explicit private scratch, rejects shared `/tmp`, verifies mode/ownership, and requires tmpfs/ramfs or operator-marked encrypted storage for real backups.
+- 2026-06-27 — #968/#974 Backup status/list/info path response metadata now uses structured length-only `path_metadata` tokens instead of raw absolute paths, DSNs, hostnames, or token-shaped path fragments.

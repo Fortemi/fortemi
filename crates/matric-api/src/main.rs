@@ -25493,7 +25493,19 @@ impl fmt::Debug for DatabaseBackupResponse {
 }
 
 fn backup_response_path_metadata(path: &std::path::Path) -> String {
-    format!("path_len:{}", telemetry_text_len(&path.to_string_lossy()))
+    let path_len = telemetry_text_len(&path.to_string_lossy());
+    let filename_len = path
+        .file_name()
+        .map(|value| telemetry_text_len(&value.to_string_lossy()))
+        .unwrap_or(0);
+    let extension_len = path
+        .extension()
+        .map(|value| telemetry_text_len(&value.to_string_lossy()))
+        .unwrap_or(0);
+
+    format!(
+        "path_metadata:path_len={path_len};filename_len={filename_len};extension_len={extension_len}"
+    )
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -28873,7 +28885,9 @@ mod tests {
 
         let rendered = serde_json::to_string(&response).unwrap();
 
-        assert!(rendered.contains("\"path\":\"path_len:"));
+        assert!(rendered.contains("\"path\":\"path_metadata:path_len="));
+        assert!(rendered.contains(";filename_len="));
+        assert!(rendered.contains(";extension_len="));
         for raw in [
             "/srv/backups",
             "postgres://user:pass",
@@ -28934,8 +28948,48 @@ mod tests {
             serde_json::to_string(&list).unwrap()
         );
 
-        assert!(rendered.contains("\"backup_directory\":\"path_len:"));
-        assert!(rendered.contains("\"path\":\"path_len:"));
+        assert!(rendered.contains("\"backup_directory\":\"path_metadata:path_len="));
+        assert!(rendered.contains("\"path\":\"path_metadata:path_len="));
+        assert!(rendered.contains(";filename_len="));
+        assert!(rendered.contains(";extension_len="));
+        for raw in [
+            "/srv/backups",
+            "postgres://user:pass",
+            "db.internal",
+            "mm_key_backup",
+            "customer",
+        ] {
+            assert!(!rendered.contains(raw), "raw value leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn backup_info_response_path_uses_structured_metadata_only() {
+        let backup_path = std::path::Path::new(
+            "/srv/backups/customer/postgres://user:pass@db.internal/mm_key_backup.sql.gz",
+        );
+        let response = BackupShardInfo {
+            filename: "snapshot_database_20260626.sql.gz".to_string(),
+            path: backup_response_path_metadata(backup_path),
+            size_bytes: 4096,
+            size_human: "4.0 KiB".to_string(),
+            modified: Utc::now(),
+            modified_iso: "2026-06-26T18:00:00Z".to_string(),
+            shard_type: backup_prefix::SNAPSHOT.to_string(),
+            sha256_short: Some("deadbeefcafebabe".to_string()),
+            sha256: Some(
+                "deadbeefcafebabe000000000000000000000000000000000000000000000000".to_string(),
+            ),
+            manifest: None,
+            metadata_file: None,
+            title: None,
+            description: None,
+        };
+        let rendered = serde_json::to_string(&response).unwrap();
+
+        assert!(rendered.contains("\"path\":\"path_metadata:path_len="));
+        assert!(rendered.contains(";filename_len="));
+        assert!(rendered.contains(";extension_len="));
         for raw in [
             "/srv/backups",
             "postgres://user:pass",
@@ -28965,7 +29019,7 @@ mod tests {
         let rendered = serde_json::to_string(&response).unwrap();
 
         assert!(rendered.contains("\"filename\":\"filename_len:"));
-        assert!(rendered.contains("\"path\":\"path_len:"));
+        assert!(rendered.contains("\"path\":\"path_metadata:path_len="));
         for raw in [
             "/srv/backups",
             "postgres://user:pass",
