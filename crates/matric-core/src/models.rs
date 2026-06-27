@@ -5003,7 +5003,7 @@ impl fmt::Debug for CrossArchiveSearchResponse {
 // =============================================================================
 
 /// Attachment search request.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AttachmentSearchRequest {
     /// Filter by note ID
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -5035,6 +5035,30 @@ pub struct AttachmentSearchRequest {
     /// Maximum results
     #[serde(default = "default_ca_limit")]
     pub limit: i64,
+}
+
+impl fmt::Debug for AttachmentSearchRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AttachmentSearchRequest")
+            .field("note_id_set", &self.note_id.is_some())
+            .field(
+                "content_type_len",
+                &self.content_type.as_ref().map(String::len),
+            )
+            .field("event_type_len", &self.event_type.as_ref().map(String::len))
+            .field("capture_after_set", &self.capture_after.is_some())
+            .field("capture_before_set", &self.capture_before.is_some())
+            .field("near_lat_set", &self.near_lat.is_some())
+            .field("near_lon_set", &self.near_lon.is_some())
+            .field("radius_m_set", &self.radius_m.is_some())
+            .field(
+                "location_name_len",
+                &self.location_name.as_ref().map(String::len),
+            )
+            .field("device_id_set", &self.device_id.is_some())
+            .field("limit", &self.limit)
+            .finish()
+    }
 }
 
 /// Attachment search response.
@@ -5470,6 +5494,60 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "Attachment Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn attachment_search_request_debug_redacts_filters_and_coordinates() {
+        let now = Utc::now();
+        let request = AttachmentSearchRequest {
+            note_id: Some(Uuid::new_v4()),
+            content_type: Some("image/private-report-sk-live-secret".to_string()),
+            event_type: Some("private-event-type-private@example.test".to_string()),
+            capture_after: Some(now),
+            capture_before: Some(now),
+            near_lat: Some(37.774929),
+            near_lon: Some(-122.419416),
+            radius_m: Some(1234.5),
+            location_name: Some("Private clinic location 555-1212".to_string()),
+            device_id: Some(Uuid::new_v4()),
+            limit: 25,
+        };
+
+        let debug = format!("{request:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "image/private-report",
+                "sk-live-secret",
+                "private-event-type",
+                "private@example.test",
+                "37.774929",
+                "-122.419416",
+                "1234.5",
+                "Private clinic location",
+                "555-1212",
+            ],
+        );
+
+        for expected in [
+            "note_id_set",
+            "content_type_len",
+            "event_type_len",
+            "capture_after_set",
+            "capture_before_set",
+            "near_lat_set",
+            "near_lon_set",
+            "radius_m_set",
+            "location_name_len",
+            "device_id_set",
+            "limit",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Attachment search Debug output should retain safe metadata field {expected:?}: {debug}"
             );
         }
     }
