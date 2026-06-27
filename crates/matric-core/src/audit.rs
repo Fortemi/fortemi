@@ -5,6 +5,7 @@
 //! accident.
 
 use std::collections::{HashMap, VecDeque};
+use std::fmt;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -20,7 +21,7 @@ const MAX_ATTR_STRING_BYTES: usize = 512;
 const REDACTED: &str = "[REDACTED]";
 const TRUNCATED: &str = "[TRUNCATED]";
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AuditEvent {
     pub schema_version: u16,
     pub id: Uuid,
@@ -42,6 +43,42 @@ pub struct AuditEvent {
     pub retention: AuditRetentionClass,
     pub source: AuditSource,
     pub attrs: HashMap<String, Value>,
+}
+
+impl fmt::Debug for AuditEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuditEvent")
+            .field("schema_version", &self.schema_version)
+            .field("id_present", &true)
+            .field("idempotency_key_present", &self.idempotency_key.is_some())
+            .field("event_ts", &self.event_ts)
+            .field("observed_ts", &self.observed_ts)
+            .field("tenant_id_present", &self.tenant_id.is_some())
+            .field("principal_id_present", &self.principal_id.is_some())
+            .field(
+                "resource_kind_len",
+                &self
+                    .resource_kind
+                    .as_ref()
+                    .map(|value| value.chars().count()),
+            )
+            .field("resource_id_present", &self.resource_id.is_some())
+            .field("correlation_id_present", &self.correlation_id.is_some())
+            .field("category_len", &self.category.chars().count())
+            .field("action_len", &self.action.chars().count())
+            .field("outcome", &self.outcome)
+            .field(
+                "reason_len",
+                &self.reason.as_ref().map(|value| value.chars().count()),
+            )
+            .field("severity", &self.severity)
+            .field("failure_policy", &self.failure_policy)
+            .field("visibility", &self.visibility)
+            .field("retention", &self.retention)
+            .field("source", &self.source)
+            .field("attr_count", &self.attrs.len())
+            .finish()
+    }
 }
 
 impl AuditEvent {
@@ -493,6 +530,35 @@ mod tests {
         assert_eq!(event.attrs["filename"], "evil name,part");
         assert_eq!(event.attrs["nested"]["client_secret"], REDACTED);
         assert!(event.attrs["long"].as_str().unwrap().ends_with(TRUNCATED));
+    }
+
+    #[test]
+    fn audit_event_debug_reports_metadata_without_raw_ids_or_attrs() {
+        let event = event("startup-ready")
+            .with_principal("principal-user-123")
+            .with_tenant("tenant-alpha")
+            .with_resource("note", "note-raw-id-123")
+            .with_correlation_id("correlation-abc")
+            .with_attr("filename", "private-plan.md")
+            .with_attr("authorization", "Bearer abc123");
+
+        let debug = format!("{event:?}");
+
+        assert!(debug.contains("AuditEvent"));
+        assert!(debug.contains("principal_id_present: true"));
+        assert!(debug.contains("resource_kind_len: Some(4)"));
+        assert!(debug.contains("resource_id_present: true"));
+        assert!(debug.contains("attr_count: 2"));
+        assert!(!debug.contains(&event.id.to_string()));
+        assert!(!debug.contains("principal-user-123"));
+        assert!(!debug.contains("tenant-alpha"));
+        assert!(!debug.contains("note-raw-id-123"));
+        assert!(!debug.contains("correlation-abc"));
+        assert!(!debug.contains("startup-ready"));
+        assert!(!debug.contains("filename"));
+        assert!(!debug.contains("private-plan.md"));
+        assert!(!debug.contains("Bearer abc123"));
+        assert!(!debug.contains(REDACTED));
     }
 
     #[tokio::test]
