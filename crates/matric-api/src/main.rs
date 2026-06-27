@@ -16115,12 +16115,7 @@ async fn export_note(
     output.push_str(content);
 
     // Return as markdown with appropriate headers
-    let filename = note_full
-        .note
-        .title
-        .as_ref()
-        .map(|t| t.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_"))
-        .unwrap_or_else(|| id.to_string());
+    let filename = note_export_download_filename(note_full.note.title.as_deref(), id);
 
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -16135,6 +16130,17 @@ async fn export_note(
     );
 
     Ok((StatusCode::OK, headers, output))
+}
+
+fn note_export_download_filename(title: Option<&str>, note_id: Uuid) -> String {
+    match title {
+        Some(title) => format!(
+            "note_title_len_{}_{}.md",
+            telemetry_text_len(title),
+            note_id
+        ),
+        None => format!("note_{}.md", note_id),
+    }
 }
 
 // =============================================================================
@@ -29351,6 +29357,36 @@ mod tests {
                 "raw value leaked: {raw}"
             );
         }
+    }
+
+    #[test]
+    fn note_export_download_filename_uses_title_metadata_only() {
+        let note_id = Uuid::new_v4();
+        let title = "customer-private/export/path/mm_key_note_secret@example.com";
+        let filename = note_export_download_filename(Some(title), note_id);
+        let content_disposition = format!("attachment; filename=\"{}\"", filename);
+
+        assert!(filename.starts_with("note_title_len_"));
+        assert!(filename.ends_with(&format!("_{}.md", note_id)));
+        assert!(HeaderValue::from_str(&content_disposition).is_ok());
+        for raw in [
+            "customer-private",
+            "export/path",
+            "mm_key_note_secret",
+            "example.com",
+            title,
+        ] {
+            assert!(!filename.contains(raw), "raw value leaked: {raw}");
+            assert!(
+                !content_disposition.contains(raw),
+                "raw value leaked: {raw}"
+            );
+        }
+
+        assert_eq!(
+            note_export_download_filename(None, note_id),
+            format!("note_{}.md", note_id)
+        );
     }
 
     #[test]

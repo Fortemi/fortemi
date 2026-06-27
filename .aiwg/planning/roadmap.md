@@ -325,6 +325,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: Embedding provenance metadata now retains embedding model length and embedding-set presence metadata instead of raw model names or embedding-set UUIDs in retained provenance activity payloads.
   - 2026-06-27 continuation: Audio transcription job results now retain language presence/length metadata instead of raw provider language labels in stored `job_queue.result` payloads.
   - 2026-06-27 continuation: View assembly jobs now retain filename length metadata in queued payloads while resolving the parent model filename from attachment storage at execution time, removing raw 3D model filenames from the downstream `job_queue.payload`.
+  - 2026-06-27 continuation: Note markdown export attachment filenames now use note-title length metadata plus note id instead of raw note titles in `Content-Disposition` headers.
   - 2026-06-27 continuation: Media optimization job results now retain variant derivation/content-type lengths and attachment-id presence metadata instead of raw derivation labels, derived attachment UUIDs, or content-type strings in stored `job_queue.result` payloads.
   - 2026-06-27 continuation: Extraction job results now retain strategy length plus adapter metadata class/length/count/secret-candidate metadata instead of raw extraction strategy labels or full adapter metadata in stored `job_queue.result` payloads.
   - 2026-06-27 continuation: Concept tagging and reference extraction job/provenance summaries now retain label counts/lengths/secret-candidate metadata and extraction-method lengths instead of raw SKOS labels, tag paths, or method labels in retained `job_queue.result` and provenance metadata payloads.
@@ -1183,3 +1184,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 Ingest stream token Redis keys and reverse-index values now use SHA-256 token fingerprints instead of raw bearer tokens.
 - 2026-06-27 — #968/#974 Chat-stream replay/resumption Redis keys now use SHA-256 session fingerprints instead of raw session ids.
 - 2026-06-27 — #968/#974 Ingest stream cursor Redis keys now use SHA-256 stream fingerprints instead of raw stream ids.
+- 2026-06-27 — #968/#974 Note markdown export attachment filenames now use note-title length metadata plus note id instead of raw note titles in `Content-Disposition` headers.
