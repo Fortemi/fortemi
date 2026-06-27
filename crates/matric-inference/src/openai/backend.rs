@@ -5,6 +5,7 @@ use reqwest::Client;
 use std::{fmt, time::Duration};
 use tracing::{debug, info, warn};
 
+use crate::diagnostics::{backend_parse_error, backend_request_error, backend_status_error};
 use matric_core::{EmbeddingBackend, Error, GenerationBackend, InferenceBackend, Result, Vector};
 
 use super::streaming::{parse_sse_stream, StreamingGeneration, TokenStream};
@@ -213,27 +214,26 @@ impl EmbeddingBackend for OpenAIBackend {
             .json(&request)
             .send()
             .await
-            .map_err(|e| Error::Embedding(format!("Request failed: {}", e)))?;
+            .map_err(|e| {
+                Error::Embedding(backend_request_error("OpenAI embedding request failed", &e))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
-            let body: OpenAIErrorResponse = response.json().await.unwrap_or(OpenAIErrorResponse {
-                error: OpenAIError {
-                    message: "Unknown error".to_string(),
-                    error_type: "unknown".to_string(),
-                    code: None,
-                },
-            });
-            return Err(Error::Embedding(format!(
-                "OpenAI returned {}: {}",
-                status, body.error.message
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Embedding(backend_status_error(
+                "OpenAI embeddings",
+                status,
+                &body,
             )));
         }
 
-        let result: EmbeddingResponse = response
-            .json()
-            .await
-            .map_err(|e| Error::Embedding(format!("Failed to parse response: {}", e)))?;
+        let result: EmbeddingResponse = response.json().await.map_err(|e| {
+            Error::Embedding(backend_parse_error(
+                "OpenAI embedding response parse failed",
+                e,
+            ))
+        })?;
 
         // Sort by index to ensure correct ordering
         let mut data = result.data;
@@ -299,27 +299,23 @@ impl GenerationBackend for OpenAIBackend {
             .json(&request)
             .send()
             .await
-            .map_err(|e| Error::Inference(format!("Request failed: {}", e)))?;
+            .map_err(|e| {
+                Error::Inference(backend_request_error("OpenAI chat request failed", &e))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
-            let body: OpenAIErrorResponse = response.json().await.unwrap_or(OpenAIErrorResponse {
-                error: OpenAIError {
-                    message: "Unknown error".to_string(),
-                    error_type: "unknown".to_string(),
-                    code: None,
-                },
-            });
-            return Err(Error::Inference(format!(
-                "OpenAI returned {}: {}",
-                status, body.error.message
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Inference(backend_status_error(
+                "OpenAI chat",
+                status,
+                &body,
             )));
         }
 
-        let result: ChatCompletionResponse = response
-            .json()
-            .await
-            .map_err(|e| Error::Inference(format!("Failed to parse response: {}", e)))?;
+        let result: ChatCompletionResponse = response.json().await.map_err(|e| {
+            Error::Inference(backend_parse_error("OpenAI chat response parse failed", e))
+        })?;
 
         let content = result
             .choices
@@ -371,27 +367,23 @@ impl GenerationBackend for OpenAIBackend {
             .json(&request)
             .send()
             .await
-            .map_err(|e| Error::Inference(format!("Request failed: {}", e)))?;
+            .map_err(|e| {
+                Error::Inference(backend_request_error("OpenAI JSON request failed", &e))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
-            let body: OpenAIErrorResponse = response.json().await.unwrap_or(OpenAIErrorResponse {
-                error: OpenAIError {
-                    message: "Unknown error".to_string(),
-                    error_type: "unknown".to_string(),
-                    code: None,
-                },
-            });
-            return Err(Error::Inference(format!(
-                "OpenAI returned {}: {}",
-                status, body.error.message
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Inference(backend_status_error(
+                "OpenAI JSON",
+                status,
+                &body,
             )));
         }
 
-        let result: ChatCompletionResponse = response
-            .json()
-            .await
-            .map_err(|e| Error::Inference(format!("Failed to parse response: {}", e)))?;
+        let result: ChatCompletionResponse = response.json().await.map_err(|e| {
+            Error::Inference(backend_parse_error("OpenAI JSON response parse failed", e))
+        })?;
 
         let content = result
             .choices
@@ -481,20 +473,17 @@ impl StreamingGeneration for OpenAIBackend {
             .json(&request)
             .send()
             .await
-            .map_err(|e| Error::Inference(format!("Request failed: {}", e)))?;
+            .map_err(|e| {
+                Error::Inference(backend_request_error("OpenAI streaming request failed", &e))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
-            let body: OpenAIErrorResponse = response.json().await.unwrap_or(OpenAIErrorResponse {
-                error: OpenAIError {
-                    message: "Unknown error".to_string(),
-                    error_type: "unknown".to_string(),
-                    code: None,
-                },
-            });
-            return Err(Error::Inference(format!(
-                "OpenAI returned {}: {}",
-                status, body.error.message
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Inference(backend_status_error(
+                "OpenAI streaming",
+                status,
+                &body,
             )));
         }
 

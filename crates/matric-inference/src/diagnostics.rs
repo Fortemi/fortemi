@@ -1,6 +1,7 @@
 //! Redaction-safe diagnostics for inference backend errors.
 
 use reqwest::StatusCode;
+use std::fmt::Display;
 
 pub(crate) fn text_len(value: &str) -> usize {
     value.chars().count()
@@ -46,6 +47,48 @@ pub(crate) fn backend_status_error(service: &str, status: StatusCode, body: &str
     )
 }
 
+#[allow(dead_code)]
+pub(crate) fn backend_request_error(context: &str, err: &reqwest::Error) -> String {
+    match err.status() {
+        Some(status) => format!(
+            "{context}; error_reason={}; error_len={}; status={}",
+            reqwest_error_reason(err),
+            text_len(&err.to_string()),
+            status.as_u16()
+        ),
+        None => format!(
+            "{context}; error_reason={}; error_len={}",
+            reqwest_error_reason(err),
+            text_len(&err.to_string())
+        ),
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) fn backend_parse_error(context: &str, err: impl Display) -> String {
+    let rendered = err.to_string();
+    format!("{context}; error_len={}", text_len(&rendered))
+}
+
+#[allow(dead_code)]
+fn reqwest_error_reason(err: &reqwest::Error) -> &'static str {
+    if err.is_timeout() {
+        "timeout"
+    } else if err.is_connect() {
+        "connect"
+    } else if err.is_decode() {
+        "decode"
+    } else if err.is_status() {
+        "status"
+    } else if err.is_request() {
+        "request"
+    } else if err.is_body() {
+        "body"
+    } else {
+        "other"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,5 +115,40 @@ mod tests {
         assert_eq!(backend_body_reason("server unavailable"), "unavailable");
         assert_eq!(backend_body_reason(""), "empty");
         assert_eq!(backend_body_reason("opaque backend detail"), "other");
+    }
+
+    #[test]
+    fn backend_parse_error_redacts_parser_details() {
+        let rendered = backend_parse_error(
+            "OpenAI chat response parse failed",
+            "expected value at /private/path token=sk-private",
+        );
+
+        assert!(rendered.contains("OpenAI chat response parse failed"));
+        assert!(rendered.contains("error_len="));
+        assert!(!rendered.contains("/private/path"));
+        assert!(!rendered.contains("sk-private"));
+        assert!(!rendered.contains("expected value"));
+    }
+
+    #[tokio::test]
+    async fn backend_request_error_redacts_reqwest_diagnostics() {
+        let err = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(50))
+            .build()
+            .unwrap()
+            .get("http://127.0.0.1:1/private/path?token=sk-private")
+            .send()
+            .await
+            .unwrap_err();
+
+        let rendered = backend_request_error("OpenAI chat request failed", &err);
+
+        assert!(rendered.contains("OpenAI chat request failed"));
+        assert!(rendered.contains("error_reason="));
+        assert!(rendered.contains("error_len="));
+        assert!(!rendered.contains("127.0.0.1"));
+        assert!(!rendered.contains("/private/path"));
+        assert!(!rendered.contains("sk-private"));
     }
 }

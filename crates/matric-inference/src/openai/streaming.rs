@@ -5,6 +5,8 @@ use std::pin::Pin;
 
 use matric_core::{Error, Result};
 
+use crate::diagnostics::{backend_parse_error, backend_request_error};
+
 use super::types::ChatCompletionChunk;
 
 /// Stream of generation tokens.
@@ -16,7 +18,9 @@ pub fn parse_sse_stream(
 ) -> TokenStream {
     let token_stream = stream
         .map(|chunk_result| {
-            chunk_result.map_err(|e| Error::Inference(format!("Stream error: {}", e)))
+            chunk_result.map_err(|e| {
+                Error::Inference(backend_request_error("OpenAI stream read failed", &e))
+            })
         })
         .filter_map(|result| async move {
             match result {
@@ -59,9 +63,9 @@ fn parse_sse_chunk(chunk: &str) -> Option<Result<String>> {
                     }
                 }
                 Err(e) => {
-                    return Some(Err(Error::Inference(format!(
-                        "Failed to parse SSE chunk: {}",
-                        e
+                    return Some(Err(Error::Inference(backend_parse_error(
+                        "OpenAI SSE chunk parse failed",
+                        e,
                     ))));
                 }
             }
