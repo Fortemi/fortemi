@@ -345,7 +345,7 @@ pub async fn complete(
     debug!(
         provider_id_len = complete_text_len(&provider_id),
         model_len = complete_text_len(&req.model),
-        prompt_len = prompt.len(),
+        prompt_len = complete_text_len(&prompt),
         has_system = !system.is_empty(),
         "Running completion via inline backend"
     );
@@ -361,7 +361,7 @@ pub async fn complete(
             info!(
                 provider_id_len = complete_text_len(&provider_id),
                 model_len = complete_text_len(&req.model),
-                content_len = content.len(),
+                content_len = complete_text_len(&content),
                 "Completion succeeded"
             );
             Ok(Json(CompleteResponse {
@@ -592,6 +592,13 @@ mod tests {
 
         assert_eq!(complete_text_len(value), value.chars().count());
         assert_eq!(complete_text_len(value), 55);
+
+        // Flattened prompts and generated content telemetry must report Unicode
+        // character counts, not byte counts. Multibyte transcripts would otherwise
+        // leak encoding-dependent byte sizes through the prompt_len/content_len fields.
+        let multibyte = "café — 日本語 transcript";
+        assert_eq!(complete_text_len(multibyte), multibyte.chars().count());
+        assert!(complete_text_len(multibyte) < multibyte.len());
     }
 
     #[test]
