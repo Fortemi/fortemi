@@ -5,6 +5,8 @@
 //! - Location: Radius search, named places
 //! - Both: "Photos from Paris last summer"
 
+use std::fmt;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -14,7 +16,7 @@ use uuid::Uuid;
 // =============================================================================
 
 /// A memory result with temporal and spatial context.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MemoryHit {
     /// Provenance record ID
     pub provenance_id: Uuid,
@@ -38,22 +40,57 @@ pub struct MemoryHit {
     pub location_name: Option<String>,
 }
 
+impl fmt::Debug for MemoryHit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryHit")
+            .field("provenance_id_set", &true)
+            .field("attachment_id_set", &true)
+            .field("note_id_set", &true)
+            .field("filename_len", &self.filename.len())
+            .field("content_type_len", &self.content_type.as_ref().map(String::len))
+            .field("capture_time_set", &self.capture_time.is_some())
+            .field("event_type_len", &self.event_type.as_ref().map(String::len))
+            .field("event_title_len", &self.event_title.as_ref().map(String::len))
+            .field("distance_m_set", &self.distance_m.is_some())
+            .field("location_name_len", &self.location_name.as_ref().map(String::len))
+            .finish()
+    }
+}
+
 /// Memory search response.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MemorySearchResponse {
     pub memories: Vec<MemoryHit>,
     pub total: usize,
 }
 
+impl fmt::Debug for MemorySearchResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemorySearchResponse")
+            .field("memories_count", &self.memories.len())
+            .field("total", &self.total)
+            .finish()
+    }
+}
+
 /// Timeline grouping response.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TimelineResponse {
     pub groups: Vec<TimelineGroup>,
     pub total: usize,
 }
 
+impl fmt::Debug for TimelineResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TimelineResponse")
+            .field("groups_count", &self.groups.len())
+            .field("total", &self.total)
+            .finish()
+    }
+}
+
 /// A group of memories within a time period.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TimelineGroup {
     /// Group period (e.g., "2024-01", "2024-W23", "2024-01-15")
     pub period: String,
@@ -67,12 +104,24 @@ pub struct TimelineGroup {
     pub count: usize,
 }
 
+impl fmt::Debug for TimelineGroup {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TimelineGroup")
+            .field("period_len", &self.period.len())
+            .field("start", &self.start)
+            .field("end", &self.end)
+            .field("memories_count", &self.memories.len())
+            .field("count", &self.count)
+            .finish()
+    }
+}
+
 // =============================================================================
 // CROSS-ARCHIVE SEARCH TYPES
 // =============================================================================
 
 /// Cross-archive search request.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CrossArchiveSearchRequest {
     /// Search query
     pub query: String,
@@ -90,12 +139,26 @@ pub struct CrossArchiveSearchRequest {
     pub enable_fusion: bool,
 }
 
+impl fmt::Debug for CrossArchiveSearchRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let archive_lens: Vec<usize> = self.archives.iter().map(String::len).collect();
+        f.debug_struct("CrossArchiveSearchRequest")
+            .field("query_len", &self.query.len())
+            .field("archives_count", &self.archives.len())
+            .field("archive_lens", &archive_lens)
+            .field("mode", &self.mode)
+            .field("limit", &self.limit)
+            .field("enable_fusion", &self.enable_fusion)
+            .finish()
+    }
+}
+
 fn default_limit() -> i64 {
     crate::defaults::PAGE_LIMIT_SEARCH
 }
 
 /// Cross-archive search result.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CrossArchiveSearchResult {
     /// Archive name (schema)
     pub archive_name: String,
@@ -112,12 +175,40 @@ pub struct CrossArchiveSearchResult {
     pub tags: Vec<String>,
 }
 
+impl fmt::Debug for CrossArchiveSearchResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let tag_lens: Vec<usize> = self.tags.iter().map(String::len).collect();
+        f.debug_struct("CrossArchiveSearchResult")
+            .field("archive_name_len", &self.archive_name.len())
+            .field("note_id_set", &true)
+            .field("score", &self.score)
+            .field("snippet_len", &self.snippet.as_ref().map(String::len))
+            .field("title_len", &self.title.as_ref().map(String::len))
+            .field("tags_count", &self.tags.len())
+            .field("tag_lens", &tag_lens)
+            .finish()
+    }
+}
+
 /// Cross-archive search response.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CrossArchiveSearchResponse {
     pub results: Vec<CrossArchiveSearchResult>,
     pub archives_searched: Vec<String>,
     pub total: usize,
+}
+
+impl fmt::Debug for CrossArchiveSearchResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let archives_searched_lens: Vec<usize> =
+            self.archives_searched.iter().map(String::len).collect();
+        f.debug_struct("CrossArchiveSearchResponse")
+            .field("results_count", &self.results.len())
+            .field("archives_searched_count", &self.archives_searched.len())
+            .field("archives_searched_lens", &archives_searched_lens)
+            .field("total", &self.total)
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -125,7 +216,7 @@ pub struct CrossArchiveSearchResponse {
 // =============================================================================
 
 /// Attachment search request.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AttachmentSearchRequest {
     /// Filter by note ID
     pub note_id: Option<Uuid>,
@@ -149,11 +240,38 @@ pub struct AttachmentSearchRequest {
     pub limit: i64,
 }
 
+impl fmt::Debug for AttachmentSearchRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AttachmentSearchRequest")
+            .field("note_id_set", &self.note_id.is_some())
+            .field("content_type_len", &self.content_type.as_ref().map(String::len))
+            .field("event_type_len", &self.event_type.as_ref().map(String::len))
+            .field("capture_after_set", &self.capture_after.is_some())
+            .field("capture_before_set", &self.capture_before.is_some())
+            .field("near_lat_set", &self.near_lat.is_some())
+            .field("near_lon_set", &self.near_lon.is_some())
+            .field("radius_m_set", &self.radius_m.is_some())
+            .field("location_name_len", &self.location_name.as_ref().map(String::len))
+            .field("device_id_set", &self.device_id.is_some())
+            .field("limit", &self.limit)
+            .finish()
+    }
+}
+
 /// Attachment search response.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AttachmentSearchResponse {
     pub attachments: Vec<MemoryHit>,
     pub total: usize,
+}
+
+impl fmt::Debug for AttachmentSearchResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AttachmentSearchResponse")
+            .field("attachments_count", &self.attachments.len())
+            .field("total", &self.total)
+            .finish()
+    }
 }
 
 // =============================================================================
@@ -255,5 +373,141 @@ mod tests {
         assert_eq!(group.period, "2024-01");
         assert_eq!(group.count, 0);
         assert!(group.memories.is_empty());
+    }
+
+    #[test]
+    fn memory_search_debug_redacts_filenames_titles_locations_and_ids() {
+        let provenance_id = Uuid::parse_str("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa").unwrap();
+        let attachment_id = Uuid::parse_str("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb").unwrap();
+        let note_id = Uuid::parse_str("cccccccc-cccc-4ccc-cccc-cccccccccccc").unwrap();
+        let hit = MemoryHit {
+            provenance_id,
+            attachment_id,
+            note_id,
+            filename: "private-path-customer@example.com-sk-live.jpg".to_string(),
+            content_type: Some("image/private-token".to_string()),
+            capture_time: Some((Utc::now(), None)),
+            event_type: Some("photo-secret".to_string()),
+            event_title: Some("Beach with bearer-secret at /srv/private".to_string()),
+            distance_m: Some(150.5),
+            location_name: Some("Home customer@example.com".to_string()),
+        };
+        let response = MemorySearchResponse {
+            memories: vec![hit.clone()],
+            total: 1,
+        };
+        let group = TimelineGroup {
+            period: "2024-customer@example.com-sk-live".to_string(),
+            start: Utc::now(),
+            end: Utc::now(),
+            memories: vec![hit.clone()],
+            count: 1,
+        };
+        let timeline = TimelineResponse {
+            groups: vec![group],
+            total: 1,
+        };
+        let attachments = AttachmentSearchResponse {
+            attachments: vec![hit],
+            total: 1,
+        };
+
+        let debug = format!("{response:?} {timeline:?} {attachments:?}");
+
+        for raw in [
+            provenance_id.to_string(),
+            attachment_id.to_string(),
+            note_id.to_string(),
+            "private-path",
+            "customer@example.com",
+            "sk-live",
+            "image/private-token",
+            "photo-secret",
+            "bearer-secret",
+            "/srv/private",
+            "Home",
+            "2024-customer",
+        ] {
+            assert!(!debug.contains(&raw), "debug leaked {raw}: {debug}");
+        }
+
+        assert!(debug.contains("memories_count"));
+        assert!(debug.contains("groups_count"));
+        assert!(debug.contains("attachments_count"));
+        assert!(debug.contains("total"));
+    }
+
+    #[test]
+    fn cross_archive_and_attachment_search_debug_redacts_queries_archives_snippets_tags_and_locations(
+    ) {
+        let note_id = Uuid::parse_str("dddddddd-dddd-4ddd-dddd-dddddddddddd").unwrap();
+        let device_id = Uuid::parse_str("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee").unwrap();
+        let request = CrossArchiveSearchRequest {
+            query: "find private@example.com sk-live /srv/private".to_string(),
+            archives: vec![
+                "tenant_customer@example.com".to_string(),
+                "postgres://admin:secret@db".to_string(),
+            ],
+            mode: crate::SearchMode::Hybrid,
+            limit: 25,
+            enable_fusion: true,
+        };
+        let result = CrossArchiveSearchResult {
+            archive_name: "tenant_customer@example.com".to_string(),
+            note_id,
+            score: 0.92,
+            snippet: Some("snippet has sk-live and /srv/private".to_string()),
+            title: Some("private title customer@example.com".to_string()),
+            tags: vec![
+                "secret-tag".to_string(),
+                "postgres://admin:secret@db".to_string(),
+            ],
+        };
+        let response = CrossArchiveSearchResponse {
+            results: vec![result],
+            archives_searched: vec!["tenant_customer@example.com".to_string()],
+            total: 1,
+        };
+        let attachment_request = AttachmentSearchRequest {
+            note_id: Some(note_id),
+            content_type: Some("image/secret".to_string()),
+            event_type: Some("scan-private".to_string()),
+            capture_after: Some(Utc::now()),
+            capture_before: Some(Utc::now()),
+            near_lat: Some(34.0195),
+            near_lon: Some(-118.4912),
+            radius_m: Some(500.0),
+            location_name: Some("home private@example.com".to_string()),
+            device_id: Some(device_id),
+            limit: 10,
+        };
+
+        let debug = format!("{request:?} {response:?} {attachment_request:?}");
+
+        for raw in [
+            note_id.to_string(),
+            device_id.to_string(),
+            "find private@example.com sk-live /srv/private",
+            "tenant_customer@example.com",
+            "postgres://admin:secret@db",
+            "snippet has",
+            "private title",
+            "secret-tag",
+            "image/secret",
+            "scan-private",
+            "home private@example.com",
+            "34.0195",
+            "-118.4912",
+        ] {
+            assert!(!debug.contains(&raw), "debug leaked {raw}: {debug}");
+        }
+
+        assert!(debug.contains("query_len"));
+        assert!(debug.contains("archives_count"));
+        assert!(debug.contains("archive_lens"));
+        assert!(debug.contains("results_count"));
+        assert!(debug.contains("tags_count"));
+        assert!(debug.contains("location_name_len"));
+        assert!(debug.contains("device_id_set"));
     }
 }
