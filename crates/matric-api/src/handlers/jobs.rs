@@ -398,6 +398,13 @@ fn graph_maintenance_job_result(
     })
 }
 
+fn graph_maintenance_snapshot_step_result() -> serde_json::Value {
+    serde_json::json!({
+        "status": "ok",
+        "snapshot_id_present": true,
+    })
+}
+
 fn purge_job_result(affected_embedding_sets: usize, stats_updated: usize) -> serde_json::Value {
     serde_json::json!({
         "deleted_note_id_present": true,
@@ -7697,9 +7704,10 @@ impl JobHandler for GraphMaintenanceHandler {
 
             match snapshot_result {
                 Ok(snap_id) => {
+                    let _ = snap_id;
                     results.insert(
                         "snapshot".to_string(),
-                        serde_json::json!({ "status": "ok", "snapshot_id": snap_id }),
+                        graph_maintenance_snapshot_step_result(),
                     );
                 }
                 Err(e) => {
@@ -7890,10 +7898,15 @@ mod tests {
     #[test]
     fn graph_maintenance_result_redacts_schema_label() {
         let schema = "tenant_secret_schema /srv/fortemi token=sk-secret";
+        let snapshot_id = "018f8d6d-1111-7222-8333-c44444444444";
         let mut steps = serde_json::Map::new();
         steps.insert(
             "normalize".to_string(),
             serde_json::json!({"status": "ok", "gamma": 0.75}),
+        );
+        steps.insert(
+            "snapshot".to_string(),
+            graph_maintenance_snapshot_step_result(),
         );
         let result = graph_maintenance_job_result(schema, 123, steps);
         let rendered = result.to_string();
@@ -7901,9 +7914,11 @@ mod tests {
         assert_eq!(result["schema_len"], diagnostic_len(schema));
         assert_eq!(result["duration_ms"], 123);
         assert_eq!(result["steps"]["normalize"]["status"], "ok");
+        assert_eq!(result["steps"]["snapshot"]["snapshot_id_present"], true);
         assert!(!rendered.contains("tenant_secret_schema"));
         assert!(!rendered.contains("/srv/fortemi"));
         assert!(!rendered.contains("sk-secret"));
+        assert!(!rendered.contains(snapshot_id));
     }
 
     #[test]
