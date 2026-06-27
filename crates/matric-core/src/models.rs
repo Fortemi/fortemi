@@ -5864,6 +5864,145 @@ mod tests {
     }
 
     #[test]
+    fn specialized_media_metadata_debug_redacts_descriptions_labels_and_bounds() {
+        let now = Utc::now();
+        let model = Model3dMetadata {
+            id: Uuid::new_v4(),
+            attachment_id: Uuid::new_v4(),
+            format: "private-glb-format".to_string(),
+            format_version: Some("private-version-sk-live-secret".to_string()),
+            vertex_count: Some(42),
+            face_count: Some(24),
+            edge_count: Some(12),
+            bounds_min: Some([37.774929, -122.419416, 33.3]),
+            bounds_max: Some([38.774929, -121.419416, 44.4]),
+            volume: Some(1234.5),
+            surface_area: Some(9876.5),
+            is_watertight: Some(true),
+            is_manifold: Some(false),
+            material_count: 3,
+            texture_count: 2,
+            has_vertex_colors: true,
+            has_uv_mapping: true,
+            thumbnail_attachment_id: Some(Uuid::new_v4()),
+            ai_description: Some(
+                "AI description includes private@example.test and /tmp/customer/model.glb"
+                    .to_string(),
+            ),
+            ai_model: Some("private-model-sk-live-secret".to_string()),
+            ai_processed_at: Some(now),
+            created_at: now,
+        };
+        let structured = StructuredMediaMetadata {
+            id: Uuid::new_v4(),
+            attachment_id: Uuid::new_v4(),
+            format: "private-svg-format".to_string(),
+            format_category: "private-diagram-category".to_string(),
+            svg_width: Some(640.0),
+            svg_height: Some(480.0),
+            svg_element_count: Some(12),
+            svg_text_content: Some("Private SVG text private@example.test".to_string()),
+            midi_duration_seconds: Some(60.0),
+            midi_tempo_bpm: Some(128),
+            midi_time_signature: Some("private-4/4".to_string()),
+            midi_track_count: Some(4),
+            midi_channel_count: Some(8),
+            midi_note_count: Some(256),
+            midi_instrument_names: Some(vec![
+                "Secret Piano sk-live-secret".to_string(),
+                "Private Bass".to_string(),
+            ]),
+            midi_pitch_range_low: Some(21),
+            midi_pitch_range_high: Some(108),
+            tracker_pattern_count: Some(3),
+            tracker_order_count: Some(4),
+            tracker_channel_count: Some(8),
+            tracker_sample_count: Some(2),
+            tracker_sample_names: Some(vec!["Private Sample 555-1212".to_string()]),
+            tracker_instrument_names: Some(vec!["Private Instrument".to_string()]),
+            tracker_title: Some("Private tracker title".to_string()),
+            tracker_message: Some("Private tracker message /tmp/customer/song.mod".to_string()),
+            tracker_software: Some("Private Tracker Software".to_string()),
+            demoscene_era: Some("Private Era".to_string()),
+            diagram_type: Some("private-architecture".to_string()),
+            diagram_node_count: Some(5),
+            diagram_edge_count: Some(6),
+            diagram_labels: Some(vec![
+                "Private Service private@example.test".to_string(),
+                "Secret Token Node".to_string(),
+            ]),
+            thumbnail_attachment_id: Some(Uuid::new_v4()),
+            audio_preview_attachment_id: Some(Uuid::new_v4()),
+            text_combined: Some("Combined private text sk-live-secret".to_string()),
+            created_at: now,
+        };
+
+        let debug = format!("{model:?}{structured:?}");
+
+        assert_debug_excludes(
+            &debug,
+            &[
+                "private-glb-format",
+                "private-version",
+                "sk-live-secret",
+                "37.774929",
+                "-122.419416",
+                "1234.5",
+                "9876.5",
+                "AI description",
+                "private@example.test",
+                "/tmp/customer/model.glb",
+                "private-model",
+                "private-svg-format",
+                "private-diagram-category",
+                "Private SVG text",
+                "private-4/4",
+                "Secret Piano",
+                "Private Bass",
+                "Private Sample",
+                "555-1212",
+                "Private Instrument",
+                "Private tracker title",
+                "Private tracker message",
+                "/tmp/customer/song.mod",
+                "Private Tracker Software",
+                "Private Era",
+                "private-architecture",
+                "Private Service",
+                "Secret Token Node",
+                "Combined private text",
+            ],
+        );
+
+        for expected in [
+            "format_len",
+            "format_version_len",
+            "bounds_min_set",
+            "bounds_max_set",
+            "volume_set",
+            "surface_area_set",
+            "ai_description_len",
+            "ai_model_len",
+            "format_category_len",
+            "svg_text_content_len",
+            "midi_instrument_names_count",
+            "tracker_sample_names_count",
+            "tracker_instrument_names_count",
+            "tracker_title_len",
+            "tracker_message_len",
+            "tracker_software_len",
+            "diagram_type_len",
+            "diagram_labels_count",
+            "text_combined_len",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "Specialized media metadata Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+    }
+
+    #[test]
     fn tus_upload_debug_redacts_paths_filenames_and_metadata() {
         let now = Utc::now();
         let upload = TusUpload {
@@ -9293,7 +9432,7 @@ impl fmt::Debug for ExtractedProvenance {
 // =============================================================================
 
 /// 3D model metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Model3dMetadata {
     pub id: Uuid,
     pub attachment_id: Uuid,
@@ -9337,8 +9476,46 @@ pub struct Model3dMetadata {
     pub created_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for Model3dMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Model3dMetadata")
+            .field("id_set", &true)
+            .field("attachment_id_set", &true)
+            .field("format_len", &self.format.len())
+            .field(
+                "format_version_len",
+                &self.format_version.as_ref().map(String::len),
+            )
+            .field("vertex_count", &self.vertex_count)
+            .field("face_count", &self.face_count)
+            .field("edge_count", &self.edge_count)
+            .field("bounds_min_set", &self.bounds_min.is_some())
+            .field("bounds_max_set", &self.bounds_max.is_some())
+            .field("volume_set", &self.volume.is_some())
+            .field("surface_area_set", &self.surface_area.is_some())
+            .field("is_watertight", &self.is_watertight)
+            .field("is_manifold", &self.is_manifold)
+            .field("material_count", &self.material_count)
+            .field("texture_count", &self.texture_count)
+            .field("has_vertex_colors", &self.has_vertex_colors)
+            .field("has_uv_mapping", &self.has_uv_mapping)
+            .field(
+                "thumbnail_attachment_id_set",
+                &self.thumbnail_attachment_id.is_some(),
+            )
+            .field(
+                "ai_description_len",
+                &self.ai_description.as_ref().map(String::len),
+            )
+            .field("ai_model_len", &self.ai_model.as_ref().map(String::len))
+            .field("ai_processed_at_set", &self.ai_processed_at.is_some())
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
 /// Structured media metadata (SVG, MIDI, diagrams, trackers)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct StructuredMediaMetadata {
     pub id: Uuid,
     pub attachment_id: Uuid,
@@ -9418,6 +9595,99 @@ pub struct StructuredMediaMetadata {
     pub text_combined: Option<String>,
 
     pub created_at: DateTime<Utc>,
+}
+
+impl fmt::Debug for StructuredMediaMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StructuredMediaMetadata")
+            .field("id_set", &true)
+            .field("attachment_id_set", &true)
+            .field("format_len", &self.format.len())
+            .field("format_category_len", &self.format_category.len())
+            .field("svg_width_set", &self.svg_width.is_some())
+            .field("svg_height_set", &self.svg_height.is_some())
+            .field("svg_element_count", &self.svg_element_count)
+            .field(
+                "svg_text_content_len",
+                &self.svg_text_content.as_ref().map(String::len),
+            )
+            .field(
+                "midi_duration_seconds_set",
+                &self.midi_duration_seconds.is_some(),
+            )
+            .field("midi_tempo_bpm", &self.midi_tempo_bpm)
+            .field(
+                "midi_time_signature_len",
+                &self.midi_time_signature.as_ref().map(String::len),
+            )
+            .field("midi_track_count", &self.midi_track_count)
+            .field("midi_channel_count", &self.midi_channel_count)
+            .field("midi_note_count", &self.midi_note_count)
+            .field(
+                "midi_instrument_names_count",
+                &self.midi_instrument_names.as_ref().map(Vec::len),
+            )
+            .field(
+                "midi_pitch_range_low_set",
+                &self.midi_pitch_range_low.is_some(),
+            )
+            .field(
+                "midi_pitch_range_high_set",
+                &self.midi_pitch_range_high.is_some(),
+            )
+            .field("tracker_pattern_count", &self.tracker_pattern_count)
+            .field("tracker_order_count", &self.tracker_order_count)
+            .field("tracker_channel_count", &self.tracker_channel_count)
+            .field("tracker_sample_count", &self.tracker_sample_count)
+            .field(
+                "tracker_sample_names_count",
+                &self.tracker_sample_names.as_ref().map(Vec::len),
+            )
+            .field(
+                "tracker_instrument_names_count",
+                &self.tracker_instrument_names.as_ref().map(Vec::len),
+            )
+            .field(
+                "tracker_title_len",
+                &self.tracker_title.as_ref().map(String::len),
+            )
+            .field(
+                "tracker_message_len",
+                &self.tracker_message.as_ref().map(String::len),
+            )
+            .field(
+                "tracker_software_len",
+                &self.tracker_software.as_ref().map(String::len),
+            )
+            .field(
+                "demoscene_era_len",
+                &self.demoscene_era.as_ref().map(String::len),
+            )
+            .field(
+                "diagram_type_len",
+                &self.diagram_type.as_ref().map(String::len),
+            )
+            .field("diagram_node_count", &self.diagram_node_count)
+            .field("diagram_edge_count", &self.diagram_edge_count)
+            .field(
+                "diagram_labels_count",
+                &self.diagram_labels.as_ref().map(Vec::len),
+            )
+            .field(
+                "thumbnail_attachment_id_set",
+                &self.thumbnail_attachment_id.is_some(),
+            )
+            .field(
+                "audio_preview_attachment_id_set",
+                &self.audio_preview_attachment_id.is_some(),
+            )
+            .field(
+                "text_combined_len",
+                &self.text_combined.as_ref().map(String::len),
+            )
+            .field("created_at", &self.created_at)
+            .finish()
+    }
 }
 
 // =============================================================================
