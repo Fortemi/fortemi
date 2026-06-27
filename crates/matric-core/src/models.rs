@@ -3825,10 +3825,10 @@ impl fmt::Debug for Collection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Collection")
             .field("id_set", &true)
-            .field("name_len", &self.name.len())
+            .field("name_len", &debug_len(&self.name))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &optional_debug_len(self.description.as_ref()),
             )
             .field("parent_id_set", &self.parent_id.is_some())
             .field("created_at_utc", &self.created_at_utc)
@@ -3850,7 +3850,7 @@ pub struct Tag {
 impl fmt::Debug for Tag {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Tag")
-            .field("name_len", &self.name.len())
+            .field("name_len", &debug_len(&self.name))
             .field("created_at_utc", &self.created_at_utc)
             .field("note_count", &self.note_count)
             .finish()
@@ -3889,11 +3889,11 @@ impl fmt::Debug for ArchiveInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ArchiveInfo")
             .field("id_set", &true)
-            .field("name_len", &self.name.len())
-            .field("schema_name_len", &self.schema_name.len())
+            .field("name_len", &debug_len(&self.name))
+            .field("schema_name_len", &debug_len(&self.schema_name))
             .field(
                 "description_len",
-                &self.description.as_ref().map(String::len),
+                &optional_debug_len(self.description.as_ref()),
             )
             .field("created_at", &self.created_at)
             .field("last_accessed_set", &self.last_accessed.is_some())
@@ -3924,8 +3924,8 @@ impl fmt::Debug for UserMetadataLabel {
         f.debug_struct("UserMetadataLabel")
             .field("id_set", &true)
             .field("note_id_set", &true)
-            .field("label_len", &self.label.len())
-            .field("color_len", &self.color.as_ref().map(String::len))
+            .field("label_len", &debug_len(&self.label))
+            .field("color_len", &optional_debug_len(self.color.as_ref()))
             .field("created_at", &self.created_at)
             .finish()
     }
@@ -3942,7 +3942,7 @@ pub struct UserConfig {
 impl fmt::Debug for UserConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UserConfig")
-            .field("key_len", &self.key.len())
+            .field("key_len", &debug_len(&self.key))
             .field("value_class", &json_value_class(&self.value))
             .field("value_len", &json_serialized_len(&self.value))
             .field("updated_at", &self.updated_at)
@@ -7002,26 +7002,22 @@ mod tests {
         let now = Utc::now();
         let collection = Collection {
             id: Uuid::new_v4(),
-            name: "Private collection private@example.test".to_string(),
-            description: Some(
-                "Collection description includes /tmp/customer/collection.md".to_string(),
-            ),
+            name: "éé".to_string(),
+            description: Some("åå".to_string()),
             parent_id: Some(Uuid::new_v4()),
             created_at_utc: now,
             note_count: 42,
         };
         let tag = Tag {
-            name: "secret-tag/private@example.test/sk-live-secret".to_string(),
+            name: "ö丼".to_string(),
             created_at_utc: now,
             note_count: 7,
         };
         let archive = ArchiveInfo {
             id: Uuid::new_v4(),
-            name: "Private archive private@example.test".to_string(),
-            schema_name: "tenant_secret_schema_sk_live_secret".to_string(),
-            description: Some(
-                "Archive description https://archive.example.test/?token=secret".to_string(),
-            ),
+            name: "üü".to_string(),
+            schema_name: "ññ".to_string(),
+            description: Some("øø".to_string()),
             created_at: now,
             last_accessed: Some(now),
             note_count: Some(11),
@@ -7032,12 +7028,12 @@ mod tests {
         let label = UserMetadataLabel {
             id: Uuid::new_v4(),
             note_id: Uuid::new_v4(),
-            label: "Private label private@example.test 555-1212".to_string(),
-            color: Some("color-secret-sk-live-secret".to_string()),
+            label: "çç".to_string(),
+            color: Some("ßß".to_string()),
             created_at: now,
         };
         let config = UserConfig {
-            key: "private.config.key.sk-live-secret".to_string(),
+            key: "îî".to_string(),
             value: json!({
                 "provider_url": "https://provider.example.test/?token=secret",
                 "path": "/tmp/customer/user-config.json",
@@ -7053,15 +7049,24 @@ mod tests {
             &debug,
             &[
                 "Private collection",
+                "éé",
+                "åå",
                 "private@example.test",
                 "/tmp/customer/collection.md",
                 "secret-tag",
+                "ö丼",
                 "sk-live-secret",
                 "Private archive",
+                "üü",
+                "ññ",
+                "øø",
                 "tenant_secret_schema",
                 "Archive description",
                 "archive.example.test",
                 "Private label",
+                "çç",
+                "ßß",
+                "îî",
                 "555-1212",
                 "color-secret",
                 "private.config.key",
@@ -7072,14 +7077,14 @@ mod tests {
         );
 
         for expected in [
-            "name_len",
-            "description_len",
+            "name_len: 2",
+            "description_len: Some(2)",
             "parent_id_set",
-            "schema_name_len",
+            "schema_name_len: 2",
             "last_accessed_set",
-            "label_len",
-            "color_len",
-            "key_len",
+            "label_len: 2",
+            "color_len: Some(2)",
+            "key_len: 2",
             "value_class",
             "value_len",
         ] {
