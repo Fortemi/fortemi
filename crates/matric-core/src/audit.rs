@@ -12,7 +12,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use thiserror::Error;
 use tokio::time::Instant;
 use uuid::Uuid;
 
@@ -269,15 +268,45 @@ pub struct AuditBufferStats {
     pub sink_failures: u64,
 }
 
-#[derive(Debug, Error)]
+#[derive(Clone, Eq, PartialEq)]
 pub enum AuditError {
-    #[error("audit buffer capacity must be greater than zero")]
     InvalidBufferConfig,
-    #[error("audit buffer overflow for fail-closed event")]
     BufferOverflow,
-    #[error("audit sink failed: {0}")]
     Sink(String),
 }
+
+impl fmt::Debug for AuditError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidBufferConfig => f.write_str("AuditError::InvalidBufferConfig"),
+            Self::BufferOverflow => f.write_str("AuditError::BufferOverflow"),
+            Self::Sink(message) => f
+                .debug_struct("AuditError::Sink")
+                .field("message_len", &message.chars().count())
+                .field("message_class", &audit_error_message_class(message))
+                .finish(),
+        }
+    }
+}
+
+impl fmt::Display for AuditError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidBufferConfig => {
+                f.write_str("audit buffer capacity must be greater than zero")
+            }
+            Self::BufferOverflow => f.write_str("audit buffer overflow for fail-closed event"),
+            Self::Sink(message) => write!(
+                f,
+                "audit sink failed: message_class={} message_len={}",
+                audit_error_message_class(message),
+                message.chars().count()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for AuditError {}
 
 #[async_trait]
 pub trait AuditSink: Send + Sync {
@@ -477,6 +506,29 @@ fn looks_secret_shaped(value: &str) -> bool {
         || lower.contains("password=")
         || lower.contains("postgres://")
         || lower.contains("postgresql://")
+}
+
+fn audit_error_message_class(value: &str) -> &'static str {
+    let lower = value.to_ascii_lowercase();
+    if value.is_empty() {
+        "empty"
+    } else if looks_secret_shaped(value)
+        || lower.contains("secret")
+        || lower.contains("token")
+        || lower.contains("password")
+        || lower.contains("api_key")
+        || lower.contains("authorization")
+    {
+        "secret_candidate"
+    } else if lower.contains("://") {
+        "url_like"
+    } else if value.contains('/') || value.contains('\\') {
+        "path_like"
+    } else if value.chars().any(|ch| ch.is_control()) {
+        "control_chars"
+    } else {
+        "text"
+    }
 }
 
 #[cfg(test)]
@@ -684,6 +736,29 @@ mod tests {
         let result = buffer.emit(event("fails")).await;
         assert!(matches!(result, Err(AuditError::Sink(_))));
         assert_eq!(buffer.stats().sink_failures, 1);
+    }
+
+    #[test]
+    fn audit_error_display_and_debug_redact_sink_failure_messages() {
+        let message =
+            "failed writing /var/lib/fortemi/audit.log with token=mm_key_supersecret".to_string();
+        let err = AuditError::Sink(message.clone());
+
+        let display = err.to_string();
+        let debug = format!("{err:?}");
+
+        assert!(display.contains("audit sink failed"));
+        assert!(display.contains("message_class=secret_candidate"));
+        assert!(display.contains("message_len="));
+        assert!(debug.contains("AuditError::Sink"));
+        assert!(debug.contains("message_class: \"secret_candidate\""));
+        assert!(debug.contains("message_len:"));
+        assert!(!display.contains(&message));
+        assert!(!debug.contains(&message));
+        assert!(!display.contains("/var/lib/fortemi/audit.log"));
+        assert!(!debug.contains("/var/lib/fortemi/audit.log"));
+        assert!(!display.contains("mm_key_supersecret"));
+        assert!(!debug.contains("mm_key_supersecret"));
     }
 
     #[test]
