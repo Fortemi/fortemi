@@ -133,9 +133,18 @@ pub struct DeviceInfo {
 impl fmt::Debug for DeviceInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeviceInfo")
-            .field("make_len", &self.make.as_ref().map(String::len))
-            .field("model_len", &self.model.as_ref().map(String::len))
-            .field("software_len", &self.software.as_ref().map(String::len))
+            .field(
+                "make_len",
+                &self.make.as_ref().map(|value| value.chars().count()),
+            )
+            .field(
+                "model_len",
+                &self.model.as_ref().map(|value| value.chars().count()),
+            )
+            .field(
+                "software_len",
+                &self.software.as_ref().map(|value| value.chars().count()),
+            )
             .finish()
     }
 }
@@ -201,7 +210,7 @@ pub fn extract_exif(data: &[u8]) -> Result<ExifMetadata> {
 fn exif_read_error(diagnostic: impl fmt::Display) -> Error {
     Error::InvalidInput(format!(
         "Failed to read EXIF data; diagnostic_len={}",
-        diagnostic.to_string().len()
+        diagnostic.to_string().chars().count()
     ))
 }
 
@@ -434,13 +443,13 @@ mod tests {
     #[test]
     fn exif_read_errors_report_metadata_without_raw_diagnostics() {
         let diagnostic =
-            "bad EXIF parser detail for /home/user/private.jpg sk-live-secret customer@example.com";
+            "bad EXIF parser detail café for /home/user/private.jpg sk-live-secret customer@example.com";
         let err = exif_read_error(diagnostic);
 
         match err {
             Error::InvalidInput(msg) => {
                 assert!(msg.contains("Failed to read EXIF data"));
-                assert!(msg.contains("diagnostic_len=85"));
+                assert!(msg.contains("diagnostic_len=90"));
                 assert!(!msg.contains("/home/user/private.jpg"));
                 assert!(!msg.contains("sk-live-secret"));
                 assert!(!msg.contains("customer@example.com"));
@@ -576,9 +585,9 @@ mod tests {
             altitude: Some(42.75),
         };
         let device = DeviceInfo {
-            make: Some("PrivateCameraCorp".to_string()),
-            model: Some("Model private@example.test".to_string()),
-            software: Some("Processor sk-live-secret /tmp/photo".to_string()),
+            make: Some("PrivátéCameraCorp".to_string()),
+            model: Some("Mödél private@example.test".to_string()),
+            software: Some("Pröcessor sk-live-secret /tmp/photo".to_string()),
         };
         let metadata = ExifMetadata {
             datetime: Some(Utc::now()),
@@ -594,7 +603,7 @@ mod tests {
             "34.0195",
             "-118.4912",
             "42.75",
-            "PrivateCameraCorp",
+            "PrivátéCameraCorp",
             "private@example.test",
             "sk-live-secret",
             "/tmp/photo",
@@ -623,6 +632,17 @@ mod tests {
             assert!(
                 debug.contains(expected),
                 "EXIF Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
+
+        for expected in [
+            "make_len: Some(17)",
+            "model_len: Some(26)",
+            "software_len: Some(35)",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "EXIF Debug output should report Unicode character counts for {expected:?}: {debug}"
             );
         }
     }
