@@ -12,10 +12,11 @@
 
 use crate::{Error, Result};
 use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone, Utc};
+use std::fmt;
 use std::io::Cursor;
 
 /// EXIF metadata extracted from an image file
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct ExifMetadata {
     /// Original capture date/time from EXIF DateTimeOriginal or DateTimeDigitized
     pub datetime: Option<DateTime<Utc>>,
@@ -33,8 +34,20 @@ pub struct ExifMetadata {
     pub dimensions: Option<(u32, u32)>,
 }
 
+impl fmt::Debug for ExifMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExifMetadata")
+            .field("datetime_set", &self.datetime.is_some())
+            .field("gps_set", &self.gps.is_some())
+            .field("device_set", &self.device.is_some())
+            .field("orientation", &self.orientation)
+            .field("dimensions", &self.dimensions)
+            .finish()
+    }
+}
+
 /// GPS coordinates extracted from EXIF
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct GpsCoordinates {
     /// Latitude in decimal degrees (positive = North, negative = South)
     pub latitude: f64,
@@ -44,6 +57,16 @@ pub struct GpsCoordinates {
 
     /// Altitude in meters above sea level (if available)
     pub altitude: Option<f64>,
+}
+
+impl fmt::Debug for GpsCoordinates {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GpsCoordinates")
+            .field("latitude_set", &true)
+            .field("longitude_set", &true)
+            .field("altitude_set", &self.altitude.is_some())
+            .finish()
+    }
 }
 
 impl GpsCoordinates {
@@ -95,7 +118,7 @@ impl GpsCoordinates {
 }
 
 /// Camera/device information from EXIF
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct DeviceInfo {
     /// Camera/device manufacturer (EXIF Make tag)
     pub make: Option<String>,
@@ -105,6 +128,16 @@ pub struct DeviceInfo {
 
     /// Software used to process the image
     pub software: Option<String>,
+}
+
+impl fmt::Debug for DeviceInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeviceInfo")
+            .field("make_len", &self.make.as_ref().map(String::len))
+            .field("model_len", &self.model.as_ref().map(String::len))
+            .field("software_len", &self.software.as_ref().map(String::len))
+            .finish()
+    }
 }
 
 /// Extract EXIF metadata from image file bytes
@@ -506,6 +539,65 @@ mod tests {
 
         let debug_str = format!("{:?}", metadata);
         assert!(debug_str.contains("ExifMetadata"));
+    }
+
+    #[test]
+    fn test_exif_debug_redacts_gps_and_device_values() {
+        let gps = GpsCoordinates {
+            latitude: 34.0195,
+            longitude: -118.4912,
+            altitude: Some(42.75),
+        };
+        let device = DeviceInfo {
+            make: Some("PrivateCameraCorp".to_string()),
+            model: Some("Model private@example.test".to_string()),
+            software: Some("Processor sk-live-secret /tmp/photo".to_string()),
+        };
+        let metadata = ExifMetadata {
+            datetime: Some(Utc::now()),
+            gps: Some(gps.clone()),
+            device: Some(device.clone()),
+            orientation: Some(1),
+            dimensions: Some((4032, 3024)),
+        };
+
+        let debug = format!("{metadata:?}\n{gps:?}\n{device:?}");
+
+        for secret in [
+            "34.0195",
+            "-118.4912",
+            "42.75",
+            "PrivateCameraCorp",
+            "private@example.test",
+            "sk-live-secret",
+            "/tmp/photo",
+        ] {
+            assert!(
+                !debug.contains(secret),
+                "EXIF Debug output leaked sensitive value {secret:?}: {debug}"
+            );
+        }
+
+        for expected in [
+            "ExifMetadata",
+            "GpsCoordinates",
+            "DeviceInfo",
+            "datetime_set",
+            "gps_set",
+            "device_set",
+            "latitude_set",
+            "longitude_set",
+            "altitude_set",
+            "make_len",
+            "model_len",
+            "software_len",
+            "dimensions",
+        ] {
+            assert!(
+                debug.contains(expected),
+                "EXIF Debug output should retain safe metadata field {expected:?}: {debug}"
+            );
+        }
     }
 
     #[test]
