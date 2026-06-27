@@ -447,9 +447,9 @@ impl fmt::Debug for Embedding {
             .field("id_set", &true)
             .field("note_id_set", &true)
             .field("chunk_index", &self.chunk_index)
-            .field("text_len", &self.text.len())
+            .field("text_len", &debug_len(&self.text))
             .field("vector_dimensions", &self.vector.as_slice().len())
-            .field("model_len", &self.model.len())
+            .field("model_len", &debug_len(&self.model))
             .finish()
     }
 }
@@ -472,7 +472,7 @@ impl fmt::Debug for EmbeddingConfig {
         f.debug_struct("EmbeddingConfig")
             .field("chunk_size", &self.chunk_size)
             .field("chunk_overlap", &self.chunk_overlap)
-            .field("model_len", &self.model.len())
+            .field("model_len", &debug_len(&self.model))
             .field("dimension", &self.dimension)
             .finish()
     }
@@ -650,10 +650,17 @@ impl fmt::Debug for EmbeddingSetCriteria {
             .field("tags_count", &self.tags.len())
             .field(
                 "tag_lens",
-                &self.tags.iter().map(String::len).collect::<Vec<_>>(),
+                &self
+                    .tags
+                    .iter()
+                    .map(|tag| debug_len(tag))
+                    .collect::<Vec<_>>(),
             )
             .field("collections_count", &self.collections.len())
-            .field("fts_query_len", &self.fts_query.as_ref().map(String::len))
+            .field(
+                "fts_query_len",
+                &optional_debug_len(self.fts_query.as_ref()),
+            )
             .field("created_after_set", &self.created_after.is_some())
             .field("created_before_set", &self.created_before.is_some())
             .field("exclude_archived", &self.exclude_archived)
@@ -748,12 +755,15 @@ impl fmt::Debug for EmbeddingSetAgentMetadata {
         f.debug_struct("EmbeddingSetAgentMetadata")
             .field(
                 "created_by_agent_len",
-                &self.created_by_agent.as_ref().map(String::len),
+                &optional_debug_len(self.created_by_agent.as_ref()),
             )
-            .field("rationale_len", &self.rationale.as_ref().map(String::len))
+            .field(
+                "rationale_len",
+                &optional_debug_len(self.rationale.as_ref()),
+            )
             .field(
                 "performance_notes_len",
-                &self.performance_notes.as_ref().map(String::len),
+                &optional_debug_len(self.performance_notes.as_ref()),
             )
             .field("related_sets_count", &self.related_sets.len())
             .field(
@@ -761,7 +771,7 @@ impl fmt::Debug for EmbeddingSetAgentMetadata {
                 &self
                     .related_sets
                     .iter()
-                    .map(String::len)
+                    .map(|related_set| debug_len(related_set))
                     .collect::<Vec<_>>(),
             )
             .field("suggested_queries_count", &self.suggested_queries.len())
@@ -770,7 +780,7 @@ impl fmt::Debug for EmbeddingSetAgentMetadata {
                 &self
                     .suggested_queries
                     .iter()
-                    .map(String::len)
+                    .map(|suggested_query| debug_len(suggested_query))
                     .collect::<Vec<_>>(),
             )
             .finish()
@@ -5213,14 +5223,14 @@ mod tests {
             id: Uuid::new_v4(),
             note_id: Uuid::new_v4(),
             chunk_index: 7,
-            text: "Private chunk text includes private@example.test and sk-live-secret".to_string(),
+            text: "éé".to_string(),
             vector: Vector::from(vec![0.12345, 0.67891, 0.22222]),
-            model: "private-embedding-model-sk-live-secret".to_string(),
+            model: "éé".to_string(),
         };
         let config = EmbeddingConfig {
             chunk_size: 2048,
             chunk_overlap: 128,
-            model: "private-config-model-private@example.test".to_string(),
+            model: "éé".to_string(),
             dimension: 3,
         };
 
@@ -5230,6 +5240,7 @@ mod tests {
             &debug,
             &[
                 "Private chunk text",
+                "éé",
                 "private@example.test",
                 "sk-live-secret",
                 "0.12345",
@@ -5241,6 +5252,8 @@ mod tests {
         );
 
         for expected in [
+            "text_len: 2",
+            "model_len: 2",
             "id_set",
             "note_id_set",
             "chunk_index",
@@ -6475,12 +6488,9 @@ mod tests {
         let now = Utc::now();
         let criteria = EmbeddingSetCriteria {
             include_all: false,
-            tags: vec![
-                "private-tag-private@example.test".to_string(),
-                "https://tags.example.test/?token=secret".to_string(),
-            ],
+            tags: vec!["éé".to_string()],
             collections: vec![Uuid::new_v4()],
-            fts_query: Some("private query sk-live-secret /tmp/customer/query.txt".to_string()),
+            fts_query: Some("éé".to_string()),
             created_after: Some(now),
             created_before: Some(now),
             exclude_archived: true,
@@ -6495,15 +6505,11 @@ mod tests {
             rate_limit: Some(120),
         };
         let agent_metadata = EmbeddingSetAgentMetadata {
-            created_by_agent: Some("private-agent@example.test".to_string()),
-            rationale: Some(
-                "Rationale includes https://provider.example.test/?token=secret".to_string(),
-            ),
-            performance_notes: Some(
-                "Notes mention /tmp/customer/perf.log and sk-live-secret".to_string(),
-            ),
-            related_sets: vec!["related-private-set".to_string()],
-            suggested_queries: vec!["Suggested query for private@example.test".to_string()],
+            created_by_agent: Some("éé".to_string()),
+            rationale: Some("éé".to_string()),
+            performance_notes: Some("éé".to_string()),
+            related_sets: vec!["éé".to_string()],
+            suggested_queries: vec!["éé".to_string()],
         };
         let composition = DocumentComposition {
             include_title: true,
@@ -6639,6 +6645,7 @@ mod tests {
         assert_debug_excludes(
             &debug,
             &[
+                "éé",
                 "private-tag-private@example.test",
                 "tags.example.test",
                 "private query",
@@ -6688,11 +6695,22 @@ mod tests {
         );
 
         for expected in [
+            "tag_lens: [2]",
+            "fts_query_len: Some(2)",
+            "created_by_agent_len: Some(2)",
+            "rationale_len: Some(2)",
+            "performance_notes_len: Some(2)",
+            "related_set_lens: [2]",
+            "suggested_query_lens: [2]",
             "tags_count",
             "tag_lens",
             "fts_query_len",
             "created_by_agent_len",
+            "rationale_len",
+            "performance_notes_len",
+            "related_set_lens",
             "suggested_queries_count",
+            "suggested_query_lens",
             "instruction_prefix_len",
             "provider_config_class",
             "provider_config_len",
