@@ -23398,12 +23398,23 @@ impl ProblemDetails {
     }
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Serialize, utoipa::ToSchema)]
 struct ProblemTypeCatalogEntry {
     type_uri: String,
     status: u16,
     title: String,
     description: String,
+}
+
+impl fmt::Debug for ProblemTypeCatalogEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProblemTypeCatalogEntry")
+            .field("type_uri_len", &telemetry_text_len(&self.type_uri))
+            .field("status", &self.status)
+            .field("title_len", &telemetry_text_len(&self.title))
+            .field("description_len", &telemetry_text_len(&self.description))
+            .finish()
+    }
 }
 
 fn problem_type_catalog_entries() -> Vec<ProblemTypeCatalogEntry> {
@@ -38286,6 +38297,36 @@ mod tests {
         assert!(!debug.contains("operator@example.com"));
         assert!(!debug.contains("018fd1a0-secret-request-id"));
         assert!(!debug.contains(&attachment_id.to_string()));
+    }
+
+    #[test]
+    fn problem_type_catalog_debug_redacts_urls_titles_and_descriptions() {
+        let entries = problem_type_catalog_entries();
+        let debug = format!("{:?}", entries.first().expect("catalog entry"));
+
+        assert!(debug.contains("ProblemTypeCatalogEntry"));
+        assert!(debug.contains("type_uri_len"));
+        assert!(debug.contains("status"));
+        assert!(debug.contains("title_len"));
+        assert!(debug.contains("description_len"));
+
+        for problem_type in ProblemType::ALL {
+            assert!(
+                !debug.contains(&problem_type.type_uri()),
+                "raw problem URI leaked for {:?}",
+                problem_type
+            );
+            assert!(
+                !debug.contains(problem_type.title()),
+                "raw problem title leaked for {:?}",
+                problem_type
+            );
+            assert!(
+                !debug.contains(problem_type.description()),
+                "raw problem description leaked for {:?}",
+                problem_type
+            );
+        }
     }
 
     #[test]
