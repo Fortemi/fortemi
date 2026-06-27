@@ -76,6 +76,14 @@ fn telemetry_path_len(path: &std::path::Path) -> usize {
     path.display().to_string().len()
 }
 
+fn telemetry_job_type_len(job_type: &JobType) -> usize {
+    format!("{job_type:?}").len()
+}
+
+fn telemetry_strategy_len(strategy: ExtractionStrategy) -> usize {
+    strategy.to_string().len()
+}
+
 fn extraction_error_reason_code(error: &str) -> &'static str {
     let lower = error.to_ascii_lowercase();
     if lower.contains("permission denied") || lower.contains("access denied") {
@@ -1707,7 +1715,7 @@ impl JobHandler for ExtractionHandler {
                                     let error = e.to_string();
                                     error!(
                                         note_present = true,
-                                        job_type = ?job_type,
+                                        job_type_len = telemetry_job_type_len(job_type),
                                         error_len = telemetry_text_len(&error),
                                         error_reason = extraction_error_reason_code(&error),
                                         "Failed to re-queue downstream job after extraction"
@@ -1724,7 +1732,7 @@ impl JobHandler for ExtractionHandler {
                     } else if content_updated && uses_fanout {
                         info!(
                             note_present = true,
-                            strategy = %strategy,
+                            strategy_len = telemetry_strategy_len(strategy),
                             content_len = content.len(),
                             "Propagated extraction content but deferred downstream NLP \
                              to assembly handler (fan-out strategy)"
@@ -1743,7 +1751,7 @@ impl JobHandler for ExtractionHandler {
                 });
 
                 info!(
-                    strategy = %strategy,
+                    strategy_len = telemetry_strategy_len(strategy),
                     filename_len = telemetry_text_len(filename),
                     text_len = result.extracted_text.as_ref().map(|t| t.len()).unwrap_or(0),
                     "Extraction completed successfully"
@@ -1756,7 +1764,7 @@ impl JobHandler for ExtractionHandler {
                 let error_text = e.to_string();
                 let error_msg = extraction_failure_message(&error_text);
                 error!(
-                    strategy = %strategy,
+                    strategy_len = telemetry_strategy_len(strategy),
                     filename_len = telemetry_text_len(filename),
                     error_len = telemetry_text_len(&error_text),
                     error_reason = extraction_error_reason_code(&error_text),
@@ -1865,19 +1873,27 @@ mod tests {
         let filename = "secret-customer-token-mm_key_secret.pdf";
         let path =
             std::path::Path::new("/srv/fortemi/private/secret-customer-token-mm_key_secret.pdf");
+        let job_type = JobType::RelatedConceptInference;
+        let strategy = ExtractionStrategy::VideoMultimodal;
         let detail = format!(
-            "filename_len={}; source_path_len={}; error_reason={}",
+            "filename_len={}; source_path_len={}; job_type_len={}; strategy_len={}; error_reason={}",
             telemetry_text_len(filename),
             telemetry_path_len(path),
+            telemetry_job_type_len(&job_type),
+            telemetry_strategy_len(strategy),
             extraction_error_reason_code("permission denied reading secret path")
         );
 
         assert!(detail.contains("filename_len="));
         assert!(detail.contains("source_path_len="));
+        assert!(detail.contains("job_type_len="));
+        assert!(detail.contains("strategy_len="));
         assert!(detail.contains("permission_denied"));
         assert!(!detail.contains("secret-customer-token"));
         assert!(!detail.contains("mm_key_secret"));
         assert!(!detail.contains("/srv/fortemi"));
+        assert!(!detail.contains("RelatedConceptInference"));
+        assert!(!detail.contains("video_multimodal"));
     }
 
     #[test]
