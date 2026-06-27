@@ -286,7 +286,7 @@ impl VersioningRepository {
         let version_data = self
             .get_original_version(note_id, version)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Version {} not found", version)))?;
+            .ok_or_else(|| version_not_found_error(version))?;
 
         // Parse tags from YAML frontmatter if restore_tags is true
         let content_to_restore = if version_data.content.starts_with("---\n") {
@@ -432,12 +432,12 @@ impl VersioningRepository {
         let from = self
             .get_original_version(note_id, from_version)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Version {} not found", from_version)))?;
+            .ok_or_else(|| version_not_found_error(from_version))?;
 
         let to = self
             .get_original_version(note_id, to_version)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Version {} not found", to_version)))?;
+            .ok_or_else(|| version_not_found_error(to_version))?;
 
         // Extract actual content (strip frontmatter if present)
         let from_content = strip_frontmatter(&from.content);
@@ -693,7 +693,7 @@ impl VersioningRepository {
         let version_data = self
             .get_original_version_tx(tx, note_id, version)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Version {} not found", version)))?;
+            .ok_or_else(|| version_not_found_error(version))?;
 
         // Parse tags from YAML frontmatter if restore_tags is true
         let content_to_restore = if version_data.content.starts_with("---\n") {
@@ -831,12 +831,12 @@ impl VersioningRepository {
         let from = self
             .get_original_version_tx(tx, note_id, from_version)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Version {} not found", from_version)))?;
+            .ok_or_else(|| version_not_found_error(from_version))?;
 
         let to = self
             .get_original_version_tx(tx, note_id, to_version)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Version {} not found", to_version)))?;
+            .ok_or_else(|| version_not_found_error(to_version))?;
 
         // Extract actual content (strip frontmatter if present)
         let from_content = strip_frontmatter(&from.content);
@@ -870,6 +870,10 @@ fn strip_frontmatter(content: &str) -> String {
         }
     }
     content.to_string()
+}
+
+fn version_not_found_error(_version: i32) -> Error {
+    Error::NotFound("Version not found; version_present=true".to_string())
 }
 
 #[cfg(test)]
@@ -936,5 +940,19 @@ mod tests {
         assert!(!debug.contains("hash-secret"));
         assert!(!debug.contains("editor@example.com"));
         assert!(!debug.contains("tenant-private-model"));
+    }
+
+    #[test]
+    fn version_not_found_errors_report_metadata_without_raw_values() {
+        let raw_version = 8675309;
+        let error = version_not_found_error(raw_version);
+        let Error::NotFound(message) = error else {
+            panic!("expected not-found error");
+        };
+
+        assert!(message.contains("Version not found"));
+        assert!(message.contains("version_present=true"));
+        assert!(!message.contains(&raw_version.to_string()));
+        assert!(!message.contains("8675309"));
     }
 }
