@@ -330,7 +330,7 @@ impl PgCallSessionRepository {
 }
 
 /// Aggregated realtime call metrics derived from persisted call sessions.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct RealtimeCallMetrics {
     pub total_sessions: i64,
     pub active_sessions: i64,
@@ -338,6 +338,39 @@ pub struct RealtimeCallMetrics {
     pub completed_duration_sum_seconds: f64,
     pub duration_buckets: RealtimeDurationBuckets,
     pub duration_seconds_by_backend: serde_json::Value,
+}
+
+impl std::fmt::Debug for RealtimeCallMetrics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RealtimeCallMetrics")
+            .field("total_sessions", &self.total_sessions)
+            .field("active_sessions", &self.active_sessions)
+            .field("completed_sessions", &self.completed_sessions)
+            .field(
+                "completed_duration_sum_seconds",
+                &self.completed_duration_sum_seconds,
+            )
+            .field("duration_buckets", &self.duration_buckets)
+            .field(
+                "duration_backend_count",
+                &duration_backend_key_stats(&self.duration_seconds_by_backend).0,
+            )
+            .field(
+                "duration_backend_key_total_len",
+                &duration_backend_key_stats(&self.duration_seconds_by_backend).1,
+            )
+            .finish()
+    }
+}
+
+fn duration_backend_key_stats(value: &serde_json::Value) -> (usize, usize) {
+    value
+        .as_object()
+        .map(|object| {
+            let total_len = object.keys().map(|key| key.chars().count()).sum();
+            (object.len(), total_len)
+        })
+        .unwrap_or((0, 0))
 }
 
 /// Prometheus-style cumulative duration buckets for ended sessions.
@@ -379,6 +412,37 @@ mod tests {
             .get(backend)
             .and_then(|value| value.as_f64())
             .unwrap_or(0.0)
+    }
+
+    #[test]
+    fn realtime_call_metrics_debug_redacts_backend_labels() {
+        let metrics = RealtimeCallMetrics {
+            total_sessions: 3,
+            active_sessions: 1,
+            completed_sessions: 2,
+            completed_duration_sum_seconds: 42.5,
+            duration_buckets: RealtimeDurationBuckets {
+                le_30: 1,
+                le_60: 2,
+                le_300: 2,
+                le_900: 2,
+                le_1800: 2,
+                le_3600: 2,
+                le_inf: 2,
+            },
+            duration_seconds_by_backend: serde_json::json!({
+                "whisper://operator@example.internal?token=sk-secret": 42.5
+            }),
+        };
+
+        let rendered = format!("{metrics:?}");
+
+        assert!(rendered.contains("RealtimeCallMetrics"));
+        assert!(rendered.contains("duration_backend_count"));
+        assert!(rendered.contains("duration_backend_key_total_len"));
+        assert!(!rendered.contains("whisper://"));
+        assert!(!rendered.contains("operator@example.internal"));
+        assert!(!rendered.contains("sk-secret"));
     }
 
     #[tokio::test]
