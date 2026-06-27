@@ -71,6 +71,20 @@ fn audio_transcription_error_reason_code(error: &str) -> &'static str {
     }
 }
 
+fn audio_transcription_job_result(
+    segment_count: usize,
+    duration_secs: Option<f64>,
+    language: Option<&str>,
+) -> serde_json::Value {
+    json!({
+        "segment_count": segment_count,
+        "duration_secs": duration_secs,
+        "language_present": language.is_some(),
+        "language_len": language.map(audio_transcription_text_len),
+        "transcript_complete": true,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers used by both AudioTranscriptionHandler (short path) and
 // AudioChunkTranscriptionHandler (fan-in merge path).
@@ -685,12 +699,11 @@ impl AudioTranscriptionHandler {
         }
 
         ctx.report_progress(100, Some("Done"));
-        JobResult::Success(Some(json!({
-            "segment_count": segment_count,
-            "duration_secs": transcription.duration_secs,
-            "language": transcription.language,
-            "transcript_complete": true,
-        })))
+        JobResult::Success(Some(audio_transcription_job_result(
+            segment_count,
+            transcription.duration_secs,
+            transcription.language.as_deref(),
+        )))
     }
 
     /// Long-audio path: split into chunks, store as derived attachments, and
@@ -960,5 +973,24 @@ mod tests {
         assert!(!rendered.contains("postgres://"));
         assert!(!rendered.contains("db.internal"));
         assert!(!rendered.contains("/srv/private"));
+    }
+
+    #[test]
+    fn audio_transcription_job_result_redacts_language_label() {
+        let language = "en-US-private-provider https://speech.internal token=sk-language-secret";
+        let result = audio_transcription_job_result(4, Some(12.5), Some(language));
+        let rendered = result.to_string();
+
+        assert_eq!(result["language_present"], true);
+        assert_eq!(
+            result["language_len"],
+            audio_transcription_text_len(language)
+        );
+        assert!(rendered.contains("language_len"));
+        assert!(rendered.contains("language_present"));
+        assert!(!rendered.contains("\"language\""));
+        assert!(!rendered.contains("en-US-private-provider"));
+        assert!(!rendered.contains("speech.internal"));
+        assert!(!rendered.contains("sk-language-secret"));
     }
 }
