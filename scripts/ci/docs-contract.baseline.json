@@ -374,20 +374,6 @@
       "review_after": "2026-07-31"
     },
     {
-      "fingerprint": "e99d352ca0bc10a5",
-      "rule": "docs-provider-key-placeholder",
-      "issue": "#999",
-      "profile": "hosted_strict",
-      "severity": "high",
-      "category": "provider_key_placeholder",
-      "file": "mcp-server/tests/feature-chains.test.js",
-      "line": 1052,
-      "classification": "test_fixture_secret",
-      "reason": "MCP feature-chain provider-key fixture; cleanup/classification tracked by #999/#1004.",
-      "owner_issue": "#999",
-      "review_after": "2026-07-31"
-    },
-    {
       "fingerprint": "af1a1839f6b97a98",
       "rule": "docs-token-placeholder",
       "issue": "#999",

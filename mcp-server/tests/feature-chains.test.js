@@ -1049,7 +1049,7 @@ describe("Phase 19: Multi-Tool Workflows (CRITICAL)", () => {
     const testId = MCPTestClient.uniqueId().slice(0, 8);
     const keysetName = `chain026-${testId}`;
     const passphrase = `test-pass-${testId}`;
-    const sensitiveContent = `API_KEY=sk_test_${testId}_secret_value\nDB_PASSWORD=hunter2`;
+    const sensitiveContent = `API_KEY=<TEST_API_KEY_${testId}>\nDB_PASSWORD=hunter2`;
 
     // CHAIN-026: Create keyset
     const keyset = await client.callTool("pke_create_keyset", {
@@ -1117,7 +1117,7 @@ describe("Phase 19: Multi-Tool Workflows (CRITICAL)", () => {
         const decryptedText = decrypted.plaintext || decrypted;
         const decoded = Buffer.from(decryptedText, "base64").toString("utf-8");
         assert.ok(
-          decoded.includes("sk_test_") && decoded.includes("hunter2"),
+          decoded.includes("<TEST_API_KEY_") && decoded.includes("hunter2"),
           "Decrypted content should match original sensitive data"
         );
         console.log(`  CHAIN-030: Decrypted content matches original`);

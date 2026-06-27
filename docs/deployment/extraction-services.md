@@ -150,7 +150,7 @@ The Docker bundle includes the pyannote sidecar by default. It starts automatica
 1. Set your HuggingFace token for first-time model download:
    ```bash
    # .env
-   HF_TOKEN=hf_xxxxx
+   HF_TOKEN=<HF_TOKEN>
    ```
 
 2. Optionally configure the diarization model:
