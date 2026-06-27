@@ -33,6 +33,7 @@
 
 use regex::Regex;
 use std::collections::HashMap;
+use std::fmt;
 
 /// Configuration for chunking strategies.
 #[derive(Debug, Clone)]
@@ -56,7 +57,7 @@ impl Default for ChunkerConfig {
 }
 
 /// A text chunk with position information and metadata.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Chunk {
     /// The text content of the chunk.
     pub text: String,
@@ -66,6 +67,25 @@ pub struct Chunk {
     pub end_offset: usize,
     /// Additional metadata about the chunk (e.g., chunk type, hierarchy level).
     pub metadata: HashMap<String, String>,
+}
+
+impl fmt::Debug for Chunk {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Chunk")
+            .field("text_len", &self.text.len())
+            .field("start_offset", &self.start_offset)
+            .field("end_offset", &self.end_offset)
+            .field("metadata_count", &self.metadata.len())
+            .field(
+                "metadata_key_lens",
+                &self.metadata.keys().map(String::len).collect::<Vec<_>>(),
+            )
+            .field(
+                "metadata_value_lens",
+                &self.metadata.values().map(String::len).collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 impl Chunk {
@@ -799,6 +819,39 @@ mod tests {
         let empty_chunk = Chunk::new("".to_string(), 0, 0);
         assert_eq!(empty_chunk.len(), 0);
         assert!(empty_chunk.is_empty());
+    }
+
+    #[test]
+    fn chunk_debug_redacts_text_and_metadata() {
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            "private-key-sk-live-secret".to_string(),
+            "https://metadata.example.test/?token=secret".to_string(),
+        );
+        metadata.insert(
+            "path".to_string(),
+            "/tmp/customer/private-document.md".to_string(),
+        );
+        let chunk = Chunk::with_metadata(
+            "Customer note content with sk-live-secret and private@example.test".to_string(),
+            7,
+            71,
+            metadata,
+        );
+
+        let debug = format!("{chunk:?}");
+
+        assert!(debug.contains("Chunk"));
+        assert!(debug.contains("text_len"));
+        assert!(debug.contains("metadata_count"));
+        assert!(debug.contains("metadata_key_lens"));
+        assert!(debug.contains("metadata_value_lens"));
+        assert!(!debug.contains("Customer note content"));
+        assert!(!debug.contains("sk-live-secret"));
+        assert!(!debug.contains("private@example.test"));
+        assert!(!debug.contains("private-key"));
+        assert!(!debug.contains("metadata.example.test"));
+        assert!(!debug.contains("/tmp/customer"));
     }
 
     // ============================================================================
