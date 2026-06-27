@@ -210,12 +210,12 @@ impl DeepgramBackend {
         let url = config.listen_request_url();
         let mut request = url
             .into_client_request()
-            .map_err(|err| Error::Request(format!("Deepgram request setup failed: {err}")))?;
+            .map_err(|err| deepgram_request_error("request setup", err))?;
         let auth = format!("Token {}", config.api_key);
         request.headers_mut().insert(
             AUTHORIZATION,
             auth.parse()
-                .map_err(|err| Error::Config(format!("Deepgram auth header invalid: {err}")))?,
+                .map_err(|err| deepgram_config_error("auth header", err))?,
         );
         request.headers_mut().insert(
             USER_AGENT,
@@ -289,12 +289,12 @@ async fn connect_with_retries(
         }
     }
 
-    Err(Error::Request(format!(
-        "Deepgram WebSocket open failed after retries: {}",
+    Err(deepgram_request_error(
+        "websocket open",
         last_error
             .map(|err| err.to_string())
-            .unwrap_or_else(|| "unknown error".to_string())
-    )))
+            .unwrap_or_else(|| "unknown error".to_string()),
+    ))
 }
 
 type DeepgramSocket =
@@ -338,7 +338,7 @@ async fn read_deepgram_events_with_reconnect(
             Some(Ok(_)) => continue,
             Some(Err(err)) => {
                 let _ = tx.send(TranscriptEvent::Error {
-                    reason: format!("Deepgram WebSocket read failed: {err}"),
+                    reason: deepgram_diagnostic_message("WebSocket read", err),
                 });
                 if !reconnect_deepgram_source(
                     &request,
@@ -403,7 +403,7 @@ impl AsrSession for DeepgramSession {
             .ok_or_else(|| Error::Request("Deepgram WebSocket is not connected".to_string()))?;
         sink.send(Message::Binary(bytes.into()))
             .await
-            .map_err(|err| Error::Request(format!("Deepgram audio send failed: {err}")))
+            .map_err(|err| deepgram_request_error("audio send", err))
     }
 
     async fn close(&mut self) -> Result<()> {
@@ -424,6 +424,59 @@ impl AsrSession for DeepgramSession {
             None => Box::pin(futures::stream::empty()),
         }
     }
+}
+
+fn deepgram_request_error(kind: &'static str, err: impl fmt::Display) -> Error {
+    Error::Request(deepgram_diagnostic_message(kind, err))
+}
+
+fn deepgram_config_error(kind: &'static str, err: impl fmt::Display) -> Error {
+    Error::Config(deepgram_diagnostic_message(kind, err))
+}
+
+fn deepgram_provider_error_message(diagnostic: Option<&str>) -> String {
+    let diagnostic = diagnostic.unwrap_or_default();
+    format!(
+        "Deepgram provider error; diagnostic_class={}; diagnostic_len={}",
+        deepgram_diagnostic_class(diagnostic),
+        deepgram_text_len(diagnostic)
+    )
+}
+
+fn deepgram_diagnostic_message(kind: &'static str, err: impl fmt::Display) -> String {
+    let diagnostic = err.to_string();
+    format!(
+        "Deepgram {kind} failed; diagnostic_class={}; diagnostic_len={}",
+        deepgram_diagnostic_class(&diagnostic),
+        deepgram_text_len(&diagnostic)
+    )
+}
+
+fn deepgram_diagnostic_class(value: &str) -> &'static str {
+    let lower = value.to_ascii_lowercase();
+    if value.is_empty() {
+        "empty"
+    } else if value.chars().any(char::is_control) {
+        "control_chars"
+    } else if lower.contains("secret")
+        || lower.contains("token")
+        || lower.contains("password")
+        || lower.contains("apikey")
+        || lower.contains("api_key")
+        || lower.contains("sk-")
+    {
+        "secret_candidate"
+    } else if lower.contains("://") || lower.starts_with("http") {
+        "url_like"
+    } else if value.contains('/') || value.contains('\\') {
+        "path_like"
+    } else {
+        "text"
+    }
+}
+
+fn deepgram_text_len(value: &str) -> usize {
+    value.chars().count()
 }
 
 #[derive(Deserialize)]
@@ -510,7 +563,7 @@ fn parse_deepgram_message(
     match serde_json::from_str::<DeepgramEnvelope>(text) {
         Ok(envelope) => envelope_to_events(envelope, opened_at, metrics),
         Err(err) => vec![TranscriptEvent::Error {
-            reason: format!("Deepgram JSON parse failed: {err}"),
+            reason: deepgram_diagnostic_message("JSON parse", err),
         }],
     }
 }
@@ -525,11 +578,9 @@ fn envelope_to_events(
         .as_deref()
         .is_some_and(|event_type| event_type.eq_ignore_ascii_case("Error"))
     {
+        let diagnostic = envelope.description.or(envelope.message);
         return vec![TranscriptEvent::Error {
-            reason: envelope
-                .description
-                .or(envelope.message)
-                .unwrap_or_else(|| "Deepgram error".to_string()),
+            reason: deepgram_provider_error_message(diagnostic.as_deref()),
         }];
     }
 
@@ -805,15 +856,64 @@ mod tests {
     #[test]
     fn parses_deepgram_error_without_leaking_auth() {
         let metrics = metrics();
+        let diagnostic = "bad request for token sk-live-deepgram at wss://api.deepgram.com/listen";
         let events = parse_deepgram_message(
-            r#"{"type":"Error","description":"bad request"}"#,
+            &format!(r#"{{"type":"Error","description":"{diagnostic}"}}"#),
             Instant::now(),
             &metrics,
         );
 
-        assert!(
-            matches!(events.first(), Some(TranscriptEvent::Error { reason }) if reason == "bad request")
-        );
+        let reason = match events.first() {
+            Some(TranscriptEvent::Error { reason }) => reason,
+            other => panic!("unexpected event: {other:?}"),
+        };
+
+        assert!(reason.contains("Deepgram provider error"));
+        assert!(reason.contains("diagnostic_class=secret_candidate"));
+        assert!(reason.contains(&format!("diagnostic_len={}", diagnostic.chars().count())));
+        for raw in ["sk-live-deepgram", "api.deepgram.com", "bad request"] {
+            assert!(
+                !reason.contains(raw),
+                "raw provider diagnostic leaked: {raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn deepgram_diagnostics_report_classes_without_raw_values() {
+        let diagnostic =
+            "request failed for token sk-live-secret at postgres://user:pass@db.internal/app";
+        let message = deepgram_diagnostic_message("request setup", diagnostic);
+
+        assert!(message.contains("Deepgram request setup failed"));
+        assert!(message.contains("diagnostic_class=secret_candidate"));
+        assert!(message.contains(&format!("diagnostic_len={}", diagnostic.chars().count())));
+        for raw in [
+            "sk-live-secret",
+            "postgres://user:pass",
+            "db.internal",
+            "token ",
+        ] {
+            assert!(!message.contains(raw), "raw diagnostic leaked: {raw}");
+        }
+    }
+
+    #[test]
+    fn malformed_deepgram_json_errors_do_not_echo_payload() {
+        let metrics = metrics();
+        let raw_payload = r#"{"type":"Results","channel":"sk-live-secret"#;
+        let events = parse_deepgram_message(raw_payload, Instant::now(), &metrics);
+        let reason = match events.first() {
+            Some(TranscriptEvent::Error { reason }) => reason,
+            other => panic!("unexpected event: {other:?}"),
+        };
+
+        assert!(reason.contains("Deepgram JSON parse failed"));
+        assert!(reason.contains("diagnostic_class="));
+        assert!(reason.contains("diagnostic_len="));
+        for raw in ["sk-live-secret", "Results", "channel"] {
+            assert!(!reason.contains(raw), "raw parse payload leaked: {raw}");
+        }
     }
 
     #[test]
