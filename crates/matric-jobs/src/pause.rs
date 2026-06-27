@@ -33,7 +33,7 @@ impl std::fmt::Debug for PersistedPauseState {
 
 const CONFIG_KEY: &str = "job_pause_state";
 
-fn pause_parse_error_reason_code(error: &serde_json::Error) -> &'static str {
+fn pause_json_error_reason_code(error: &serde_json::Error) -> &'static str {
     use serde_json::error::Category;
 
     match error.classify() {
@@ -46,6 +46,15 @@ fn pause_parse_error_reason_code(error: &serde_json::Error) -> &'static str {
 
 fn archive_name_len(archive: &str) -> usize {
     archive.chars().count()
+}
+
+fn pause_state_serialize_failure_detail(error: &serde_json::Error) -> String {
+    let error_text = error.to_string();
+    format!(
+        "Failed to serialize pause state; error_len={}; error_reason={}",
+        error_text.chars().count(),
+        pause_json_error_reason_code(error)
+    )
 }
 
 /// Thread-safe pause state manager.
@@ -102,7 +111,7 @@ impl PauseState {
                     let error_text = e.to_string();
                     warn!(
                         error_len = error_text.len(),
-                        error_reason = pause_parse_error_reason_code(&e),
+                        error_reason = pause_json_error_reason_code(&e),
                         "Failed to parse persisted pause state, defaulting to running"
                     );
                 }
@@ -203,7 +212,7 @@ impl PauseState {
         };
 
         let value = serde_json::to_value(&state)
-            .map_err(|e| Error::Internal(format!("Failed to serialize pause state: {e}")))?;
+            .map_err(|e| Error::Internal(pause_state_serialize_failure_detail(&e)))?;
 
         sqlx::query(
             "INSERT INTO system_config (key, value, updated_at) VALUES ($1, $2, NOW())
@@ -262,6 +271,23 @@ mod tests {
     }
 
     #[test]
+    fn pause_state_serialize_failure_detail_redacts_diagnostic() {
+        let diagnostic =
+            "failed at /srv/tenant/acme.json with api_key=sk-test-123 and postgres://user:pass@db";
+        let error = <serde_json::Error as serde::ser::Error>::custom(diagnostic);
+
+        let detail = pause_state_serialize_failure_detail(&error);
+
+        assert!(detail.contains("Failed to serialize pause state"));
+        assert!(detail.contains("error_len="));
+        assert!(detail.contains("error_reason=json_shape"));
+        assert!(!detail.contains("/srv/tenant/acme.json"));
+        assert!(!detail.contains("sk-test-123"));
+        assert!(!detail.contains("postgres://user:pass@db"));
+        assert!(!detail.contains(diagnostic));
+    }
+
+    #[test]
     fn test_persisted_state_default() {
         let state = PersistedPauseState::default();
         assert!(!state.global_paused);
@@ -289,20 +315,20 @@ mod tests {
     }
 
     #[test]
-    fn pause_parse_error_reason_code_uses_stable_classes() {
+    fn pause_json_error_reason_code_uses_stable_classes() {
         let syntax_error =
             serde_json::from_str::<PersistedPauseState>("{global_paused").unwrap_err();
-        assert_eq!(pause_parse_error_reason_code(&syntax_error), "json_syntax");
+        assert_eq!(pause_json_error_reason_code(&syntax_error), "json_syntax");
 
         let shape_error = serde_json::from_value::<PersistedPauseState>(serde_json::json!({
             "global_paused": "postgres://user:secret@db/app",
             "paused_archives": ["research"]
         }))
         .unwrap_err();
-        assert_eq!(pause_parse_error_reason_code(&shape_error), "json_shape");
+        assert_eq!(pause_json_error_reason_code(&shape_error), "json_shape");
 
         let eof_error = serde_json::from_str::<PersistedPauseState>("{").unwrap_err();
-        assert_eq!(pause_parse_error_reason_code(&eof_error), "json_eof");
+        assert_eq!(pause_json_error_reason_code(&eof_error), "json_eof");
     }
 
     #[test]
