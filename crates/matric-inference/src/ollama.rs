@@ -8,6 +8,7 @@ use tracing::{debug, info, instrument, warn};
 
 use matric_core::{EmbeddingBackend, Error, GenerationBackend, InferenceBackend, Result, Vector};
 
+use crate::diagnostics::{backend_parse_error, backend_request_error, backend_status_error};
 use crate::embedding_models::{EmbeddingModelProfile, EmbeddingModelRegistry};
 // requires_raw_mode is tested below but no longer used in generate_internal (switched to chat API).
 #[cfg(test)]
@@ -207,11 +208,13 @@ impl OllamaBackend {
         .await
         .map_err(|_| {
             matric_core::Error::Internal(format!(
-                "Warmup timed out after 30s for model length {}",
+                "Ollama warmup timed out after 30s for model length {}",
                 diagnostic_len(&self.gen_model)
             ))
         })?
-        .map_err(|e| matric_core::Error::Internal(format!("Warmup failed: {}", e)))?;
+        .map_err(|e| {
+            matric_core::Error::Internal(backend_request_error("Ollama warmup failed", &e))
+        })?;
         // Consume the response body to release the connection
         let _ = resp.bytes().await;
         debug!(
@@ -244,11 +247,13 @@ impl OllamaBackend {
         .await
         .map_err(|_| {
             matric_core::Error::Internal(format!(
-                "Unload timed out after 10s for model length {}",
+                "Ollama unload timed out after 10s for model length {}",
                 diagnostic_len(&self.gen_model)
             ))
         })?
-        .map_err(|e| matric_core::Error::Internal(format!("Unload failed: {}", e)))?;
+        .map_err(|e| {
+            matric_core::Error::Internal(backend_request_error("Ollama unload failed", &e))
+        })?;
         let _ = resp.bytes().await;
         debug!(
             model_len = diagnostic_len(&self.gen_model),
@@ -300,8 +305,9 @@ impl OllamaBackend {
     /// Set the generation model to use.
     pub fn set_gen_model(&mut self, model_name: String) {
         info!(
-            "Switching generation model from {} to {}",
-            self.gen_model, model_name
+            old_model_len = diagnostic_len(&self.gen_model),
+            new_model_len = diagnostic_len(&model_name),
+            "Switching generation model"
         );
         self.gen_model = model_name;
     }
@@ -311,8 +317,9 @@ impl OllamaBackend {
     pub fn set_base_url(&mut self, base_url: String) {
         let trimmed = base_url.trim_end_matches('/').to_string();
         info!(
-            "Switching Ollama base URL from {} to {}",
-            self.base_url, trimmed
+            old_base_url_len = diagnostic_len(&self.base_url),
+            new_base_url_len = diagnostic_len(&trimmed),
+            "Switching Ollama base URL"
         );
         self.base_url = trimmed;
     }
@@ -392,8 +399,9 @@ impl OllamaBackend {
     /// Set the embedding model, updating the profile accordingly.
     pub fn set_embed_model(&mut self, model_name: String) {
         info!(
-            "Switching embedding model from {} to {}",
-            self.embed_model, model_name
+            old_model_len = diagnostic_len(&self.embed_model),
+            new_model_len = diagnostic_len(&model_name),
+            "Switching embedding model"
         );
         self.embed_profile = self.embed_registry.get_or_default(&model_name);
         self.embed_model = model_name;
@@ -439,21 +447,23 @@ impl OllamaBackend {
             .json(&request)
             .send()
             .await
-            .map_err(|e| Error::Inference(format!("Chat request failed: {}", e)))?;
+            .map_err(|e| {
+                Error::Inference(backend_request_error("Ollama chat request failed", &e))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(Error::Inference(format!(
-                "Ollama returned {}: {}",
-                status, body
+            return Err(Error::Inference(backend_status_error(
+                "Ollama chat",
+                status,
+                &body,
             )));
         }
 
-        let result: ChatResponse = response
-            .json()
-            .await
-            .map_err(|e| Error::Inference(format!("Failed to parse chat response: {}", e)))?;
+        let result: ChatResponse = response.json().await.map_err(|e| {
+            Error::Inference(backend_parse_error("Ollama chat response parse failed", e))
+        })?;
 
         let elapsed = start.elapsed().as_millis() as u64;
         debug!(
@@ -504,14 +514,20 @@ impl OllamaBackend {
             .json(&request)
             .send()
             .await
-            .map_err(|e| Error::Inference(format!("Streaming chat request failed: {}", e)))?;
+            .map_err(|e| {
+                Error::Inference(backend_request_error(
+                    "Ollama streaming chat request failed",
+                    &e,
+                ))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(Error::Inference(format!(
-                "Ollama stream returned {}: {}",
-                status, body
+            return Err(Error::Inference(backend_status_error(
+                "Ollama streaming chat",
+                status,
+                &body,
             )));
         }
 
@@ -569,14 +585,20 @@ impl OllamaBackend {
             .json(&request)
             .send()
             .await
-            .map_err(|e| Error::Inference(format!("Streaming chat request failed: {}", e)))?;
+            .map_err(|e| {
+                Error::Inference(backend_request_error(
+                    "Ollama streaming generation request failed",
+                    &e,
+                ))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(Error::Inference(format!(
-                "Ollama stream returned {}: {}",
-                status, body
+            return Err(Error::Inference(backend_status_error(
+                "Ollama streaming generation",
+                status,
+                &body,
             )));
         }
 
@@ -678,21 +700,29 @@ impl OllamaBackend {
             .json(&request)
             .send()
             .await
-            .map_err(|e| Error::Inference(format!("Request failed: {}", e)))?;
+            .map_err(|e| {
+                Error::Inference(backend_request_error(
+                    "Ollama generation request failed",
+                    &e,
+                ))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(Error::Inference(format!(
-                "Ollama returned {}: {}",
-                status, body
+            return Err(Error::Inference(backend_status_error(
+                "Ollama generation",
+                status,
+                &body,
             )));
         }
 
-        let result: ChatResponse = response
-            .json()
-            .await
-            .map_err(|e| Error::Inference(format!("Failed to parse response: {}", e)))?;
+        let result: ChatResponse = response.json().await.map_err(|e| {
+            Error::Inference(backend_parse_error(
+                "Ollama generation response parse failed",
+                e,
+            ))
+        })?;
 
         let content = result.message.content;
         let elapsed = start.elapsed().as_millis() as u64;
@@ -823,9 +853,9 @@ fn ollama_chat_ndjson_stream(response: reqwest::Response) -> matric_core::Genera
                 }
                 out
             }
-            Err(e) => vec![Err(Error::Inference(format!(
-                "Streaming chunk read failed: {}",
-                e
+            Err(e) => vec![Err(Error::Inference(backend_request_error(
+                "Ollama streaming chunk read failed",
+                &e,
             )))],
         };
         futures::stream::iter(items)
@@ -856,21 +886,26 @@ impl EmbeddingBackend for OllamaBackend {
             .json(&request)
             .send()
             .await
-            .map_err(|e| Error::Embedding(format!("Request failed: {}", e)))?;
+            .map_err(|e| {
+                Error::Embedding(backend_request_error("Ollama embedding request failed", &e))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(Error::Embedding(format!(
-                "Ollama returned {}: {}",
-                status, body
+            return Err(Error::Embedding(backend_status_error(
+                "Ollama embeddings",
+                status,
+                &body,
             )));
         }
 
-        let result: EmbeddingResponse = response
-            .json()
-            .await
-            .map_err(|e| Error::Embedding(format!("Failed to parse response: {}", e)))?;
+        let result: EmbeddingResponse = response.json().await.map_err(|e| {
+            Error::Embedding(backend_parse_error(
+                "Ollama embedding response parse failed",
+                e,
+            ))
+        })?;
 
         let vectors: Vec<Vector> = result.embeddings.into_iter().map(Vector::from).collect();
         let elapsed = start.elapsed().as_millis() as u64;

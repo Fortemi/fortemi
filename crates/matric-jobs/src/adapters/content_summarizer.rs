@@ -6,9 +6,93 @@
 //! - Long text: split into chunks, summarize each, then summarize summaries
 
 use matric_core::{defaults, Error, Result};
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 use std::time::Duration;
+
+fn diagnostic_len(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn ollama_body_reason(body: &str) -> &'static str {
+    let lower = body.to_ascii_lowercase();
+
+    if lower.contains("permission") || lower.contains("unauthorized") || lower.contains("forbidden")
+    {
+        "auth_or_permission"
+    } else if lower.contains("timeout") || lower.contains("timed out") {
+        "timeout"
+    } else if lower.contains("not found") || lower.contains("missing") {
+        "not_found"
+    } else if lower.contains("invalid")
+        || lower.contains("parse")
+        || lower.contains("json")
+        || lower.contains("schema")
+    {
+        "invalid_response"
+    } else if lower.contains("too large") || lower.contains("payload") || lower.contains("size") {
+        "payload_size"
+    } else if lower.contains("unavailable")
+        || lower.contains("overloaded")
+        || lower.contains("busy")
+        || lower.contains("rate")
+    {
+        "unavailable"
+    } else if body.trim().is_empty() {
+        "empty"
+    } else {
+        "other"
+    }
+}
+
+fn ollama_status_error(status: StatusCode, body: &str) -> String {
+    format!(
+        "Ollama summarization API returned status={}; body_len={}; body_reason={}",
+        status.as_u16(),
+        diagnostic_len(body),
+        ollama_body_reason(body)
+    )
+}
+
+fn ollama_request_error(context: &str, err: &reqwest::Error) -> String {
+    match err.status() {
+        Some(status) => format!(
+            "{context}; error_reason={}; error_len={}; status={}",
+            reqwest_error_reason(err),
+            diagnostic_len(&err.to_string()),
+            status.as_u16()
+        ),
+        None => format!(
+            "{context}; error_reason={}; error_len={}",
+            reqwest_error_reason(err),
+            diagnostic_len(&err.to_string())
+        ),
+    }
+}
+
+fn ollama_parse_error(context: &str, err: impl Display) -> String {
+    let rendered = err.to_string();
+    format!("{context}; error_len={}", diagnostic_len(&rendered))
+}
+
+fn reqwest_error_reason(err: &reqwest::Error) -> &'static str {
+    if err.is_timeout() {
+        "timeout"
+    } else if err.is_connect() {
+        "connect"
+    } else if err.is_decode() {
+        "decode"
+    } else if err.is_status() {
+        "status"
+    } else if err.is_request() {
+        "request"
+    } else if err.is_body() {
+        "body"
+    } else {
+        "other"
+    }
+}
 
 /// AI-powered content summarizer using Ollama generation API.
 ///
@@ -169,21 +253,25 @@ impl ContentSummarizer {
             .json(&request)
             .send()
             .await
-            .map_err(|e| Error::Inference(format!("Summarization request failed: {}", e)))?;
+            .map_err(|e| {
+                Error::Inference(ollama_request_error(
+                    "Ollama summarization request failed",
+                    &e,
+                ))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(Error::Inference(format!(
-                "Ollama returned {}: {}",
-                status, body
-            )));
+            return Err(Error::Inference(ollama_status_error(status, &body)));
         }
 
-        let result: GenerateResponse = response
-            .json()
-            .await
-            .map_err(|e| Error::Inference(format!("Failed to parse response: {}", e)))?;
+        let result: GenerateResponse = response.json().await.map_err(|e| {
+            Error::Inference(ollama_parse_error(
+                "Ollama summarization response parse failed",
+                e,
+            ))
+        })?;
 
         Ok(result.response.trim().to_string())
     }
@@ -204,6 +292,33 @@ mod tests {
         assert_eq!(summarizer.model, "test-model");
         assert_eq!(summarizer.chunk_size, 4000);
         assert_eq!(summarizer.max_summary_length, 500);
+    }
+
+    #[test]
+    fn ollama_status_error_redacts_response_body() {
+        let body = "permission denied for /srv/private/audio.wav token=sk-private";
+        let rendered = ollama_status_error(StatusCode::FORBIDDEN, body);
+
+        assert!(rendered.contains("status=403"));
+        assert!(rendered.contains("body_len="));
+        assert!(rendered.contains("body_reason=auth_or_permission"));
+        assert!(!rendered.contains("/srv/private/audio.wav"));
+        assert!(!rendered.contains("sk-private"));
+        assert!(!rendered.contains("permission denied"));
+    }
+
+    #[test]
+    fn ollama_parse_error_redacts_parser_details() {
+        let rendered = ollama_parse_error(
+            "Ollama summarization response parse failed",
+            "expected value at /private/path token=sk-private",
+        );
+
+        assert!(rendered.contains("Ollama summarization response parse failed"));
+        assert!(rendered.contains("error_len="));
+        assert!(!rendered.contains("/private/path"));
+        assert!(!rendered.contains("sk-private"));
+        assert!(!rendered.contains("expected value"));
     }
 
     #[test]
@@ -431,11 +546,10 @@ mod tests {
         let result = summarizer.summarize("Some text to summarize").await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("Summarization request failed"),
-            "Expected connection error, got: {}",
-            err
-        );
+        assert!(err.contains("Ollama summarization request failed"));
+        assert!(err.contains("error_reason=connect"));
+        assert!(err.contains("error_len="));
+        assert!(!err.contains("127.0.0.1"));
     }
 
     #[test]
