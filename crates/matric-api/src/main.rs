@@ -15373,7 +15373,7 @@ struct RelatedNote {
 impl std::fmt::Debug for RelatedNote {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RelatedNote")
-            .field("note_id", &self.note_id)
+            .field("note_id_set", &true)
             .field("score", &self.score)
             .field(
                 "snippet_len",
@@ -15422,7 +15422,7 @@ struct RelatedNotesResponse {
 impl std::fmt::Debug for RelatedNotesResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RelatedNotesResponse")
-            .field("note_id", &self.note_id)
+            .field("note_id_set", &true)
             .field("related_count", &self.related.len())
             .field(
                 "context_summary_len",
@@ -16619,7 +16619,7 @@ struct FederatedSearchHit {
 impl fmt::Debug for FederatedSearchHit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FederatedSearchHit")
-            .field("note_id", &self.note_id)
+            .field("note_id_set", &true)
             .field("score", &self.score)
             .field("snippet_len", &self.snippet.as_ref().map(String::len))
             .field("title_len", &self.title.as_ref().map(String::len))
@@ -27163,7 +27163,7 @@ mod tests {
             limit: Some(5),
         };
         let hit = FederatedSearchHit {
-            note_id: Uuid::nil(),
+            note_id: Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f001").unwrap(),
             score: 0.88,
             snippet: Some("federated snippet with sk-live-secret-token".to_string()),
             title: Some("Sensitive cross memory title".to_string()),
@@ -27187,6 +27187,7 @@ mod tests {
 
         assert!(rendered_request.contains("query_len"));
         assert!(rendered_request.contains("memories_count"));
+        assert!(rendered_hit.contains("note_id_set"));
         assert!(rendered_hit.contains("snippet_len"));
         assert!(rendered_hit.contains("title_len"));
         assert!(rendered_hit.contains("tags_count"));
@@ -27202,6 +27203,7 @@ mod tests {
             "Sensitive cross memory title",
             "customer-private",
             "token-shaped-tag",
+            "018fd1a0-0000-7000-8000-00000000f001",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
@@ -27209,8 +27211,10 @@ mod tests {
 
     #[test]
     fn related_notes_debug_redacts_snippets_titles_tags_and_summary() {
+        let source_note_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f101").unwrap();
+        let related_note_id = Uuid::parse_str("018fd1a0-0000-7000-8000-00000000f102").unwrap();
         let related = RelatedNote {
-            note_id: Uuid::nil(),
+            note_id: related_note_id,
             score: 0.87,
             snippet: Some("related note snippet with sk-live-secret-token".to_string()),
             title: Some("Private related-note payroll title".to_string()),
@@ -27221,7 +27225,7 @@ mod tests {
             source: "semantic-private-source".to_string(),
         };
         let response = RelatedNotesResponse {
-            note_id: Uuid::nil(),
+            note_id: source_note_id,
             related: vec![related],
             context_summary: Some(
                 "LLM summary mentions customer@example.com and bearer-token-shaped content"
@@ -27234,9 +27238,11 @@ mod tests {
         let combined = format!("{rendered_response}\n{rendered_related}");
 
         assert!(rendered_response.contains("RelatedNotesResponse"));
+        assert!(rendered_response.contains("note_id_set"));
         assert!(rendered_response.contains("related_count"));
         assert!(rendered_response.contains("context_summary_len"));
         assert!(rendered_related.contains("RelatedNote"));
+        assert!(rendered_related.contains("note_id_set"));
         assert!(rendered_related.contains("snippet_len"));
         assert!(rendered_related.contains("title_len"));
         assert!(rendered_related.contains("tags_count"));
@@ -27252,6 +27258,8 @@ mod tests {
             "LLM summary",
             "customer@example.com",
             "bearer-token-shaped",
+            "018fd1a0-0000-7000-8000-00000000f101",
+            "018fd1a0-0000-7000-8000-00000000f102",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
