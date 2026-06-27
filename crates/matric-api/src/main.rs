@@ -4426,7 +4426,7 @@ async fn sse_events(
                     .collect();
                 tracing::info!(
                     replayed = frames.len(),
-                    last_event_id = %last_id,
+                    last_event_id_len = telemetry_text_len(&last_id.to_string()),
                     "SSE replay: delivered buffered events"
                 );
                 state
@@ -4439,7 +4439,7 @@ async fn sse_events(
             None => {
                 // Expired cursor — send resync hint
                 tracing::warn!(
-                    last_event_id = %last_id,
+                    last_event_id_len = telemetry_text_len(&last_id.to_string()),
                     buffer_len = state.event_bus.replay_buffer_len(),
                     "SSE replay: cursor expired, sending resync_required"
                 );
@@ -4617,7 +4617,7 @@ async fn webhook_dispatcher(event_bus: Arc<EventBus>, db: Database) {
                         tracing::warn!(
                             error_len = telemetry_text_len(&e.to_string()),
                             detail = API_WEBHOOK_DIAGNOSTIC_FAILURE_DETAIL,
-                            event_type = %event_type,
+                            event_type_len = telemetry_text_len(event_type),
                             operation = "list_active_webhooks",
                             "Failed to list webhooks"
                         );
@@ -32216,6 +32216,25 @@ mod tests {
         assert!(!rendered.contains("note.secret"));
         assert!(!rendered.contains("sk-secret"));
         assert!(!rendered.contains("user@example.com"));
+    }
+
+    #[test]
+    fn sse_telemetry_metadata_redacts_cursor_and_event_type() {
+        let last_event_id = "sse-cursor-user@example.com?token=secret\r\nx-debug: leaked";
+        let event_type = "tenant.secret.created/mm_key_secret";
+
+        let last_event_id_len = telemetry_text_len(last_event_id);
+        let event_type_len = telemetry_text_len(event_type);
+        let rendered =
+            format!("last_event_id_len={last_event_id_len} event_type_len={event_type_len}");
+
+        assert_eq!(last_event_id_len, last_event_id.chars().count());
+        assert_eq!(event_type_len, event_type.chars().count());
+        assert!(!rendered.contains("user@example.com"));
+        assert!(!rendered.contains("token=secret"));
+        assert!(!rendered.contains("x-debug"));
+        assert!(!rendered.contains("tenant.secret"));
+        assert!(!rendered.contains("mm_key_secret"));
     }
 
     #[test]
