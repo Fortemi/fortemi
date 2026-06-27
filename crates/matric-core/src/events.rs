@@ -193,7 +193,11 @@ impl fmt::Debug for EventEnvelope {
             .field("correlation_id_present", &self.correlation_id.is_some())
             .field("causation_id_present", &self.causation_id.is_some())
             .field("payload_version", &self.payload_version)
-            .field("payload", &self.payload)
+            .field("payload_variant", &self.payload.event_type())
+            .field(
+                "payload_type_len",
+                &self.payload.namespaced_event_type().len(),
+            )
             .finish()
     }
 }
@@ -1746,7 +1750,9 @@ mod tests {
         );
         let envelope_debug = format!("{envelope:?}");
         assert!(envelope_debug.contains("EventEnvelope"));
-        assert!(envelope_debug.contains("payload"));
+        assert!(envelope_debug.contains("payload_variant"));
+        assert!(envelope_debug.contains("payload_type_len"));
+        assert!(!envelope_debug.contains("error_len"));
         assert_debug_excludes(
             &envelope_debug,
             &[
