@@ -6208,7 +6208,7 @@ async fn queue_twilio_recording_transcription(
     Ok(job_id)
 }
 
-fn recording_filename(provider_call_id: &str, content_type: &str) -> String {
+fn recording_filename(call_reference: &str, content_type: &str) -> String {
     let extension = match content_type {
         "audio/mpeg" => "mp3",
         "audio/mp4" | "audio/m4a" => "m4a",
@@ -6217,7 +6217,11 @@ fn recording_filename(provider_call_id: &str, content_type: &str) -> String {
         "audio/x-wav" | "audio/wav" | "audio/wave" => "wav",
         _ => "audio",
     };
-    format!("{}-recording.{}", provider_call_id, extension)
+    format!(
+        "call-id-len-{}-recording.{}",
+        telemetry_text_len(call_reference),
+        extension
+    )
 }
 
 async fn apply_twilio_voice_webhook(
@@ -41335,19 +41339,29 @@ mod tests {
     }
 
     #[test]
-    fn recording_filename_uses_audio_content_type_extension() {
+    fn recording_filename_uses_metadata_and_audio_content_type_extension() {
         assert_eq!(
             recording_filename("CA123", "audio/wav"),
-            "CA123-recording.wav"
+            "call-id-len-5-recording.wav"
         );
         assert_eq!(
             recording_filename("CA123", "audio/mpeg"),
-            "CA123-recording.mp3"
+            "call-id-len-5-recording.mp3"
         );
         assert_eq!(
             recording_filename("CA123", "application/octet-stream"),
-            "CA123-recording.audio"
+            "call-id-len-5-recording.audio"
         );
+
+        let secret_like_provider_id = "CA-secret-token@example.com/path";
+        let filename = recording_filename(secret_like_provider_id, "audio/wav");
+
+        assert!(filename.starts_with("call-id-len-"));
+        assert!(filename.ends_with(".wav"));
+        assert!(!filename.contains(secret_like_provider_id));
+        assert!(!filename.contains("secret-token"));
+        assert!(!filename.contains("example.com"));
+        assert!(!filename.contains("/path"));
     }
 
     /// tus_headers() must always include Tus-Resumable: 1.0.0 as required
