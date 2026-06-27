@@ -72,17 +72,35 @@ impl fmt::Debug for ListNotesRequest {
 }
 
 /// Response for listing notes.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ListNotesResponse {
     pub notes: Vec<NoteSummary>,
     pub total: i64,
 }
 
+impl fmt::Debug for ListNotesResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ListNotesResponse")
+            .field("notes_count", &self.notes.len())
+            .field("total", &self.total)
+            .finish()
+    }
+}
+
 /// Response for listing global attachments.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ListGlobalAttachmentsResponse {
     pub attachments: Vec<GlobalAttachmentSummary>,
     pub total: i64,
+}
+
+impl fmt::Debug for ListGlobalAttachmentsResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ListGlobalAttachmentsResponse")
+            .field("attachments_count", &self.attachments.len())
+            .field("total", &self.total)
+            .finish()
+    }
 }
 
 /// Request for updating note status.
@@ -1791,6 +1809,84 @@ mod tests {
         let req2 = req1.clone();
         assert_eq!(req1.sort_by, req2.sort_by);
         assert_eq!(req1.sort_order, req2.sort_order);
+    }
+
+    #[test]
+    fn list_response_debug_redacts_nested_note_and_attachment_content() {
+        let note_id = Uuid::parse_str("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa").unwrap();
+        let attachment_id = Uuid::parse_str("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb").unwrap();
+        let summary = NoteSummary {
+            id: note_id,
+            title: "Payroll customer@example.com sk-live-title".to_string(),
+            snippet: "Snippet with postgres://user:secret@db.internal/app".to_string(),
+            embedding_status: Some(EmbeddingStatus::Ready),
+            created_at_utc: Utc::now(),
+            updated_at_utc: Utc::now(),
+            starred: true,
+            archived: false,
+            tags: vec![
+                "customer@example.com".to_string(),
+                "sk-live-tag".to_string(),
+            ],
+            has_revision: true,
+            metadata: json!({
+                "path": "/srv/private/note.md",
+                "token": "sk-live-metadata"
+            }),
+            document_type_id: Some(
+                Uuid::parse_str("cccccccc-cccc-4ccc-cccc-cccccccccccc").unwrap(),
+            ),
+            document_type_name: Some("Private Contract customer@example.com".to_string()),
+        };
+        let attachment = GlobalAttachmentSummary {
+            id: attachment_id,
+            note_id,
+            note_title: Some("Payroll customer@example.com sk-live-title".to_string()),
+            filename: "private/customer@example.com/sk-live.pdf".to_string(),
+            content_type: "application/x-private-token".to_string(),
+            size_bytes: 42,
+            status: AttachmentStatus::Uploaded,
+            document_type_name: Some("Private Contract customer@example.com".to_string()),
+            detected_document_type_name: Some("Detected sk-live contract".to_string()),
+            detection_confidence: Some(0.99),
+            has_preview: true,
+            is_canonical_content: false,
+            created_at: Utc::now(),
+        };
+        let notes = ListNotesResponse {
+            notes: vec![summary],
+            total: 1,
+        };
+        let attachments = ListGlobalAttachmentsResponse {
+            attachments: vec![attachment],
+            total: 1,
+        };
+
+        let rendered = format!("{notes:?} {attachments:?}");
+
+        assert!(rendered.contains("ListNotesResponse"));
+        assert!(rendered.contains("notes_count"));
+        assert!(rendered.contains("ListGlobalAttachmentsResponse"));
+        assert!(rendered.contains("attachments_count"));
+        assert!(rendered.contains("total"));
+
+        let leaked_values = vec![
+            note_id.to_string(),
+            attachment_id.to_string(),
+            "Payroll".to_string(),
+            "customer@example.com".to_string(),
+            "sk-live".to_string(),
+            "postgres://user:secret".to_string(),
+            "db.internal".to_string(),
+            "/srv/private".to_string(),
+            "Private Contract".to_string(),
+            "private/customer".to_string(),
+            "application/x-private-token".to_string(),
+            "Detected".to_string(),
+        ];
+        for raw in leaked_values {
+            assert!(!rendered.contains(&raw), "Debug leaked {raw}: {rendered}");
+        }
     }
 
     #[test]

@@ -186,6 +186,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: Media optimization static skip results now store stable reason codes instead of prose diagnostic text in retained `job_queue.result` payloads.
   - 2026-06-27 continuation: Thumbnail sprite skip results now store stable reason codes instead of prose diagnostic text in retained `job_queue.result` payloads.
   - 2026-06-27 continuation: EXIF no-image skip results now store a stable reason code instead of prose diagnostic text in retained `job_queue.result` payloads.
+  - 2026-06-27 continuation: Core list response Debug output now reports note and global-attachment response envelopes as counts/totals instead of delegating into nested note summaries or attachment summaries that can carry titles, snippets, filenames, content types, tags, document-type labels, metadata, paths, emails, DSNs, UUIDs, or token-shaped values.
   - 2026-06-27 continuation: Speaker relabel no-op results now store stable status/count metadata instead of prose diagnostic text in retained `job_queue.result` payloads.
   - 2026-06-27 continuation: AI revision/contextual revision and bulk re-embed skip results now store stable reason codes instead of prose diagnostic text in retained `job_queue.result` payloads.
   - 2026-06-27 continuation: Archive adapter empty-input metadata now stores a stable error code instead of prose diagnostic text in retained extraction metadata.
@@ -1057,3 +1058,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 Core shard reserved-field validation error Display/Debug output now reports field names, removed versions, and removal reasons as lengths instead of raw shard/import strings, emails, DSNs, paths, or token-shaped values.
 - 2026-06-27 — #968/#974 Core shard version parse and migration error/result Display/Debug output now reports version strings, migration failure text, and migrated JSON payloads as lengths/classes instead of raw import strings, emails, DSNs, paths, or token-shaped values.
 - 2026-06-27 — #968/#974 Core split memory-search model source now mirrors the compiled memory/search Debug redaction contract for memory hits, timelines, cross-archive search, and attachment filters.
+- 2026-06-27 — #968/#974 Core list response Debug output now reports note and global-attachment response envelopes as counts/totals instead of nested note or attachment summary content.
