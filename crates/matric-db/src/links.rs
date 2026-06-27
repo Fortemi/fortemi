@@ -220,7 +220,7 @@ impl fmt::Debug for GraphNode {
             .field("archived", &self.archived)
             .field("created_at_utc", &self.created_at_utc)
             .field("updated_at_utc", &self.updated_at_utc)
-            .field("community_id", &self.community_id)
+            .field("community_id_set", &self.community_id.is_some())
             .field(
                 "community_label_len",
                 &self.community_label.as_ref().map(String::len),
@@ -2552,7 +2552,7 @@ pub struct CoarseCommunity {
 impl fmt::Debug for CoarseCommunity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CoarseCommunity")
-            .field("community_id", &self.community_id)
+            .field("community_id_set", &true)
             .field("size", &self.size)
             .field("note_ids_count", &self.note_ids.len())
             .finish()
@@ -2769,7 +2769,7 @@ mod tests {
                 archived: false,
                 created_at_utc: Utc::now(),
                 updated_at_utc: Utc::now(),
-                community_id: Some(7),
+                community_id: Some(987_654_321),
                 community_label: Some("Private community /srv/fortemi/private".to_string()),
                 community_confidence: Some(0.88),
             }],
@@ -2809,6 +2809,7 @@ mod tests {
             "edges_count",
             "GraphNode",
             "title_len",
+            "community_id_set",
             "community_label_len",
             "GraphEdge",
             "edge_type_len",
@@ -2838,6 +2839,7 @@ mod tests {
             "semantic-private-edge".to_string(),
             "private-embedding-set".to_string(),
             "secret-model-id".to_string(),
+            "987654321".to_string(),
             "postgres://user:secret@db.internal".to_string(),
         ] {
             assert!(!debug.contains(&raw), "raw value leaked: {raw}");
@@ -2894,7 +2896,7 @@ mod tests {
             effective_k: 5,
         };
         let community = CoarseCommunity {
-            community_id: 4,
+            community_id: 876_543_210,
             size: 1,
             note_ids: vec![note_id],
         };
@@ -2906,10 +2908,10 @@ mod tests {
             community_count: 1,
             modularity_q: 0.5,
             largest_community_ratio: 1.0,
-            communities: vec![community],
+            communities: vec![community.clone()],
         };
 
-        let debug = format!("{comparison:?}{topology:?}{community_result:?}");
+        let debug = format!("{comparison:?}{topology:?}{community:?}{community_result:?}");
 
         for expected in [
             "DiagnosticsSnapshot",
@@ -2923,6 +2925,7 @@ mod tests {
             "linking_strategy_len",
             "CoarseCommunityResult",
             "communities_count",
+            "community_id_set",
         ] {
             assert!(
                 debug.contains(expected),
@@ -2943,6 +2946,7 @@ mod tests {
             "mm_key_secret".to_string(),
             "Private summary".to_string(),
             "private-strategy".to_string(),
+            "876543210".to_string(),
         ] {
             assert!(!debug.contains(&raw), "raw value leaked: {raw}");
         }
