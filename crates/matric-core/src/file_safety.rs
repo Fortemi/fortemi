@@ -7,6 +7,7 @@
 
 use once_cell::sync::Lazy;
 use std::collections::HashSet;
+use std::fmt;
 
 /// Magic byte signatures for executable files
 pub const MAGIC_SIGNATURES: &[(&str, &[u8])] = &[
@@ -37,11 +38,40 @@ static BLOCKED_EXTENSIONS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 });
 
 /// Result of file safety validation
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ValidationResult {
     pub allowed: bool,
     pub block_reason: Option<String>,
     pub detected_type: Option<String>,
+}
+
+impl fmt::Debug for ValidationResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ValidationResult")
+            .field("allowed", &self.allowed)
+            .field(
+                "block_reason_len",
+                &self
+                    .block_reason
+                    .as_ref()
+                    .map(|reason| reason.chars().count()),
+            )
+            .field(
+                "detected_type_class",
+                &self
+                    .detected_type
+                    .as_deref()
+                    .map(validation_detected_type_class),
+            )
+            .field(
+                "detected_type_len",
+                &self
+                    .detected_type
+                    .as_ref()
+                    .map(|detected| detected.chars().count()),
+            )
+            .finish()
+    }
 }
 
 impl ValidationResult {
@@ -59,6 +89,18 @@ impl ValidationResult {
             block_reason: Some(reason.into()),
             detected_type: Some(detected.into()),
         }
+    }
+}
+
+fn validation_detected_type_class(detected_type: &str) -> &'static str {
+    if detected_type == "oversized" {
+        "oversized"
+    } else if detected_type.starts_with("blocked_extension:") {
+        "blocked_extension"
+    } else if detected_type.starts_with("executable:") || detected_type == "java_or_macho" {
+        "executable"
+    } else {
+        "other"
     }
 }
 
@@ -336,6 +378,25 @@ mod tests {
         let png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
         let result = detect_content_type("fake.txt", &png, "text/plain");
         assert_eq!(result, "image/png");
+    }
+
+    #[test]
+    fn validation_result_debug_redacts_block_reason_and_detected_type() {
+        let result = ValidationResult::blocked(
+            "File extension .secret-token-url is not allowed",
+            "blocked_extension:secret-token-url",
+        );
+
+        let debug = format!("{result:?}");
+
+        assert!(debug.contains("ValidationResult"));
+        assert!(debug.contains("allowed: false"));
+        assert!(debug.contains("block_reason_len"));
+        assert!(debug.contains("detected_type_class: Some(\"blocked_extension\")"));
+        assert!(debug.contains("detected_type_len"));
+        assert!(!debug.contains("secret-token-url"));
+        assert!(!debug.contains("File extension"));
+        assert!(!debug.contains("blocked_extension:secret-token-url"));
     }
 
     #[test]
