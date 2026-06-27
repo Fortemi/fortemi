@@ -1,6 +1,7 @@
 //! Upgrade guidance for importing shards from older versions.
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Difficulty level of an upgrade operation
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -28,7 +29,7 @@ impl std::fmt::Display for UpgradeDifficulty {
 }
 
 /// A single step in the upgrade process
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UpgradeStep {
     pub order: usize,
     pub title: String,
@@ -37,8 +38,20 @@ pub struct UpgradeStep {
     pub is_automatic: bool,
 }
 
+impl fmt::Debug for UpgradeStep {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpgradeStep")
+            .field("order", &self.order)
+            .field("title_len", &self.title.len())
+            .field("description_len", &self.description.len())
+            .field("command_len", &self.command.as_ref().map(String::len))
+            .field("is_automatic", &self.is_automatic)
+            .finish()
+    }
+}
+
 /// Complete upgrade guidance for a shard import
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UpgradeGuidance {
     pub from_version: String,
     pub to_version: String,
@@ -46,6 +59,30 @@ pub struct UpgradeGuidance {
     pub steps: Vec<UpgradeStep>,
     pub new_features_available: Vec<String>,
     pub summary: String,
+}
+
+impl fmt::Debug for UpgradeGuidance {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpgradeGuidance")
+            .field("from_version_len", &self.from_version.len())
+            .field("to_version_len", &self.to_version.len())
+            .field("difficulty", &self.difficulty)
+            .field("steps_count", &self.steps.len())
+            .field(
+                "new_features_available_count",
+                &self.new_features_available.len(),
+            )
+            .field(
+                "new_features_available_lens",
+                &self
+                    .new_features_available
+                    .iter()
+                    .map(String::len)
+                    .collect::<Vec<_>>(),
+            )
+            .field("summary_len", &self.summary.len())
+            .finish()
+    }
 }
 
 /// Generate upgrade guidance for importing from an older shard version
@@ -247,6 +284,68 @@ mod tests {
         let json = serde_json::to_string(&guidance).unwrap();
         let deserialized: UpgradeGuidance = serde_json::from_str(&json).unwrap();
         assert_eq!(guidance, deserialized);
+    }
+
+    #[test]
+    fn upgrade_guidance_debug_redacts_versions_steps_features_and_summaries() {
+        let guidance = UpgradeGuidance {
+            from_version: "1.0.0-customer@example.com".to_string(),
+            to_version: "2.0.0-sk-live-upgrade-token".to_string(),
+            difficulty: UpgradeDifficulty::Moderate,
+            steps: vec![UpgradeStep {
+                order: 1,
+                title: "Rotate postgres://admin:secret@db.internal/fortemi".to_string(),
+                description: "Move private/archive path /srv/private/customer@example.com"
+                    .to_string(),
+                command: Some(
+                    "fortemi import --token bearer-secret --path private/shard".to_string(),
+                ),
+                is_automatic: false,
+            }],
+            new_features_available: vec![
+                "Document type registry for customer@example.com".to_string(),
+                "Provider key sk-live-feature".to_string(),
+            ],
+            summary: "Upgrade summary contains postgres://admin:secret@db.internal/fortemi"
+                .to_string(),
+        };
+
+        let guidance_debug = format!("{guidance:?}");
+        let step_debug = format!("{:?}", guidance.steps[0]);
+
+        for debug_output in [&guidance_debug, &step_debug] {
+            for raw in [
+                "customer@example.com",
+                "sk-live",
+                "postgres://",
+                "db.internal",
+                "/srv/private",
+                "bearer-secret",
+                "private/shard",
+                "Document type registry",
+                "Provider key",
+                "Upgrade summary",
+                "Rotate",
+                "Move private/archive",
+                "fortemi import",
+            ] {
+                assert!(
+                    !debug_output.contains(raw),
+                    "debug output leaked {raw}: {debug_output}"
+                );
+            }
+        }
+
+        assert!(guidance_debug.contains("UpgradeGuidance"));
+        assert!(guidance_debug.contains("from_version_len"));
+        assert!(guidance_debug.contains("to_version_len"));
+        assert!(guidance_debug.contains("steps_count"));
+        assert!(guidance_debug.contains("new_features_available_lens"));
+        assert!(guidance_debug.contains("summary_len"));
+        assert!(step_debug.contains("UpgradeStep"));
+        assert!(step_debug.contains("title_len"));
+        assert!(step_debug.contains("description_len"));
+        assert!(step_debug.contains("command_len"));
     }
 
     #[test]
