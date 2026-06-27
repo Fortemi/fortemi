@@ -330,7 +330,7 @@ impl CallSessionManager {
         let mut sessions = self.sessions.write().await;
         let session = sessions
             .get_mut(&call_id)
-            .ok_or_else(|| Error::NotFound(format!("call session {call_id}")))?;
+            .ok_or_else(|| call_session_not_found_error(call_id))?;
         session.state = state;
         Ok(())
     }
@@ -340,7 +340,7 @@ impl CallSessionManager {
         let mut sessions = self.sessions.write().await;
         let mut session = sessions
             .remove(&call_id)
-            .ok_or_else(|| Error::NotFound(format!("call session {call_id}")))?;
+            .ok_or_else(|| call_session_not_found_error(call_id))?;
         session.state = CallState::Ended { reason };
         self.provider_index
             .write()
@@ -348,6 +348,10 @@ impl CallSessionManager {
             .remove(&(session.provider.clone(), session.provider_call_id.clone()));
         Ok(session)
     }
+}
+
+fn call_session_not_found_error(_call_id: Uuid) -> Error {
+    Error::NotFound("call session not found; call_id_present=true".to_string())
 }
 
 #[cfg(test)]
@@ -498,5 +502,30 @@ mod tests {
             }
         );
         assert_eq!(manager.lookup_call_id("mock", "provider-1").await, None);
+    }
+
+    #[tokio::test]
+    async fn call_session_not_found_errors_report_metadata_without_raw_ids() {
+        let manager = CallSessionManager::new();
+        let call_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000020").unwrap();
+
+        let update_error = manager
+            .update_state(call_id, CallState::Active)
+            .await
+            .expect_err("missing session should fail");
+        let end_error = manager
+            .end_session(call_id, EndReason::NormalHangup)
+            .await
+            .expect_err("missing session should fail");
+
+        for error in [update_error, end_error] {
+            let Error::NotFound(message) = error else {
+                panic!("expected not-found error");
+            };
+
+            assert!(message.contains("call session not found"));
+            assert!(message.contains("call_id_present=true"));
+            assert!(!message.contains(&call_id.to_string()));
+        }
     }
 }

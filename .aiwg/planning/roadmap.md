@@ -201,6 +201,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
   - 2026-06-27 continuation: API template not-found errors now report template-id presence metadata instead of raw template UUIDs.
   - 2026-06-27 continuation: API concept-update not-found errors now report concept-id presence metadata instead of raw concept UUIDs.
   - 2026-06-27 continuation: API graph diagnostics snapshot not-found errors now report snapshot side and id-presence metadata instead of raw snapshot UUIDs.
+  - 2026-06-27 continuation: Realtime call-session not-found errors now report call-id presence metadata instead of raw call UUIDs.
   - 2026-06-27 continuation: Core split memory-search model source now mirrors the compiled memory/search Debug redaction contract, keeping memory hits, timelines, cross-archive search requests/results, attachment filters, filenames, snippets, tags, locations, device IDs, and archive names represented as lengths/counts/presence flags instead of raw user/content/topology strings.
   - 2026-06-27 continuation: Hybrid search config Debug output now reports weighting, archive behavior, embedding-set presence, deduplication options, strict/unified filter presence, language/script hint lengths, feature-flag metadata, and diversity metadata instead of raw filter values, language/script hints, paths, emails, or token-shaped values.
   - 2026-06-27 continuation: Media optimization ffprobe skip results now store stable reason codes and error lengths instead of raw subprocess diagnostic text in retained `job_queue.result` payloads.
@@ -1119,3 +1120,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 API template not-found errors now report template-id presence metadata instead of raw template UUIDs.
 - 2026-06-27 — #968/#974 API concept-update not-found errors now report concept-id presence metadata instead of raw concept UUIDs.
 - 2026-06-27 — #968/#974 API graph diagnostics snapshot not-found errors now report snapshot side and id-presence metadata instead of raw snapshot UUIDs.
+- 2026-06-27 — #968/#974 Realtime call-session not-found errors now report call-id presence metadata instead of raw call UUIDs.
