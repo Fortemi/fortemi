@@ -41440,9 +41440,18 @@ mod tests {
         .await;
         match res {
             Err(ApiError::BadRequest(msg)) => {
-                assert!(msg.contains("amount"), "error should name field: {msg}")
+                // #968: schema-validation rejections return a stable, redacted
+                // message and must not echo payload field names or validator detail.
+                assert!(
+                    msg.contains("schema validation"),
+                    "expected generic schema-validation rejection, got: {msg}"
+                );
+                assert!(
+                    !msg.contains("amount") && !msg.contains("currency"),
+                    "rejection must not echo payload field names: {msg}"
+                );
             }
-            Err(other) => panic!("expected 400 BadRequest naming the field, got {other:?}"),
+            Err(other) => panic!("expected 400 BadRequest, got {other:?}"),
             Ok(_) => panic!("expected 400 BadRequest, got Ok"),
         }
 
