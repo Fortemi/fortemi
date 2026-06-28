@@ -1684,8 +1684,10 @@ mod tests {
         assert!(event_debug.contains("title_len: Some(45)"));
         assert!(event_debug.contains("tag_lens: [33, 42]"));
 
-        let mut context = EventContext::default();
-        context.memory = Some("custömér-private-memory@example.internal".to_string());
+        let context = EventContext {
+            memory: Some("custömér-private-memory@example.internal".to_string()),
+            ..Default::default()
+        };
         let envelope = EventEnvelope::with_context(event.clone(), context);
         let telemetry = event_bus_telemetry(&envelope);
         let telemetry_debug = format!("{telemetry:?}");

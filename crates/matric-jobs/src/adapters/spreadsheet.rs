@@ -695,7 +695,11 @@ mod tests {
             )
             .await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        // Error Display is redacted; assert on the typed variant's inner message.
+        let err = match result.unwrap_err() {
+            matric_core::Error::InvalidInput(msg) => msg,
+            other => panic!("expected InvalidInput, got: {other:?}"),
+        };
         assert!(
             err.contains("empty"),
             "Error should mention empty data: {}",

@@ -146,7 +146,11 @@ async fn test_delete_system_set_protection() {
 
     assert!(result.is_err(), "Should not be able to delete system set");
 
-    let error_message = result.unwrap_err().to_string();
+    // Error Display is redacted; assert on the typed variant's inner message.
+    let error = result.unwrap_err();
+    let matric_db::Error::InvalidInput(error_message) = &error else {
+        panic!("expected InvalidInput, got: {error:?}");
+    };
     assert!(
         error_message.contains("system") || error_message.contains("Cannot delete"),
         "Error should indicate system set protection: {}",
@@ -162,7 +166,11 @@ async fn test_delete_nonexistent_set() {
 
     assert!(result.is_err(), "Deleting nonexistent set should fail");
 
-    let error_message = result.unwrap_err().to_string();
+    // Error Display is redacted; assert on the typed variant's inner message.
+    let error = result.unwrap_err();
+    let matric_db::Error::NotFound(error_message) = &error else {
+        panic!("expected NotFound, got: {error:?}");
+    };
     assert!(
         error_message.contains("not found") || error_message.contains("Not found"),
         "Error should indicate set not found: {}",

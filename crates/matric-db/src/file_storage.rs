@@ -302,13 +302,12 @@ impl StorageBackend for FilesystemBackend {
 
         // Create parent directories
         if let Some(parent) = full_path.parent() {
-            fs::create_dir_all(parent).await.map_err(|e| {
+            fs::create_dir_all(parent).await.inspect_err(|e| {
                 warn!(
                     parent_len = storage_path_len(parent),
-                    error_kind = storage_io_error_kind(&e),
+                    error_kind = storage_io_error_kind(e),
                     "file_storage: create_dir_all failed"
                 );
-                e
             })?;
         }
 
@@ -330,32 +329,29 @@ impl StorageBackend for FilesystemBackend {
             p.set_file_name(name);
             p
         };
-        let mut file = fs::File::create(&temp_path).await.map_err(|e| {
+        let mut file = fs::File::create(&temp_path).await.inspect_err(|e| {
             warn!(
                 temp_path_len = storage_path_len(&temp_path),
-                error_kind = storage_io_error_kind(&e),
+                error_kind = storage_io_error_kind(e),
                 "file_storage: File::create failed"
             );
-            e
         })?;
-        file.write_all(data).await.map_err(|e| {
+        file.write_all(data).await.inspect_err(|e| {
             warn!(
-                error_kind = storage_io_error_kind(&e),
+                error_kind = storage_io_error_kind(e),
                 "file_storage: write_all failed"
             );
-            e
         })?;
         file.sync_all().await?;
         drop(file);
 
-        fs::rename(&temp_path, &full_path).await.map_err(|e| {
+        fs::rename(&temp_path, &full_path).await.inspect_err(|e| {
             warn!(
                 from_path_len = storage_path_len(&temp_path),
                 to_path_len = storage_path_len(&full_path),
-                error_kind = storage_io_error_kind(&e),
+                error_kind = storage_io_error_kind(e),
                 "file_storage: rename failed"
             );
-            e
         })?;
 
         // Set permissions to 0644 (rw-r--r--, no execute)

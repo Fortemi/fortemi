@@ -497,7 +497,7 @@ impl ExtractionAdapter for Glb3DModelAdapter {
                 let prompt = glb_view_prompt(
                     custom_prompt,
                     filename,
-                    view.index as usize,
+                    view.index,
                     total_views,
                     view.angle_degrees,
                     &view.elevation,
@@ -987,9 +987,12 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, Error::InvalidInput(_)));
-        assert!(err.to_string().contains("empty"));
+        // Error Display is redacted; assert on the typed variant's inner message.
+        let err = match result.unwrap_err() {
+            Error::InvalidInput(msg) => msg,
+            other => panic!("expected InvalidInput, got: {other:?}"),
+        };
+        assert!(err.contains("empty"));
     }
 
     #[tokio::test]

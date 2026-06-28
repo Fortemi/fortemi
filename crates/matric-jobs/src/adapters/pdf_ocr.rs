@@ -441,7 +441,13 @@ mod tests {
             .extract(b"", "empty.pdf", "application/pdf", &json!({}))
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("empty"));
+        // Error Display is redacted; assert on the typed variant's inner message.
+        match result.unwrap_err() {
+            matric_core::Error::InvalidInput(msg) => {
+                assert!(msg.contains("empty"), "got: {msg}")
+            }
+            other => panic!("expected InvalidInput, got: {other:?}"),
+        }
     }
 
     #[tokio::test]

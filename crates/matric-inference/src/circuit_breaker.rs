@@ -297,7 +297,11 @@ mod tests {
         }
 
         let err = cb.check_request().unwrap_err();
-        let msg = err.to_string();
+        // Error Display is redacted; inspect the typed variant's inner message,
+        // which retains the safe operational detail.
+        let matric_core::Error::Internal(msg) = err else {
+            panic!("open circuit breaker should fast-fail with an Internal error: {err:?}");
+        };
         assert!(msg.contains("whisper"));
         assert!(msg.contains("circuit breaker is open"));
         assert!(msg.contains("3 consecutive failures"));

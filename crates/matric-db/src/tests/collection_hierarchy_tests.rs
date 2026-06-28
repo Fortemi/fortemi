@@ -799,11 +799,10 @@ async fn test_move_collection_to_self_fails() {
 
     let result = collections.move_collection(coll_id, Some(coll_id)).await;
     assert!(result.is_err(), "moving collection to itself should fail");
-    let err_msg = result.unwrap_err().to_string();
+    let err = result.unwrap_err();
     assert!(
-        err_msg.contains("own parent"),
-        "error should mention self-parenting: {}",
-        err_msg
+        matches!(&err, crate::Error::InvalidInput(_)),
+        "self-parenting should be rejected as invalid input: {err}"
     );
 
     test_db.cleanup().await;
@@ -827,11 +826,10 @@ async fn test_move_collection_to_direct_child_fails() {
     // Try to move parent under its own child (would create: child → parent → child → ...)
     let result = collections.move_collection(parent_id, Some(child_id)).await;
     assert!(result.is_err(), "moving parent under child should fail");
-    let err_msg = result.unwrap_err().to_string();
+    let err = result.unwrap_err();
     assert!(
-        err_msg.contains("circular"),
-        "error should mention circular reference: {}",
-        err_msg
+        matches!(&err, crate::Error::InvalidInput(_)),
+        "circular reference should be rejected as invalid input: {err}"
     );
 
     test_db.cleanup().await;
@@ -866,11 +864,10 @@ async fn test_move_collection_to_deep_descendant_fails() {
         result.is_err(),
         "moving A under its deep descendant D should fail"
     );
-    let err_msg = result.unwrap_err().to_string();
+    let err = result.unwrap_err();
     assert!(
-        err_msg.contains("circular"),
-        "error should mention circular reference: {}",
-        err_msg
+        matches!(&err, crate::Error::InvalidInput(_)),
+        "circular reference should be rejected as invalid input: {err}"
     );
 
     // Verify hierarchy is untouched

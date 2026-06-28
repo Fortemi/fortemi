@@ -70,11 +70,12 @@ mod validation_logic_tests {
         // Issue #263: InvalidInput should map to BadRequest (400)
         let core_error = CoreError::InvalidInput("test validation error".to_string());
 
-        // Verify the error message is preserved
-        assert_eq!(
-            core_error.to_string(),
-            "Invalid input: test validation error"
-        );
+        // The message is preserved on the variant; Error Display is redacted
+        // (verified in matric-core), so assert the inner string, not to_string().
+        let CoreError::InvalidInput(msg) = &core_error else {
+            panic!("expected InvalidInput, got: {core_error:?}");
+        };
+        assert_eq!(msg.as_str(), "test validation error");
 
         // Verify it's the correct variant
         assert!(matches!(core_error, CoreError::InvalidInput(_)));

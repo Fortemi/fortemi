@@ -1170,11 +1170,12 @@ mod tests {
 
         let result = reg.resolve_generation_boxed("whisper:large-v3");
         match result {
-            Err(e) => assert!(
-                e.to_string().contains("does not support generation"),
-                "Expected 'does not support generation', got: {}",
-                e
+            // Error Display is redacted; assert on the typed variant's inner message.
+            Err(Error::Config(msg)) => assert!(
+                msg.contains("does not support generation"),
+                "Expected 'does not support generation', got: {msg}"
             ),
+            Err(other) => panic!("Expected Config error, got: {other:?}"),
             Ok(_) => panic!("Expected error for provider without generation capability"),
         }
     }
@@ -1258,14 +1259,14 @@ mod tests {
         let reg = test_registry();
         let result = reg.resolve_generation_inline("nonexistent", None, None, "any:1");
         match result {
-            Err(e) => {
-                let msg = e.to_string();
+            // Error Display is redacted; assert on the typed variant's inner message.
+            Err(Error::Config(msg)) => {
                 assert!(
                     msg.contains("not supported") || msg.contains("Provider"),
-                    "expected helpful error, got: {}",
-                    msg
+                    "expected helpful error, got: {msg}"
                 );
             }
+            Err(other) => panic!("expected Config error, got: {other:?}"),
             Ok(_) => panic!("unknown provider must error"),
         }
     }

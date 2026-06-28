@@ -2506,102 +2506,6 @@ fn redact_skos_audit_value(value: Value) -> Value {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn skos_delete_in_use_errors_report_presence_without_exact_counts() {
-        let concept_count = 42_i64;
-        let scheme_err = skos_scheme_not_empty_error(concept_count);
-        let scheme_msg = match scheme_err {
-            Error::InvalidInput(msg) => msg,
-            other => panic!("expected invalid input error, got {other:?}"),
-        };
-
-        assert_eq!(
-            scheme_msg,
-            "Cannot delete scheme; concept_count_present=true; force_required=true"
-        );
-        assert!(!scheme_msg.contains(&concept_count.to_string()));
-        assert!(!scheme_msg.contains("concepts."));
-
-        let tag_count = 17_i64;
-        let concept_err = skos_concept_in_use_error(tag_count);
-        let concept_msg = match concept_err {
-            Error::InvalidInput(msg) => msg,
-            other => panic!("expected invalid input error, got {other:?}"),
-        };
-
-        assert_eq!(
-            concept_msg,
-            "Cannot delete concept; note_tag_count_present=true"
-        );
-        assert!(!concept_msg.contains(&tag_count.to_string()));
-        assert!(!concept_msg.contains("note tags"));
-    }
-
-    #[test]
-    fn skos_audit_metadata_redacts_raw_actor_and_changes() {
-        let actor = skos_audit_actor_metadata("alice@example.com");
-        assert_eq!(actor, "actor_present=true;actor_len=17");
-        assert!(!actor.contains("alice"));
-        assert!(!actor.contains("example.com"));
-
-        let changes = skos_audit_changes_metadata(Some(json!({
-            "pref_label": "Secret Product Plan",
-            "confidence": 0.92,
-            "active": true,
-            "nested": { "raw": "value" },
-            "ids": ["note-1", "note-2"],
-            "removed": null
-        })))
-        .expect("metadata");
-
-        assert_eq!(changes["redacted"], true);
-        assert_eq!(changes["value_class"], "object");
-        assert_eq!(changes["field_count"], 6);
-        assert_eq!(changes["string_field_count"], 1);
-        assert_eq!(changes["numeric_field_count"], 1);
-        assert_eq!(changes["boolean_field_count"], 1);
-        assert_eq!(changes["array_field_count"], 1);
-        assert_eq!(changes["object_field_count"], 1);
-        assert_eq!(changes["null_field_count"], 1);
-
-        let rendered = changes.to_string();
-        assert!(!rendered.contains("Secret Product Plan"));
-        assert!(!rendered.contains("pref_label"));
-        assert!(!rendered.contains("note-1"));
-        assert!(!rendered.contains("raw"));
-    }
-
-    #[test]
-    fn skos_audit_string_change_metadata_keeps_only_length() {
-        let changes =
-            skos_audit_changes_metadata(Some(json!("tenant-secret-label"))).expect("metadata");
-
-        assert_eq!(changes["redacted"], true);
-        assert_eq!(changes["value_class"], "string");
-        assert_eq!(changes["string_len"], 19);
-        assert!(!changes.to_string().contains("tenant-secret-label"));
-    }
-
-    #[test]
-    fn skos_audit_metadata_preserves_existing_redaction() {
-        let changes = json!({
-            "redacted": true,
-            "value_class": "object",
-            "field_count": 3
-        });
-
-        assert_eq!(
-            skos_audit_actor_metadata("actor_present=true;actor_len=8"),
-            "actor_present=true;actor_len=8"
-        );
-        assert_eq!(redact_skos_audit_value(changes.clone()), changes);
-    }
-}
-
 // =============================================================================
 // HELPER METHODS
 // =============================================================================
@@ -3217,3 +3121,99 @@ impl SkosCollectionRepository for PgSkosRepository {
 }
 
 // Default scheme ID tests removed - ID is now dynamically looked up from database
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skos_delete_in_use_errors_report_presence_without_exact_counts() {
+        let concept_count = 42_i64;
+        let scheme_err = skos_scheme_not_empty_error(concept_count);
+        let scheme_msg = match scheme_err {
+            Error::InvalidInput(msg) => msg,
+            other => panic!("expected invalid input error, got {other:?}"),
+        };
+
+        assert_eq!(
+            scheme_msg,
+            "Cannot delete scheme; concept_count_present=true; force_required=true"
+        );
+        assert!(!scheme_msg.contains(&concept_count.to_string()));
+        assert!(!scheme_msg.contains("concepts."));
+
+        let tag_count = 17_i64;
+        let concept_err = skos_concept_in_use_error(tag_count);
+        let concept_msg = match concept_err {
+            Error::InvalidInput(msg) => msg,
+            other => panic!("expected invalid input error, got {other:?}"),
+        };
+
+        assert_eq!(
+            concept_msg,
+            "Cannot delete concept; note_tag_count_present=true"
+        );
+        assert!(!concept_msg.contains(&tag_count.to_string()));
+        assert!(!concept_msg.contains("note tags"));
+    }
+
+    #[test]
+    fn skos_audit_metadata_redacts_raw_actor_and_changes() {
+        let actor = skos_audit_actor_metadata("alice@example.com");
+        assert_eq!(actor, "actor_present=true;actor_len=17");
+        assert!(!actor.contains("alice"));
+        assert!(!actor.contains("example.com"));
+
+        let changes = skos_audit_changes_metadata(Some(json!({
+            "pref_label": "Secret Product Plan",
+            "confidence": 0.92,
+            "active": true,
+            "nested": { "raw": "value" },
+            "ids": ["note-1", "note-2"],
+            "removed": null
+        })))
+        .expect("metadata");
+
+        assert_eq!(changes["redacted"], true);
+        assert_eq!(changes["value_class"], "object");
+        assert_eq!(changes["field_count"], 6);
+        assert_eq!(changes["string_field_count"], 1);
+        assert_eq!(changes["numeric_field_count"], 1);
+        assert_eq!(changes["boolean_field_count"], 1);
+        assert_eq!(changes["array_field_count"], 1);
+        assert_eq!(changes["object_field_count"], 1);
+        assert_eq!(changes["null_field_count"], 1);
+
+        let rendered = changes.to_string();
+        assert!(!rendered.contains("Secret Product Plan"));
+        assert!(!rendered.contains("pref_label"));
+        assert!(!rendered.contains("note-1"));
+        assert!(!rendered.contains("raw"));
+    }
+
+    #[test]
+    fn skos_audit_string_change_metadata_keeps_only_length() {
+        let changes =
+            skos_audit_changes_metadata(Some(json!("tenant-secret-label"))).expect("metadata");
+
+        assert_eq!(changes["redacted"], true);
+        assert_eq!(changes["value_class"], "string");
+        assert_eq!(changes["string_len"], 19);
+        assert!(!changes.to_string().contains("tenant-secret-label"));
+    }
+
+    #[test]
+    fn skos_audit_metadata_preserves_existing_redaction() {
+        let changes = json!({
+            "redacted": true,
+            "value_class": "object",
+            "field_count": 3
+        });
+
+        assert_eq!(
+            skos_audit_actor_metadata("actor_present=true;actor_len=8"),
+            "actor_present=true;actor_len=8"
+        );
+        assert_eq!(redact_skos_audit_value(changes.clone()), changes);
+    }
+}

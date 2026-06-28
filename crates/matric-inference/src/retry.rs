@@ -277,7 +277,11 @@ mod tests {
         .await
         .expect_err("unreachable local port should fail");
 
-        let rendered = err.to_string();
+        // Error Display is redacted; the retry redaction logic writes the safe,
+        // helpful message into the Internal variant's inner string.
+        let matric_core::Error::Internal(rendered) = err else {
+            panic!("retry failure should surface as an Internal error: {err:?}");
+        };
         assert!(rendered.contains("test-service request failed"));
         assert!(rendered.contains("reason="));
         assert!(rendered.contains("error_len="));

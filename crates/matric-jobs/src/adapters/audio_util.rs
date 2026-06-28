@@ -647,7 +647,7 @@ mod tests {
         let language = "tenant-secret-language@example.com";
         let rendered = format!(
             "language_len={:?}",
-            Some(language).map(audio_telemetry_text_len)
+            Some(audio_telemetry_text_len(language))
         );
 
         assert!(rendered.contains("language_len=Some"));

@@ -354,9 +354,11 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, Error::InvalidInput(_)));
-        let err_msg = err.to_string();
+        // Error Display is redacted; assert on the typed variant's inner message.
+        let err_msg = match result.unwrap_err() {
+            Error::InvalidInput(msg) => msg,
+            other => panic!("expected InvalidInput, got: {other:?}"),
+        };
         assert!(
             err_msg.contains("empty"),
             "Error should mention empty data: {}",

@@ -176,12 +176,8 @@ fn metadata_extraction_result_metadata(
         .as_object()
         .map(|object| object.keys().map(String::as_str).collect())
         .unwrap_or_default();
-    let key_total_len: usize = keys.iter().map(|key| diagnostic_len(key)).sum();
-    let key_max_len = keys
-        .iter()
-        .map(|key| diagnostic_len(key))
-        .max()
-        .unwrap_or(0);
+    let key_total_len: usize = keys.iter().map(diagnostic_len).sum();
+    let key_max_len = keys.iter().map(diagnostic_len).max().unwrap_or(0);
     serde_json::json!({
         "fields_extracted": fields_extracted,
         "key_count": keys.len(),
@@ -3651,7 +3647,7 @@ impl JobHandler for LinkingHandler {
         info!(
             note_id_present = true,
             result_count = created,
-            strategy_len = diagnostic_len(&graph_config.strategy),
+            strategy_len = diagnostic_len(graph_config.strategy),
             wiki_found = wiki_links_found,
             wiki_resolved = wiki_links_resolved,
             duration_ms = start.elapsed().as_millis() as u64,
@@ -3666,7 +3662,7 @@ impl JobHandler for LinkingHandler {
                 created,
                 wiki_links_found,
                 wiki_links_resolved,
-                &graph_config.strategy,
+                graph_config.strategy,
             );
             if let Err(e) = self
                 .db
@@ -3716,7 +3712,7 @@ impl JobHandler for LinkingHandler {
             created,
             wiki_links_found,
             wiki_links_resolved,
-            &graph_config.strategy,
+            graph_config.strategy,
         )))
     }
 }

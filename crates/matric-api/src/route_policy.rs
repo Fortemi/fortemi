@@ -1452,6 +1452,20 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         PublicStatic,
     ),
     r("/recording.wav", Public, "test_fixture", Hidden, NoStore),
+    r(
+        "/api/v1/problem-contract-test",
+        Public,
+        "test_fixture",
+        Hidden,
+        NoStore,
+    ),
+    r(
+        "/api/v1/problem-contract-status/{status}",
+        Public,
+        "test_fixture",
+        Hidden,
+        NoStore,
+    ),
 ];
 
 const fn r(

@@ -545,7 +545,11 @@ mod tests {
         );
         let result = summarizer.summarize("Some text to summarize").await;
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        // Error Display is redacted; assert on the typed variant's inner message.
+        let err = match result.unwrap_err() {
+            matric_core::Error::Inference(msg) => msg,
+            other => panic!("expected Inference error, got: {other:?}"),
+        };
         assert!(err.contains("Ollama summarization request failed"));
         assert!(err.contains("error_reason=connect"));
         assert!(err.contains("error_len="));

@@ -504,8 +504,7 @@ fn principal_has_family_scope(
 fn family_allows_legacy_scope(family: &ScopeFamily, granted: &str, required: &str) -> bool {
     match family {
         ScopeFamily::Rest => {
-            (granted == "write" && required == "read")
-                || (granted == "write" && required == "write")
+            (granted == "write" && (required == "read" || required == "write"))
                 || (granted == "read" && required == "read")
         }
         ScopeFamily::Admin => granted == "admin",

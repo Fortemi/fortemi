@@ -465,47 +465,6 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn document_type_not_found_errors_report_metadata_without_raw_values() {
-        let raw_name = "secret-type-sk-live-123/path@example.com";
-        let err = document_type_not_found_error(raw_name);
-
-        let Error::NotFound(message) = err else {
-            panic!("expected not-found error");
-        };
-
-        assert!(message.contains("Document type not found"));
-        assert!(message.contains("name_len=40"));
-        assert!(!message.contains(raw_name));
-        assert!(!message.contains("secret-type"));
-        assert!(!message.contains("sk-live"));
-        assert!(!message.contains("path@example.com"));
-    }
-
-    #[test]
-    fn document_type_in_use_errors_report_metadata_without_raw_values() {
-        let raw_name = "customer-report-sk-live-123/path@example.com";
-        let err = document_type_in_use_error(raw_name, 7);
-
-        let Error::InvalidInput(message) = err else {
-            panic!("expected invalid-input error");
-        };
-
-        assert!(message.contains("Cannot delete document type"));
-        assert!(message.contains("name_len=44"));
-        assert!(message.contains("reference_count_present=true"));
-        assert!(!message.contains("reference_count=7"));
-        assert!(!message.contains(raw_name));
-        assert!(!message.contains("customer-report"));
-        assert!(!message.contains("sk-live"));
-        assert!(!message.contains("path@example.com"));
-    }
-}
-
 impl PgDocumentTypeRepository {
     /// Helper: detect document type from content magic patterns (issue #124, #199).
     /// Scores each type by number of matching patterns rather than first-match-wins.
@@ -676,5 +635,46 @@ impl PgDocumentTypeRepository {
             is_system: doc_type.is_system,
             is_active: doc_type.is_active,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn document_type_not_found_errors_report_metadata_without_raw_values() {
+        let raw_name = "secret-type-sk-live-123/path@example.com";
+        let err = document_type_not_found_error(raw_name);
+
+        let Error::NotFound(message) = err else {
+            panic!("expected not-found error");
+        };
+
+        assert!(message.contains("Document type not found"));
+        assert!(message.contains("name_len=40"));
+        assert!(!message.contains(raw_name));
+        assert!(!message.contains("secret-type"));
+        assert!(!message.contains("sk-live"));
+        assert!(!message.contains("path@example.com"));
+    }
+
+    #[test]
+    fn document_type_in_use_errors_report_metadata_without_raw_values() {
+        let raw_name = "customer-report-sk-live-123/path@example.com";
+        let err = document_type_in_use_error(raw_name, 7);
+
+        let Error::InvalidInput(message) = err else {
+            panic!("expected invalid-input error");
+        };
+
+        assert!(message.contains("Cannot delete document type"));
+        assert!(message.contains("name_len=44"));
+        assert!(message.contains("reference_count_present=true"));
+        assert!(!message.contains("reference_count=7"));
+        assert!(!message.contains(raw_name));
+        assert!(!message.contains("customer-report"));
+        assert!(!message.contains("sk-live"));
+        assert!(!message.contains("path@example.com"));
     }
 }

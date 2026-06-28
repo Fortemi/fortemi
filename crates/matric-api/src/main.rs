@@ -5342,6 +5342,7 @@ async fn emit_incoming_webhook_audit_event(event: AuditEvent) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn webhook_control_audit_event(
     auth: &Auth,
     action: &str,
@@ -10449,6 +10450,7 @@ impl fmt::Debug for AccessFrequencyQuery {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn access_frequency_note_telemetry(
     title: Option<&str>,
     access_count: i32,
@@ -34302,7 +34304,7 @@ mod tests {
         assert_eq!(event.principal_id.as_deref(), Some("oauth_user:operator-1"));
         assert_eq!(event.attrs["queue_scope"], "global");
         assert_eq!(event.attrs["archive_name_present"], false);
-        assert!(event.attrs.get("archive_name_len").is_none());
+        assert!(!event.attrs.contains_key("archive_name_len"));
 
         let serialized = serde_json::to_string(&event).expect("serialize audit event");
         assert!(!serialized.contains("client-secret-should-redact"));
@@ -34413,7 +34415,7 @@ mod tests {
         assert_eq!(event.attrs["reason_code"], "blocked_extension");
         assert_eq!(event.attrs["detected_type_class"], "blocked_extension");
         assert_eq!(event.attrs["archive_schema_present"], false);
-        assert!(event.attrs.get("archive_schema_len").is_none());
+        assert!(!event.attrs.contains_key("archive_schema_len"));
 
         let serialized = serde_json::to_string(&event).expect("serialize audit event");
         assert!(!serialized.contains("installer-secret-api-key.exe"));
@@ -34778,13 +34780,12 @@ mod tests {
         assert_eq!(normalized.resource.attrs["api_key_is_active"], true);
         assert_eq!(normalized.resource.attrs["api_key_has_expiration"], true);
         assert_eq!(normalized.resource.attrs["api_key_has_rate_limit"], true);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("api_key_description")
-            .is_none());
-        assert!(normalized.resource.attrs.get("api_key_hash").is_none());
-        assert!(normalized.resource.attrs.get("api_key_secret").is_none());
+            .contains_key("api_key_description"));
+        assert!(!normalized.resource.attrs.contains_key("api_key_hash"));
+        assert!(!normalized.resource.attrs.contains_key("api_key_secret"));
         assert!(!hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -34805,7 +34806,7 @@ mod tests {
                 .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("api_key_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("api_key_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -34829,7 +34830,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("api_key_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("api_key_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -34873,7 +34874,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
-        assert!(normalized.resource.attrs.get("api_key_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("api_key_id"));
     }
 
     #[tokio::test]
@@ -34895,7 +34896,7 @@ mod tests {
 
         assert_eq!(normalized.policy.action_family, "pke_keyset");
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("api_key_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("api_key_id"));
     }
 
     #[tokio::test]
@@ -34941,7 +34942,7 @@ mod tests {
                 .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("parent_note_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("parent_note_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -34967,7 +34968,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("parent_note_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("parent_note_id"));
     }
 
     #[tokio::test]
@@ -35051,7 +35052,7 @@ mod tests {
                 .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("archive_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("archive_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -35095,7 +35096,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
-        assert!(normalized.resource.attrs.get("archive_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("archive_id"));
     }
 
     #[test]
@@ -35192,11 +35193,10 @@ mod tests {
             serde_json::json!(parent_id)
         );
         assert_eq!(normalized.resource.attrs["collection_note_count"], 12);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("collection_description")
-            .is_none());
+            .contains_key("collection_description"));
         assert!(!hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -35217,7 +35217,7 @@ mod tests {
                 .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("collection_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("collection_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -35241,7 +35241,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("collection_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("collection_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -35288,7 +35288,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
-        assert!(normalized.resource.attrs.get("collection_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("collection_id"));
     }
 
     #[tokio::test]
@@ -35311,7 +35311,7 @@ mod tests {
 
         assert_eq!(normalized.policy.action_family, "collection");
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("collection_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("collection_id"));
     }
 
     fn test_template(id: Uuid, collection_id: Option<Uuid>) -> matric_core::NoteTemplate {
@@ -35385,12 +35385,11 @@ mod tests {
             normalized.resource.attrs["template_collection_id"],
             serde_json::json!(collection_id)
         );
-        assert!(normalized.resource.attrs.get("template_content").is_none());
-        assert!(normalized
+        assert!(!normalized.resource.attrs.contains_key("template_content"));
+        assert!(!normalized
             .resource
             .attrs
-            .get("template_description")
-            .is_none());
+            .contains_key("template_description"));
         assert!(!hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -35411,7 +35410,7 @@ mod tests {
                 .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("template_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("template_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -35435,7 +35434,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("template_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("template_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -35479,7 +35478,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
-        assert!(normalized.resource.attrs.get("template_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("template_id"));
     }
 
     #[tokio::test]
@@ -35501,7 +35500,7 @@ mod tests {
 
         assert_eq!(normalized.resource.kind, ResourceKind::DocumentType);
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("template_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("template_id"));
     }
 
     fn test_skos_concept(id: Uuid, primary_scheme_id: Uuid) -> matric_core::SkosConcept {
@@ -35619,21 +35618,18 @@ mod tests {
             normalized.resource.attrs["taxonomy_concept_has_embedding"],
             true
         );
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_concept_uri")
-            .is_none());
-        assert!(normalized
+            .contains_key("taxonomy_concept_uri"));
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_concept_embedding_model")
-            .is_none());
-        assert!(normalized
+            .contains_key("taxonomy_concept_embedding_model"));
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_concept_facet_domain")
-            .is_none());
+            .contains_key("taxonomy_concept_facet_domain"));
         assert!(!hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -35656,11 +35652,10 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_concept_id")
-            .is_none());
+            .contains_key("taxonomy_concept_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -35685,11 +35680,10 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_concept_id")
-            .is_none());
+            .contains_key("taxonomy_concept_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -35735,11 +35729,10 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_concept_id")
-            .is_none());
+            .contains_key("taxonomy_concept_id"));
     }
 
     #[tokio::test]
@@ -35791,11 +35784,10 @@ mod tests {
             normalized.resource.attrs["taxonomy_relation_type"],
             "broader"
         );
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_concept_id")
-            .is_none());
+            .contains_key("taxonomy_concept_id"));
         assert!(!hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -35824,16 +35816,14 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_relation_source_concept_id")
-            .is_none());
-        assert!(normalized
+            .contains_key("taxonomy_relation_source_concept_id"));
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_relation_target_concept_id")
-            .is_none());
+            .contains_key("taxonomy_relation_target_concept_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -35857,11 +35847,10 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_relation_target_concept_id")
-            .is_none());
+            .contains_key("taxonomy_relation_target_concept_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -35889,11 +35878,10 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_relation_target_concept_id")
-            .is_none());
+            .contains_key("taxonomy_relation_target_concept_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -35917,11 +35905,10 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_relation_source_concept_id")
-            .is_none());
+            .contains_key("taxonomy_relation_source_concept_id"));
     }
 
     #[tokio::test]
@@ -35943,11 +35930,10 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_concept_id")
-            .is_none());
+            .contains_key("taxonomy_concept_id"));
     }
 
     fn test_skos_scheme(id: Uuid) -> matric_core::SkosConceptScheme {
@@ -36040,36 +36026,30 @@ mod tests {
             normalized.resource.attrs["taxonomy_scheme_has_modified_at"],
             true
         );
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_scheme_uri")
-            .is_none());
-        assert!(normalized
+            .contains_key("taxonomy_scheme_uri"));
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_scheme_title")
-            .is_none());
-        assert!(normalized
+            .contains_key("taxonomy_scheme_title"));
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_scheme_description")
-            .is_none());
-        assert!(normalized
+            .contains_key("taxonomy_scheme_description"));
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_scheme_creator")
-            .is_none());
-        assert!(normalized
+            .contains_key("taxonomy_scheme_creator"));
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_scheme_publisher")
-            .is_none());
-        assert!(normalized
+            .contains_key("taxonomy_scheme_publisher"));
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_scheme_rights")
-            .is_none());
+            .contains_key("taxonomy_scheme_rights"));
         assert!(!hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -36092,11 +36072,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized
-            .resource
-            .attrs
-            .get("taxonomy_scheme_id")
-            .is_none());
+        assert!(!normalized.resource.attrs.contains_key("taxonomy_scheme_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -36121,11 +36097,7 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized
-            .resource
-            .attrs
-            .get("taxonomy_scheme_id")
-            .is_none());
+        assert!(!normalized.resource.attrs.contains_key("taxonomy_scheme_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -36174,11 +36146,7 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
-        assert!(normalized
-            .resource
-            .attrs
-            .get("taxonomy_scheme_id")
-            .is_none());
+        assert!(!normalized.resource.attrs.contains_key("taxonomy_scheme_id"));
     }
 
     #[tokio::test]
@@ -36200,11 +36168,7 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized
-            .resource
-            .attrs
-            .get("taxonomy_scheme_id")
-            .is_none());
+        assert!(!normalized.resource.attrs.contains_key("taxonomy_scheme_id"));
     }
 
     fn test_skos_collection(id: Uuid, scheme_id: Option<Uuid>) -> matric_core::SkosCollection {
@@ -36282,21 +36246,18 @@ mod tests {
             normalized.resource.attrs["taxonomy_collection_has_updated_at"],
             true
         );
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_collection_uri")
-            .is_none());
-        assert!(normalized
+            .contains_key("taxonomy_collection_uri"));
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_collection_pref_label")
-            .is_none());
-        assert!(normalized
+            .contains_key("taxonomy_collection_pref_label"));
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_collection_definition")
-            .is_none());
+            .contains_key("taxonomy_collection_definition"));
         assert!(!hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -36319,11 +36280,10 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_collection_id")
-            .is_none());
+            .contains_key("taxonomy_collection_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -36348,11 +36308,10 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_collection_id")
-            .is_none());
+            .contains_key("taxonomy_collection_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -36401,11 +36360,10 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_collection_id")
-            .is_none());
+            .contains_key("taxonomy_collection_id"));
     }
 
     #[tokio::test]
@@ -36427,11 +36385,10 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_collection_id")
-            .is_none());
+            .contains_key("taxonomy_collection_id"));
     }
 
     #[tokio::test]
@@ -36453,11 +36410,10 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("taxonomy_collection_id")
-            .is_none());
+            .contains_key("taxonomy_collection_id"));
     }
 
     fn test_document_type_metadata(name: &str) -> DocumentTypeResourceMetadata {
@@ -36548,7 +36504,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("document_type_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("document_type_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -36597,7 +36553,7 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
-        assert!(normalized.resource.attrs.get("document_type_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("document_type_id"));
     }
 
     fn test_job(id: Uuid, note_id: Option<Uuid>) -> matric_core::Job {
@@ -36671,7 +36627,7 @@ mod tests {
             normalize_job_route_policy_input(input, |_lookup_id| async move { Ok(None) }).await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("job_type").is_none());
+        assert!(!normalized.resource.attrs.contains_key("job_type"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -36695,7 +36651,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("job_type").is_none());
+        assert!(!normalized.resource.attrs.contains_key("job_type"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -36742,7 +36698,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
-        assert!(normalized.resource.attrs.get("job_type").is_none());
+        assert!(!normalized.resource.attrs.contains_key("job_type"));
     }
 
     fn test_webhook_resource(id: Uuid) -> matric_core::Webhook {
@@ -36786,8 +36742,8 @@ mod tests {
         assert_eq!(normalized.resource.attrs["webhook_event_count"], 2);
         assert_eq!(normalized.resource.attrs["webhook_failure_count"], 2);
         assert_eq!(normalized.resource.attrs["webhook_max_retries"], 5);
-        assert!(normalized.resource.attrs.get("webhook_url").is_none());
-        assert!(normalized.resource.attrs.get("webhook_secret").is_none());
+        assert!(!normalized.resource.attrs.contains_key("webhook_url"));
+        assert!(!normalized.resource.attrs.contains_key("webhook_secret"));
         assert!(!hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -36810,7 +36766,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("webhook_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("webhook_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -36835,7 +36791,7 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("webhook_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("webhook_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -36881,7 +36837,7 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
-        assert!(normalized.resource.attrs.get("webhook_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("webhook_id"));
     }
 
     #[tokio::test]
@@ -36905,7 +36861,7 @@ mod tests {
 
         assert_eq!(normalized.policy.action_family, "webhook_receiver");
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("webhook_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("webhook_id"));
     }
 
     fn test_inbound_source(name: &str) -> matric_core::InboundSource {
@@ -36953,11 +36909,10 @@ mod tests {
             "redis-stream"
         );
         assert_eq!(normalized.resource.attrs["inbound_source_enabled"], true);
-        assert!(normalized
+        assert!(!normalized
             .resource
             .attrs
-            .get("inbound_source_config")
-            .is_none());
+            .contains_key("inbound_source_config"));
         assert!(!hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -36980,7 +36935,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("inbound_source_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("inbound_source_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -37030,7 +36985,7 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
-        assert!(normalized.resource.attrs.get("inbound_source_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("inbound_source_id"));
     }
 
     #[tokio::test]
@@ -37053,7 +37008,7 @@ mod tests {
 
         assert_eq!(normalized.policy.action_family, "webhook_control");
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("inbound_source_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("inbound_source_id"));
     }
 
     fn test_pke_keyset_metadata(name: &str) -> PkeKeysetResourceMetadata {
@@ -37116,17 +37071,15 @@ mod tests {
             "mm:example-address"
         );
         assert_eq!(normalized.resource.attrs["pke_keyset_label"], "Primary");
-        assert!(normalized.resource.attrs.get("pke_public_key").is_none());
-        assert!(normalized
+        assert!(!normalized.resource.attrs.contains_key("pke_public_key"));
+        assert!(!normalized
             .resource
             .attrs
-            .get("pke_encrypted_private_key")
-            .is_none());
-        assert!(normalized
+            .contains_key("pke_encrypted_private_key"));
+        assert!(!normalized
             .resource
             .attrs
-            .get("pke_keyset_private_key")
-            .is_none());
+            .contains_key("pke_keyset_private_key"));
         assert!(!hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -37182,7 +37135,7 @@ mod tests {
         .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("pke_keyset_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("pke_keyset_id"));
         assert!(hosted_policy_requires_normalized_resource(
             &RoleBasedPolicy,
             &normalized
@@ -37235,7 +37188,7 @@ mod tests {
             .await;
 
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
-        assert!(normalized.resource.attrs.get("pke_keyset_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("pke_keyset_id"));
     }
 
     #[tokio::test]
@@ -37258,7 +37211,7 @@ mod tests {
 
         assert_eq!(normalized.policy.action_family, "inbound_connector");
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
-        assert!(normalized.resource.attrs.get("pke_keyset_id").is_none());
+        assert!(!normalized.resource.attrs.contains_key("pke_keyset_id"));
     }
 
     #[tokio::test]

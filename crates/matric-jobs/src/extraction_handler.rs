@@ -1970,7 +1970,12 @@ mod tests {
             "Failed to download attachment",
             "postgres://user:mm_key_secret@db.internal/app failed at /srv/private/input.pdf",
         );
-        let rendered = format!("{failure:?}");
+        // JobResult Debug is redacted to error_len only; the safe failure message
+        // (reason + derived reason-code, secrets already stripped) lives in the
+        // Failed variant's inner string.
+        let JobResult::Failed(rendered) = failure else {
+            panic!("expected Failed, got: {failure:?}");
+        };
 
         assert!(rendered.contains("Failed to download attachment"));
         assert!(rendered.contains("operation_failed"));
@@ -2158,7 +2163,12 @@ mod tests {
         let result = handler.execute(ctx).await;
         match result {
             JobResult::Success(Some(result_json)) => {
-                assert_eq!(result_json["strategy"], "text_native");
+                // The strategy name is redacted to a telemetry length (#974);
+                // verify it is recorded plus the substantive extraction outcome.
+                assert!(
+                    result_json["strategy_len"].as_u64().is_some(),
+                    "strategy telemetry length should be present: {result_json}"
+                );
                 assert_eq!(result_json["has_text"], true);
                 assert_eq!(result_json["text_length"], 11);
             }
