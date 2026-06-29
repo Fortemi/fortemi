@@ -1,7 +1,7 @@
 # Fortemi Delivery Roadmap
 
 > **Status:** Active — reference until all planned phases are complete.
-> **Created:** 2026-06-24 · **Last updated:** 2026-06-27
+> **Created:** 2026-06-24 · **Last updated:** 2026-06-29
 > **Tracker:** Gitea `Fortemi/fortemi` (authoritative). Issue numbers below are Gitea issues.
 > **Source:** Synthesized from the 2026-06-21→23 open-issue audit sweep (#746–#1006), the milestone structure, and the 2026-06-23 interactive product-decision Q&A (31 decisions recorded on-issue).
 
@@ -1312,3 +1312,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-27 — #968/#974 Mock realtime adapter Debug output now uses character-count lengths for provider call identifiers while preserving raw provider IDs, media payloads, DTMF values, paths, DSNs, emails, and token-shaped value redaction.
 - 2026-06-27 — #968/#974 Realtime ASR error outbox payload metadata now uses character-count lengths for provider error reasons while preserving raw provider diagnostics, URLs, paths, emails, DSNs, and token-shaped value redaction.
 - 2026-06-27 — #968/#974 API inference completion telemetry now uses character-count lengths for flattened prompts and generated content while preserving raw prompt, response, provider, URL, path, email, DSN, and token-shaped value redaction.
+- 2026-06-29 — #897 KeyProvider/KMS launch contract finalized in `docs/architecture/cryptographic-decisions.md` (ADR-093 follow-up). Operator override: provider-neutral + configurable key strategy with Vault-Transit/OpenBao (Integro Labs on-prem KMS, per itops) and AWS KMS as co-first launch backends (GCP follow-on); no DEK cache v1; zeroize-only (mlock deferred); generate+decrypt-canary startup probe; fail-closed matrix; rotation-as-metadata/key-version. Unblocks #734 (impl) → relieves the #910 KMS-audit design gate. #893 ADR-100 refresh also landed.
