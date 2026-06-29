@@ -1,6 +1,6 @@
 # CE → Enterprise Migration — Issue Triage
 
-> **Status:** Triage complete; **no moves executed yet** (operator chose triage-only this pass). This is the approved classification the execution pass will follow.
+> **Status:** Triage complete; **move-set EXECUTED 2026-06-29.** EE issues created: `Fortemi-Enterprise/mcp-gate#1`, `Fortemi-Enterprise/kms#1`, `Fortemi-Enterprise/audit-sinks#1`. CE sources #911/#912 closed (relocated → kms#1); #734/#711 re-scoped to CE residual; #718/#910 (already closed) cross-linked to the EE issues.
 > **Created:** 2026-06-29
 > **Companion:** `.aiwg/planning/ce-ee-migration-plan.md` (mechanics/sequencing), `.aiwg/planning/enterprise-tooling-report.md` (EE surface).
 > **Targets verified:** all nine `Fortemi-Enterprise/*` repos exist, are private, have issues enabled, and the delivery actor (`roctibot`) has admin/push — ready when we execute.
@@ -41,16 +41,18 @@ Grouped; all remain in `Fortemi/fortemi` under `tier/licensed-server` where appl
 - **#730 / #731:** confirmed STAY CE (seam-consumers), overriding the coarser plan §3 KMS cluster.
 - **Per-issue CE-hosted vs EE line:** resolved by rule 2 (wiring stays CE). No further per-issue triage needed for #62.
 
-## D. Execution pass (deferred — needs operator go)
+## D. Execution pass — DONE (2026-06-29)
 
-When you're ready to execute moves (targets are ready now):
+| Action | Result |
+|---|---|
+| KMS backends → EE | Created `Fortemi-Enterprise/kms#1` (AWS/Vault/GCP backends, links #897). Closed #911, #912 as relocated. Re-scoped #734 (comment) to the CE trait + `EnvKeyProvider` + #730/#731 consumers (stays open). |
+| Audit sinks → EE | Created `Fortemi-Enterprise/audit-sinks#1` (EE sinks + hosted enforcement). Re-scoped #711 (comment) to the CE core (done via #910); #910 cross-linked. |
+| MCP gate → EE | Created `Fortemi-Enterprise/mcp-gate#1` (gate impl, links ADR-100/#893). #718 cross-linked. |
+| STAY-CE issues | Untouched. |
 
-1. KMS: re-scope #734 to CE trait; create `Fortemi-Enterprise/kms` issues for AWS/Vault/GCP backends (link #897 contract); relocate #911/#912; cross-link + close the EE-impl sources.
-2. Audit: create `Fortemi-Enterprise/audit-sinks` issues for the EE sinks + hosted enforcement; re-create the closed #910/#718 dispositions in `audit-sinks`/`mcp-gate`.
-3. Update CE references (roadmap anchors, ADR "implementation tracker" lines) to the new EE issue numbers.
-4. Leave all STAY-CE issues untouched.
+**Future EE impl issues** (rbac / billing / auth-providers / search-backends / job-backends) are filed when that work starts — no current CE sources to relocate.
 
-No tracker mutations were made in this triage pass beyond the prior #718/#910 closes.
+Tracker mutations this pass: 3 EE issues created; #911/#912 closed; cross-link/re-scope comments on #718/#910/#734/#711. No CE code changed.
 
 ## References
 - `.aiwg/planning/ce-ee-migration-plan.md`, `.aiwg/planning/enterprise-tooling-report.md`, `.aiwg/planning/roadmap.md`
