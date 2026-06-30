@@ -80,7 +80,7 @@ Tests AI/ML functionality with Ollama (GPU-enabled):
 
 **Environment**:
 - OLLAMA_HOST: http://localhost:11434
-- INFERENCE_BACKEND: ollama
+- MATRIC_INFERENCE_DEFAULT: ollama
 - GPU access for embedding generation
 
 **Timeout**: 30 minutes

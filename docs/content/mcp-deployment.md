@@ -108,7 +108,7 @@ When MCP credentials are provided from multiple sources, the entrypoint uses thi
 - `read`: Grants read access to all knowledge base resources
 - `write`: Grants write access (note creation, updates, deletions)
 
-**Scope enforcement:** When `REQUIRE_AUTH=true`, all API endpoints enforce scope-based access control. The MCP client's scope determines what operations are allowed.
+**Scope enforcement:** The MCP server applies only a **coarse connect-time gate** — it verifies the caller presents one of the `mcp`, `read`, or `admin` scopes to establish a session. It does **not** perform per-tool or per-operation scope checks. Fine-grained authorization for each operation is enforced downstream by the Fortémi REST API's route/action policy layer (active when `REQUIRE_AUTH=true`). In other words, the MCP connect scope opens the door; the REST API decides what each individual call is allowed to do.
 
 ### Token Introspection
 
@@ -117,8 +117,8 @@ When MCP credentials are provided from multiple sources, the entrypoint uses thi
 1. Every MCP request includes a bearer token from the client
 2. MCP server calls `POST /oauth/introspect` with the token
 3. API validates token and returns active status + scopes
-4. MCP server checks scopes against required permissions
-5. If authorized, MCP server proxies the request to the API
+4. MCP server applies a coarse connect gate only — it confirms the token is active and presents one of the `mcp`/`read`/`admin` scopes. There is no per-tool or per-operation scope check in the MCP server.
+5. MCP server proxies the request to the API, where per-operation authorization is enforced by the REST API's route/action policy
 
 **Security properties:**
 

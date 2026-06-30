@@ -297,13 +297,13 @@ Ollama is the default inference backend for local LLM inference without API cost
 | `OLLAMA_URL` | String | `http://127.0.0.1:11434` | Alias for `OLLAMA_BASE` (checked as fallback by the vision handler and content summarizer) |
 | `OLLAMA_HOST` | String | `http://localhost:11434` | Alias used by the Ollama discovery service |
 | `OLLAMA_EMBED_MODEL` | String | `nomic-embed-text` | Model name for generating embeddings |
-| `OLLAMA_GEN_MODEL` | String | `qwen3.5:27b` | Model name for text generation (standard/failover tier) |
+| `OLLAMA_GEN_MODEL` | String | `qwen3.5:9b` | Model name for text generation (standard/failover tier) |
 | `OLLAMA_EMBED_DIM` | Integer | `768` | Vector dimensionality for embeddings. Must match the model's output dimension. |
 | `MATRIC_EMBED_TIMEOUT_SECS` | Integer | `30` | Timeout in seconds for embedding requests to Ollama |
 | `MATRIC_GEN_TIMEOUT_SECS` | Integer | `120` | Timeout in seconds for generation requests to Ollama |
 | `MATRIC_OLLAMA_URL` | String | `http://127.0.0.1:11434` | Ollama URL used by the TOML-based inference config path |
 | `MATRIC_OLLAMA_EMBEDDING_MODEL` | String | `nomic-embed-text` | Embedding model used by the TOML-based inference config path |
-| `MATRIC_OLLAMA_GENERATION_MODEL` | String | `qwen3.5:27b` | Generation model used by the TOML-based inference config path |
+| `MATRIC_OLLAMA_GENERATION_MODEL` | String | `qwen3.5:9b` | Generation model used by the TOML-based inference config path |
 
 **Example (Docker Desktop - macOS/Windows):**
 ```bash
@@ -336,7 +336,7 @@ The OpenAI backend supports OpenAI's cloud API and any OpenAI-compatible endpoin
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `INFERENCE_BACKEND` | String | `ollama` | Backend selection: `ollama` or `openai` |
+| `MATRIC_INFERENCE_DEFAULT` | String | `ollama` | Default inference provider selection: `ollama`, `openai`, `openrouter`, or `llamacpp` |
 | `OPENAI_API_KEY` | String | None | API key for OpenAI cloud (required for OpenAI cloud) |
 | `OPENAI_BASE_URL` | String | `https://api.openai.com/v1` | OpenAI API base URL or compatible endpoint |
 | `OPENAI_EMBED_MODEL` | String | `text-embedding-3-small` | Model name for embeddings |
@@ -353,7 +353,7 @@ The OpenAI backend supports OpenAI's cloud API and any OpenAI-compatible endpoin
 
 **Example (OpenAI Cloud):**
 ```bash
-INFERENCE_BACKEND=openai
+MATRIC_INFERENCE_DEFAULT=openai
 OPENAI_API_KEY=<OPENAI_API_KEY>
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_EMBED_MODEL=text-embedding-3-small
@@ -364,7 +364,7 @@ OPENAI_TIMEOUT=120
 
 **Example (Azure OpenAI):**
 ```bash
-INFERENCE_BACKEND=openai
+MATRIC_INFERENCE_DEFAULT=openai
 OPENAI_API_KEY=your-azure-key
 OPENAI_BASE_URL=https://your-resource.openai.azure.com/openai/deployments/your-deployment
 OPENAI_EMBED_MODEL=text-embedding-ada-002
@@ -373,7 +373,7 @@ OPENAI_GEN_MODEL=gpt-4
 
 **Example (vLLM Self-Hosted):**
 ```bash
-INFERENCE_BACKEND=openai
+MATRIC_INFERENCE_DEFAULT=openai
 OPENAI_API_KEY=token
 OPENAI_BASE_URL=http://vllm-server:8000/v1
 OPENAI_GEN_MODEL=meta-llama/Llama-3.1-8B-Instruct
@@ -382,7 +382,7 @@ OPENAI_TIMEOUT=180
 
 **Example (LocalAI):**
 ```bash
-INFERENCE_BACKEND=openai
+MATRIC_INFERENCE_DEFAULT=openai
 OPENAI_API_KEY=localai
 OPENAI_BASE_URL=http://localhost:8080/v1
 OPENAI_EMBED_MODEL=text-embedding-ada-002
@@ -507,7 +507,7 @@ These variables control the multi-tier concept extraction cascade: GLiNER (tier 
 | `EXTRACTION_TARGET_CONCEPTS` | Integer | `5` | Target number of concepts to extract per note. GLiNER→fast model escalation triggers when below this threshold; fast→standard model escalation triggers at < target/2 (i.e., 3 with the default of 5). |
 | `MATRIC_FAST_GEN_MODEL` | String | `qwen3.5:9b` | Fast generation model (tier 1) used for concept tagging and reference extraction when GLiNER yields too few results. Large documents are automatically chunked. Set to empty to disable. |
 | `MATRIC_FAST_GEN_TIMEOUT_SECS` | Integer | `60` | Timeout in seconds for fast model generation requests. |
-| `OLLAMA_GEN_MODEL` | String | `qwen3.5:27b` | Standard generation model (tier 2) used as failover when the fast model also yields insufficient concepts. |
+| `OLLAMA_GEN_MODEL` | String | `qwen3.5:9b` | Standard generation model (tier 2) used as failover when the fast model also yields insufficient concepts. |
 
 **Extraction cascade:**
 ```
@@ -523,7 +523,7 @@ GLiNER (tier 0, ~300ms, CPU)
 GLINER_BASE_URL=http://gliner:8090
 EXTRACTION_TARGET_CONCEPTS=5
 MATRIC_FAST_GEN_MODEL=qwen3.5:9b
-OLLAMA_GEN_MODEL=qwen3.5:27b
+OLLAMA_GEN_MODEL=qwen3.5:9b
 ```
 
 **Example (disable GLiNER, LLM-only extraction):**
@@ -531,14 +531,14 @@ OLLAMA_GEN_MODEL=qwen3.5:27b
 GLINER_BASE_URL=
 EXTRACTION_TARGET_CONCEPTS=5
 MATRIC_FAST_GEN_MODEL=qwen3.5:9b
-OLLAMA_GEN_MODEL=qwen3.5:27b
+OLLAMA_GEN_MODEL=qwen3.5:9b
 ```
 
 **Example (higher concept density for rich taxonomies):**
 ```bash
 EXTRACTION_TARGET_CONCEPTS=10
 MATRIC_FAST_GEN_MODEL=qwen3.5:9b
-OLLAMA_GEN_MODEL=qwen3.5:27b
+OLLAMA_GEN_MODEL=qwen3.5:9b
 ```
 
 #### Embedding Enrichment
@@ -701,7 +701,7 @@ The `inference.toml` file provides structured configuration for inference backen
 
 [inference]
 # Backend selection: "ollama" or "openai"
-# Can be overridden by INFERENCE_BACKEND environment variable
+# Can be overridden by MATRIC_INFERENCE_DEFAULT environment variable
 backend = "ollama"
 
 # =============================================================================
@@ -791,10 +791,10 @@ backend = "ollama"  # Use Ollama
 backend = "openai"  # Use OpenAI
 ```
 
-This can be overridden by the `INFERENCE_BACKEND` environment variable:
+This can be overridden by the `MATRIC_INFERENCE_DEFAULT` environment variable:
 
 ```bash
-export INFERENCE_BACKEND=openai
+export MATRIC_INFERENCE_DEFAULT=openai
 ```
 
 ### Routing by Operation
@@ -1084,7 +1084,7 @@ MCP_TRANSPORT=http
 MCP_PORT=3001
 
 # Hybrid inference: Local embeddings + Cloud generation
-INFERENCE_BACKEND=ollama
+MATRIC_INFERENCE_DEFAULT=ollama
 OLLAMA_BASE=http://ollama-cluster.internal:11434
 OLLAMA_EMBED_MODEL=nomic-embed-text
 OLLAMA_EMBED_DIM=768

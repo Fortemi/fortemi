@@ -281,7 +281,7 @@ Ollama is required for AI features (embeddings, revision, title generation).
 |----------|---------|-------------|
 | `OLLAMA_BASE` | `http://host.docker.internal:11434` | Ollama API endpoint |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
-| `OLLAMA_GEN_MODEL` | `qwen3.5:27b` | Generation model |
+| `OLLAMA_GEN_MODEL` | `qwen3.5:9b` | Generation model |
 
 ### Linux Docker Configuration
 
@@ -304,7 +304,7 @@ docker compose -f docker-compose.bundle.yml exec matric \
 
 # Check required models are available
 ollama list
-# Should show: nomic-embed-text, qwen3.5:27b (or your configured models)
+# Should show: nomic-embed-text, qwen3.5:9b (or your configured models)
 ```
 
 ## Troubleshooting

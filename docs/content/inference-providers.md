@@ -18,9 +18,10 @@ Fortemi supports multiple LLM inference providers for text generation and embedd
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MATRIC_INFERENCE_DEFAULT` | `ollama` | Active backend (`ollama` or `openai`) |
+| `MATRIC_INFERENCE_DEFAULT` | `ollama` | Default provider (`ollama`, `openai`, `openrouter`, or `llamacpp`) |
+| `MATRIC_EMBEDDING_PROVIDER` | — | Route embeddings to a different provider than the default; validated against the catalog (must have the Embedding capability) |
 | `MATRIC_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama base URL |
-| `MATRIC_OLLAMA_GENERATION_MODEL` | `qwen3.5:27b` | Ollama generation model |
+| `MATRIC_OLLAMA_GENERATION_MODEL` | `qwen3.5:9b` | Ollama generation model (override to `qwen3.5:27b` on 24GB+ GPUs) |
 | `MATRIC_OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | Ollama embedding model |
 | `MATRIC_OPENAI_URL` | `https://api.openai.com/v1` | OpenAI-compatible base URL |
 | `MATRIC_OPENAI_API_KEY` | — | API key (falls back to `OPENAI_API_KEY`) |
@@ -45,7 +46,7 @@ default = "ollama"
 
 [inference.ollama]
 base_url = "http://127.0.0.1:11434"
-generation_model = "qwen3.5:27b"
+generation_model = "qwen3.5:9b"
 embedding_model = "nomic-embed-text"
 ```
 
@@ -66,7 +67,7 @@ Pull required models before starting:
 
 ```bash
 ollama pull nomic-embed-text
-ollama pull qwen3.5:27b
+ollama pull qwen3.5:9b
 ```
 
 ### Ollama (remote or Docker)
@@ -139,9 +140,9 @@ curl -X POST http://localhost:3000/api/v1/jobs \
   -d '{"note_id": "...", "job_type": "ai_revision", "model_override": "llamacpp:llama-3.2-3b"}'
 ```
 
-llama.cpp supports generation only — use Ollama or OpenAI for embeddings.
+llama.cpp is OpenAI-compatible and supports both generation and embeddings (via `/v1/embeddings`).
 
-**Hot-swap:** Change `LLAMACPP_BASE_URL` at runtime without restarting the server by sending a PUT to the runtime config API (see [Runtime Configuration API](#runtime-configuration-api)).
+**Hot-swap:** Change `LLAMACPP_BASE_URL` at runtime without restarting the server by sending a POST to `/api/v1/inference/config` (see [inference-configuration.md](./inference-configuration.md) → Runtime Configuration API).
 
 ### vLLM
 
@@ -179,7 +180,7 @@ MATRIC_OPENAI_EMBEDDING_MODEL=all-MiniLM-L6-v2
 
 ## Operation Routing and Fallback
 
-Route embeddings and generation to different backends. Useful for keeping embeddings local while using a cloud API for generation quality. Configure via TOML only (not environment variables).
+Route embeddings and generation to different backends. Useful for keeping embeddings local while using a cloud API for generation quality. Configure the full routing/fallback block via TOML; for the common case of routing only embeddings to a separate provider, the `MATRIC_EMBEDDING_PROVIDER` environment variable is sufficient (validated against the catalog — the target provider must have the Embedding capability).
 
 ```toml
 [inference.routing]

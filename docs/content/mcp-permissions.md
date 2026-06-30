@@ -28,11 +28,22 @@ annotations: {
 
 ## Tool Classification Tiers
 
-All 205 tools in Fortémi are classified into one of four tiers based on their data modification characteristics.
+Fortémi exposes 205 tools in full mode. Of these, **197 carry annotations** classifying them into the tiers below based on their data modification characteristics. **8 tools are currently unannotated** (treated conservatively by permission systems until annotations are added):
+
+- `manage_embeddings`
+- `manage_attachments`
+- `capture_diagnostics_snapshot`
+- `pfnet_sparsify`
+- `recompute_snn_scores`
+- `coarse_community_detection`
+- `trigger_graph_maintenance`
+- `manage_jobs`
+
+The authoritative source for tier classification is the `annotations` blocks in `mcp-server/tools.js`.
 
 ### Tier 1: Read-Only (`readOnlyHint: true`)
 
-**51 tools** - Auto-approved, no data modification risk.
+**102 tools** (`readOnlyHint: true`) - Auto-approved, no data modification risk.
 
 These tools only read data and never modify state. Safe for any automated workflow.
 
@@ -68,9 +79,11 @@ These tools only read data and never modify state. Safe for any automated workfl
 
 ### Tier 2: Non-Destructive Write (`destructiveHint: false`)
 
-**32 tools** - Creates/modifies data but changes are recoverable or don't cause data loss.
+Creates/modifies data but changes are recoverable or don't cause data loss.
 
 These tools write data but either create new resources (can be deleted) or modify existing resources in ways that preserve history (versioning) or are easily reversible.
+
+> **Counting note:** Tier 2 (non-destructive write) and Tier 3 (soft delete) both carry `destructiveHint: false`. The annotation boolean alone does not distinguish them — together they account for **67 tools** (all `destructiveHint: false`). The Tier 2 vs Tier 3 split below is a semantic sub-classification, not a separately-annotated count. For exact membership, consult the `annotations` blocks in `mcp-server/tools.js`.
 
 ```javascript
 // Example annotation
@@ -85,25 +98,18 @@ These tools write data but either create new resources (can be deleted) or modif
 }
 ```
 
-**Tools in this tier:**
+**Representative tools in this tier** (full list lives in `mcp-server/tools.js`):
 - `create_note`, `bulk_create_notes`, `update_note`, `set_note_tags`
 - `create_collection`, `move_note_to_collection`
-- `create_template`, `instantiate_template`
 - `create_embedding_set`, `add_set_members`, `refresh_embedding_set`
-- `backup_now`, `knowledge_shard`, `database_snapshot`
-- `knowledge_archive_upload`, `update_backup_metadata`
-- `create_concept_scheme`, `create_concept`, `update_concept`
-- `add_broader`, `add_narrower`, `add_related`
-- `tag_note_concept`, `untag_note_concept`, `restore_note_version`
+- `create_concept`, `update_concept`, `tag_note_concept`
 - `pke_generate_keypair`, `pke_encrypt`, `pke_decrypt`
-- `pke_create_keyset`, `pke_set_active_keyset`, `pke_export_keyset`
-- `create_job`
 
 ### Tier 3: Soft Delete (`destructiveHint: false`)
 
-**3 tools** - Marks as deleted but recoverable.
+Marks as deleted but recoverable.
 
-These tools perform soft deletion - resources are marked as deleted but can be restored.
+These tools perform soft deletion - resources are marked as deleted but can be restored. They also carry `destructiveHint: false` and are part of the combined 67-tool `destructiveHint: false` group noted under Tier 2.
 
 ```javascript
 // Example annotation
@@ -124,7 +130,7 @@ These tools perform soft deletion - resources are marked as deleted but can be r
 
 ### Tier 4: Destructive (`destructiveHint: true`)
 
-**11 tools** - Permanent data loss or irreversible state changes. **Always requires explicit approval.**
+**27 tools** (`destructiveHint: true`) - Permanent data loss or irreversible state changes. **Always requires explicit approval.**
 
 These tools can cause unrecoverable data loss. Even in automated modes, they should require user confirmation.
 
@@ -140,7 +146,7 @@ These tools can cause unrecoverable data loss. Even in automated modes, they sho
 }
 ```
 
-**Tools in this tier:**
+**Representative tools in this tier** (full list lives in `mcp-server/tools.js`):
 - `purge_note`, `purge_notes`, `purge_all_notes` - Permanent deletion
 - `remove_set_member` - Permanent removal from embedding set
 - `delete_concept` - Permanent concept deletion
@@ -184,29 +190,28 @@ When adding a new MCP tool, follow this process:
 }
 ```
 
-3. **Update the test file** (`mcp-server/test-verify-annotations.js`):
-   - Add the tool name to the appropriate array (READ_ONLY_TOOLS, NON_DESTRUCTIVE_WRITE_TOOLS, SOFT_DELETE_TOOLS, or DESTRUCTIVE_TOOLS)
-
-4. **Run the verification test**:
-```bash
-node mcp-server/test-verify-annotations.js
-```
+3. **Verify the annotation counts** against `mcp-server/tools.js` (see commands below).
 
 ## Verification
 
-The test suite at `mcp-server/test-verify-annotations.js` validates:
+Tool definitions and their annotations now live in `mcp-server/tools.js` (they were moved out of `index.js`). As of this writing, **197 of the 205 tools are annotated** (8 are pending — see the list under "Tool Classification Tiers" above).
 
-1. All 205 tools have annotations
-2. Read-only tools have `readOnlyHint: true`
-3. Non-destructive and soft-delete tools have `destructiveHint: false`
-4. Destructive tools have `destructiveHint: true`
-5. No duplicate classifications
+> **Note:** The legacy verification script `mcp-server/test-verify-annotations.js` is currently broken — it still looks for the tools array in `index.js`, but the tools moved to `tools.js`. The script needs updating for the `tools.js` split (follow-up). Until then, use the manual counts below.
 
-Run the test after any changes to tool annotations:
+Verify the annotation counts directly against `mcp-server/tools.js`:
 
 ```bash
-node mcp-server/test-verify-annotations.js
+# Tier 1: read-only tools (expect 102)
+grep -c '"readOnlyHint":true' mcp-server/tools.js
+
+# Tiers 2+3 combined: non-destructive write + soft delete (expect 67)
+grep -c '"destructiveHint":false' mcp-server/tools.js
+
+# Tier 4: destructive tools (expect 27)
+grep -c '"destructiveHint":true' mcp-server/tools.js
 ```
+
+These three flags are mutually exclusive in practice (read-only vs. non-destructive write/soft-delete vs. destructive), so the counts sum to the bulk of the 197 annotated tools; the remaining 8 tools have no annotations block at all.
 
 ## References
 

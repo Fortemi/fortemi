@@ -3052,11 +3052,15 @@ Each message in `conversation_history`:
 - `400 Bad Request`: Empty input
 - `503 Service Unavailable`: Chat not configured (Ollama unreachable) or all GPU threads busy
 
-When busy, the 503 response includes:
+When busy, the 503 response is RFC 9457 problem+json and sets a `Retry-After`
+header (the delay is in the header, not a body field):
 ```json
 {
-  "error": "Chat service is currently at capacity...",
-  "retry_after": 5
+  "type": "https://fortemi.com/problems/service-unavailable",
+  "title": "Service Unavailable",
+  "status": 503,
+  "detail": "Chat service is currently at capacity.",
+  "request_id": "018fd1a0-example"
 }
 ```
 
@@ -3432,39 +3436,44 @@ Minimal liveness probe for container orchestrators (Kubernetes, Docker Swarm). R
 
 ## Error Responses
 
-All errors follow a consistent format:
+All errors follow the RFC 9457 `application/problem+json` format, with a stable
+`type` URI, plus `title`, `status`, `detail`, and a `request_id`:
 
 ```json
 {
-  "error": "not_found",
-  "message": "Note not found",
-  "details": {
-    "note_id": "550e8400-..."
-  }
+  "type": "https://fortemi.com/problems/not-found",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "Requested resource is not present or not visible to the caller.",
+  "request_id": "018fd1a0-example"
 }
 ```
 
-**Common Error Codes:**
+See [API Error Contract](api-error-contract.md) for the full `ProblemType`
+catalog and the redaction boundary.
 
-| Status | Error | Description |
-|--------|-------|-------------|
-| 400 | bad_request | Invalid request parameters |
-| 401 | unauthorized | Missing or invalid authentication |
-| 403 | forbidden | Insufficient permissions |
-| 404 | not_found | Resource not found |
-| 429 | rate_limited | Too many requests |
-| 500 | internal_error | Server error |
+**Common Problem Types:**
+
+| Status | Type URI | Description |
+|--------|----------|-------------|
+| 400 | `https://fortemi.com/problems/validation-error` | Invalid request parameters |
+| 401 | `https://fortemi.com/problems/unauthorized` | Missing or invalid authentication |
+| 403 | `https://fortemi.com/problems/forbidden` | Insufficient permissions |
+| 404 | `https://fortemi.com/problems/not-found` | Resource not found |
+| 429 | `https://fortemi.com/problems/rate-limit-exceeded` | Too many requests |
+| 500 | `https://fortemi.com/problems/internal-error` | Server error |
 
 ## Rate Limiting
 
-- Default: 100 requests/minute per API key
-- Search: 30 requests/minute
-- AI operations: 10 requests/minute
+A single global rate limiter applies across all routes (there are no per-route
+tiers). Limits are configured by environment variables:
 
-Rate limit headers:
-- `X-RateLimit-Limit`: Request limit
-- `X-RateLimit-Remaining`: Remaining requests
-- `X-RateLimit-Reset`: Reset timestamp
+- `RATE_LIMIT_REQUESTS`: maximum requests per window
+- `RATE_LIMIT_PERIOD_SECS`: window length in seconds
+
+The 429 response is `problem+json` (`type=https://fortemi.com/problems/rate-limit-exceeded`)
+and carries **no** rate-limit headers (no `X-RateLimit-*`, no `RateLimit-*`, and
+no `Retry-After`). Clients should back off on HTTP `429` with exponential backoff.
 
 ## Versioning
 

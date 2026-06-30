@@ -545,29 +545,30 @@ API keys include automatic rate limiting to prevent abuse.
 
 ### Rate Limit Headers
 
-Response headers indicate current limit status:
-
-```
-X-RateLimit-Limit: 60
-X-RateLimit-Remaining: 45
-X-RateLimit-Reset: 1705320060
-```
+The global rate limiter does **not** emit rate-limit headers. There are no
+`X-RateLimit-Limit`, `X-RateLimit-Remaining`, or `X-RateLimit-Reset` headers,
+and no `Retry-After` header on the rate-limit (429) response. Clients cannot
+read a remaining-quota value; detect the limit by the HTTP `429` status and
+back off.
 
 ### Handling Rate Limits
 
 **HTTP 429 Response:**
 ```json
 {
-  "error": "Rate limit exceeded",
-  "retry_after": 30
+  "type": "https://fortemi.com/problems/rate-limit-exceeded",
+  "title": "Too Many Requests",
+  "status": 429,
+  "detail": "Rate limit or quota boundary reached.",
+  "request_id": "018fd1a0-example"
 }
 ```
 
 **Best Practices:**
-- Implement exponential backoff when rate limited
+- Implement exponential backoff when rate limited (no `Retry-After` is provided)
 - Cache frequently accessed data
 - Batch operations when possible (e.g., `bulk_create_notes`)
-- Monitor `X-RateLimit-Remaining` header
+- Back off on HTTP `429` — there is no remaining-quota header to monitor
 
 **Python Example:**
 ```python
@@ -579,9 +580,11 @@ def api_call_with_retry(url, headers, max_retries=3):
         response = requests.get(url, headers=headers)
 
         if response.status_code == 429:
-            retry_after = int(response.headers.get("Retry-After", 60))
-            print(f"Rate limited. Waiting {retry_after}s...")
-            time.sleep(retry_after)
+            # The global rate limiter sends no Retry-After header.
+            # Use plain exponential backoff.
+            backoff = 2 ** attempt
+            print(f"Rate limited. Waiting {backoff}s...")
+            time.sleep(backoff)
             continue
 
         return response
@@ -649,7 +652,12 @@ parameters on the registered redirect URI.
 }
 ```
 
-| Error Code                  | Description                           | Common Cause                          |
+The RFC 6749 error codes below are used **internally** to select the problem
+`type`; they are not emitted as a body field. The response body carries
+`type`, `title`, `status`, `detail`, and `request_id` — read those, not an
+`error` field.
+
+| RFC 6749 Code               | Description                           | Common Cause                          |
 |-----------------------------|---------------------------------------|---------------------------------------|
 | `invalid_request`           | Missing or malformed parameter        | Missing required field                |
 | `invalid_client`            | Client authentication failed          | Wrong client_id or client_secret      |
@@ -673,12 +681,16 @@ def exchange_code_for_token(auth_code):
             }
         )
 
-        if response.status_code == 400:
-            error = response.json()
-            if error["error"] == "invalid_grant":
-                print("Code expired or already used. Restart authorization flow.")
-            elif error["error"] == "invalid_client":
+        if response.status_code >= 400:
+            # Errors are RFC 9457 problem+json: read type/status/detail.
+            problem = response.json()
+            problem_type = problem.get("type", "")
+            if problem_type.endswith("/validation-error"):
+                print(f"Bad OAuth request: {problem.get('detail')}")
+            elif problem_type.endswith("/unauthorized"):
                 print("Client credentials invalid. Check client_id/secret.")
+            else:
+                print(f"OAuth error {problem.get('status')}: {problem.get('detail')}")
 
         response.raise_for_status()
         return response.json()

@@ -865,7 +865,7 @@ Tests run against real PostgreSQL (not mocks). CI provides dedicated test contai
 
 ### Versioning
 
-**CalVer**: `YYYY.M.PATCH` (e.g., `2026.4.0`). Git tags use `v` prefix: `v2026.4.0`. See [Releasing](docs/content/releasing.md).
+**CalVer**: `YYYY.M.PATCH` (e.g., `2026.6.0`). Git tags use `v` prefix: `v2026.6.0`. See [Releasing](docs/content/releasing.md).
 
 ---
 

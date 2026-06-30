@@ -212,111 +212,69 @@ When both backends are compiled in, select at runtime:
 
 ```bash
 # Use Ollama (default)
-export INFERENCE_BACKEND=ollama
+export MATRIC_INFERENCE_DEFAULT=ollama
 
 # Use OpenAI
-export INFERENCE_BACKEND=openai
+export MATRIC_INFERENCE_DEFAULT=openai
 ```
 
 Or in config:
 
 ```toml
 [inference]
-backend = "openai"  # or "ollama"
+default = "openai"  # or "ollama"
 ```
 
 ## API Endpoints
 
-### Health Check
+The inference HTTP surface lives under `/api/v1/inference/*`, plus `/api/v1/models` for model discovery.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/v1/models` | List available models across all providers |
+| `GET` | `/api/v1/inference/providers` | Discover providers (`server_configured`, `supports_embeddings`) |
+| `GET` | `/api/v1/inference/config` | View current config with source attribution |
+| `POST` | `/api/v1/inference/config` | Hot-swap configuration at runtime |
+| `DELETE` | `/api/v1/inference/config` | Reset overrides back to env/defaults |
+| `GET` | `/api/v1/inference/config/audit` | Config change audit log |
+| `POST` | `/api/v1/inference/test-connection` | Probe a backend |
+| `POST` | `/api/v1/inference/complete` | Chat completion |
+| `POST` | `/api/v1/inference/stream` | Streaming chat completion |
+
+> Backend health is reported through the server's `/health` endpoint under `capabilities`, not a dedicated inference health route. Embeddings are generated internally by the embedding pipeline (e.g. the `regenerate_embeddings` batch job), not via a standalone ad-hoc HTTP endpoint.
+
+### Chat Completion
+
+The completion request takes a `model`, a `messages` array of `{role, content}` objects, and `max_tokens`. Optional `provider_id`, `api_key`, and `base_url` fields override the configured backend for a single call.
 
 ```bash
-# Check inference backend health
-curl http://localhost:3000/api/v1/inference/health
-
-# Response:
-{
-  "backend": "ollama",
-  "status": "healthy",
-  "embedding_model": "nomic-embed-text",
-  "generation_model": "llama3.2:3b"
-}
-```
-
-### Generate Embeddings
-
-```bash
-curl -X POST http://localhost:3000/api/v1/inference/embed \
-  -H "Content-Type: application/json" \
-  -d '{"texts": ["Hello world", "Another text"]}'
-
-# Response:
-{
-  "embeddings": [[0.1, 0.2, ...], [0.3, 0.4, ...]],
-  "model": "nomic-embed-text",
-  "dimension": 768
-}
-```
-
-### Generate Text
-
-```bash
-curl -X POST http://localhost:3000/api/v1/inference/generate \
+curl -X POST http://localhost:3000/api/v1/inference/complete \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt": "Summarize this note: ...",
-    "system": "You are a helpful assistant.",
+    "model": "qwen3.5:9b",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Summarize this note: ..."}
+    ],
     "max_tokens": 500
   }'
-
-# Response:
-{
-  "text": "This note discusses...",
-  "model": "llama3.2:3b",
-  "tokens": 150
-}
 ```
 
 ## Streaming
 
-The OpenAI backend supports streaming responses:
+The streaming endpoint accepts the same request body and returns Server-Sent Events:
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/inference/generate/stream \
+curl -X POST http://localhost:3000/api/v1/inference/stream \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt": "Write a poem about knowledge",
-    "stream": true
-  }'
-
-# Server-Sent Events:
-data: {"text": "In ", "done": false}
-data: {"text": "the ", "done": false}
-data: {"text": "realm ", "done": false}
-...
-data: {"text": "", "done": true}
-```
-
-## Model Profiles
-
-Fortémi includes model profiles with recommended settings:
-
-```bash
-# Use best model for task
-curl -X POST http://localhost:3000/api/v1/inference/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "...",
-    "profile": "reasoning"  # fast, general, reasoning, code, long_context
+    "model": "qwen3.5:9b",
+    "messages": [
+      {"role": "user", "content": "Write a poem about knowledge"}
+    ],
+    "max_tokens": 500
   }'
 ```
-
-| Profile | Optimized For | Example Models |
-|---------|--------------|----------------|
-| `fast` | Speed | llama3.2:1b, gpt-4o-mini |
-| `general` | Balance | llama3.2:3b, gpt-4o-mini |
-| `reasoning` | Complex tasks | qwen2.5:7b, gpt-4o |
-| `code` | Programming | qwen2.5-coder:7b, gpt-4o |
-| `long_context` | Large documents | llama3.1:8b, gpt-4o |
 
 ## Error Handling
 
@@ -370,22 +328,6 @@ export OPENAI_MAX_RETRIES=3
 ```
 
 ## Monitoring
-
-### Metrics
-
-```bash
-# Get inference metrics
-curl http://localhost:3000/api/v1/metrics/inference
-
-# Response:
-{
-  "embedding_requests": 1500,
-  "generation_requests": 200,
-  "average_embedding_latency_ms": 45,
-  "average_generation_latency_ms": 2500,
-  "errors": 3
-}
-```
 
 ### Logging
 

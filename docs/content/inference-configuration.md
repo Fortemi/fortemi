@@ -7,14 +7,14 @@ The Fortémi inference configuration system provides a flexible way to select an
 - **Ollama** (default): Local inference server
 - **OpenAI**: OpenAI API
 - **OpenRouter**: Multi-provider API gateway (Anthropic, Google, Meta, etc.)
-- **llama.cpp**: Local llama.cpp HTTP server (`LLAMACPP_BASE_URL`; generation only)
+- **llama.cpp**: Local llama.cpp HTTP server (`LLAMACPP_BASE_URL`; OpenAI-compatible, supports both generation and embeddings via `/v1/embeddings`)
 - **OpenAI-compatible**: Any OpenAI-compatible endpoint (Azure, LocalAI, vLLM, etc.)
 
 ## Configuration Methods
 
 ### 1. TOML Configuration File
 
-Default location: `~/.config/fortemi/inference.toml`
+Default location: `~/.config/matric-memory/inference.toml`
 
 #### Example: Ollama Only
 
@@ -70,7 +70,7 @@ All configuration options can be specified via environment variables:
 #### Ollama Configuration
 
 - `MATRIC_OLLAMA_URL` - Base URL (default: `http://localhost:11434`)
-- `MATRIC_OLLAMA_GENERATION_MODEL` - Model for text generation (default: `qwen3.5:27b`)
+- `MATRIC_OLLAMA_GENERATION_MODEL` - Model for text generation (default: `qwen3.5:9b`; override to `qwen3.5:27b` only on 24GB+ GPUs)
 - `MATRIC_OLLAMA_EMBEDDING_MODEL` - Model for embeddings (default: `nomic-embed-text`)
 
 #### OpenAI Configuration
@@ -91,7 +91,7 @@ export MATRIC_OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 
 ## Loading Priority
 
-1. **TOML file** (if exists at `~/.config/fortemi/inference.toml`)
+1. **TOML file** (if exists at `~/.config/matric-memory/inference.toml`)
 2. **Environment variables** (fallback if no config file)
 
 ## Environment Variable Substitution in TOML
@@ -220,6 +220,8 @@ Route different operations to different backends. This is useful for:
 | Embedding generation | Embedding |
 
 Related concept inference runs as a pipeline step after concept tagging and uses the same generation backend. If you route `generation` to a specific backend (e.g., `openai`), related concept inference uses that backend as well.
+
+**Independent embedding routing via environment variable:** in addition to the TOML `[inference.routing]` block, you can split embeddings onto a different provider with the `MATRIC_EMBEDDING_PROVIDER` environment variable (e.g., `MATRIC_EMBEDDING_PROVIDER=ollama` while `MATRIC_INFERENCE_DEFAULT=openrouter`). The override is validated against the provider catalog — it must point at a registered provider that has the Embedding capability.
 
 ### Example: Hybrid Configuration
 
@@ -425,18 +427,21 @@ Change inference settings without restarting the server:
 
 ```bash
 # View current configuration
-curl http://localhost:3000/api/v1/config/inference
+curl http://localhost:3000/api/v1/inference/config
 
 # Update Ollama URL and hot-swap all providers
-curl -X PUT http://localhost:3000/api/v1/config/inference \
+curl -X POST http://localhost:3000/api/v1/inference/config \
   -H "Content-Type: application/json" \
   -d '{
     "ollama": {"base_url": "http://new-gpu-server:11434"},
     "llamacpp": {"base_url": "http://localhost:8080"}
   }'
+
+# Reset all overrides back to env/defaults
+curl -X DELETE http://localhost:3000/api/v1/inference/config
 ```
 
-Every PUT rebuilds the full provider registry — effective immediately for all subsequent jobs.
+Every POST rebuilds the full provider registry — effective immediately for all subsequent jobs.
 
 ## Troubleshooting
 
@@ -444,7 +449,7 @@ Every PUT rebuilds the full provider registry — effective immediately for all 
 
 Check the default path:
 ```bash
-echo ~/.config/fortemi/inference.toml
+echo ~/.config/matric-memory/inference.toml
 ```
 
 Enable debug logging to see what configuration is being loaded:

@@ -156,7 +156,7 @@ Container variables (docker-compose.bundle.yml):
 | `RATE_LIMIT_ENABLED` | `true` | Process-local rate limiting; accepts only `true`, `false`, `1`, or `0` |
 | `OLLAMA_BASE` | `http://host.docker.internal:11434` | Ollama API endpoint |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model name |
-| `OLLAMA_GEN_MODEL` | `qwen3.5:27b` | Generation model name |
+| `OLLAMA_GEN_MODEL` | `qwen3.5:9b` | Generation model name |
 | `EXTRACTION_TARGET_CONCEPTS` | `5` | Target number of concepts to extract per note (GLiNER→fast model escalation triggers below this; fast→standard model escalation triggers below half this value) |
 | `JOB_MAX_CONCURRENT` | `4` | Maximum number of background jobs to process concurrently |
 

@@ -63,16 +63,16 @@ The MCP server provides AI assistants (Claude, etc.) with access to your knowled
 
 ### Core Mode (Default)
 
-**38 consolidated tools** using discriminated-union pattern for agent-optimized operation:
+**43 consolidated tools** using discriminated-union pattern for agent-optimized operation:
 
-- **~82% token reduction** compared to full mode (38 vs 203 tools)
+- **~79% token reduction** compared to full mode (43 vs 205 tools)
 - **Action-based design** groups related operations under unified tools
 - **Cognitive load reduction** improves agent decision-making and response time
 - **Backward compatible** all functionality available, just organized differently
 
 ### Full Mode (Optional)
 
-**203 granular tools** exposing every API endpoint individually:
+**205 granular tools** exposing every API endpoint individually:
 
 - Set `MCP_TOOL_MODE=full` environment variable
 - Useful for programmatic access requiring precise endpoint control
@@ -82,7 +82,7 @@ The MCP server provides AI assistants (Claude, etc.) with access to your knowled
 
 ## Core Tools Reference
 
-The 38 core tools provide complete access to Fortémi functionality through action-based interfaces.
+The 43 core tools provide complete access to Fortémi functionality through action-based interfaces.
 
 ### Notes Operations
 
@@ -1107,6 +1107,8 @@ Backup, restore, knowledge shard export/import, and memory archive download oper
 { "action": "list" }
 ```
 
+> **Note:** Actions that generate a curl command (`export_shard`, `import_shard`, `download_archive`, `upload_archive`, `download_memory`) return a `curl_command` whose `Authorization` header is the placeholder `Authorization: Bearer <ACCESS_TOKEN>` (post-#987 output sanitization). The command is **not runnable verbatim** — you must replace the placeholder with a real access token before running it.
+
 ### `explore_graph`
 
 Traverse the knowledge graph from a starting note up to N hops. Returns a versioned payload with nodes, edges, and metadata including truncation info.
@@ -1651,7 +1653,7 @@ const memoryDocs = await get_documentation({
 
 ## Full Mode
 
-Set `MCP_TOOL_MODE=full` environment variable to expose all 203 granular tools instead of the 38 core consolidated tools.
+Set `MCP_TOOL_MODE=full` environment variable to expose all 205 granular tools instead of the 43 core consolidated tools.
 
 **When to use:**
 - Programmatic access requiring precise endpoint control
@@ -1659,7 +1661,7 @@ Set `MCP_TOOL_MODE=full` environment variable to expose all 203 granular tools i
 - Debugging or development scenarios
 
 **Tradeoffs:**
-- ~82% higher token overhead (203 vs 38 tools)
+- ~79% higher token overhead (205 vs 43 tools)
 - Increased cognitive complexity for agents
 - Slower agent decision-making due to larger tool surface
 
