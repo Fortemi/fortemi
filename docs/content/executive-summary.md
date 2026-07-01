@@ -1,8 +1,35 @@
+---
+title: Fortémi — AI-Enhanced Knowledge Management
+summary: A searchable, linked, semantically-rich knowledge base — hybrid search, W3C SKOS tagging, and automated NLP pipelines.
+hero:
+  eyebrow: Fortémi
+  title: AI-Enhanced Knowledge Management
+  subtitle: Turn unstructured notes into a navigable, searchable knowledge graph — hybrid search, W3C SKOS tagging, and automated NLP pipelines.
+  fullBleed: true
+  align: center
+  cta:
+    - { label: "Get started", href: "#/getting-started-architecture", style: primary }
+    - { label: "API Reference", href: "#/developers-api", style: ghost }
+banner:
+  title: Ready to build your knowledge base?
+  text: Deploy Fortémi on PostgreSQL + pgvector with an Ollama or OpenAI-compatible backend.
+  fullBleed: true
+  cta:
+    - { label: "Operators Guide", href: "#/operations-guide", style: primary }
+    - { label: "MCP Server", href: "#/developers-mcp", style: ghost }
+---
+
 # Executive Summary
 
 ## What is Fortemi?
 
 Fortemi is an **AI-enhanced knowledge management system** that transforms unstructured notes into a navigable, searchable knowledge base with automatic relationship discovery. It combines traditional full-text search, semantic understanding, and NLP pipelines to deliver intelligent retrieval and content enhancement.
+
+## Highlights
+
+- **Hybrid search** — BM25 lexical and dense semantic retrieval fused with RRF.
+- **W3C SKOS tagging** — strict, database-level isolation for multi-tenant segregation.
+- **AI revision pipeline** — automatic linking, embedding, and title generation.
 
 ## The Challenge
 

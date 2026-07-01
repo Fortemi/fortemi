@@ -8,29 +8,17 @@
   "copyright": "Fortémi",
   "domain": "docs.fortemi.com",
   "layout": "docs",
-  "pageToc": { "placement": "rail", "minHeadings": 2 },
+  "pageToc": {
+    "placement": "rail",
+    "minHeadings": 2
+  },
   "codeCopy": true,
   "livingScroll": true,
-  "docsMap": { "enabled": true, "title": "Knowledge Map" },
-  "seo": { "siteUrl": "https://docs.fortemi.com/server" },
-  "welcome": {
-    "eyebrow": "Fortémi v2026.6",
-    "headline": "AI-Enhanced Knowledge Management",
-    "lead": "Build a searchable, linked, and semantically-rich knowledge base with hybrid search, W3C SKOS tagging, and automated NLP pipelines.",
-    "pillars": [
-      "Hybrid search combining BM25 lexical and dense semantic retrieval with RRF fusion.",
-      "W3C SKOS-compliant tagging with strict isolation for multi-tenant data segregation.",
-      "AI revision pipeline with automatic linking, embedding, and title generation."
-    ],
-    "checklist": [
-      "Deploy PostgreSQL 18+ with pgvector extension.",
-      "Configure inference backend (Ollama or OpenAI-compatible).",
-      "Start the API server and verify the health endpoint."
-    ],
-    "quickLinks": [
-      { "label": "Architecture", "href": "#/getting-started-architecture" },
-      { "label": "API Reference", "href": "#/developers-api" },
-      { "label": "Operators Guide", "href": "#/operations-guide" }
-    ]
+  "docsMap": {
+    "enabled": true,
+    "title": "Knowledge Map"
+  },
+  "seo": {
+    "siteUrl": "https://docs.fortemi.com/server"
   }
 }
