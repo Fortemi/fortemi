@@ -11,6 +11,6 @@
     "docs:contract:self-test": "node scripts/ci/docs-contract.cjs --self-test"
   },
   "devDependencies": {
-    "@pagenary/publisher": "^2026.5.4"
+    "@pagenary/publisher": "^2026.6.19"
   }
 }
