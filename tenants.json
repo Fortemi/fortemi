@@ -3,10 +3,19 @@
     {
       "id": "fortemi-docs",
       "enabled": true,
-      "source": { "type": "local", "path": "./docs" },
-      "target": { "type": "local", "path": "./dist/fortemi-docs" },
-      "domains": ["docs.fortemi.com"],
-      "strictLinks": true
+      "source": {
+        "type": "local",
+        "path": "./docs"
+      },
+      "target": {
+        "type": "local",
+        "path": "./dist/fortemi-docs"
+      },
+      "domains": [
+        "docs.fortemi.com"
+      ],
+      "strictLinks": true,
+      "basePath": "/server"
     }
   ]
 }
