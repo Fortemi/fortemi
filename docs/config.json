@@ -41,5 +41,20 @@
     "sidebarBg": "#0b1224",
     "modalBg": "#0b1224",
     "modalBorder": "#3b82f6"
-  }
+  },
+  "collections": [
+    {
+      "path": "posts",
+      "route": "/blog",
+      "title": "Blog",
+      "layout": "blog",
+      "manifest": true,
+      "feed": true,
+      "sortBy": "date",
+      "order": "desc",
+      "showDate": true,
+      "showSummary": true,
+      "showReadingTime": true
+    }
+  ]
 }

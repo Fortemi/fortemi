@@ -1,0 +1,114 @@
+---
+template: post
+title: "Fortémi — {{MONTH_LABEL}} 2026"
+date: {{MONTH_FIRST_DAY}}
+author: Fortémi Team
+summary: "{{ONE_LINE_SUMMARY}}"
+tags: [report, fortemi, "{{MONTH}}", agent-memory]
+---
+
+<!--
+Fortémi monthly report — a docsite blog post (Pagenary `posts` collection, layout: blog).
+Derived from the strategy repo's project-report spec, adapted for the public docs blog.
+
+WRITE FOR THE PERSON WHO USES FORTÉMI, not the maintainer. For every feature answer three
+questions in plain words: (1) What is it? (2) How would you use it? (3) Why does it help?
+
+READING LEVEL: ~6th grade. Short sentences (avg < ~18 words). Common words. Active voice.
+Say "you." Explain any jargon (RRF, BM25, KDF, CalVer, MCP, pgvector, …) on first use.
+
+PUBLIC-FACING FACTS ONLY:
+  - No internal dev metrics — no commit / PR / issue counts, no internal #N citations.
+  - No volatile counts — no release totals, no "N fixes" tallies, no "→ latest" range.
+  - Stick to what's RELEASED: name released versions (e.g. v2026.X.Y) and the Docker image; state no totals.
+  - Public sources only: the public repo (github.com/Fortemi/fortemi), GHCR image, docs.fortemi.com/server.
+  - No AI attribution anywhere.
+
+COMPLETENESS: every section below appears. If a section has nothing, write "None this month."
+(never silently omit — so readers know it was considered). A quiet month is reported honestly
+as a quiet month.
+
+Fortémi one-liner (reuse/adapt the intro blurb): Fortémi is the agent-memory server. It keeps
+notes for an AI agent and lets the agent search them by meaning, not just exact words. You run
+it yourself with one Docker command. HotM is a desktop app that uses it; fortemi-react is the
+same server built to run in a browser.
+-->
+
+# Fortémi — {{MONTH_LABEL}} 2026
+
+*{{INTRO_BLURB}}*
+
+## TL;DR
+
+{{EXEC_SUMMARY}} <!-- 3–6 plain sentences: the month's headline + why it matters. No internal counts. -->
+
+## By the numbers
+
+| What's public | Value |
+|---|---|
+| What it is | A self-hosted agent-memory server you run yourself |
+| How to run it | One Docker command (the all-in-one bundle) |
+| Released this month | {{RELEASED_VERSIONS}} <!-- or "No release this month" --> |
+| Built for | Agents (over the standard agent-tool protocol), custom apps, and team or offline setups |
+| License | Free for personal use, learning, and trying it out; a commercial license covers production use |
+| Source · image · docs | github.com/Fortemi/fortemi · ghcr.io/fortemi/fortemi · docs.fortemi.com/server |
+| Desktop app · browser build | HotM (a desktop client) · fortemi-react (the browser build) |
+
+## Highlights
+
+<!-- 3–7 headline items. For EACH: **N. Title.** then What it is / How you'd use it / Why it helps.
+     Lead with the benefit. Reference the released version in parentheses if useful; never an internal #N. -->
+{{HIGHLIGHTS}}
+
+## Features shipped
+
+<!-- Grouped by area, plain language — what each group LETS YOU DO and why it matters. Not commit subjects. -->
+{{FEATURES_BY_AREA}}
+
+## Fixes
+
+{{FIXES_BY_AREA}} <!-- notable user-visible fixes; describe the fixed behavior; no issue numbers/tallies. Or "None this month." -->
+
+## Performance & reliability
+
+{{PERF_AND_RELIABILITY}} <!-- speed/reliability in plain terms. Or "None this month." -->
+
+## Breaking changes & migrations
+
+{{BREAKING_CHANGES}} <!-- explicit + migration notes. Or "None this month." -->
+
+## Releases
+
+{{RELEASES_DETAIL}} <!-- each released version · date · notable contents, plain language. No totals/ranges. Or "No release this month." -->
+
+## Dependencies & security
+
+{{DEPENDENCIES_AND_SECURITY}} <!-- dependency/security posture in user terms; advisories/CVEs. Or "None this month." -->
+
+## Docs & developer experience
+
+{{DOCS_AND_DX}} <!-- docs.fortemi.com/server + DX changes. Or "None this month." -->
+
+## Tests & CI
+
+{{TESTS_AND_CI}} <!-- test + pipeline changes in plain terms, no internal counts. Or "None this month." -->
+
+## Cross-project impact
+
+{{CROSS_PROJECT_IMPACT}} <!-- effect on HotM, fortemi-react, agents, Pagenary, etc. Or "None this month." -->
+
+## Known issues & open threads
+
+{{KNOWN_ISSUES}} <!-- carry-over, regressions, notable gaps, plain words, no internal #N. Or "None this month." -->
+
+## What's next
+
+{{ROADMAP}}
+
+## Appendix
+
+- **What it is:** a self-hosted agent-memory server, built in Rust, run with one Docker command.
+- **Released this month:** {{RELEASED_VERSIONS}} <!-- or "No release this month" -->
+- **License:** free for personal use, learning, and trying it out; a commercial license covers production use.
+- **Source · image · docs:** github.com/Fortemi/fortemi · ghcr.io/fortemi/fortemi · docs.fortemi.com/server · window: all of {{MONTH_LABEL}} 2026.
+- **Related surfaces:** HotM (desktop client) · fortemi-react (browser build).
