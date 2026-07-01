@@ -20,5 +20,26 @@
   },
   "seo": {
     "siteUrl": "https://docs.fortemi.com/server"
+  },
+  "theme": {
+    "colorScheme": "dark",
+    "surface": "#0a0f1e",
+    "ink": "#e8eef9",
+    "muted": "#8b94ad",
+    "accent": "#3b82f6",
+    "gridLine": "rgba(59, 130, 246, 0.18)",
+    "highlightBg": "rgba(59, 130, 246, 0.18)",
+    "highlightBorder": "rgba(59, 130, 246, 0.5)",
+    "codeBackground": "rgba(59, 130, 246, 0.08)",
+    "codeBorder": "rgba(59, 130, 246, 0.18)",
+    "hoverBackground": "rgba(59, 130, 246, 0.10)",
+    "activeBackground": "rgba(59, 130, 246, 0.16)",
+    "inputBackground": "rgba(255, 255, 255, 0.03)",
+    "tableHeaderBg": "rgba(59, 130, 246, 0.10)",
+    "tableBorder": "rgba(59, 130, 246, 0.22)",
+    "blockquoteBorder": "rgba(59, 130, 246, 0.45)",
+    "sidebarBg": "#0b1224",
+    "modalBg": "#0b1224",
+    "modalBorder": "#3b82f6"
   }
 }
