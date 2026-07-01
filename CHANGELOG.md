@@ -7,6 +7,33 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.6.1] - 2026-06-30
+
+Hardening and contract-cleanup release. The API error surface migrates to the RFC 9457 `problem+json` standard (a clean pre-GA break), a broad redaction pass removes secret/path/diagnostic leakage from errors and logs, HTTP responses gain security headers, and the incoming-webhook receiver moves to HMAC-only authentication. Documentation is reconciled to the shipped code.
+
+### Changed
+
+- **BREAKING:** API errors now return RFC 9457 `application/problem+json` (`type`, `title`, `status`, `detail`, request id) instead of ad-hoc `{"error", "message", "details"}` bodies; the problem-type contract is published in the OpenAPI spec. (#967)
+- Auth scopes: the MCP scope is now separated from REST read/write scopes; realtime transport (SSE/WebSocket) requires the MCP scope.
+- The API fails closed on invalid startup configuration.
+
+### Added
+
+- Security headers on all HTTP responses.
+
+### Fixed
+
+- The incoming-webhook receive endpoint authenticates via HMAC signature and no longer requires a bearer token.
+
+### Security
+
+- Error responses and logs no longer leak filenames, paths, secrets, or internal diagnostics across the API, core, jobs, and crypto surfaces (telemetry/secret redaction pass). (#968, #974)
+- Bump `anyhow` 1.0.102 → 1.0.103 (RUSTSEC-2026-0190).
+
+### Documentation
+
+- Reconciled docs to the shipped contract: RFC 9457 error responses, the real inference endpoints (`/complete`, `/stream`, `/config`, `/providers`, `/test-connection`), MCP tool counts (43 core / 205 full) and annotations, and corrected environment variables (`MATRIC_INFERENCE_DEFAULT`, default generation model `qwen3.5:9b`).
+
 ## [2026.6.0] - 2026-06-15
 
 Incoming streams milestone. This release builds out Fortémi's incoming/streaming surface end to end across four phases: token-by-token streaming chat over Server-Sent Events (Phase A); the incoming-webhook receiver surface with HMAC verification, per-receiver JSON-Schema validation, and idempotent delivery (Phase B); NDJSON streaming bulk ingest with backpressure, cursor resumption, per-stream auth, and finished TUS resumable uploads (Phase C); and a pluggable inbound external-event-source framework with Redis Stream, SSE, and (feature-gated) Kafka connectors (Phase D). Every accepted inbound event lands in the shared `event_outbox` and flows through the existing fan-out pipeline. A CI publish-pipeline defect that had silently stopped GHCR image publishing since ~February is also fixed.
