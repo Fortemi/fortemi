@@ -41,7 +41,7 @@ This guide consolidates findings from the API consistency audit (Issue #307) and
 ## Error Responses
 
 HTTP API errors use RFC 9457 Problem Details. See the
-[API Error Contract](./api-error-contract.md) for the full catalog and redaction
+[API Error Contract](#/developers-api-errors) for the full catalog and redaction
 rules.
 
 ### Error Format

@@ -6,7 +6,7 @@ Fortémi provides a RESTful API for AI-enhanced note management with semantic se
 
 **OpenAPI Spec**: [openapi.yaml](../../crates/matric-api/src/openapi.yaml)
 
-**Error Contract**: [RFC 9457 Problem Details](./api-error-contract.md)
+**Error Contract**: [RFC 9457 Problem Details](#/developers-api-errors)
 
 ## Authentication
 
@@ -3449,7 +3449,7 @@ All errors follow the RFC 9457 `application/problem+json` format, with a stable
 }
 ```
 
-See [API Error Contract](api-error-contract.md) for the full `ProblemType`
+See [API Error Contract](#/developers-api-errors) for the full `ProblemType`
 catalog and the redaction boundary.
 
 **Common Problem Types:**
