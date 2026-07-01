@@ -5,10 +5,16 @@
   "tagline": "AI-enhanced knowledge base with semantic search and NLP pipelines.",
   "description": "Documentation for Fortémi: hybrid search, SKOS tagging, encryption, and AI revision.",
   "accentColor": "#2563EB",
+  "copyright": "Fortémi",
   "domain": "docs.fortemi.com",
+  "layout": "docs",
+  "pageToc": { "placement": "rail", "minHeadings": 2 },
+  "codeCopy": true,
+  "livingScroll": true,
+  "docsMap": { "enabled": true, "title": "Knowledge Map" },
   "seo": { "siteUrl": "https://docs.fortemi.com/server" },
   "welcome": {
-    "eyebrow": "Fortémi v2026.1",
+    "eyebrow": "Fortémi v2026.6",
     "headline": "AI-Enhanced Knowledge Management",
     "lead": "Build a searchable, linked, and semantically-rich knowledge base with hybrid search, W3C SKOS tagging, and automated NLP pipelines.",
     "pillars": [
