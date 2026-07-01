@@ -23,6 +23,8 @@ name: Docsite Deploy
 on:
   push:
     tags: ['v*']
+  # Manual trigger to publish the current ref's docs (e.g. main) between releases.
+  workflow_dispatch:
 
 concurrency:
   group: docsite-deploy
