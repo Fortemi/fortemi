@@ -8,15 +8,15 @@ hero:
   fullBleed: true
   align: center
   cta:
-    - { label: "Get started", href: "#/getting-started-architecture", style: primary }
-    - { label: "API Reference", href: "#/developers-api", style: ghost }
+    - { label: "Get started", href: "#getting-started-architecture", style: primary }
+    - { label: "API Reference", href: "#developers-api", style: ghost }
 banner:
   title: Ready to build your knowledge base?
   text: Deploy Fortémi on PostgreSQL + pgvector with an Ollama or OpenAI-compatible backend.
   fullBleed: true
   cta:
-    - { label: "Operators Guide", href: "#/operations-guide", style: primary }
-    - { label: "MCP Server", href: "#/developers-mcp", style: ghost }
+    - { label: "Operators Guide", href: "#operations-guide", style: primary }
+    - { label: "MCP Server", href: "#developers-mcp", style: ghost }
 ---
 
 # Executive Summary
