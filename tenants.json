@@ -14,8 +14,7 @@
       "domains": [
         "docs.fortemi.com"
       ],
-      "strictLinks": true,
-      "basePath": "/server"
+      "strictLinks": true
     }
   ]
 }

@@ -37,7 +37,7 @@ jobs:
         run: npm ci
 
       - name: Build doc site
-        run: npx pagenary build:tenants fortemi-docs
+        run: npm run docs:build
 
       - name: Verify build output
         run: |

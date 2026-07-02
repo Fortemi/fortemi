@@ -45,7 +45,10 @@ jobs:
         run: npm ci
 
       - name: Build doc site
-        run: npx pagenary build:tenants fortemi-docs
+        # Portable build: `--base auto` makes the runtime detect its mount from the
+        # served URL, so one build works at / (portal), /server (this deploy), or any
+        # subpath. tenants.json stays base-less. (pagenary#107 / fortemi#1009)
+        run: npm run docs:build
 
       - name: Verify build output
         run: |
