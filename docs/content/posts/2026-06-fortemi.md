@@ -4,10 +4,15 @@ title: "Fortémi — June 2026"
 date: 2026-06-01
 author: Fortémi Team
 summary: "A big building month for the memory server: data can now stream IN — live chat replies, signed webhooks, resumable uploads, and outside event feeds — and a wide security and privacy pass made the logs and errors stop leaking sensitive details."
+hero: https://docs.fortemi.com/server/assets/blog/2026-06-fortemi.png
 tags: [report, fortemi, "2026-06", agent-memory]
 ---
 
 # Fortémi — June 2026
+
+![A glowing memory core / knowledge vault on infrastructure you own, data streaming in along signal paths and forming an organized note-graph.](https://docs.fortemi.com/server/assets/blog/2026-06-fortemi.png)
+
+*Hero image: AI-generated with ChatGPT from a brand-specified prompt; no text or logos are AI-rendered.*
 
 *Fortemi is the agent-memory server. It keeps notes for an AI agent and lets the agent search them by meaning, not just by exact words. You run it yourself, on your own machine, with one Docker command. This is the full server. HotM is a desktop app that uses it. fortemi-react is the same server built to run in a web browser (see its own report).*
 
