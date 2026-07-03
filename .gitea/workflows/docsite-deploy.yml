@@ -26,13 +26,6 @@ on:
   push:
     branches: [main]
     tags: ['v*']
-    paths:
-      - '.gitea/workflows/docsite-deploy.yml'
-      - 'docs/**'
-      - 'docs-portal/**'
-      - 'tenants.json'
-      - 'package.json'
-      - 'package-lock.json'
   # Manual trigger to publish the current ref's docs (e.g. main) between releases.
   workflow_dispatch:
 
