@@ -71,7 +71,8 @@ tenant, or package changes. It installs the locked package with `npm ci`, runs
 `npm run docs:build`, and verifies that `dist/fortemi-docs/index.html` and the
 generated sections directory exist.
 
-`.gitea/workflows/docsite-deploy.yml` runs on release tags and manual dispatch.
+`.gitea/workflows/docsite-deploy.yml` runs on release tags, manual dispatch, and
+main-branch docsite changes.
 It builds the same tenant, deploys `dist/fortemi-docs/` to the server-docs
 subpath, and deploys `docs-portal/` to the docs root without deleting the
 existing `/server` and `/react` docbases. After deploy, it purges the main
@@ -81,6 +82,11 @@ configured as repository secrets.
 The Cloudflare token needs permission to purge cache for the docs zone. If the
 secrets are absent, the workflow logs a skip message and still completes the
 server deploy.
+
+The root portal at `docs.fortemi.com/` is hand-authored in `docs-portal/`.
+It ships static HTML plus root-level `sitemap.xml`, `robots.txt`, and
+`llms.txt` files so bots can discover both published docsites before choosing
+`/server/` or `/react/`.
 
 ## Update Procedure
 

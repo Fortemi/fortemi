@@ -112,7 +112,7 @@ jobs:
             -X POST "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/purge_cache" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H "Content-Type: application/json" \
-            --data '{"files":["https://docs.fortemi.com/","https://docs.fortemi.com/server/","https://docs.fortemi.com/server/index.html","https://docs.fortemi.com/server/sitemap.xml","https://docs.fortemi.com/server/robots.txt","https://docs.fortemi.com/server/llms.txt"]}'
+            --data '{"files":["https://docs.fortemi.com/","https://docs.fortemi.com/index.html","https://docs.fortemi.com/sitemap.xml","https://docs.fortemi.com/robots.txt","https://docs.fortemi.com/llms.txt","https://docs.fortemi.com/server/","https://docs.fortemi.com/server/index.html","https://docs.fortemi.com/server/sitemap.xml","https://docs.fortemi.com/server/robots.txt","https://docs.fortemi.com/server/llms.txt"]}'
 
       - name: Cleanup SSH key
         if: always()

@@ -1,0 +1,21 @@
+# Fortémi Documentation
+
+> Fortémi documentation portal for the self-hosted server and the browser/React packages.
+
+## Primary Docsites
+
+- [Fortémi Server Docs](https://docs.fortemi.com/server/): Rust server, PostgreSQL, hybrid search, MCP, multimodal ingestion, encryption, operations, API reference.
+- [Fortémi React Docs](https://docs.fortemi.com/react/): Browser packages including @fortemi/core, @fortemi/graph, and @fortemi/react.
+
+## Bot-Friendly Discovery
+
+- [Server static pages](https://docs.fortemi.com/server/pages/welcome-overview.html)
+- [Server sitemap](https://docs.fortemi.com/server/sitemap.xml)
+- [Server llms.txt](https://docs.fortemi.com/server/llms.txt)
+- [React sitemap](https://docs.fortemi.com/react/sitemap.xml)
+- [React llms.txt](https://docs.fortemi.com/react/llms.txt)
+
+## Notes
+
+Use the server docs for hosted/self-hosted Fortémi deployment and API operation.
+Use the React docs for browser-only package integration.

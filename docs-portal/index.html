@@ -4,77 +4,273 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Fortémi Documentation</title>
-  <meta name="description" content="Documentation for the Fortémi knowledge platform: the self-hosted Rust server and the fortemi-react browser packages." />
+  <meta name="description" content="Documentation portal for Fortémi: self-hosted server docs, browser and React package docs, crawler-friendly static pages, sitemaps, and LLM discovery files." />
+  <meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large,max-video-preview:-1" />
   <link rel="canonical" href="https://docs.fortemi.com/" />
+  <link rel="sitemap" type="application/xml" href="https://docs.fortemi.com/sitemap.xml" />
+  <link rel="alternate" type="text/plain" title="LLM discovery" href="https://docs.fortemi.com/llms.txt" />
   <link rel="icon" type="image/png" href="/server/favicon.png" />
+  <meta property="og:site_name" content="Fortémi Documentation" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Fortémi Documentation" />
+  <meta property="og:description" content="Choose Fortémi server docs or Fortémi React/browser package docs. Both docsites publish static, crawler-friendly pages." />
+  <meta property="og:url" content="https://docs.fortemi.com/" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Fortémi Documentation" />
+  <meta name="twitter:description" content="Documentation portal for Fortémi server and Fortémi React/browser packages." />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "Fortémi Documentation",
+    "url": "https://docs.fortemi.com/",
+    "description": "Documentation portal for the Fortémi self-hosted server and Fortémi browser packages.",
+    "publisher": {
+      "@type": "Organization",
+      "name": "Fortémi"
+    },
+    "hasPart": [
+      {
+        "@type": "TechArticle",
+        "name": "Fortémi Server Documentation",
+        "url": "https://docs.fortemi.com/server/",
+        "description": "Self-hosted Fortémi server documentation for Rust, PostgreSQL, hybrid search, MCP, multimodal ingestion, and operations."
+      },
+      {
+        "@type": "TechArticle",
+        "name": "Fortémi React Documentation",
+        "url": "https://docs.fortemi.com/react/",
+        "description": "Browser and React package documentation for @fortemi/core, @fortemi/graph, and @fortemi/react."
+      }
+    ]
+  }
+  </script>
   <style>
     :root {
-      --accent: #2563EB;
+      --accent: #2563eb;
+      --accent-2: #14b8a6;
       --bg: #0b1220;
       --surface: #111a2e;
       --surface-2: #16223c;
       --text: #e8edf6;
       --muted: #9fb0c9;
       --border: #233150;
+      --shadow: rgba(0, 0, 0, 0.24);
     }
     @media (prefers-color-scheme: light) {
       :root {
-        --bg: #f7faff; --surface: #ffffff; --surface-2: #f0f5ff;
-        --text: #0e1726; --muted: #51607a; --border: #dbe4f3;
+        --bg: #f7faff;
+        --surface: #ffffff;
+        --surface-2: #f0f5ff;
+        --text: #0e1726;
+        --muted: #51607a;
+        --border: #dbe4f3;
+        --shadow: rgba(15, 23, 42, 0.08);
       }
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; }
     body {
       font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      color: var(--text); background: var(--bg);
-      min-height: 100vh; display: flex; flex-direction: column;
+      color: var(--text);
+      background: var(--bg);
+      min-height: 100vh;
     }
-    .wrap { width: 100%; max-width: 880px; margin: 0 auto; padding: 4rem 1.5rem; flex: 1; }
-    header { margin-bottom: 2.5rem; }
-    .eyebrow { color: var(--accent); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: .8rem; }
-    h1 { font-size: clamp(2rem, 5vw, 3rem); margin: .35rem 0 .5rem; letter-spacing: -.02em; }
-    .lead { color: var(--muted); font-size: 1.1rem; max-width: 60ch; }
-    .grid { display: grid; gap: 1.25rem; grid-template-columns: 1fr; margin-top: 2rem; }
-    @media (min-width: 640px) { .grid { grid-template-columns: 1fr 1fr; } }
-    a.card {
-      display: block; text-decoration: none; color: inherit;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
-      padding: 1.5rem; transition: border-color .15s ease, transform .15s ease, background .15s ease;
+    a { color: inherit; }
+    .wrap {
+      width: 100%;
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 3.5rem 1.5rem;
     }
-    a.card:hover { border-color: var(--accent); transform: translateY(-2px); background: var(--surface-2); }
-    a.card h2 { margin: 0 0 .4rem; font-size: 1.25rem; }
-    a.card .pkg { color: var(--accent); font-weight: 600; }
-    a.card p { margin: 0; color: var(--muted); font-size: .98rem; }
-    a.card .go { margin-top: 1rem; color: var(--accent); font-weight: 600; font-size: .92rem; }
-    footer { color: var(--muted); font-size: .85rem; text-align: center; padding: 2rem 1.5rem; border-top: 1px solid var(--border); }
+    .masthead {
+      display: grid;
+      gap: 1.5rem;
+      margin-bottom: 2.25rem;
+    }
+    .eyebrow {
+      color: var(--accent-2);
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      font-size: .8rem;
+    }
+    h1 {
+      margin: .35rem 0 .65rem;
+      font-size: clamp(2.2rem, 5vw, 4rem);
+      line-height: 1.08;
+    }
+    .lead {
+      color: var(--muted);
+      font-size: 1.12rem;
+      max-width: 68ch;
+      margin: 0;
+    }
+    .quick-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .75rem;
+      margin-top: 1.35rem;
+    }
+    .quick-links a {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      display: inline-flex;
+      font-weight: 650;
+      padding: .65rem .8rem;
+      text-decoration: none;
+    }
+    .quick-links a:hover,
+    .quick-links a:focus-visible {
+      border-color: var(--accent);
+      outline: none;
+    }
+    .grid {
+      display: grid;
+      gap: 1.25rem;
+      grid-template-columns: 1fr;
+      margin-top: 2rem;
+    }
+    @media (min-width: 760px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 18px 50px var(--shadow);
+      color: inherit;
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+      padding: 1.5rem;
+      text-decoration: none;
+    }
+    .card:hover,
+    .card:focus-visible {
+      border-color: var(--accent);
+      outline: none;
+    }
+    .card h2 {
+      font-size: 1.35rem;
+      line-height: 1.2;
+      margin: 0 0 .5rem;
+    }
+    .card p {
+      color: var(--muted);
+      margin: 0;
+    }
+    .card ul {
+      color: var(--muted);
+      margin: 1rem 0 0;
+      padding-left: 1.1rem;
+    }
+    .go {
+      color: var(--accent-2);
+      font-weight: 700;
+      margin-top: auto;
+      padding-top: 1.25rem;
+    }
+    .section {
+      border-top: 1px solid var(--border);
+      margin-top: 2.5rem;
+      padding-top: 2rem;
+    }
+    .section h2 {
+      font-size: 1.25rem;
+      margin: 0 0 .75rem;
+    }
+    .resource-list {
+      display: grid;
+      gap: .75rem;
+      grid-template-columns: 1fr;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    @media (min-width: 760px) {
+      .resource-list { grid-template-columns: repeat(3, 1fr); }
+    }
+    .resource-list a {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: block;
+      padding: .85rem;
+      text-decoration: none;
+    }
+    .resource-list span {
+      color: var(--muted);
+      display: block;
+      font-size: .92rem;
+      margin-top: .25rem;
+    }
+    footer {
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: .9rem;
+      padding: 1.5rem;
+      text-align: center;
+    }
     footer a { color: var(--muted); }
   </style>
 </head>
 <body>
   <main class="wrap">
-    <header>
-      <div class="eyebrow">Fortémi</div>
-      <h1>Documentation</h1>
-      <p class="lead">AI-enhanced knowledge management with hybrid semantic search, SKOS tagging, and a knowledge graph — on the server and in the browser.</p>
+    <header class="masthead">
+      <div>
+        <div class="eyebrow">Fortémi Docs</div>
+        <h1>Documentation for Fortémi server and browser packages</h1>
+        <p class="lead">Fortémi is an AI-enhanced knowledge platform with hybrid semantic search, W3C SKOS tagging, graph exploration, multimodal ingestion, and agent integrations. This page routes readers and crawlers to the two published docsites.</p>
+        <nav class="quick-links" aria-label="Primary documentation links">
+          <a href="/server/">Server docs</a>
+          <a href="/server/pages/welcome-overview.html">Server static HTML</a>
+          <a href="/react/">React docs</a>
+          <a href="/react/llms.txt">React LLM index</a>
+        </nav>
+      </div>
     </header>
 
-    <nav class="grid" aria-label="Documentation sites">
+    <section class="grid" aria-label="Documentation sites">
       <a class="card" href="/server/">
-        <h2>Server</h2>
-        <p>The self-hosted Fortémi server (Rust + PostgreSQL): hybrid search, MCP server, multi-provider LLM inference, multimodal ingestion, and the knowledge graph.</p>
-        <div class="go">Open server docs →</div>
+        <h2>Fortémi Server</h2>
+        <p>The self-hosted Fortémi server: Rust API, PostgreSQL with pgvector and PostGIS, hybrid search, MCP server, multi-provider LLM inference, multimodal ingestion, encryption, and operations guidance.</p>
+        <ul>
+          <li>Deployment, backup, release, and troubleshooting runbooks</li>
+          <li>API, MCP, real-time events, auth, and permissions reference</li>
+          <li>Crawler-friendly page snapshots under <code>/server/pages/</code></li>
+        </ul>
+        <div class="go">Open server docs</div>
       </a>
+
       <a class="card" href="/react/">
-        <h2>React</h2>
-        <p>Browser-only knowledge management for React — <span class="pkg">@fortemi/core</span>, <span class="pkg">@fortemi/graph</span>, and <span class="pkg">@fortemi/react</span>: PGlite data layer, hybrid search, and graph tooling.</p>
-        <div class="go">Open React docs →</div>
+        <h2>Fortémi React and Browser Packages</h2>
+        <p>Browser-only knowledge management for React applications through <strong>@fortemi/core</strong>, <strong>@fortemi/graph</strong>, and <strong>@fortemi/react</strong>: PGlite storage, hybrid search, graph tooling, and React hooks.</p>
+        <ul>
+          <li>Package guides for browser data, graph state, and React integration</li>
+          <li>Client-side memory model that can graduate to the server</li>
+          <li>Static discovery files for crawlers and LLM tools</li>
+        </ul>
+        <div class="go">Open React docs</div>
       </a>
-    </nav>
+    </section>
+
+    <section class="section" aria-labelledby="bot-entrypoints">
+      <h2 id="bot-entrypoints">Crawler and LLM entry points</h2>
+      <ul class="resource-list">
+        <li><a href="/sitemap.xml">Root sitemap<span>Discovery for this portal and both docsite mounts.</span></a></li>
+        <li><a href="/llms.txt">Root llms.txt<span>Plain-text map for LLM tools and AI agents.</span></a></li>
+        <li><a href="/robots.txt">Robots policy<span>Allows crawlers and advertises sitemap locations.</span></a></li>
+        <li><a href="/server/sitemap.xml">Server sitemap<span>All crawler-facing server documentation pages.</span></a></li>
+        <li><a href="/server/llms.txt">Server llms.txt<span>LLM-friendly server documentation index.</span></a></li>
+        <li><a href="/react/llms.txt">React llms.txt<span>LLM-friendly React/browser package documentation index.</span></a></li>
+      </ul>
+    </section>
   </main>
 
   <footer>
-    Fortémi · <a href="/server/">Server</a> · <a href="/react/">React</a>
+    Fortémi · <a href="/server/">Server docs</a> · <a href="/react/">React docs</a> · <a href="/sitemap.xml">Sitemap</a> · <a href="/llms.txt">LLM index</a>
   </footer>
 </body>
 </html>

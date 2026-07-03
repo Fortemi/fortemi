@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://docs.fortemi.com/sitemap.xml
+Sitemap: https://docs.fortemi.com/server/sitemap.xml
+Sitemap: https://docs.fortemi.com/react/sitemap.xml
