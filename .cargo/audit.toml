@@ -18,4 +18,27 @@ ignore = [
     # Owner: maintainers
     # Expiry: 2026-12-01 (re-evaluate against sqlx >=0.9 if released)
     "RUSTSEC-2023-0071",
+
+    # RUSTSEC-2026-0194 / RUSTSEC-2026-0195 (quick-xml 0.31.0): quadratic
+    # runtime on duplicate start-tag attributes, and unbounded namespace-
+    # declaration allocation in NsReader. Both 7.5 (high) DoS, fixed in
+    # quick-xml >=0.41.0. Pulled transitively: quick-xml <- calamine 0.26.1
+    # <- matric-jobs <- matric-api.
+    #
+    # This is NOT a false positive: calamine parses user-uploaded spreadsheets
+    # (xlsx/ods/xlsb) in the extraction pipeline, so the vulnerable code is
+    # reachable at runtime with untrusted input. Impact is bounded to CPU/
+    # memory exhaustion of the extraction worker (DoS only — no RCE, no data
+    # disclosure). No upstream fix path exists yet: the latest calamine
+    # release (0.35.0) still pins quick-xml <0.40 (resolves 0.39.4), so no
+    # calamine version currently builds on the fixed quick-xml >=0.41.
+    #
+    # Accepted until calamine ships a release on quick-xml >=0.41.0, then
+    # bump `calamine` in the workspace Cargo.toml and drop these entries.
+    # Deployment-layer mitigation (upload size caps, worker memory limits)
+    # bounds the blast radius on multi-tenant hosts in the interim.
+    # Owner: maintainers
+    # Expiry: 2026-10-01 (re-check calamine releases monthly)
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
 ]

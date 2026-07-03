@@ -18,7 +18,17 @@ feature-depth = 1
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "warn"
-ignore = []
+# Advisory allowlist — kept in sync with .cargo/audit.toml. Each entry MUST
+# document rationale, owner, and expiry there.
+ignore = [
+    # quick-xml 0.31.0 DoS advisories (RUSTSEC-2026-0194 quadratic attribute
+    # check, RUSTSEC-2026-0195 unbounded NsReader allocation). Runtime-reachable
+    # via calamine spreadsheet parsing; no calamine release on the fixed
+    # quick-xml >=0.41.0 exists yet. See .cargo/audit.toml for full rationale.
+    # Expiry: 2026-10-01.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]
 
 # ===========================================================================
 # Licenses — explicit allowlist of permissive SPDX identifiers
