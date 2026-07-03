@@ -75,6 +75,8 @@
       color: var(--text);
       background: var(--bg);
       min-height: 100vh;
+      display: flex;
+      align-items: center;
     }
     a { color: inherit; }
     .wrap {
@@ -105,26 +107,6 @@
       font-size: 1.12rem;
       max-width: 68ch;
       margin: 0;
-    }
-    .quick-links {
-      display: flex;
-      flex-wrap: wrap;
-      gap: .75rem;
-      margin-top: 1.35rem;
-    }
-    .quick-links a {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: var(--text);
-      display: inline-flex;
-      font-weight: 650;
-      padding: .65rem .8rem;
-      text-decoration: none;
-    }
-    .quick-links a:hover,
-    .quick-links a:focus-visible {
-      border-color: var(--accent);
-      outline: none;
     }
     .grid {
       display: grid;
@@ -172,48 +154,6 @@
       margin-top: auto;
       padding-top: 1.25rem;
     }
-    .section {
-      border-top: 1px solid var(--border);
-      margin-top: 2.5rem;
-      padding-top: 2rem;
-    }
-    .section h2 {
-      font-size: 1.25rem;
-      margin: 0 0 .75rem;
-    }
-    .resource-list {
-      display: grid;
-      gap: .75rem;
-      grid-template-columns: 1fr;
-      list-style: none;
-      margin: 0;
-      padding: 0;
-    }
-    @media (min-width: 760px) {
-      .resource-list { grid-template-columns: repeat(3, 1fr); }
-    }
-    .resource-list a {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      display: block;
-      padding: .85rem;
-      text-decoration: none;
-    }
-    .resource-list span {
-      color: var(--muted);
-      display: block;
-      font-size: .92rem;
-      margin-top: .25rem;
-    }
-    footer {
-      border-top: 1px solid var(--border);
-      color: var(--muted);
-      font-size: .9rem;
-      padding: 1.5rem;
-      text-align: center;
-    }
-    footer a { color: var(--muted); }
   </style>
 </head>
 <body>
@@ -223,10 +163,6 @@
         <div class="eyebrow">Fortémi Docs</div>
         <h1>Documentation for Fortémi server and browser packages</h1>
         <p class="lead">Fortémi is an AI-enhanced knowledge platform with hybrid semantic search, W3C SKOS tagging, graph exploration, multimodal ingestion, and agent integrations. This page routes readers and crawlers to the two published docsites.</p>
-        <nav class="quick-links" aria-label="Primary documentation links">
-          <a href="/server/">Server docs</a>
-          <a href="/react/">React docs</a>
-        </nav>
       </div>
     </header>
 
@@ -253,18 +189,6 @@
         <div class="go">Open React docs</div>
       </a>
     </section>
-
-    <section class="section" aria-labelledby="docsite-entrypoints">
-      <h2 id="docsite-entrypoints">Published docsites</h2>
-      <ul class="resource-list">
-        <li><a href="/server/">Server docs<span>Self-hosted server, API, MCP, operations, and deployment.</span></a></li>
-        <li><a href="/react/">React docs<span>Browser packages, React hooks, graph tools, and local-first memory.</span></a></li>
-      </ul>
-    </section>
   </main>
-
-  <footer>
-    Fortémi · <a href="/server/">Server docs</a> · <a href="/react/">React docs</a>
-  </footer>
 </body>
 </html>
