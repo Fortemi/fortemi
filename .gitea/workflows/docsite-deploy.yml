@@ -17,6 +17,8 @@
 #   DEPLOY_USER        — deploy user on the docs server
 #   DEPLOY_PATH        — absolute path for the server docs (.../docs-fortemi-com/server/)
 #   DEPLOY_PATH_PORTAL — absolute path for the landing portal (.../docs-fortemi-com/)
+#   CLOUDFLARE_ZONE_ID   — optional; Cloudflare zone to purge after deploy
+#   CLOUDFLARE_API_TOKEN — optional; token with Zone.Cache Purge permission
 
 name: Docsite Deploy
 
@@ -58,7 +60,7 @@ jobs:
           ls -lah dist/fortemi-docs/
 
       - name: Install SSH tools
-        run: apt-get update && apt-get install -y --no-install-recommends openssh-client rsync
+        run: apt-get update && apt-get install -y --no-install-recommends curl openssh-client rsync
 
       - name: Configure SSH key
         run: |
@@ -88,6 +90,21 @@ jobs:
             -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.DEPLOY_PORT }} -o StrictHostKeyChecking=accept-new" \
             docs-portal/ \
             ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH_PORTAL }}
+
+      - name: Purge Cloudflare cache
+        env:
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "${CLOUDFLARE_ZONE_ID}" ] || [ -z "${CLOUDFLARE_API_TOKEN}" ]; then
+            echo "Cloudflare purge skipped: CLOUDFLARE_ZONE_ID or CLOUDFLARE_API_TOKEN is not configured"
+            exit 0
+          fi
+          curl --fail --show-error --silent \
+            -X POST "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/purge_cache" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data '{"files":["https://docs.fortemi.com/","https://docs.fortemi.com/server/","https://docs.fortemi.com/server/index.html","https://docs.fortemi.com/server/sitemap.xml","https://docs.fortemi.com/server/robots.txt","https://docs.fortemi.com/server/llms.txt"]}'
 
       - name: Cleanup SSH key
         if: always()

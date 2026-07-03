@@ -8,6 +8,12 @@ Fortémi uses Gitea Actions for continuous integration and deployment. The pipel
 - **Internal**: Container registry - Development builds
 - **Public**: GitHub Container Registry (`ghcr.io/fortemi/fortemi`) - Production releases
 
+The documentation site has separate Pagenary workflows:
+`.gitea/workflows/docsite-build.yml` validates docs changes, and
+`.gitea/workflows/docsite-deploy.yml` publishes `docs.fortemi.com/server` on
+release tags or manual dispatch. See [Documentation Site Publishing](#/operations-docsite-publishing)
+for the package version, tenant registry, local commands, and deployment details.
+
 ## Pipeline Stages
 
 ### 1. Lint (runs on: matric-builder)

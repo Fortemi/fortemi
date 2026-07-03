@@ -85,6 +85,7 @@
         { "id": "operations-hardware", "title": "Hardware Planning", "summary": "GPU, memory, and storage sizing guidelines.", "file": "hardware-planning.md" },
         { "id": "operations-ollama", "title": "Ollama Optimization", "summary": "Model loading, GPU allocation, and inference tuning.", "file": "ollama-optimization.md" },
         { "id": "operations-ci-cd", "title": "CI/CD Pipeline", "summary": "Gitea Actions workflow and deployment automation.", "file": "ci-cd.md" },
+        { "id": "operations-docsite-publishing", "title": "Documentation Site Publishing", "summary": "Pagenary package, tenant, build, and deploy workflow.", "file": "docsite-publishing.md" },
         { "id": "operations-releasing", "title": "Release Process", "summary": "CalVer versioning, tagging, and release workflow.", "file": "releasing.md" },
         { "id": "operations-configuration", "title": "Configuration Reference", "summary": "Environment variables and runtime configuration reference.", "file": "configuration.md" },
         { "id": "operations-troubleshooting", "title": "Troubleshooting", "summary": "Diagnosing common operational issues and failure modes.", "file": "troubleshooting.md" }
