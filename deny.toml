@@ -25,7 +25,7 @@ ignore = [
     # check, RUSTSEC-2026-0195 unbounded NsReader allocation). Runtime-reachable
     # via calamine spreadsheet parsing; no calamine release on the fixed
     # quick-xml >=0.41.0 exists yet. See .cargo/audit.toml for full rationale.
-    # Expiry: 2026-10-01.
+    # Tracked in fortemi/fortemi#1011. Expiry: 2026-10-01.
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
 ]

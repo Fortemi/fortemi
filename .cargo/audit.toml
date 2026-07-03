@@ -37,6 +37,7 @@ ignore = [
     # bump `calamine` in the workspace Cargo.toml and drop these entries.
     # Deployment-layer mitigation (upload size caps, worker memory limits)
     # bounds the blast radius on multi-tenant hosts in the interim.
+    # Tracked in fortemi/fortemi#1011.
     # Owner: maintainers
     # Expiry: 2026-10-01 (re-check calamine releases monthly)
     "RUSTSEC-2026-0194",
