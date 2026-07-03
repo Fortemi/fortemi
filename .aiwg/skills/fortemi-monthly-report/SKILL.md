@@ -22,7 +22,7 @@ user-facing narrative of what shipped that month — not a changelog dump.
 
 ## Where it goes
 
-- **Post file:** `docs/content/posts/{{YYYY-MM}}-fortemi.md` (Pagenary `posts` collection, `route: /blog`, `layout: blog` — see `docs/config.json` → `collections`). Pagenary ≥ 2026.7.11 auto-materializes collection posts for our manifested tenant, so just dropping the file here is enough — no manifest edit needed.
+- **Post file:** `docs/content/posts/{{YYYY-MM}}-fortemi.md` (Pagenary `posts` collection, `route: /blog`, `layout: blog` — see `docs/config.json` → `collections`). Pagenary ≥ 2026.7.12 auto-materializes collection posts for our manifested tenant, so just dropping the file here is enough — no manifest edit needed.
 - **Template:** `.aiwg/templates/fortemi-monthly-report.md.tmpl` — copy it and fill every section.
 - **Gold-standard reference:** the June post `docs/content/posts/2026-06-fortemi.md` (brought in from the strategy repo `roctinam/strategy:marketing/monthly/2026-06/fortemi.md`). When in doubt, match its structure and voice.
 

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Fortémi Documentation</title>
-  <meta name="description" content="Documentation portal for Fortémi: self-hosted server docs, browser and React package docs, crawler-friendly static pages, sitemaps, and LLM discovery files." />
+  <meta name="description" content="Documentation portal for Fortémi: choose the self-hosted server docs or the Fortémi React/browser package docs." />
   <meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large,max-video-preview:-1" />
   <link rel="canonical" href="https://docs.fortemi.com/" />
   <link rel="sitemap" type="application/xml" href="https://docs.fortemi.com/sitemap.xml" />
@@ -13,7 +13,7 @@
   <meta property="og:site_name" content="Fortémi Documentation" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Fortémi Documentation" />
-  <meta property="og:description" content="Choose Fortémi server docs or Fortémi React/browser package docs. Both docsites publish static, crawler-friendly pages." />
+  <meta property="og:description" content="Choose Fortémi server docs or Fortémi React/browser package docs." />
   <meta property="og:url" content="https://docs.fortemi.com/" />
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="Fortémi Documentation" />
@@ -225,9 +225,7 @@
         <p class="lead">Fortémi is an AI-enhanced knowledge platform with hybrid semantic search, W3C SKOS tagging, graph exploration, multimodal ingestion, and agent integrations. This page routes readers and crawlers to the two published docsites.</p>
         <nav class="quick-links" aria-label="Primary documentation links">
           <a href="/server/">Server docs</a>
-          <a href="/server/pages/welcome-overview.html">Server static HTML</a>
           <a href="/react/">React docs</a>
-          <a href="/react/llms.txt">React LLM index</a>
         </nav>
       </div>
     </header>
@@ -239,7 +237,7 @@
         <ul>
           <li>Deployment, backup, release, and troubleshooting runbooks</li>
           <li>API, MCP, real-time events, auth, and permissions reference</li>
-          <li>Crawler-friendly page snapshots under <code>/server/pages/</code></li>
+          <li>Bot-friendly content and discovery provided by the docsite build</li>
         </ul>
         <div class="go">Open server docs</div>
       </a>
@@ -250,27 +248,23 @@
         <ul>
           <li>Package guides for browser data, graph state, and React integration</li>
           <li>Client-side memory model that can graduate to the server</li>
-          <li>Static discovery files for crawlers and LLM tools</li>
+          <li>Bot-friendly content and discovery provided by the docsite build</li>
         </ul>
         <div class="go">Open React docs</div>
       </a>
     </section>
 
-    <section class="section" aria-labelledby="bot-entrypoints">
-      <h2 id="bot-entrypoints">Crawler and LLM entry points</h2>
+    <section class="section" aria-labelledby="docsite-entrypoints">
+      <h2 id="docsite-entrypoints">Published docsites</h2>
       <ul class="resource-list">
-        <li><a href="/sitemap.xml">Root sitemap<span>Discovery for this portal and both docsite mounts.</span></a></li>
-        <li><a href="/llms.txt">Root llms.txt<span>Plain-text map for LLM tools and AI agents.</span></a></li>
-        <li><a href="/robots.txt">Robots policy<span>Allows crawlers and advertises sitemap locations.</span></a></li>
-        <li><a href="/server/sitemap.xml">Server sitemap<span>All crawler-facing server documentation pages.</span></a></li>
-        <li><a href="/server/llms.txt">Server llms.txt<span>LLM-friendly server documentation index.</span></a></li>
-        <li><a href="/react/llms.txt">React llms.txt<span>LLM-friendly React/browser package documentation index.</span></a></li>
+        <li><a href="/server/">Server docs<span>Self-hosted server, API, MCP, operations, and deployment.</span></a></li>
+        <li><a href="/react/">React docs<span>Browser packages, React hooks, graph tools, and local-first memory.</span></a></li>
       </ul>
     </section>
   </main>
 
   <footer>
-    Fortémi · <a href="/server/">Server docs</a> · <a href="/react/">React docs</a> · <a href="/sitemap.xml">Sitemap</a> · <a href="/llms.txt">LLM index</a>
+    Fortémi · <a href="/server/">Server docs</a> · <a href="/react/">React docs</a>
   </footer>
 </body>
 </html>

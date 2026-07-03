@@ -8,7 +8,7 @@ The root `package.json` keeps the publisher as a dev dependency and the root
 
 | Component | Value |
 |-----------|-------|
-| Publisher package | `@pagenary/publisher` `^2026.7.11` |
+| Publisher package | `@pagenary/publisher` `^2026.7.12` |
 | Tenant id | `fortemi-docs` |
 | Tenant source | `./docs` |
 | Build output | `./dist/fortemi-docs` |
@@ -41,7 +41,7 @@ pagenary build:tenants fortemi-docs --base auto
 `--base auto` keeps the same static bundle portable across `/`, `/server`, and
 other subpath mounts by letting the runtime resolve its served base path.
 
-## Pagenary 2026.7.11 Capabilities Integrated
+## Pagenary 2026.7.12 Capabilities Integrated
 
 - Multi-tenant builds through the root `tenants.json` registry.
 - Strict internal link validation through the tenant `strictLinks` setting.
@@ -85,8 +85,8 @@ server deploy.
 
 The root portal at `docs.fortemi.com/` is hand-authored in `docs-portal/`.
 It ships static HTML plus root-level `sitemap.xml`, `robots.txt`, and
-`llms.txt` files so bots can discover both published docsites before choosing
-`/server/` or `/react/`.
+`llms.txt` files that route bots and readers to the two published docsites:
+`/server/` and `/react/`.
 
 ## Update Procedure
 
