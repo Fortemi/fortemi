@@ -131,6 +131,8 @@ Files arrive via `POST /api/v1/notes/:id/attachments` as base64-encoded JSON. Th
 5. Creates an `attachment` row with metadata
 6. Queues an extraction job
 
+Projection builders treat the uploaded file as a data source, not as index text. They may read attachment metadata and `extracted_text`, but they must not read or serialize raw blob bytes. See [Binary Attachment Projection](binary-attachment-projection.md) for the canonical export/index shape.
+
 ### Stage 2: Detection
 
 Strategy detection follows a two-tier lookup:

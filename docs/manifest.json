@@ -33,6 +33,7 @@
         { "id": "core-systems-shards", "title": "Knowledge Shards", "summary": "Shard exchange format for data portability.", "file": "shard-exchange.md" },
         { "id": "core-systems-graph", "title": "Knowledge Graph", "summary": "Semantic link exploration and graph queries.", "file": "knowledge-graph-guide.md" },
         { "id": "core-systems-attachments", "title": "File Attachments", "summary": "Upload, process, and search file attachments with EXIF extraction.", "file": "file-attachments.md" },
+        { "id": "core-systems-binary-attachment-projection", "title": "Binary Attachment Projection", "summary": "Canonical extracted-text plus attachment-reference contract for binary files.", "file": "binary-attachment-projection.md" },
         { "id": "core-systems-memory-search", "title": "Memory Search", "summary": "Temporal-spatial queries on file provenance using PostGIS.", "file": "memory-search.md" },
         { "id": "core-systems-multi-memory", "title": "Multi-Memory Architecture", "summary": "Parallel memory archives for data isolation via PostgreSQL schemas.", "file": "multi-memory.md" },
         { "id": "core-systems-embedding-selection", "title": "Embedding Model Selection", "summary": "Choosing embedding models: dimensions, MRL, and storage trade-offs.", "file": "embedding-model-selection.md" },

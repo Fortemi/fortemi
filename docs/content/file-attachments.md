@@ -2,6 +2,8 @@
 
 Fortémi provides a secure, content-addressable file attachment system for storing files alongside notes. Files are automatically deduplicated, safely validated, and can have their content extracted for search indexing.
 
+Binary files are never inlined into search, index, export, or embedding-set projection records. Those records use the canonical extracted-text plus attachment-reference contract documented in [Binary Attachment Projection](binary-attachment-projection.md).
+
 ## Overview
 
 The file attachment system supports:

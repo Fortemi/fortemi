@@ -19691,6 +19691,81 @@ impl std::fmt::Debug for BackupExportResponse {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+struct BinaryAttachmentExportRef {
+    id: Uuid,
+    path: String,
+    mime: String,
+    checksum: String,
+    bytes: i64,
+}
+
+impl std::fmt::Debug for BinaryAttachmentExportRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BinaryAttachmentExportRef")
+            .field("id_set", &true)
+            .field("path_len", &self.path.chars().count())
+            .field("mime_len", &self.mime.chars().count())
+            .field("checksum_len", &self.checksum.chars().count())
+            .field("bytes", &self.bytes)
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct BinaryAttachmentExportProjection {
+    extracted_text: Option<String>,
+    attachment: BinaryAttachmentExportRef,
+}
+
+impl std::fmt::Debug for BinaryAttachmentExportProjection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BinaryAttachmentExportProjection")
+            .field(
+                "extracted_text_len",
+                &self
+                    .extracted_text
+                    .as_ref()
+                    .map(|value| value.chars().count()),
+            )
+            .field("attachment", &self.attachment)
+            .finish()
+    }
+}
+
+async fn binary_attachment_export_projections_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    note_id: Uuid,
+) -> Result<Vec<BinaryAttachmentExportProjection>, sqlx::Error> {
+    use sqlx::Row;
+
+    let rows = sqlx::query(
+        r#"SELECT a.id, a.filename, a.extracted_text,
+                  ab.content_type, ab.content_hash, ab.size_bytes
+           FROM attachment a
+           JOIN attachment_blob ab ON a.blob_id = ab.id
+           WHERE a.note_id = $1
+           ORDER BY a.display_order, a.created_at"#,
+    )
+    .bind(note_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| BinaryAttachmentExportProjection {
+            extracted_text: row.get("extracted_text"),
+            attachment: BinaryAttachmentExportRef {
+                id: row.get("id"),
+                path: row.get("filename"),
+                mime: row.get("content_type"),
+                checksum: row.get("content_hash"),
+                bytes: row.get("size_bytes"),
+            },
+        })
+        .collect())
+}
+
 /// Export all notes as a JSON export.
 /// Respects X-Fortemi-Memory header for archive-scoped exports (#421).
 #[utoipa::path(get, path = "/api/v1/backup/export", tag = "Backup",
@@ -19752,6 +19827,15 @@ async fn backup_export(
                     .get_for_note_tx(&mut tx, note.id)
                     .await
                     .unwrap_or_default();
+                let attachments = binary_attachment_export_projections_tx(&mut tx, note.id)
+                    .await
+                    .map_err(|e| {
+                        backup_operation_failed(
+                            "Backup export",
+                            "load attachment export projections",
+                            e,
+                        )
+                    })?;
                 exported_notes.push(serde_json::json!({
                     "id": full_note.note.id,
                     "title": full_note.note.title,
@@ -19765,6 +19849,7 @@ async fn backup_export(
                     "created_at": full_note.note.created_at_utc,
                     "updated_at": full_note.note.updated_at_utc,
                     "tags": note_tags,
+                    "attachments": attachments,
                 }));
             }
         }
@@ -19902,6 +19987,15 @@ async fn backup_download(
                     .get_for_note_tx(&mut tx, note.id)
                     .await
                     .unwrap_or_default();
+                let attachments = binary_attachment_export_projections_tx(&mut tx, note.id)
+                    .await
+                    .map_err(|e| {
+                        backup_operation_failed(
+                            "Backup export",
+                            "load attachment export projections",
+                            e,
+                        )
+                    })?;
                 exported_notes.push(serde_json::json!({
                     "id": full_note.note.id,
                     "title": full_note.note.title,
@@ -19915,6 +20009,7 @@ async fn backup_download(
                     "created_at": full_note.note.created_at_utc,
                     "updated_at": full_note.note.updated_at_utc,
                     "tags": note_tags,
+                    "attachments": attachments,
                 }));
             }
         }
@@ -21082,6 +21177,11 @@ async fn knowledge_shard(
                             .get_for_note_tx(&mut tx, note.id)
                             .await
                             .unwrap_or_default();
+                        let attachments = binary_attachment_export_projections_tx(&mut tx, note.id)
+                            .await
+                            .map_err(|e| {
+                                shard_operation_failed("load attachment export projections", e)
+                            })?;
                         let note_obj = serde_json::json!({
                             "id": full_note.note.id,
                             "title": full_note.note.title,
@@ -21095,6 +21195,7 @@ async fn knowledge_shard(
                             "created_at": full_note.note.created_at_utc,
                             "updated_at": full_note.note.updated_at_utc,
                             "tags": note_tags,
+                            "attachments": attachments,
                         });
                         notes_json.push(serde_json::to_string(&note_obj).unwrap_or_default());
                     }
@@ -32597,6 +32698,53 @@ mod tests {
         assert!(json.contains("\"version\":\"1.0.0\""));
         assert!(json.contains("\"format\":\"matric-backup\""));
         assert!(json.contains("\"notes\":10"));
+    }
+
+    #[test]
+    fn binary_attachment_export_projection_serializes_metadata_without_blob_bytes() {
+        let projection = BinaryAttachmentExportProjection {
+            extracted_text: Some("extracted pdf text".to_string()),
+            attachment: BinaryAttachmentExportRef {
+                id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000001").unwrap(),
+                path: "research/paper.pdf".to_string(),
+                mime: "application/pdf".to_string(),
+                checksum: "blake3-checksum".to_string(),
+                bytes: 911_442,
+            },
+        };
+
+        let value = serde_json::to_value(&projection).unwrap();
+        assert_eq!(value["extracted_text"], "extracted pdf text");
+        assert_eq!(value["attachment"]["path"], "research/paper.pdf");
+        assert_eq!(value["attachment"]["mime"], "application/pdf");
+        assert_eq!(value["attachment"]["checksum"], "blake3-checksum");
+        assert_eq!(value["attachment"]["bytes"], 911_442);
+        assert!(value["attachment"].get("data").is_none());
+        assert!(value["attachment"].get("raw").is_none());
+        assert!(value["attachment"].get("content").is_none());
+        assert!(value["attachment"].get("content_bytes").is_none());
+        assert!(value["attachment"].get("base64").is_none());
+    }
+
+    #[test]
+    fn binary_attachment_export_projection_allows_pending_extraction_bounded_record() {
+        let projection = BinaryAttachmentExportProjection {
+            extracted_text: None,
+            attachment: BinaryAttachmentExportRef {
+                id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000002").unwrap(),
+                path: "large-video.mp4".to_string(),
+                mime: "video/mp4".to_string(),
+                checksum: "blake3-video-checksum".to_string(),
+                bytes: 868 * 1024 * 1024,
+            },
+        };
+
+        let json = serde_json::to_string(&projection).unwrap();
+        assert!(json.contains("\"extracted_text\":null"));
+        assert!(json.contains("\"bytes\":910163968"));
+        assert!(!json.contains("attachment_blob"));
+        assert!(!json.contains("storage_path"));
+        assert!(!json.contains("data:"));
     }
 
     #[test]
