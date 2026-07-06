@@ -3,7 +3,7 @@ template: post
 title: "Fortémi — Origins (2025)"
 date: 2025-12-01
 author: Fortémi Team
-summary: "Before its first public release, Fortémi was built as the memory engine inside a local-first notes app called HotM. This is the origin story: how the search-by-meaning server, its smart tags, and its agent tools came to be during 2025 — under a different name, not yet released."
+summary: "Before its first release under its own name, Fortémi was built as the memory engine inside HotM (Hall of the Mind), a local-first notes app developed in the open — its repository was public for most of 2025. This is the origin story: how the search-by-meaning server, its smart tags, and its agent tools came to be."
 tags: [report, fortemi, "2025-12", agent-memory, inception]
 ---
 
@@ -11,23 +11,23 @@ tags: [report, fortemi, "2025-12", agent-memory, inception]
 
 *Fortémi is the agent-memory server. It keeps notes for an AI agent and lets the agent search them by meaning, not just by exact words. You run it yourself, on your own machine, with one Docker command. This is the full server. HotM is a desktop app that uses it. fortemi-react is the same server built to run in a web browser (see its own report).*
 
-*This is an origin report. Everything here predates Fortémi's first public release (January 2026). In 2025 the server did not yet carry the Fortémi name — it lived inside a local-first notes app called **HotM**, was pulled out into its own project at the start of 2026 under the internal codename **matric-memory**, and was named **Fortémi** shortly after. Nothing described here was publicly released in 2025; this is the story of what was **built** before the doors opened.*
+*This is an origin report. Everything here predates Fortémi's first release under its own name (January 2026). In 2025 the server did not yet carry the Fortémi name — it lived inside **HotM** (Hall of the Mind), a local-first notes app developed in the open, whose repository was public for most of 2025. At the start of 2026 the engine was pulled out into its own project under the internal codename **matric-memory**, and was named **Fortémi** shortly after. Anyone could watch the engine take shape inside HotM; what didn't exist yet was a standalone memory server you could run on its own. This is the story of what was **built** before Fortémi became its own product.*
 
 ## TL;DR
 
-Fortémi did not start as a standalone product. It started as the engine inside **HotM** — a local-first, keep-your-own-data notes and analysis app. In a concentrated build in **August 2025**, the core of what would become Fortémi took shape: a Rust server backed by PostgreSQL that could search notes by meaning as well as by exact words, organize them with smart tags, and expose everything to AI agents through a standard tool protocol. HotM's guiding idea — **your originals are never changed, only enhanced** — became one of Fortémi's lasting principles. Through the rest of the year the project was put on a proper footing: a clean database schema, comprehensive tests, and a formal design-and-build process. At the very end of 2025 the memory engine was ready to leave the nest. In **early January 2026** it was extracted into its own project (codename *matric-memory*), renamed **Fortémi**, and released to the public — the story the January report picks up.
+Fortémi did not start as a standalone product. It started as the engine inside **HotM** (Hall of the Mind) — a local-first, keep-your-own-data notes and analysis app, developed in the open in a public repository. In a concentrated build in **August 2025**, the core of what would become Fortémi took shape: a Rust server backed by PostgreSQL that could search notes by meaning as well as by exact words, organize them with smart tags, and expose everything to AI agents through a standard tool protocol. HotM's guiding idea — **your originals are never changed, only enhanced** — became one of Fortémi's lasting principles. Through the rest of the year the project was put on a proper footing: a clean database schema, comprehensive tests, and a formal design-and-build process. At the very end of 2025 the memory engine was ready to leave the nest. In **early January 2026** it was extracted into its own project (codename *matric-memory*), renamed **Fortémi**, and given its first standalone release — the story the January report picks up.
 
 ## By the numbers
 
 | What's public | Value |
 |---|---|
 | What it was | The memory engine inside HotM, a local-first notes app you run yourself |
-| Status in 2025 | Pre-public — built and tested, **not yet released** under any name |
+| Status in 2025 | Built and tested **in the open** inside the public HotM repository — no standalone server release under any name |
 | Where it lived | Inside `HotM` (Rust/Axum server + Tauri desktop app); extracted to its own project in January 2026 |
 | The name | Chosen later — "Fortémi" was settled in early 2026; in 2025 it was simply HotM's engine |
 | Built for | Search-by-meaning notes, smart tags, and AI agents over a standard tool protocol |
 | Coverage window | August 2025 through December 2025 (the HotM era) |
-| What came next | January 2026 — extracted, renamed Fortémi, first public release (see the January report) |
+| What came next | January 2026 — extracted, renamed Fortémi, first standalone release (see the January report) |
 
 ## Highlights
 
@@ -56,7 +56,7 @@ What it is: everything ran on your own machine — a Rust (Axum) server on Postg
 How you'd use it: hit a hotkey, jot a thought, and have it captured, enhanced, and searchable — without anything leaving your computer.
 Why it helps: the privacy-first, self-hosted stance that defines Fortémi today was there in the original design.
 
-## What was built (before the first public release)
+## What was built (before the standalone release)
 
 **The memory engine (August 2025).** In a focused burst, the foundation everything later builds on came together inside HotM:
 
@@ -76,9 +76,9 @@ Why it helps: the privacy-first, self-hosted stance that defines Fortémi today 
 
 - **August 2025** — the memory engine is scaffolded inside HotM: Rust/Axum on PostgreSQL, Ollama + pgvector embeddings, hybrid FTS + vector + RRF search, tags/collections/links/provenance, MCP tool schemas, an OpenAPI web API, and a Tauri + React desktop shell. The founding principles — search by meaning, immutable originals, agent-ready, local-first — are all present.
 - **December 2025** — the engine is put on a firm footing: a clean greenfield schema, comprehensive tests, and a formal SDLC baseline; the project is established in its home repository at year's end.
-- **Early January 2026** — the memory engine is extracted from HotM into its own project under the internal codename *matric-memory*, renamed **Fortémi**, and made public. That is where the [January 2026 report](2026-01-fortemi.md) begins.
+- **Early January 2026** — the memory engine is extracted from HotM into its own project under the internal codename *matric-memory*, renamed **Fortémi**, and shipped as a standalone release. That is where the [January 2026 report](2026-01-fortemi.md) begins.
 
-*No public releases were made in 2025. Early `v0.1`–`v0.2` tags on HotM were pre-release builds of the desktop app, not releases of the memory server.*
+*The HotM repository was public for most of 2025, so the engine's development happened in the open. Its early `v0.1`–`v0.2` tags were pre-release builds of the desktop app; the memory server itself had no standalone release until January 2026.*
 
 ## Cross-project impact
 
@@ -88,12 +88,12 @@ Why it helps: the privacy-first, self-hosted stance that defines Fortémi today 
 
 ## What's next
 
-The origin ends where the public story begins. In January 2026 the engine leaves HotM, takes the name Fortémi, and ships its first public release — one Docker command, a memory server for AI agents, free for personal use. Everything after this report is covered month by month, starting with **January 2026**.
+The origin ends where the standalone story begins. In January 2026 the engine leaves HotM, takes the name Fortémi, and ships its first release under its own name — one Docker command, a memory server for AI agents, free for personal use. Everything after this report is covered month by month, starting with **January 2026**.
 
 ## Appendix
 
-- **What it was:** the memory engine inside HotM — a local-first notes app — built in Rust on PostgreSQL, not yet named or released.
+- **What it was:** the memory engine inside HotM (Hall of the Mind) — a local-first notes app developed in a public repository — built in Rust on PostgreSQL, not yet named or released as a standalone server.
 - **Built in 2025:** search by meaning (FTS + vector + RRF), immutable originals with local AI enhancement, structured tags and a knowledge graph, MCP agent tools and an OpenAPI web API, and a Tauri desktop shell — followed by a clean schema, comprehensive tests, and a formal build process.
 - **The name:** "Fortémi" was chosen in early 2026; in 2025 this was HotM's engine, briefly codenamed *matric-memory* on extraction.
-- **Source · docs:** github.com/Fortemi/fortemi · docs.fortemi.com/server · window: August–December 2025 (pre-public origin).
+- **Source · docs:** github.com/Fortemi/fortemi · docs.fortemi.com/server · window: August–December 2025 (the HotM era, before the standalone release).
 - **Related surfaces:** HotM (the desktop app it was born inside) · fortemi-react (the browser build).
