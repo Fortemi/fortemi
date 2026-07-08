@@ -5,6 +5,10 @@
 **Deciders:** roctinam, reliability/product review TBD
 **Related:** ADR-088, ADR-090 (tenancy), ADR-092 (UsageMeter+QuotaPolicy), ADR-097 (statelessness)
 
+## July 2026 checkpoint rebaseline
+
+This ADR remains design-only at the July 2026 checkpoint. The quota/rate-limit design depends on ADR-092, and no `UsageMeter` or `QuotaPolicy` implementation was found in `crates/`. Track billing/quota construction through `Fortemi-Enterprise/billing#1`; keep Redis/image pinning under `Fortemi/fortemi#1021`.
+
 ## Context
 
 Fortemi today has a single process-wide rate limiter (`rate_limit_middleware`). This:

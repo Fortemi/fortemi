@@ -76,6 +76,9 @@ jobs:
       - name: Check fail-closed auth defaults
         run: bash scripts/ci/forbid-insecure-auth-defaults.sh .
 
+      - name: Check release job guards
+        run: python3 scripts/ci/verify-release-job-guards.py
+
       - name: Docs contract advisory scan
         run: DOCS_CONTRACT_MODE=advisory bash scripts/ci/docs-contract.sh .
 
@@ -361,7 +364,7 @@ jobs:
           echo "Starting Redis..."
           docker run -d --name ${TEST_REDIS} \
             --network ${TEST_NET} \
-            redis:7-alpine
+            redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
 
           # Wait for PostgreSQL to be ready
           echo "Waiting for PostgreSQL..."
@@ -452,13 +455,13 @@ jobs:
           curl -sf http://localhost:${TEST_PORT}/asyncapi.yaml -o asyncapi.yaml
 
       - name: Upload OpenAPI spec artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
         with:
           name: openapi-spec
           path: openapi.yaml
 
       - name: Upload AsyncAPI spec artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
         with:
           name: asyncapi-spec
           path: asyncapi.yaml
@@ -955,6 +958,10 @@ jobs:
 
           # Bundle image (all-in-one with embedded PostgreSQL)
           docker pull ghcr.io/fortemi/fortemi:bundle-${VERSION}
+
+          # Resolve immutable digest references for deployment records
+          docker image inspect ghcr.io/fortemi/fortemi:${VERSION} --format '{{index .RepoDigests 0}}'
+          docker image inspect ghcr.io/fortemi/fortemi:bundle-${VERSION} --format '{{index .RepoDigests 0}}'
           ```
 
           ### Quick Start

@@ -12,6 +12,8 @@ For each binary attachment associated with a note, the projection carries extrac
 ```json
 {
   "extracted_text": "Text produced by the extraction job, or null when extraction is pending.",
+  "extraction_status": "extracted",
+  "reason": null,
   "attachment": {
     "id": "018fd1a0-0000-7000-8000-000000000001",
     "path": "research-paper.pdf",
@@ -24,6 +26,20 @@ For each binary attachment associated with a note, the projection carries extrac
 
 The `bytes` field is a byte count. It is not a byte array, base64 string, blob handle payload, or serialized file body.
 
+When extracted text is unavailable, `extraction_status` and `reason` use stable classes only:
+
+| State | `extraction_status` | `reason` |
+|---|---|---|
+| Extracted text exists | `extracted` | `null` |
+| Uploaded, queued, or processing | `pending` | `extraction_pending` |
+| Large binary with no extracted text | `deferred` | `large_binary` |
+| Unsupported generic MIME | `deferred` | `unsupported_mime` |
+| Completed but no text was produced | `deferred` | `no_extracted_text` |
+| Extraction failed | `failed` | `extractor_failed` |
+| Quarantined | `blocked` | `quarantined` |
+
+Projection payloads do not expose raw extractor diagnostics, backend errors, temporary filesystem paths, stack traces, storage paths, or connection strings.
+
 ## Flow
 
 1. A client creates or selects a note.
@@ -33,7 +49,7 @@ The `bytes` field is a byte count. It is not a byte array, base64 string, blob h
 5. The extraction pipeline writes `extracted_text` and extraction metadata back to the attachment.
 6. Index, export, shard, and embedding-set builders read `extracted_text` and attachment metadata. They do not read or serialize blob bytes.
 
-When extraction has not completed, the projection still exports a valid bounded record: `extracted_text` is `null` or the best available partial text, and `attachment` contains the id, path, MIME type, checksum, and byte count.
+When extraction has not completed, the projection still exports a valid bounded record: `extracted_text` is `null` or the best available partial text, `extraction_status` and `reason` carry a stable class, and `attachment` contains the id, path, MIME type, checksum, and byte count.
 
 ## Required Consumer Behavior
 

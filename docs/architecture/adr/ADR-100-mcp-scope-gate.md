@@ -7,6 +7,10 @@
 **Implementation tracker:** Fortemi/fortemi#718 (MCP tool authorization gate — per-tool scope + audit)
 **Blocked by:** #710 (`AuthorizationPolicy` + decision types), #711 (`AuditSink` + mandatory audit taxonomy), #713/#714 (`UsageMeter`/`QuotaPolicy` quota dimensions). The Rust in-process MCP path (#853) MUST consume this same gate rather than create a second authorization model.
 
+## July 2026 checkpoint rebaseline
+
+This ADR is refreshed as a contract direction, not a production gate implementation. Core roles/scopes are documented and supporting authz/audit seams exist in part, but the production MCP gate is deferred to `Fortemi-Enterprise/mcp-gate#2` plus Fortemi backoffice/API discovery in `Fortemi/fortemi#1020`.
+
 ## Revision history
 
 - **2026-06-29 (#893):** Aligned with the current MCP authorization model. (1) Removed the hard-coded `-32603 with reason` denial contract pending a public-error-shape security review. (2) Reframed per-tool rate limits as quota *dimensions* owned by #713/#714 rather than standalone fixed per-minute tiers. (3) Added that MCP tool annotations (`readOnlyHint`/`destructiveHint`/`idempotentHint`/`openWorldHint`) are client-facing risk/UX hints only and are never authorization input. (4) Added remote-MCP OAuth protected-resource requirements for Streamable HTTP, kept separate from stdio/local credential behavior. (5) Corrected the implementation location: tool metadata lives first in the active Node `mcp-server/` registry and is shared with / migrated to the Rust MCP path (#853).

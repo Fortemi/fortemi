@@ -87,16 +87,29 @@ When you push the tag, the CI pipeline automatically:
 - `bundle-{version}` - All-in-one image with embedded PostgreSQL
 - `bundle-latest` - Latest bundle image
 
+Mutable `latest` tags are convenience aliases only. Release verification must resolve and record immutable digest references for versioned images:
+
+```bash
+VERSION=2026.6.1
+docker pull ghcr.io/fortemi/fortemi:${VERSION}
+docker pull ghcr.io/fortemi/fortemi:bundle-${VERSION}
+docker image inspect ghcr.io/fortemi/fortemi:${VERSION} --format '{{index .RepoDigests 0}}'
+docker image inspect ghcr.io/fortemi/fortemi:bundle-${VERSION} --format '{{index .RepoDigests 0}}'
+```
+
+Use `ghcr.io/fortemi/fortemi@sha256:...` references in production deployment records and rollback plans.
+
 > **Sidecar images** (GLiNER, pyannote) are released independently with their own tags. See [CI/CD docs](#/operations-ci-cd) for details.
 
 ### Post-Release
 
 - [ ] Verify release appears on [GitHub Releases](https://github.com/fortemi/fortemi/releases)
 - [ ] Verify Docker images on [ghcr.io](https://ghcr.io/fortemi/fortemi)
+- [ ] Record immutable Docker digest references for `{version}` and `bundle-{version}`
 - [ ] Update any deployment configurations
 - [ ] Pull new image and restart production service if needed:
   ```bash
-  docker pull ghcr.io/fortemi/fortemi:latest
+  docker pull ghcr.io/fortemi/fortemi:bundle-${VERSION}
   docker compose -f docker-compose.bundle.yml up -d
   ```
 - [ ] Smoke test production endpoints:

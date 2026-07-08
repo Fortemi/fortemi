@@ -14,6 +14,38 @@ The documentation site has separate Pagenary workflows:
 release tags or manual dispatch. See [Documentation Site Publishing](#/operations-docsite-publishing)
 for the package version, tenant registry, local commands, and deployment details.
 
+## Self-Hosted Runner Security
+
+The `matric-builder` runner uses Docker-in-Docker through the host Docker
+socket, so it should be treated as privileged access to the runner host. It is
+the default label for build, test, container, and publish jobs. The `titan` and
+`gpu` labels are reserved for hardware or local-service access and should not be
+used for publish jobs unless the workflow has a specific host-exposure review.
+
+Secret-bearing jobs must not run for `pull_request` events. The CI lint job runs
+`scripts/ci/verify-release-job-guards.py`, which fails if a workflow that
+accepts pull requests contains a `${{ secrets.* }}` job without a job-level
+guard excluding pull-request execution. Keep the explicit guards in the workflow
+even when a job also appears to be protected by branch or tag conditions.
+
+Package and registry publish posture:
+
+- Internal Gitea registry/package publishing uses `BUILD_REPO_TOKEN`. Keep this
+  token limited to Fortemi package and release publishing, and do not reuse it
+  as a general administrator token.
+- Public GHCR and GitHub release publishing uses `GH_PUBLISH_TOKEN`. The
+  expected minimum scopes are `write:packages` and `contents:write`; private
+  repository targets may also require repository access.
+- Runner registration tokens, PATs, deploy keys, and registry tokens must stay
+  out of the repository and out of runner labels/config examples. Rotate any
+  token that appears in logs or shell history.
+- Package-distribution readiness is not proven by these docs alone. A release
+  gate still needs a publish-and-consume verification run for the target package
+  registry before enterprise/private package readiness is claimed.
+
+See `build/RUNNER_SETUP.md` for runner registration, Docker-socket isolation,
+and label configuration details.
+
 ## Pipeline Stages
 
 ### 1. Lint (runs on: matric-builder)
@@ -111,6 +143,18 @@ Publishes release images to internal registry on version tags:
 - `{version}` - Semantic version (e.g., `2026.2.0`)
 - `latest` - Latest stable release
 - `bundle-{version}`, `bundle-latest` - All-in-one images
+
+`latest` and `bundle-latest` are mutable convenience aliases. Release verification records immutable digest references from the versioned tags:
+
+```bash
+VERSION=2026.6.1
+docker pull ghcr.io/fortemi/fortemi:${VERSION}
+docker pull ghcr.io/fortemi/fortemi:bundle-${VERSION}
+docker image inspect ghcr.io/fortemi/fortemi:${VERSION} --format '{{index .RepoDigests 0}}'
+docker image inspect ghcr.io/fortemi/fortemi:bundle-${VERSION} --format '{{index .RepoDigests 0}}'
+```
+
+Production deployments should pin `ghcr.io/fortemi/fortemi@sha256:...` references in deployment records instead of relying on mutable tag values.
 
 **Triggers**: Version tags only (`v*`)
 

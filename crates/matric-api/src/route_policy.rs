@@ -761,6 +761,13 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         PublicProbe,
     ),
     r(
+        "/api/v1/system/compatibility",
+        SystemHealth,
+        "compatibility_discovery",
+        DocsPublic,
+        NoStore,
+    ),
+    r(
         "/api/v1/health/tag-cooccurrence",
         SystemHealth,
         "health_diagnostics",
@@ -1813,6 +1820,7 @@ mod tests {
         ));
         assert!(is_public_without_bearer("/api/v1/realtime/twilio/CA123"));
         assert!(is_public_without_bearer("/api/v1/health/streaming"));
+        assert!(is_public_without_bearer("/api/v1/system/compatibility"));
     }
 
     #[test]

@@ -37,6 +37,10 @@ coverage/
 lcov.info
 node_modules/
 
+# Python tooling caches
+__pycache__/
+*.py[cod]
+
 # Docsite build output (pagenary)
 /dist/
 

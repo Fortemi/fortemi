@@ -6,6 +6,10 @@
 **Related:** ADR-071 (auth middleware), ADR-089 (authorization), ADR-090 (tenancy)
 **Related docs:** `.aiwg/architecture/ce-ee-audit-2026-05.md` finding S-1 (CRITICAL)
 
+## July 2026 checkpoint rebaseline
+
+This ADR remains proposed for the default-auth inversion. The multi-tenant guard is partially implemented: `matric-api` rejects anonymous mode when `FORTEMI_MULTI_TENANT=true`. The general CE default change and explicit `I_UNDERSTAND_NO_AUTH` flow are still not complete and are tracked under `Fortemi/fortemi#1017` until split.
+
 ## Context
 
 ADR-071 added authentication middleware behind a `REQUIRE_AUTH` environment variable. The default is **off**, meaning:

@@ -15,6 +15,10 @@
 | 0 | 2026-05-20 | Initial draft framed KMS as an EE plugin upgrade; `EnvKeyProvider` as CE default |
 | 1 | 2026-05-20 | **Revised** to align with HotM ADR-MOBILE-001 Decision 4: KMS required for hosted multi-tenant at launch. `EnvKeyProvider` retained only for the HotM desktop sidecar (single-tenant local install) and explicit dev-only opt-out. "KEK file on disk" launch posture is rejected for hosted. |
 
+## July 2026 checkpoint rebaseline
+
+Accepted status means the KMS-required hosted target is accepted; it does not mean the KeyProvider implementation is complete. The July 2026 checkpoint found the target documented here and in `docs/architecture/cryptographic-decisions.md`, but no `KeyProvider` trait/provider implementation in `crates/`. Hosted multi-tenant secret storage remains blocked on `Fortemi/fortemi#1019` and `Fortemi-Enterprise/kms#2`.
+
 ## Context
 
 `matric-crypto` provides symmetric encryption (ADR-006), envelope encryption (ADR-007), and in-memory encryption (ADR-010). The current implementation reads its master key material from an environment variable or local file — acceptable for the HotM desktop sidecar (single-tenant, root-owned, local trust boundary).

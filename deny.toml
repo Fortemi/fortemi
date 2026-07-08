@@ -17,7 +17,7 @@ feature-depth = 1
 [advisories]
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
-yanked = "warn"
+yanked = "deny"
 # Advisory allowlist — kept in sync with .cargo/audit.toml. Each entry MUST
 # document rationale, owner, and expiry there.
 ignore = [

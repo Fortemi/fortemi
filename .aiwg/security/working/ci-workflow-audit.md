@@ -28,23 +28,22 @@ The workflows intentionally publish mutable `:latest` and `bundle-latest` tags f
 - `.gitea/workflows/ci-builder.yaml:871` - `docker tag ${IMAGE}:${VERSION} ${IMAGE}:latest`
 - `.gitea/workflows/ci-builder.yaml:874` - `push_with_retry ${IMAGE}:latest`
 
+July 2026 checkpoint update: user-facing Docker verification docs now show how to resolve `ghcr.io/fortemi/fortemi@sha256:...` references from versioned tags. The generated GitHub release-note template includes the same `docker image inspect ... RepoDigests` commands. Mutable tags remain convenience aliases, not verification evidence.
+
 ### CRITICAL - PR-triggered jobs reference secrets
 
 No direct critical exposure was confirmed. The workflows that run on `pull_request` (`test.yml`, `docsite-build.yml`, `ci-builder.yaml`) do not have obvious secret-using publish steps that are intended to run on pull requests. The mixed `ci-builder.yaml` workflow does contain secret-using jobs, but those jobs are push/tag-gated.
 
-Residual risk: comments in `ci-builder.yaml` document prior Gitea job-gating misbehavior on tag/main conditions. Release job guard coverage should be explicit before relying on mixed workflow gating for secrets.
+July 2026 checkpoint update: `scripts/ci/verify-release-job-guards.py` now runs in the `ci-builder.yaml` lint job. It fails if a workflow that has a `pull_request` trigger contains a `${{ secrets.* }}` job without a job-level `if:` guard that clearly excludes pull-request execution.
+
+Residual risk: the verifier is a static guard check, not a full Gitea evaluator. Keep the explicit job guards in the workflows and add live CI evidence when the next release/tag workflow runs.
 
 ### HIGH - Unpinned actions
 
-`actions/checkout` is pinned to a full SHA and recorded in `ci/digests.txt`. Artifact actions are still tag-pinned and are already listed as deferred in the manifest.
+Resolved in the July 2026 checkpoint pinning slice. `actions/checkout`, `actions/upload-artifact`, and `actions/download-artifact` are pinned to full SHAs and recorded in `ci/digests.txt`.
 
-- `.gitea/workflows/publish-sidecar.yml:78` - `uses: actions/upload-artifact@v3`
-- `.gitea/workflows/publish-sidecar.yml:243` - `uses: actions/upload-artifact@v3`
-- `.gitea/workflows/publish-sidecar.yml:249` - `uses: actions/upload-artifact@v3`
-- `.gitea/workflows/publish-sidecar.yml:262` - `uses: actions/download-artifact@v3`
-- `.gitea/workflows/publish-sidecar.yml:370` - `uses: actions/download-artifact@v3`
-- `.gitea/workflows/ci-builder.yaml:440` - `uses: actions/upload-artifact@v3`
-- `.gitea/workflows/ci-builder.yaml:446` - `uses: actions/upload-artifact@v3`
+- `actions/upload-artifact@v3` -> `ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5`
+- `actions/download-artifact@v3` -> `9bc31d5ccc31df68ecc42ccf4149144866c47d8a`
 
 ### HIGH - Unpinned container images
 
@@ -56,7 +55,7 @@ No `curl | sh` installer pattern was found.
 
 ### MEDIUM - Pin manifest coverage
 
-`ci/digests.txt` exists and records the currently pinned `node:20` container and `actions/checkout` action. It also explicitly lists the unpinned artifact actions as a deferred hardening pass.
+`ci/digests.txt` exists and records the currently pinned `node:20` container, `redis:7-alpine` service image, `actions/checkout`, `actions/upload-artifact`, and `actions/download-artifact`.
 
 ## Clean Checks
 
@@ -68,11 +67,9 @@ No `curl | sh` installer pattern was found.
 
 ## Remediation Plan
 
-1. Pin `actions/upload-artifact@v3` and `actions/download-artifact@v3` to full commit SHAs and update `ci/digests.txt`.
-2. Add explicit release-job guard tests or a CI lint that proves secret-using jobs cannot run for `pull_request` events.
-3. Keep mutable `:latest` release tags only as convenience aliases; publish and document immutable digest verification for Docker users.
-4. For Gitea self-hosted runners, document runner isolation mode, token permissions, and whether package-publish jobs rely on PATs because Gitea package authorization is incomplete.
-5. Re-run this audit after the pinning and guard changes land.
+1. Runner isolation mode, token permissions, and package-publish PAT posture are now documented in `build/RUNNER_SETUP.md` and `docs/content/ci-cd.md`.
+2. Collect live CI evidence from the next guarded pull-request run and the next tag/manual release run using `.aiwg/security/working/ci-live-evidence-runbook-2026-07.md` to confirm the static guard matches Gitea runtime behavior.
+3. Keep package-registry readiness separate from CI hardening. A publish-and-consume verification run is still required before private package distribution readiness is claimed.
 
 ## Follow-up Issues
 

@@ -6,6 +6,10 @@
 **Related:** ADR-001 (superseded by ADR-072 — trait abstraction), ADR-002 (Cargo feature flags), ADR-072 (inference provider registry)
 **Related docs:** `.aiwg/architecture/ce-ee-audit-2026-05.md`, `.aiwg/architecture/plugin-contract-spec.md`
 
+## July 2026 checkpoint rebaseline
+
+This ADR remains a target architecture for the CE/EE plugin model. At the July 2026 enterprise/backoffice checkpoint, existing trait and registry patterns were present, but `Plugin` lifecycle, `PLUGIN_ABI_VERSION`, a stable plugin API crate, protobuf wire contracts, EE crate skeletons, and private package distribution proof were not complete. Track construction through `Fortemi/fortemi#1017` and `Fortemi-Enterprise/distribution#1`.
+
 ## Context
 
 Fortemi today supports backend swapping via 14 `Send + Sync` traits in `crates/matric-core/src/traits.rs` and a provider registry pattern (ADR-072) for inference backends. All implementations are compiled in at build time via Cargo feature flags (ADR-002). There is no runtime plugin loader.

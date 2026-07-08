@@ -6,6 +6,10 @@
 **Related:** ADR-088 (plugin strategy), ADR-089 (authorization), ADR-090 (tenancy), ADR-093 (key provider)
 **Related docs:** `.aiwg/architecture/plugin-contract-spec.md` §10, `.aiwg/security/multi-tenant-threat-model.md` §7
 
+## July 2026 checkpoint rebaseline
+
+The core audit seam is partially implemented: `AuditEvent`, `AuditSink`, `TracingSink`, bounded buffering, and many metadata-only API audit producers exist. This ADR is not yet a compliance-ready hosted audit claim because mandatory hosted audit health, KMS lifecycle audit, tamper-evident retention, and private EE sinks remain gated by `Fortemi/fortemi#1019` and `Fortemi-Enterprise/audit-sinks#2`.
+
 ## Context
 
 Fortemi today logs operationally via `tracing`. There is no concept of an **audit event** as a first-class, tamper-evident, queryable record of security-relevant operations.

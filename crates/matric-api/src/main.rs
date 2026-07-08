@@ -1059,7 +1059,7 @@ impl AppState {
         validate_incoming_webhook_payload_handler, twilio_realtime_ws,
         get_call,
         delete_webhook_handler, list_webhook_deliveries, test_webhook, rate_limit_status,
-        health_check, get_notes_timeline, get_notes_activity, get_knowledge_health,
+        health_check, system_compatibility, get_notes_timeline, get_notes_activity, get_knowledge_health,
         get_orphan_tags, get_stale_notes, get_unlinked_notes, get_tag_cooccurrence, get_access_frequency,
         list_notes, create_note, bulk_create_notes, get_note,
         update_note, delete_note, purge_note, update_note_status,
@@ -2918,6 +2918,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health_check))
         .route("/health/live", get(health_check_live))
         .route("/api/v1/health/streaming", get(streaming_health_check))
+        .route("/api/v1/system/compatibility", get(system_compatibility))
         // OpenAPI / Swagger UI
         .merge(
             SwaggerUi::new("/docs").config(
@@ -9010,6 +9011,178 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
         "job_processing": job_processing,
         "sse": state.event_bus.metrics.snapshot(),
     }))
+}
+
+#[derive(Debug, Serialize)]
+struct CompatibilityResponse {
+    schema_version: u8,
+    contract_revision: &'static str,
+    api: CompatibilityApi,
+    deployment: CompatibilityDeployment,
+    auth: CompatibilityAuth,
+    capabilities: serde_json::Value,
+    links: CompatibilityLinks,
+}
+
+#[derive(Debug, Serialize)]
+struct CompatibilityApi {
+    name: &'static str,
+    version: &'static str,
+    minimum_hotm_enterprise_client: &'static str,
+    git_sha_present: bool,
+    build_date_present: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct CompatibilityDeployment {
+    mode: &'static str,
+    edition: &'static str,
+    hosted_multi_tenant_ready: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct CompatibilityAuth {
+    required: bool,
+    mode: &'static str,
+    oauth_issuer_configured: bool,
+    tenant_context_available: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct CompatibilityLinks {
+    openapi: &'static str,
+    asyncapi: &'static str,
+    health: &'static str,
+    streaming_health: &'static str,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CompatibilityInputs<'a> {
+    require_auth: bool,
+    git_sha: &'a str,
+    build_date: &'a str,
+}
+
+fn capability_state(state: &'static str) -> serde_json::Value {
+    serde_json::json!({ "state": state })
+}
+
+fn capability_state_with_reason(
+    state: &'static str,
+    reason_code: &'static str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "state": state,
+        "reason_code": reason_code,
+    })
+}
+
+fn compatibility_auth_mode(require_auth: bool) -> &'static str {
+    if require_auth {
+        "oauth"
+    } else {
+        "anonymous_local"
+    }
+}
+
+fn compatibility_deployment_mode(require_auth: bool) -> &'static str {
+    if require_auth {
+        "single_tenant_server"
+    } else {
+        "local_sidecar"
+    }
+}
+
+fn build_compatibility_response_from_inputs(
+    inputs: CompatibilityInputs<'_>,
+) -> CompatibilityResponse {
+    CompatibilityResponse {
+        schema_version: 1,
+        contract_revision: "2026-07-06",
+        api: CompatibilityApi {
+            name: "fortemi",
+            version: env!("CARGO_PKG_VERSION"),
+            minimum_hotm_enterprise_client: "0.0.0-checkpoint",
+            git_sha_present: !inputs.git_sha.trim().is_empty() && inputs.git_sha != "unknown",
+            build_date_present: !inputs.build_date.trim().is_empty()
+                && inputs.build_date != "unknown",
+        },
+        deployment: CompatibilityDeployment {
+            mode: compatibility_deployment_mode(inputs.require_auth),
+            edition: "community",
+            hosted_multi_tenant_ready: false,
+        },
+        auth: CompatibilityAuth {
+            required: inputs.require_auth,
+            mode: compatibility_auth_mode(inputs.require_auth),
+            oauth_issuer_configured: inputs.require_auth,
+            tenant_context_available: false,
+        },
+        capabilities: serde_json::json!({
+            "core_notes": capability_state("available"),
+            "search": capability_state("available"),
+            "jobs": capability_state("available"),
+            "realtime_activity": capability_state("available"),
+            "hosted_auth": capability_state_with_reason(
+                "unavailable",
+                if inputs.require_auth {
+                    "rls_gate_open"
+                } else {
+                    "hosted_auth_not_configured"
+                },
+            ),
+            "premium_components": capability_state_with_reason(
+                "preview",
+                "capability_catalog_preview_only",
+            ),
+            "backoffice_api": capability_state_with_reason(
+                "unavailable",
+                "contract_not_implemented",
+            ),
+            "audit_posture": capability_state_with_reason(
+                "preview",
+                "hosted_audit_gate_open",
+            ),
+            "quota_status": capability_state_with_reason(
+                "unavailable",
+                "quota_policy_not_implemented",
+            ),
+            "kms_status": capability_state_with_reason(
+                "unavailable",
+                "key_provider_not_implemented",
+            ),
+            "mcp_scope_gate": capability_state_with_reason(
+                "preview",
+                "enterprise_gate_not_implemented",
+            ),
+        }),
+        links: CompatibilityLinks {
+            openapi: "/openapi.yaml",
+            asyncapi: "/asyncapi.yaml",
+            health: "/health",
+            streaming_health: "/api/v1/health/streaming",
+        },
+    }
+}
+
+fn build_compatibility_response(state: &AppState) -> CompatibilityResponse {
+    build_compatibility_response_from_inputs(CompatibilityInputs {
+        require_auth: state.require_auth,
+        git_sha: &state.git_sha,
+        build_date: &state.build_date,
+    })
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/system/compatibility",
+    tag = "System",
+    responses((status = 200, description = "Public-safe API compatibility and coarse capability metadata"))
+)]
+async fn system_compatibility(State(state): State<AppState>) -> impl IntoResponse {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    (headers, Json(build_compatibility_response(&state)))
 }
 
 #[utoipa::path(
@@ -18375,16 +18548,14 @@ fn oauth_revocation_audit_event(
 }
 
 /// OAuth2 authorization server metadata (RFC 8414).
-#[utoipa::path(get, path = "/.well-known/oauth-authorization-server", tag = "OAuth",
-    responses((status = 200, description = "Success")))]
-async fn oauth_discovery(State(state): State<AppState>) -> impl IntoResponse {
-    let metadata = AuthorizationServerMetadata {
-        issuer: state.issuer.clone(),
-        authorization_endpoint: format!("{}/oauth/authorize", state.issuer),
-        token_endpoint: format!("{}/oauth/token", state.issuer),
-        registration_endpoint: Some(format!("{}/oauth/register", state.issuer)),
-        introspection_endpoint: Some(format!("{}/oauth/introspect", state.issuer)),
-        revocation_endpoint: Some(format!("{}/oauth/revoke", state.issuer)),
+fn oauth_authorization_server_metadata(issuer: &str) -> AuthorizationServerMetadata {
+    AuthorizationServerMetadata {
+        issuer: issuer.to_string(),
+        authorization_endpoint: format!("{issuer}/oauth/authorize"),
+        token_endpoint: format!("{issuer}/oauth/token"),
+        registration_endpoint: Some(format!("{issuer}/oauth/register")),
+        introspection_endpoint: Some(format!("{issuer}/oauth/introspect")),
+        revocation_endpoint: Some(format!("{issuer}/oauth/revoke")),
         response_types_supported: vec!["code".to_string()],
         grant_types_supported: vec![
             "authorization_code".to_string(),
@@ -18402,9 +18573,14 @@ async fn oauth_discovery(State(state): State<AppState>) -> impl IntoResponse {
             "admin".to_string(),
             "mcp".to_string(),
         ],
-        code_challenge_methods_supported: Some(vec!["S256".to_string(), "plain".to_string()]),
-    };
-    Json(metadata)
+        code_challenge_methods_supported: Some(vec!["S256".to_string()]),
+    }
+}
+
+#[utoipa::path(get, path = "/.well-known/oauth-authorization-server", tag = "OAuth",
+    responses((status = 200, description = "Success")))]
+async fn oauth_discovery(State(state): State<AppState>) -> impl IntoResponse {
+    Json(oauth_authorization_server_metadata(&state.issuer))
 }
 
 /// OAuth Protected Resource Metadata (RFC 9728).
@@ -19715,6 +19891,8 @@ impl std::fmt::Debug for BinaryAttachmentExportRef {
 #[derive(Clone, Serialize, Deserialize)]
 struct BinaryAttachmentExportProjection {
     extracted_text: Option<String>,
+    extraction_status: String,
+    reason: Option<String>,
     attachment: BinaryAttachmentExportRef,
 }
 
@@ -19728,8 +19906,33 @@ impl std::fmt::Debug for BinaryAttachmentExportProjection {
                     .as_ref()
                     .map(|value| value.chars().count()),
             )
+            .field("extraction_status", &self.extraction_status)
+            .field("reason", &self.reason)
             .field("attachment", &self.attachment)
             .finish()
+    }
+}
+
+fn binary_attachment_projection_state(
+    status: &str,
+    extracted_text: Option<&str>,
+    mime: &str,
+    bytes: i64,
+) -> (&'static str, Option<&'static str>) {
+    if extracted_text.is_some_and(|text| !text.trim().is_empty()) {
+        return ("extracted", None);
+    }
+
+    match status {
+        "uploaded" | "queued" | "processing" => ("pending", Some("extraction_pending")),
+        "failed" => ("failed", Some("extractor_failed")),
+        "quarantined" => ("blocked", Some("quarantined")),
+        "completed" if bytes > matric_core::defaults::FILE_INLINE_THRESHOLD as i64 => {
+            ("deferred", Some("large_binary"))
+        }
+        "completed" if mime == "application/octet-stream" => ("deferred", Some("unsupported_mime")),
+        "completed" => ("deferred", Some("no_extracted_text")),
+        _ => ("pending", Some("extraction_pending")),
     }
 }
 
@@ -19740,7 +19943,7 @@ async fn binary_attachment_export_projections_tx(
     use sqlx::Row;
 
     let rows = sqlx::query(
-        r#"SELECT a.id, a.filename, a.extracted_text,
+        r#"SELECT a.id, a.filename, a.status, a.extracted_text,
                   ab.content_type, ab.content_hash, ab.size_bytes
            FROM attachment a
            JOIN attachment_blob ab ON a.blob_id = ab.id
@@ -19753,15 +19956,30 @@ async fn binary_attachment_export_projections_tx(
 
     Ok(rows
         .into_iter()
-        .map(|row| BinaryAttachmentExportProjection {
-            extracted_text: row.get("extracted_text"),
-            attachment: BinaryAttachmentExportRef {
-                id: row.get("id"),
-                path: row.get("filename"),
-                mime: row.get("content_type"),
-                checksum: row.get("content_hash"),
-                bytes: row.get("size_bytes"),
-            },
+        .map(|row| {
+            let status: String = row.get("status");
+            let extracted_text: Option<String> = row.get("extracted_text");
+            let mime: String = row.get("content_type");
+            let bytes: i64 = row.get("size_bytes");
+            let (extraction_status, reason) = binary_attachment_projection_state(
+                &status,
+                extracted_text.as_deref(),
+                &mime,
+                bytes,
+            );
+
+            BinaryAttachmentExportProjection {
+                extracted_text,
+                extraction_status: extraction_status.to_string(),
+                reason: reason.map(str::to_string),
+                attachment: BinaryAttachmentExportRef {
+                    id: row.get("id"),
+                    path: row.get("filename"),
+                    mime,
+                    checksum: row.get("content_hash"),
+                    bytes,
+                },
+            }
         })
         .collect())
 }
@@ -30502,6 +30720,67 @@ mod tests {
         serde_json::from_slice(&body).unwrap()
     }
 
+    #[test]
+    fn compatibility_response_defaults_enterprise_surfaces_to_safe_states() {
+        let response = build_compatibility_response_from_inputs(CompatibilityInputs {
+            require_auth: false,
+            git_sha: "abc123",
+            build_date: "2026-07-06T00:00:00Z",
+        });
+        let body = serde_json::to_value(response).unwrap();
+
+        assert_eq!(body["schema_version"], 1);
+        assert_eq!(body["deployment"]["mode"], "local_sidecar");
+        assert_eq!(body["deployment"]["edition"], "community");
+        assert_eq!(body["deployment"]["hosted_multi_tenant_ready"], false);
+        assert_eq!(body["auth"]["mode"], "anonymous_local");
+        assert_eq!(body["auth"]["tenant_context_available"], false);
+        assert_eq!(body["capabilities"]["core_notes"]["state"], "available");
+        assert_eq!(body["capabilities"]["search"]["state"], "available");
+        assert_eq!(
+            body["capabilities"]["realtime_activity"]["state"],
+            "available"
+        );
+        assert_eq!(body["capabilities"]["hosted_auth"]["state"], "unavailable");
+        assert_eq!(
+            body["capabilities"]["hosted_auth"]["reason_code"],
+            "hosted_auth_not_configured"
+        );
+        assert_eq!(
+            body["capabilities"]["backoffice_api"]["state"],
+            "unavailable"
+        );
+        assert_eq!(
+            body["capabilities"]["premium_components"]["state"],
+            "preview"
+        );
+        assert_eq!(body["capabilities"]["kms_status"]["state"], "unavailable");
+        assert_eq!(body["capabilities"]["mcp_scope_gate"]["state"], "preview");
+    }
+
+    #[test]
+    fn compatibility_response_does_not_expose_raw_build_provenance() {
+        let response = build_compatibility_response_from_inputs(CompatibilityInputs {
+            require_auth: true,
+            git_sha: "private-sha-123456789",
+            build_date: "2026-07-06T18:00:00Z",
+        });
+        let body = serde_json::to_value(response).unwrap();
+        let rendered = body.to_string();
+
+        assert_eq!(body["deployment"]["mode"], "single_tenant_server");
+        assert_eq!(body["auth"]["mode"], "oauth");
+        assert_eq!(body["auth"]["oauth_issuer_configured"], true);
+        assert_eq!(
+            body["capabilities"]["hosted_auth"]["reason_code"],
+            "rls_gate_open"
+        );
+        assert_eq!(body["api"]["git_sha_present"], true);
+        assert_eq!(body["api"]["build_date_present"], true);
+        assert!(!rendered.contains("private-sha-123456789"));
+        assert!(!rendered.contains("2026-07-06T18:00:00Z"));
+    }
+
     async fn route_problem_contract_test_handler() -> Result<Json<serde_json::Value>, ApiError> {
         Err(ApiError::Internal(
             "postgres://user:secret@db.internal/app failed at /srv/fortemi/private".to_string(),
@@ -30534,6 +30813,21 @@ mod tests {
             }
             _ => ApiError::NotFound("unknown problem contract fixture".to_string()).into_response(),
         }
+    }
+
+    #[test]
+    fn oauth_discovery_metadata_advertises_s256_pkce_only() {
+        let metadata = oauth_authorization_server_metadata("https://auth.example.com");
+
+        assert_eq!(metadata.issuer, "https://auth.example.com");
+        assert_eq!(
+            metadata.authorization_endpoint,
+            "https://auth.example.com/oauth/authorize"
+        );
+        assert_eq!(
+            metadata.code_challenge_methods_supported,
+            Some(vec!["S256".to_string()])
+        );
     }
 
     #[test]
@@ -32704,6 +32998,8 @@ mod tests {
     fn binary_attachment_export_projection_serializes_metadata_without_blob_bytes() {
         let projection = BinaryAttachmentExportProjection {
             extracted_text: Some("extracted pdf text".to_string()),
+            extraction_status: "extracted".to_string(),
+            reason: None,
             attachment: BinaryAttachmentExportRef {
                 id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000001").unwrap(),
                 path: "research/paper.pdf".to_string(),
@@ -32715,6 +33011,8 @@ mod tests {
 
         let value = serde_json::to_value(&projection).unwrap();
         assert_eq!(value["extracted_text"], "extracted pdf text");
+        assert_eq!(value["extraction_status"], "extracted");
+        assert!(value["reason"].is_null());
         assert_eq!(value["attachment"]["path"], "research/paper.pdf");
         assert_eq!(value["attachment"]["mime"], "application/pdf");
         assert_eq!(value["attachment"]["checksum"], "blake3-checksum");
@@ -32730,6 +33028,8 @@ mod tests {
     fn binary_attachment_export_projection_allows_pending_extraction_bounded_record() {
         let projection = BinaryAttachmentExportProjection {
             extracted_text: None,
+            extraction_status: "pending".to_string(),
+            reason: Some("extraction_pending".to_string()),
             attachment: BinaryAttachmentExportRef {
                 id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000002").unwrap(),
                 path: "large-video.mp4".to_string(),
@@ -32741,10 +33041,74 @@ mod tests {
 
         let json = serde_json::to_string(&projection).unwrap();
         assert!(json.contains("\"extracted_text\":null"));
+        assert!(json.contains("\"extraction_status\":\"pending\""));
+        assert!(json.contains("\"reason\":\"extraction_pending\""));
         assert!(json.contains("\"bytes\":910163968"));
         assert!(!json.contains("attachment_blob"));
         assert!(!json.contains("storage_path"));
         assert!(!json.contains("data:"));
+    }
+
+    #[test]
+    fn binary_attachment_projection_state_uses_stable_no_text_reasons() {
+        assert_eq!(
+            binary_attachment_projection_state(
+                "completed",
+                Some("OCR text"),
+                "application/pdf",
+                911_442,
+            ),
+            ("extracted", None)
+        );
+        assert_eq!(
+            binary_attachment_projection_state("queued", None, "application/pdf", 911_442),
+            ("pending", Some("extraction_pending"))
+        );
+        assert_eq!(
+            binary_attachment_projection_state(
+                "completed",
+                None,
+                "video/mp4",
+                (matric_core::defaults::FILE_INLINE_THRESHOLD as i64) + 1,
+            ),
+            ("deferred", Some("large_binary"))
+        );
+        assert_eq!(
+            binary_attachment_projection_state("completed", None, "application/octet-stream", 512,),
+            ("deferred", Some("unsupported_mime"))
+        );
+        assert_eq!(
+            binary_attachment_projection_state("failed", None, "application/pdf", 512),
+            ("failed", Some("extractor_failed"))
+        );
+        assert_eq!(
+            binary_attachment_projection_state("quarantined", None, "application/pdf", 512),
+            ("blocked", Some("quarantined"))
+        );
+    }
+
+    #[test]
+    fn binary_attachment_export_projection_redacts_failed_backend_diagnostics() {
+        let projection = BinaryAttachmentExportProjection {
+            extracted_text: None,
+            extraction_status: "failed".to_string(),
+            reason: Some("extractor_failed".to_string()),
+            attachment: BinaryAttachmentExportRef {
+                id: Uuid::parse_str("018fd1a0-0000-7000-8000-000000000003").unwrap(),
+                path: "failed.pdf".to_string(),
+                mime: "application/pdf".to_string(),
+                checksum: "blake3-failed-checksum".to_string(),
+                bytes: 4096,
+            },
+        };
+
+        let json = serde_json::to_string(&projection).unwrap();
+        assert!(json.contains("\"extraction_status\":\"failed\""));
+        assert!(json.contains("\"reason\":\"extractor_failed\""));
+        assert!(!json.contains("postgres://user:secret@db.internal"));
+        assert!(!json.contains("/tmp/fortemi-extract"));
+        assert!(!json.contains("SQLSTATE"));
+        assert!(!json.contains("stack backtrace"));
     }
 
     #[test]

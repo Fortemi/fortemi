@@ -6,6 +6,10 @@
 **Related:** ADR-071 (auth middleware), ADR-088 (plugin strategy), ADR-090 (tenancy), ADR-094 (fail-closed default), ADR-100 (MCP scope gate)
 **Related docs:** `.aiwg/architecture/ce-ee-audit-2026-05.md` finding S-2, `.aiwg/security/multi-tenant-threat-model.md` §5
 
+## July 2026 checkpoint rebaseline
+
+The core authorization seam is partially implemented: `AuthorizationPolicy`, `AllowAllPolicy`, and `RoleBasedPolicy` exist in `matric-core`, and `matric-api` selects a policy at startup. This ADR is not yet an enterprise RBAC readiness claim because full route/tool coverage, backoffice discovery, and private EE RBAC implementations remain gated by `Fortemi/fortemi#1020` and `Fortemi-Enterprise/rbac#1`.
+
 ## Context
 
 ADR-071 added authentication middleware: validates JWT/OAuth tokens, builds an `AuthPrincipal` enum (`OAuthClient { client_id, scope, user_id }` | `ApiKey { key_id, scope }` | `Anonymous`), and rejects requests when `REQUIRE_AUTH=true`.

@@ -680,6 +680,21 @@ docker pull ghcr.io/fortemi/fortemi:bundle-latest
 
 If you get authentication errors, GHCR public images should not require login. Check your Docker daemon configuration and network connectivity.
 
+### Pin a Docker image by digest
+
+Mutable tags such as `latest` and `bundle-latest` are convenience aliases. For repeatable deployments, resolve the digest for a versioned image and pin that digest in your compose file:
+
+```bash
+VERSION=2026.6.1
+IMAGE=ghcr.io/fortemi/fortemi:bundle-${VERSION}
+
+docker pull "${IMAGE}"
+docker image inspect "${IMAGE}" \
+  --format '{{index .RepoDigests 0}}'
+```
+
+Use the returned `ghcr.io/fortemi/fortemi@sha256:...` reference as `FORTEMI_IMAGE` or in the compose `image:` field for production rollouts.
+
 ### Data persistence across restarts
 
 All data is stored in Docker volumes (`matric-pgdata`, `matric-files`, `matric-backups`, `matric-redis`). Stopping and starting containers preserves data. Only `docker compose down -v` deletes volumes.

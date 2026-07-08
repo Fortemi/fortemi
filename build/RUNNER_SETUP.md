@@ -132,6 +132,36 @@ Mounting the Docker socket grants significant privileges:
 2. **Socket permissions**: The socket must be accessible to the container
 3. **Network isolation**: Consider using Docker networks to isolate builds
 
+Treat a Docker-socket runner as equivalent to privileged access on the runner
+host. Any workflow step that can talk to `/var/run/docker.sock` can build,
+run, and mount host resources through Docker. Keep the following posture:
+
+- `matric-builder` is the default label for CI builds and pull-request tests.
+  Publish jobs and other secret-bearing jobs must keep job-level `if:` guards
+  that exclude pull-request execution. The lint step
+  `scripts/ci/verify-release-job-guards.py` enforces this for workflows with a
+  `pull_request` trigger.
+- `titan` and `gpu` labels are hardware/local-service exceptions. Avoid using
+  them for registry publish, package publish, or other secret-bearing jobs
+  unless the workflow has been explicitly reviewed for host exposure.
+- Keep runner registration tokens, PATs, deploy keys, and registry tokens out of
+  the repository and out of runner labels. Rotate any token that appears in
+  logs, config examples, or shell history.
+- Prefer the repository workflow token for repository-scoped Gitea operations.
+  Use PAT-style secrets only where Gitea package, release, or external registry
+  APIs require them.
+- `BUILD_REPO_TOKEN` is for internal Gitea registry/package publish flows. Keep
+  it limited to Fortemi package and release publishing; do not reuse it as a
+  general admin token.
+- `GH_PUBLISH_TOKEN` is for GHCR and public GitHub release publishing. The
+  expected minimum permissions are `write:packages` and `contents:write`; add
+  broader repository access only when the target repository privacy model
+  requires it.
+- For high-assurance runners, pin the `matric-builder` label image to an
+  immutable digest and rotate it intentionally. If the label uses `:latest`,
+  treat that as an operator convenience alias and pull only from the trusted
+  registry.
+
 ```bash
 # Add runner user to docker group
 sudo usermod -aG docker runner

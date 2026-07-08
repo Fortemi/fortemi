@@ -6,6 +6,10 @@
 **Related:** ADR-088 (plugin strategy), ADR-095 (CE/EE distribution)
 **Related rules:** `.claude/rules/dependency-source-policy.md`, `.claude/rules/ci-action-pinning.md`
 
+## July 2026 checkpoint rebaseline
+
+This ADR remains proposed and its registry readiness is a current no-go. Private EE repos exist, but the July 8 registry preflight receipt found no registry tokens/config/worktree and no package publish/consume proof is attached to `Fortemi-Enterprise/distribution#1`. Do not claim private package distribution readiness until `.aiwg/testing/private-cargo-registry-verification-plan-2026-07-06.md` passes and the proof is recorded, or OP-2026-07-006 records an accepted fallback posture. Track through `Fortemi-Enterprise/distribution#1` and `Fortemi/fortemi-auth#26`.
+
 ## Context
 
 `fortemi-auth` is currently consumed via SSH git dependency:

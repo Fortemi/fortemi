@@ -6,6 +6,10 @@
 **Related:** ADR-088 (plugin strategy), ADR-090 (tenancy)
 **Related rules:** `.claude/rules/stateless-processes.md`, `.claude/rules/disposable-processes.md`, `.claude/rules/logs-as-event-streams.md`
 
+## July 2026 checkpoint rebaseline
+
+This ADR remains proposed. The July 2026 checkpoint did not run a full statelessness audit, so horizontal-scale readiness is not proven by this ADR alone. Keep this as a hosted-scale gate under `Fortemi/fortemi#1017` and external job/backend work under `Fortemi-Enterprise/job-backends#1`.
+
 ## Context
 
 Horizontal scaling of `fortemi-api` (matric-api) requires that the process hold no request-affinity state in memory. Any state that must survive a single request or job must live in a backing service (PostgreSQL, object store, queue, event bus).

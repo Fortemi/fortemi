@@ -15,6 +15,10 @@
 | 0 | 2026-05-20 | Initial draft proposed schema-per-tenant with `TenantScopedDb` newtype |
 | 1 | 2026-05-20 | **Revised** to match HotM ADR-MOBILE-001 Decision 6 and Gitea Fortemi/fortemi#707: shared-schema with Postgres RLS, `NOSUPERUSER NOBYPASSRLS` role, `SET LOCAL app.current_tenant` per request, FORCE RLS on every tenant-scoped table, CI gate via `pg_class`/`pg_policy`. Schema-per-tenant retained only as documented escalation trigger. |
 
+## July 2026 checkpoint rebaseline
+
+Accepted status means the target tenancy architecture is accepted; it does not mean the RLS implementation is complete. The July 2026 checkpoint found no complete migration/policy/test-gate evidence for every tenant-scoped table and no completed `TenantScopedConn` implementation in `crates/`. Hosted multi-tenant production remains blocked on `Fortemi/fortemi#1016`.
+
 ## Context
 
 ADR-068 introduced archive isolation via PostgreSQL schemas with `SET LOCAL search_path TO {schema}, public` wrapped by a `SchemaContext`. That mechanism enables multiple parallel **archives within a single deployment** — same user, different memory contexts. It does **not** provide multi-tenant SaaS isolation.

@@ -6,6 +6,10 @@
 **Related:** ADR-088 (plugin strategy), ADR-090 (tenancy), ADR-098 (per-tenant rate limits)
 **Related docs:** `.aiwg/security/multi-tenant-threat-model.md` §8
 
+## July 2026 checkpoint rebaseline
+
+This ADR remains design-only at the July 2026 checkpoint. `UsageMeter`, `QuotaPolicy`, `NoOpMeter`, and `UnlimitedQuota` were documented, but no implementation was found in `crates/`. Track the construction baseline through `Fortemi-Enterprise/billing#1` and capability/backoffice discovery through `Fortemi/fortemi#1020`.
+
 ## Context
 
 Fortemi today has a single process-wide rate limiter (`rate_limit_middleware`). It has no concept of:

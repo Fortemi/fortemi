@@ -6,6 +6,10 @@
 **Related:** ADR-088 (plugin strategy), ADR-096 (private Cargo registry)
 **Related docs:** `.aiwg/architecture/ce-ee-audit-2026-05.md` §5
 
+## July 2026 checkpoint rebaseline
+
+This ADR remains proposed. The `Fortemi-Enterprise` organization and nine private repos are visible, but the repos are README-only at the checkpoint. The CE-in-EE grant and managed-service restriction text are not approved legal language. Track legal posture through `Fortemi/licensing#1` and distribution construction through `Fortemi-Enterprise/distribution#1`.
+
 ## Context
 
 Fortemi core is BSL-1.1 licensed (LICENSE.txt). `fortemi-auth` is MIT (intentionally permissive so anyone can link). `fortemi-react` is AGPL-3.0. HotM is BSL-1.1. The codebase is open and visible, but plugin-based commercial extensions need a clear, declared distribution model so:

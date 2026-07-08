@@ -14,6 +14,10 @@ Credential metadata and secret storage classes use the hosted secret inventory
 in `docs/architecture/hosted-secret-inventory.md`; DSAR exports must describe
 safe metadata without exposing raw secret values.
 
+## July 2026 checkpoint rebaseline
+
+This ADR remains experimental design at the July 2026 checkpoint. Privacy scopes are documented, but no `DataSubjectRequestHandler` trait/default implementation was found in `crates/`. Keep ADR-099 under `Fortemi/fortemi#1017` until a dedicated privacy/DSAR construction issue is split.
+
 ## Context
 
 GDPR (EU 2016/679 Articles 15-22), CCPA (Cal. Civ. Code §1798.100 et seq.), and emerging laws (UK GDPR, LGPD, Quebec Law 25) grant data subjects rights to:
