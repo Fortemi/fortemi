@@ -1,18 +1,18 @@
 ---
-title: Fortémi — AI-Enhanced Knowledge Management
-summary: A searchable, linked, semantically-rich knowledge base — hybrid search, W3C SKOS tagging, and automated NLP pipelines.
+title: Fortémi — Intelligent Database for AI-Ready Applications
+summary: A normalized data schema plus AI-data-readiness tooling for searchable, linkable, provenance-aware data.
 hero:
   eyebrow: Fortémi
-  title: AI-Enhanced Knowledge Management
-  subtitle: Turn unstructured notes into a navigable, searchable knowledge graph — hybrid search, W3C SKOS tagging, and automated NLP pipelines.
+  title: Intelligent Database for AI-Ready Applications
+  subtitle: Normalize messy organizational data into searchable, linkable, provenance-aware structures for RAG, agent memory, analytics, and data-rich applications.
   fullBleed: true
   align: center
   cta:
     - { label: "Get started", href: "#getting-started-architecture", style: primary }
     - { label: "API Reference", href: "#developers-api", style: ghost }
 banner:
-  title: Ready to build your knowledge base?
-  text: Deploy Fortémi on PostgreSQL + pgvector with an Ollama or OpenAI-compatible backend.
+  title: Ready to make your data AI-ready?
+  text: Deploy Fortémi on PostgreSQL + pgvector with local or OpenAI-compatible inference.
   fullBleed: true
   cta:
     - { label: "Operators Guide", href: "#operations-guide", style: primary }
@@ -21,9 +21,11 @@ banner:
 
 # Executive Summary
 
-## What is Fortemi?
+## What Fortémi Is
 
-Fortemi is an **AI-enhanced knowledge management system** that transforms unstructured notes into a navigable, searchable knowledge base with automatic relationship discovery. It combines traditional full-text search, semantic understanding, and NLP pipelines to deliver intelligent retrieval and content enhancement.
+Fortémi is an intelligent database for AI-ready applications: a normalized data schema plus data-science and processing tooling that turns messy organizational data into searchable, linkable, provenance-aware structures. The same schema runs across the server, browser edition, and HotM sidecar, giving teams a common substrate for complex, data-rich, compute-heavy applications while keeping deployment affordable on local, edge, or hosted infrastructure.
+
+Knowledge management, RAG, agent memory, and team-documentation workflows are use cases of the platform. The product is the normalized schema and the processing stack that makes data useful to AI: extraction, embeddings, SKOS vocabularies, hybrid retrieval, knowledge graphs, provenance, attachments-as-data-source, and portable shards.
 
 ## Highlights
 
@@ -33,17 +35,17 @@ Fortemi is an **AI-enhanced knowledge management system** that transforms unstru
 
 ## The Challenge
 
-Organizations and individuals face four fundamental problems with knowledge management:
+Organizations and teams face four fundamental problems when they try to make data useful to AI systems:
 
-**Unstructured knowledge grows chaotic.** What starts as a few dozen notes quickly becomes thousands of disconnected documents. Without automatic organization, valuable insights remain buried in a growing pile of information.
+**Unstructured data grows chaotic.** What starts as a few dozen notes, files, transcripts, and records quickly becomes thousands of disconnected documents. Without automatic normalization, valuable signals remain buried in a growing pile of information.
 
 **Search fails when you don't know exact keywords.** Traditional search requires knowing precisely what terms the author used. Looking for "machine learning" won't find notes that only mention "neural networks" or "deep learning," even though they're conceptually related.
 
-**Manual organization doesn't scale.** Tagging and linking notes by hand works for hundreds of items but becomes impractical at thousands or tens of thousands. Maintenance overhead grows faster than the knowledge base itself.
+**Manual organization doesn't scale.** Tagging and linking records by hand works for hundreds of items but becomes impractical at thousands or tens of thousands. Maintenance overhead grows faster than the data corpus itself.
 
 **Data isolation is an afterthought.** Most knowledge systems bolt on multi-tenancy at the application level, where bugs or misconfigurations can expose sensitive data across organizational boundaries. True isolation requires database-level guarantees.
 
-Fortemi addresses these challenges through hybrid search (keyword + semantic), automatic relationship discovery, and strict database-level isolation.
+Fortemi addresses these challenges through a normalized data model, hybrid search (keyword + semantic), automatic relationship discovery, data-science processing tools, and strict database-level isolation.
 
 ## Key Differentiators
 

@@ -4,9 +4,9 @@
 
 *Pronounced: for-TAY-mee*
 
-**Memory that understands.**
+**An intelligent database for AI-ready applications.**
 
-An intelligent knowledge base that comprehends what you store — the meaning behind your notes, the relationships between ideas, and the context that connects them. Semantic search, automatic knowledge graphs, multimodal media processing, and 43 MCP agent tools. Built in Rust. Runs on a single GPU.
+A normalized data schema plus data-science and processing tooling for turning messy organizational data into searchable, linkable, provenance-aware structures. Knowledge management, RAG, agent memory, and team-documentation workflows are use cases built on the same substrate. Built in Rust. Runs affordably from CPU-only deployments to GPU-backed stacks.
 
 ```bash
 docker compose -f docker-compose.bundle.yml up -d
@@ -39,9 +39,9 @@ HotM ships the same `matric-api` from this repo as a bundled sidecar, so the two
 
 ## What Fortémi Is
 
-Fortémi is a self-hosted knowledge base that goes beyond storage. Most systems hold your data and wait for exact queries. Fortémi actively understands content: it finds conceptually relevant results even when you can't remember the right terminology, automatically discovers how new knowledge connects to everything else, and extracts searchable intelligence from images, audio, video, 3D models, emails, and spreadsheets.
+Fortémi is an intelligent database for AI-ready applications: a normalized data schema plus data-science and processing tooling that turns messy organizational data into searchable, linkable, provenance-aware structures. The same schema runs across the server, browser edition, and HotM sidecar, giving teams a common substrate for complex, data-rich, compute-heavy applications while keeping deployment affordable on local, edge, or hosted infrastructure.
 
-If you've ever wished your notes could talk back — surfacing forgotten connections, answering questions from accumulated knowledge, and growing smarter with every piece of information — Fortémi is that system.
+Notes, RAG, agent memory, knowledge graphs, and team-documentation hubs are expressions of that schema, not the whole product. Fortémi actively prepares data for AI: it finds conceptually relevant records even when terminology differs, discovers how new information connects to existing structures, and extracts searchable intelligence from images, audio, video, 3D models, emails, spreadsheets, archives, and code.
 
 Built for privacy-first, edge-first deployment. No cloud dependency. Runs on commodity hardware with 8GB GPU VRAM. ~160k lines of Rust + 18k lines of MCP server (Node.js).
 
