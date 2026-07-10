@@ -764,6 +764,16 @@ OPENAI_BASE_URL=http://your-host:8000/v1
 OPENAI_API_KEY=anything-or-real-key
 ```
 
+**Intel Arc / XPU with host vLLM**: use the Intel compose overlay to clear
+NVIDIA container reservations and point Fortemi at a host vLLM endpoint:
+
+```bash
+docker compose -f docker-compose.bundle.yml -f docker-compose.intel.yml up -d
+```
+
+See [Intel Arc / XPU deployment with host vLLM](docs/deployment/intel-arc-vllm.md)
+for the full `.env` block and a systemd service template.
+
 **Disabling Ollama entirely**: set `MATRIC_INFERENCE_DEFAULT` to anything other than `ollama` and leave `OLLAMA_BASE` unset. The Ollama backend isn't constructed when it isn't the default or embedding override, so a dead `host.docker.internal:11434` won't be probed.
 
 ---
