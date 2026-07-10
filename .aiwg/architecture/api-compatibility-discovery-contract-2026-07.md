@@ -59,6 +59,74 @@ Implementation status at checkpoint: initial Fortemi endpoint slice is implement
     "kms_status": { "state": "unavailable", "reason_code": "key_provider_not_implemented" },
     "mcp_scope_gate": { "state": "preview", "reason_code": "enterprise_gate_not_implemented" }
   },
+  "backoffice": {
+    "contract_revision": "2026-07-10",
+    "production_enabled": false,
+    "preview_responses_enabled": false,
+    "preview_gate": "FORTEMI_BACKOFFICE_PREVIEW=true",
+    "surfaces": [
+      {
+        "key": "tenant_health",
+        "state": "unavailable",
+        "reason_code": "backoffice_contract_preview_disabled",
+        "endpoint": "/api/v1/admin/tenant/health",
+        "required_scopes": ["admin:tenant:read"],
+        "actions": ["tenant.health.read"],
+        "audit_events": ["backoffice.tenant_health.read"],
+        "response_contract": "health_state, degraded_reasons, checked_at"
+      },
+      {
+        "key": "audit_posture",
+        "state": "preview",
+        "reason_code": "hosted_audit_gate_open",
+        "endpoint": "/api/v1/admin/audit/posture",
+        "required_scopes": ["admin:audit:read"],
+        "actions": ["audit.posture.read"],
+        "audit_events": ["backoffice.audit_posture.read"],
+        "response_contract": "coverage_state, sink_state, retention_state, missing_events"
+      },
+      {
+        "key": "quota_status",
+        "state": "unavailable",
+        "reason_code": "quota_policy_not_implemented",
+        "endpoint": "/api/v1/admin/quota/status",
+        "required_scopes": ["admin:quota:read"],
+        "actions": ["quota.status.read"],
+        "audit_events": ["backoffice.quota_status.read"],
+        "response_contract": "metering_state, period, limits, usage, reset_at"
+      },
+      {
+        "key": "kms_status",
+        "state": "unavailable",
+        "reason_code": "key_provider_not_implemented",
+        "endpoint": "/api/v1/admin/kms/status",
+        "required_scopes": ["admin:kms:read"],
+        "actions": ["kms.status.read"],
+        "audit_events": ["backoffice.kms_status.read"],
+        "response_contract": "provider_state, keyring_state, rotation_state, degraded_reasons"
+      },
+      {
+        "key": "premium_components",
+        "state": "preview",
+        "reason_code": "capability_catalog_preview_only",
+        "endpoint": "/api/v1/admin/premium/components",
+        "required_scopes": ["admin:components:read"],
+        "actions": ["premium.components.read"],
+        "audit_events": ["backoffice.premium_components.read"],
+        "response_contract": "component_key, state, reason_code, required_entitlements"
+      },
+      {
+        "key": "support_diagnostics",
+        "state": "unavailable",
+        "reason_code": "support_diagnostics_not_implemented",
+        "endpoint": "/api/v1/admin/support/diagnostics",
+        "required_scopes": ["admin:support:read"],
+        "actions": ["support.diagnostics.read"],
+        "audit_events": ["backoffice.support_diagnostics.read"],
+        "response_contract": "diagnostic_key, state, redacted_summary, collected_at"
+      }
+    ]
+  },
   "links": {
     "openapi": "/openapi.yaml",
     "asyncapi": "/asyncapi.yaml",
@@ -144,8 +212,24 @@ Fortemi must include these keys even when unavailable so HotM does not branch on
 | `quota_policy_not_implemented` | Usage metering/quota policy is not implemented. |
 | `enterprise_gate_not_implemented` | EE implementation belongs to private repo work that is not ready. |
 | `capability_catalog_preview_only` | Capability is displayable as preview but not production-backed. |
+| `backoffice_contract_preview_disabled` | The backoffice surface contract is discoverable, but preview/stub responses are not enabled for this deployment. |
+| `support_diagnostics_not_implemented` | Support diagnostics API backing is not implemented. |
 | `insufficient_role` | Authenticated principal lacks required role/scope. |
 | `incompatible_api_version` | Server version is below the HotM-supported floor. |
+
+## Backoffice Discovery Contract
+
+`backoffice.surfaces[]` is the draft admin/backoffice contract for `Fortemi/fortemi#1020`. It must list every HotM enterprise panel surface even when unavailable: `tenant_health`, `audit_posture`, `quota_status`, `kms_status`, `premium_components`, and `support_diagnostics`.
+
+Each surface declares:
+
+- `endpoint`: the future authenticated `/api/v1/admin/...` route.
+- `required_scopes`: OAuth/API-key scopes required before the panel may call the route.
+- `actions`: authorization-policy action names used by Fortemi route policy.
+- `audit_events`: audit event names emitted for reads or preview reads.
+- `response_contract`: stable response summary, not raw tenant or provider data.
+
+Stub or fixture responses are gated by `preview_responses_enabled`. Default CE and hosted demos must return `false`; preview responses are only allowed when the explicit gate named by `preview_gate` is configured, and they must remain non-mutating and labeled `state: "preview"`.
 
 ## Contract Tests
 
@@ -156,6 +240,7 @@ Minimum Fortemi tests for `Fortemi/fortemi#1018`:
 - `FORTEMI_MULTI_TENANT=true` without RLS/KMS/backoffice gates cannot report `hosted_multi_tenant_ready: true`.
 - Unknown/private implementation details do not appear in the JSON body.
 - Additive extra capability keys do not break the schema test.
+- Backoffice discovery includes required surfaces, scopes, authorization actions, audit events, and preview gating; no surface reports `available` while production backing is disabled.
 
 Minimum HotM tests for `Fortemi/HotM#244`:
 

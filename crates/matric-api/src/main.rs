@@ -9021,6 +9021,7 @@ struct CompatibilityResponse {
     deployment: CompatibilityDeployment,
     auth: CompatibilityAuth,
     capabilities: serde_json::Value,
+    backoffice: BackofficeCompatibility,
     links: CompatibilityLinks,
 }
 
@@ -9054,6 +9055,27 @@ struct CompatibilityLinks {
     asyncapi: &'static str,
     health: &'static str,
     streaming_health: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct BackofficeCompatibility {
+    contract_revision: &'static str,
+    production_enabled: bool,
+    preview_responses_enabled: bool,
+    preview_gate: &'static str,
+    surfaces: Vec<BackofficeSurface>,
+}
+
+#[derive(Debug, Serialize)]
+struct BackofficeSurface {
+    key: &'static str,
+    state: &'static str,
+    reason_code: &'static str,
+    endpoint: &'static str,
+    required_scopes: &'static [&'static str],
+    actions: &'static [&'static str],
+    audit_events: &'static [&'static str],
+    response_contract: &'static str,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -9090,6 +9112,78 @@ fn compatibility_deployment_mode(require_auth: bool) -> &'static str {
         "single_tenant_server"
     } else {
         "local_sidecar"
+    }
+}
+
+fn build_backoffice_compatibility() -> BackofficeCompatibility {
+    BackofficeCompatibility {
+        contract_revision: "2026-07-10",
+        production_enabled: false,
+        preview_responses_enabled: false,
+        preview_gate: "FORTEMI_BACKOFFICE_PREVIEW=true",
+        surfaces: vec![
+            BackofficeSurface {
+                key: "tenant_health",
+                state: "unavailable",
+                reason_code: "backoffice_contract_preview_disabled",
+                endpoint: "/api/v1/admin/tenant/health",
+                required_scopes: &["admin:tenant:read"],
+                actions: &["tenant.health.read"],
+                audit_events: &["backoffice.tenant_health.read"],
+                response_contract: "health_state, degraded_reasons, checked_at",
+            },
+            BackofficeSurface {
+                key: "audit_posture",
+                state: "preview",
+                reason_code: "hosted_audit_gate_open",
+                endpoint: "/api/v1/admin/audit/posture",
+                required_scopes: &["admin:audit:read"],
+                actions: &["audit.posture.read"],
+                audit_events: &["backoffice.audit_posture.read"],
+                response_contract: "coverage_state, sink_state, retention_state, missing_events",
+            },
+            BackofficeSurface {
+                key: "quota_status",
+                state: "unavailable",
+                reason_code: "quota_policy_not_implemented",
+                endpoint: "/api/v1/admin/quota/status",
+                required_scopes: &["admin:quota:read"],
+                actions: &["quota.status.read"],
+                audit_events: &["backoffice.quota_status.read"],
+                response_contract: "metering_state, period, limits, usage, reset_at",
+            },
+            BackofficeSurface {
+                key: "kms_status",
+                state: "unavailable",
+                reason_code: "key_provider_not_implemented",
+                endpoint: "/api/v1/admin/kms/status",
+                required_scopes: &["admin:kms:read"],
+                actions: &["kms.status.read"],
+                audit_events: &["backoffice.kms_status.read"],
+                response_contract:
+                    "provider_state, keyring_state, rotation_state, degraded_reasons",
+            },
+            BackofficeSurface {
+                key: "premium_components",
+                state: "preview",
+                reason_code: "capability_catalog_preview_only",
+                endpoint: "/api/v1/admin/premium/components",
+                required_scopes: &["admin:components:read"],
+                actions: &["premium.components.read"],
+                audit_events: &["backoffice.premium_components.read"],
+                response_contract: "component_key, state, reason_code, required_entitlements",
+            },
+            BackofficeSurface {
+                key: "support_diagnostics",
+                state: "unavailable",
+                reason_code: "support_diagnostics_not_implemented",
+                endpoint: "/api/v1/admin/support/diagnostics",
+                required_scopes: &["admin:support:read"],
+                actions: &["support.diagnostics.read"],
+                audit_events: &["backoffice.support_diagnostics.read"],
+                response_contract: "diagnostic_key, state, redacted_summary, collected_at",
+            },
+        ],
     }
 }
 
@@ -9156,6 +9250,7 @@ fn build_compatibility_response_from_inputs(
                 "enterprise_gate_not_implemented",
             ),
         }),
+        backoffice: build_backoffice_compatibility(),
         links: CompatibilityLinks {
             openapi: "/openapi.yaml",
             asyncapi: "/asyncapi.yaml",
@@ -30750,6 +30845,48 @@ mod tests {
             body["capabilities"]["backoffice_api"]["state"],
             "unavailable"
         );
+        assert_eq!(body["backoffice"]["production_enabled"], false);
+        assert_eq!(body["backoffice"]["preview_responses_enabled"], false);
+        assert_eq!(
+            body["backoffice"]["preview_gate"],
+            "FORTEMI_BACKOFFICE_PREVIEW=true"
+        );
+        let surfaces = body["backoffice"]["surfaces"]
+            .as_array()
+            .expect("backoffice surfaces should be an array");
+        for key in [
+            "tenant_health",
+            "audit_posture",
+            "quota_status",
+            "kms_status",
+            "premium_components",
+            "support_diagnostics",
+        ] {
+            let surface = surfaces
+                .iter()
+                .find(|surface| surface["key"] == key)
+                .unwrap_or_else(|| panic!("missing backoffice surface {key}"));
+            assert!(surface["endpoint"]
+                .as_str()
+                .unwrap()
+                .starts_with("/api/v1/admin/"));
+            assert!(
+                !surface["required_scopes"].as_array().unwrap().is_empty(),
+                "surface {key} should declare required scopes"
+            );
+            assert!(
+                !surface["actions"].as_array().unwrap().is_empty(),
+                "surface {key} should declare policy actions"
+            );
+            assert!(
+                !surface["audit_events"].as_array().unwrap().is_empty(),
+                "surface {key} should declare audit events"
+            );
+            assert_ne!(
+                surface["state"], "available",
+                "backoffice surface {key} must not be production-available by default"
+            );
+        }
         assert_eq!(
             body["capabilities"]["premium_components"]["state"],
             "preview"
