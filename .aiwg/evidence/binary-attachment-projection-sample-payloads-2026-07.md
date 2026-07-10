@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Evidence companion for `Fortemi/fortemi#1013`. These samples mirror the Fortemi-local `BinaryAttachmentExportProjection` contract tests in `crates/matric-api/src/main.rs` and show the payload shape downstream React/browser and AIWG index/export consumers should expect. They are not CI receipts and do not close `Fortemi/fortemi#1013` without passing Fortemi CI and issue acceptance.
+Evidence companion for `Fortemi/fortemi#1013`. These samples mirror the Fortemi-local `BinaryAttachmentExportProjection` contract tests in `crates/matric-api/src/main.rs` and show the payload shape downstream React/browser and AIWG index/export consumers should expect. The Fortemi-side CI receipt is PR #1023 / Actions runs 4094 and 4096 on commit `f12a2df9`, merged to `main` as `79600fc2`.
 
 ## Extracted Text Case
 
@@ -97,7 +97,7 @@ Projection payloads must not contain raw binary bytes, base64 payloads, raw buff
 
 ## Closure Boundary
 
-- `Fortemi/fortemi#1013` still needs a passing Fortemi CI receipt and issue acceptance.
+- `Fortemi/fortemi#1013` has Fortemi-side proof via PR #1023 / Actions runs 4094 and 4096 on commit `f12a2df9`, merged to `main` as `79600fc2`.
 - `Fortemi/fortemi-react#227` remains open for browser parity verification under the 2026-07-07 takeover-owned React checkpoint boundary.
 - `roctinam/aiwg#1719` remains the AIWG index/export crash companion.
 - npm `@fortemi/react@2026.7.3` availability is already complete and is not proof of binary attachment projection readiness.

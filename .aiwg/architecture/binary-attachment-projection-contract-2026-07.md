@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed contract for `Fortemi/fortemi#1013`; required before `Fortemi/fortemi-react#227` can treat browser binary-handling parity as release-ready.
+Accepted Fortemi-side contract for `Fortemi/fortemi#1013`; required before `Fortemi/fortemi-react#227` can treat browser binary-handling parity as release-ready.
 
 ## Context
 
@@ -67,7 +67,7 @@ Each projection record also carries stable extraction classification fields:
 2. Add a shared projection helper or contract fixture that emits the canonical metadata envelope.
 3. Add tests for extracted text, extraction-pending binary, large binary, unsupported MIME, and extractor-failure records.
 4. Wire React/browser parity against the same fixture or documented response sample.
-5. Attach passing Fortemi CI receipts to `Fortemi/fortemi#1013`, then coordinate `Fortemi/fortemi-react#227` release verification under the 2026-07-07 takeover-owned React checkpoint boundary.
+5. Passing Fortemi CI receipts are attached through PR #1023 / Actions runs 4094 and 4096 on commit `f12a2df9`, merged to `main` as `79600fc2`; coordinate `Fortemi/fortemi-react#227` release verification under the 2026-07-07 takeover-owned React checkpoint boundary.
 
 ## Closure Criteria
 
