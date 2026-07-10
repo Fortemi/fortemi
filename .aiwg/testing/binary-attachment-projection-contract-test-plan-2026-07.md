@@ -50,6 +50,18 @@ To close `Fortemi/fortemi#1013`, attach:
 - Confirmation that `Fortemi/fortemi-react#227` can consume the payload shape without raw binary inspection.
 - Confirmation that `roctinam/aiwg#1719` no longer reproduces raw-byte index/export crashes against the sample payloads.
 
+## Closure Evidence
+
+Fortemi-side proof is attached through PR #1023, commit `f12a2df9`, merged to `main` as `79600fc2`.
+
+- Actions run 4094 passed lint, dependency audit, cargo-deny policy, lockfile sync, build/unit tests, Docker build, isolated container test, and GPU integration.
+- Actions run 4096 passed fast unit tests, integration tests, code coverage, and test summary.
+- Focused local verification passed:
+  - `cargo test -p matric-api --bin matric-api binary_attachment_export_projection -- --nocapture`
+  - `cargo test -p matric-api --bin matric-api binary_attachment_projection_state -- --nocapture`
+
+The remaining React/browser and AIWG index/export adoption work stays in `Fortemi/fortemi-react#227` and `roctinam/aiwg#1719`; those downstream tickets are not reopened as Fortemi-side blockers.
+
 ## Non-Goals
 
 - Do not claim React/browser release parity from this Fortemi plan alone.
