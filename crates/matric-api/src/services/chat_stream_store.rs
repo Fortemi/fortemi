@@ -1,11 +1,11 @@
 //! Redis-backed buffer for SSE chat-stream resumption (#815, epic #811 A4).
 //!
 //! Each `POST /api/v1/chat/stream` response is assigned a session id. Every
-//! emitted frame (`delta`/`done`/`error`) is appended to a Redis list keyed by a
-//! session fingerprint, with a rolling 60-second TTL. SSE events carry an id of
-//! the form `{session}-{seq}`, so a client reconnecting with a `Last-Event-ID`
-//! header lets the server replay the frames *after* that sequence without
-//! duplicating already-delivered tokens.
+//! emitted frame (`delta`/`tool_call`/`tool_result`/`status`/`raw`/`done`/
+//! `error`) is appended to a Redis list keyed by a session fingerprint, with a
+//! rolling 60-second TTL. SSE events carry an id of the form `{session}-{seq}`,
+//! so a client reconnecting with a `Last-Event-ID` header lets the server replay
+//! the frames *after* that sequence without duplicating already-delivered tokens.
 //!
 //! The generation task persists frames to Redis independently of the live
 //! client connection, so a client that drops mid-stream can reconnect within
@@ -39,7 +39,7 @@ const DEFAULT_TTL_SECONDS: u64 = 60;
 pub struct StoredFrame {
     /// Monotonic per-session sequence number (1-based).
     pub seq: u64,
-    /// SSE event name: `"delta"`, `"done"`, or `"error"`.
+    /// SSE event name from the chat-stream bridge vocabulary.
     pub event: String,
     /// JSON-encoded event payload.
     pub data: String,

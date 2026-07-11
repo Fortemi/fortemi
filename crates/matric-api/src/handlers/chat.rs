@@ -572,12 +572,12 @@ fn chat_service_unavailable(msg: &str, retry_after: u64) -> Response {
 /// One Server-Sent Event frame produced by the streaming chat pump.
 ///
 /// Kept as a plain struct rather than axum's opaque `Event` so the pump's
-/// framing (`delta`/`done`/`error`) and JSON payloads are assertable in unit
-/// tests (#816). The handler maps each frame to an SSE [`Event`] at the
-/// channel boundary.
+/// framing (`delta`/`tool_call`/`tool_result`/`status`/`raw`/`done`/`error`)
+/// and JSON payloads are assertable in unit tests (#816, #1025). The handler
+/// maps each frame to an SSE [`Event`] at the channel boundary.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ChatStreamFrame {
-    /// SSE event name: `"delta"`, `"done"`, or `"error"`.
+    /// SSE event name from the chat-stream bridge vocabulary.
     pub event: &'static str,
     /// JSON-encoded event payload.
     pub data: String,
@@ -600,18 +600,106 @@ impl std::fmt::Debug for ChatStreamFrame {
 }
 
 impl ChatStreamFrame {
-    fn delta(content: &str) -> Self {
+    pub fn delta(content: &str) -> Self {
         Self {
             event: "delta",
-            data: serde_json::json!({ "content": content }).to_string(),
+            data: serde_json::json!({
+                "content": content,
+                "role": "assistant",
+                "kind": "message"
+            })
+            .to_string(),
             id: None,
         }
     }
 
-    fn done(model_name: &str) -> Self {
+    pub fn done(model_name: &str) -> Self {
+        Self::done_with_metadata(model_name, None, None, None)
+    }
+
+    pub fn done_with_metadata(
+        model_name: &str,
+        usage: Option<serde_json::Value>,
+        total_cost_usd: Option<f64>,
+        content: Option<&str>,
+    ) -> Self {
+        let mut data = serde_json::json!({
+            "finish_reason": "stop",
+            "model": model_name
+        });
+        if let Some(usage) = usage {
+            data["usage"] = usage;
+        }
+        if let Some(total_cost_usd) = total_cost_usd {
+            data["total_cost_usd"] = serde_json::json!(total_cost_usd);
+        }
+        if let Some(content) = content {
+            data["content"] = serde_json::json!(content);
+        }
         Self {
             event: "done",
-            data: serde_json::json!({ "finish_reason": "stop", "model": model_name }).to_string(),
+            data: data.to_string(),
+            id: None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn tool_call(name: &str, tool_id: &str, input: serde_json::Value) -> Self {
+        Self {
+            event: "tool_call",
+            data: serde_json::json!({
+                "role": "assistant",
+                "kind": "tool_call",
+                "name": name,
+                "tool_id": tool_id,
+                "input": input
+            })
+            .to_string(),
+            id: None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn tool_result(tool_id: &str, status: &str, content: &str) -> Self {
+        Self {
+            event: "tool_result",
+            data: serde_json::json!({
+                "role": "tool",
+                "kind": "tool_result",
+                "tool_id": tool_id,
+                "status": status,
+                "content": content
+            })
+            .to_string(),
+            id: None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn status(status: &str, content: &str) -> Self {
+        Self {
+            event: "status",
+            data: serde_json::json!({
+                "role": "system",
+                "kind": "message",
+                "status": status,
+                "content": content
+            })
+            .to_string(),
+            id: None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn raw(content: &str) -> Self {
+        Self {
+            event: "raw",
+            data: serde_json::json!({
+                "role": "system",
+                "kind": "raw",
+                "content": content
+            })
+            .to_string(),
             id: None,
         }
     }
@@ -677,6 +765,11 @@ impl ChatStreamFrame {
     /// resumption replay, re-attaching the `{session}-{seq}` id (#815).
     fn from_stored(sf: &StoredFrame, session: &str) -> Self {
         let event: &'static str = match sf.event.as_str() {
+            "delta" => "delta",
+            "tool_call" => "tool_call",
+            "tool_result" => "tool_result",
+            "status" => "status",
+            "raw" => "raw",
             "done" => "done",
             "error" => "error",
             _ => "delta",
@@ -743,8 +836,9 @@ fn build_resume_frames(frames: &[StoredFrame], session: &str) -> Vec<ChatStreamF
 
 /// Pump a backend content stream into the SSE frame channel, emitting one
 /// `delta` frame per content chunk, a terminal `done` frame on completion, or
-/// an `error` frame on failure — while accounting delivered vs dropped tokens
-/// in `metrics`.
+/// an `error` frame on failure. The same frame contract also supports richer
+/// agent-chat bridge events (`tool_call`, `tool_result`, `status`, `raw`) for
+/// upstreams that can project full agent conversations (#1025).
 ///
 /// Extracted from the handler so the SSE framing, terminator, error path, and
 /// backpressure/dropped-token accounting are unit-testable without a live
@@ -852,9 +946,13 @@ fn record_disconnect(metrics: &ChatStreamMetrics, delivered: u64, dropped: u64) 
 /// response progressively. Acquires an owned GPU semaphore permit held for the
 /// full stream lifetime; returns 503 immediately if no permits are available.
 ///
-/// SSE event shape (consistent with `POST /api/v1/inference/stream`):
-/// - `delta` — `{"content": "<chunk>"}` per content chunk
-/// - `done`  — `{"finish_reason": "stop", "model": "<slug>"}` on completion
+/// SSE event shape:
+/// - `delta` — `{"content":"<chunk>","role":"assistant","kind":"message"}`
+/// - `tool_call` — assistant tool invocation metadata
+/// - `tool_result` — tool response metadata
+/// - `status` — system status message
+/// - `raw` — unparsed source line preserved for provenance/debugging
+/// - `done`  — `{"finish_reason":"stop","model":"<slug>"}` plus optional metadata
 /// - `error` — RFC 9457-style `{"type","title","status","detail"}` on failure
 #[utoipa::path(
     post,
@@ -1923,12 +2021,29 @@ mod tests {
         assert_eq!(delta.event, "delta");
         let v: serde_json::Value = serde_json::from_str(&delta.data).unwrap();
         assert_eq!(v["content"], "hello");
+        assert_eq!(v["role"], "assistant");
+        assert_eq!(v["kind"], "message");
 
         let done = ChatStreamFrame::done("qwen3:8b");
         assert_eq!(done.event, "done");
         let v: serde_json::Value = serde_json::from_str(&done.data).unwrap();
         assert_eq!(v["finish_reason"], "stop");
         assert_eq!(v["model"], "qwen3:8b");
+
+        let done_with_metadata = ChatStreamFrame::done_with_metadata(
+            "qwen3:8b",
+            Some(serde_json::json!({"input_tokens": 10, "output_tokens": 4})),
+            Some(0.0123),
+            Some("final answer"),
+        );
+        assert_eq!(done_with_metadata.event, "done");
+        let v: serde_json::Value = serde_json::from_str(&done_with_metadata.data).unwrap();
+        assert_eq!(v["finish_reason"], "stop");
+        assert_eq!(v["model"], "qwen3:8b");
+        assert_eq!(v["usage"]["input_tokens"], 10);
+        assert_eq!(v["usage"]["output_tokens"], 4);
+        assert_eq!(v["total_cost_usd"], 0.0123);
+        assert_eq!(v["content"], "final answer");
 
         let err = ChatStreamFrame::error("boom".to_string());
         assert_eq!(err.event, "error");
@@ -1946,6 +2061,48 @@ mod tests {
         assert_eq!(v["detail"], CHAT_GENERATION_FAILURE_MESSAGE);
         assert!(v.get("error").is_none());
         assert!(v.get("code").is_none());
+    }
+
+    /// #1025: the chat-stream frame contract is an additive agent-chat bridge
+    /// schema, not only a linear assistant-token stream.
+    #[test]
+    fn chat_stream_agent_bridge_frame_shapes() {
+        let tool_call = ChatStreamFrame::tool_call(
+            "search_notes",
+            "call_123",
+            serde_json::json!({"query": "bridge schema"}),
+        );
+        assert_eq!(tool_call.event, "tool_call");
+        let v: serde_json::Value = serde_json::from_str(&tool_call.data).unwrap();
+        assert_eq!(v["role"], "assistant");
+        assert_eq!(v["kind"], "tool_call");
+        assert_eq!(v["name"], "search_notes");
+        assert_eq!(v["tool_id"], "call_123");
+        assert_eq!(v["input"]["query"], "bridge schema");
+
+        let tool_result = ChatStreamFrame::tool_result("call_123", "ok", "2 matches");
+        assert_eq!(tool_result.event, "tool_result");
+        let v: serde_json::Value = serde_json::from_str(&tool_result.data).unwrap();
+        assert_eq!(v["role"], "tool");
+        assert_eq!(v["kind"], "tool_result");
+        assert_eq!(v["tool_id"], "call_123");
+        assert_eq!(v["status"], "ok");
+        assert_eq!(v["content"], "2 matches");
+
+        let status = ChatStreamFrame::status("running", "Searching notes");
+        assert_eq!(status.event, "status");
+        let v: serde_json::Value = serde_json::from_str(&status.data).unwrap();
+        assert_eq!(v["role"], "system");
+        assert_eq!(v["kind"], "message");
+        assert_eq!(v["status"], "running");
+        assert_eq!(v["content"], "Searching notes");
+
+        let raw = ChatStreamFrame::raw(r#"{"type":"unparsed"}"#);
+        assert_eq!(raw.event, "raw");
+        let v: serde_json::Value = serde_json::from_str(&raw.data).unwrap();
+        assert_eq!(v["role"], "system");
+        assert_eq!(v["kind"], "raw");
+        assert_eq!(v["content"], r#"{"type":"unparsed"}"#);
     }
 
     #[test]
@@ -2171,6 +2328,19 @@ mod tests {
         assert_eq!(frame.event, "delta");
         assert_eq!(frame.data, r#"{"content":"hi"}"#);
         assert_eq!(frame.id.as_deref(), Some("sess-uuid-5"));
+
+        for event in ["tool_call", "tool_result", "status", "raw", "done", "error"] {
+            let sf = StoredFrame {
+                seq: 6,
+                event: event.to_string(),
+                data: "{}".to_string(),
+            };
+            assert_eq!(
+                ChatStreamFrame::from_stored(&sf, "sess-uuid").event,
+                event,
+                "stored {event} frames should replay with their original event name"
+            );
+        }
 
         // Unknown stored event names degrade to "delta" rather than panicking.
         let weird = StoredFrame {
