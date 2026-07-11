@@ -2497,7 +2497,10 @@ mod tests {
         // Drop both sources; the restored frame must remain wholly intact.
         drop(original);
         drop(stored);
-        assert_eq!(restored.data, r#"{"content":"payload"}"#);
+        let v: serde_json::Value = serde_json::from_str(&restored.data).unwrap();
+        assert_eq!(v["content"], "payload");
+        assert_eq!(v["role"], "assistant");
+        assert_eq!(v["kind"], "message");
         assert_eq!(restored.event, "delta");
     }
 }
