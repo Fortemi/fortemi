@@ -7,8 +7,8 @@
 //! - Request validation: empty / whitespace / missing / invalid JSON → 4xx,
 //!   never 5xx (input sanitization).
 //! - SSE response shape: `Content-Type: text/event-stream`, one `delta` frame
-//!   per content chunk, a terminal `done` frame, monotonic `{session}-{seq}`
-//!   event ids (#812, #815).
+//!   per content chunk with agent-chat `role`/`kind` discriminators, a terminal
+//!   `done` frame, monotonic `{session}-{seq}` event ids (#812, #815, #1025).
 //! - Resumption (#815): a `Last-Event-ID` for an unknown / expired session
 //!   replays a terminal `STREAM_INTERRUPTED` error rather than hanging — and a
 //!   *malformed* `Last-Event-ID` must NOT bypass input validation.
@@ -417,8 +417,9 @@ async fn test_chat_stream_content_type_is_event_stream() {
 }
 
 /// A clean stream emits one or more `delta` frames carrying `{"content": ...}`
-/// and terminates with a `done` frame `{"finish_reason":"stop","model":...}`;
-/// the concatenated deltas form non-empty assistant output (#812).
+/// plus the additive agent-chat `role`/`kind` discriminators, and terminates
+/// with a `done` frame `{"finish_reason":"stop","model":...}`; the
+/// concatenated deltas form non-empty assistant output (#812, #1025).
 #[tokio::test]
 async fn test_chat_stream_emits_delta_then_done() {
     require_api!();
@@ -467,7 +468,10 @@ async fn test_chat_stream_emits_delta_then_done() {
     let reassembled: String = deltas
         .iter()
         .map(|e| {
-            e.json()["content"]
+            let json = e.json();
+            assert_eq!(json["role"], "assistant");
+            assert_eq!(json["kind"], "message");
+            json["content"]
                 .as_str()
                 .expect("delta frame must carry string content")
                 .to_string()
