@@ -36,7 +36,7 @@ impl PgCallSessionRepository {
         let started_at = req.started_at.unwrap_or_else(Utc::now);
         sqlx::query_as::<_, CallSession>(
             r#"
-            INSERT INTO call_sessions (
+            INSERT INTO public.call_sessions (
                 call_id, provider, provider_call_id, started_at, asr_backend,
                 remote_party, archive_id, metadata
             )
@@ -64,7 +64,7 @@ impl PgCallSessionRepository {
             r#"
             SELECT call_id, provider, provider_call_id, started_at, ended_at,
                    end_reason, asr_backend, remote_party, archive_id, metadata
-            FROM call_sessions
+            FROM public.call_sessions
             WHERE call_id = $1
             "#,
         )
@@ -84,7 +84,7 @@ impl PgCallSessionRepository {
             r#"
             SELECT call_id, provider, provider_call_id, started_at, ended_at,
                    end_reason, asr_backend, remote_party, archive_id, metadata
-            FROM call_sessions
+            FROM public.call_sessions
             WHERE provider = $1 AND provider_call_id = $2
             "#,
         )
@@ -103,7 +103,7 @@ impl PgCallSessionRepository {
     ) -> Result<Option<CallSession>> {
         sqlx::query_as::<_, CallSession>(
             r#"
-            UPDATE call_sessions
+            UPDATE public.call_sessions
             SET ended_at = COALESCE($2, ended_at),
                 end_reason = COALESCE($3, end_reason),
                 asr_backend = COALESCE($4, asr_backend),
@@ -194,7 +194,7 @@ impl PgCallSessionRepository {
         let id = matric_core::new_v7();
         sqlx::query_as::<_, TranscriptSegment>(
             r#"
-            INSERT INTO transcript_segments (
+            INSERT INTO public.transcript_segments (
                 id, call_id, speaker_label, text, start_ts, end_ts, confidence, sequence
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -221,7 +221,7 @@ impl PgCallSessionRepository {
             r#"
             SELECT id, call_id, speaker_label, text, start_ts, end_ts,
                    confidence, sequence, created_at
-            FROM transcript_segments
+            FROM public.transcript_segments
             WHERE call_id = $1
             ORDER BY sequence ASC, created_at ASC
             "#,
@@ -243,7 +243,7 @@ impl PgCallSessionRepository {
             r#"
             SELECT id, call_id, speaker_label, text, start_ts, end_ts,
                    confidence, sequence, created_at
-            FROM transcript_segments
+            FROM public.transcript_segments
             WHERE call_id = $1
             ORDER BY sequence ASC, created_at ASC
             LIMIT $2 OFFSET $3
@@ -259,12 +259,13 @@ impl PgCallSessionRepository {
 
     /// Return transcript segment count for a call.
     pub async fn transcript_segment_count(&self, call_id: Uuid) -> Result<i64> {
-        let row =
-            sqlx::query("SELECT COUNT(*) AS count FROM transcript_segments WHERE call_id = $1")
-                .bind(call_id)
-                .fetch_one(&self.pool)
-                .await
-                .map_err(Error::Database)?;
+        let row = sqlx::query(
+            "SELECT COUNT(*) AS count FROM public.transcript_segments WHERE call_id = $1",
+        )
+        .bind(call_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
         Ok(row.get("count"))
     }
 
@@ -281,7 +282,7 @@ impl PgCallSessionRepository {
                          THEN EXTRACT(EPOCH FROM (ended_at - started_at))::DOUBLE PRECISION
                          ELSE NULL
                     END AS completed_duration_seconds
-                FROM call_sessions
+                FROM public.call_sessions
             )
             SELECT
                 COUNT(*)::BIGINT AS total_sessions,
@@ -521,12 +522,12 @@ mod tests {
         );
         assert!(backend_seconds(&after, &backend) >= 55.0);
 
-        sqlx::query("DELETE FROM transcript_segments WHERE call_id = ANY($1)")
+        sqlx::query("DELETE FROM public.transcript_segments WHERE call_id = ANY($1)")
             .bind([active.call_id, completed.call_id])
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("DELETE FROM call_sessions WHERE call_id = ANY($1)")
+        sqlx::query("DELETE FROM public.call_sessions WHERE call_id = ANY($1)")
             .bind([active.call_id, completed.call_id])
             .execute(&pool)
             .await
@@ -596,17 +597,17 @@ mod tests {
         );
         assert_eq!(outbox.payload["segment_id"], serde_json::json!(segment.id));
 
-        sqlx::query("DELETE FROM event_outbox WHERE id = $1")
+        sqlx::query("DELETE FROM public.event_outbox WHERE id = $1")
             .bind(outbox.id)
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("DELETE FROM transcript_segments WHERE call_id = $1")
+        sqlx::query("DELETE FROM public.transcript_segments WHERE call_id = $1")
             .bind(session.call_id)
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("DELETE FROM call_sessions WHERE call_id = $1")
+        sqlx::query("DELETE FROM public.call_sessions WHERE call_id = $1")
             .bind(session.call_id)
             .execute(&pool)
             .await

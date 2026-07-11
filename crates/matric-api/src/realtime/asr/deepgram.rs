@@ -168,11 +168,13 @@ pub struct DeepgramBackend {
     config: DeepgramConfig,
     metrics: Arc<DeepgramMetrics>,
     fallback: Option<Arc<dyn StreamingASRBackend>>,
+    fallback_enabled: bool,
 }
 
 impl DeepgramBackend {
     pub fn from_env() -> Result<Self> {
-        Ok(Self::new(DeepgramConfig::from_env()?))
+        Ok(Self::new(DeepgramConfig::from_env()?)
+            .with_fallback_enabled(std::env::var("REALTIME_ASR_BACKEND_FALLBACK").is_ok()))
     }
 
     pub fn new(config: DeepgramConfig) -> Self {
@@ -180,11 +182,17 @@ impl DeepgramBackend {
             config,
             metrics: Arc::new(DeepgramMetrics::default()),
             fallback: None,
+            fallback_enabled: false,
         }
     }
 
     pub fn with_fallback(mut self, fallback: Arc<dyn StreamingASRBackend>) -> Self {
         self.fallback = Some(fallback);
+        self
+    }
+
+    pub fn with_fallback_enabled(mut self, enabled: bool) -> Self {
+        self.fallback_enabled = enabled;
         self
     }
 
@@ -260,7 +268,7 @@ impl StreamingASRBackend for DeepgramBackend {
         match self.open_deepgram_session(&config).await {
             Ok(session) => Ok(session),
             Err(primary_err) => {
-                if std::env::var("REALTIME_ASR_BACKEND_FALLBACK").is_ok() {
+                if self.fallback_enabled {
                     if let Some(fallback) = &self.fallback {
                         self.metrics.failover_total.fetch_add(1, Ordering::Relaxed);
                         return fallback.start_session(config).await;
@@ -994,8 +1002,6 @@ mod tests {
 
     #[tokio::test]
     async fn session_open_failure_can_fail_over_to_mock_backend() {
-        std::env::set_var("REALTIME_ASR_BACKEND_FALLBACK", "mock");
-
         let backend = DeepgramBackend::new(DeepgramConfig {
             api_key: "test-token-not-logged".to_string(),
             listen_url: "ws://127.0.0.1:9/v1/listen".to_string(),
@@ -1004,7 +1010,8 @@ mod tests {
             encoding: "linear16".to_string(),
             sample_rate_hz: 16_000,
         })
-        .with_fallback(Arc::new(crate::realtime::asr::MockAsrBackend::default()));
+        .with_fallback(Arc::new(crate::realtime::asr::MockAsrBackend::default()))
+        .with_fallback_enabled(true);
 
         let mut session = backend
             .start_session(AsrSessionConfig::default())
@@ -1013,8 +1020,6 @@ mod tests {
         session.push_pcm16k(&[1, 2, 3]).await.unwrap();
         session.close().await.unwrap();
         let events: Vec<_> = session.events().take(1).collect().await;
-
-        std::env::remove_var("REALTIME_ASR_BACKEND_FALLBACK");
 
         assert!(matches!(
             events.first(),

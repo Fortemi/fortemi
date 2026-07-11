@@ -11,6 +11,21 @@ from pathlib import Path
 WORKFLOW_GLOB = (".gitea/workflows/*.yml", ".gitea/workflows/*.yaml")
 JOB_RE = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
 IF_RE = re.compile(r"^    if:\s*(.+?)\s*$")
+NEEDS_RE = re.compile(r"^    needs:\s*(.+?)\s*$")
+PUBLISH_JOBS = {
+    "publish-dev",
+    "publish-release",
+    "publish-github-dev",
+    "publish-github",
+}
+REQUIRED_PUBLISH_NEEDS = {
+    "test-container",
+    "integration-test",
+    "audit",
+    "deny",
+    "mcp-lockfile-sync",
+    "mcp-server-tests",
+}
 
 
 def workflow_files(args: list[str]) -> list[Path]:
@@ -67,6 +82,18 @@ def job_if_expression(block: str) -> str:
     return ""
 
 
+def job_needs(block: str) -> set[str]:
+    for line in block.splitlines():
+        match = NEEDS_RE.match(line)
+        if not match:
+            continue
+        value = match.group(1).strip()
+        if value.startswith("[") and value.endswith("]"):
+            return {item.strip() for item in value[1:-1].split(",") if item.strip()}
+        return {value}
+    return set()
+
+
 def secret_bearing(block: str) -> bool:
     return "${{ secrets." in block
 
@@ -93,6 +120,13 @@ def main() -> int:
             continue
 
         for job_name, block in job_blocks(text):
+            if job_name in PUBLISH_JOBS:
+                missing = sorted(REQUIRED_PUBLISH_NEEDS - job_needs(block))
+                if missing:
+                    failures.append(
+                        f"{path}:{job_name} publish job is missing required release gates: {', '.join(missing)}"
+                    )
+
             if not secret_bearing(block):
                 continue
 

@@ -442,10 +442,17 @@ pub fn with_capability(cap: ProviderCapability) -> impl Iterator<Item = &'static
 /// Resolve the value for an [`ProfileHeaderSource`] given the current
 /// environment. Returns `None` when the header should not be emitted.
 pub fn resolve_header_value(source: &ProfileHeaderSource) -> Option<String> {
+    resolve_header_value_with(source, |name| std::env::var(name).ok())
+}
+
+fn resolve_header_value_with<F>(source: &ProfileHeaderSource, env: F) -> Option<String>
+where
+    F: Fn(&str) -> Option<String>,
+{
     match source {
         ProfileHeaderSource::Default { value, env_var } => {
             if let Some(name) = env_var {
-                if let Ok(v) = std::env::var(name) {
+                if let Some(v) = env(name) {
                     if !v.is_empty() {
                         return Some(v);
                     }
@@ -453,9 +460,7 @@ pub fn resolve_header_value(source: &ProfileHeaderSource) -> Option<String> {
             }
             Some((*value).to_string())
         }
-        ProfileHeaderSource::EnvOnly { env_var } => {
-            std::env::var(env_var).ok().filter(|v| !v.is_empty())
-        }
+        ProfileHeaderSource::EnvOnly { env_var } => env(env_var).filter(|v| !v.is_empty()),
     }
 }
 
@@ -463,10 +468,19 @@ pub fn resolve_header_value(source: &ProfileHeaderSource) -> Option<String> {
 /// Returns `(name, value)` pairs. Headers whose source resolves to `None`
 /// (env-only with the env var unset) are omitted.
 pub fn resolve_extra_headers(profile: &ProviderProfile) -> Vec<(String, String)> {
+    resolve_extra_headers_with(profile, |name| std::env::var(name).ok())
+}
+
+fn resolve_extra_headers_with<F>(profile: &ProviderProfile, env: F) -> Vec<(String, String)>
+where
+    F: Fn(&str) -> Option<String> + Copy,
+{
     profile
         .extra_headers
         .iter()
-        .filter_map(|(name, source)| resolve_header_value(source).map(|v| ((*name).to_string(), v)))
+        .filter_map(|(name, source)| {
+            resolve_header_value_with(source, env).map(|v| ((*name).to_string(), v))
+        })
         .collect()
 }
 
@@ -601,65 +615,66 @@ mod tests {
 
     #[test]
     fn resolve_default_header_returns_default_when_env_unset() {
-        // SAFETY: tests run single-threaded by default in cargo; we touch
-        // only an env var unique to this test.
-        std::env::remove_var("PROFILE_TEST_HEADER_DEFAULT");
-        let v = resolve_header_value(&ProfileHeaderSource::Default {
-            value: "https://fortemi.io",
-            env_var: Some("PROFILE_TEST_HEADER_DEFAULT"),
-        });
+        let v = resolve_header_value_with(
+            &ProfileHeaderSource::Default {
+                value: "https://fortemi.io",
+                env_var: Some("PROFILE_TEST_HEADER_DEFAULT"),
+            },
+            |_| None,
+        );
         assert_eq!(v.as_deref(), Some("https://fortemi.io"));
     }
 
     #[test]
     fn resolve_default_header_overrides_with_env() {
-        std::env::set_var("PROFILE_TEST_HEADER_OVERRIDE", "https://my.host");
-        let v = resolve_header_value(&ProfileHeaderSource::Default {
-            value: "https://fortemi.io",
-            env_var: Some("PROFILE_TEST_HEADER_OVERRIDE"),
-        });
+        let v = resolve_header_value_with(
+            &ProfileHeaderSource::Default {
+                value: "https://fortemi.io",
+                env_var: Some("PROFILE_TEST_HEADER_OVERRIDE"),
+            },
+            |_| Some("https://my.host".to_string()),
+        );
         assert_eq!(v.as_deref(), Some("https://my.host"));
-        std::env::remove_var("PROFILE_TEST_HEADER_OVERRIDE");
     }
 
     #[test]
     fn resolve_default_header_ignores_empty_env() {
-        std::env::set_var("PROFILE_TEST_HEADER_EMPTY", "");
-        let v = resolve_header_value(&ProfileHeaderSource::Default {
-            value: "fallback",
-            env_var: Some("PROFILE_TEST_HEADER_EMPTY"),
-        });
+        let v = resolve_header_value_with(
+            &ProfileHeaderSource::Default {
+                value: "fallback",
+                env_var: Some("PROFILE_TEST_HEADER_EMPTY"),
+            },
+            |_| Some(String::new()),
+        );
         assert_eq!(v.as_deref(), Some("fallback"));
-        std::env::remove_var("PROFILE_TEST_HEADER_EMPTY");
     }
 
     #[test]
     fn resolve_envonly_header_omits_when_unset() {
-        std::env::remove_var("PROFILE_TEST_HEADER_ENVONLY");
-        let v = resolve_header_value(&ProfileHeaderSource::EnvOnly {
-            env_var: "PROFILE_TEST_HEADER_ENVONLY",
-        });
+        let v = resolve_header_value_with(
+            &ProfileHeaderSource::EnvOnly {
+                env_var: "PROFILE_TEST_HEADER_ENVONLY",
+            },
+            |_| None,
+        );
         assert!(v.is_none());
     }
 
     #[test]
     fn resolve_envonly_header_emits_when_set() {
-        std::env::set_var("PROFILE_TEST_HEADER_ENVONLY_2", "tag-value");
-        let v = resolve_header_value(&ProfileHeaderSource::EnvOnly {
-            env_var: "PROFILE_TEST_HEADER_ENVONLY_2",
-        });
+        let v = resolve_header_value_with(
+            &ProfileHeaderSource::EnvOnly {
+                env_var: "PROFILE_TEST_HEADER_ENVONLY_2",
+            },
+            |_| Some("tag-value".to_string()),
+        );
         assert_eq!(v.as_deref(), Some("tag-value"));
-        std::env::remove_var("PROFILE_TEST_HEADER_ENVONLY_2");
     }
 
     #[test]
     fn openrouter_default_headers_resolve_to_fortemi_io() {
-        // Make sure neither override is set before we run the resolution.
-        std::env::remove_var("OPENROUTER_HTTP_REFERER");
-        std::env::remove_var("OPENROUTER_APP_NAME");
-
         let p = lookup("openrouter").unwrap();
-        let headers = resolve_extra_headers(p);
+        let headers = resolve_extra_headers_with(p, |_| None);
         let by_name: std::collections::HashMap<_, _> = headers.into_iter().collect();
         assert_eq!(
             by_name.get("HTTP-Referer").map(String::as_str),

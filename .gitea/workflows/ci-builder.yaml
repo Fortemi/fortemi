@@ -79,6 +79,9 @@ jobs:
       - name: Check release job guards
         run: python3 scripts/ci/verify-release-job-guards.py
 
+      - name: Check migration immutability
+        run: python3 scripts/ci/verify-migration-immutability.py
+
       - name: Docs contract advisory scan
         run: DOCS_CONTRACT_MODE=advisory bash scripts/ci/docs-contract.sh .
 
@@ -159,6 +162,27 @@ jobs:
         # `npm ci` strictly requires package-lock.json to match package.json.
         # Drift = non-zero exit with an explicit "out of sync" error.
         run: npm ci --ignore-scripts --no-fund --no-audit
+
+  mcp-server-tests:
+    name: MCP Server Unit Tests
+    runs-on: matric-builder
+    needs: [mcp-lockfile-sync]
+    steps:
+      - name: Checkout
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
+          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Run server-independent MCP tests
+        working-directory: mcp-server
+        run: |
+          npm ci --ignore-scripts --no-fund --no-audit
+          node --test \
+            tests/output-sanitizer.test.js \
+            tests/schema-validation.test.js \
+            tests/branding.test.js \
+            tests/error-responses.test.js
 
   build:
     name: Build & Unit Test
@@ -516,7 +540,7 @@ jobs:
   publish-dev:
     name: Publish Dev Image
     runs-on: matric-builder
-    needs: [test-container, integration-test]
+    needs: [test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests]
     # Belt-and-suspenders gating to exclude tag pushes. The branch-equality
     # check should be sufficient — `refs/tags/vX.Y.Z` is not equal to
     # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
@@ -600,7 +624,7 @@ jobs:
   publish-release:
     name: Publish Release Image
     runs-on: matric-builder
-    needs: [test-container, integration-test]
+    needs: [test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
@@ -763,7 +787,7 @@ jobs:
   publish-github-dev:
     name: Publish Dev Image to GitHub (ghcr.io)
     runs-on: matric-builder
-    needs: [test-container, integration-test]
+    needs: [test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests]
     # Belt-and-suspenders gating to exclude tag pushes. The branch-equality
     # check should be sufficient — `refs/tags/vX.Y.Z` is not equal to
     # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
@@ -839,7 +863,7 @@ jobs:
   publish-github:
     name: Publish to GitHub (ghcr.io)
     runs-on: matric-builder
-    needs: [test-container, integration-test]
+    needs: [test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout

@@ -1,30 +1,11 @@
--- PostgreSQL 18 native UUIDv7 migration (#397, #635)
+-- PostgreSQL 18 native UUIDv7 migration (#397)
 --
--- matric-api requires PostgreSQL 18 or later. PG 18 ships uuidv7() and
--- uuid_extract_timestamp() as C built-ins per RFC 9562; older versions
--- do not. This migration uses those functions directly.
---
+-- PostgreSQL 18 provides built-in uuidv7() and uuid_extract_timestamp().
 -- This migration:
--- 1. Hard-guards on server_version_num >= 180000 — fails loudly on PG <18 (#635)
--- 2. Switches all gen_random_uuid() (v4) defaults to uuidv7()
--- 3. Switches all custom gen_uuid_v7() defaults to native uuidv7()
--- 4. Drops the custom gen_uuid_v7() and extract_uuid_v7_timestamp() functions
--- 5. Drops the uuid-ossp extension (no longer needed)
-
--- ============================================================================
--- Hard requirement: PostgreSQL 18+ (#635)
--- ============================================================================
--- matric-api's startup code also enforces this before migrations run
--- (Database::migrate). This block is defense-in-depth for any path that
--- invokes sqlx migrate directly against an older cluster.
-DO $pg18_guard$
-BEGIN
-  IF current_setting('server_version_num')::int < 180000 THEN
-    RAISE EXCEPTION 'matric-api requires PostgreSQL 18 or later (RFC 9562 uuidv7 built-in); found server_version=%. Install postgresql-18 from PGDG: https://apt.postgresql.org/',
-      current_setting('server_version');
-  END IF;
-END;
-$pg18_guard$;
+-- 1. Switches all gen_random_uuid() (v4) defaults to uuidv7()
+-- 2. Switches all custom gen_uuid_v7() defaults to native uuidv7()
+-- 3. Drops the custom gen_uuid_v7() and extract_uuid_v7_timestamp() functions
+-- 4. Drops the uuid-ossp extension (no longer needed)
 
 -- ============================================================================
 -- Tables currently using gen_random_uuid() (UUIDv4 → UUIDv7)
