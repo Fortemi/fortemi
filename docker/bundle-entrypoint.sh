@@ -96,6 +96,26 @@ echo ">>> Ensuring PostgreSQL extensions..."
 su postgres -c "psql -d ${POSTGRES_DB} -c 'CREATE EXTENSION IF NOT EXISTS vector;'" 2>/dev/null || true
 su postgres -c "psql -d ${POSTGRES_DB} -c 'CREATE EXTENSION IF NOT EXISTS postgis;'" 2>/dev/null || true
 
+# One-time repair for deployments that applied the briefly modified
+# 20260215000000 migration from 10d2601f before the file was restored.
+# sqlx stores SHA-384 bytes in _sqlx_migrations.checksum and validates them
+# before pending migrations can run.
+echo ">>> Checking migration checksum repair..."
+su postgres -c "psql -d ${POSTGRES_DB} -v ON_ERROR_STOP=1" <<'SQL'
+DO $$
+BEGIN
+  IF to_regclass('public._sqlx_migrations') IS NULL THEN
+    RETURN;
+  END IF;
+
+  UPDATE public._sqlx_migrations
+     SET checksum = decode('c4a8d7097ce200e9bd39d7bd70882403119c1181bbfa5999335d48ebd087e9703587297347bbef014974cb1699f07772', 'hex')
+   WHERE version = 20260215000000
+     AND success = true
+     AND checksum = decode('2bdad6ec8fffbe68cde85e0e749ac510ef319b694aa15dee71bcae3ad13b3db2f8b317f7ef2b393ea27e432b5f33872c', 'hex');
+END $$;
+SQL
+
 # NOTE: Database schema migrations are handled automatically by the API on startup
 # via sqlx::migrate!() with _sqlx_migrations tracking table.
 # This ensures migrations run exactly once, in order, with proper error handling.

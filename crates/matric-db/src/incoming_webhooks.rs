@@ -39,7 +39,7 @@ impl PgIncomingWebhookReceiverRepository {
         let id = matric_core::new_v7();
         let now = Utc::now();
         sqlx::query(
-            "INSERT INTO incoming_webhook_receiver
+            "INSERT INTO public.incoming_webhook_receiver
                 (id, slug, provider, schema_ref, schema_doc, hmac_secret, signature_header, is_active, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
@@ -96,7 +96,7 @@ impl PgIncomingWebhookReceiverRepository {
         let is_active = req.is_active.unwrap_or(current.is_active);
 
         let result = sqlx::query(
-            "UPDATE incoming_webhook_receiver
+            "UPDATE public.incoming_webhook_receiver
                 SET schema_ref = $2, schema_doc = $3, signature_header = $4,
                     is_active = $5, updated_at = $6
              WHERE slug = $1",
@@ -117,7 +117,7 @@ impl PgIncomingWebhookReceiverRepository {
     pub async fn list(&self) -> Result<Vec<IncomingWebhookReceiver>> {
         let rows = sqlx::query(
             "SELECT id, slug, provider, schema_ref, schema_doc, signature_header, hmac_secret, is_active, created_at, updated_at
-             FROM incoming_webhook_receiver ORDER BY created_at DESC",
+             FROM public.incoming_webhook_receiver ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await
@@ -129,7 +129,7 @@ impl PgIncomingWebhookReceiverRepository {
     pub async fn get_by_slug(&self, slug: &str) -> Result<Option<IncomingWebhookReceiver>> {
         let row = sqlx::query(
             "SELECT id, slug, provider, schema_ref, schema_doc, signature_header, hmac_secret, is_active, created_at, updated_at
-             FROM incoming_webhook_receiver WHERE slug = $1",
+             FROM public.incoming_webhook_receiver WHERE slug = $1",
         )
         .bind(normalize_token(slug))
         .fetch_optional(&self.pool)
@@ -141,7 +141,7 @@ impl PgIncomingWebhookReceiverRepository {
 
     pub async fn get_active_secret_by_slug(&self, slug: &str) -> Result<Option<String>> {
         let row = sqlx::query(
-            "SELECT hmac_secret FROM incoming_webhook_receiver WHERE slug = $1 AND is_active = true",
+            "SELECT hmac_secret FROM public.incoming_webhook_receiver WHERE slug = $1 AND is_active = true",
         )
         .bind(normalize_token(slug))
         .fetch_optional(&self.pool)
@@ -157,7 +157,7 @@ impl PgIncomingWebhookReceiverRepository {
     /// slug. The delete is idempotent — calling it twice yields `false` on the
     /// second call rather than erroring.
     pub async fn delete_by_slug(&self, slug: &str) -> Result<bool> {
-        let result = sqlx::query("DELETE FROM incoming_webhook_receiver WHERE slug = $1")
+        let result = sqlx::query("DELETE FROM public.incoming_webhook_receiver WHERE slug = $1")
             .bind(normalize_token(slug))
             .execute(&self.pool)
             .await

@@ -1275,21 +1275,13 @@ mod tests {
     #[test]
     fn resolve_inline_openai_no_key_anywhere_errors() {
         // Empty registry — no registered openai, and we don't provide a
-        // request key either. Must error (after checking env, which in
-        // test runs shouldn't have OPENAI_API_KEY set — if it is, this
-        // test would succeed misleadingly, so we unset it).
-        let reg = ProviderRegistry::new("ollama".to_string());
-        let prior = std::env::var("OPENAI_API_KEY").ok();
-        // SAFETY: cargo test runs tests in parallel by default; this
-        // env manipulation could race with other tests that read the
-        // var. We intentionally keep this narrow and restore immediately.
-        // If flakes appear, serialize with `#[serial]` or run with
-        // `--test-threads=1`.
-        std::env::remove_var("OPENAI_API_KEY");
-        let result = reg.resolve_generation_inline("openai", None, None, "gpt-4o");
-        if let Some(v) = prior {
-            std::env::set_var("OPENAI_API_KEY", v);
+        // request key either. Must error when the process has no fallback
+        // OPENAI_API_KEY configured.
+        if std::env::var("OPENAI_API_KEY").is_ok() {
+            return;
         }
+        let reg = ProviderRegistry::new("ollama".to_string());
+        let result = reg.resolve_generation_inline("openai", None, None, "gpt-4o");
         match result {
             Err(_) => { /* ok — no key anywhere */ }
             Ok(_) => panic!("missing key must error"),

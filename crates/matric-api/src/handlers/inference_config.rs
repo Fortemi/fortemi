@@ -707,7 +707,7 @@ async fn write_audit_row(
 ) {
     let result = sqlx::query(
         r#"
-        INSERT INTO inference_config_audit
+        INSERT INTO public.inference_config_audit
             (changed_by, action, before_json, after_json, source_ip)
         VALUES ($1, $2, $3, $4, $5)
         "#,
@@ -985,11 +985,12 @@ async fn read_archive_override(
     pool: &sqlx::PgPool,
     schema: &str,
 ) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<(Value,)> =
-        sqlx::query_as("SELECT override FROM archive_inference_override WHERE schema_name = $1")
-            .bind(schema)
-            .fetch_optional(pool)
-            .await?;
+    let row: Option<(Value,)> = sqlx::query_as(
+        "SELECT override FROM public.archive_inference_override WHERE schema_name = $1",
+    )
+    .bind(schema)
+    .fetch_optional(pool)
+    .await?;
     Ok(row.map(|r| r.0))
 }
 
@@ -1384,6 +1385,7 @@ pub async fn update_inference_config(
 
     // 3. Merge new values into existing DB override blob.
     let mut merged = existing_db;
+    let mut pending_generation_backend: Option<std::sync::Arc<OllamaBackend>> = None;
 
     if let Some(partial_ollama) = &req.ollama {
         let entry = merged
@@ -1488,16 +1490,14 @@ pub async fn update_inference_config(
             );
         }
 
-        // Hot-swap Ollama backend.
-        let new_backend = std::sync::Arc::new(OllamaBackend::with_config(
+        // Prepare the replacement backend. The live runtime is mutated only
+        // after validation, dry-run/archive branching, and DB persistence.
+        pending_generation_backend = Some(std::sync::Arc::new(OllamaBackend::with_config(
             merged_base,
             merged_embed,
             merged_gen,
             EMBED_DIMENSION,
-        ));
-        let mut rt = state.inference_runtime.write().unwrap();
-        rt.generation_backend = Some(new_backend);
-        info!("Ollama backend hot-swapped from POST /api/v1/inference/config");
+        )));
     }
 
     if let Some(partial_openai) = &req.openai {
@@ -1956,7 +1956,7 @@ pub async fn update_inference_config(
     if let Some(ref schema) = archive_schema {
         if let Err(e) = sqlx::query(
             r#"
-            INSERT INTO archive_inference_override (schema_name, override, updated_at)
+            INSERT INTO public.archive_inference_override (schema_name, override, updated_at)
             VALUES ($1, $2, NOW())
             ON CONFLICT (schema_name) DO UPDATE
                 SET override = EXCLUDED.override, updated_at = NOW()
@@ -2040,8 +2040,9 @@ pub async fn update_inference_config(
             .into_response();
     }
 
-    // Rebuild provider registry from merged config so all providers are hot-swapped.
-    {
+    // Rebuild provider registry from merged config so all providers can be
+    // hot-swapped after persistence succeeds.
+    let pending_provider_registry = {
         let mut new_registry = matric_inference::ProviderRegistry::from_env();
 
         // Layer DB overrides for llama.cpp (env registration may have been empty at startup).
@@ -2153,10 +2154,8 @@ pub async fn update_inference_config(
             new_registry.set_embedding_provider(None);
         }
 
-        let mut rt = state.inference_runtime.write().unwrap();
-        rt.provider_registry = std::sync::Arc::new(new_registry);
-        info!("Provider registry rebuilt from POST /api/v1/inference/config");
-    }
+        std::sync::Arc::new(new_registry)
+    };
 
     // 4. Persist merged config to DB.
     if let Err(e) = sqlx::query(
@@ -2180,6 +2179,16 @@ pub async fn update_inference_config(
     }
 
     info!("inference_override persisted via POST /api/v1/inference/config");
+
+    {
+        let mut rt = state.inference_runtime.write().unwrap();
+        if let Some(new_backend) = pending_generation_backend {
+            rt.generation_backend = Some(new_backend);
+            info!("Ollama backend hot-swapped from POST /api/v1/inference/config");
+        }
+        rt.provider_registry = pending_provider_registry;
+        info!("Provider registry rebuilt from POST /api/v1/inference/config");
+    }
 
     // 5. Build current effective config + emit hot-swap event (#657).
     let current_typed = build_effective_config(Some(&merged));
@@ -2257,10 +2266,11 @@ pub async fn delete_inference_config(
         let prev_effective =
             serde_json::to_value(build_effective_config(Some(&prev_layered))).unwrap();
 
-        if let Err(e) = sqlx::query("DELETE FROM archive_inference_override WHERE schema_name = $1")
-            .bind(schema)
-            .execute(&state.db.pool)
-            .await
+        if let Err(e) =
+            sqlx::query("DELETE FROM public.archive_inference_override WHERE schema_name = $1")
+                .bind(schema)
+                .execute(&state.db.pool)
+                .await
         {
             let diagnostic = e.to_string();
             warn!(
@@ -2523,7 +2533,7 @@ pub async fn get_inference_config_audit(
     // with bound params to keep things simple and injection-safe.
     let mut sql = String::from(
         "SELECT id, changed_at, changed_by, action, before_json, after_json, source_ip \
-         FROM inference_config_audit WHERE 1=1",
+         FROM public.inference_config_audit WHERE 1=1",
     );
     let mut binds: Vec<String> = Vec::new();
     if query.changed_by.is_some() {

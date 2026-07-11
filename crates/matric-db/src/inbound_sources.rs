@@ -29,7 +29,7 @@ impl PgInboundSourceRepository {
         let id = matric_core::new_v7();
         let now = Utc::now();
         sqlx::query(
-            "INSERT INTO inbound_source
+            "INSERT INTO public.inbound_source
                 (id, name, kind, config, enabled, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
@@ -49,7 +49,7 @@ impl PgInboundSourceRepository {
     pub async fn list(&self) -> Result<Vec<InboundSource>> {
         let rows = sqlx::query(
             "SELECT id, name, kind, config, enabled, created_at, updated_at
-             FROM inbound_source ORDER BY created_at DESC",
+             FROM public.inbound_source ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await
@@ -61,7 +61,7 @@ impl PgInboundSourceRepository {
     pub async fn list_enabled(&self) -> Result<Vec<InboundSource>> {
         let rows = sqlx::query(
             "SELECT id, name, kind, config, enabled, created_at, updated_at
-             FROM inbound_source WHERE enabled = true ORDER BY created_at",
+             FROM public.inbound_source WHERE enabled = true ORDER BY created_at",
         )
         .fetch_all(&self.pool)
         .await
@@ -72,7 +72,7 @@ impl PgInboundSourceRepository {
     pub async fn get_by_name(&self, name: &str) -> Result<Option<InboundSource>> {
         let row = sqlx::query(
             "SELECT id, name, kind, config, enabled, created_at, updated_at
-             FROM inbound_source WHERE name = $1",
+             FROM public.inbound_source WHERE name = $1",
         )
         .bind(normalize_token(name))
         .fetch_optional(&self.pool)
@@ -84,7 +84,7 @@ impl PgInboundSourceRepository {
     /// Delete a connector registration by name. Idempotent: returns `false`
     /// when no row matched.
     pub async fn delete_by_name(&self, name: &str) -> Result<bool> {
-        let result = sqlx::query("DELETE FROM inbound_source WHERE name = $1")
+        let result = sqlx::query("DELETE FROM public.inbound_source WHERE name = $1")
             .bind(normalize_token(name))
             .execute(&self.pool)
             .await
@@ -102,7 +102,7 @@ impl PgInboundSourceRepository {
         attempts: i32,
     ) -> Result<()> {
         sqlx::query(
-            "INSERT INTO inbound_dlq
+            "INSERT INTO public.inbound_dlq
                 (id, source_name, source_offset, payload, error, attempts, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
@@ -121,11 +121,12 @@ impl PgInboundSourceRepository {
 
     /// Count of dead-lettered events for a source (used in tests/diagnostics).
     pub async fn dlq_count(&self, source_name: &str) -> Result<i64> {
-        let row = sqlx::query("SELECT COUNT(*) AS n FROM inbound_dlq WHERE source_name = $1")
-            .bind(inbound_dlq_source_ref(source_name))
-            .fetch_one(&self.pool)
-            .await
-            .map_err(Error::Database)?;
+        let row =
+            sqlx::query("SELECT COUNT(*) AS n FROM public.inbound_dlq WHERE source_name = $1")
+                .bind(inbound_dlq_source_ref(source_name))
+                .fetch_one(&self.pool)
+                .await
+                .map_err(Error::Database)?;
         Ok(row.get("n"))
     }
 

@@ -1482,35 +1482,71 @@ struct RateLimitConfig {
 const MAX_RATE_LIMIT_REQUESTS: u32 = 1_000_000;
 const MAX_RATE_LIMIT_PERIOD_SECS: u64 = 86_400;
 
-fn strict_bool_env(name: &str, default: bool) -> anyhow::Result<bool> {
-    match std::env::var(name) {
-        Ok(v) if v == "true" || v == "1" => Ok(true),
-        Ok(v) if v == "false" || v == "0" => Ok(false),
-        Ok(v) => anyhow::bail!(
+fn strict_bool_value(name: &str, value: Option<&str>, default: bool) -> anyhow::Result<bool> {
+    match value {
+        Some("true" | "1") => Ok(true),
+        Some("false" | "0") => Ok(false),
+        Some(v) => anyhow::bail!(
             "{name} has invalid boolean value '{v}'. Expected one of: true, false, 1, 0."
         ),
-        Err(std::env::VarError::NotPresent) => Ok(default),
-        Err(err) => anyhow::bail!("{name} could not be read: {err}"),
+        None => Ok(default),
     }
 }
 
 fn parse_startup_security_config() -> anyhow::Result<StartupSecurityConfig> {
+    parse_startup_security_config_with_env(|name| std::env::var(name).ok())
+}
+
+fn parse_startup_security_config_with_env<F>(env: F) -> anyhow::Result<StartupSecurityConfig>
+where
+    F: Fn(&str) -> Option<String>,
+{
     Ok(StartupSecurityConfig {
-        require_auth: strict_bool_env("REQUIRE_AUTH", true)?,
-        i_understand_no_auth: strict_bool_env("I_UNDERSTAND_NO_AUTH", false)?,
-        multi_tenant: strict_bool_env("FORTEMI_MULTI_TENANT", false)?,
-        allow_local_issuer: strict_bool_env("FORTEMI_ALLOW_LOCAL_ISSUER", false)?,
-        call_recording_require_confirmation: strict_bool_env(
+        require_auth: strict_bool_value("REQUIRE_AUTH", env("REQUIRE_AUTH").as_deref(), true)?,
+        i_understand_no_auth: strict_bool_value(
+            "I_UNDERSTAND_NO_AUTH",
+            env("I_UNDERSTAND_NO_AUTH").as_deref(),
+            false,
+        )?,
+        multi_tenant: strict_bool_value(
+            "FORTEMI_MULTI_TENANT",
+            env("FORTEMI_MULTI_TENANT").as_deref(),
+            false,
+        )?,
+        allow_local_issuer: strict_bool_value(
+            "FORTEMI_ALLOW_LOCAL_ISSUER",
+            env("FORTEMI_ALLOW_LOCAL_ISSUER").as_deref(),
+            false,
+        )?,
+        call_recording_require_confirmation: strict_bool_value(
             "FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION",
+            env("FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION").as_deref(),
             false,
         )?,
     })
 }
 
 fn parse_rate_limit_config() -> anyhow::Result<RateLimitConfig> {
-    let enabled = strict_bool_env("RATE_LIMIT_ENABLED", true)?;
-    let requests = parse_rate_limit_requests_env("RATE_LIMIT_REQUESTS")?;
-    let period_secs = parse_rate_limit_period_env("RATE_LIMIT_PERIOD_SECS")?;
+    parse_rate_limit_config_with_env(|name| std::env::var(name).ok())
+}
+
+fn parse_rate_limit_config_with_env<F>(env: F) -> anyhow::Result<RateLimitConfig>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let enabled = strict_bool_value(
+        "RATE_LIMIT_ENABLED",
+        env("RATE_LIMIT_ENABLED").as_deref(),
+        true,
+    )?;
+    let requests = parse_rate_limit_requests_value(
+        "RATE_LIMIT_REQUESTS",
+        env("RATE_LIMIT_REQUESTS").as_deref(),
+    )?;
+    let period_secs = parse_rate_limit_period_value(
+        "RATE_LIMIT_PERIOD_SECS",
+        env("RATE_LIMIT_PERIOD_SECS").as_deref(),
+    )?;
 
     Ok(RateLimitConfig {
         enabled,
@@ -1519,13 +1555,9 @@ fn parse_rate_limit_config() -> anyhow::Result<RateLimitConfig> {
     })
 }
 
-fn parse_rate_limit_requests_env(name: &str) -> anyhow::Result<u32> {
-    let raw = match std::env::var(name) {
-        Ok(raw) => raw,
-        Err(std::env::VarError::NotPresent) => {
-            return Ok(matric_core::defaults::RATE_LIMIT_REQUESTS as u32);
-        }
-        Err(err) => anyhow::bail!("{name} could not be read: {err}"),
+fn parse_rate_limit_requests_value(name: &str, raw: Option<&str>) -> anyhow::Result<u32> {
+    let Some(raw) = raw else {
+        return Ok(matric_core::defaults::RATE_LIMIT_REQUESTS as u32);
     };
     let value: u64 = raw
         .parse()
@@ -1543,13 +1575,9 @@ fn parse_rate_limit_requests_env(name: &str) -> anyhow::Result<u32> {
     Ok(value)
 }
 
-fn parse_rate_limit_period_env(name: &str) -> anyhow::Result<u64> {
-    let raw = match std::env::var(name) {
-        Ok(raw) => raw,
-        Err(std::env::VarError::NotPresent) => {
-            return Ok(matric_core::defaults::RATE_LIMIT_PERIOD_SECS);
-        }
-        Err(err) => anyhow::bail!("{name} could not be read: {err}"),
+fn parse_rate_limit_period_value(name: &str, raw: Option<&str>) -> anyhow::Result<u64> {
+    let Some(raw) = raw else {
+        return Ok(matric_core::defaults::RATE_LIMIT_PERIOD_SECS);
     };
     let value: u64 = raw
         .parse()
@@ -1569,13 +1597,27 @@ fn validated_issuer_url(
     config: &StartupSecurityConfig,
 ) -> anyhow::Result<String> {
     match std::env::var("ISSUER_URL") {
-        Ok(raw) => validate_configured_issuer_url(&raw, config.allow_local_issuer),
-        Err(std::env::VarError::NotPresent) if config.multi_tenant => anyhow::bail!(
+        Ok(raw) => validated_issuer_url_with_value(host, port, config, Some(&raw)),
+        Err(std::env::VarError::NotPresent) => {
+            validated_issuer_url_with_value(host, port, config, None)
+        }
+        Err(err) => anyhow::bail!("ISSUER_URL could not be read: {err}"),
+    }
+}
+
+fn validated_issuer_url_with_value(
+    host: &str,
+    port: u16,
+    config: &StartupSecurityConfig,
+    issuer_url: Option<&str>,
+) -> anyhow::Result<String> {
+    match issuer_url {
+        Some(raw) => validate_configured_issuer_url(raw, config.allow_local_issuer),
+        None if config.multi_tenant => anyhow::bail!(
             "Refusing to start: FORTEMI_MULTI_TENANT=true requires ISSUER_URL. \
              Hosted issuer metadata must be explicit."
         ),
-        Err(std::env::VarError::NotPresent) => Ok(format!("http://{host}:{port}")),
-        Err(err) => anyhow::bail!("ISSUER_URL could not be read: {err}"),
+        None => Ok(format!("http://{host}:{port}")),
     }
 }
 
@@ -1910,7 +1952,10 @@ fn twilio_call_started_consent_confirmed(payload: &serde_json::Value) -> bool {
 fn parse_allowed_origins() -> Vec<HeaderValue> {
     let origins_str =
         std::env::var("ALLOWED_ORIGINS").unwrap_or_else(|_| "http://localhost:3000".to_string());
+    parse_allowed_origins_value(&origins_str)
+}
 
+fn parse_allowed_origins_value(origins_str: &str) -> Vec<HeaderValue> {
     if origins_str.trim().is_empty() {
         // Default origins
         return vec![HeaderValue::from_static("http://localhost:3000")];
@@ -33942,39 +33987,29 @@ mod tests {
 
     #[test]
     fn strict_bool_env_rejects_invalid_security_value() {
-        std::env::set_var("MATRIC_TEST_STRICT_BOOL", "treu");
-        let err = strict_bool_env("MATRIC_TEST_STRICT_BOOL", false)
+        let err = strict_bool_value("MATRIC_TEST_STRICT_BOOL", Some("treu"), false)
             .expect_err("invalid boolean must fail");
         assert!(err.to_string().contains("MATRIC_TEST_STRICT_BOOL"));
         assert!(err.to_string().contains("Expected one of"));
 
-        std::env::set_var("MATRIC_TEST_STRICT_BOOL", "true");
-        assert!(strict_bool_env("MATRIC_TEST_STRICT_BOOL", false).unwrap());
-        std::env::set_var("MATRIC_TEST_STRICT_BOOL", "0");
-        assert!(!strict_bool_env("MATRIC_TEST_STRICT_BOOL", true).unwrap());
-        std::env::remove_var("MATRIC_TEST_STRICT_BOOL");
+        assert!(strict_bool_value("MATRIC_TEST_STRICT_BOOL", Some("true"), false).unwrap());
+        assert!(!strict_bool_value("MATRIC_TEST_STRICT_BOOL", Some("0"), true).unwrap());
+        assert!(strict_bool_value("MATRIC_TEST_STRICT_BOOL", None, true).unwrap());
     }
 
     #[test]
     fn startup_security_config_rejects_invalid_call_recording_confirmation() {
-        std::env::remove_var("REQUIRE_AUTH");
-        std::env::remove_var("I_UNDERSTAND_NO_AUTH");
-        std::env::remove_var("FORTEMI_MULTI_TENANT");
-        std::env::remove_var("FORTEMI_ALLOW_LOCAL_ISSUER");
-        std::env::set_var("FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION", "treu");
-
-        let err = parse_startup_security_config()
-            .expect_err("invalid recording confirmation flag must fail startup parsing");
+        let err = parse_startup_security_config_with_env(|name| {
+            (name == "FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION").then(|| "treu".to_string())
+        })
+        .expect_err("invalid recording confirmation flag must fail startup parsing");
         assert!(err
             .to_string()
             .contains("FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION"));
-
-        std::env::remove_var("FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION");
     }
 
     #[test]
     fn validated_issuer_rejects_missing_multi_tenant_issuer() {
-        std::env::remove_var("ISSUER_URL");
         let config = StartupSecurityConfig {
             require_auth: true,
             i_understand_no_auth: false,
@@ -33983,7 +34018,7 @@ mod tests {
             call_recording_require_confirmation: false,
         };
 
-        let err = validated_issuer_url("0.0.0.0", 3000, &config)
+        let err = validated_issuer_url_with_value("0.0.0.0", 3000, &config, None)
             .expect_err("multi-tenant mode must require explicit issuer");
         assert!(err.to_string().contains("requires ISSUER_URL"));
     }
@@ -34003,7 +34038,6 @@ mod tests {
 
     #[test]
     fn validated_issuer_keeps_single_user_local_fallback() {
-        std::env::remove_var("ISSUER_URL");
         let config = StartupSecurityConfig {
             require_auth: true,
             i_understand_no_auth: false,
@@ -34012,39 +34046,53 @@ mod tests {
             call_recording_require_confirmation: false,
         };
 
-        let issuer = validated_issuer_url("127.0.0.1", 3000, &config).unwrap();
+        let issuer = validated_issuer_url_with_value("127.0.0.1", 3000, &config, None).unwrap();
         assert_eq!(issuer, "http://127.0.0.1:3000");
     }
 
     #[test]
     fn rate_limit_config_rejects_invalid_boolean_and_numbers() {
-        std::env::set_var("RATE_LIMIT_ENABLED", "treu");
-        let err = parse_rate_limit_config().expect_err("invalid bool must fail");
+        let err = parse_rate_limit_config_with_env(|name| {
+            (name == "RATE_LIMIT_ENABLED").then(|| "treu".to_string())
+        })
+        .expect_err("invalid bool must fail");
         assert!(err.to_string().contains("RATE_LIMIT_ENABLED"));
 
-        std::env::set_var("RATE_LIMIT_ENABLED", "true");
-        std::env::set_var("RATE_LIMIT_REQUESTS", "0");
-        let err = parse_rate_limit_config().expect_err("zero requests must fail");
+        let err = parse_rate_limit_config_with_env(|name| match name {
+            "RATE_LIMIT_ENABLED" => Some("true".to_string()),
+            "RATE_LIMIT_REQUESTS" => Some("0".to_string()),
+            _ => None,
+        })
+        .expect_err("zero requests must fail");
         assert!(err.to_string().contains("RATE_LIMIT_REQUESTS"));
 
-        std::env::set_var("RATE_LIMIT_REQUESTS", "4294967296");
-        let err = parse_rate_limit_config().expect_err("overflow requests must fail");
+        let err = parse_rate_limit_config_with_env(|name| match name {
+            "RATE_LIMIT_ENABLED" => Some("true".to_string()),
+            "RATE_LIMIT_REQUESTS" => Some("4294967296".to_string()),
+            _ => None,
+        })
+        .expect_err("overflow requests must fail");
         assert!(err.to_string().contains("RATE_LIMIT_REQUESTS"));
 
-        std::env::set_var("RATE_LIMIT_REQUESTS", "100");
-        std::env::set_var("RATE_LIMIT_PERIOD_SECS", "0");
-        let err = parse_rate_limit_config().expect_err("zero period must fail");
+        let err = parse_rate_limit_config_with_env(|name| match name {
+            "RATE_LIMIT_ENABLED" => Some("true".to_string()),
+            "RATE_LIMIT_REQUESTS" => Some("100".to_string()),
+            "RATE_LIMIT_PERIOD_SECS" => Some("0".to_string()),
+            _ => None,
+        })
+        .expect_err("zero period must fail");
         assert!(err.to_string().contains("RATE_LIMIT_PERIOD_SECS"));
 
-        std::env::set_var("RATE_LIMIT_PERIOD_SECS", "60");
-        let config = parse_rate_limit_config().unwrap();
+        let config = parse_rate_limit_config_with_env(|name| match name {
+            "RATE_LIMIT_ENABLED" => Some("true".to_string()),
+            "RATE_LIMIT_REQUESTS" => Some("100".to_string()),
+            "RATE_LIMIT_PERIOD_SECS" => Some("60".to_string()),
+            _ => None,
+        })
+        .unwrap();
         assert!(config.enabled);
         assert_eq!(config.requests, 100);
         assert_eq!(config.period_secs, 60);
-
-        std::env::remove_var("RATE_LIMIT_ENABLED");
-        std::env::remove_var("RATE_LIMIT_REQUESTS");
-        std::env::remove_var("RATE_LIMIT_PERIOD_SECS");
     }
 
     #[test]
@@ -34164,14 +34212,9 @@ mod tests {
 
     #[test]
     fn parse_allowed_origins_ignores_invalid_origins_without_echoing_them() {
-        std::env::set_var(
-            "ALLOWED_ORIGINS",
+        let origins = parse_allowed_origins_value(
             "https://valid.example,https://internal.example\r\nx-api-key: secret",
         );
-
-        let origins = parse_allowed_origins();
-
-        std::env::remove_var("ALLOWED_ORIGINS");
         assert_eq!(origins.len(), 1);
         assert_eq!(
             origins[0],

@@ -120,7 +120,7 @@ impl PgEventOutboxRepository {
         let id = new_v7();
         sqlx::query_as::<_, EventOutboxRecord>(
             r#"
-            INSERT INTO event_outbox (id, event_type, entity_type, entity_id, payload, memory)
+            INSERT INTO public.event_outbox (id, event_type, entity_type, entity_id, payload, memory)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id, event_type, entity_type, entity_id, payload, memory, created_at, published_at
             "#,
@@ -144,7 +144,7 @@ impl PgEventOutboxRepository {
         let id = new_v7();
         sqlx::query_as::<_, EventOutboxRecord>(
             r#"
-            INSERT INTO event_outbox (id, event_type, entity_type, entity_id, payload, memory)
+            INSERT INTO public.event_outbox (id, event_type, entity_type, entity_id, payload, memory)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id, event_type, entity_type, entity_id, payload, memory, created_at, published_at
             "#,
@@ -164,7 +164,7 @@ impl PgEventOutboxRepository {
         sqlx::query_as::<_, EventOutboxRecord>(
             r#"
             SELECT id, event_type, entity_type, entity_id, payload, memory, created_at, published_at
-            FROM event_outbox
+            FROM public.event_outbox
             WHERE published_at IS NULL
             ORDER BY created_at ASC, id ASC
             LIMIT $1
@@ -181,7 +181,7 @@ impl PgEventOutboxRepository {
             return Ok(0);
         }
         let result = sqlx::query(
-            "UPDATE event_outbox SET published_at = NOW() WHERE id = ANY($1) AND published_at IS NULL",
+            "UPDATE public.event_outbox SET published_at = NOW() WHERE id = ANY($1) AND published_at IS NULL",
         )
         .bind(ids)
         .execute(&self.pool)
@@ -191,11 +191,12 @@ impl PgEventOutboxRepository {
     }
 
     pub async fn count_by_event_type(&self, event_type: &str) -> Result<i64> {
-        let row = sqlx::query("SELECT COUNT(*) AS count FROM event_outbox WHERE event_type = $1")
-            .bind(event_type.trim())
-            .fetch_one(&self.pool)
-            .await
-            .map_err(Error::Database)?;
+        let row =
+            sqlx::query("SELECT COUNT(*) AS count FROM public.event_outbox WHERE event_type = $1")
+                .bind(event_type.trim())
+                .fetch_one(&self.pool)
+                .await
+                .map_err(Error::Database)?;
         Ok(row.get("count"))
     }
 }

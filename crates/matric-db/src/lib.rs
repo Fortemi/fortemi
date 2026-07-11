@@ -314,6 +314,7 @@ impl Database {
     #[cfg(feature = "migrations")]
     pub async fn migrate(&self) -> Result<()> {
         self.require_postgres_18().await?;
+        self.repair_native_uuidv7_migration_checksum().await?;
         sqlx::migrate!("../../migrations")
             .run(&self.pool)
             .await
@@ -324,8 +325,7 @@ impl Database {
     /// Verify the connected server is PostgreSQL 18 or later (#635).
     ///
     /// Returns an `Error::Config` with a clear remediation message
-    /// when the server version is older than 18.0. The migration also
-    /// hard-guards on version as defense-in-depth.
+    /// when the server version is older than 18.0.
     pub async fn require_postgres_18(&self) -> Result<()> {
         let row: (String,) = sqlx::query_as("SHOW server_version_num")
             .fetch_one(&self.pool)
@@ -344,6 +344,48 @@ impl Database {
                 version_num
             )));
         }
+        Ok(())
+    }
+
+    /// Normalize the checksum for the restored 20260215000000 migration.
+    ///
+    /// Commit 10d2601f briefly edited an already-applied migration in place,
+    /// so deployments that applied that file stored its modified sqlx SHA-384
+    /// checksum. The migration file is now restored to its original bytes; this
+    /// one-time repair updates only the known modified checksum before sqlx's
+    /// default checksum validation runs.
+    #[cfg(feature = "migrations")]
+    async fn repair_native_uuidv7_migration_checksum(&self) -> Result<()> {
+        const VERSION: i64 = 20260215000000;
+        const ORIGINAL_SHA384: &str = "c4a8d7097ce200e9bd39d7bd70882403119c1181bbfa5999335d48ebd087e9703587297347bbef014974cb1699f07772";
+        const MODIFIED_SHA384: &str = "2bdad6ec8fffbe68cde85e0e749ac510ef319b694aa15dee71bcae3ad13b3db2f8b317f7ef2b393ea27e432b5f33872c";
+
+        let has_migrations_table: bool =
+            sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations') IS NOT NULL")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(Error::Database)?;
+
+        if !has_migrations_table {
+            return Ok(());
+        }
+
+        sqlx::query(
+            r#"
+            UPDATE public._sqlx_migrations
+            SET checksum = decode($2, 'hex')
+            WHERE version = $1
+              AND success = true
+              AND checksum = decode($3, 'hex')
+            "#,
+        )
+        .bind(VERSION)
+        .bind(ORIGINAL_SHA384)
+        .bind(MODIFIED_SHA384)
+        .execute(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
         Ok(())
     }
 
