@@ -53,6 +53,20 @@ The handler defaults `limit` to 500, but the note listing it delegates to caps a
 - Shard seeding is FTS-only by design; embeddings/links require the documented reprocess step.
 - Feb `concept_tagging` jobs no-op (~7ms) with GLiNER disabled — consistent pre/post upgrade, not an upgrade regression.
 
+## Fix validation (same day)
+
+All five findings were fixed (#1048–#1052) and re-validated against a **fresh** Feb 2026.2.12 volume with a fully rebuilt docs dataset (180 notes, embeddings, 258 links), upgraded to a locally built `bundle-smoketest` image with **only documented acknowledgments** in `.env` (no password override, no shm override):
+
+- #1048: entrypoint logged `role 'matric' does not accept the configured POSTGRES_PASSWORD` → aligned → `TCP auth verified`
+- #1049: pre-migration backup completed in 7s staging in RAM (in-stream `pg_dump --compress=6` + compose `shm_size` default 2gb); a second upgrade on a fixture copy with `FORTEMI_SHM_SIZE=64m` triggered the pre-flight warning and completed via the warned disk fallback in 6s
+- #1050: forced auth failure now surfaces `pg_dump: error: ... password authentication failed for user "matric"` via log_error
+- #1051: `FORTEMI_ALLOW_LOCAL_ISSUER=true` set via `.env` alone, accepted
+- #1052: `POST /api/v1/notes/reprocess` without note_ids queued all 180 notes (previously 100)
+
+Post-upgrade parity on the fresh volume: DB fingerprint identical except migrations 96→116; FTS/semantic/graph results identical to the pre-upgrade baseline.
+
+**Reusable fixture**: `/home/roctinam/fortemi-test-fixtures/feb-2026.2.12-docs-pgdata.tar.gz` (+ docker volume `fortemi-feb-baseline-pgdata`) is a cold Feb-state pgdata with the dataset built — restore instructions in the fixture README; future upgrade tests skip the ~1h reseed.
+
 ## Test environment / artifacts
 
 - Compose project `fortemi-febtest` (ports 13000/13001) — left running post-upgrade for inspection.

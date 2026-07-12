@@ -12367,26 +12367,43 @@ async fn bulk_reprocess_notes(
     let note_ids: Vec<Uuid> = if let Some(ids) = body.as_ref().and_then(|b| b.note_ids.clone()) {
         ids.into_iter().take(limit as usize).collect()
     } else {
-        // Fetch all active note IDs from this archive
+        // Fetch all active note IDs from this archive. The listing repo caps
+        // each page at 100 rows, so paginate until `limit` or exhaustion —
+        // a single call silently truncated bulk reprocess to 100 notes (#1052).
         let ctx = state.db.for_schema(&archive_ctx.schema)?;
-        let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
-        let notes = ctx
-            .query(move |tx| {
-                Box::pin(async move {
-                    notes_repo
-                        .list_tx(
-                            tx,
-                            ListNotesRequest {
-                                limit: Some(limit),
-                                filter: Some("all".to_string()),
-                                ..Default::default()
-                            },
-                        )
-                        .await
+        let mut ids: Vec<Uuid> = Vec::new();
+        let mut offset: i64 = 0;
+        loop {
+            let page_limit = (limit - ids.len() as i64).min(100);
+            if page_limit <= 0 {
+                break;
+            }
+            let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+            let page = ctx
+                .query(move |tx| {
+                    Box::pin(async move {
+                        notes_repo
+                            .list_tx(
+                                tx,
+                                ListNotesRequest {
+                                    limit: Some(page_limit),
+                                    offset: Some(offset),
+                                    filter: Some("all".to_string()),
+                                    ..Default::default()
+                                },
+                            )
+                            .await
+                    })
                 })
-            })
-            .await?;
-        notes.notes.into_iter().map(|n| n.id).collect()
+                .await?;
+            let fetched = page.notes.len() as i64;
+            ids.extend(page.notes.into_iter().map(|n| n.id));
+            if fetched < page_limit {
+                break;
+            }
+            offset += fetched;
+        }
+        ids
     };
 
     let total = note_ids.len();

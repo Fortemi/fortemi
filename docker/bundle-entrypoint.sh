@@ -192,6 +192,33 @@ END $$;
 SQL
 }
 
+# Align the application role's password with POSTGRES_PASSWORD. Existing data
+# directories may have been initialized under an older compose default
+# (pre-2026.7 bundles hardcoded a different password), in which case every TCP
+# client — the pre-migration backup, the API, MCP — fails scram auth and the
+# container restart-loops. Local socket access is trust, so the alignment
+# itself always works. (#1048)
+align_role_password() {
+    if env PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -h localhost -p 5432 -d "$POSTGRES_DB" -At -c 'SELECT 1' >/dev/null 2>&1; then
+        return 0
+    fi
+
+    echo "!!! WARNING: role '${POSTGRES_USER}' does not accept the configured POSTGRES_PASSWORD"
+    echo "!!! (data directory was initialized under a different password default);"
+    echo "!!! aligning the role password with the current environment."
+
+    local escaped sql
+    escaped=$(printf '%s' "$POSTGRES_PASSWORD" | sed "s/'/''/g")
+    sql=$(printf 'ALTER ROLE "%s" WITH PASSWORD '"'"'%s'"'"';' "$POSTGRES_USER" "$escaped")
+    printf '%s\n' "$sql" | su postgres -c "psql -d ${POSTGRES_DB} -v ON_ERROR_STOP=1" >/dev/null
+
+    if ! env PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -h localhost -p 5432 -d "$POSTGRES_DB" -At -c 'SELECT 1' >/dev/null 2>&1; then
+        echo "ERROR: could not align role password for '${POSTGRES_USER}'; TCP auth still failing" >&2
+        exit 1
+    fi
+    echo ">>> Role password aligned; TCP auth verified"
+}
+
 ensure_pre_migration_backup() {
     local to_version
     to_version="$(latest_available_migration_version)"
@@ -228,12 +255,42 @@ ensure_pre_migration_backup() {
 
     echo ">>> Pending migrations on non-empty database: creating verified pre-migration backup"
     mkdir -p "$BACKUP_DEST"
+
+    # Pre-flight: the dump stages in BACKUP_TEMP_DIR before compression, and
+    # Docker's default /dev/shm is only 64MB. Refuse to start a dump that
+    # cannot fit; fall back to disk staging under BACKUP_DEST with a loud
+    # warning rather than restart-looping. (#1049)
+    local staging_dir staging_trusted db_size avail_staging avail_disk
+    staging_dir="${BACKUP_TEMP_DIR:-/dev/shm/fortemi-pre-migration-backup}"
+    staging_trusted="${BACKUP_TEMP_TRUSTED_ENCRYPTED:-false}"
+    db_size=$(su postgres -c "psql -d ${POSTGRES_DB} -At -v ON_ERROR_STOP=1 -c 'SELECT pg_database_size(current_database())'" || echo "")
+    mkdir -p "$staging_dir" 2>/dev/null || true
+    avail_staging=$(df -B1 --output=avail "$staging_dir" 2>/dev/null | tail -1 || echo "")
+    if [ -n "$db_size" ] && [ -n "$avail_staging" ] && [ "$avail_staging" -lt "$db_size" ]; then
+        echo "!!! WARNING: backup staging dir ${staging_dir} has ${avail_staging} bytes free"
+        echo "!!! but the database is ${db_size} bytes; the staged dump may not fit."
+        echo "!!! Falling back to DISK staging under ${BACKUP_DEST}/.staging — the dump"
+        echo "!!! will touch disk unencrypted while the backup runs."
+        echo "!!! To keep RAM-backed staging, raise the container shm size (compose:"
+        echo "!!! shm_size on the fortemi service) or point BACKUP_TEMP_DIR at a larger tmpfs."
+        staging_dir="${BACKUP_DEST}/.staging"
+        staging_trusted=true
+        mkdir -p "$staging_dir"
+        avail_disk=$(df -B1 --output=avail "$staging_dir" 2>/dev/null | tail -1 || echo "")
+        if [ -n "$avail_disk" ] && [ "$avail_disk" -lt "$db_size" ]; then
+            echo "ERROR: disk staging under ${BACKUP_DEST} also lacks space (${avail_disk} bytes free, database is ${db_size} bytes)." >&2
+            echo "Free up space, mount a larger BACKUP_DEST, or set BACKUP_TEMP_DIR to a location with enough room." >&2
+            exit 1
+        fi
+    fi
+
     if ! env \
         BACKUP_DEST="$BACKUP_DEST" \
         BACKUP_BASENAME="$basename" \
         BACKUP_CLEANUP_PATTERN='pre-migration-*.sql*' \
         BACKUP_RETAIN="$PRE_MIGRATION_BACKUP_RETAIN" \
-        BACKUP_TEMP_DIR="${BACKUP_TEMP_DIR:-/dev/shm/fortemi-pre-migration-backup}" \
+        BACKUP_TEMP_DIR="$staging_dir" \
+        BACKUP_TEMP_TRUSTED_ENCRYPTED="$staging_trusted" \
         BACKUP_COMPRESS="${BACKUP_COMPRESS:-gzip}" \
         PGUSER="$POSTGRES_USER" \
         PGPASSWORD="$POSTGRES_PASSWORD" \
@@ -252,6 +309,7 @@ ensure_pre_migration_backup() {
     echo ">>> Pre-migration backup ready: ${BACKUP_DEST}/${final_file}"
 }
 
+align_role_password
 repair_legacy_restore_compatibility
 ensure_pre_migration_backup
 

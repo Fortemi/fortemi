@@ -242,6 +242,10 @@ services:
   # existing data volumes and external pg connection strings.)
   fortemi:
     image: ${FORTEMI_REGISTRY:-ghcr.io}/fortemi/fortemi:${FORTEMI_TAG:-bundle-latest}
+    # The pre-migration backup stages its pg_dump in RAM-backed /dev/shm;
+    # Docker's default is only 64MB. If the database outgrows this, the
+    # entrypoint falls back to disk staging with a warning. (#1049)
+    shm_size: ${FORTEMI_SHM_SIZE:-2gb}
     build:
       context: .
       dockerfile: Dockerfile.bundle
@@ -332,6 +336,9 @@ services:
       # ── OAuth ──────────────────────────────────────────────────────────
       # ISSUER_URL is REQUIRED for OAuth/MCP - set in .env
       - ISSUER_URL=${ISSUER_URL:-https://localhost:3000}
+      # A plain-http ISSUER_URL (localhost/LAN deployments) is refused at
+      # startup unless explicitly acknowledged. (#1051)
+      - FORTEMI_ALLOW_LOCAL_ISSUER=${FORTEMI_ALLOW_LOCAL_ISSUER:-false}
       # OAuth token lifetimes (seconds)
       - OAUTH_TOKEN_LIFETIME_SECS=${OAUTH_TOKEN_LIFETIME_SECS:-3600}
       - OAUTH_MCP_TOKEN_LIFETIME_SECS=${OAUTH_MCP_TOKEN_LIFETIME_SECS:-14400}

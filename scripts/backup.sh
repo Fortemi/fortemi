@@ -348,18 +348,34 @@ create_database_dump() {
         pg_env+=(PGPASSFILE="$PGPASSFILE")
     fi
 
-    # Use pg_dump with custom format for better compression and selective restore
-    env "${pg_env[@]}" pg_dump \
+    # Use pg_dump with custom format for selective restore. In-stream
+    # compression keeps the staged dump several times smaller than the raw
+    # database so it fits RAM-backed staging (BACKUP_TEMP_DIR) (#1049).
+    local dump_log
+    dump_log="${BACKUP_TEMP_DIR}/pg_dump.output"
+    if ! env "${pg_env[@]}" pg_dump \
         -U "$PGUSER" \
         -h "$PGHOST" \
         -p "$PGPORT" \
         -d "$PGDATABASE" \
         --format=custom \
-        --compress=0 \
+        --compress=6 \
         --file="$temp_path" \
-        --verbose 2>&1 | while read -r line; do
+        --verbose >"$dump_log" 2>&1; then
+        # Surface the failure cause: without this, auth failures and ENOSPC
+        # died silently behind metadata-only logging (#1050).
+        while IFS= read -r line; do
+            log_error "pg_dump: $line"
+        done < <(grep -iE 'error|fatal|could not' "$dump_log" | tail -n 10 || true)
+        rm -f "$dump_log"
+        error_exit "Database dump failed - see pg_dump errors above"
+    fi
+    if [[ "$VERBOSE" == "true" ]]; then
+        while IFS= read -r line; do
             log_verbose "pg_dump: $(command_output_metadata pg_dump "$line")"
-        done
+        done < "$dump_log"
+    fi
+    rm -f "$dump_log"
 
     if [[ ! -f "$temp_path" ]]; then
         error_exit "Database dump failed - output file not created"
@@ -700,6 +716,7 @@ cleanup_temp() {
         rm -f "${BACKUP_TEMP_DIR}"/fortemi_backup_*.sql* 2>/dev/null || true
         rm -f "${BACKUP_TEMP_DIR}"/pre-migration-*.sql* 2>/dev/null || true
         rm -f "${BACKUP_TEMP_DIR}"/verify.* 2>/dev/null || true
+        rm -f "${BACKUP_TEMP_DIR}"/pg_dump.output 2>/dev/null || true
     fi
 }
 
