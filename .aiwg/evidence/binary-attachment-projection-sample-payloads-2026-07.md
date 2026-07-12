@@ -13,9 +13,9 @@ Evidence companion for `Fortemi/fortemi#1013`. These samples mirror the Fortemi-
   "reason": null,
   "attachment": {
     "id": "018fd1a0-0000-7000-8000-000000000001",
-    "path": "research/paper.pdf",
+    "path": "paper.pdf",
     "mime": "application/pdf",
-    "checksum": "blake3-checksum",
+    "checksum": "blake3:6f1ed002ab5595859014ebf0951522d9f74523c1f8a3a6954e52483a880c24a9",
     "bytes": 911442
   }
 }
@@ -34,7 +34,7 @@ Large binary awaiting extraction or intentionally deferred:
     "id": "018fd1a0-0000-7000-8000-000000000002",
     "path": "large-video.mp4",
     "mime": "video/mp4",
-    "checksum": "blake3-video-checksum",
+    "checksum": "blake3:9f1ed002ab5595859014ebf0951522d9f74523c1f8a3a6954e52483a880c24a1",
     "bytes": 910163968
   }
 }
@@ -51,7 +51,7 @@ Unsupported binary MIME:
     "id": "018fd1a0-0000-7000-8000-000000000004",
     "path": "archive.bin",
     "mime": "application/octet-stream",
-    "checksum": "blake3-unsupported-checksum",
+    "checksum": "blake3:af1ed002ab5595859014ebf0951522d9f74523c1f8a3a6954e52483a880c24a2",
     "bytes": 512
   }
 }
@@ -68,7 +68,7 @@ Extractor failure with stable reason class only:
     "id": "018fd1a0-0000-7000-8000-000000000003",
     "path": "failed.pdf",
     "mime": "application/pdf",
-    "checksum": "blake3-failed-checksum",
+    "checksum": "blake3:bf1ed002ab5595859014ebf0951522d9f74523c1f8a3a6954e52483a880c24a3",
     "bytes": 4096
   }
 }
@@ -85,7 +85,7 @@ Quarantined binary:
     "id": "018fd1a0-0000-7000-8000-000000000005",
     "path": "quarantined.pdf",
     "mime": "application/pdf",
-    "checksum": "blake3-quarantined-checksum",
+    "checksum": "blake3:cf1ed002ab5595859014ebf0951522d9f74523c1f8a3a6954e52483a880c24a4",
     "bytes": 4096
   }
 }
@@ -94,6 +94,14 @@ Quarantined binary:
 ## Negative Payload Invariants
 
 Projection payloads must not contain raw binary bytes, base64 payloads, raw buffers, `attachment_blob`, `storage_path`, raw temporary paths, backend error strings, connection strings, SQL diagnostics, or stack traces. Search, index, export, embedding, and API projection consumers must use `extracted_text` only when present and treat no-text binary records as bounded metadata records with stable `extraction_status` and `reason` values.
+
+## Portable Shard Sidecar Mapping
+
+For the extracted-text sample, a self-contained shard may include the bytes at
+`blobs/6f1ed002ab5595859014ebf0951522d9f74523c1f8a3a6954e52483a880c24a9`.
+The JSON record remains unchanged. If that entry is absent, the attachment is a
+valid reference-only record. Duplicate attachments with that checksum share
+the same tar entry, and readers ignore other unreferenced `blobs/` entries.
 
 ## Closure Boundary
 
