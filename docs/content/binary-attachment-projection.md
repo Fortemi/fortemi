@@ -18,13 +18,19 @@ For each binary attachment associated with a note, the projection carries extrac
     "id": "018fd1a0-0000-7000-8000-000000000001",
     "path": "research-paper.pdf",
     "mime": "application/pdf",
-    "checksum": "blake3-content-hash",
+    "checksum": "blake3:6f1ed002ab5595859014ebf0951522d9f74523c1f8a3a6954e52483a880c24a9",
     "bytes": 911442
   }
 }
 ```
 
 The `bytes` field is a byte count. It is not a byte array, base64 string, blob handle payload, or serialized file body.
+
+The `checksum` field is the whole-content BLAKE3 digest encoded as
+`blake3:<hex>`, where `<hex>` is exactly 64 lowercase hexadecimal characters.
+The `path` field is the attachment's display filename, such as
+`research-paper.pdf`. It is never a filesystem path, managed blob path, OPFS
+key, S3 object key, or other physical storage locator.
 
 When extracted text is unavailable, `extraction_status` and `reason` use stable classes only:
 
@@ -39,6 +45,33 @@ When extracted text is unavailable, `extraction_status` and `reason` use stable 
 | Quarantined | `blocked` | `quarantined` |
 
 Projection payloads do not expose raw extractor diagnostics, backend errors, temporary filesystem paths, stack traces, storage paths, or connection strings.
+
+## Portable Shard Byte Sidecar
+
+A portable Knowledge Shard may include attachment bytes in an optional
+content-addressed sidecar within its `tar.gz` archive. Each distinct blob is a
+tar entry named:
+
+```text
+blobs/<hex>
+```
+
+`<hex>` is the bare 64-character lowercase hexadecimal BLAKE3 digest of the
+entry bytes. The corresponding projection record uses
+`checksum: "blake3:<hex>"`; resolving the record to the sidecar strips the
+`blake3:` prefix and looks for the exact `blobs/<hex>` entry. An exporter must
+write at most one entry for each distinct digest, so attachments with identical
+bytes share one sidecar entry.
+
+The sidecar does not change the JSON projection shape. Projection records must
+never contain byte arrays, base64 strings, or generic `data`, `raw`, or
+`content_bytes` fields, whether or not a sidecar is present.
+
+Sidecars are optional. A missing matching entry makes the attachment
+reference-only and is valid; it does not make the shard malformed. Readers
+must ignore unreferenced or otherwise unknown entries under `blobs/` without
+failing shard import. Exporters and readers may stream large entries, but the
+entry name is always derived from the BLAKE3 digest of the complete content.
 
 ## Flow
 

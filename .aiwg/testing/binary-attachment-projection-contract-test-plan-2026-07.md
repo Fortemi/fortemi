@@ -28,6 +28,10 @@ This plan covers Fortemi-side projection behavior for binary attachments across 
 - Export and backup export use the same metadata envelope as search/index projection.
 - Embedding preparation consumes extracted text only and skips or defers no-text binary records with a stable reason class.
 - Debug output uses lengths, counts, presence flags, MIME classes, checksums, stable reason classes, or IDs only where allowed by existing redaction rules.
+- Checksums use `blake3:<64-char-lowercase-hex>` and `path` contains only the display filename, never a physical storage locator.
+- A portable shard sidecar maps each referenced checksum to `blobs/<64-char-lowercase-hex>` and deduplicates identical content by digest.
+- Reference-only shards remain valid when the matching sidecar entry is absent, and readers ignore unknown or unreferenced `blobs/` entries.
+- Sidecar presence never adds raw byte, base64, `data`, `raw`, or `content_bytes` fields to JSON records.
 
 ## Candidate Test Targets
 

@@ -24,14 +24,26 @@ The canonical metadata envelope is:
 ```json
 {
   "id": "attachment-id",
-  "path": "storage-or-logical-path",
+  "path": "display-filename.ext",
   "mime": "application/octet-stream",
-  "checksum": "sha256-or-storage-checksum",
+  "checksum": "blake3:<64-char-lowercase-hex>",
   "bytes": 12345
 }
 ```
 
 Projection records may include extracted text when available. They must not include raw file contents, base64 payloads, raw binary buffers, unbounded parser diagnostics, temporary filesystem paths, or backend error strings.
+
+`checksum` is the whole-content BLAKE3 digest encoded as `blake3:` followed by
+exactly 64 lowercase hexadecimal characters. `path` is the user-facing display
+filename only and must not expose a physical filesystem path, managed blob
+path, OPFS key, or object-store key.
+
+Portable Knowledge Shards may carry an optional `blobs/<hex>` tar sidecar,
+where `<hex>` is the bare digest from the corresponding record checksum. The
+sidecar contains at most one entry per distinct digest. JSON records remain
+byte-free. Missing matching entries are valid reference-only attachments, and
+readers ignore unknown or unreferenced `blobs/` entries. Large entries may be
+streamed, with the key derived from the digest of the complete content.
 
 Each projection record also carries stable extraction classification fields:
 
@@ -56,7 +68,7 @@ Each projection record also carries stable extraction classification fields:
 
 - API export and backup export paths must use the same metadata envelope.
 - Search and embedding preparation must use extracted text only, never binary bytes.
-- Index/export code must preserve attachment identity through `id` while treating `path` as metadata, not a file-read instruction for downstream consumers.
+- Index/export code must preserve attachment identity through `id` while treating `path` as a display filename, not a file-read instruction or physical storage locator for downstream consumers.
 - Debug output must continue to report lengths, counts, presence flags, checksums, MIME classes, stable reason classes, and IDs only where already allowed by the existing redaction posture.
 - React/browser consumers must receive enough metadata to render attachment affordances and error states without inspecting binary payloads.
 - AIWG index/export consumers must be able to skip, summarize, or defer binary attachments without panicking or attempting to embed raw bytes.
