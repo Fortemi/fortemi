@@ -7,6 +7,33 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.7.0] - 2026-07-12
+
+Migration-safety and release-publishing recovery release. This release restores a
+safe upgrade path from the February `v2026.2.0` database state to current,
+requires a successful pre-migration backup for bundled deployments, and verifies
+that GHCR publishing is active again before cutting versioned public images.
+
+### Fixed
+
+- **February-to-current upgrade path:** exact `v2026.2.0` migration history is
+  normalized before current migrations run, including legacy duplicate-version
+  and checksum drift cases from the February tag.
+- **SKOS embedding trigger compatibility:** legacy restore states with pgvector
+  `IS DISTINCT FROM` trigger comparisons are repaired before backup/migration,
+  preventing restore-time type errors on current PostgreSQL/pgvector.
+- **Bundled upgrade backup gate:** the bundle entrypoint now fails closed if the
+  pre-migration backup cannot be created before applying migrations.
+- **GHCR release confidence:** release creation remains dependent on successful
+  image publishing, and the post-merge dev publish path was verified before this
+  tagged release.
+
+### Documentation
+
+- Added a February-to-current upgrade runbook, audit report, and fixture evidence
+  covering exact `v2026.2.0` restore, 100k-note migration, backup restore drill,
+  and post-February migration inventory.
+
 ## [2026.6.1] - 2026-06-30
 
 Hardening and contract-cleanup release. The API error surface migrates to the RFC 9457 `problem+json` standard (a clean pre-GA break), a broad redaction pass removes secret/path/diagnostic leakage from errors and logs, HTTP responses gain security headers, and the incoming-webhook receiver moves to HMAC-only authentication. Documentation is reconciled to the shipped code.
