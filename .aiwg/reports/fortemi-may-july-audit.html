@@ -1,0 +1,668 @@
+<title>Fortemi Change Audit · May–Jul 2026</title>
+<style>
+:root{
+  --bg:#f5f7f9; --panel:#ffffff; --panel-2:#eef2f5; --ink:#141b22; --ink-2:#4a5763; --ink-3:#75828e;
+  --line:#dde4ea; --line-2:#e8edf1;
+  --accent:#0e8a8a; --accent-ink:#0a6d6d; --accent-wash:#e2f1f1;
+  --crit:#c8384c; --crit-wash:#fbe7ea; --high:#c9660a; --high-wash:#fbeede;
+  --med:#a8850c; --med-wash:#f7f0d8; --low:#5a6b7a; --low-wash:#eaeef2;
+  --ok:#1f8a5b;
+  --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+  --sans:"Inter var",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --maxw:1080px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0e141a; --panel:#161f27; --panel-2:#1c2731; --ink:#e7edf2; --ink-2:#a7b4c0; --ink-3:#75838f;
+  --line:#273542; --line-2:#212d38;
+  --accent:#2bb3b3; --accent-ink:#43c4c4; --accent-wash:#123033;
+  --crit:#f0687b; --crit-wash:#2e1a1f; --high:#f0982f; --high-wash:#2c2113;
+  --med:#e0bd4a; --med-wash:#2a2513; --low:#8ea0b0; --low-wash:#1d2732;
+  --ok:#3fb985;
+}}
+:root[data-theme="light"]{
+  --bg:#f5f7f9; --panel:#ffffff; --panel-2:#eef2f5; --ink:#141b22; --ink-2:#4a5763; --ink-3:#75828e;
+  --line:#dde4ea; --line-2:#e8edf1; --accent:#0e8a8a; --accent-ink:#0a6d6d; --accent-wash:#e2f1f1;
+  --crit:#c8384c; --crit-wash:#fbe7ea; --high:#c9660a; --high-wash:#fbeede;
+  --med:#a8850c; --med-wash:#f7f0d8; --low:#5a6b7a; --low-wash:#eaeef2; --ok:#1f8a5b;
+}
+:root[data-theme="dark"]{
+  --bg:#0e141a; --panel:#161f27; --panel-2:#1c2731; --ink:#e7edf2; --ink-2:#a7b4c0; --ink-3:#75838f;
+  --line:#273542; --line-2:#212d38; --accent:#2bb3b3; --accent-ink:#43c4c4; --accent-wash:#123033;
+  --crit:#f0687b; --crit-wash:#2e1a1f; --high:#f0982f; --high-wash:#2c2113;
+  --med:#e0bd4a; --med-wash:#2a2513; --low:#8ea0b0; --low-wash:#1d2732; --ok:#3fb985;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.55;
+  -webkit-font-smoothing:antialiased;font-size:15px}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+a{color:var(--accent-ink);text-decoration:none}
+h1,h2,h3,h4{text-wrap:balance;margin:0}
+
+/* header */
+.masthead{border-bottom:1px solid var(--line);background:
+  linear-gradient(180deg,var(--panel),transparent);padding:44px 0 30px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--accent-ink);display:flex;align-items:center;gap:9px}
+.eyebrow::before{content:"";width:26px;height:2px;background:var(--accent);display:inline-block}
+h1{font-size:clamp(28px,4.4vw,44px);line-height:1.04;font-weight:760;letter-spacing:-.02em;margin:14px 0 10px}
+.sub{color:var(--ink-2);max-width:64ch;font-size:15.5px}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:18px;font-family:var(--mono);
+  font-size:12.5px;color:var(--ink-3)}
+.meta-row b{color:var(--ink-2);font-weight:600}
+
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:12px;margin:26px 0}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px 16px}
+.tile .n{font-size:27px;font-weight:730;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1}
+.tile .l{font-size:11.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;margin-top:7px}
+.tile.crit .n{color:var(--crit)} .tile.high .n{color:var(--high)} .tile.acc .n{color:var(--accent-ink)}
+
+section{padding:34px 0;border-top:1px solid var(--line-2)}
+.sec-h{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+.sec-h h2{font-size:20px;font-weight:700;letter-spacing:-.01em}
+.sec-h .count{font-family:var(--mono);font-size:12.5px;color:var(--ink-3)}
+.sec-lead{color:var(--ink-2);max-width:70ch;margin:0 0 20px;font-size:14.5px}
+
+/* priority band */
+.priority{background:var(--crit-wash);border:1px solid color-mix(in srgb,var(--crit) 30%,transparent);
+  border-radius:14px;padding:20px 22px;margin:22px 0}
+.priority h2{font-size:16px;display:flex;align-items:center;gap:9px}
+.priority h2::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--crit);
+  box-shadow:0 0 0 4px color-mix(in srgb,var(--crit) 22%,transparent)}
+.priority ol{margin:14px 0 0;padding-left:0;list-style:none;counter-reset:p;display:flex;flex-direction:column;gap:10px}
+.priority li{counter-increment:p;display:grid;grid-template-columns:26px 1fr;gap:12px;align-items:start}
+.priority li::before{content:counter(p);font-family:var(--mono);font-size:12px;font-weight:600;
+  color:var(--crit);background:var(--panel);border:1px solid color-mix(in srgb,var(--crit) 30%,transparent);
+  border-radius:6px;width:24px;height:24px;display:grid;place-items:center}
+.priority li b{font-weight:640}
+.priority li span{color:var(--ink-2)}
+
+/* findings */
+.findings{display:flex;flex-direction:column;gap:16px}
+.finding{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:13px;overflow:hidden}
+.f-stripe{width:5px;flex:none}
+.sev-critical .f-stripe{background:var(--crit)}
+.sev-high .f-stripe{background:var(--high)}
+.f-body{padding:17px 19px;min-width:0;flex:1}
+.f-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:9px}
+.badge{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
+  padding:3px 8px;border-radius:5px;font-weight:600;white-space:nowrap}
+.sb-critical{background:var(--crit-wash);color:var(--crit)}
+.sb-high{background:var(--high-wash);color:var(--high)}
+.badge.dim{background:var(--panel-2);color:var(--ink-2);border:1px solid var(--line)}
+.badge.verdict{border:1px solid transparent}
+.v-confirmed{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+.v-confirmed::before{content:"✓ ";}
+.v-refuted{background:var(--low-wash);color:var(--low)}
+.f-loc{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-left:auto;
+  overflow-x:auto;max-width:100%;white-space:nowrap}
+.f-title{font-size:16.5px;font-weight:660;line-height:1.3;letter-spacing:-.01em;margin-bottom:13px}
+.f-grid{display:grid;gap:13px}
+@media(min-width:720px){.f-grid{grid-template-columns:1fr 1fr}.f-block.fix{grid-column:1/-1}}
+.f-block p{margin:4px 0 0;font-size:13.5px;color:var(--ink-2);line-height:1.5}
+.f-lbl{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3)}
+.f-cite{margin-top:13px;padding-top:12px;border-top:1px dashed var(--line);font-size:12.5px;color:var(--ink-3)}
+.f-cite .f-lbl{color:var(--accent-ink);margin-right:6px}
+
+/* refuted note */
+.refuted-note{display:flex;gap:13px;align-items:flex-start;background:var(--panel);border:1px dashed var(--line);
+  border-radius:11px;padding:15px 17px;margin-top:18px;font-size:13.5px;color:var(--ink-2)}
+.refuted-note .badge{margin-top:2px}
+
+/* med/low table */
+.ml-tables{display:grid;gap:26px}
+.ml-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:640px}
+th{text-align:left;font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--ink-3);font-weight:600;padding:11px 14px;border-bottom:1px solid var(--line);background:var(--panel-2)}
+td{padding:11px 14px;border-bottom:1px solid var(--line-2);vertical-align:top;color:var(--ink-2)}
+tr:last-child td{border-bottom:none}
+.ml-title{color:var(--ink);font-weight:520;width:52%}
+.ml-dim{color:var(--ink-3);white-space:nowrap}
+.ml-loc{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+.sb-dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-top:5px}
+.sb-dot.sb-medium{background:var(--med)} .sb-dot.sb-low{background:var(--low)}
+td:first-child{width:22px;padding-right:0}
+
+/* dimensions */
+.dims{display:grid;gap:14px}
+@media(min-width:760px){.dims{grid-template-columns:1fr 1fr}}
+.dim-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:17px 19px}
+.dim-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:8px}
+.dim-head h4{font-size:14.5px;font-weight:660;letter-spacing:-.005em}
+.dim-n{font-family:var(--mono);font-size:11px;color:var(--ink-3);white-space:nowrap}
+.dim-card p{margin:0;font-size:12.8px;color:var(--ink-2);line-height:1.5}
+
+footer{border-top:1px solid var(--line);padding:26px 0 44px;color:var(--ink-3);font-size:12.5px}
+.method{background:var(--accent-wash);border:1px solid color-mix(in srgb,var(--accent) 26%,transparent);
+  border-radius:12px;padding:16px 19px;margin:22px 0;font-size:13.5px;color:var(--ink-2)}
+.method b{color:var(--accent-ink)}
+</style>
+
+<div class="masthead"><div class="wrap">
+  <div class="eyebrow">Change Audit · Fortemi / matric-memory</div>
+  <h1>What the last three months of unattended agent work left behind</h1>
+  <p class="sub">A code-level audit of every change from <b>May 1</b> to <b>July 11, 2026</b> — the window in which realtime streaming, telephony, and inbound-event schemas landed across ~904 commits, many produced by unattended agent runs. Reviewed against the codebase at HEAD, cross-checked to industry standards, and adversarially verified.</p>
+  <div class="meta-row">
+    <span><b>Range</b> 765b8248^..HEAD</span>
+    <span><b>Commits</b> 904</span>
+    <span><b>Files</b> 485</span>
+    <span><b>Migrations</b> 8 new + 1 edited</span>
+    <span><b>Generated</b> 2026-07-11</span>
+  </div>
+</div></div>
+
+<div class="wrap">
+
+  <div class="tiles">
+    <div class="tile crit"><div class="n">2</div><div class="l">Critical</div></div>
+    <div class="tile high"><div class="n">11</div><div class="l">High</div></div>
+    <div class="tile"><div class="n">26</div><div class="l">Medium</div></div>
+    <div class="tile"><div class="n">13</div><div class="l">Low</div></div>
+    <div class="tile acc"><div class="n">13</div><div class="l">Verified defects</div></div>
+    <div class="tile"><div class="n">8</div><div class="l">Dimensions</div></div>
+  </div>
+
+  <div class="method">
+    <b>Method.</b> Eight independent reviewers each audited one dimension (schema/migrations, realtime/telephony, webhooks/outbox, API auth surface, jobs/inference, CI/supply-chain, docs-contract drift, test integrity), reading the actual code at HEAD rather than trusting commit messages, and citing OWASP / CWE / NIST / RFC / vendor standards per finding. Every Critical and High claim then went through an <b>adversarial verifier</b> instructed to refute it — 13 were independently confirmed at the cited file:line; 1 was refuted and dropped. Two reviewers independently reported the same unauthenticated-WebSocket defect, which is merged below.
+  </div>
+
+  <div class="priority">
+    <h2>Fix before the next release</h2>
+    <ol>
+      <li><b>Migration checksum brick.</b> <span>An already-applied migration (<code>20260215000000</code>) was edited in place; every deployment that migrated before mid-May will refuse to boot on upgrade. Ship a checksum-repair or revert before any image reaches an existing host.</span></li>
+      <li><b>Unauthenticated event-bus firehose.</b> <span><code>/api/v1/ws</code> streams every tenant's note titles, tags, and filenames to anonymous clients even with <code>REQUIRE_AUTH=true</code> — a direct ADR-094 violation. Add inline auth + memory scoping.</span></li>
+      <li><b>CI ships past its own security gates.</b> <span>The four publish/release jobs don't depend on <code>audit</code>/<code>deny</code>, so images push to ghcr.io even when advisory checks fail. Add them to <code>needs:</code>.</span></li>
+      <li><b>Provider API keys at rest in cleartext.</b> <span>OpenAI/OpenRouter/llama.cpp keys sit raw in JSONB in two tables; every backup leaks live credentials. Encrypt or vault them.</span></li>
+    </ol>
+  </div>
+
+  <section>
+    <div class="sec-h"><h2>Critical</h2><span class="count">2 confirmed</span></div>
+    <p class="sec-lead">Each breaks a stated project invariant — fail-closed auth or safe migrations — and detonates in the field rather than in CI.</p>
+    <div class="findings"><article class="finding sev-critical" id="f1">
+  <div class="f-stripe"></div>
+  <div class="f-body">
+    <div class="f-head">
+      <span class="badge sev-badge sb-critical">CRITICAL</span>
+      <span class="badge dim">Schema &amp; Migrations</span>
+      <span class="badge verdict v-confirmed">CONFIRMED</span>
+      <span class="f-loc">migrations/20260215000000_native_uuidv7.sql:20</span>
+    </div>
+    <h3 class="f-title">Already-applied migration 20260215000000_native_uuidv7.sql was edited in place — sqlx checksum validation will refuse to start every existing deployment on upgrade</h3>
+    <div class="f-grid">
+      <div class="f-block"><span class="f-lbl">Evidence</span><p>Commit 10d2601f (2026-05-17, &#x27;feat(db): declare PostgreSQL 18 as hard requirement (#635)&#x27;) added 25 lines to a migration originally created in commit 42f88e98 (Feb 2026, timestamp prefix 20260215): a new &#x27;DO $pg18_guard$ BEGIN IF current_setting(&#x27;&#x27;server_version_num&#x27;&#x27;)::int &lt; 180000 THEN RAISE EXCEPTION ...&#x27; block at lines 20-27 plus rewritten header comments. crates/matric-db/src/lib.rs:315-321 runs &#x27;sqlx::migrate!(&quot;../../migrations&quot;).run(&amp;self.pool)&#x27; with default checksum validation; grep across crates/ and docker/bundle-entrypoint.sh finds no checksum-repair path (no UPDATE of _sqlx_migrations.checksum anywhere). Any deployment that applied the original file between Feb and May 2026 (including release-pinned bundle-latest hosts) will fail startup with sqlx MigrateError::VersionMismatch (&#x27;migration 20260215000000 was previously applied but has been modified&#x27;). This is the exact known-pitfall documented in the project&#x27;s own conventions, and the edit is redundant anyway — Database::migrate() already calls require_postgres_18() (lib.rs:316) before migrations run.</p></div>
+      <div class="f-block"><span class="f-lbl">Impact</span><p>On the next image upgrade, every pre-May deployment&#x27;s API container crash-loops at boot: sqlx compares the stored checksum in _sqlx_migrations against the modified file and aborts the whole migrator before any pending migration runs. New installs are unaffected, making this invisible in CI (fresh DB) — it only detonates in the field.</p></div>
+      <div class="f-block"><span class="f-lbl">Fix</span><p>Revert 20260215000000_native_uuidv7.sql to its byte-exact pre-10d2601f content and move the PG18 guard into a NEW migration with a fresh timestamp (or rely solely on require_postgres_18() in Database::migrate, which already covers the startup path). If reverting is no longer possible because some deployments applied the modified version, ship a one-time entrypoint repair that updates _sqlx_migrations.checksum for version 20260215000000 to match the canonical file before sqlx::migrate! runs. Add a CI check that fails if a committed migration file&#x27;s content changes after it first appears on main.</p></div>
+    </div>
+    <div class="f-cite"><span class="f-lbl">Standard</span> sqlx::migrate::Migrator docs — applied migrations are checksum-validated and &#x27;previously applied but has been modified&#x27; is a hard error (MigrateError::VersionMismatch); Flyway/sqlx migration best practice: never edit an applied migration, always add a new one.</div>
+  </div>
+</article><article class="finding sev-critical" id="f2">
+  <div class="f-stripe"></div>
+  <div class="f-body">
+    <div class="f-head">
+      <span class="badge sev-badge sb-critical">CRITICAL</span>
+      <span class="badge dim">Realtime &amp; Telephony</span>
+      <span class="badge verdict v-confirmed">CONFIRMED</span>
+      <span class="f-loc">crates/matric-api/src/main.rs:4131</span>
+    </div>
+    <h3 class="f-title">Unauthenticated /api/v1/ws WebSocket streams the full cross-tenant event bus (note titles, tags, filenames) even when REQUIRE_AUTH=true</h3>
+    <div class="f-grid">
+      <div class="f-block"><span class="f-lbl">Evidence</span><p>Route `/api/v1/ws` is registered at main.rs:3440 and classified `RealtimeTransport` in route_policy.rs:1422-1427. `is_public_without_bearer` treats that class as fully public: route_policy.rs:1500-1512 `matches!(policy.class, Public | Docs | OAuth | RealtimeTransport | SystemHealth)`. So `auth_middleware` (main.rs:6810 `if is_auth_exempt(&amp;method,&amp;path){return next.run(request).await;}`) bypasses auth entirely, and `authorize_middleware` then early-returns because no `Auth` extension was injected. The handler itself performs ZERO auth: `async fn ws_handler(ws, State(state))` (main.rs:4127) → `handle_ws_connection` (main.rs:4131) immediately `let mut event_rx = state.event_bus.subscribe();` (4137) and forwards `envelope.payload` for every event (4149-4151) with no token, scope, or memory filter — unlike the sibling SSE handler which does authenticate. ServerEvent payloads carry tenant content: `NoteCreated{title,tags}`/`NoteUpdated{title,tags}` (matric-core/src/events.rs:293-310), `AttachmentCreated{filename}` (325-331), `CollectionCreated{name}`, `ArchiveCreated{name}`.</p></div>
+      <div class="f-block"><span class="f-lbl">Impact</span><p>An anonymous client connecting to wss://host/api/v1/ws receives a live firehose of every tenant&#x27;s note titles, tags, attachment filenames, collection/archive names and job activity, defeating multi-tenant isolation and the fail-closed auth posture.</p></div>
+      <div class="f-block"><span class="f-lbl">Fix</span><p>Remove `RealtimeTransport` from the public set in `is_public_without_bearer`, or add in-handler bearer validation to `ws_handler` mirroring `sse_events` (query-token or Authorization header), and scope the forwarded events to the caller&#x27;s authenticated memory/tenant. This is required to satisfy ADR-094 fail-closed default.</p></div>
+    </div>
+    <div class="f-cite"><span class="f-lbl">Standard</span> OWASP Top 10 A01:2021 Broken Access Control; CWE-306 Missing Authentication for Critical Function; ADR-094 (REQUIRE_AUTH fail-closed default)</div>
+  </div>
+</article></div>
+  </section>
+
+  <section>
+    <div class="sec-h"><h2>High</h2><span class="count">11 confirmed</span></div>
+    <p class="sec-lead">Security gaps, correctness bugs, and durability holes in the new streaming/inference/webhook subsystems — each verified at HEAD.</p>
+    <div class="findings"><article class="finding sev-high" id="f3">
+  <div class="f-stripe"></div>
+  <div class="f-body">
+    <div class="f-head">
+      <span class="badge sev-badge sb-high">HIGH</span>
+      <span class="badge dim">CI &amp; Supply Chain</span>
+      <span class="badge verdict v-confirmed">CONFIRMED</span>
+      <span class="f-loc">.gitea/workflows/ci-builder.yaml:519</span>
+    </div>
+    <h3 class="f-title">Publish and release jobs are not gated on the security audit/deny jobs — images and releases ship even when advisory checks fail</h3>
+    <div class="f-grid">
+      <div class="f-block"><span class="f-lbl">Evidence</span><p>Needs graph at HEAD: `publish-dev` (line 519), `publish-release` (603), `publish-github-dev` (766), `publish-github` (842) all declare `needs: [test-container, integration-test]`; the chain resolves test-container→build-image→build→[lint, build-testdb]. The `audit` job (line 88, `cargo audit --deny warnings` at line 111, `npm audit --audit-level=high` at 118) and `deny` job (line 120, `cargo deny check` at 141) appear in no `needs:` chain. Under standard Actions semantics a failed parallel job does not stop unrelated jobs, so a new RUSTSEC or npm advisory turns the run red AFTER `publish-dev` has already pushed `:main`/`bundle-main` to the internal registry and ghcr.io, and on tag pushes `publish-release`/`create-release` still publish the public release image and create the release. This defeats the stated intent of commits 8eee0bba/adceed5d (&#x27;surface advisories pre-merge&#x27;, #701/#702).</p></div>
+      <div class="f-block"><span class="f-lbl">Impact</span><p>Upstream publishes a new high-severity advisory affecting a locked dependency; the audit job fails but the same run publishes the affected image to ghcr.io (`bundle-latest` on tags is what end users pull per deployment docs). The security gate is observational, not enforcing — exactly the failure mode the team fixed for docker push masking in ebaea5db (#882), reproduced one level up in the job graph.</p></div>
+      <div class="f-block"><span class="f-lbl">Fix</span><p>Add `audit`, `deny`, and `mcp-lockfile-sync` to the `needs:` list of all four publish jobs (and transitively the create-release jobs), or gate publish on a fan-in job that needs every quality/security job. If advisory flakiness is a concern, keep audit non-blocking for PRs but blocking for the publish path.</p></div>
+    </div>
+    <div class="f-cite"><span class="f-lbl">Standard</span> NIST SP 800-218 (SSDF) PO.4.1/PW.7 — security checks must gate release; SLSA v1.0 build requirements (verified provenance before distribution); mirrors repo rule anti-laziness Rule 8 (never let a failing gate coexist with a shipping artifact)</div>
+  </div>
+</article><article class="finding sev-high" id="f4">
+  <div class="f-stripe"></div>
+  <div class="f-body">
+    <div class="f-head">
+      <span class="badge sev-badge sb-high">HIGH</span>
+      <span class="badge dim">CI &amp; Supply Chain</span>
+      <span class="badge verdict v-confirmed">CONFIRMED</span>
+      <span class="f-loc">crates/matric-jobs/src/adapters/spreadsheet.rs:211</span>
+    </div>
+    <h3 class="f-title">Accepted quick-xml DoS advisories (RUSTSEC-2026-0194/0195): stated compensating controls do not hold — parse runs synchronously in the API process where the job timeout cannot preempt it</h3>
+    <div class="f-grid">
+      <div class="f-block"><span class="f-lbl">Evidence</span><p>.cargo/audit.toml allowlists RUSTSEC-2026-0194/0195 (quick-xml 0.31.0, both 7.5 HIGH, quadratic attribute check + unbounded NsReader allocation) stating &#x27;Impact is bounded to CPU/memory exhaustion of the extraction worker&#x27; with &#x27;upload size caps, worker memory limits&#x27; as mitigation (commits 539af602/65b87f88, tracked #1011, expiry 2026-10-01). Three gaps at HEAD: (1) the &#x27;extraction worker&#x27; IS the API process — crates/matric-api/src/main.rs:2446 registers `SpreadsheetAdapter` and main.rs:2463 constructs `JobWorker::new(...)` inside the API binary, so RUSTSEC-2026-0195&#x27;s unbounded allocation OOM-kills the whole API, not a sidecar; (2) spreadsheet.rs:197-211 runs `open_workbook_auto_from_rs(cursor)` synchronously inside `async fn extract` with no `spawn_blocking` — the job timeout at worker.rs:816 (`tokio::time::timeout(job_timeout, handler.execute(ctx))`) can only fire at an await point, so a quadratic parse holds a tokio runtime thread and the job slot for its full unbounded duration; (3) quadratic complexity means the 50MB default upload cap (MATRIC_MAX_UPLOAD_SIZE_BYTES) does not meaningfully bound CPU — a small crafted xlsx with duplicated attributes suffices. Untrusted spreadsheet parsing is an advertised Fortemi feature, so the vulnerable path is reachable by any authenticated user (any local caller in anonymous desktop mode; any single tenant on multi-tenant hosts). Expiry dates in audit.toml/deny.toml are comments only — nothing mechanically fails CI after 2026-10-01.</p></div>
+      <div class="f-block"><span class="f-lbl">Impact</span><p>A single authenticated user uploads a crafted .xlsx: RUSTSEC-2026-0195 path allocates unboundedly and the OOM killer terminates the entire API container (all tenants, all endpoints), or RUSTSEC-2026-0194 pins a runtime thread for hours while the job appears &#x27;running&#x27;. The documented acceptance rationale materially understates blast radius, so the risk decision on record was made against wrong facts.</p></div>
+      <div class="f-block"><span class="f-lbl">Fix</span><p>(a) Wrap calamine parsing in `tokio::task::spawn_blocking` and enforce a hard wall-clock kill (subprocess with rlimits, or at minimum a watchdog that fails the job and recycles), plus a decompressed-size/sheet-count guard before parse; (b) consider `[patch.crates-io]` to force quick-xml &gt;=0.41 and verify calamine 0.26 compiles, rather than waiting for upstream; (c) correct the audit.toml impact statement; (d) add a CI step that fails when an allowlist entry&#x27;s expiry comment date has passed.</p></div>
+    </div>
+    <div class="f-cite"><span class="f-lbl">Standard</span> CWE-400 (Uncontrolled Resource Consumption); RUSTSEC-2026-0194/0195; OWASP ASVS 4.0 V12.1 (file upload resource limits); tokio docs: CPU-bound work must use spawn_blocking — `tokio::time::timeout` cannot cancel non-yielding futures</div>
+  </div>
+</article><article class="finding sev-high" id="f5">
+  <div class="f-stripe"></div>
+  <div class="f-body">
+    <div class="f-head">
+      <span class="badge sev-badge sb-high">HIGH</span>
+      <span class="badge dim">Docs &amp; Contract Drift</span>
+      <span class="badge verdict v-confirmed">CONFIRMED</span>
+      <span class="f-loc">crates/matric-api/src/main.rs:1052</span>
+    </div>
+    <h3 class="f-title">Published OpenAPI spec silently omits ~36 live endpoints; the &#x27;drift catcher&#x27; test cannot detect it</h3>
+    <div class="f-grid">
+      <div class="f-block"><span class="f-lbl">Evidence</span><p>ApiDoc `paths(...)` (main.rs:1046-1133) registers 212 handlers, but 245 handlers carry `#[utoipa::path]` annotations — 33 annotated handlers are never registered and are silently dropped from the served `/openapi.yaml`: the whole runtime inference-config API (`get_inference_config`, `update_inference_config`, `delete_inference_config`, `get_inference_config_audit`, `test_connection` — crates/matric-api/src/handlers/inference_config.rs:1229,1312,2230,2502,2691), the graph maintenance pipeline (`trigger_graph_maintenance`, `graph_diagnostics`, `recompute_snn_scores`, `pfnet_sparsify`, `capture_diagnostics_snapshot`, `list_diagnostics_snapshots`, `compare_diagnostics_snapshots`), PKE keyset management (`create_keyset`, `list_keysets`, `import_keyset`, `export_keyset`, `set_active_keyset`, `get_active_keyset`, `delete_keyset`), job pause/resume (`pause_jobs_global`, `resume_jobs_global`, `pause_jobs_archive`, `resume_jobs_archive`, `get_job_pause_status`), plus `get_related_notes`, `tus_get_upload`, attachment thumbnails/subtitles/sprites, `/health/live`, and `streaming_health_check`. Additionally `handlers/inference_complete.rs` (routes `/api/v1/inference/complete`, `/inference/stream`, `/inference/providers` — main.rs:3033-3038) has ZERO utoipa annotations. All of these endpoints are documented in prose (CLAUDE.md &#x27;Runtime Configuration (hot-swap)&#x27;, docs/content/inference-backends.md:239, docs/content/inference-configuration.md:430-441) so the machine-readable contract contradicts the human docs. The guardrail is illusory: the doc comment at main.rs:1044 says &#x27;Run `cargo test openapi_spec_is_current` to verify&#x27; — no such test exists anywhere in the repo; the only test, `openapi_spec_is_valid` (main.rs:40831), claims &#x27;If a handler is added/removed without updating ApiDoc, this will fail&#x27; but only checks string presence of endpoint-group prefixes and `path_count &gt;= 100`, so 33 unregistered handlers pass it today.</p></div>
+      <div class="f-block"><span class="f-lbl">Impact</span><p>Any integrator or codegen pipeline consuming `GET /openapi.yaml` (the advertised source of truth: served publicly, linked from `/docs` Swagger UI) will build a client that lacks the inference runtime-config, inference-audit, graph-maintenance, PKE keyset, and job-control surfaces, or will conclude those endpoints don&#x27;t exist and that the prose docs are wrong. Security reviewers inventorying the attack surface from the spec will miss admin-grade endpoints (inference config accepts API keys; config/audit exposes change history).</p></div>
+      <div class="f-block"><span class="f-lbl">Fix</span><p>Adopt `utoipauto` (or a build-time check) to auto-collect all `#[utoipa::path]` handlers, or add a real currency test that diffs the axum Router&#x27;s registered paths against `ApiDoc::openapi().paths` and fails on any gap; register the 33 missing handlers and annotate `handlers/inference_complete.rs`; fix or delete the false doc comments at main.rs:1044 and above `openapi_spec_is_valid`.</p></div>
+    </div>
+    <div class="f-cite"><span class="f-lbl">Standard</span> OWASP API Security Top 10 (2023) API9: Improper Inventory Management — &#x27;an up-to-date and accurate API inventory/documentation is crucial&#x27;; utoipa docs require every handler to be registered in `#[openapi(paths(...))]` for inclusion</div>
+  </div>
+</article><article class="finding sev-high" id="f6">
+  <div class="f-stripe"></div>
+  <div class="f-body">
+    <div class="f-head">
+      <span class="badge sev-badge sb-high">HIGH</span>
+      <span class="badge dim">Jobs &amp; Inference</span>
+      <span class="badge verdict v-confirmed">CONFIRMED</span>
+      <span class="f-loc">crates/matric-api/src/handlers/inference_config.rs:1498</span>
+    </div>
+    <h3 class="f-title">Ollama generation-backend hot-swap executes before dry_run, atomic, archive-scope, and persistence guards</h3>
+    <div class="f-grid">
+      <div class="f-block"><span class="f-lbl">Evidence</span><p>In update_inference_config, the merge step for req.ollama ends with an unconditional live swap at lines 1492-1500: `let new_backend = std::sync::Arc::new(OllamaBackend::with_config(merged_base, merged_embed, merged_gen, EMBED_DIMENSION)); let mut rt = state.inference_runtime.write().unwrap(); rt.generation_backend = Some(new_backend);`. This runs BEFORE: the atomic probe gate (`if params.atomic {` line 1801, which aborts with 503 on probe failure), the dry-run short-circuit (`if params.dry_run {` line 1935, whose comment says &quot;surface the would-be effective config without touching the live registry or DB&quot;), the archive-scope branch (line 1956, comment: &quot;For archive-scoped requests, skip the global hot-swap path entirely&quot;), and the DB persist (lines 2162-2180, which returns 500 on failure). All four guards are violated by the early swap.</p></div>
+      <div class="f-block"><span class="f-lbl">Impact</span><p>(1) `POST /api/v1/inference/config?dry_run=true` with an `ollama` block mutates the live production generation backend despite the documented no-op contract; (2) `?atomic=true` whose probe fails returns 503 &#x27;aborted&#x27; but the Ollama backend was already swapped, leaving torn state; (3) an archive-scoped request (X-Fortemi-Memory: non-default) that includes `ollama` silently rewrites the GLOBAL backend for all archives, breaking per-archive isolation; (4) if the user_config persist fails, the handler returns 500 while the in-memory backend stays swapped — live vs persisted config diverge until restart. Additionally, generation_backend and provider_registry are swapped under two separate write-lock acquisitions (lines 1498 and 2156), so concurrent readers can observe a new generation backend paired with the old provider registry mid-request.</p></div>
+      <div class="f-block"><span class="f-lbl">Fix</span><p>Move all live-state mutation (generation_backend and provider_registry swaps) to a single point after validation, atomic probing, the dry_run short-circuit, the archive-scope branch, and successful DB persistence; perform both swaps under one write-lock acquisition so readers never see a torn combination.</p></div>
+    </div>
+    <div class="f-cite"><span class="f-lbl">Standard</span> CWE-696 (Incorrect Behavior Order), CWE-662 (Improper Synchronization); OWASP ASVS 4.0 V1.4 fail-secure access-control design</div>
+  </div>
+</article><article class="finding sev-high" id="f7">
+  <div class="f-stripe"></div>
+  <div class="f-body">
+    <div class="f-head">
+      <span class="badge sev-badge sb-high">HIGH</span>
+      <span class="badge dim">Jobs &amp; Inference</span>
+      <span class="badge verdict v-confirmed">CONFIRMED</span>
+      <span class="f-loc">migrations/20260510063033_archive_inference_override.sql:26</span>
+    </div>
+    <h3 class="f-title">Provider API keys stored in plaintext JSONB in user_config and archive_inference_override</h3>
+    <div class="f-grid">
+      <div class="f-block"><span class="f-lbl">Evidence</span><p>Migration comment: &quot;API keys are persisted as supplied by the operator (raw, in JSONB). The runtime redacts them on read...&quot;. The handler confirms it: crates/matric-api/src/handlers/inference_config.rs:1559-1561 `if let Some(ref key) = partial_openai.api_key.as_deref().or(cur_key.as_deref()) { obj.insert(&quot;api_key&quot;.to_string(), Value::String(key.to_string())); }` and the raw `merged` blob is INSERTed into `user_config` (lines 2162-2170) and `archive_inference_override` (lines 1957-1967). Same for openrouter and llamacpp keys.</p></div>
+      <div class="f-block"><span class="f-lbl">Impact</span><p>OpenAI/OpenRouter/llama.cpp API keys sit in cleartext in two ordinary tables, so any pg_dump backup, restore artifact, read replica, or SQL-level read (e.g. the documented backup/restore pipeline that pipes full dumps through psql) exposes live third-party credentials. GET-time redaction (redact_api_key -&gt; &lt;secret_present_len:N&gt;) protects the API surface only, not the datastore. A leaked backup means paid-provider account takeover and quota abuse.</p></div>
+      <div class="f-block"><span class="f-lbl">Fix</span><p>Encrypt provider keys at rest (e.g. envelope encryption with a key from env/KMS, or pgcrypto with a non-DB-resident key) or store them in a dedicated secrets table with column-level encryption; at minimum document the exposure and exclude these rows from standard dump tooling.</p></div>
+    </div>
+    <div class="f-cite"><span class="f-lbl">Standard</span> CWE-312 (Cleartext Storage of Sensitive Information); NIST SP 800-57 Part 1 (key/secret storage protection); OWASP ASVS 4.0 V2.10.4 / V6.4 (secrets stored with protection equivalent to keys)</div>
+  </div>
+</article><article class="finding sev-high" id="f8">
+  <div class="f-stripe"></div>
+  <div class="f-body">
+    <div class="f-head">
+      <span class="badge sev-badge sb-high">HIGH</span>
+      <span class="badge dim">Jobs &amp; Inference</span>
+      <span class="badge verdict v-confirmed">CONFIRMED</span>
+      <span class="f-loc">crates/matric-api/src/main.rs:2746</span>
+    </div>
+    <h3 class="f-title">Persisted DB inference overrides are never loaded at startup — runtime silently reverts to env after restart</h3>
+    <div class="f-grid">
+      <div class="f-block"><span class="f-lbl">Evidence</span><p>Startup builds the runtime purely from env: line 2746 `let generation_backend: Option&lt;Arc&lt;OllamaBackend&gt;&gt; = Some(Arc::new(OllamaBackend::from_env()));` and line 2328 `let provider_registry = std::sync::Arc::new(matric_inference::ProviderRegistry::from_env());`. `grep user_config crates/matric-api/src/main.rs` returns nothing — the persisted `user_config.inference_override` row (written by POST /api/v1/inference/config, lines 2162-2170 of inference_config.rs) is only read by the GET/POST handlers via read_db_override, never at boot.</p></div>
+      <div class="f-block"><span class="f-lbl">Impact</span><p>The documented precedence is db_override → env → default (CLAUDE.md, and build_effective_config implements it for the GET response). After any restart, an OpenRouter key, embedding_backend override, or Ollama base_url set via the hot-swap API (#654, in-range) is inert: the live registry/backend come from env only, while GET /api/v1/inference/config still reports the DB values as the effective config with source=db_override. Operators believe traffic routes to OpenRouter/llama.cpp when it silently reverted to the env/default Ollama — misrouted inference, failed openai:/openrouter: slugs, and a config UI that lies about live state.</p></div>
+      <div class="f-block"><span class="f-lbl">Fix</span><p>At startup, read user_config.inference_override and replay the same registry/backend rebuild the POST handler performs (or extract a shared apply_config(merged) used by both boot and hot-swap), so persisted overrides survive restarts and GET reflects reality.</p></div>
+    </div>
+    <div class="f-cite"><span class="f-lbl">Standard</span> CWE-665 (Improper Initialization); Twelve-Factor III (config must be authoritative and consistently applied); NIST SP 800-128 (configuration state must match approved/recorded configuration)</div>
+  </div>
+</article><article class="finding sev-high" id="f9">
+  <div class="f-stripe"></div>
+  <div class="f-body">
+    <div class="f-head">
+      <span class="badge sev-badge sb-high">HIGH</span>
+      <span class="badge dim">Realtime &amp; Telephony</span>
+      <span class="badge verdict v-confirmed">CONFIRMED</span>
+      <span class="f-loc">crates/matric-api/src/main.rs:3739</span>
+    </div>
+    <h3 class="f-title">No concurrency or rate cap on Twilio realtime WebSocket sessions; each bind opens an unbounded external Deepgram streaming session</h3>
+    <div class="f-grid">
+      <div class="f-block"><span class="f-lbl">Evidence</span><p>`twilio_realtime_ws` (main.rs:3739) accepts the upgrade and `handle_twilio_realtime_connection` calls `start_twilio_asr_pipeline` (main.rs:3980+) which unconditionally does `backend.start_session(...)` opening a Deepgram WSS session (`wss://api.deepgram.com/v1/listen`, deepgram.rs:25/214) with no semaphore, per-provider cap, or global limit. Grep for `semaphore`/`max_concurrent` in the realtime tree returns nothing; the only concurrency gate in the process is `chat_semaphore` for chat (main.rs:1005, 2747-2748 `Semaphore::new(permits)`), deliberately NOT applied to realtime. Every concurrent bound call spawns an ASR pipeline and a paid external session.</p></div>
+      <div class="f-block"><span class="f-lbl">Impact</span><p>An attacker who can bind sessions (see inline-proof finding) — or even legitimate call spikes — can open unlimited concurrent Deepgram streams, exhausting memory/CPU and running up unbounded provider cost (Deepgram is billed per minute, see realtime_asr_deepgram_cost_per_minute default $0.0036/min).</p></div>
+      <div class="f-block"><span class="f-lbl">Fix</span><p>Introduce a bounded semaphore (env-configurable, mirroring chat_max_concurrent) around realtime ASR session creation; reject or queue upgrades beyond the cap and emit an audit/metric. Also cap total concurrent realtime WebSockets.</p></div>
+    </div>
+    <div class="f-cite"><span class="f-lbl">Standard</span> CWE-770 Allocation of Resources Without Limits or Throttling; OWASP API Security Top 10 API4:2023 Unrestricted Resource Consumption</div>
+  </div>
+</article><article class="finding sev-high" id="f10">
+  <div class="f-stripe"></div>
+  <div class="f-body">
+    <div class="f-head">
+      <span class="badge sev-badge sb-high">HIGH</span>
+      <span class="badge dim">Schema &amp; Migrations</span>
+      <span class="badge verdict v-confirmed">CONFIRMED</span>
+      <span class="f-loc">crates/matric-db/src/archives.rs:134</span>
+    </div>
+    <h3 class="f-title">All 8 new global tables are missing from the SHARED_TABLES deny list — they get cloned into every memory schema, and ingest-stream outbox events written under a non-default memory land in the archive clone and are silently never published</h3>
+    <div class="f-grid">
+      <div class="f-block"><span class="f-lbl">Evidence</span><p>archives.rs:134-149 SHARED_TABLES deny list ends at &#x27;user_metadata_label&#x27; and contains none of: inference_config_audit, archive_inference_override, call_sessions, transcript_segments, incoming_webhook_receiver, event_outbox, inbound_source, inbound_dlq — despite the migrations documenting them as global (&#x27;Lives in the public schema (not per-memory)&#x27; in 20260510062454 lines 8-10 and 20260510063033 lines 6-9; &#x27;Shared event outbox&#x27; in 20260524010000 line 1). Cloning is deny-list based: &#x27;Any table NOT in SHARED_TABLES and NOT extension-owned is cloned&#x27; (archives.rs:280-286), and sync_archive_schema (archives.rs:576+) is invoked automatically from middleware/archive_routing.rs:151, so existing archives gain clones on first access. The concrete data-loss path: handlers/ingest_stream.rs:724-748 DbNoteSink::store runs PgEventOutboxRepository::emit_event_tx inside SchemaContext::execute, which sets &#x27;SET LOCAL search_path TO {schema}, public&#x27; (schema_context.rs:107); the unqualified &#x27;INSERT INTO event_outbox&#x27; (outbox.rs:147) therefore resolves to archive_x.event_outbox, while the publisher&#x27;s list_unpublished (outbox.rs:164-176) polls via the plain pool and only ever sees public.event_outbox.</p></div>
+      <div class="f-block"><span class="f-lbl">Impact</span><p>For any stream-ingest into a named memory (X-Fortemi-Memory header), the note.created outbox row is committed into the archive&#x27;s private event_outbox clone and is never picked up by the publisher — silent, permanent event loss that defeats the transactional-outbox guarantee #830 was built for. Secondary effects: every archive carries dead clones of webhook-receiver/inbound-source/audit tables (schema drift, inflated current_schema_version), and archive_inference_override — a routing table keyed by schema_name — is itself cloned per archive.</p></div>
+      <div class="f-block"><span class="f-lbl">Fix</span><p>Add all 8 tables (inference_config_audit, archive_inference_override, call_sessions, transcript_segments, incoming_webhook_receiver, event_outbox, inbound_source, inbound_dlq) to SHARED_TABLES, and ship a cleanup migration/routine that drops the stray clones already created in archive_* schemas. Defense-in-depth: schema-qualify globals as public.event_outbox in outbox.rs (and the other shared-table repositories) so search_path can never redirect them; add a test asserting a note ingested into a named memory produces a row in public.event_outbox.</p></div>
+    </div>
+    <div class="f-cite"><span class="f-lbl">Standard</span> PostgreSQL docs 5.9.3 &#x27;The Schema Search Path&#x27; — the first matching schema in search_path wins for unqualified names; qualify or pin search_path for security/correctness (PostgreSQL &#x27;Writing SECURITY DEFINER Functions Safely&#x27; guidance); CWE-706 Use of Incorrectly-Resolved Name or Reference.</div>
+  </div>
+</article><article class="finding sev-high" id="f11">
+  <div class="f-stripe"></div>
+  <div class="f-body">
+    <div class="f-head">
+      <span class="badge sev-badge sb-high">HIGH</span>
+      <span class="badge dim">Test Integrity</span>
+      <span class="badge verdict v-confirmed">CONFIRMED</span>
+      <span class="f-loc">.gitea/workflows/ci-builder.yaml:113</span>
+    </div>
+    <h3 class="f-title">Entire mcp-server test suite (including in-range output-sanitizer redaction tests) never runs in CI</h3>
+    <div class="f-grid">
+      <div class="f-block"><span class="f-lbl">Evidence</span><p>No workflow in .gitea/workflows/ invokes the Node test suite. ci-builder.yaml touches mcp-server only for dependency hygiene: line 113 &#x27;Audit mcp-server npm deps&#x27; runs `npm ci --ignore-scripts &amp;&amp; npm audit --audit-level=high`, and line 144 &#x27;mcp-server Lockfile Sync&#x27; runs `npm ci` again. mcp-server/package.json:13 defines `&quot;test&quot;: &quot;node --test tests/*.test.js&quot;` but `grep -rn &quot;node --test|npm test|run-all&quot; .gitea/workflows/ scripts/` matches nothing. This includes mcp-server/tests/output-sanitizer.test.js (added in-range by the #968 redaction work), which pins the model-visible secret-redaction contract (`sanitizeMcpOutput`, `sanitizeMcpText`) — a security control whose tests are never executed anywhere in automation. Even the pure-unit tests needing no server (schema-validation, branding, output-sanitizer) don&#x27;t run; run-all.sh exits unless FORTEMI_API_KEY is set (mcp-server/tests/run-all.sh:16-20).</p></div>
+      <div class="f-block"><span class="f-lbl">Impact</span><p>A regression in lib/output-sanitizer.js (e.g. a regex edit that stops matching mm_at_* tokens) would ship silently — the tests guarding token leakage into model-visible MCP output are dead weight. Historically one broken MCP tool schema blocks ALL tools on Claude connect, and schema-validation.test.js exists precisely to catch that, yet also never runs.</p></div>
+      <div class="f-block"><span class="f-lbl">Fix</span><p>Add a CI job that runs at minimum the server-independent suites (`node --test tests/output-sanitizer.test.js tests/schema-validation.test.js tests/branding.test.js tests/error-responses.test.js`), and a bundle-smoke job that boots the API and runs run-all.sh with an auto-registered token.</p></div>
+    </div>
+    <div class="f-cite"><span class="f-lbl">Standard</span> NIST SP 800-218 (SSDF) PW.8 &#x27;Test Executable Code&#x27;; OWASP ASVS V14.1 (verify build pipeline runs security-relevant tests); CWE-532 for the guarded risk (sensitive info in output)</div>
+  </div>
+</article><article class="finding sev-high" id="f12">
+  <div class="f-stripe"></div>
+  <div class="f-body">
+    <div class="f-head">
+      <span class="badge sev-badge sb-high">HIGH</span>
+      <span class="badge dim">Test Integrity</span>
+      <span class="badge verdict v-confirmed">CONFIRMED</span>
+      <span class="f-loc">crates/matric-api/src/realtime/asr/deepgram.rs:997</span>
+    </div>
+    <h3 class="f-title">std::env::set_var/remove_var in tests introduced in-range; deepgram test races on an env var read by production code</h3>
+    <div class="f-grid">
+      <div class="f-block"><span class="f-lbl">Evidence</span><p>Commit 1eef1a70 (2026-05-24, &#x27;Test Deepgram failover contract&#x27;) added `session_open_failure_can_fail_over_to_mock_backend` which does `std::env::set_var(&quot;REALTIME_ASR_BACKEND_FALLBACK&quot;, &quot;mock&quot;)` (deepgram.rs:997) and `remove_var` at :1017 — after several `.await`s, so a panic leaks the var. Production code reads this var at deepgram.rs:263: `if std::env::var(&quot;REALTIME_ASR_BACKEND_FALLBACK&quot;).is_ok() { ... return fallback.start_session(config).await; }` — any concurrently running test in the matric-api test binary that opens a Deepgram session during the window silently takes the mock-failover path. Commit e93f3296 (2026-05-10) added six more set_var/remove_var tests in crates/matric-inference/src/provider_profiles.rs:604-659, including mutating the real production vars OPENROUTER_HTTP_REFERER/OPENROUTER_APP_NAME (:658-659), under a factually wrong justification at :604: &#x27;// SAFETY: tests run single-threaded by default in cargo&#x27; — cargo test runs tests in parallel threads by default.</p></div>
+      <div class="f-block"><span class="f-lbl">Impact</span><p>Project rule (memory, CLAUDE.md testing standards): &#x27;NEVER use std::env::set_var/remove_var in tests — process-global, race conditions with parallel cargo test.&#x27; The deepgram case can flip another test&#x27;s failover behavior mid-run, producing flaky or falsely-green results for the ASR failover contract; the provider_profiles case can corrupt OpenRouter header resolution in concurrent tests in the same binary (matric-inference lib tests also read OPENAI_API_KEY at provider.rs:1288).</p></div>
+      <div class="f-block"><span class="f-lbl">Fix</span><p>Inject the fallback decision via constructor/config (e.g. `DeepgramBackend::with_fallback_enabled(bool)`) and pass header env lookups through an injectable resolver so tests never touch process env. Delete the false SAFETY comment.</p></div>
+    </div>
+    <div class="f-cite"><span class="f-lbl">Standard</span> CWE-362 (Concurrent Execution using Shared Resource with Improper Synchronization); Rust std docs: `std::env::set_var` is not thread-safe and is `unsafe` in edition 2024</div>
+  </div>
+</article><article class="finding sev-high" id="f13">
+  <div class="f-stripe"></div>
+  <div class="f-body">
+    <div class="f-head">
+      <span class="badge sev-badge sb-high">HIGH</span>
+      <span class="badge dim">Webhooks &amp; Outbox</span>
+      <span class="badge verdict v-confirmed">CONFIRMED</span>
+      <span class="f-loc">crates/matric-db/src/outbox.rs:163</span>
+    </div>
+    <h3 class="f-title">event_outbox is enqueue-only: no relay/publisher drains it and no retention/cleanup exists</h3>
+    <div class="f-grid">
+      <div class="f-block"><span class="f-lbl">Evidence</span><p>PgEventOutboxRepository::list_unpublished / mark_published / count_by_event_type (outbox.rs:163-200) have ZERO production callers — grep across crates for `list_unpublished|mark_published|published_at` returns only outbox.rs itself, the poc_outbox example, and tests. Producers are live and high-volume: realtime/emitter.rs:43-51 writes a `transcript_partial` row per partial (test emits 100/call), and DbNoteSink writes `note.created` per ingested note. Migration migrations/20260524010000_event_outbox.sql creates a plain table with a partial index `idx_event_outbox_unpublished ... WHERE published_at IS NULL` but NO partitioning, TTL, or cleanup job (the poc_outbox.rs prototype had autovacuum tuning + daily partitions; production has none). No DELETE/prune of published or aged rows exists outside tests.</p></div>
+      <div class="f-block"><span class="f-lbl">Impact</span><p>The transactional-outbox pattern is only complete with a message relay that reads unpublished rows, dispatches them, and marks them published. Here the relay half is absent: every row stays `published_at IS NULL` forever, so (a) events written to the outbox are never delivered to any consumer, and (b) the hot table grows monotonically and unboundedly (transcript_partial alone is ~100 rows/call), degrading the `idx_event_outbox_unpublished` index and eventually the database. Two failures — silent non-delivery and table/index bloat leading to a production outage.</p></div>
+      <div class="f-block"><span class="f-lbl">Fix</span><p>Implement (or wire up) an outbox relay task that periodically calls list_unpublished, publishes to the EventBus, and calls mark_published; add a retention job (or time-based partitioning) that deletes published rows past a TTL. Until a relay exists, stop writing high-volume partials to the outbox.</p></div>
+    </div>
+    <div class="f-cite"><span class="f-lbl">Standard</span> microservices.io Transactional Outbox + Polling Publisher / Message Relay pattern; PostgreSQL table-bloat / retention guidance</div>
+  </div>
+</article></div>
+    <div class="refuted-note">
+      <span class="badge verdict v-refuted">REFUTED</span>
+      <div><strong>SSE /api/v1/events defaults to streaming ALL memories&#x27; events to any valid token regardless of scope or tenant</strong> — the adversarial verifier downgraded this claim. The cited code is literally as described: sse_events (main.rs:4374-4405) checks only token presence/validity, and memory_filter defaults to None=all events (main.rs:4419-4423). However, the claimed HIGH-severity impact (cross-tenant metadata exfiltration by a minimally-scoped, read-only tenant-A key) presupposes a per-token tenant/archive isolation model that does not exist in this codebase:
+
+1. AuthPrincipal (matric</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><h2>Medium &amp; Low</h2><span class="count">26 medium · 13 low</span></div>
+    <p class="sec-lead">Real but lower-blast-radius: replay windows, precedence bugs, unpinned tooling, stale contracts, and env-gated tests. Grouped by dimension; file references at HEAD.</p>
+    <div class="ml-tables">
+      <div>
+        <div class="ml-wrap"><table>
+          <thead><tr><th></th><th>Medium-severity finding</th><th>Dimension</th><th>Location</th></tr></thead>
+          <tbody><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">Public health-diagnostics endpoints leak arbitrary-archive metadata unauthenticated via attacker-controlled X-Fortemi-Memory</td>
+      <td class="ml-dim">API Auth Surface</td>
+      <td class="ml-loc">crates/matric-api/src/main.rs:10490</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">SSE /api/v1/events authenticates token validity but performs no scope/tenant authorization; ?memory= reads other archives&#x27; event streams</td>
+      <td class="ml-dim">API Auth Surface</td>
+      <td class="ml-loc">crates/matric-api/src/main.rs:4354</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">Global single-bucket rate limiter — no per-client or per-endpoint limiting on expensive routes</td>
+      <td class="ml-dim">API Auth Surface</td>
+      <td class="ml-loc">crates/matric-api/src/main.rs:2718</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">Twilio realtime WebSocket authenticated only by CallSid knowledge + 30s window; no X-Twilio-Signature verification</td>
+      <td class="ml-dim">API Auth Surface</td>
+      <td class="ml-loc">crates/matric-api/src/main.rs:3739</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">docs-contract credential scanner never blocks: the only CI invocation runs in advisory mode, so new credential-shaped findings pass CI with a log line</td>
+      <td class="ml-dim">CI &amp; Supply Chain</td>
+      <td class="ml-loc">.gitea/workflows/ci-builder.yaml:83</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">The fail-closed auth default (ADR-094) is never exercised end-to-end: every container-level CI harness opts into anonymous mode</td>
+      <td class="ml-dim">CI &amp; Supply Chain</td>
+      <td class="ml-loc">.gitea/workflows/ci-builder.yaml:405</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">OpenAPI info.version frozen at 2026.2.9 — four releases behind the shipped 2026.6.1, and a test pins the stale value</td>
+      <td class="ml-dim">Docs &amp; Contract Drift</td>
+      <td class="ml-loc">crates/matric-api/src/main.rs:1049</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">docs-contract secret scanner is permanently advisory and its allowlist mechanism is dead code — 36 stale allowlist entries mask that the gate never blocks</td>
+      <td class="ml-dim">Docs &amp; Contract Drift</td>
+      <td class="ml-loc">.gitea/workflows/ci-builder.yaml:83</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">Multi-tenant isolation claim &#x27;All 91 API handlers route through SchemaContext&#x27; is stale across four published docs while the handler surface grew to ~245</td>
+      <td class="ml-dim">Docs &amp; Contract Drift</td>
+      <td class="ml-loc">docs/content/architecture.md:65</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">Registry rebuild in POST config ignores DB overrides: env beats DB for llama.cpp, and OpenAI DB config is never applied to the live registry</td>
+      <td class="ml-dim">Jobs &amp; Inference</td>
+      <td class="ml-loc">crates/matric-api/src/handlers/inference_config.rs:2050</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">inference_config_audit rows never record who or from where: changed_by hardcoded to &#x27;anonymous&#x27;, source_ip always NULL, dry_run/atomic actions never written</td>
+      <td class="ml-dim">Jobs &amp; Inference</td>
+      <td class="ml-loc">crates/matric-api/src/handlers/inference_config.rs:715</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">DELETE /api/v1/inference/config resets only the generation backend — DB-registered providers, API keys, and embedding routing stay live in the registry</td>
+      <td class="ml-dim">Jobs &amp; Inference</td>
+      <td class="ml-loc">crates/matric-api/src/handlers/inference_config.rs:2344</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">Telemetry-redaction campaign stripped job IDs and all error content from worker logs — failed jobs are untriageable from logs</td>
+      <td class="ml-dim">Jobs &amp; Inference</td>
+      <td class="ml-loc">crates/matric-jobs/src/worker.rs:788</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">Twilio media-stream WebSocket binding uses only CallSid + 30s recency as proof; frames are not cryptographically authenticated, enabling transcript injection</td>
+      <td class="ml-dim">Realtime &amp; Telephony</td>
+      <td class="ml-loc">crates/matric-api/src/main.rs:3763</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">call_sessions.archive_id FK dropped with no compensating cleanup — dangling references accumulate after archive deletion and inserts accept nonexistent archive IDs</td>
+      <td class="ml-dim">Schema &amp; Migrations</td>
+      <td class="ml-loc">migrations/20260523001000_drop_call_sessions_archive_fk.sql:4</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">inference_config_audit attribution is never populated — changed_by hardcoded to &#x27;anonymous&#x27; and source_ip always NULL, contradicting the table&#x27;s documented purpose</td>
+      <td class="ml-dim">Schema &amp; Migrations</td>
+      <td class="ml-loc">crates/matric-api/src/handlers/inference_config.rs:716</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">event_outbox and inbound_dlq grow without bound — published rows are only timestamped, never pruned, and no retention job exists</td>
+      <td class="ml-dim">Schema &amp; Migrations</td>
+      <td class="ml-loc">migrations/20260524010000_event_outbox.sql:12</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">In-range DB integration tests silently pass when INTEGRATION_TEST_DB/DATABASE_URL are unset — env-gated skip pattern the repo explicitly forbids</td>
+      <td class="ml-dim">Test Integrity</td>
+      <td class="ml-loc">crates/matric-api/src/main.rs:41724</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">Event outbox consumer/drain path has no production caller and no tests — rows accumulate unpublished forever</td>
+      <td class="ml-dim">Test Integrity</td>
+      <td class="ml-loc">crates/matric-db/src/outbox.rs:163</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">inference_config_audit persistence is best-effort and completely untested — audit trail can silently die</td>
+      <td class="ml-dim">Test Integrity</td>
+      <td class="ml-loc">crates/matric-api/src/handlers/inference_config.rs:694</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">Five HTTP contract test files (three added in range) never execute in any automated job — wire contracts for chat SSE, NDJSON ingest, and webhook HMAC are unverified</td>
+      <td class="ml-dim">Test Integrity</td>
+      <td class="ml-loc">crates/matric-api/tests/incoming_webhook_contract_test.rs:41</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">Incoming webhook HMAC verification has no timestamp/replay window; replay dedupe is opt-in and sender-controlled</td>
+      <td class="ml-dim">Webhooks &amp; Outbox</td>
+      <td class="ml-loc">crates/matric-api/src/main.rs:5474</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">receive_incoming_webhook does a non-atomic dual write: side effect commits, then outbox emit is best-effort</td>
+      <td class="ml-dim">Webhooks &amp; Outbox</td>
+      <td class="ml-loc">crates/matric-api/src/main.rs:5798</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">Raw webhook/inbound payloads (caller PII + provider credentials) are persisted in event_outbox with no retention or encryption</td>
+      <td class="ml-dim">Webhooks &amp; Outbox</td>
+      <td class="ml-loc">crates/matric-api/src/main.rs:5805</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">inbound_dlq stores raw poison payloads and has no retention, inspection, or replay path</td>
+      <td class="ml-dim">Webhooks &amp; Outbox</td>
+      <td class="ml-loc">crates/matric-db/src/inbound_sources.rs:96</td>
+    </tr><tr class="ml sev-medium">
+      <td><span class="sb-dot sb-medium"></span></td>
+      <td class="ml-title">SSRF: inbound connector URLs are only scheme-checked, allowing internal/metadata targets</td>
+      <td class="ml-dim">Webhooks &amp; Outbox</td>
+      <td class="ml-loc">crates/matric-jobs/src/inbound/sse.rs:104</td>
+    </tr></tbody>
+        </table></div>
+      </div>
+      <div>
+        <div class="ml-wrap"><table>
+          <thead><tr><th></th><th>Low-severity finding</th><th>Dimension</th><th>Location</th></tr></thead>
+          <tbody><tr class="ml sev-low">
+      <td><span class="sb-dot sb-low"></span></td>
+      <td class="ml-title">SSE accepts bearer token via ?token= query parameter (credential exposure in logs/history)</td>
+      <td class="ml-dim">API Auth Surface</td>
+      <td class="ml-loc">crates/matric-api/src/main.rs:4294</td>
+    </tr><tr class="ml sev-low">
+      <td><span class="sb-dot sb-low"></span></td>
+      <td class="ml-title">Public /api/v1/system/compatibility discloses auth-required state and deployment mode without authentication</td>
+      <td class="ml-dim">API Auth Surface</td>
+      <td class="ml-loc">crates/matric-api/src/main.rs:9209</td>
+    </tr><tr class="ml sev-low">
+      <td><span class="sb-dot sb-low"></span></td>
+      <td class="ml-title">Two matric-jobs test targets (schema_context_test, schema_integration_test — 14 tests) run in no CI lane; workflow comments falsely claim full coverage</td>
+      <td class="ml-dim">CI &amp; Supply Chain</td>
+      <td class="ml-loc">.gitea/workflows/ci-builder.yaml:269</td>
+    </tr><tr class="ml sev-low">
+      <td><span class="sb-dot sb-low"></span></td>
+      <td class="ml-title">Security tooling (cargo-audit, cargo-deny) installed unpinned at job runtime, contradicting the repo&#x27;s own pinning discipline</td>
+      <td class="ml-dim">CI &amp; Supply Chain</td>
+      <td class="ml-loc">.gitea/workflows/ci-builder.yaml:105</td>
+    </tr><tr class="ml sev-low">
+      <td><span class="sb-dot sb-low"></span></td>
+      <td class="ml-title">verify-release-job-guards.py accepts any if-expression containing a safe substring — an OR&#x27;d expression that still runs on pull_request passes the guard</td>
+      <td class="ml-dim">CI &amp; Supply Chain</td>
+      <td class="ml-loc">scripts/ci/verify-release-job-guards.py:74</td>
+    </tr><tr class="ml sev-low">
+      <td><span class="sb-dot sb-low"></span></td>
+      <td class="ml-title">Published API docs link to the deleted static openapi.yaml file (removed Feb 2026) — api.md was rewritten in-range without fixing the dead link</td>
+      <td class="ml-dim">Docs &amp; Contract Drift</td>
+      <td class="ml-loc">docs/content/api.md:7</td>
+    </tr><tr class="ml sev-low">
+      <td><span class="sb-dot sb-low"></span></td>
+      <td class="ml-title">mcp-rest-parity.md claims cross-archive search has &#x27;No REST equivalent&#x27; while POST /api/v1/search/federated exists and is advertised elsewhere</td>
+      <td class="ml-dim">Docs &amp; Contract Drift</td>
+      <td class="ml-loc">docs/content/mcp-rest-parity.md:23</td>
+    </tr><tr class="ml sev-low">
+      <td><span class="sb-dot sb-low"></span></td>
+      <td class="ml-title">In-range tests use std::env::set_var/remove_var, including deleting real OPENROUTER_* variables read by parallel tests</td>
+      <td class="ml-dim">Jobs &amp; Inference</td>
+      <td class="ml-loc">crates/matric-inference/src/provider_profiles.rs:658</td>
+    </tr><tr class="ml sev-low">
+      <td><span class="sb-dot sb-low"></span></td>
+      <td class="ml-title">Twilio webhook signature base-URL is reconstructed from forwarded headers/OriginalUri and breaks under reverse-proxy path rewriting</td>
+      <td class="ml-dim">Realtime &amp; Telephony</td>
+      <td class="ml-loc">crates/matric-api/src/main.rs:5550</td>
+    </tr><tr class="ml sev-low">
+      <td><span class="sb-dot sb-low"></span></td>
+      <td class="ml-title">New tables persist live credentials in plaintext: raw provider API keys in archive_inference_override JSONB and raw HMAC secrets in incoming_webhook_receiver</td>
+      <td class="ml-dim">Schema &amp; Migrations</td>
+      <td class="ml-loc">migrations/20260510063033_archive_inference_override.sql:22</td>
+    </tr><tr class="ml sev-low">
+      <td><span class="sb-dot sb-low"></span></td>
+      <td class="ml-title">output-sanitizer tests only exercise token-shaped secrets, masking that the sanitizer has no key-name-based redaction</td>
+      <td class="ml-dim">Test Integrity</td>
+      <td class="ml-loc">mcp-server/tests/output-sanitizer.test.js:38</td>
+    </tr><tr class="ml sev-low">
+      <td><span class="sb-dot sb-low"></span></td>
+      <td class="ml-title">June 28 redaction alignment weakened collection-hierarchy error assertions to variant-only checks</td>
+      <td class="ml-dim">Test Integrity</td>
+      <td class="ml-loc">crates/matric-db/src/tests/collection_hierarchy_tests.rs:805</td>
+    </tr><tr class="ml sev-low">
+      <td><span class="sb-dot sb-low"></span></td>
+      <td class="ml-title">inbound_source.config stores connector credentials (auth headers, DB URLs) in plaintext at rest</td>
+      <td class="ml-dim">Webhooks &amp; Outbox</td>
+      <td class="ml-loc">crates/matric-db/src/inbound_sources.rs:39</td>
+    </tr></tbody>
+        </table></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><h2>Dimension assessments</h2><span class="count">what each reviewer concluded</span></div>
+    <p class="sec-lead">Not everything is broken — several subsystems earned genuine credit (secret redaction, centralized auth policy, migration formatting). Each summary states what held up and what didn't.</p>
+    <div class="dims"><div class="dim-card">
+      <div class="dim-head"><h4>Schema &amp; Migrations</h4><span class="dim-n">6 findings</span></div>
+      <p>The 8 new migrations are individually well-formed — unique timestamp prefixes across all 114 files (no duplicates), no CREATE INDEX CONCURRENTLY, no COMMENT ON EXTENSION, sensible CHECK constraints and partial indexes, and good inline documentation. The defects are at the integration seams. Most severe: commit 10d2601f edited the already-applied 20260215000000_native_uuidv7.sql in place (adding a PG18 guard DO-block), which sqlx::migrate! checksum validation converts into a boot-refusing &#x27;previously applied but has been modified&#x27; error on every deployment that migrated before mid-May — a fleet-wide upgrade brick with no repair path in the codebase. Second: all 8 new tables self-document as public/shared, but none were added to the SHARED_TABLES deny list in archives.rs, so the deny-list cloner and access-time auto-migration replicate them into every memory schema; combined with SET LOCAL search_path resolution, the ingest-stream handler&#x27;s transactional outbox insert lands in the archive&#x27;s private event_outbox clone for non-default memories and is silently never published. Rounding out the list: the call_sessions→archive_registry FK was dropped (to avoid lock cycles) without adding the compensating SET-NULL cleanup to archive deletion; the inference_config_audit table&#x27;s attribution columns are never populated (changed_by hardcoded &#x27;anonymous&#x27;, source_ip always NULL) despite the schema&#x27;s documented forensic purpose and fail-closed auth; event_outbox/inbound_dlq have no retention path and grow unboundedly; and the new override/webhook/connector tables persist raw API keys and HMAC secrets in cleartext with read-path-only redaction.</p>
+    </div><div class="dim-card">
+      <div class="dim-head"><h4>Realtime &amp; Telephony</h4><span class="dim-n">5 findings</span></div>
+      <p>The May 2026→HEAD realtime/telephony work adds a standards-shaped call stack (crates/matric-api/src/realtime/*), a Twilio Media Streams WebSocket, a Deepgram streaming ASR backend, and Twilio HMAC webhook verification. Secret hygiene is genuinely good: DeepgramConfig/CallControlEvent/MediaFrame all have hand-written Debug impls that redact payloads and keys to length/class only (the June 27 &#x27;tighten debug metadata&#x27; series is thorough and unit-tested at mod.rs:398-547; no config endpoint echoes the Deepgram key), and the Twilio incoming-webhook path enforces HMAC-SHA1 with constant-time verify. The mock ASR backend is opt-in only (REALTIME_ASR_BACKEND defaults to deepgram), not reachable by default. The material problems are in authN/authZ and resource control on the streaming surface: the /api/v1/ws WebSocket is classified RealtimeTransport, which is_public_without_bearer treats as fully public, and its handler performs no in-handler auth at all — leaking the entire cross-tenant ServerEvent bus (note titles, tags, filenames, archive names) to anonymous clients even with REQUIRE_AUTH=true (CRITICAL, violates ADR-094). The SSE /api/v1/events sibling authenticates the token but defaults to an all-memories firehose with no scope/tenant gate (HIGH). The Twilio media WebSocket has no concurrency cap around external Deepgram session creation (HIGH resource/cost exhaustion) and authorizes purely on CallSid + a 30s window with no cryptographic frame authentication (MEDIUM transcript-injection). Finally, Twilio signature URL reconstruction from proxy headers/OriginalUri is fragile under path rewriting (LOW, fail-closed availability). Findings ranked most-severe first with HEAD file:line evidence.</p>
+    </div><div class="dim-card">
+      <div class="dim-head"><h4>API Auth Surface</h4><span class="dim-n">6 findings</span></div>
+      <p>The range built a genuinely well-structured centralized authorization layer (route_policy.rs inventory + auth_middleware + authorize_middleware) and the &quot;tighten debug metadata&quot; work is solid — the central ApiError→problem_response path scrubs Database/Internal errors to generic text with details only in logs (CWE-209 well handled), the RFC 9457 problem+json contract is applied consistently, provider API keys (Deepgram) are masked in Debug/logs, and CORS is a proper origin allowlist (no Any). The systemic weakness is that the new fail-closed authorization engine is bypassed for every route classified Public/RealtimeTransport/SystemHealth/PublicWithInlineProof, and those routes then do their own (or no) inline auth. The most serious result is /api/v1/ws, which serves the entire event-bus payload stream with no authentication at all — a direct ADR-094 fail-closed violation. SSE authenticates a token but never checks scope/tenant, so ?memory= yields authenticated cross-archive event reads; the public health-diagnostics routes honor attacker-controlled X-Fortemi-Memory (archive_routing_middleware does existence-only lookup, no ownership check) to leak arbitrary-archive metadata unauthenticated. Rate limiting is a single global bucket with no per-client/per-endpoint keying, leaving expensive inference/chat/ASR routes exposed to noisy-neighbor DoS. Lower-severity items: Twilio realtime WS relies on CallSid-knowledge without signature verification, SSE takes the bearer token in the query string, and the public compatibility endpoint discloses auth/deployment posture. Route-inventory completeness was verified — every registered route has a policy entry, so there is no fail-open un-inventoried-route gap, and forbid-insecure-auth-defaults.sh correctly guards REQUIRE_AUTH default drift and `auth.is_some()` optional-auth branching.</p>
+    </div><div class="dim-card">
+      <div class="dim-head"><h4>Webhooks &amp; Outbox</h4><span class="dim-n">7 findings</span></div>
+      <p>The webhook-receiver and event-outbox subsystem added in this range (incoming_webhook_receiver #819/#821, event_outbox #592/#844, inbound_source/inbound_dlq #833/#835) has a well-built HMAC verification/redaction surface and correct admin gating on management routes, but the durable-messaging half is materially incomplete. The most serious defect: event_outbox is enqueue-only — no production code drains it (list_unpublished/mark_published are unused outside tests) and there is no retention/partitioning, so high-volume transcript/note events are never delivered and the hot table grows unbounded. Additional gaps: the incoming-webhook HMAC has no timestamp/replay window (dedupe is opt-in and sender-controlled, CWE-294); receive_incoming_webhook does a non-atomic dual write (side effect commits, outbox emit is best-effort) unlike the correct transcript path; raw caller PII and provider credentials are persisted verbatim in event_outbox and inbound_dlq with no retention despite the codebase redacting everywhere else; the DLQ has no inspection/replay/retention path; inbound connector URLs are only scheme-checked (SSRF to metadata/internal, CWE-918, admin-gated); and connector credentials are stored plaintext at rest (CWE-312). No migration-hygiene or auth-fail-open violations were found in this dimension.</p>
+    </div><div class="dim-card">
+      <div class="dim-head"><h4>Jobs &amp; Inference</h4><span class="dim-n">8 findings</span></div>
+      <p>The jobs-worker changes in the range are almost entirely a telemetry-redaction sweep (no retry/claim semantics changed; GPU tier gating and the chat semaphore are sound fail-fast designs), but the inference runtime-config system added in May (#654/#655/#656) has real defects. The most serious is an ordering bug in POST /api/v1/inference/config: the Ollama generation-backend hot-swap runs during the merge step, before the dry_run short-circuit, the atomic-probe abort, the archive-scope branch, and DB persistence — so dry-runs mutate production, aborted atomic swaps leave torn state, and per-archive requests rewrite the global backend. The precedence contract (db_override → env → default) is violated three separate ways: persisted overrides are never loaded at boot, the registry rebuild lets env beat DB for llama.cpp and never applies OpenAI DB config at all, and DELETE resets only the generation backend while DB-registered providers/keys/embedding routing stay live. On secrets, provider API keys are persisted raw in JSONB (acknowledged in the migration) — redacted at the API surface but cleartext in the datastore and every backup. The new audit table cannot attribute changes (changed_by hardcoded to &#x27;anonymous&#x27;, source_ip always NULL, dry_run/atomic actions never written), and the redaction campaign overshot by stripping job UUIDs and error content from worker logs, making failed-job triage from logs impossible. One project-rule breach: in-range tests mutate process-global env vars (including real OPENROUTER_* variables), a documented no-go.</p>
+    </div><div class="dim-card">
+      <div class="dim-head"><h4>CI &amp; Supply Chain</h4><span class="dim-n">7 findings</span></div>
+      <p>The CI/CD pipeline shows genuinely strong supply-chain hygiene for an agent-heavy range: all third-party actions are SHA-pinned with version comments, container images are digest-pinned, npm installs run --ignore-scripts against a lockfile whose 0 packages have install scripts and 100% registry.npmjs.org sources, cargo-deny enforces registry-only sources plus a license allowlist, the quick-xml RUSTSEC allowlist (539af602/65b87f88) is documented with rationale/owner/expiry/tracking issue and honestly flags runtime reachability, the June 15 fix (ebaea5db) removed rather than added failure masking, and the June 28 smoke-test commit (f030cc93) is a legitimate fix (assertion aligned to the #968 redaction contract; documented local-issuer opt-in), not suppression — no `|| true`/continue-on-error abuse exists outside cleanup steps. The material gaps are structural rather than cosmetic: the audit/deny jobs sit outside the needs-graph of all four publish jobs, so images and public releases ship even when the security gate fails; the quick-xml acceptance rationale understates blast radius because the extraction &#x27;worker&#x27; is the API process itself and the synchronous calamine parse defeats the tokio job timeout, leaving the accepted 7.5-HIGH DoS effectively unmitigated at the application layer; the new docs-contract secret scanner runs advisory-only so it cannot prevent the regression it was built to catch; the ADR-094 fail-closed default is never booted in any container-level test; and a handful of lower-severity items (never-executed matric-jobs test targets, unpinned cargo-audit/cargo-deny installs, substring-matching weakness in the release-guard verifier) round out the picture.</p>
+    </div><div class="dim-card">
+      <div class="dim-head"><h4>Docs &amp; Contract Drift</h4><span class="dim-n">6 findings</span></div>
+      <p>Documentation and contract maintenance in this range is unusually disciplined for agent-driven work — the ADR set (093/095/100) was honestly rebaselined at a July 2026 checkpoint with explicit &#x27;documented but not implemented&#x27; disclaimers, mcp-permissions.md&#x27;s tool/annotation counts (205/197/8/102) match mcp-server/tools.js exactly, CLAUDE.md&#x27;s 43-core/205-full MCP tool claims are accurate, the RFC 9457 error-contract doc matches the implemented problem+json behavior, and the docs manifest resolves cleanly. The real drift concentrates in the machine-readable API contract: the served /openapi.yaml omits ~36 live endpoints (all of runtime inference config/audit, graph maintenance, PKE keysets, job pause/resume) because 33 annotated handlers were never registered in ApiDoc paths() and inference_complete.rs was never annotated, while both the doc comment and the coverage test falsely claim a drift-catching guarantee, and info.version is frozen at 2026.2.9 (pinned by a test) against a shipped 2026.6.1. Secondary gaps: the docs-contract secret scanner remains advisory-only in CI despite the roadmap recording that blocking mode passes with zero findings (and its 36-entry allowlist is stale dead code never consulted at scan time), the load-bearing &#x27;all 91 handlers route through SchemaContext&#x27; isolation claim is stale across four published docs after ~150 handlers were added, and two docsite pages still link to the static openapi.yaml file deleted in February. No CE/EE contradiction was found — enterprise-gated features documented are consistently absent from code and the docs say so explicitly.</p>
+    </div><div class="dim-card">
+      <div class="dim-head"><h4>Test Integrity</h4><span class="dim-n">8 findings</span></div>
+      <p>Test integrity over the ~904-commit range is better than typical for unattended agent output — zero #[ignore] attributes, zero deleted test files, 126 removed test attributes all verified as relocations (main.rs/skos_tags module moves), and a strongly positive assertion delta (+116/-2 in tests/ dirs, +1055/-126 test attributes overall); the June 28 &#x27;align tests with redaction contract&#x27; commit mostly converted Display-string asserts to equal-or-stronger typed-variant asserts, with one genuine weakening (collection-hierarchy variant-only checks). The real problems are execution blind spots rather than test butchery: the entire mcp-server suite — including the in-range output-sanitizer security tests — is never run by any CI job (CI only does npm audit/lockfile sync); three new HTTP contract test files (chat SSE, NDJSON ingest, webhook HMAC/idempotency) skip on every CI run because nothing sets API_BASE_URL; in-range DB integration tests use a silent-pass INTEGRATION_TEST_DB/DATABASE_URL double gate that the repo&#x27;s own testing standard forbids and that already bit once (f030cc93); and two in-range features have material untested surfaces — the event-outbox drain path has no production caller and no tests (rows accumulate unpublished forever), and the best-effort inference_config_audit write/read path has zero tests, so audit-trail loss would be invisible. Two in-range commits also reintroduced the forbidden std::env::set_var pattern in tests (deepgram failover, provider profiles), one of them mutating an env var that production code reads mid-test and carrying a false &#x27;tests run single-threaded&#x27; safety comment.</p>
+    </div></div>
+  </section>
+
+</div>
+
+<footer><div class="wrap">
+  Fortemi change audit · May–July 2026 · 13 verified defects + 39 medium/low across 8 dimensions.
+  A recurring theme cuts across the range: the unattended runs built the <em>happy-path shape</em> of each new subsystem — the outbox table, the auth policy enum, the audit schema, the redaction sweep — but left the closing half unbuilt or unguarded (no outbox relay, realtime routes exempted from auth, audit columns never populated, tests never wired to CI). The individual pieces are well-formed; the integration seams are where the defects cluster.
+</div></footer>
