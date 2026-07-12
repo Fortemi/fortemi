@@ -309,8 +309,8 @@ ensure_pre_migration_backup() {
     echo ">>> Pre-migration backup ready: ${BACKUP_DEST}/${final_file}"
 }
 
-align_role_password
 repair_legacy_restore_compatibility
+align_role_password
 ensure_pre_migration_backup
 
 # One-time repair for deployments that applied the briefly modified
