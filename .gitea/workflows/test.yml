@@ -437,11 +437,28 @@ jobs:
           docker stop ${DB_CONTAINER} 2>/dev/null || true
           docker rm ${DB_CONTAINER} 2>/dev/null || true
 
+  # Render-validate the Intel Arc / host-vLLM compose overlay (#1043).
+  # Compose-render validation only — asserts the `!reset` tag clears the
+  # NVIDIA device reservation and the split-provider env defaults render.
+  # No Intel hardware or container startup involved.
+  validate-intel-overlay:
+    name: Validate Intel Compose Overlay
+    runs-on: matric-builder
+    steps:
+      - name: Checkout
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
+          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Validate Intel overlay render
+        run: ./scripts/validate-intel-overlay.sh
+
   # Test summary
   test-summary:
     name: Test Summary
     runs-on: matric-builder
-    needs: [fast-tests, integration-tests, coverage]
+    needs: [fast-tests, integration-tests, coverage, validate-intel-overlay]
     if: always()
     steps:
       - name: Check test results
@@ -451,10 +468,12 @@ jobs:
           echo "Fast tests: ${{ needs.fast-tests.result }}"
           echo "Integration tests: ${{ needs.integration-tests.result }}"
           echo "Coverage: ${{ needs.coverage.result }}"
+          echo "Intel overlay: ${{ needs.validate-intel-overlay.result }}"
           echo "Slow tests: ${{ needs.slow-tests.result || 'skipped' }}"
 
           if [ "${{ needs.fast-tests.result }}" != "success" ] || \
-             [ "${{ needs.integration-tests.result }}" != "success" ]; then
+             [ "${{ needs.integration-tests.result }}" != "success" ] || \
+             [ "${{ needs.validate-intel-overlay.result }}" != "success" ]; then
             echo "❌ Tests failed"
             exit 1
           else

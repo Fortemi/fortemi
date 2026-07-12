@@ -38,6 +38,11 @@ Entry-level hardware for basic local inference. Suitable for personal knowledge 
 | AMD RX 6600 XT | 8GB | $200-250 (used) | AMD option, lower CUDA support |
 | Intel Arc A770 | 16GB | $250-300 (new) | Experimental, good VRAM/price |
 
+Intel Arc/XPU hosts run inference outside the container: the bundle's Intel
+overlay routes generation to a host vLLM endpoint while embeddings stay on an
+embedding-capable provider. See
+[Intel Arc / vLLM Deployment](#/operations-intel-arc-vllm) for setup.
+
 ### Recommended Models
 
 | Task | Model | Size | Quality | Latency (P95) |

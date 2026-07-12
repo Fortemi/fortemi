@@ -1,0 +1,45 @@
+# docker-compose.intel.yml - Intel Arc / XPU host-vLLM overlay
+#
+# Use this overlay when Fortemi runs in Docker but generation is served by a
+# host-installed vLLM OpenAI-compatible server on Intel Arc / Data Center GPU
+# hardware. This avoids NVIDIA-specific container reservations while preserving
+# the standard Fortemi bundle topology.
+#
+# Requires Docker Compose v2.17.0+ — the `!reset` tag below is not understood
+# by older releases. CI renders this overlay on every push (see
+# scripts/validate-intel-overlay.sh).
+#
+# Example:
+#   cp .env.example .env
+#   # Edit .env with the Intel/vLLM block from docs/content/intel-arc-vllm.md
+#   docker compose -f docker-compose.bundle.yml -f docker-compose.intel.yml up -d
+
+services:
+  fortemi:
+    # The default bundle reserves an NVIDIA GPU for CUDA/EGL workloads. Intel
+    # Arc/XPU deployments generally run vLLM on the host and let Fortemi call
+    # it through the OpenAI-compatible API, so clear the NVIDIA reservation.
+    deploy:
+      resources:
+        reservations:
+          devices: !reset []
+    environment:
+      # Route generation through the OpenAI-compatible provider.
+      - MATRIC_INFERENCE_DEFAULT=${MATRIC_INFERENCE_DEFAULT:-openai}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://host.docker.internal:8000/v1}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-local-vllm}
+      - OPENAI_GEN_MODEL=${OPENAI_GEN_MODEL:-qwen3.5:9b}
+
+      # vLLM does not expose Fortemi's embedding route. Keep embeddings on
+      # Ollama by default; operators may point this at any embedding-capable
+      # provider supported by Fortemi.
+      - MATRIC_EMBEDDING_PROVIDER=${MATRIC_EMBEDDING_PROVIDER:-ollama}
+      - OLLAMA_BASE=${OLLAMA_BASE:-http://host.docker.internal:11434}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      - OLLAMA_EMBED_DIM=${OLLAMA_EMBED_DIM:-768}
+
+      # Avoid NVIDIA-specific environment in Intel profiles.
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-}
+      - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-}
+      - OPEN3D_CPU_RENDERING=${OPEN3D_CPU_RENDERING:-true}

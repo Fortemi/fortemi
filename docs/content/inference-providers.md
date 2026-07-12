@@ -157,6 +157,8 @@ MATRIC_OPENAI_GENERATION_MODEL=meta-llama/Llama-3.1-8B-Instruct
 
 **Pitfall:** vLLM does not serve embedding models by default. Run a separate Ollama instance for embeddings and use operation routing (see below).
 
+**Intel Arc / XPU hosts:** the Docker bundle ships an Intel overlay (`docker-compose.intel.yml`) that clears the NVIDIA device reservation and routes generation to a host vLLM endpoint. See [Intel Arc / vLLM Deployment](#/operations-intel-arc-vllm) for the full walkthrough.
+
 ### LiteLLM
 
 LiteLLM is an OpenAI-compatible proxy that can front multiple upstream providers.

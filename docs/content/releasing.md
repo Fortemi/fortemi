@@ -22,6 +22,9 @@ Fortémi uses **CalVer** (Calendar Versioning):
 - [ ] CI pipeline green on main branch
 - [ ] Documentation updated for new features
 - [ ] No critical open issues blocking release
+- [ ] If the release touches the Intel overlay or provider routing:
+      `./scripts/smoke-intel-vllm.sh` passes (see
+      [Intel Arc / vLLM Deployment](#/operations-intel-arc-vllm))
 
 ### Version Bump
 
