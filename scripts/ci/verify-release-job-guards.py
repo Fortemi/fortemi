@@ -18,6 +18,9 @@ PUBLISH_JOBS = {
     "publish-github-dev",
     "publish-github",
 }
+RELEASE_JOBS = {
+    "create-release",
+}
 REQUIRED_PUBLISH_NEEDS = {
     "test-container",
     "integration-test",
@@ -25,6 +28,10 @@ REQUIRED_PUBLISH_NEEDS = {
     "deny",
     "mcp-lockfile-sync",
     "mcp-server-tests",
+}
+REQUIRED_RELEASE_NEEDS = {
+    "publish-release",
+    "publish-github",
 }
 
 
@@ -126,6 +133,21 @@ def main() -> int:
                     failures.append(
                         f"{path}:{job_name} publish job is missing required release gates: {', '.join(missing)}"
                     )
+
+            if job_name in RELEASE_JOBS:
+                needs = job_needs(block)
+                missing = sorted(REQUIRED_RELEASE_NEEDS - needs)
+                if missing:
+                    failures.append(
+                        f"{path}:{job_name} release job is missing required publish dependencies: {', '.join(missing)}"
+                    )
+                expression = job_if_expression(block)
+                for required in sorted(REQUIRED_RELEASE_NEEDS):
+                    guard = f"needs.{required}.result == 'success'"
+                    if guard not in expression:
+                        failures.append(
+                            f"{path}:{job_name} release job is missing success guard: {guard}"
+                        )
 
             if not secret_bearing(block):
                 continue

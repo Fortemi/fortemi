@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -eo pipefail
 
 # bundle-entrypoint.sh - Initialize and run PostgreSQL + matric-api + MCP server
 #
@@ -21,6 +21,10 @@ POSTGRES_USER="${POSTGRES_USER:-matric}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-fortemi-local-dev}"
 POSTGRES_DB="${POSTGRES_DB:-matric}"
 export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
+BACKUP_DEST="${BACKUP_DEST:-/var/backups/matric-memory}"
+BACKUP_SCRIPT_PATH="${BACKUP_SCRIPT_PATH:-/app/scripts/backup.sh}"
+PRE_MIGRATION_BACKUP_RETAIN="${PRE_MIGRATION_BACKUP_RETAIN:-7}"
+PRE_MIGRATION_BACKUP_ACK_NO_BACKUP="${PRE_MIGRATION_BACKUP_ACK_NO_BACKUP:-false}"
 
 if [ -z "${DATABASE_URL:-}" ]; then
     DATABASE_URL="$(printf '%s%s:%s@localhost:5432/%s' 'postgres://' "$POSTGRES_USER" "$POSTGRES_PASSWORD" "$POSTGRES_DB")"
@@ -96,6 +100,161 @@ echo ">>> Ensuring PostgreSQL extensions..."
 su postgres -c "psql -d ${POSTGRES_DB} -c 'CREATE EXTENSION IF NOT EXISTS vector;'" 2>/dev/null || true
 su postgres -c "psql -d ${POSTGRES_DB} -c 'CREATE EXTENSION IF NOT EXISTS postgis;'" 2>/dev/null || true
 
+current_migration_version() {
+    if ! database_has_sqlx_migrations_table; then
+        echo "none"
+        return 0
+    fi
+
+    su postgres -c "psql -d ${POSTGRES_DB} -At -v ON_ERROR_STOP=1" <<'SQL'
+SELECT COALESCE(MAX(version)::text, 'none')
+FROM public._sqlx_migrations
+WHERE success = true;
+SQL
+}
+
+database_has_sqlx_migrations_table() {
+    [ "$(su postgres -c "psql -d ${POSTGRES_DB} -At -v ON_ERROR_STOP=1 -c \"SELECT to_regclass('public._sqlx_migrations') IS NOT NULL\"")" = "t" ]
+}
+
+database_has_user_data() {
+    local tables
+    tables="$(su postgres -c "psql -d ${POSTGRES_DB} -At -v ON_ERROR_STOP=1" <<'SQL'
+SELECT format('%I.%I', schemaname, tablename)
+FROM pg_tables
+WHERE schemaname = 'public'
+  AND tablename <> '_sqlx_migrations';
+SQL
+)"
+
+    while IFS= read -r table_ref; do
+        if [ -z "$table_ref" ]; then
+            continue
+        fi
+        if [ "$(su postgres -c "psql -d ${POSTGRES_DB} -At -v ON_ERROR_STOP=1 -c \"SELECT EXISTS (SELECT 1 FROM ${table_ref} LIMIT 1)\"")" = "t" ]; then
+            return 0
+        fi
+    done <<< "$tables"
+
+    return 1
+}
+
+latest_available_migration_version() {
+    find /app/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' \
+        | sed -E 's/^([0-9]+)_.*/\1/' \
+        | sort -n \
+        | tail -1
+}
+
+pending_migrations_exist() {
+    local to_version="$1"
+    if ! database_has_sqlx_migrations_table; then
+        [ -n "$to_version" ]
+        return
+    fi
+
+    local applied_count
+    applied_count=$(su postgres -c "psql -d ${POSTGRES_DB} -At -v ON_ERROR_STOP=1" <<'SQL'
+SELECT COUNT(*) FROM public._sqlx_migrations WHERE success = true;
+SQL
+)
+    local available_count
+    available_count=$(find /app/migrations -maxdepth 1 -type f -name '*.sql' | wc -l)
+    [ "${applied_count:-0}" -lt "${available_count:-0}" ]
+}
+
+repair_legacy_restore_compatibility() {
+    echo ">>> Checking legacy restore compatibility repairs..."
+    su postgres -c "psql -d ${POSTGRES_DB} -v ON_ERROR_STOP=1" <<'SQL'
+DO $$
+BEGIN
+  IF to_regclass('public.skos_concept') IS NULL
+     OR to_regprocedure('public.queue_reembed_for_skos_changes()') IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF EXISTS (
+      SELECT 1
+      FROM pg_trigger
+      WHERE tgname = 'trg_reembed_on_skos_concept_update'
+        AND tgrelid = 'public.skos_concept'::regclass
+        AND NOT tgisinternal
+        AND pg_get_triggerdef(oid) LIKE '%embedding IS DISTINCT FROM%'
+  ) THEN
+    DROP TRIGGER trg_reembed_on_skos_concept_update ON public.skos_concept;
+    CREATE TRIGGER trg_reembed_on_skos_concept_update
+    AFTER UPDATE ON public.skos_concept
+    FOR EACH ROW
+    WHEN (OLD.embedding::text IS DISTINCT FROM NEW.embedding::text)
+    EXECUTE FUNCTION public.queue_reembed_for_skos_changes();
+  END IF;
+END $$;
+SQL
+}
+
+ensure_pre_migration_backup() {
+    local to_version
+    to_version="$(latest_available_migration_version)"
+
+    if ! database_has_user_data; then
+        echo ">>> Pre-migration backup skipped: database has no user data"
+        return 0
+    fi
+
+    if ! pending_migrations_exist "$to_version"; then
+        echo ">>> Pre-migration backup skipped: no pending migrations"
+        return 0
+    fi
+
+    if [ "$PRE_MIGRATION_BACKUP_ACK_NO_BACKUP" = "true" ]; then
+        echo "!!! WARNING: PRE_MIGRATION_BACKUP_ACK_NO_BACKUP=true; running migrations without automatic recovery point"
+        return 0
+    fi
+
+    if [ ! -x "$BACKUP_SCRIPT_PATH" ]; then
+        echo "ERROR: pre-migration backup script is not executable: $BACKUP_SCRIPT_PATH" >&2
+        echo "Set PRE_MIGRATION_BACKUP_ACK_NO_BACKUP=true only after accepting rollback risk." >&2
+        exit 1
+    fi
+
+    local from_version
+    local timestamp
+    local basename
+    local backup_log
+    from_version="$(current_migration_version)"
+    timestamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+    basename="pre-migration-${from_version}-${to_version}-${timestamp}"
+    backup_log="${BACKUP_DEST}/.${basename}.log"
+
+    echo ">>> Pending migrations on non-empty database: creating verified pre-migration backup"
+    mkdir -p "$BACKUP_DEST"
+    if ! env \
+        BACKUP_DEST="$BACKUP_DEST" \
+        BACKUP_BASENAME="$basename" \
+        BACKUP_CLEANUP_PATTERN='pre-migration-*.sql*' \
+        BACKUP_RETAIN="$PRE_MIGRATION_BACKUP_RETAIN" \
+        BACKUP_TEMP_DIR="${BACKUP_TEMP_DIR:-/dev/shm/fortemi-pre-migration-backup}" \
+        BACKUP_COMPRESS="${BACKUP_COMPRESS:-gzip}" \
+        PGUSER="$POSTGRES_USER" \
+        PGPASSWORD="$POSTGRES_PASSWORD" \
+        PGHOST=localhost \
+        PGPORT=5432 \
+        PGDATABASE="$POSTGRES_DB" \
+        LOG_FILE="${LOG_FILE:-/var/log/fortemi/backup.log}" \
+        "$BACKUP_SCRIPT_PATH" -d local | tee "$backup_log"; then
+        echo "ERROR: verified pre-migration backup failed; aborting before checksum repair and migrations" >&2
+        echo "Set PRE_MIGRATION_BACKUP_ACK_NO_BACKUP=true only for constrained environments with an external recovery point." >&2
+        exit 1
+    fi
+
+    local final_file
+    final_file="$(tail -n 1 "$backup_log")"
+    echo ">>> Pre-migration backup ready: ${BACKUP_DEST}/${final_file}"
+}
+
+repair_legacy_restore_compatibility
+ensure_pre_migration_backup
+
 # One-time repair for deployments that applied the briefly modified
 # 20260215000000 migration from 10d2601f before the file was restored.
 # sqlx stores SHA-384 bytes in _sqlx_migrations.checksum and validates them
@@ -124,9 +283,9 @@ echo ">>> Database migrations will be applied by API on startup"
 # Create required directories for file storage and backups
 echo ">>> Creating storage directories..."
 mkdir -p /var/lib/matric/files
-mkdir -p /var/backups/matric-memory
+mkdir -p "$BACKUP_DEST"
 echo "  File storage: /var/lib/matric/files"
-echo "  Backup storage: /var/backups/matric-memory"
+echo "  Backup storage: $BACKUP_DEST"
 
 # --- Start API first (MCP needs the API for credential validation) ---
 echo ">>> Starting Matric API..."

@@ -314,7 +314,7 @@ impl Database {
     #[cfg(feature = "migrations")]
     pub async fn migrate(&self) -> Result<()> {
         self.require_postgres_18().await?;
-        self.repair_native_uuidv7_migration_checksum().await?;
+        self.repair_legacy_migration_history().await?;
         sqlx::migrate!("../../migrations")
             .run(&self.pool)
             .await
@@ -347,19 +347,16 @@ impl Database {
         Ok(())
     }
 
-    /// Normalize the checksum for the restored 20260215000000 migration.
+    /// Normalize known legacy migration history before sqlx validates it.
     ///
-    /// Commit 10d2601f briefly edited an already-applied migration in place,
-    /// so deployments that applied that file stored its modified sqlx SHA-384
-    /// checksum. The migration file is now restored to its original bytes; this
-    /// one-time repair updates only the known modified checksum before sqlx's
-    /// default checksum validation runs.
+    /// A few early 2026 migrations were edited in place or split into
+    /// schema-only plus seed-data migrations after they had shipped. sqlx
+    /// validates all applied migration checksums before running pending
+    /// migrations, so we repair only exact known legacy checksums and mark split
+    /// seed migrations as applied only when their data/schema evidence already
+    /// exists.
     #[cfg(feature = "migrations")]
-    async fn repair_native_uuidv7_migration_checksum(&self) -> Result<()> {
-        const VERSION: i64 = 20260215000000;
-        const ORIGINAL_SHA384: &str = "c4a8d7097ce200e9bd39d7bd70882403119c1181bbfa5999335d48ebd087e9703587297347bbef014974cb1699f07772";
-        const MODIFIED_SHA384: &str = "2bdad6ec8fffbe68cde85e0e749ac510ef319b694aa15dee71bcae3ad13b3db2f8b317f7ef2b393ea27e432b5f33872c";
-
+    async fn repair_legacy_migration_history(&self) -> Result<()> {
         let has_migrations_table: bool =
             sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations') IS NOT NULL")
                 .fetch_one(&self.pool)
@@ -372,16 +369,69 @@ impl Database {
 
         sqlx::query(
             r#"
-            UPDATE public._sqlx_migrations
-            SET checksum = decode($2, 'hex')
-            WHERE version = $1
-              AND success = true
-              AND checksum = decode($3, 'hex')
+            DO $$
+            BEGIN
+              WITH split_applied(version, description, checksum, source_version, source_sha384) AS (
+                VALUES
+                  (20260117000002::bigint, 'fix_embedding_set_stats'::text, decode('589b6437386ee16900cf941927a59c0924f23cf9d33e2856acc90782091a945f599fc32b58a7628bbc48d9073a9c8d91', 'hex'), 20260117000001::bigint, '589b6437386ee16900cf941927a59c0924f23cf9d33e2856acc90782091a945f599fc32b58a7628bbc48d9073a9c8d91'),
+                  (20260118000001::bigint, 'seed_default_concept_scheme'::text, decode('fc1533fb41e8d4e2042dc196ac0e0dbf43843992b69926724cfee35a82e1aacabeb5b754f62031ef4efc13d9c3e3cbb1', 'hex'), 20260118000000::bigint, '81f588cfbddb017917460ee7d52abdf880d0e55c8faf3cc066698aeed343f1a9bdddb07ef8814c4745ce517f03a02449'),
+                  (20260201500001::bigint, 'seed_embedding_configs'::text, decode('862856a288ed2142c635a1d47e5e280e90d5edf6a5a9180eea8a13eb842f4a23226ad65e8137d953f4e2ed0eb6ee7acb', 'hex'), 20260201500000::bigint, '887b598fb59e54e321a894b764a756a7a13fc384b2eba3a9ee9b9e7404e113199de707f0cf765925a63cad5596b54880'),
+                  (20260202000001::bigint, 'seed_core_document_types'::text, decode('45a61cef553be5ae3cb2161414cbfb7e6e1bd995ea7b80f91d49df2a5aa28aad85cda44dd0e4e1965867ffcc220284b0', 'hex'), 20260202000000::bigint, 'c386fb8199f53e4d10ee613b6e8729ddfddc332a721cf32107550649a7eb81069a1d9bbee62c484e60a4026e2f52060d'),
+                  (20260202100001::bigint, 'embedding_config_api'::text, decode('25271c2b9d8843f8cf3a4a38365da5dfd9e4d477a88421422612775ca27d6dc0c2341566e6950cdc2d89ae3fb9c3c566', 'hex'), 20260202100000::bigint, '25271c2b9d8843f8cf3a4a38365da5dfd9e4d477a88421422612775ca27d6dc0c2341566e6950cdc2d89ae3fb9c3c566'),
+                  (20260202100002::bigint, 'seed_agentic_configs'::text, decode('7987079d41542b4cc298a5559c7f9cc84d8a93b26ba3bc081fb99c552b6260ac7f6e115ed737a4c81c0c74e160ae0ef8', 'hex'), 20260202100000::bigint, 'b897a287eddfa2b97ed1a5c54943bd68a4c1274b99dd4de9f2e3175010722200f77f2bdd9d0df222add2ab98128870ee'),
+                  (20260202100002::bigint, 'seed_agentic_configs'::text, decode('7987079d41542b4cc298a5559c7f9cc84d8a93b26ba3bc081fb99c552b6260ac7f6e115ed737a4c81c0c74e160ae0ef8', 'hex'), 20260202100000::bigint, '25271c2b9d8843f8cf3a4a38365da5dfd9e4d477a88421422612775ca27d6dc0c2341566e6950cdc2d89ae3fb9c3c566'),
+                  (20260203400001::bigint, 'seed_extraction_strategies'::text, decode('3f1a642c1c4a8fee137200a796d714d462a80d20dc6c418e9b7a2e40da9071c6bf9668eca75ee17262cd16dcaf775b33', 'hex'), 20260203400000::bigint, '071780aedfd7163b7e699e412767fa0f805efa3e19d802ac0aa6752bec7a2608894a8eb931d9940a51ac25593978a7b9'),
+                  (20260204300001::bigint, 'seed_media_document_types'::text, decode('e3dc1d7da8559017ccb27e5705da20aea8311dff9a5753b4e5ae78914d2c9f45535eb0c02f9cacc43dc0d3188eb21881', 'hex'), 20260204300000::bigint, '3124b8d2f897b6975d13a505d26d521c77d385e3249bceb62e51a561e54797aeb53caedf301c8af07e0625f1e723577f'),
+                  (20260204400001::bigint, 'seed_temporal_positional_types'::text, decode('4689fee6bf8a11455edf7d7253405baa2ddfb6080d16a781894052550ffcad1773c0bdd14f12fae6094d287a96414080', 'hex'), 20260204400000::bigint, 'a04dd06d6564f4a3b76507555300c0973cb2ec5b5a05493cd48ce0c0adfb7cae42c216f7efdcde5ff5023014837c1211'),
+                  (20260205000001::bigint, 'fix_embedding_pipeline'::text, decode('129709ef75d569f09f6ccd6dd37dcba50c21d0bcf906f56569b9f848cb8cd64a338461f2e3886896989167ddc77d6dec', 'hex'), 20260205000000::bigint, '129709ef75d569f09f6ccd6dd37dcba50c21d0bcf906f56569b9f848cb8cd64a338461f2e3886896989167ddc77d6dec')
+              )
+              INSERT INTO public._sqlx_migrations (version, description, installed_on, success, checksum, execution_time)
+              SELECT split_applied.version,
+                     split_applied.description,
+                     now(),
+                     true,
+                     split_applied.checksum,
+                     0
+                FROM split_applied
+               WHERE EXISTS (
+                     SELECT 1 FROM public._sqlx_migrations source
+                      WHERE source.version = split_applied.source_version
+                        AND source.success = true
+                        AND source.checksum = decode(split_applied.source_sha384, 'hex')
+                   )
+                 AND NOT EXISTS (
+                     SELECT 1 FROM public._sqlx_migrations existing
+                      WHERE existing.version = split_applied.version
+                   );
+
+              WITH repairs(version, old_sha384, new_sha384) AS (
+                VALUES
+                  (20260117000000::bigint, 'c3fdf92e0a59bf1e4d82ac0d85b55e22b99f6466feb567f9d28f5124d3da42bc24c353ae5dfcc453db7e1938d03c1f39', 'f5c978911450c624eefd77ede77aebfa1d3f67f2cd3f57a48d011a79e4dd9c5ccfed82ef0dbb7ea32f58fc0901be9a4b'),
+                  (20260117000001::bigint, '589b6437386ee16900cf941927a59c0924f23cf9d33e2856acc90782091a945f599fc32b58a7628bbc48d9073a9c8d91', 'a2cee11a63e0d49e1fafe0a515b036fe0ca1e2278b43c6bc0808c83c8d2236926f8a7bf85bc7a10c66ce80e27639c91d'),
+                  (20260118000000::bigint, '81f588cfbddb017917460ee7d52abdf880d0e55c8faf3cc066698aeed343f1a9bdddb07ef8814c4745ce517f03a02449', '54fc55cec2656b3fa3db27c402f7d20ed9b57a2b600fa5fb7c8a50cd044f9a0a80cfdbc14698653db7a985a88266ba7c'),
+                  (20260201100000::bigint, 'aa799e6833c44076b0690e714f125ac624a37218c4ba86a29a9d3dab52ff4c27c6f84cddf9993567c5ec4b5512553792', '7c97c54d25900ca247c4085752066667a815a467093778b1e3292fb92361632e910e99574ebb012b3cd16a32ae8020cd'),
+                  (20260201200000::bigint, '2da68242b4486d9e04dd6eec9c7c25f29340f7f37ac87007756fd4a938317d7e6b1d84f781f298eb73b84896dd75f80d', 'd5de77042eaca3f3e8108c440eb93bf9f11afba15dd5fcf3b33405cdb89ff3d65ab5473a0de63442e4cd280b64bbc867'),
+                  (20260201300000::bigint, '5aced078ba7b53c5a6d370a9b840d51ac2e1cfd813f95b0efc37895167031c853f077c169a28e1c8e6e4311c941d1a5e', '75236d37a5ccf3e067556c96b76d07102a42b214633f3aad20fbf719dcb7e540cfcb08c0cdd346ace02eae4fc33f1e04'),
+                  (20260201500000::bigint, '887b598fb59e54e321a894b764a756a7a13fc384b2eba3a9ee9b9e7404e113199de707f0cf765925a63cad5596b54880', '9deb4f9fd460e2dc455174698b574d0f77730d65366f9ffb4a5604cf759284fe7f05572b5ca6db3453e8ccd5cc8625a4'),
+                  (20260202000000::bigint, 'c386fb8199f53e4d10ee613b6e8729ddfddc332a721cf32107550649a7eb81069a1d9bbee62c484e60a4026e2f52060d', 'db891ca0c1b00bff3a1162409b67e1a1d3109cbba1bcaf0dfd8e28063b20d2db616c9734607fa3ff9bd8b4cdd5d2f8e4'),
+                  (20260202100000::bigint, 'b897a287eddfa2b97ed1a5c54943bd68a4c1274b99dd4de9f2e3175010722200f77f2bdd9d0df222add2ab98128870ee', '75aa015c0ef47fd2f99692455ff095cb56eb5006a1bde99278980676252d5b613c20baf0b01a0ccdae95c41dcfd1e5ce'),
+                  (20260202100000::bigint, '25271c2b9d8843f8cf3a4a38365da5dfd9e4d477a88421422612775ca27d6dc0c2341566e6950cdc2d89ae3fb9c3c566', '75aa015c0ef47fd2f99692455ff095cb56eb5006a1bde99278980676252d5b613c20baf0b01a0ccdae95c41dcfd1e5ce'),
+                  (20260203400000::bigint, '071780aedfd7163b7e699e412767fa0f805efa3e19d802ac0aa6752bec7a2608894a8eb931d9940a51ac25593978a7b9', '8744a8e7e5aca7caf6cc5ce4073ee1d7f374b76012e16cd53ef41b1fed9f0c9860c66147ae5941a1471103135296e660'),
+                  (20260204100000::bigint, 'c39e18dfa22ed2bc8c637fbf234024feb8ca957cad43de3bbff60d400e7b841067b9e352af65c928d28a177777e3ed36', '4feb4008a64f1a2fc9143e62950bf71d080f1d793a84ed3151a25912c17b62954500e92a08fa1edc63faedb8d0247062'),
+                  (20260204300000::bigint, '3124b8d2f897b6975d13a505d26d521c77d385e3249bceb62e51a561e54797aeb53caedf301c8af07e0625f1e723577f', 'f1ca1202710adb96d33fdb44b954997ba2d2562758d295dd6267dd698010218c33bbd2f21cb8d9718235feba03b93eb4'),
+                  (20260204400000::bigint, 'a04dd06d6564f4a3b76507555300c0973cb2ec5b5a05493cd48ce0c0adfb7cae42c216f7efdcde5ff5023014837c1211', '6cd49a208083d58085e8f56ae965472549b003895bddfe19995a234013e8e80b12315796bbc2d85538ea71a62c49237b'),
+                  (20260205000000::bigint, '129709ef75d569f09f6ccd6dd37dcba50c21d0bcf906f56569b9f848cb8cd64a338461f2e3886896989167ddc77d6dec', '299534b2f551486fc188eddc173f58088fe00823afffbc76f2f9bc44bc558ca2fb6c337c5a40158b3e2f43c5a5d65e1a'),
+                  (20260215000000::bigint, '2bdad6ec8fffbe68cde85e0e749ac510ef319b694aa15dee71bcae3ad13b3db2f8b317f7ef2b393ea27e432b5f33872c', 'c4a8d7097ce200e9bd39d7bd70882403119c1181bbfa5999335d48ebd087e9703587297347bbef014974cb1699f07772')
+              )
+              UPDATE public._sqlx_migrations AS migration
+                 SET checksum = decode(repairs.new_sha384, 'hex')
+                FROM repairs
+               WHERE migration.version = repairs.version
+                 AND migration.success = true
+                 AND migration.checksum = decode(repairs.old_sha384, 'hex');
+            END $$;
             "#,
         )
-        .bind(VERSION)
-        .bind(ORIGINAL_SHA384)
-        .bind(MODIFIED_SHA384)
         .execute(&self.pool)
         .await
         .map_err(Error::Database)?;
