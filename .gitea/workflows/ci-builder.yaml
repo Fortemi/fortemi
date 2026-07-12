@@ -82,6 +82,15 @@ jobs:
       - name: Check migration immutability
         run: python3 scripts/ci/verify-migration-immutability.py
 
+      - name: Check pre-migration backup gate
+        run: python3 scripts/ci/verify-pre-migration-backup-gate.py
+
+      - name: Smoke pre-migration backup gate
+        run: bash scripts/ci/smoke-pre-migration-backup-gate.sh
+
+      - name: Analyze post-Feb migration risk
+        run: python3 scripts/ci/analyze-post-feb-migrations.py > migration-risk-report.json
+
       - name: Docs contract advisory scan
         run: DOCS_CONTRACT_MODE=advisory bash scripts/ci/docs-contract.sh .
 
@@ -706,15 +715,15 @@ jobs:
   create-release:
     name: Create Gitea Release
     runs-on: matric-builder
-    needs: publish-release
-    # Belt-and-suspenders gating. The `needs.publish-release.result ==
-    # 'success'` clause should be sufficient — `publish-release` is itself
-    # tag-gated, so on push-to-main it is skipped and `result` is 'skipped'.
+    needs: [publish-release, publish-github]
+    # Belt-and-suspenders gating. The `needs.*.result == 'success'` clauses
+    # should be sufficient — both publish jobs are themselves tag-gated, so on
+    # push-to-main they are skipped and `result` is 'skipped'.
     # In practice Gitea Actions has fired this job on push-to-main anyway
     # (CI run #1491; see fix/release-jobs-tag-gating). The explicit
     # `startsWith` check is redundant on GitHub Actions but defensive
     # against the Gitea evaluator's behavior.
-    if: startsWith(github.ref, 'refs/tags/v') && needs.publish-release.result == 'success'
+    if: startsWith(github.ref, 'refs/tags/v') && needs.publish-release.result == 'success' && needs.publish-github.result == 'success'
     steps:
       - name: Checkout
         run: |

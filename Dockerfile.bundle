@@ -59,6 +59,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     curl \
     gnupg \
+    gzip \
     # Core extraction (always available)
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
@@ -142,7 +143,10 @@ COPY docker/seed-data /app/seed-data
 # Copy entrypoint and seed scripts
 COPY docker/bundle-entrypoint.sh /app/entrypoint.sh
 COPY docker/seed-support-archive.sh /app/seed-support-archive.sh
+RUN mkdir -p /app/scripts
+COPY scripts/backup.sh /app/scripts/backup.sh
 RUN chmod +x /app/entrypoint.sh /app/seed-support-archive.sh
+RUN chmod +x /app/scripts/backup.sh
 
 # Version environment variables
 ENV MATRIC_VERSION=${VERSION}

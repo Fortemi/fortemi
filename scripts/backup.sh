@@ -12,6 +12,7 @@
 #
 # Environment variables:
 #   BACKUP_DEST          Local backup directory (default: /var/backups/fortemi)
+#   BACKUP_BASENAME      Backup basename without extension (default: fortemi_backup_<timestamp>)
 #   BACKUP_TEMP_DIR      Explicit private scratch directory for temporary dump files
 #   BACKUP_RETAIN        Days to retain backups (default: 7)
 #   BACKUP_COMPRESS      Compression: gzip, zstd, none (default: gzip)
@@ -29,6 +30,7 @@ readonly SCRIPT_VERSION="1.0.0"
 # Default configuration
 CONFIG_FILE="${FORTEMI_BACKUP_CONFIG:-/etc/fortemi/backup.conf}"
 BACKUP_DEST="${BACKUP_DEST:-/var/backups/fortemi}"
+BACKUP_BASENAME="${BACKUP_BASENAME:-}"
 BACKUP_TEMP_DIR="${BACKUP_TEMP_DIR:-}"
 BACKUP_TEMP_TRUSTED_ENCRYPTED="${BACKUP_TEMP_TRUSTED_ENCRYPTED:-false}"
 BACKUP_RETAIN="${BACKUP_RETAIN:-7}"
@@ -149,6 +151,7 @@ Options:
 
 Environment Variables:
   BACKUP_DEST            Local backup directory (default: /var/backups/fortemi)
+  BACKUP_BASENAME        Backup basename without extension
   BACKUP_TEMP_DIR        Explicit private scratch directory for temporary dump files
   BACKUP_TEMP_TRUSTED_ENCRYPTED
                          Set true only when BACKUP_TEMP_DIR is encrypted-at-rest
@@ -231,7 +234,7 @@ validate_environment() {
     log_verbose "Validating environment..."
 
     # Check required commands
-    local required_cmds=("pg_dump")
+    local required_cmds=("pg_dump" "pg_restore" "sha256sum")
     for cmd in "${required_cmds[@]}"; do
         if ! command -v "$cmd" &> /dev/null; then
             error_exit "Required command not found: $cmd"
@@ -575,11 +578,12 @@ distribute_backup() {
 # Cleanup old backups based on retention policy
 cleanup_old_backups() {
     log "Applying retention policy: keep $BACKUP_RETAIN days"
+    local backup_pattern="${BACKUP_CLEANUP_PATTERN:-fortemi_backup_*.sql*}"
 
     if [[ "$DRY_RUN" == "true" ]]; then
         log "DRY RUN: Would cleanup backups older than $BACKUP_RETAIN days"
         if [[ -d "$BACKUP_DEST" ]]; then
-            find "$BACKUP_DEST" -name "fortemi_backup_*.sql*" -type f -mtime "+$BACKUP_RETAIN" 2>/dev/null | while read -r file; do
+            find "$BACKUP_DEST" -name "$backup_pattern" -type f -mtime "+$BACKUP_RETAIN" 2>/dev/null | while read -r file; do
                 log "DRY RUN: Would delete backup: $(backup_path_metadata "$file")"
             done
         fi
@@ -593,7 +597,7 @@ cleanup_old_backups() {
             rm -f "$file"
             log_verbose "Deleted old backup: $(backup_path_metadata "$file")"
             ((++deleted))
-        done < <(find "$BACKUP_DEST" -name "fortemi_backup_*.sql*" -type f -mtime "+$BACKUP_RETAIN" -print0 2>/dev/null)
+        done < <(find "$BACKUP_DEST" -name "$backup_pattern" -type f -mtime "+$BACKUP_RETAIN" -print0 2>/dev/null)
 
         if [[ $deleted -gt 0 ]]; then
             log "Cleaned up $deleted old backup(s)"
@@ -619,6 +623,7 @@ cleanup_old_backups() {
 verify_backup() {
     local file="$1"
     local backup_path="${BACKUP_DEST}/${file}"
+    local verify_path=""
 
     log "Verifying backup..."
 
@@ -640,7 +645,52 @@ verify_backup() {
         return 1
     fi
 
-    log_success "Backup verified: $(numfmt --to=iec "$size" 2>/dev/null || echo "${size} bytes")"
+    case "$backup_path" in
+        *.gz)
+            verify_path=$(mktemp "${BACKUP_TEMP_DIR}/verify.XXXXXX")
+            gzip -dc "$backup_path" > "$verify_path"
+            if ! pg_restore --list "$verify_path" >/dev/null; then
+                rm -f "$verify_path"
+                log_warn "Backup parse check failed: $(backup_path_metadata "$backup_path")"
+                return 1
+            fi
+            rm -f "$verify_path"
+            ;;
+        *.zst)
+            verify_path=$(mktemp "${BACKUP_TEMP_DIR}/verify.XXXXXX")
+            zstd -dc "$backup_path" > "$verify_path"
+            if ! pg_restore --list "$verify_path" >/dev/null; then
+                rm -f "$verify_path"
+                log_warn "Backup parse check failed: $(backup_path_metadata "$backup_path")"
+                return 1
+            fi
+            rm -f "$verify_path"
+            ;;
+        *.xz)
+            verify_path=$(mktemp "${BACKUP_TEMP_DIR}/verify.XXXXXX")
+            xz -dc "$backup_path" > "$verify_path"
+            if ! pg_restore --list "$verify_path" >/dev/null; then
+                rm -f "$verify_path"
+                log_warn "Backup parse check failed: $(backup_path_metadata "$backup_path")"
+                return 1
+            fi
+            rm -f "$verify_path"
+            ;;
+        *.age)
+            log_warn "Encrypted backup parse check skipped; verify after decrypting with age"
+            ;;
+        *)
+            if ! pg_restore --list "$backup_path" >/dev/null; then
+                log_warn "Backup parse check failed: $(backup_path_metadata "$backup_path")"
+                return 1
+            fi
+            ;;
+    esac
+
+    local checksum
+    checksum=$(sha256sum "$backup_path" | awk '{print $1}')
+
+    log_success "Backup verified: $(numfmt --to=iec "$size" 2>/dev/null || echo "${size} bytes") sha256=${checksum}"
     return 0
 }
 
@@ -648,6 +698,8 @@ verify_backup() {
 cleanup_temp() {
     if [[ -n "$BACKUP_TEMP_DIR" && -d "$BACKUP_TEMP_DIR" ]]; then
         rm -f "${BACKUP_TEMP_DIR}"/fortemi_backup_*.sql* 2>/dev/null || true
+        rm -f "${BACKUP_TEMP_DIR}"/pre-migration-*.sql* 2>/dev/null || true
+        rm -f "${BACKUP_TEMP_DIR}"/verify.* 2>/dev/null || true
     fi
 }
 
@@ -663,7 +715,7 @@ main() {
     # Generate backup filename
     local timestamp
     timestamp=$(date '+%Y%m%d_%H%M%S')
-    local base_filename="fortemi_backup_${timestamp}.sql"
+    local base_filename="${BACKUP_BASENAME:-fortemi_backup_${timestamp}}.sql"
 
     log "Starting Fortémi backup..."
     log_verbose "Timestamp: $timestamp"
