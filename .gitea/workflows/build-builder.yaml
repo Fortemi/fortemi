@@ -239,17 +239,19 @@ jobs:
           echo "Triggering CI workflows to use new builder image..."
 
           # Trigger ci-builder.yaml via workflow_dispatch
-          curl -X POST \
+          curl --fail-with-body --silent --show-error -X POST \
             -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
             -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
             "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/ci-builder.yaml/dispatches" \
-            -d '{"ref":"main"}' || echo "Dispatch may not be supported, CI will run on next push"
+            -d '{"ref":"main"}'
 
           # Also trigger ci.yaml
-          curl -X POST \
+          curl --fail-with-body --silent --show-error -X POST \
             -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
             -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
             "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yaml/dispatches" \
-            -d '{"ref":"main"}' || echo "Dispatch may not be supported, CI will run on next push"
+            -d '{"ref":"main"}'
 
-          echo "CI workflows triggered (or will run on next code push)"
+          echo "CI workflows triggered"
