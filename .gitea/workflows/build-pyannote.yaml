@@ -23,10 +23,16 @@ jobs:
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
+      - name: Fetch registry and model tokens from OpenBao
+        env:
+          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
+          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
+        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.pyannote.spec
+
       - name: Log in to registries
         run: |
-          echo "${{ secrets.GH_PUBLISH_TOKEN }}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
-          echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${GITEA_REGISTRY} -u ${{ gitea.actor }} --password-stdin
+          printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
+          printf '%s\n' "${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" | docker login ${GITEA_REGISTRY} -u ${{ gitea.actor }} --password-stdin
 
       - name: Determine tags
         run: |
@@ -69,7 +75,7 @@ jobs:
           docker run -d --name pyannote-verify \
             -e PYANNOTE_PORT=8001 \
             -e PYANNOTE_DEVICE=cpu \
-            -e HF_TOKEN=${{ secrets.HF_TOKEN }} \
+            -e HF_TOKEN="${HF_TOKEN:?HF_TOKEN is required}" \
             ${IMAGE}:pyannote
 
           # Wait for health check (pyannote model loading can be slow)

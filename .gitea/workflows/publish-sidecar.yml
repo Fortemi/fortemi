@@ -92,12 +92,20 @@ jobs:
     name: Build macOS aarch64
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Fetch mutsu SSH key from OpenBao
+        env:
+          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
+          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
+        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.mutsu.spec
+
       - name: Set up SSH to mutsu
         shell: bash
-        env:
-          MUTSU_SSH_KEY: ${{ secrets.MUTSU_SSH_KEY }}
         run: |
           set -e
+          test -s "${MUTSU_SSH_KEY_FILE:?MUTSU_SSH_KEY_FILE is required}"
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
@@ -106,7 +114,7 @@ jobs:
           # \n and/or introduces CRLF line endings — openssl's parser rejects
           # both with "error in libcrypto". We strip CRLF and ensure the file
           # ends with a single LF.
-          printf '%s\n' "${MUTSU_SSH_KEY}" | tr -d '\r' > ~/.ssh/mutsu_key
+          tr -d '\r' < "$MUTSU_SSH_KEY_FILE" > ~/.ssh/mutsu_key
           chmod 600 ~/.ssh/mutsu_key
 
           # Sanity check: the key file must start with -----BEGIN and end
@@ -238,6 +246,12 @@ jobs:
           # Copy to working dir so upload-artifact picks them up
           cp /tmp/sidecar-macos/matric-api-aarch64-apple-darwin ./matric-api-aarch64-apple-darwin
           cp /tmp/sidecar-macos/matric-api-x86_64-apple-darwin ./matric-api-x86_64-apple-darwin
+
+      - name: Cleanup mutsu SSH key
+        if: always()
+        run: |
+          rm -f ~/.ssh/mutsu_key
+          ci/openbao-fetch.sh --cleanup
 
       - name: Upload aarch64 artifact
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3

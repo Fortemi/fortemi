@@ -563,8 +563,14 @@ jobs:
           git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
+      - name: Fetch registry token from OpenBao
+        env:
+          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
+          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
+        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.gitea-release.spec
+
       - name: Log in to registry
-        run: echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
+        run: printf '%s\n' "${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
 
       - name: Build and push dev images
         run: |
@@ -642,8 +648,14 @@ jobs:
           git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
+      - name: Fetch registry token from OpenBao
+        env:
+          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
+          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
+        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.gitea-release.spec
+
       - name: Log in to registry
-        run: echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
+        run: printf '%s\n' "${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
 
       - name: Build and push release images
         run: |
@@ -746,11 +758,17 @@ jobs:
 
           cat release_notes.md
 
+      - name: Fetch Gitea release token from OpenBao
+        env:
+          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
+          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
+        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.gitea-release.spec
+
       - name: Create release
         run: |
           VERSION="${GITHUB_REF_NAME}"
           API="https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}"
-          TOKEN="${{ secrets.BUILD_REPO_TOKEN }}"
+          TOKEN="${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}"
           BODY_JSON=$(cat release_notes.md | jq -Rs .)
 
           # publish-sidecar.yml may have created a release on this tag
@@ -810,8 +828,14 @@ jobs:
           git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
+      - name: Fetch GHCR token from OpenBao
+        env:
+          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
+          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
+        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.github-release.spec
+
       - name: Log in to GitHub Container Registry
-        run: echo "${{ secrets.GH_PUBLISH_TOKEN }}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
+        run: printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
 
       - name: Build and push dev images to ghcr.io
         run: |
@@ -881,8 +905,14 @@ jobs:
           git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
+      - name: Fetch GHCR token from OpenBao
+        env:
+          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
+          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
+        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.github-release.spec
+
       - name: Log in to GitHub Container Registry
-        run: echo "${{ secrets.GH_PUBLISH_TOKEN }}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
+        run: printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
 
       - name: Build and push to ghcr.io
         run: |
@@ -1017,6 +1047,12 @@ jobs:
           cat release_notes.md
           echo "===================="
 
+      - name: Fetch GitHub release token from OpenBao
+        env:
+          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
+          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
+        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.github-release.spec
+
       - name: Create GitHub Release
         run: |
           VERSION="${GITHUB_REF_NAME}"
@@ -1030,7 +1066,7 @@ jobs:
           # an unreachable api.github.com fails inside a minute.
           RESPONSE=$(curl -s --connect-timeout 10 --max-time 60 \
             -w "\n%{http_code}" -X POST \
-            -H "Authorization: token ${{ secrets.GH_PUBLISH_TOKEN }}" \
+            -H "Authorization: token ${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/Fortemi/fortemi/releases" \

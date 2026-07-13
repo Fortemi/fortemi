@@ -10,15 +10,17 @@
 # docs.fortemi.com layout: a landing portal at / links to the server docs
 # (this site, published to /server) and the fortemi-react docs (/react).
 #
-# Required secrets:
-#   DEPLOY_SSH_KEY     — private key for the deploy user
+# Required Gitea secrets:
+#   BAO_CI_ROLE_ID     — OpenBao AppRole role_id for this repo
+#   BAO_CI_SECRET_ID   — OpenBao AppRole secret_id for this repo
+#
+# Required Gitea variables:
 #   DEPLOY_HOST        — docs server hostname
 #   DEPLOY_PORT        — docs server SSH port
 #   DEPLOY_USER        — deploy user on the docs server
 #   DEPLOY_PATH        — absolute path for the server docs (.../docs-fortemi-com/server/)
 #   DEPLOY_PATH_PORTAL — absolute path for the landing portal (.../docs-fortemi-com/)
-#   CLOUDFLARE_ZONE_ID   — optional; Cloudflare zone to purge after deploy
-#   CLOUDFLARE_API_TOKEN — optional; token with Zone.Cache Purge permission
+#   CLOUDFLARE_ZONE_ID — optional; Cloudflare zone to purge after deploy
 
 name: Docsite Deploy
 
@@ -60,42 +62,86 @@ jobs:
           echo "Build verification passed"
           ls -lah dist/fortemi-docs/
 
-      - name: Install SSH tools
-        run: apt-get update && apt-get install -y --no-install-recommends curl openssh-client rsync
+      - name: Install deployment tools
+        run: apt-get update && apt-get install -y --no-install-recommends curl jq openssh-client rsync
+
+      - name: Validate deploy configuration
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          DEPLOY_PATH_PORTAL: ${{ vars.DEPLOY_PATH_PORTAL }}
+        run: |
+          set -euo pipefail
+          for name in DEPLOY_HOST DEPLOY_PORT DEPLOY_USER DEPLOY_PATH DEPLOY_PATH_PORTAL; do
+            if [ -z "${!name:-}" ]; then
+              echo "$name Gitea variable is required" >&2
+              exit 1
+            fi
+          done
+
+      - name: Fetch deploy secrets from OpenBao
+        env:
+          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
+          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
+        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.docsite-deploy.spec
 
       - name: Configure SSH key
         run: |
+          set -euo pipefail
+          test -s "${DEPLOY_SSH_KEY_FILE:?DEPLOY_SSH_KEY_FILE is required}"
           mkdir -p ~/.ssh
-          printf '%s\n' '${{ secrets.DEPLOY_SSH_KEY }}' > ~/.ssh/deploy_key
+          cp "$DEPLOY_SSH_KEY_FILE" ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
       - name: Deploy to docs server
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
         run: |
+          set -euo pipefail
+          DEPLOY_PATH="${DEPLOY_PATH%/}/"
           rsync -avz --delete \
-            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.DEPLOY_PORT }} -o StrictHostKeyChecking=accept-new" \
+            -e "ssh -i ~/.ssh/deploy_key -p ${DEPLOY_PORT} -o StrictHostKeyChecking=accept-new" \
             dist/fortemi-docs/ \
-            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}
+            "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}"
 
       - name: Verify deployment
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
         run: |
-          ssh -i ~/.ssh/deploy_key -p ${{ secrets.DEPLOY_PORT }} -o StrictHostKeyChecking=accept-new \
-            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
-            'test -f ${{ secrets.DEPLOY_PATH }}index.html && echo "Deploy verified: index.html present" || { echo "Deploy failed: index.html missing"; exit 1; }'
+          set -euo pipefail
+          DEPLOY_PATH="${DEPLOY_PATH%/}/"
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" -o StrictHostKeyChecking=accept-new \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "test -f '${DEPLOY_PATH}index.html' && echo 'Deploy verified: index.html present' || { echo 'Deploy failed: index.html missing'; exit 1; }"
 
       - name: Deploy landing portal to docs root
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PATH_PORTAL: ${{ vars.DEPLOY_PATH_PORTAL }}
         run: |
+          set -euo pipefail
+          DEPLOY_PATH_PORTAL="${DEPLOY_PATH_PORTAL%/}/"
           # Portal is the index at docs.fortemi.com/ linking to /server and /react.
           # No --delete here: the docs root also contains the server/ and react/
           # sub-path docbases, which must never be removed by this deploy.
           rsync -avz \
-            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.DEPLOY_PORT }} -o StrictHostKeyChecking=accept-new" \
+            -e "ssh -i ~/.ssh/deploy_key -p ${DEPLOY_PORT} -o StrictHostKeyChecking=accept-new" \
             docs-portal/ \
-            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH_PORTAL }}
+            "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH_PORTAL}"
 
       - name: Purge Cloudflare cache
         env:
-          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
         run: |
           if [ -z "${CLOUDFLARE_ZONE_ID}" ] || [ -z "${CLOUDFLARE_API_TOKEN}" ]; then
             echo "Cloudflare purge skipped: CLOUDFLARE_ZONE_ID or CLOUDFLARE_API_TOKEN is not configured"
@@ -107,9 +153,11 @@ jobs:
             -H "Content-Type: application/json" \
             --data '{"files":["https://docs.fortemi.com/","https://docs.fortemi.com/index.html","https://docs.fortemi.com/sitemap.xml","https://docs.fortemi.com/robots.txt","https://docs.fortemi.com/llms.txt","https://docs.fortemi.com/server/","https://docs.fortemi.com/server/index.html","https://docs.fortemi.com/server/sitemap.xml","https://docs.fortemi.com/server/robots.txt","https://docs.fortemi.com/server/llms.txt"]}'
 
-      - name: Cleanup SSH key
+      - name: Cleanup deploy secrets
         if: always()
-        run: rm -f ~/.ssh/deploy_key
+        run: |
+          rm -f ~/.ssh/deploy_key
+          ci/openbao-fetch.sh --cleanup
 
       - name: Log deployment result
         if: success()

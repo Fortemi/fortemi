@@ -28,10 +28,16 @@ jobs:
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
+      - name: Fetch registry tokens from OpenBao
+        env:
+          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
+          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
+        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.registry.spec
+
       - name: Log in to registries
         run: |
-          echo "${{ secrets.GH_PUBLISH_TOKEN }}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
-          echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${GITEA_REGISTRY} -u ${{ gitea.actor }} --password-stdin
+          printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
+          printf '%s\n' "${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" | docker login ${GITEA_REGISTRY} -u ${{ gitea.actor }} --password-stdin
 
       - name: Build builder image
         run: |
@@ -217,20 +223,29 @@ jobs:
     runs-on: titan
     needs: build-builder
     steps:
-      - name: Trigger CI workflows
+      - name: Checkout
         run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Trigger CI workflows
+        env:
+          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
+          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
+        run: |
+          ci/openbao-fetch.sh --spec ci/openbao-fetch.gitea-release.spec
           echo "Triggering CI workflows to use new builder image..."
 
           # Trigger ci-builder.yaml via workflow_dispatch
           curl -X POST \
-            -H "Authorization: token ${{ secrets.BUILD_REPO_TOKEN }}" \
+            -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
             -H "Accept: application/json" \
             "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/ci-builder.yaml/dispatches" \
             -d '{"ref":"main"}' || echo "Dispatch may not be supported, CI will run on next push"
 
           # Also trigger ci.yaml
           curl -X POST \
-            -H "Authorization: token ${{ secrets.BUILD_REPO_TOKEN }}" \
+            -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
             -H "Accept: application/json" \
             "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yaml/dispatches" \
             -d '{"ref":"main"}' || echo "Dispatch may not be supported, CI will run on next push"
