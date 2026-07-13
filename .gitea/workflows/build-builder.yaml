@@ -246,12 +246,12 @@ jobs:
             "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/ci-builder.yaml/dispatches" \
             -d '{"ref":"main"}'
 
-          # Also trigger ci.yaml
+          # Also trigger the comprehensive test workflow
           curl --fail-with-body --silent --show-error -X POST \
             -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
             -H "Accept: application/json" \
             -H "Content-Type: application/json" \
-            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yaml/dispatches" \
+            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/test.yml/dispatches" \
             -d '{"ref":"main"}'
 
           echo "CI workflows triggered"
