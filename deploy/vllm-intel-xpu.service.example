@@ -1,0 +1,35 @@
+[Unit]
+Description=vLLM OpenAI API on Intel Arc/XPU for Fortemi
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+
+# Adjust these paths for your host. This example assumes a Python virtualenv
+# with vLLM XPU support installed at %h/ai/vllm-xpu and a local Hugging Face
+# snapshot at %h/models/huggingface/Qwen--Qwen3.5-9B.
+Environment=VLLM_TARGET_DEVICE=xpu
+Environment=VLLM_WORKER_MULTIPROC_METHOD=spawn
+Environment=VLLM_LOGGING_LEVEL=INFO
+Environment=ZE_AFFINITY_MASK=0
+
+ExecStart=%h/ai/vllm-xpu/bin/python -m vllm.entrypoints.openai.api_server \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --model %h/models/huggingface/Qwen--Qwen3.5-9B \
+  --served-model-name qwen3.5:9b \
+  --trust-remote-code \
+  --max-model-len 8192 \
+  --gpu-memory-utilization 0.85 \
+  --dtype bfloat16 \
+  --enforce-eager \
+  --no-enable-log-requests
+
+Restart=always
+RestartSec=10
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target
