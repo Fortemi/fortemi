@@ -41,6 +41,44 @@ env:
   GHCR_IMAGE_NAME: fortemi/fortemi
 
 jobs:
+  # Keep the public source mirror aligned with authoritative Gitea refs. GHCR
+  # and release API calls do not update repository refs themselves.
+  sync-github-source:
+    name: Sync Source to GitHub
+    runs-on: matric-builder
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout complete repository
+        run: |
+          git clone https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+          git fetch origin '+refs/tags/*:refs/tags/*'
+
+      - name: Fetch GitHub source token from OpenBao
+        env:
+          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
+          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
+        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.github-release.spec
+
+      - name: Push authoritative source refs
+        run: |
+          set -euo pipefail
+          ASKPASS=$(mktemp)
+          trap 'rm -f "${ASKPASS}"' EXIT
+          cat > "${ASKPASS}" <<'ASKPASS_SCRIPT'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *) printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" ;;
+          esac
+          ASKPASS_SCRIPT
+          chmod 700 "${ASKPASS}"
+
+          git remote add github https://github.com/Fortemi/fortemi.git
+          GIT_ASKPASS="${ASKPASS}" GIT_TERMINAL_PROMPT=0 git push github \
+            refs/remotes/origin/main:refs/heads/main \
+            '+refs/tags/*:refs/tags/*'
+
   # Build testdb image once for all jobs
   build-testdb:
     name: Build Test Database Image
