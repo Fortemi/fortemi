@@ -74,7 +74,7 @@ use tokio::sync::RwLock;
 /// config endpoint can rebuild and replace backends without a server restart.
 /// Read lock is acquired briefly (just clone the Arc), so contention is minimal.
 pub struct InferenceRuntime {
-    pub generation_backend: Option<Arc<OllamaBackend>>,
+    pub generation_backend: Option<Arc<dyn GenerationBackend>>,
     pub provider_registry: Arc<matric_inference::ProviderRegistry>,
 }
 
@@ -96,7 +96,6 @@ async fn inference_reachability_probe(
     event_bus: Arc<EventBus>,
     interval_secs: u64,
 ) {
-    use matric_core::InferenceBackend;
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
     // First tick fires immediately — skip it since startup already probed.
     interval.tick().await;
@@ -865,8 +864,8 @@ async fn queue_nlp_pipeline_inner(
 use matric_api::services::TagResolver;
 use matric_inference::transcription::WhisperBackend;
 use matric_inference::{
-    transcription::TranscriptionBackend, DiarizationBackend, InferenceBackend, OllamaBackend,
-    OllamaVisionBackend, PyAnnoteBackend, VisionBackend,
+    transcription::TranscriptionBackend, DiarizationBackend, OllamaBackend, OllamaVisionBackend,
+    PyAnnoteBackend, VisionBackend,
 };
 use matric_jobs::{
     ArchiveAdapter, AudioChunkTranscriptionHandler, AudioTranscribeAdapter,
@@ -1020,7 +1019,7 @@ struct AppState {
 
 impl AppState {
     /// Get the current generation backend (clones the Arc, drops lock immediately).
-    fn generation_backend(&self) -> Option<Arc<OllamaBackend>> {
+    fn generation_backend(&self) -> Option<Arc<dyn GenerationBackend>> {
         self.inference_runtime
             .read()
             .unwrap()
@@ -2788,7 +2787,16 @@ async fn main() -> anyhow::Result<()> {
     // `inference_available` flag below is updated by a periodic probe task (#630)
     // so transient provider unreachability recovers without a Fortemi restart.
     let permits = matric_core::defaults::chat_max_concurrent();
-    let generation_backend: Option<Arc<OllamaBackend>> = Some(Arc::new(OllamaBackend::from_env()));
+    let generation_backend: Option<Arc<dyn GenerationBackend>> = provider_registry
+        .resolve_default_generation_boxed()
+        .map(Arc::from)
+        .inspect_err(|error| {
+            warn!(
+                error_len = error.to_string().chars().count(),
+                "Default generation provider could not be constructed"
+            );
+        })
+        .ok();
     let chat_semaphore: Option<Arc<tokio::sync::Semaphore>> =
         Some(Arc::new(tokio::sync::Semaphore::new(permits)));
     let inference_available = Arc::new(AtomicBool::new(false));
@@ -2798,12 +2806,15 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ref backend) = generation_backend {
         match backend.health_check().await {
             Ok(true) => {
-                info!(permits, "Chat endpoint enabled (Ollama reachable)");
+                info!(
+                    permits,
+                    "Chat endpoint enabled (generation provider reachable)"
+                );
                 inference_available.store(true, Ordering::Relaxed);
             }
             _ => {
                 warn!(
-                    "Ollama not reachable at startup — chat endpoint will re-enable when provider becomes available (#630)"
+                    "Generation provider not reachable at startup — chat endpoint will re-enable when it becomes available (#630)"
                 );
             }
         }
@@ -9019,15 +9030,23 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
     // periodic reachability probe (#630) so transient provider outages don't latch
     // chat to "offline" for the Fortemi process lifetime.
     let gen_backend = state.generation_backend();
+    let provider_registry = state.provider_registry();
     let inference_reachable = state.inference_available.load(Ordering::Relaxed);
     let inference_info = match &gen_backend {
-        Some(backend) => serde_json::json!({
-            "configured": true,
-            "available": inference_reachable,
-            "provider_url_configured": provider_url_configured(backend.base_url()),
-            "gen_model": GenerationBackend::model_name(backend.as_ref()),
-            "embed_model": EmbeddingBackend::model_name(backend.as_ref()),
-        }),
+        Some(backend) => {
+            let provider_url = provider_registry
+                .get_provider(provider_registry.default_provider())
+                .map(|provider| provider.base_url.as_str())
+                .unwrap_or_default();
+            serde_json::json!({
+                "configured": true,
+                "available": inference_reachable,
+                "provider_url_configured": provider_url_configured(provider_url),
+                "gen_model": backend.model_name(),
+                "embed_model": std::env::var("OLLAMA_EMBED_MODEL")
+                    .unwrap_or_else(|_| matric_core::defaults::EMBED_MODEL.to_string()),
+            })
+        }
         None => serde_json::json!({
             "configured": false,
             "available": false,

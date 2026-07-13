@@ -494,6 +494,11 @@ pub type GenerationStream =
 /// Backend for text generation (LLM).
 #[async_trait]
 pub trait GenerationBackend: Send + Sync {
+    /// Check whether the generation provider is reachable.
+    async fn health_check(&self) -> Result<bool> {
+        Ok(true)
+    }
+
     /// Generate text given a prompt.
     async fn generate(&self, prompt: &str) -> Result<String>;
 
@@ -603,10 +608,7 @@ mod generation_backend_tests {
 
 /// Combined inference backend supporting both embedding and generation.
 #[async_trait]
-pub trait InferenceBackend: EmbeddingBackend + GenerationBackend {
-    /// Check if the backend is available and responding.
-    async fn health_check(&self) -> Result<bool>;
-}
+pub trait InferenceBackend: EmbeddingBackend + GenerationBackend {}
 
 // =============================================================================
 // SEARCH TRAITS

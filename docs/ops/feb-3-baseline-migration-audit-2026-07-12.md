@@ -47,7 +47,7 @@ tag-file SHA-384 checksums into `_sqlx_migrations`, seeded one `note_original`
 row, and then ran the current migration gate before the compatibility repair:
 
 ```bash
-DATABASE_URL=postgres://matric:matric@127.0.0.1:55447/matric \
+DATABASE_URL=<DATABASE_URL> \
 FORTEMI_RUN_LARGE_MIGRATION_GATE=true \
 FORTEMI_MIN_SEEDED_NOTES=1 \
 cargo test -p matric-db --features migrations \

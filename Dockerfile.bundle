@@ -65,7 +65,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Optional: OCR (tesseract + pandoc)
-ARG ENABLE_OCR
 RUN if [ "$ENABLE_OCR" = "true" ]; then \
         apt-get update && apt-get install -y --no-install-recommends \
             tesseract-ocr tesseract-ocr-eng pandoc \
@@ -73,14 +72,12 @@ RUN if [ "$ENABLE_OCR" = "true" ]; then \
     else echo "OCR disabled"; fi
 
 # Optional: FFmpeg (video/audio extraction)
-ARG ENABLE_FFMPEG
 RUN if [ "$ENABLE_FFMPEG" = "true" ]; then \
         apt-get update && apt-get install -y --no-install-recommends ffmpeg \
         && rm -rf /var/lib/apt/lists/*; \
     else echo "FFmpeg disabled"; fi
 
 # Optional: PostGIS (spatial/geographic queries)
-ARG ENABLE_POSTGIS
 RUN if [ "$ENABLE_POSTGIS" = "true" ]; then \
         apt-get update && apt-get install -y --no-install-recommends \
             postgresql-18-postgis-3 postgresql-18-postgis-3-scripts \
@@ -117,7 +114,6 @@ RUN npm ci --omit=dev
 # Auto-disables on arm64 (no wheel available). Set ENABLE_OPEN3D=false to skip on any platform.
 COPY docker/open3d-renderer /app/open3d-renderer
 
-ARG ENABLE_OPEN3D
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ENABLE_OPEN3D" = "false" ]; then \
         echo "Open3D disabled by build arg"; \

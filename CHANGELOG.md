@@ -7,6 +7,75 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.7.1] - 2026-07-13
+
+Upgrade-reliability and Intel inference deployment release. This release fixes
+the remaining February-baseline bundle upgrade blockers, adds a validated Intel
+Arc/XPU host-vLLM deployment path, migrates release automation to OpenBao-backed
+credentials, and ratifies the portable binary-attachment shard contract.
+
+### Added
+
+- **Intel Arc/XPU host-vLLM deployment:** added a Compose overlay that clears
+  NVIDIA reservations and routes generation to a host OpenAI-compatible vLLM
+  endpoint while retaining a separate embedding provider. The profile includes
+  an example systemd service, environment guidance, a render validation gate,
+  and a hardware-independent smoke test.
+
+### Fixed
+
+- **Legacy bundle authentication (#1048):** existing data directories created
+  with an older password default now align the application role with the
+  configured `POSTGRES_PASSWORD` before TCP clients start.
+- **Pre-migration backup reliability (#1049, #1050):** bundle upgrades use
+  compressed `pg_dump` output, preflight temporary storage, fall back to
+  explicitly warned disk staging when shared memory is too small, and surface
+  dump failures instead of failing silently.
+- **Bulk reprocessing completeness (#1052):** archive-wide reprocessing now
+  paginates past the repository's 100-note page cap up to the requested limit.
+- **Intel inference routing:** `MATRIC_INFERENCE_DEFAULT` now selects a
+  configured generation provider across synchronous and streaming chat, the
+  runtime registry, health probes, and model reporting. The effective
+  configuration endpoint reports env-only OpenAI settings and the real default
+  instead of hard-coding Ollama, while OpenAI-compatible chat retains native
+  token streaming. Production API builds now include the OpenAI-compatible
+  backend required by the Intel host-vLLM overlay.
+- **Bundle configuration (#1051):** `FORTEMI_ALLOW_LOCAL_ISSUER` is available
+  to bundled deployments and remains disabled by default.
+- **Release automation:** Intel overlay validation installs a pinned Compose
+  plugin, and documentation deployment steps run explicitly under Bash.
+- **Bundle image defaults:** optional component build arguments retain their
+  declared defaults across Docker builders, preventing PostGIS, OCR, and
+  FFmpeg from being silently omitted in builds without explicit overrides.
+- **Bundle build context:** added Docker exclusions for Rust, Node, coverage,
+  distribution, VCS, and local-secret artifacts so local and CI image builds
+  send only source inputs to the daemon.
+
+### Security
+
+- **OpenBao-backed CI credentials:** Gitea build, image publication,
+  documentation deployment, and release workflows now fetch scoped runtime
+  secrets through the repository's OpenBao integration.
+
+### Documentation
+
+- **Portable shard sidecar contract (#1046):** a self-contained shard may store
+  each distinct attachment blob once at `blobs/<64-char-lowercase-hex>`, with
+  JSON records retaining only the matching `blake3:<hex>` checksum reference.
+- **Reference-only compatibility:** shards without sidecar entries remain valid,
+  unknown or unreferenced sidecar entries are ignored, and JSON projection
+  records never inline raw bytes.
+- **Current implementation boundary:** current server shard export remains
+  reference-only and server import does not restore attachment records or
+  bytes. Self-contained server export/import is follow-up implementation work,
+  not a feature claimed by this release.
+- **Backup guidance and contract evidence:** reconciled the backup guide,
+  architecture record, test plan, sample payloads, and documentation manifest
+  with the current server behavior.
+- **Documentation contract hygiene:** replaced two credential-shaped test DSNs
+  that blocked the hosted-strict documentation contract while preserving the
+  migration fixture's runtime behavior.
+
 ## [2026.7.0] - 2026-07-12
 
 Migration-safety and release-publishing recovery release. This release restores a
@@ -1666,7 +1735,11 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.5.13...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.7.1...HEAD
+[2026.7.1]: https://github.com/fortemi/fortemi/compare/v2026.7.0...v2026.7.1
+[2026.7.0]: https://github.com/fortemi/fortemi/compare/v2026.6.1...v2026.7.0
+[2026.6.1]: https://github.com/fortemi/fortemi/compare/v2026.6.0...v2026.6.1
+[2026.6.0]: https://github.com/fortemi/fortemi/compare/v2026.5.13...v2026.6.0
 [2026.5.13]: https://github.com/fortemi/fortemi/compare/v2026.5.12...v2026.5.13
 [2026.5.12]: https://github.com/fortemi/fortemi/compare/v2026.5.11...v2026.5.12
 [2026.5.11]: https://github.com/fortemi/fortemi/compare/v2026.5.10...v2026.5.11

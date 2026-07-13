@@ -19,12 +19,11 @@ use tracing::{debug, info, warn};
 use crate::middleware::archive_routing::ArchiveContext;
 use crate::{ApiError, AppState, Auth};
 use matric_core::defaults::EMBED_DIMENSION;
-use matric_core::InferenceBackend as InferenceBackendTrait;
-use matric_core::ServerEvent;
 use matric_core::{
     AuditEvent, AuditFailurePolicy, AuditOutcome, AuditSeverity, AuditSink, AuditSource,
     AuditVisibilityClass, AuthPrincipal, TracingSink,
 };
+use matric_core::{GenerationBackend, ServerEvent};
 use matric_inference::OllamaBackend;
 
 // =============================================================================
@@ -1010,11 +1009,33 @@ fn archive_override_schema(ctx: &ArchiveContext) -> Option<&str> {
     }
 }
 
+fn resolve_default_backend(
+    db_default: Option<&str>,
+    env_default: Option<&str>,
+    providers: &[String],
+) -> String {
+    let requested = db_default
+        .filter(|value| !value.is_empty())
+        .or_else(|| env_default.filter(|value| !value.is_empty()))
+        .unwrap_or("ollama")
+        .trim()
+        .to_ascii_lowercase();
+
+    if providers.contains(&requested) {
+        requested
+    } else {
+        "ollama".to_string()
+    }
+}
+
 /// Build the effective sourced config by layering db > env > default.
 fn build_effective_config(db: Option<&Value>) -> InferenceConfigResponse {
     let env_o = EnvOllama::read();
     let db_ollama = db.and_then(|v| v.get("ollama"));
     let db_openai = db.and_then(|v| v.get("openai"));
+    let env_openai_key = std::env::var("OPENAI_API_KEY")
+        .ok()
+        .filter(|key| !key.is_empty());
 
     // Ollama is always present (it is the default backend).
     let ollama = Some(SourcedOllamaConfig {
@@ -1042,7 +1063,7 @@ fn build_effective_config(db: Option<&Value>) -> InferenceConfigResponse {
     });
 
     // OpenAI only shown if the DB override or env has it configured.
-    let openai = if db_openai.is_some() {
+    let openai = if db_openai.is_some() || env_openai_key.is_some() {
         let db_base = db_openai
             .and_then(|o| o.get("base_url"))
             .and_then(|v| v.as_str());
@@ -1061,16 +1082,26 @@ fn build_effective_config(db: Option<&Value>) -> InferenceConfigResponse {
         let default_gen = "gpt-4o-mini";
         let default_embed = "text-embedding-3-small";
 
-        let api_key = db_key.map(|k| SourcedValue {
-            value: redact_api_key(k),
-            source: ConfigSource::DbOverride,
-        });
+        let env_base = std::env::var("OPENAI_BASE_URL").unwrap_or_default();
+        let env_gen = std::env::var("OPENAI_GEN_MODEL").unwrap_or_default();
+        let env_embed = std::env::var("OPENAI_EMBED_MODEL").unwrap_or_default();
+        let api_key = db_key
+            .map(|k| SourcedValue {
+                value: redact_api_key(k),
+                source: ConfigSource::DbOverride,
+            })
+            .or_else(|| {
+                env_openai_key.as_deref().map(|key| SourcedValue {
+                    value: redact_api_key(key),
+                    source: ConfigSource::Env,
+                })
+            });
 
         Some(SourcedOpenAIConfig {
-            base_url: pick(db_base, "", default_openai_url),
+            base_url: pick(db_base, &env_base, default_openai_url),
             api_key,
-            generation_model: pick(db_gen, "", default_gen),
-            embedding_model: pick(db_embed, "", default_embed),
+            generation_model: pick(db_gen, &env_gen, default_gen),
+            embedding_model: pick(db_embed, &env_embed, default_embed),
         })
     } else {
         None
@@ -1208,8 +1239,19 @@ fn build_effective_config(db: Option<&Value>) -> InferenceConfigResponse {
         })
     };
 
+    let db_default = db
+        .and_then(|value| value.get("default_backend"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty());
+    let env_default = std::env::var("MATRIC_INFERENCE_DEFAULT")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty());
+    let default_backend =
+        resolve_default_backend(db_default, env_default.as_deref(), providers.as_slice());
+
     InferenceConfigResponse {
-        default_backend: "ollama".to_string(),
+        default_backend,
         embedding_backend,
         ollama,
         openai,
@@ -1385,7 +1427,7 @@ pub async fn update_inference_config(
 
     // 3. Merge new values into existing DB override blob.
     let mut merged = existing_db;
-    let mut pending_generation_backend: Option<std::sync::Arc<OllamaBackend>> = None;
+    let mut pending_generation_backend: Option<std::sync::Arc<dyn GenerationBackend>> = None;
 
     if let Some(partial_ollama) = &req.ollama {
         let entry = merged
@@ -2351,10 +2393,15 @@ pub async fn delete_inference_config(
     info!("inference_override deleted via DELETE /api/v1/inference/config");
 
     // 2. Rebuild backend from env and hot-swap.
-    let new_backend = std::sync::Arc::new(OllamaBackend::from_env());
+    let new_registry = std::sync::Arc::new(matric_inference::ProviderRegistry::from_env());
+    let new_backend = new_registry
+        .resolve_default_generation_boxed()
+        .map(std::sync::Arc::from)
+        .ok();
     {
         let mut rt = state.inference_runtime.write().unwrap();
-        rt.generation_backend = Some(new_backend);
+        rt.generation_backend = new_backend;
+        rt.provider_registry = new_registry;
     }
 
     // 3. Build effective config + emit reset event (#657).
@@ -3836,6 +3883,28 @@ mod tests_connection {
     fn diff_returns_empty_when_identical() {
         let v = serde_json::json!({"default_backend": "ollama", "ollama": {"base_url": "x"}});
         assert!(diff_changed_fields(&v, &v).is_empty());
+    }
+
+    #[test]
+    fn default_backend_uses_environment_when_provider_is_configured() {
+        let providers = vec!["ollama".to_string(), "openai".to_string()];
+        assert_eq!(
+            resolve_default_backend(None, Some("openai"), &providers),
+            "openai"
+        );
+    }
+
+    #[test]
+    fn default_backend_prefers_database_and_falls_back_for_missing_provider() {
+        let providers = vec!["ollama".to_string(), "openai".to_string()];
+        assert_eq!(
+            resolve_default_backend(Some("openai"), Some("ollama"), &providers),
+            "openai"
+        );
+        assert_eq!(
+            resolve_default_backend(Some("missing"), Some("openai"), &providers),
+            "ollama"
+        );
     }
 
     #[test]

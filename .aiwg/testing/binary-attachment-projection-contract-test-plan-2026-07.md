@@ -66,8 +66,17 @@ Fortemi-side proof is attached through PR #1023, commit `f12a2df9`, merged to `m
 
 The remaining React/browser and AIWG index/export adoption work stays in `Fortemi/fortemi-react#227` and `roctinam/aiwg#1719`; those downstream tickets are not reopened as Fortemi-side blockers.
 
+The sidecar, exact-encoding, and display-filename assertions added by
+`Fortemi/fortemi#1046` are contract requirements, not claims about the coverage
+of the earlier #1013 tests. Server implementation requires new archive tests for
+blob deduplication, missing and unknown entries, digest mismatch, bounded
+streaming, attachment restoration, and byte round-tripping before it can claim
+self-contained shard support.
+
 ## Non-Goals
 
 - Do not claim React/browser release parity from this Fortemi plan alone.
 - Do not use `fortemi-react` package-release reconciliation as proof that the Fortemi binary attachment projection contract is accepted.
 - Do not use npm `2026.7.3` availability as proof of binary attachment projection readiness.
+- Do not treat PR #1047's documentation checks as server sidecar export/import
+  implementation evidence.

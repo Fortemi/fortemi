@@ -119,12 +119,20 @@ mod tests {
     #[test]
     fn test_to_matric_error_auth() {
         let err = to_matric_error(OpenAIErrorCode::AuthenticationError, "Invalid key");
-        assert!(err.to_string().contains("Authentication failed"));
+        assert!(matches!(
+            &err,
+            Error::Config(message) if message == "Authentication failed: Invalid key"
+        ));
+        assert!(!err.to_string().contains("Invalid key"));
     }
 
     #[test]
     fn test_to_matric_error_rate_limit() {
         let err = to_matric_error(OpenAIErrorCode::RateLimitExceeded, "Too many requests");
-        assert!(err.to_string().contains("Rate limit exceeded"));
+        assert!(matches!(
+            &err,
+            Error::Inference(message) if message == "Rate limit exceeded: Too many requests"
+        ));
+        assert!(!err.to_string().contains("Too many requests"));
     }
 }

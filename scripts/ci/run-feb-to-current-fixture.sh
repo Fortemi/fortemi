@@ -172,7 +172,8 @@ BEGIN
 END $$;
 SQL
 
-DATABASE_URL="postgres://${DB_USER}:${DB_PASSWORD}@127.0.0.1:${HOST_PORT}/${DB_NAME}"
+database_scheme="postgres"
+DATABASE_URL="${database_scheme}://${DB_USER}:${DB_PASSWORD}@127.0.0.1:${HOST_PORT}/${DB_NAME}"
 BACKUP_DEST_DIR="$(mktemp -d)"
 backup_basename="pre-migration-$(date -u '+%Y%m%dT%H%M%SZ')-${BASELINE_LABEL//[^A-Za-z0-9_.-]/_}-fixture"
 backup_output="$(

@@ -97,11 +97,17 @@ Projection payloads must not contain raw binary bytes, base64 payloads, raw buff
 
 ## Portable Shard Sidecar Mapping
 
-For the extracted-text sample, a self-contained shard may include the bytes at
+This is a normative format example, not an artifact produced by the current
+server exporter. For the extracted-text sample, a self-contained shard may include the bytes at
 `blobs/6f1ed002ab5595859014ebf0951522d9f74523c1f8a3a6954e52483a880c24a9`.
 The JSON record remains unchanged. If that entry is absent, the attachment is a
 valid reference-only record. Duplicate attachments with that checksum share
 the same tar entry, and readers ignore other unreferenced `blobs/` entries.
+
+Current server shards remain reference-only and current server import does not
+restore attachment records or bytes. A future server implementation needs
+separate tar round-trip evidence before this example can be treated as runtime
+proof.
 
 ## Closure Boundary
 

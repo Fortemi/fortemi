@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted Fortemi-side contract for `Fortemi/fortemi#1013`; required before `Fortemi/fortemi-react#227` can treat browser binary-handling parity as release-ready.
+Accepted Fortemi-side format contract for `Fortemi/fortemi#1013` and
+`Fortemi/fortemi#1046`; required before downstream editions can treat binary
+projection or portable-sidecar parity as release-ready. Server-side sidecar
+export/import remains follow-up implementation work.
 
 ## Context
 
@@ -45,6 +48,10 @@ byte-free. Missing matching entries are valid reference-only attachments, and
 readers ignore unknown or unreferenced `blobs/` entries. Large entries may be
 streamed, with the key derived from the digest of the complete content.
 
+The current server emits reference-only shards and does not restore attachment
+records or bytes during shard import. This decision fixes the interoperable
+format; it does not claim that server byte round-tripping is implemented.
+
 Each projection record also carries stable extraction classification fields:
 
 ```json
@@ -80,6 +87,9 @@ Each projection record also carries stable extraction classification fields:
 3. Add tests for extracted text, extraction-pending binary, large binary, unsupported MIME, and extractor-failure records.
 4. Wire React/browser parity against the same fixture or documented response sample.
 5. Passing Fortemi CI receipts are attached through PR #1023 / Actions runs 4094 and 4096 on commit `f12a2df9`, merged to `main` as `79600fc2`; coordinate `Fortemi/fortemi-react#227` release verification under the 2026-07-07 takeover-owned React checkpoint boundary.
+6. Add a separately tracked server self-contained shard mode with streamed blob
+   export, bounded import, digest verification, deduplication, and round-trip
+   tests before claiming server sidecar support.
 
 ## Closure Criteria
 
@@ -88,10 +98,14 @@ Each projection record also carries stable extraction classification fields:
 - Tests prove each large or not-yet-extracted binary, including unsupported, pending, completed-without-text, failed-extraction, and quarantined binaries, still produces a bounded valid record with stable `extraction_status` and `reason` values.
 - The Fortemi issue `Fortemi/fortemi#1013` links the passing CI receipt and references this contract.
 - React package-release reconciliation is complete under the 2026-07-07 takeover sync; this Fortemi contract still does not close `Fortemi/fortemi-react#227` until the Fortemi-side binary projection proof is accepted.
+- PR #1047 / merge `0db7c34c` ratifies the optional sidecar format, exact
+  checksum encoding, and display-filename semantics; it does not provide server
+  sidecar export/import proof.
 
 ## References
 
 - `Fortemi/fortemi#1013`
+- `Fortemi/fortemi#1046`
 - `Fortemi/fortemi-react#227`
 - `roctinam/aiwg#1719`
 - `Fortemi/fortemi-react#252`

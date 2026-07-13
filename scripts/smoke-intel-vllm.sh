@@ -40,13 +40,15 @@ TIMEOUT="${SMOKE_TIMEOUT_SECS:-600}"
 PROJECT="fortemi-intel-smoke"
 WORKDIR="$(mktemp -d)"
 STUB_LOG="${WORKDIR}/stub-requests.jsonl"
+SMOKE_OVERRIDE="${WORKDIR}/smoke.override.yml"
 STUB_PID=""
 
 compose() {
     docker compose -p "$PROJECT" \
         --env-file /dev/null \
         -f docker-compose.bundle.yml \
-        -f docker-compose.intel.yml "$@"
+        -f docker-compose.intel.yml \
+        -f "$SMOKE_OVERRIDE" "$@"
 }
 
 cleanup() {
@@ -61,6 +63,16 @@ cleanup() {
     return $rc
 }
 trap cleanup EXIT
+
+# A disposable fresh volume can produce a sub-1KB pre-migration dump when the
+# published bundle image is behind the repository migration set. Inject the
+# explicit no-backup acknowledgment only into this release-test stack.
+cat >"$SMOKE_OVERRIDE" <<'EOF'
+services:
+  fortemi:
+    environment:
+      PRE_MIGRATION_BACKUP_ACK_NO_BACKUP: "true"
+EOF
 
 # ── 1. Stub OpenAI-compatible server (stands in for host vLLM) ──────────────
 cat >"${WORKDIR}/stub.py" <<'EOF'
@@ -141,7 +153,6 @@ export OPENAI_GEN_MODEL="$MODEL"
 export REQUIRE_AUTH=false I_UNDERSTAND_NO_AUTH=true
 export FORTEMI_ALLOW_LOCAL_ISSUER=true
 export ISSUER_URL="http://localhost:${API_PORT}"
-
 echo "Starting bundle (project ${PROJECT}, API :${API_PORT})..."
 compose up -d --scale gliner=0 fortemi
 

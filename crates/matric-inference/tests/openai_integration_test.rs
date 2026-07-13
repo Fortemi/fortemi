@@ -39,7 +39,7 @@
 
 #![cfg(all(feature = "openai", feature = "integration"))]
 
-use matric_core::{EmbeddingBackend, GenerationBackend, InferenceBackend};
+use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_inference::openai::{OpenAIBackend, OpenAIConfig};
 
 /// Check if external integration tests should run.

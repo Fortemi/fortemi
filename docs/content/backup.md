@@ -9,7 +9,7 @@ Fortémi provides multiple backup options:
 | Method | Use Case | Format | Includes |
 |--------|----------|--------|----------|
 | **JSON Export** | App-level backup | JSON | Notes, collections, tags, templates |
-| **Knowledge Shard** | Full portable backup | .shard | Notes, links, embeddings, sets, checksums |
+| **Knowledge Shard** | Portable semantic-data backup | .shard | Notes, links, embeddings, sets, checksums; attachment references only |
 | **Knowledge Archive** | Backup + metadata bundle | .archive | Backup file + metadata.json |
 | **Database Snapshot** | Full database backup | pg_dump | Complete database with embeddings |
 | **Shell script** | Automated scheduled backups | pg_dump | Full database with compression |
@@ -27,7 +27,7 @@ See [Encryption Guide](#/security-encryption) for cryptographic details and [Sha
 ### Choosing a Backup Method
 
 - **JSON Export** (`/api/v1/backup/export`): Quick export of note content. Best for migration to other systems.
-- **Knowledge Shard** (`/api/v1/backup/knowledge-shard`): Complete app-level backup with semantic links. Best for full restore.
+- **Knowledge Shard** (`/api/v1/backup/knowledge-shard`): Portable semantic-data backup with links and attachment references. Current server shards do not carry or restore attachment bytes.
 - **Knowledge Archive** (`/api/v1/backup/knowledge-archive`): Bundles any backup with its metadata sidecar. Best for transferring backups between systems.
 
 ## Shard Versioning
@@ -393,6 +393,12 @@ embedding_set_members.jsonl
 embedding_configs.json  # Model configurations
 embeddings.jsonl        # Vector data (if included)
 ```
+
+Current server-generated shards are reference-only for binary attachments:
+attachment metadata may appear in note records, but the archive does not include
+`blobs/` sidecar entries and import does not restore attachment records or
+bytes. The optional self-contained sidecar format is defined in
+[Binary Attachment Projection](#/core-systems-binary-attachment-projection).
 
 ### knowledge_shard_import
 

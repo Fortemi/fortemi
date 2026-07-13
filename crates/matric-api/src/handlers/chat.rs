@@ -22,11 +22,11 @@ use tracing::{debug, info, warn};
 
 use matric_api::services::chat_stream_store::{ResumeCursor, StoredFrame};
 use matric_api::services::ChatStreamStore;
+use matric_core::GenerationBackend;
 
 use crate::{ApiError, AppState};
 use matric_inference::discovery::ModelDiscovery;
 use matric_inference::profiles::ModelRegistry;
-use matric_inference::OllamaBackend;
 use uuid::Uuid;
 
 /// Bounded capacity of the SSE event channel for a streaming chat response.
@@ -320,15 +320,19 @@ pub async fn chat_handler(
 
     // 4. Resolve model — use requested model or fall back to server default
     let requested_model = req.model.as_deref();
-    let chat_backend = if let Some(model_slug) = requested_model {
-        // Validate the model is installed and capable of chat
-        match validate_chat_model(model_slug, &state).await {
-            Ok(()) => {
-                let mut b = OllamaBackend::from_env();
-                b.set_gen_model(model_slug.to_string());
-                std::sync::Arc::new(b)
+    let chat_backend: Arc<dyn GenerationBackend> = if let Some(model_slug) = requested_model {
+        let registry = state.provider_registry();
+        if registry.parse_slug(model_slug).provider_id == "ollama" {
+            if let Err(err_response) = validate_chat_model(model_slug, &state).await {
+                return err_response;
             }
-            Err(err_response) => return err_response,
+        }
+        match registry.resolve_generation_boxed(model_slug) {
+            Ok(backend) => Arc::from(backend),
+            Err(_) => {
+                return ApiError::BadRequest(CHAT_MODEL_UNAVAILABLE_MESSAGE.to_string())
+                    .into_response()
+            }
         }
     } else {
         backend.clone()
@@ -336,35 +340,34 @@ pub async fn chat_handler(
 
     // 5. Look up model profile for metadata
     let registry = ModelRegistry::new();
-    let model_name = chat_backend.gen_model_name();
+    let model_name = chat_backend.model_name();
     let model_info = build_model_info(model_name, &registry);
 
     // 6. Build conversation messages
-    let mut messages: Vec<(String, String)> = Vec::new();
-
-    // System prompt
-    messages.push(("system".to_string(), SYSTEM_PROMPT.to_string()));
-
-    // Conversation history (if provided)
+    let mut prompt = String::new();
     if let Some(ref ctx) = req.context {
         if let Some(ref history) = ctx.conversation_history {
             for msg in history {
-                messages.push((msg.role.clone(), msg.content.clone()));
+                prompt.push_str(&msg.role);
+                prompt.push_str(": ");
+                prompt.push_str(&msg.content);
+                prompt.push('\n');
             }
         }
     }
-
-    // Current user message (always appended last)
-    messages.push(("user".to_string(), input.to_string()));
+    prompt.push_str("user: ");
+    prompt.push_str(input);
 
     debug!(
         model = model_name,
-        message_count = messages.len(),
+        prompt_len = prompt.len(),
         "Starting chat request"
     );
 
-    // 7. Call Ollama
-    match chat_backend.chat_multi_turn(messages).await {
+    match chat_backend
+        .generate_with_system(SYSTEM_PROMPT, &prompt)
+        .await
+    {
         Ok(content) => {
             info!(
                 model = model_name,
@@ -1011,35 +1014,43 @@ pub async fn chat_stream_handler(
 
     // 4. Resolve model — requested or server default.
     let requested_model = req.model.as_deref();
-    let chat_backend = if let Some(model_slug) = requested_model {
-        match validate_chat_model(model_slug, &state).await {
-            Ok(()) => {
-                let mut b = OllamaBackend::from_env();
-                b.set_gen_model(model_slug.to_string());
-                Arc::new(b)
+    let chat_backend: Arc<dyn GenerationBackend> = if let Some(model_slug) = requested_model {
+        let registry = state.provider_registry();
+        if registry.parse_slug(model_slug).provider_id == "ollama" {
+            if let Err(err_response) = validate_chat_model(model_slug, &state).await {
+                return err_response;
             }
-            Err(err_response) => return err_response,
+        }
+        match registry.resolve_generation_boxed(model_slug) {
+            Ok(backend) => Arc::from(backend),
+            Err(_) => {
+                return ApiError::BadRequest(CHAT_MODEL_UNAVAILABLE_MESSAGE.to_string())
+                    .into_response()
+            }
         }
     } else {
         backend.clone()
     };
-    let model_name = chat_backend.gen_model_name().to_string();
+    let model_name = chat_backend.model_name().to_string();
 
     // 5. Build conversation messages (same shape as chat_handler).
-    let mut messages: Vec<(String, String)> = Vec::new();
-    messages.push(("system".to_string(), SYSTEM_PROMPT.to_string()));
+    let mut prompt = String::new();
     if let Some(ref ctx) = req.context {
         if let Some(ref history) = ctx.conversation_history {
             for msg in history {
-                messages.push((msg.role.clone(), msg.content.clone()));
+                prompt.push_str(&msg.role);
+                prompt.push_str(": ");
+                prompt.push_str(&msg.content);
+                prompt.push('\n');
             }
         }
     }
-    messages.push(("user".to_string(), input.to_string()));
+    prompt.push_str("user: ");
+    prompt.push_str(input);
 
     debug!(
         model_len = chat_text_len(&model_name),
-        message_count = messages.len(),
+        prompt_len = prompt.len(),
         "Starting streaming chat request"
     );
 
@@ -1059,7 +1070,10 @@ pub async fn chat_stream_handler(
         // only when the stream completes, errors, or the client disconnects.
         let _permit = permit;
 
-        match chat_backend.chat_multi_turn_stream(messages).await {
+        match chat_backend
+            .stream_generate_with_system(SYSTEM_PROMPT, &prompt)
+            .await
+        {
             Ok(chunks) => {
                 pump_chat_stream(
                     chunks,
@@ -1159,7 +1173,7 @@ pub async fn list_chat_models(State(state): State<AppState>) -> impl IntoRespons
     let default_model = state
         .generation_backend()
         .as_ref()
-        .map(|b| b.gen_model_name().to_string())
+        .map(|b| b.model_name().to_string())
         .unwrap_or_else(|| {
             std::env::var("OLLAMA_GEN_MODEL")
                 .unwrap_or_else(|_| matric_core::defaults::GEN_MODEL.to_string())

@@ -1,11 +1,34 @@
 {
-  "timestamp": "2026-04-22T05:52:43Z",
+  "timestamp": "2026-07-13T19:56:34Z",
   "direction": "code-to-docs",
-  "scope": "full repo",
-  "findings_total": 20,
-  "fixes_applied": 7,
+  "scope": "v2026.7.0..HEAD attachment contract, February bundle upgrades, inference provider routing, Intel Arc/XPU deployment, release automation, and blocking docs-contract findings",
+  "findings_total": 11,
+  "fixes_applied": 9,
   "files_modified": [
-    "docs/content/inference-backends.md",
-    "CLAUDE.md"
-  ]
+    "docs/content/binary-attachment-projection.md",
+    "docs/content/backup.md",
+    "docs/manifest.json",
+    "docs/ops/feb-3-baseline-migration-audit-2026-07-12.md",
+    "scripts/ci/run-feb-to-current-fixture.sh",
+    ".aiwg/architecture/binary-attachment-projection-contract-2026-07.md",
+    ".aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md",
+    ".aiwg/evidence/binary-attachment-projection-sample-payloads-2026-07.md",
+    "CHANGELOG.md",
+    "docs/releases/v2026.7.1-announcement.md",
+    "crates/matric-inference/src/provider.rs",
+    "crates/matric-inference/src/ollama.rs",
+    "crates/matric-inference/src/openai/backend.rs",
+    "crates/matric-inference/src/openai/error.rs",
+    "crates/matric-inference/tests/openai_integration_test.rs",
+    "crates/matric-core/src/traits.rs",
+    "crates/matric-api/src/main.rs",
+    "crates/matric-api/src/handlers/chat.rs",
+    "crates/matric-api/src/handlers/inference_config.rs",
+    "crates/matric-api/Cargo.toml",
+    "scripts/smoke-intel-vllm.sh",
+    "Dockerfile.bundle",
+    ".dockerignore"
+  ],
+  "report": ".aiwg/reports/doc-sync-20260713-185930.md",
+  "remaining_human_review_items": 0
 }

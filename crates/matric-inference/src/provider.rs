@@ -218,6 +218,24 @@ impl ProviderRegistry {
         self.embedding_provider = provider;
     }
 
+    fn select_default_provider(&mut self, requested: &str) -> bool {
+        let Some(provider) = self.providers.get(requested) else {
+            return false;
+        };
+        if !provider
+            .capabilities
+            .contains(&ProviderCapability::Generation)
+        {
+            return false;
+        }
+
+        self.default_provider = requested.to_string();
+        for (id, config) in &mut self.providers {
+            config.is_default = id == requested;
+        }
+        true
+    }
+
     /// Validate that the embedding provider (if configured) supports
     /// embeddings. Returns a descriptive error otherwise. Used by the
     /// runtime config handler to reject misconfigurations early.
@@ -422,6 +440,25 @@ impl ProviderRegistry {
         }
     }
 
+    /// Resolve the configured default provider using its environment model.
+    pub fn resolve_default_generation_boxed(
+        &self,
+    ) -> Result<Box<dyn matric_core::GenerationBackend>> {
+        let model = match self.default_provider.as_str() {
+            "openai" => {
+                std::env::var("OPENAI_GEN_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string())
+            }
+            "openrouter" => std::env::var("OPENROUTER_GEN_MODEL")
+                .unwrap_or_else(|_| "anthropic/claude-sonnet-4".to_string()),
+            "llamacpp" => {
+                std::env::var("LLAMACPP_GEN_MODEL").unwrap_or_else(|_| "default".to_string())
+            }
+            _ => std::env::var("OLLAMA_GEN_MODEL")
+                .unwrap_or_else(|_| matric_core::defaults::GEN_MODEL.to_string()),
+        };
+        self.resolve_generation_boxed(&format!("{}:{model}", self.default_provider))
+    }
+
     /// Resolve an optional model override to a boxed generation backend.
     ///
     /// - `None` → `Ok(None)` — caller should use its default backend
@@ -600,10 +637,15 @@ impl ProviderRegistry {
 
     /// Build a provider registry from environment variables.
     ///
-    /// Always registers the Ollama provider (default). Optionally registers
-    /// OpenAI and OpenRouter if their API keys are configured.
+    /// Always registers Ollama. Optionally registers other providers when
+    /// configured, then applies `MATRIC_INFERENCE_DEFAULT` when it names a
+    /// registered generation provider.
     pub fn from_env() -> Self {
         let mut registry = Self::new("ollama".to_string());
+        let requested_default = std::env::var("MATRIC_INFERENCE_DEFAULT")
+            .unwrap_or_else(|_| "ollama".to_string())
+            .trim()
+            .to_ascii_lowercase();
 
         // Ollama — always available
         // Resolution order: OLLAMA_BASE → OLLAMA_URL → OLLAMA_HOST → default.
@@ -711,6 +753,15 @@ impl ProviderRegistry {
                     x_title: None,
                 });
             }
+        }
+
+        if !registry.select_default_provider(&requested_default) {
+            warn!(
+                requested_provider_len = requested_default.chars().count(),
+                "MATRIC_INFERENCE_DEFAULT points at an unregistered or non-generation \
+                 provider; falling back to Ollama"
+            );
+            registry.select_default_provider("ollama");
         }
 
         // Independent embedding-route override. Honored when it points at a
@@ -993,6 +1044,24 @@ mod tests {
     #[test]
     fn default_provider_is_ollama() {
         let reg = test_registry();
+        assert_eq!(reg.default_provider(), "ollama");
+    }
+
+    #[test]
+    fn selected_default_provider_updates_registry_and_provider_flags() {
+        let mut reg = test_registry();
+
+        assert!(reg.select_default_provider("openai"));
+        assert_eq!(reg.default_provider(), "openai");
+        assert!(reg.get_provider("openai").unwrap().is_default);
+        assert!(!reg.get_provider("ollama").unwrap().is_default);
+    }
+
+    #[test]
+    fn unavailable_default_provider_preserves_current_default() {
+        let mut reg = test_registry();
+
+        assert!(!reg.select_default_provider("missing"));
         assert_eq!(reg.default_provider(), "ollama");
     }
 

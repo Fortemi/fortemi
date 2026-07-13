@@ -1,6 +1,6 @@
 # Binary Attachment Projection Contract
 
-**Status:** Canonical
+**Status:** Canonical format contract; implementation coverage varies by surface
 **Applies to:** search index records, JSON backup export, knowledge shards, embedding-set source text, `fortemi-react`, and AIWG `aiwg-fortemi-index-export.json`
 
 ## Contract
@@ -48,7 +48,8 @@ Projection payloads do not expose raw extractor diagnostics, backend errors, tem
 
 ## Portable Shard Byte Sidecar
 
-A portable Knowledge Shard may include attachment bytes in an optional
+This section defines the interoperable format for implementations that carry
+attachment bytes in a shard. A portable Knowledge Shard may include attachment bytes in an optional
 content-addressed sidecar within its `tar.gz` archive. Each distinct blob is a
 tar entry named:
 
@@ -80,7 +81,8 @@ entry name is always derived from the BLAKE3 digest of the complete content.
 3. Fortemi stores the binary in attachment storage and records metadata on the attachment row.
 4. Extraction jobs consume the attachment as their data source.
 5. The extraction pipeline writes `extracted_text` and extraction metadata back to the attachment.
-6. Index, export, shard, and embedding-set builders read `extracted_text` and attachment metadata. They do not read or serialize blob bytes.
+6. JSON projection builders read `extracted_text` and attachment metadata. They do not read or serialize blob bytes.
+7. A sidecar-capable archive writer may separately stream stored attachment bytes into `blobs/<hex>` entries without changing the JSON records.
 
 When extraction has not completed, the projection still exports a valid bounded record: `extracted_text` is `null` or the best available partial text, `extraction_status` and `reason` carry a stable class, and `attachment` contains the id, path, MIME type, checksum, and byte count.
 
@@ -109,4 +111,14 @@ If AIWG has only a local file path and extraction has not run yet, it should emi
 
 ## Server Edition
 
-The server edition already follows the data-source pattern for summary and extraction jobs: jobs read the stored attachment, extract text, and write derived text/metadata back to attachment records. The JSON export and knowledge-shard note records expose attachment projections with metadata and extracted text only.
+The server edition follows the data-source pattern for summary and extraction
+jobs: jobs read the stored attachment, extract text, and write derived
+text/metadata back to attachment records. JSON export and knowledge-shard note
+records expose attachment projections with metadata and extracted text only.
+
+Current server shard export is reference-only: it does not write `blobs/`
+entries. Current server shard import restores note data but does not restore
+attachment projections or resolve sidecar entries. The optional sidecar section
+above is the cross-edition format contract for a future self-contained export
+and import mode; its presence in this document is not a claim that the server
+already implements byte round-tripping.

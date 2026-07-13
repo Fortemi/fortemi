@@ -937,6 +937,31 @@ impl EmbeddingBackend for OllamaBackend {
 
 #[async_trait]
 impl GenerationBackend for OllamaBackend {
+    async fn health_check(&self) -> Result<bool> {
+        let response = self
+            .client
+            .get(format!("{}/api/tags", self.base_url))
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await;
+
+        match response {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    info!("Ollama health check passed");
+                    Ok(true)
+                } else {
+                    warn!("Ollama health check failed: {}", resp.status());
+                    Ok(false)
+                }
+            }
+            Err(e) => {
+                warn!(error_len = e.to_string().len(), "Ollama health check error");
+                Ok(false)
+            }
+        }
+    }
+
     async fn generate(&self, prompt: &str) -> Result<String> {
         self.generate_with_system("", prompt).await
     }
@@ -975,32 +1000,7 @@ impl GenerationBackend for OllamaBackend {
 }
 
 #[async_trait]
-impl InferenceBackend for OllamaBackend {
-    async fn health_check(&self) -> Result<bool> {
-        let response = self
-            .client
-            .get(format!("{}/api/tags", self.base_url))
-            .timeout(Duration::from_secs(5))
-            .send()
-            .await;
-
-        match response {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    info!("Ollama health check passed");
-                    Ok(true)
-                } else {
-                    warn!("Ollama health check failed: {}", resp.status());
-                    Ok(false)
-                }
-            }
-            Err(e) => {
-                warn!(error_len = e.to_string().len(), "Ollama health check error");
-                Ok(false)
-            }
-        }
-    }
-}
+impl InferenceBackend for OllamaBackend {}
 
 #[cfg(test)]
 mod tests {

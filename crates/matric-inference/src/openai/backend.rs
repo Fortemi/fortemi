@@ -259,8 +259,44 @@ impl EmbeddingBackend for OpenAIBackend {
 
 #[async_trait]
 impl GenerationBackend for OpenAIBackend {
+    async fn health_check(&self) -> Result<bool> {
+        let response = self
+            .build_get_request("/models")
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await;
+
+        match response {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    info!("OpenAI health check passed");
+                    Ok(true)
+                } else {
+                    warn!("OpenAI health check failed: {}", resp.status());
+                    Ok(false)
+                }
+            }
+            Err(e) => {
+                warn!(error_len = e.to_string().len(), "OpenAI health check error");
+                Ok(false)
+            }
+        }
+    }
+
     async fn generate(&self, prompt: &str) -> Result<String> {
         self.generate_with_system("", prompt).await
+    }
+
+    async fn stream_generate(&self, prompt: &str) -> Result<matric_core::GenerationStream> {
+        StreamingGeneration::generate_stream(self, prompt).await
+    }
+
+    async fn stream_generate_with_system(
+        &self,
+        system: &str,
+        prompt: &str,
+    ) -> Result<matric_core::GenerationStream> {
+        StreamingGeneration::generate_with_system_stream(self, system, prompt).await
     }
 
     async fn generate_with_system(&self, system: &str, prompt: &str) -> Result<String> {
@@ -404,32 +440,7 @@ impl GenerationBackend for OpenAIBackend {
 }
 
 #[async_trait]
-impl InferenceBackend for OpenAIBackend {
-    async fn health_check(&self) -> Result<bool> {
-        // For OpenAI-compatible APIs, we try a minimal models list request
-        let response = self
-            .build_get_request("/models")
-            .timeout(Duration::from_secs(5))
-            .send()
-            .await;
-
-        match response {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    info!("OpenAI health check passed");
-                    Ok(true)
-                } else {
-                    warn!("OpenAI health check failed: {}", resp.status());
-                    Ok(false)
-                }
-            }
-            Err(e) => {
-                warn!(error_len = e.to_string().len(), "OpenAI health check error");
-                Ok(false)
-            }
-        }
-    }
-}
+impl InferenceBackend for OpenAIBackend {}
 
 #[async_trait]
 impl StreamingGeneration for OpenAIBackend {
