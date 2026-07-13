@@ -451,6 +451,24 @@ jobs:
           git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
+      # The fortemi-builder image ships the docker CLI but not the compose
+      # plugin. Install it pinned by version + sha256 (supply-chain: no
+      # floating tags, checksum verified against the official release).
+      - name: Install docker compose plugin (pinned)
+        run: |
+          if docker compose version >/dev/null 2>&1; then
+            echo "compose plugin already present: $(docker compose version --short)"
+            exit 0
+          fi
+          COMPOSE_VERSION=v2.39.2
+          COMPOSE_SHA256=a55a8cd4ef103aac282812554e531aac8df7e914a287ee81e14d695556a22902
+          curl -fsSL -o /tmp/docker-compose \
+            "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
+          echo "${COMPOSE_SHA256}  /tmp/docker-compose" | sha256sum -c -
+          mkdir -p ~/.docker/cli-plugins
+          install -m 0755 /tmp/docker-compose ~/.docker/cli-plugins/docker-compose
+          docker compose version
+
       - name: Validate Intel overlay render
         run: ./scripts/validate-intel-overlay.sh
 
