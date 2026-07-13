@@ -4,7 +4,7 @@
 # include rationale, owner, and expiry date. Review monthly.
 #
 # Run locally: cargo audit
-# CI behavior: deny warnings (configured via job step, not here)
+# CI behavior: deny security advisories; cargo-deny owns yanked-package policy.
 
 [advisories]
 ignore = [

@@ -18,9 +18,17 @@ feature-depth = 1
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
-# Advisory allowlist — kept in sync with .cargo/audit.toml. Each entry MUST
-# document rationale, owner, and expiry there.
+# Advisory IDs are kept in sync with .cargo/audit.toml. Exact yanked-package
+# exceptions live only here. Every entry must document rationale and expiry.
 ignore = [
+    # multer 3.1.0 requires spin ^0.9, for which 0.9.8 is the only published
+    # release. It was yanked upstream without a replacement in that compatible
+    # series. This is a package-policy warning, not a RustSec vulnerability;
+    # cargo-audit continues to fail on security advisories independently.
+    # Remove when axum/multer accepts spin >=0.10.
+    # Owner: maintainers. Expiry: 2026-10-01.
+    "spin@0.9.8",
+
     # quick-xml 0.31.0 DoS advisories (RUSTSEC-2026-0194 quadratic attribute
     # check, RUSTSEC-2026-0195 unbounded NsReader allocation). Runtime-reachable
     # via calamine spreadsheet parsing; no calamine release on the fixed

@@ -120,7 +120,9 @@ jobs:
 
       - name: Audit Rust deps (cargo-audit)
         # Honors .cargo/audit.toml allowlist for accepted advisories
-        run: cargo audit --deny warnings
+        # Yanked-package policy is enforced by cargo-deny, where unavoidable
+        # transitive yanks can be accepted as exact package versions.
+        run: cargo audit
 
       - name: Audit mcp-server npm deps
         working-directory: mcp-server
