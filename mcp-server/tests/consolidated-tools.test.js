@@ -17,7 +17,7 @@
  *   - manage_encryption (generate_keypair, get_address, encrypt, decrypt, list_recipients, verify_address, keyset ops)
  *   - manage_backups (export_shard, import_shard, snapshot, restore, list, get_info, get_metadata, update_metadata, download_archive, upload_archive, swap, download_memory)
  *   - manage_jobs (list, get, create, stats, pending_count, extraction_stats)
- *   - manage_inference (list_models, get_embedding_config, list_embedding_configs)
+ *   - manage_inference (models, providers, effective config, audit, updates, connection tests)
  */
 
 import { strict as assert } from "node:assert";
@@ -894,7 +894,24 @@ describe("Consolidated Tools", () => {
     assert.ok(result !== undefined, "Should return embedding configs list");
   });
 
-  test("MI-004: manage_inference rejects invalid action", async () => {
+  test("MI-004: manage_inference get_config returns effective routing", async () => {
+    const result = await client.callTool("manage_inference", { action: "get_config" });
+    assert.equal(typeof result.default_backend, "string", "Should report runtime default backend");
+    assert.ok(Array.isArray(result.providers), "Should report configured provider IDs");
+  });
+
+  test("MI-005: manage_inference list_providers returns provider inventory", async () => {
+    const result = await client.callTool("manage_inference", { action: "list_providers" });
+    assert.ok(result !== undefined, "Should return provider inventory");
+  });
+
+  test("MI-006: manage_inference get_config_audit returns redacted history", async () => {
+    const result = await client.callTool("manage_inference", { action: "get_config_audit", limit: 5 });
+    assert.ok(Array.isArray(result.entries), "Should return audit entries");
+    assert.ok(result.entries.length <= 5, "Should respect audit limit");
+  });
+
+  test("MI-007: manage_inference rejects invalid action", async () => {
     await assert.rejects(
       () => client.callTool("manage_inference", { action: "nope" }),
       (err) => {

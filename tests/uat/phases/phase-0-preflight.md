@@ -15,7 +15,7 @@
 
 > **MCP-First Requirement**
 >
-> All tests in this phase use MCP tool calls exclusively. No direct HTTP/curl commands.
+> All tests in this phase use MCP tool calls or the standard MCP `tools/list` request. No direct HTTP/curl commands.
 > System verification establishes baseline capabilities for subsequent test phases.
 
 ---
@@ -33,16 +33,15 @@ await mcp.call_tool("health_check", {});
 ```json
 {
   "status": "healthy",
-  "version": "2026.2.x",
-  "database": "connected",
-  "capabilities": { ... }
+  "version": "2026.7.x",
+  "components": { ... }
 }
 ```
 
 **Pass Criteria**:
 - [ ] Response contains `status` field with value "healthy"
 - [ ] Response contains `version` field matching CalVer format
-- [ ] Response contains `database` field indicating connection status
+- [ ] Response contains component health details when reported by the server
 
 ---
 
@@ -56,49 +55,43 @@ await mcp.call_tool("get_system_info", {});
 **Expected Response**:
 ```json
 {
-  "version": "2026.2.x",
-  "capabilities": {
-    "search": { "semantic": true, "fts": true, "hybrid": true },
-    "embedding": { ... },
-    "extraction_strategies": [...],
-    "media": { "vision": true/false, "audio": true/false }
+  "versions": { "release": "2026.7.x", "mcp_server": "1.0.0" },
+  "infrastructure": {
+    "search": { "full_text": "...", "semantic": "...", "hybrid": "..." },
+    "embedding": { "provider": "...", "model": "...", "dimension": 768 }
   },
-  "limits": {
-    "max_note_size": 10485760,
-    "max_batch_size": 100
-  }
+  "stats": { "total_notes": 0, "pending_jobs": 0 },
+  "components": { ... }
 }
 ```
 
 **Pass Criteria**:
-- [ ] Response contains `capabilities` object
-- [ ] Response contains `limits` object
-- [ ] Response contains `version` field
-- [ ] Capabilities include search and embedding configuration
+- [ ] Response contains `versions`, `infrastructure`, and `stats` objects
+- [ ] `versions.release` is a CalVer value
+- [ ] Infrastructure includes search and embedding configuration
 
 **Store**: `system_capabilities` (for reference in later phases)
 
 ---
 
 ### PF-003: Core Tool Count Verification
-**MCP Tool**: `get_system_info`
+**MCP Request**: `tools/list`
 
 ```javascript
-const info = await mcp.call_tool("get_system_info", {});
-const toolCount = info.available_tools?.length || 0;
+const response = await mcp.request({ method: "tools/list", params: {} });
+const toolNames = response.tools.map(tool => tool.name);
+const toolCount = toolNames.length;
 ```
 
 **Expected Response**:
 ```json
-{
-  "available_tools": ["health_check", "get_system_info", "get_documentation", ...]
-}
+{ "tools": [{ "name": "health_check", "inputSchema": { ... } }, ...] }
 ```
 
 **Pass Criteria**:
-- [ ] System reports exactly 27 core MCP tools available
+- [ ] System reports exactly 43 core MCP tools available
 - [ ] Tool list includes all consolidated tools (capture_knowledge, search, etc.)
-- [ ] No legacy granular tools present (create_note, search_notes_fts, etc.)
+- [ ] No full-mode-only granular tools present (`create_note`, `search_notes_fts`, etc.)
 
 ---
 
@@ -111,54 +104,35 @@ await mcp.call_tool("get_documentation", {});
 
 **Expected Response**:
 ```json
-{
-  "tools": {
-    "capture_knowledge": {
-      "description": "...",
-      "actions": ["create", "bulk_create", "from_template", "upload"],
-      "parameters": { ... }
-    },
-    "search": { ... },
-    ...
-  },
-  "usage_guide": "..."
-}
+{ "topic": "overview", "content": "..." }
 ```
 
 **Pass Criteria**:
-- [ ] Response contains documentation for all 27 core tools
-- [ ] Each consolidated tool lists its available actions
-- [ ] Response includes usage guidance or examples
-- [ ] Documentation structure is navigable
+- [ ] Response identifies the `overview` topic
+- [ ] Content describes the consolidated core tools and their actions
+- [ ] Content includes usage guidance or examples
 
 ---
 
-### PF-005: Test Data Availability
-**MCP Tool**: None (filesystem verification)
+### PF-005: Tool Schema Availability
+**MCP Request**: `tools/list`
 
 ```javascript
-// Verify test data directories exist
-const testDirs = [
-  "/home/roctinam/dev/fortemi/tests/uat/test-data",
-  "/home/roctinam/dev/fortemi/tests/uat/fixtures"
-];
-
-for (const dir of testDirs) {
-  const exists = await fs.access(dir).then(() => true).catch(() => false);
-  console.log(`${dir}: ${exists ? "✓" : "✗"}`);
-}
+const response = await mcp.request({ method: "tools/list", params: {} });
+const invalid = response.tools.filter(tool =>
+  !tool.description || tool.inputSchema?.type !== "object"
+);
 ```
 
 **Expected Response**:
 ```
-/home/roctinam/dev/fortemi/tests/uat/test-data: ✓
-/home/roctinam/dev/fortemi/tests/uat/fixtures: ✓
+invalid.length === 0
 ```
 
 **Pass Criteria**:
-- [ ] Test data directory exists and is accessible
-- [ ] Fixtures directory exists and contains sample files
-- [ ] No permission errors when accessing directories
+- [ ] Every advertised tool has a non-empty description
+- [ ] Every advertised tool has an object input schema
+- [ ] `invalid` is empty
 
 ---
 
@@ -214,9 +188,9 @@ await mcp.call_tool("select_memory", { name: "public" });
 |---------|------|-------|--------|
 | PF-001  | health_check | System health | ⬜ |
 | PF-002  | get_system_info | Capability discovery | ⬜ |
-| PF-003  | get_system_info | Tool count verification | ⬜ |
+| PF-003  | tools/list | Tool count verification | ⬜ |
 | PF-004  | get_documentation | Documentation availability | ⬜ |
-| PF-005  | (filesystem) | Test data readiness | ⬜ |
+| PF-005  | tools/list | Tool schema readiness | ⬜ |
 | PF-006  | manage_archives + MCP | Test archive provisioning | ⬜ |
 
 **Phase Result**: ⬜ PASS / ⬜ FAIL

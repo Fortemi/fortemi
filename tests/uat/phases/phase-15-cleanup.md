@@ -1,4 +1,4 @@
-# UAT Phase 14: Final Cleanup
+# UAT Phase 15: Final Cleanup
 
 ## Purpose
 Remove ALL UAT test data from the system to restore clean state. This phase MUST run last and ensures no test artifacts remain after the test suite completes.
@@ -7,7 +7,7 @@ Remove ALL UAT test data from the system to restore clean state. This phase MUST
 ~3 minutes
 
 ## Prerequisites
-- All previous phases (1-13) completed
+- All previous phases (1-14) completed
 - MCP server healthy
 - Access to all memories used during testing
 
@@ -18,6 +18,9 @@ Remove ALL UAT test data from the system to restore clean state. This phase MUST
 - `manage_embeddings`
 - `manage_archives`
 - `select_memory`
+- `purge_note`
+- `purge_notes`
+- `purge_all_notes`
 
 ---
 
@@ -31,53 +34,37 @@ Remove ALL UAT test data from the system to restore clean state. This phase MUST
 **MCP Tool**: `list_notes`
 
 ```javascript
-// Switch to default memory first
-await use_mcp_tool({
-  server_name: "matric-memory",
-  tool_name: "select_memory",
-  arguments: { name: "public" }
-});
-
-// List all UAT notes in default memory
-const defaultNotes = await use_mcp_tool({
-  server_name: "matric-memory",
-  tool_name: "list_notes",
-  arguments: {
-    tags: ["uat"],
-    limit: 500,
-    include_deleted: false
+async function listAllUatNotes() {
+  const notes = [];
+  for (let offset = 0; ; offset += 100) {
+    const page = await mcp.call_tool("list_notes", { limit: 100, offset });
+    notes.push(...page.notes);
+    if (page.notes.length < 100) break;
   }
-});
-
-// Switch to test memory if it was created
-try {
-  await use_mcp_tool({
-    server_name: "matric-memory",
-    tool_name: "select_memory",
-    arguments: { name: "uat-test-memory" }
-  });
-
-  const testMemoryNotes = await use_mcp_tool({
-    server_name: "matric-memory",
-    tool_name: "list_notes",
-    arguments: {
-      tags: ["uat"],
-      limit: 500,
-      include_deleted: false
-    }
-  });
-} catch (e) {
-  // Test memory may not exist, continue
+  return notes.filter(note =>
+    (note.tags || []).some(tag => tag === "uat" || tag.startsWith("uat/"))
+  );
 }
+
+const uatNotesByMemory = {};
+for (const memory of ["public", "test-archive", "uat-test-memory", "uat-pagination-memory"]) {
+  try {
+    await mcp.call_tool("select_memory", { name: memory });
+    uatNotesByMemory[memory] = await listAllUatNotes();
+  } catch (error) {
+    // An archive may not exist if its setup phase failed.
+  }
+}
+await mcp.call_tool("select_memory", { name: "public" });
 ```
 
 **Expected**: List of all notes tagged with `uat` or `uat/*`
 **Pass Criteria**:
-- Query completes without errors
-- Returns array of note objects
-- Each note has at least one tag starting with "uat"
+- Pagination continues until each archive is exhausted
+- Every stored note has `uat` or a `uat/` hierarchical tag
+- All four possible UAT archives are checked when present
 
-**Store**: `uat_notes_to_delete` (array of note IDs)
+**Store**: `uatNotesByMemory` (note arrays keyed by archive)
 
 ---
 
@@ -85,51 +72,15 @@ try {
 **MCP Tool**: `delete_note`
 
 ```javascript
-// Delete all UAT notes from default memory
-await use_mcp_tool({
-  server_name: "matric-memory",
-  tool_name: "select_memory",
-  arguments: { name: "public" }
-});
-
-const defaultNotes = await use_mcp_tool({
-  server_name: "matric-memory",
-  tool_name: "list_notes",
-  arguments: { tags: ["uat"], limit: 500 }
-});
-
-for (const note of defaultNotes.notes) {
-  await use_mcp_tool({
-    server_name: "matric-memory",
-    tool_name: "delete_note",
-    arguments: { id: note.id }
-  });
-}
-
-// Delete all UAT notes from test memory if it exists
-try {
-  await use_mcp_tool({
-    server_name: "matric-memory",
-    tool_name: "select_memory",
-    arguments: { name: "uat-test-memory" }
-  });
-
-  const testMemoryNotes = await use_mcp_tool({
-    server_name: "matric-memory",
-    tool_name: "list_notes",
-    arguments: { tags: ["uat"], limit: 500 }
-  });
-
-  for (const note of testMemoryNotes.notes) {
-    await use_mcp_tool({
-      server_name: "matric-memory",
-      tool_name: "delete_note",
-      arguments: { id: note.id }
-    });
+const deletedByMemory = {};
+for (const [memory, notes] of Object.entries(uatNotesByMemory)) {
+  await mcp.call_tool("select_memory", { name: memory });
+  deletedByMemory[memory] = notes.map(note => note.id);
+  for (const id of deletedByMemory[memory]) {
+    await mcp.call_tool("delete_note", { id });
   }
-} catch (e) {
-  // Test memory may not exist or may be empty
 }
+await mcp.call_tool("select_memory", { name: "public" });
 ```
 
 **Expected**: All UAT notes deleted successfully
@@ -137,6 +88,47 @@ try {
 - Each delete operation completes without errors
 - No UAT notes remain active
 - Deletion count matches list count from CLEAN-001
+
+---
+
+### CLEAN-002A: Permanently Purge UAT Notes
+
+**MCP Tools**: `purge_note`, `purge_notes`
+
+```javascript
+for (const [memory, ids] of Object.entries(deletedByMemory)) {
+  await mcp.call_tool("select_memory", { name: memory });
+  if (ids.length > 0) {
+    await mcp.call_tool("purge_note", { id: ids[0] });
+  }
+  if (ids.length > 1) {
+    const result = await mcp.call_tool("purge_notes", { note_ids: ids.slice(1) });
+    if (result.failed.length > 0) throw new Error(JSON.stringify(result.failed));
+  }
+}
+await mcp.call_tool("select_memory", { name: "public" });
+```
+
+**Pass Criteria**:
+- [ ] Single-note purge succeeds for each non-empty archive
+- [ ] Batch purge reports no failures
+- [ ] Only IDs collected from the UAT tag query are purged
+
+---
+
+### CLEAN-002B: Purge-All Confirmation Guard
+
+**Isolation**: Required
+
+```javascript
+await mcp.call_tool("purge_all_notes", { confirm: false });
+```
+
+**Pass Criteria**:
+- [ ] The isolated call fails and requires `confirm: true`
+- [ ] No notes are purged
+
+> The suite deliberately does not call `purge_all_notes` with `confirm: true`, because a shared UAT instance may contain unrelated soft-deleted notes.
 
 ---
 
@@ -219,52 +211,17 @@ try {
 **MCP Tool**: `list_notes`
 
 ```javascript
-// Verify default memory cleanup
-await use_mcp_tool({
-  server_name: "matric-memory",
-  tool_name: "select_memory",
-  arguments: { name: "public" }
-});
-
-const defaultVerify = await use_mcp_tool({
-  server_name: "matric-memory",
-  tool_name: "list_notes",
-  arguments: {
-    tags: ["uat"],
-    limit: 500,
-    include_deleted: false
-  }
-});
-
-// Verify test memory cleanup if it exists
-let testVerify = { notes: [] };
-try {
-  await use_mcp_tool({
-    server_name: "matric-memory",
-    tool_name: "select_memory",
-    arguments: { name: "uat-test-memory" }
-  });
-
-  testVerify = await use_mcp_tool({
-    server_name: "matric-memory",
-    tool_name: "list_notes",
-    arguments: {
-      tags: ["uat"],
-      limit: 500,
-      include_deleted: false
-    }
-  });
-} catch (e) {
-  // Expected if memory doesn't exist
+let totalRemaining = 0;
+for (const memory of Object.keys(uatNotesByMemory)) {
+  await mcp.call_tool("select_memory", { name: memory });
+  totalRemaining += (await listAllUatNotes()).length;
 }
-
-const totalRemaining = defaultVerify.notes.length + testVerify.notes.length;
+await mcp.call_tool("select_memory", { name: "public" });
 ```
 
 **Expected**: Zero UAT notes remaining
 **Pass Criteria**:
-- Default memory UAT note count = 0
-- Test memory UAT note count = 0 (or memory doesn't exist)
+- Every archive checked in CLEAN-001 has zero active UAT notes
 - `totalRemaining === 0`
 
 ---
@@ -336,7 +293,7 @@ await use_mcp_tool({
 });
 
 // Delete UAT test archives created during phases 0, 8, and 12
-const archivesToDelete = ["test-archive", "uat-test-memory"];
+const archivesToDelete = ["test-archive", "uat-test-memory", "uat-pagination-memory"];
 
 for (const archiveName of archivesToDelete) {
   try {
@@ -395,25 +352,22 @@ const activeMemory = await use_mcp_tool({
 ## Cleanup Metrics
 
 **Expected deletions:**
-- Notes created across all phases: ~60-80 notes
+- Notes created across all phases: ~165-185 notes, including the 105-note pagination archive
 - Collections created: 3-5 collections
 - Embedding sets created: 2-3 sets (with `uat-embed-` prefix)
-- Archives to delete: 2 (test-archive, uat-test-memory)
-- Memories used: 1-2 (public + optional uat-test-memory)
+- Archives to delete: 3 (`test-archive`, `uat-test-memory`, `uat-pagination-memory`)
+- Memories used: public plus up to three UAT archives
 
 **Cleanup verification:**
 ```javascript
 // Final verification query
-const finalCheck = await use_mcp_tool({
-  server_name: "matric-memory",
-  tool_name: "list_notes",
-  arguments: { tags: ["uat"], limit: 1 }
-});
+await mcp.call_tool("select_memory", { name: "public" });
+const finalCheck = await listAllUatNotes();
 
-if (finalCheck.notes.length === 0) {
+if (finalCheck.length === 0) {
   console.log("Cleanup successful - zero UAT notes remaining");
 } else {
-  console.error(`Cleanup incomplete - ${finalCheck.notes.length} UAT notes still exist`);
+  console.error(`Cleanup incomplete - ${finalCheck.length} UAT notes still exist`);
 }
 ```
 
@@ -423,18 +377,18 @@ if (finalCheck.notes.length === 0) {
 
 | Category | Pass | Fail | Skip | Total |
 |----------|------|------|------|-------|
-| UAT Note Cleanup | 0 | 0 | 0 | 2 |
+| UAT Note Cleanup | 0 | 0 | 0 | 4 |
 | Collection Cleanup | 0 | 0 | 0 | 1 |
 | Verification | 0 | 0 | 0 | 1 |
 | Embedding Set Cleanup | 0 | 0 | 0 | 1 |
 | Archive Cleanup | 0 | 0 | 0 | 1 |
 | Memory Reset | 0 | 0 | 0 | 1 |
-| **Total** | **0** | **0** | **0** | **7** |
+| **Total** | **0** | **0** | **0** | **9** |
 
 ## Phase Result
-- [ ] **Phase 14 PASSED** - All UAT data successfully removed
-- [ ] **Phase 14 FAILED** - See failure details above
-- [ ] **Phase 14 SKIPPED** - Reason: _______________
+- [ ] **Phase 15 PASSED** - All UAT data successfully removed
+- [ ] **Phase 15 FAILED** - See failure details above
+- [ ] **Phase 15 SKIPPED** - Reason: _______________
 
 ## Post-Cleanup Checklist
 
@@ -443,6 +397,7 @@ After CLEAN-006 completes:
 - [ ] Zero collections with "uat" in name remain
 - [ ] Zero embedding sets with "uat-embed-" prefix remain
 - [ ] UAT archives ("test-archive", "uat-test-memory") deleted
+- [ ] Pagination archive (`uat-pagination-memory`) deleted
 - [ ] Active memory is "public" (default)
 - [ ] System ready for production use or next test run
 - [ ] No orphaned tags or broken references
@@ -486,4 +441,4 @@ SELECT COUNT(*) FROM notes WHERE tags @> ARRAY['uat']::text[];
 
 ---
 
-**End of UAT Phase 14**
+**End of UAT Phase 15**

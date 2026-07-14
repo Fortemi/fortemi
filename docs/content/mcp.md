@@ -1109,6 +1109,8 @@ Backup, restore, knowledge shard export/import, and memory archive download oper
 
 > **Note:** Actions that generate a curl command (`export_shard`, `import_shard`, `download_archive`, `upload_archive`, `download_memory`) return a `curl_command` whose `Authorization` header is the placeholder `Authorization: Bearer <ACCESS_TOKEN>` (post-#987 output sanitization). The command is **not runnable verbatim** — you must replace the placeholder with a real access token before running it.
 
+> **Shard portability status (2026.7.1):** The portable shard contract reserves `blobs/<hash>` sidecars, but the current server export is reference-only. Attachment rows/bytes are not packaged by export and are not restored by import. Do not treat an exported shard as a self-contained attachment backup yet.
+
 ### `explore_graph`
 
 Traverse the knowledge graph from a starting note up to N hops. Returns a versioned payload with nodes, edges, and metadata including truncation info.
@@ -1454,7 +1456,7 @@ Monitor and manage background processing jobs — queue status, individual job d
 
 ### `manage_inference`
 
-Discover available LLM models, providers, and embedding configurations. Read-only — inference configuration is managed via env vars and TOML.
+Discover models and providers, inspect effective source-attributed routing, audit configuration changes, validate endpoints, and hot-swap database overrides. Environment and TOML values remain the fallback when no database override is present; `default_backend` reports the runtime-selected default (including `MATRIC_INFERENCE_DEFAULT`).
 
 **Actions:**
 
@@ -1463,6 +1465,21 @@ Discover available LLM models, providers, and embedding configurations. Read-onl
 | `list_models` | All models from all providers with capabilities and health |
 | `get_embedding_config` | Current default embedding model configuration |
 | `list_embedding_configs` | All embedding configurations |
+| `get_config` | Effective inference config with source attribution |
+| `list_providers` | Live provider registry and capabilities |
+| `get_config_audit` | Recent redacted config changes |
+| `update_config` | Validate and/or persist partial provider and embedding-route overrides |
+| `reset_config` | Remove database overrides and fall back to env/TOML/defaults |
+| `test_connection` | Probe an Ollama or OpenAI-compatible endpoint |
+
+**Update parameters:**
+- Provider blocks: `ollama`, `openai`, `llamacpp`, `openrouter`
+- `embedding_backend`: provider id, JSON `null` to clear, or omit to leave unchanged
+- `validate`: probe configured endpoints
+- `dry_run`: return the effective result without persistence
+- `atomic`: require the complete update to validate and apply together
+- `timeout_secs`: 1-120 seconds for `test_connection`
+- Audit filters: `limit`, `changed_by`, `audit_action`
 
 ```json
 // List all available models
@@ -1470,6 +1487,18 @@ Discover available LLM models, providers, and embedding configurations. Read-onl
 
 // Check current embedding config
 { "action": "get_embedding_config" }
+
+// Inspect effective runtime routing
+{ "action": "get_config" }
+
+// Validate an independent local embedding route without persisting it
+{
+  "action": "update_config",
+  "embedding_backend": "ollama",
+  "validate": true,
+  "dry_run": true,
+  "atomic": true
+}
 ```
 
 ### `trigger_graph_maintenance`
@@ -1508,11 +1537,14 @@ Community assignments (`community_id`, `community_label`, `community_confidence`
 
 ### `bulk_reprocess_notes`
 
-Re-run pipeline steps (embedding, linking, revision) on multiple notes.
+Re-run pipeline steps on explicit notes or across the active archive. Archive-wide selection paginates through the note repository, so limits greater than 100 are honored.
 
 **Parameters:**
-- `note_ids` (required) - Array of note UUIDs (max 100)
-- `steps` (optional) - Array of steps: ["embed", "link", "revise"] (default: all)
+- `note_ids` (optional) - Specific note UUIDs; omit to select active notes from the archive
+- `steps` (optional) - `ai_revision`, `embedding`, `linking`, `title_generation`, `concept_tagging`, or `all`
+- `revision_mode` (optional) - `standard`, `contextual`, `contextual_filtered`, `light`, `none`, or legacy alias `full`
+- `limit` (optional) - Maximum selected notes (default: 500, max: 5000)
+- `model`, `chunk_max_chars`, `chunk_overlap` (optional) - Pipeline overrides
 
 ```json
 {
@@ -1520,9 +1552,11 @@ Re-run pipeline steps (embedding, linking, revision) on multiple notes.
     "550e8400-e29b-41d4-a716-446655440000",
     "660e8400-e29b-41d4-a716-446655440001"
   ],
-  "steps": ["embed", "link"]
+  "steps": ["embedding", "linking"]
 }
 ```
+
+Returns aggregate `notes_count` and `jobs_queued`. Inspect individual asynchronous jobs with `manage_jobs`.
 
 ## Memory-Scoped Operations
 

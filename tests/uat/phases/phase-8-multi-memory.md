@@ -371,7 +371,7 @@ const response = await use_mcp_tool({
 
 **Cleanup After UAT**:
 ```javascript
-// Remove test archive via MCP (Phase 14 handles this)
+// Leave the test archive in place; Phase 15 cleanup removes it via MCP.
 await mcp.call_tool("manage_archives", {
   action: "delete",
   name: "test-archive"

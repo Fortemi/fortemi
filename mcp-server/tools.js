@@ -6192,7 +6192,7 @@ When called without note_ids, processes all notes in the current archive (up to 
   },
   {
     name: "manage_inference",
-    description: `Manage LLM inference configuration, models, providers, and connections. Actions: list_models (all models with capabilities and provider health), get_embedding_config (current default embedding config), list_embedding_configs (all embedding configurations), get_config (effective inference config with source attribution), update_config (apply partial config override and hot-swap backend), reset_config (remove DB overrides, revert to env/defaults), test_connection (probe an inference endpoint and auto-detect provider).`,
+    description: `Manage LLM inference configuration, models, providers, audit history, and connections. Read actions expose effective provider routing and source attribution. Update actions support Ollama, OpenAI-compatible, llama.cpp, OpenRouter, and independent embedding routing.`,
     inputSchema: {
       "type": "object",
       "properties": {
@@ -6203,11 +6203,13 @@ When called without note_ids, processes all notes in the current archive (up to 
             "get_embedding_config",
             "list_embedding_configs",
             "get_config",
+            "list_providers",
+            "get_config_audit",
             "update_config",
             "reset_config",
             "test_connection"
           ],
-          "description": "Action: 'list_models' (all models from all providers), 'get_embedding_config' (default embedding config), 'list_embedding_configs' (all embedding configs), 'get_config' (effective inference config with source attribution), 'update_config' (apply partial config override), 'reset_config' (remove DB overrides), 'test_connection' (probe inference endpoint)"
+          "description": "Action to perform. Use get_config for effective source-attributed routing, list_providers for the live provider registry, and get_config_audit for redacted configuration history."
         },
         "ollama": {
           "type": "object",
@@ -6228,13 +6230,42 @@ When called without note_ids, processes all notes in the current archive (up to 
             "embedding_model": { "type": "string", "description": "Embedding model slug" }
           }
         },
+        "llamacpp": {
+          "type": "object",
+          "description": "Partial llama.cpp or compatible server override (for update_config)",
+          "properties": {
+            "base_url": { "type": "string", "description": "llama.cpp-compatible base URL" },
+            "api_key": { "type": "string", "description": "Optional bearer token" },
+            "generation_model": { "type": "string", "description": "Generation model slug" },
+            "embedding_model": { "type": "string", "description": "Embedding model slug" }
+          }
+        },
+        "openrouter": {
+          "type": "object",
+          "description": "Partial OpenRouter override (for update_config; generation only)",
+          "properties": {
+            "base_url": { "type": "string", "description": "OpenRouter-compatible base URL" },
+            "api_key": { "type": "string", "description": "OpenRouter API key" },
+            "generation_model": { "type": "string", "description": "Generation model slug" },
+            "http_referer": { "type": "string", "description": "HTTP-Referer attribution header" },
+            "app_name": { "type": "string", "description": "X-Title application name" }
+          }
+        },
+        "embedding_backend": {
+          "description": "Independent embedding provider id for update_config. Pass null to clear the override; omit to leave it unchanged.",
+          "anyOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        },
         "base_url": {
           "type": "string",
           "description": "URL to probe (for test_connection action)"
         },
         "provider": {
           "type": "string",
-          "description": "Provider hint for test_connection: 'ollama', 'openai', or 'auto' (default: auto)"
+          "enum": ["ollama", "openai", "auto"],
+          "description": "Protocol hint for test_connection (default: auto). OpenAI covers compatible providers including llama.cpp and OpenRouter."
         },
         "api_key": {
           "type": "string",
@@ -6243,6 +6274,34 @@ When called without note_ids, processes all notes in the current archive (up to 
         "validate": {
           "type": "boolean",
           "description": "If true, probe endpoint reachability before persisting (for update_config)"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Validate and return the effective result without persisting (for update_config)"
+        },
+        "atomic": {
+          "type": "boolean",
+          "description": "Require the complete update to validate and apply atomically (for update_config)"
+        },
+        "timeout_secs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120,
+          "description": "Connection probe timeout in seconds (for test_connection; default 10)"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "description": "Maximum audit entries (for get_config_audit; default 50)"
+        },
+        "changed_by": {
+          "type": "string",
+          "description": "Filter configuration audit entries by actor"
+        },
+        "audit_action": {
+          "type": "string",
+          "description": "Filter configuration audit entries by action such as set or reset"
         }
       },
       "required": [

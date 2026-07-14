@@ -225,23 +225,19 @@ const result = await mcp.request({
   }
 });
 
-console.log("Reprocessed:", result.processed_count);
-console.log("Failed:", result.failed_count);
-console.log("Job ID:", result.job_id);
+console.log("Notes selected:", result.notes_count);
+console.log("Jobs queued:", result.jobs_queued);
 ```
 
 **Expected**:
-- Returns job status with counts
-- `processed_count` >= 1 (at least the specified note)
-- `failed_count` = 0 (assuming valid note)
-- `job_id` present for tracking
-- Embedding regeneration completes
+- Returns selected-note and queued-job counts
+- `notes_count` = 1 (the specified note)
+- `jobs_queued` is 0 or 1 (deduplication may suppress a duplicate job)
 
 **Pass Criteria**:
-- Response contains `processed_count`, `failed_count`, `job_id`
-- `processed_count` >= 1
-- `failed_count` = 0
-- Job ID is UUID format
+- Response contains `notes_count` and `jobs_queued`
+- `notes_count` = 1
+- `jobs_queued` is between 0 and 1
 
 **Store**: `BULK_JOB_ID`
 
@@ -264,20 +260,20 @@ const result = await mcp.request({
   }
 });
 
-console.log("Reprocessed count:", result.processed_count);
-console.log("Limit respected:", result.processed_count <= 3);
+console.log("Selected count:", result.notes_count);
+console.log("Limit respected:", result.notes_count <= 3);
 ```
 
 **Expected**:
 - Returns job status
-- `processed_count` <= 3 (respects limit)
+- `notes_count` <= 3 (respects limit)
 - Processes most recently updated notes (default ordering)
-- `failed_count` reported
+- `jobs_queued` reported
 
 **Pass Criteria**:
-- Response contains `processed_count`
-- `processed_count` <= 3
-- `processed_count` >= 0 (could be 0 if no notes)
+- Response contains `notes_count`
+- `notes_count` <= 3
+- `notes_count` >= 0 (could be 0 if no notes)
 - Limit constraint honored
 
 ---
@@ -299,22 +295,20 @@ const result = await mcp.request({
   }
 });
 
-console.log("Full pipeline reprocess:", result.processed_count);
-console.log("Job ID:", result.job_id);
+console.log("Full pipeline notes:", result.notes_count);
+console.log("Jobs queued:", result.jobs_queued);
 ```
 
 **Expected**:
 - Returns job status
 - All pipeline steps execute (embedding, linking, extraction, etc.)
-- `processed_count` >= 1
-- No failures for valid note
-- Job completes successfully
+- `notes_count` = 1
+- One or more jobs are queued unless all steps are deduplicated
 
 **Pass Criteria**:
-- Response contains `processed_count`, `job_id`
-- `processed_count` >= 1
-- `failed_count` = 0
-- Job ID present
+- Response contains `notes_count` and `jobs_queued`
+- `notes_count` = 1
+- `jobs_queued` >= 0
 
 ---
 
@@ -337,4 +331,4 @@ console.log("Job ID:", result.job_id);
 - Export tests validate markdown format and YAML frontmatter structure
 - Health metrics provide observability into knowledge base quality
 - Bulk reprocessing supports note_ids (specific), limit (batch size), and steps (pipeline control)
-- All bulk operations return job IDs for async tracking
+- Bulk operations return aggregate `notes_count` and `jobs_queued`; individual jobs are observable through `manage_jobs`

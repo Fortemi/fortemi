@@ -1,192 +1,68 @@
-# MCP vs REST API Parity
+# MCP and REST API Parity
 
-This document clarifies which features are available via the REST API, the MCP (Model Context Protocol) server, or both.
+This document records the audited boundary between Fortemi's REST API and the MCP server as of 2026.7.1.
 
-## Overview
+## Surface Modes
 
-The Fortemi API exposes functionality through two interfaces:
+- **Core MCP mode** exposes 43 agent-oriented tools. Thirteen are consolidated tools with an `action` discriminator.
+- **Full MCP mode** exposes 205 tools, including low-level administrative operations.
+- **REST** remains the canonical transport API and includes streaming, realtime, webhook, upload, and OAuth surfaces that are intentionally not modeled as request/response MCP tools.
 
-- **REST API** (`/api/v1/*`): Standard HTTP endpoints for programmatic access
-- **MCP Server** (port 3001): AI agent interface with tool-based access
+The core inventory is defined once in `mcp-server/constants/core-tools.js`; production filtering and schema tests import that same list.
 
-Most features are available through both interfaces. Some MCP tools are **composite** — they aggregate multiple REST endpoints into a single tool call for agent convenience.
+## Core REST Mapping
 
-## MCP-Only Features
-
-These tools have no single REST endpoint equivalent. They aggregate multiple REST calls or provide agent-specific functionality.
-
-| MCP Tool | What It Does | REST Equivalent |
+| Core capability | MCP tools | REST endpoint families |
 |---|---|---|
-| `get_system_info` | Aggregated system overview | `GET /health` + `/api/v1/memory/info` + `/api/v1/jobs/stats` + `/api/v1/embedding-sets` |
-| `get_documentation` | Static AI agent guidance text | None (agent-only help text) |
-| `memory_info` | Archive storage and system diagnostics | `GET /api/v1/memory/info` (direct equivalent exists) |
-| `search_memories_federated` | Cross-archive search | No REST equivalent (single-archive search only) |
-| `get_memories_overview` | Overview of all archives | `GET /api/v1/archives` (partial — less detail) |
+| Notes | `list_notes`, `get_note`, `update_note`, `delete_note`, `restore_note`, `capture_knowledge` | `/api/v1/notes*`, templates, upload helpers |
+| Search | `search` | `/api/v1/search`, `/api/v1/search/federated`, `/api/v1/memories/search` |
+| Provenance | `record_provenance` | `/api/v1/provenance/*` |
+| Organization | `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings` | tags, collections, concepts/schemes, embedding sets |
+| Archives | `manage_archives`, `select_memory`, `get_active_memory` | `/api/v1/archives*` plus MCP session memory headers |
+| Attachments | `manage_attachments` | `/api/v1/notes/{id}/attachments*` and upload endpoints |
+| Encryption and backup | `manage_encryption`, `manage_backups` | `/api/v1/pke/*`, `/api/v1/backup/*`, `/api/v1/memory/*` |
+| Graph | 13 graph/link tools | `/api/v1/graph/*`, `/api/v1/notes/{id}/links`, `/related` |
+| Jobs | `manage_jobs` | `/api/v1/jobs*`, `/api/v1/extraction/stats` |
+| Inference config | `manage_inference` | models, embedding configs, `/api/v1/inference/config*`, `/providers`, `/test-connection` |
+| Health and system | `health_check`, `get_system_info`, `get_knowledge_health`, `get_access_frequency` | `/health`, health analytics, memory info, queue stats |
+| Export and bulk | `export_note`, `bulk_reprocess_notes` | note export and `/api/v1/notes/reprocess` |
+| Permanent deletion | `purge_note`, `purge_notes`, `purge_all_notes` | `/api/v1/notes/{id}/purge` |
+| Agent guidance | `get_documentation` | MCP-only static workflow guidance |
 
-## Composite MCP Tools
+Consolidated MCP tools may compose several REST calls or return safe transfer instructions. They are parity at the workflow level, not necessarily one tool per endpoint.
 
-These tools work by orchestrating multiple REST operations in a single call.
+## Inference Contract
 
-| MCP Tool | REST Operations Composed |
-|---|---|
-| `reprocess_note` | Queues multiple jobs (ai_revision, embedding, linking, title_generation) |
-| `clone_memory` | Schema clone + data copy + FK restoration |
-| `export_all_notes` | Search + export per note |
-| `search_with_dedup` | Search + chunk deduplication |
-| `knowledge_shard` | Export schema + data + embeddings |
-| `knowledge_shard_import` | Import schema + data + embeddings |
-| `backup_import` | Validate + restore from JSON/archive |
+`manage_inference` mirrors the current non-streaming inference administration contract:
 
-## REST Endpoint to MCP Tool Mapping
+- Effective configuration includes `default_backend`, optional independent `embedding_backend`, Ollama, OpenAI-compatible, llama.cpp, and OpenRouter blocks with source attribution.
+- Partial updates support all four provider blocks and explicit JSON `null` to clear `embedding_backend`.
+- `validate`, `dry_run`, and `atomic` update flags are forwarded.
+- Provider inventory and redacted config audit history are readable through `list_providers` and `get_config_audit`.
+- Connection tests forward the bounded `timeout_secs` option.
 
-### Notes
+`POST /api/v1/inference/complete` and `/api/v1/inference/stream` remain REST-only. They are transport-level generation endpoints, not configuration tools.
 
-| REST Endpoint | MCP Tool |
-|---|---|
-| `POST /api/v1/notes` | `create_note` |
-| `GET /api/v1/notes` | `list_notes` |
-| `GET /api/v1/notes/:id` | `get_note` |
-| `PATCH /api/v1/notes/:id` | `update_note` |
-| `DELETE /api/v1/notes/:id` | `delete_note` |
-| `POST /api/v1/notes/:id/restore` | `restore_note` |
-| `DELETE /api/v1/notes/:id/purge` | `purge_note` |
-| `POST /api/v1/notes/bulk` | `bulk_create_notes` |
-| `PUT /api/v1/notes/:id/tags` | `set_note_tags` |
-| `GET /api/v1/notes/:id/export` | `export_note` |
-| `POST /api/v1/notes/:id/move` | `move_note_to_collection` |
+## Intentional REST-Only Surfaces
 
-### Search
+These endpoints do not belong in the core request/response MCP surface:
 
-| REST Endpoint | MCP Tool |
-|---|---|
-| `GET /api/v1/search` | `search_notes` |
-| `GET /api/v1/search/dedup` | `search_with_dedup` |
-| `POST /api/v1/search/location` | `search_memories_by_location` |
-| `POST /api/v1/search/time` | `search_memories_by_time` |
-| `POST /api/v1/search/combined` | `search_memories_combined` |
+- Server-sent event and streaming inference/chat/ingest/health responses
+- WebSocket realtime call transports
+- Inbound webhook receivers and provider callbacks
+- TUS resumable upload protocol and raw binary downloads
+- OAuth authorization, callback, token, client-registration, and revocation flows
+- Browser/admin UI routes and OpenAPI/AsyncAPI documents
 
-### Collections
+Some non-streaming administration remains available in full MCP mode even when it is not in core mode, including detailed versioning, document types, API keys, and low-level SKOS relations.
 
-| REST Endpoint | MCP Tool |
-|---|---|
-| `GET /api/v1/collections` | `list_collections` |
-| `GET /api/v1/collections/:id` | `get_collection` |
-| `POST /api/v1/collections` | `create_collection` |
-| `PATCH /api/v1/collections/:id` | `update_collection` |
-| `DELETE /api/v1/collections/:id` | `delete_collection` |
-| `GET /api/v1/collections/:id/notes` | `get_collection_notes` |
+## Known Portability Limitation
 
-### SKOS Concepts
+The portable knowledge-shard contract reserves `blobs/<hash>` sidecars. Current server export is still reference-only for attachments, and import does not restore attachment rows or bytes. `manage_backups` accurately returns transfer commands but does not make the current shard artifact self-contained.
 
-| REST Endpoint | MCP Tool |
-|---|---|
-| `GET /api/v1/concepts/schemes` | `list_concept_schemes` |
-| `POST /api/v1/concepts/schemes` | `create_concept_scheme` |
-| `GET /api/v1/concepts/schemes/:id` | `get_concept_scheme` |
-| `POST /api/v1/concepts` | `create_concept` |
-| `GET /api/v1/concepts/:id` | `get_concept` |
-| `GET /api/v1/concepts/:id/full` | `get_concept_full` |
-| `PATCH /api/v1/concepts/:id` | `update_concept` |
-| `DELETE /api/v1/concepts/:id` | `delete_concept` |
-| `GET /api/v1/concepts/search` | `search_concepts` |
-| `GET /api/v1/concepts/autocomplete` | `autocomplete_concepts` |
-| `POST /api/v1/concepts/:id/broader` | `add_broader` |
-| `POST /api/v1/concepts/:id/narrower` | `add_narrower` |
-| `POST /api/v1/concepts/:id/related` | `add_related` |
-| `GET /api/v1/concepts/:id/broader` | `get_broader` |
-| `GET /api/v1/concepts/:id/narrower` | `get_narrower` |
-| `GET /api/v1/concepts/:id/related` | `get_related` |
-| `DELETE /api/v1/concepts/:id/broader/:target` | `remove_broader` |
-| `DELETE /api/v1/concepts/:id/narrower/:target` | `remove_narrower` |
-| `DELETE /api/v1/concepts/:id/related/:target` | `remove_related` |
-| `GET /api/v1/concepts/schemes/:id/export/turtle` | `export_skos_turtle` |
-| `POST /api/v1/notes/:id/concepts/:concept_id` | `tag_note_concept` |
-| `DELETE /api/v1/notes/:id/concepts/:concept_id` | `untag_note_concept` |
-| `GET /api/v1/notes/:id/concepts` | `get_note_concepts` |
+## Verification
 
-### Archives (Multi-Memory)
-
-| REST Endpoint | MCP Tool |
-|---|---|
-| `GET /api/v1/archives` | `list_archives` |
-| `POST /api/v1/archives` | `create_archive` |
-| `GET /api/v1/archives/:name` | `get_archive` |
-| `PATCH /api/v1/archives/:name` | `update_archive` |
-| `DELETE /api/v1/archives/:name` | `delete_archive` |
-| `POST /api/v1/archives/:name/clone` | `clone_memory` |
-| `POST /api/v1/archives/:name/default` | `set_default_archive` |
-
-### Provenance Creation
-
-| REST Endpoint | MCP Tool |
-|---|---|
-| `POST /api/v1/provenance/locations` | `create_provenance_location` |
-| `POST /api/v1/provenance/named-locations` | `create_named_location` |
-| `POST /api/v1/provenance/devices` | `create_provenance_device` |
-| `POST /api/v1/provenance/files` | `create_file_provenance` |
-| `POST /api/v1/provenance/notes` | `create_note_provenance` |
-
-### Health & Analytics
-
-| REST Endpoint | MCP Tool |
-|---|---|
-| `GET /health` | `health_check` |
-| `GET /api/v1/health/knowledge` | `get_knowledge_health` |
-| `GET /api/v1/health/orphan-tags` | `get_orphan_tags` |
-| `GET /api/v1/health/stale-notes` | `get_stale_notes` |
-| `GET /api/v1/health/unlinked-notes` | `get_unlinked_notes` |
-| `GET /api/v1/health/tag-cooccurrence` | `get_tag_cooccurrence` |
-| `GET /api/v1/notes/timeline` | `get_notes_timeline` |
-| `GET /api/v1/notes/activity` | `get_notes_activity` |
-| `GET /api/v1/memory/info` | `memory_info` |
-
-### Other Features
-
-| REST Endpoint | MCP Tool |
-|---|---|
-| `GET /api/v1/templates` | `list_templates` |
-| `POST /api/v1/templates` | `create_template` |
-| `POST /api/v1/templates/:id/instantiate` | `instantiate_template` |
-| `GET /api/v1/notes/:id/versions` | `list_note_versions` |
-| `POST /api/v1/notes/:id/versions/:vid/restore` | `restore_note_version` |
-| `GET /api/v1/notes/:id/versions/diff` | `diff_note_versions` |
-| `GET /api/v1/notes/:id/graph` | `explore_graph` |
-| `GET /api/v1/notes/:id/links` | `get_note_links` |
-| `GET /api/v1/notes/:id/backlinks` | `get_note_backlinks` |
-| `GET /api/v1/notes/:id/related` | `get_related_notes` |
-| `GET /api/v1/notes/:id/provenance` | `get_note_provenance` |
-| `GET /api/v1/notes/:id/chunks` | `get_chunk_chain` |
-| `GET /api/v1/notes/:id/full` | `get_full_document` |
-| `POST /api/v1/backup/now` | `backup_now` |
-| `GET /api/v1/backup/status` | `backup_status` |
-| `GET /api/v1/backup/download` | `backup_download` |
-| `POST /api/v1/backup/import` | `backup_import` |
-| `POST /api/v1/jobs` | `create_job` |
-| `GET /api/v1/jobs` | `list_jobs` |
-| `GET /api/v1/jobs/stats` | `get_queue_stats` |
-
-## HTTP Caching Behavior
-
-The API sets `Cache-Control` headers on all responses:
-
-| Endpoint Category | Cache-Control | Rationale |
-|---|---|---|
-| Mutations (POST/PUT/PATCH/DELETE) | `no-store` | Never cache write operations |
-| Document types, concept schemes | `public, max-age=300` | Stable reference data (5 min) |
-| Health endpoints | `no-cache, max-age=0` | Always fresh |
-| All other API GETs | `private, no-cache` | Client may cache, must revalidate |
-| Static assets (docs, openapi.yaml) | `public, max-age=3600` | Rarely changes (1 hour) |
-
-All `/api/v1/*` responses include `Vary: X-Fortemi-Memory` since responses depend on the selected archive.
-
-## When to Use REST vs MCP
-
-| Use Case | Recommended Interface |
-|---|---|
-| AI agent integration | MCP (purpose-built for agents) |
-| Web application | REST API |
-| CLI scripts | REST API |
-| Cross-archive operations | MCP (`search_memories_federated`) |
-| System diagnostics | MCP (`get_system_info` aggregates 4 endpoints) |
-| Bulk data operations | REST API (streaming, pagination) |
-| Webhook/event integration | REST API (SSE, WebSocket) |
+- `npm run validate:schemas` validates all 205 schemas.
+- `npm run test:schema` verifies that every one of the 43 core names exists and that filtering returns exactly 43 tools.
+- `node --test tests/inference-requests.test.js` verifies provider fields, dry-run/atomic flags, explicit-null embedding routing, audit filters, and connection timeout mapping.
+- `tests/uat/phases/phase-14-mcp-operations.md` covers current operational parity and the >100-note bulk pagination regression.

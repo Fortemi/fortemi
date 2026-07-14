@@ -15,6 +15,7 @@ import { test, describe } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { CORE_TOOLS } from "../constants/core-tools.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -703,22 +704,6 @@ describe("Schema Coverage Statistics", () => {
 // CORE TOOL SURFACE VALIDATION (Issue #365 — Tool Surface Reduction)
 // ============================================================================
 
-const CORE_TOOLS = new Set([
-  "list_notes", "get_note", "update_note", "delete_note", "restore_note",
-  "capture_knowledge", "search", "record_provenance",
-  "manage_tags", "manage_collection", "manage_concepts", "manage_embeddings",
-  "manage_archives", "manage_encryption", "manage_backups",
-  "explore_graph", "get_topology_stats", "get_graph_diagnostics",
-  "capture_diagnostics_snapshot", "list_diagnostics_snapshots", "compare_diagnostics_snapshots",
-  "recompute_snn_scores", "pfnet_sparsify", "coarse_community_detection", "trigger_graph_maintenance", "get_note_links", "get_related_notes", "export_note",
-  "get_documentation", "get_system_info", "health_check",
-  "select_memory", "get_active_memory",
-  "manage_attachments",
-  "get_knowledge_health",
-  "manage_jobs", "manage_inference",
-  "bulk_reprocess_notes",
-]);
-
 describe("Core Tool Surface (Issue #365)", () => {
   const toolNames = new Set(tools.map(t => t.name));
 
@@ -727,13 +712,13 @@ describe("Core Tool Surface (Issue #365)", () => {
     assert.equal(missing.length, 0, `Core tools missing from tools.js: ${missing.join(", ")}`);
   });
 
-  test("CORE-002: Core surface has exactly 38 tools", () => {
-    assert.equal(CORE_TOOLS.size, 38, `Expected 38 core tools, got ${CORE_TOOLS.size}`);
+  test("CORE-002: Core surface has exactly 43 tools", () => {
+    assert.equal(CORE_TOOLS.size, 43, `Expected 43 core tools, got ${CORE_TOOLS.size}`);
   });
 
   test("CORE-003: Core filtering produces correct count", () => {
     const coreTools = tools.filter(t => CORE_TOOLS.has(t.name));
-    assert.equal(coreTools.length, 38, `Expected 38 filtered tools, got ${coreTools.length}`);
+    assert.equal(coreTools.length, 43, `Expected 43 filtered tools, got ${coreTools.length}`);
   });
 
   test("CORE-004: All 13 consolidated tools have action enum", () => {

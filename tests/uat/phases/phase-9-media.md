@@ -16,7 +16,7 @@ Validate file attachment management via the `manage_attachments` consolidated MC
 
 > **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls through the matric-memory MCP server. Direct HTTP API calls are NOT permitted. Use `mcp.request({ method: "tools/call", params: { name: "tool_name", arguments: {...} }})`.
 
-> **Upload Note**: The `upload` and `download` actions return curl commands rather than performing binary transfer directly. This is by design — MCP tools exchange JSON, not binary streams. Execute the returned curl commands in a shell to complete the transfer.
+> **Upload Note**: The `upload` and `download` actions return sanitized curl commands because MCP exchanges JSON, not binary streams. For the binary-transfer step only, replace the `<ACCESS_TOKEN>` placeholder in the exact MCP-returned command and execute it through the UAT harness. Do not construct a separate direct API request or use curl as a fallback for an MCP failure.
 
 ---
 
@@ -118,7 +118,7 @@ console.log("Upload URL:", result.upload_url);
 - Command contains `POST` method
 - Command targets `/api/v1/notes/{note_id}/attachments`
 
-**Store**: Execute the curl command with a test file to create an attachment, then store the resulting `ATTACHMENT_ID`
+**Store**: Replace `<ACCESS_TOKEN>`, execute the exact returned command with a test file, then store the resulting `ATTACHMENT_ID`
 
 ---
 

@@ -522,7 +522,7 @@ const result = await use_mcp_tool({
 ## Notes
 
 - All test sets use `uat-embed-` name prefix for easy identification and cleanup
-- Phase 14 (Cleanup) handles deletion of all embedding sets with this prefix
+- Phase 15 (Cleanup) handles deletion of all embedding sets with this prefix
 - Tests marked with `**Isolation**: Required` must be executed as standalone MCP calls
 - The `refresh` action may be asynchronous; verify completion if the system supports it
 - Search scoping depends on embeddings being generated; some tests may need retry if embedding is async

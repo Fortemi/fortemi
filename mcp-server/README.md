@@ -86,7 +86,7 @@ The MCP server provides two tool surface modes via `MCP_TOOL_MODE`:
 
 ### Core Mode (Default) — 43 Tools
 
-Agent-optimized surface using consolidated discriminated-union tools. Reduces token overhead by ~82% compared to full mode.
+Agent-optimized surface using consolidated discriminated-union tools. The serialized schema surface is about 60% smaller than full mode.
 
 **Core tools:**
 
@@ -219,6 +219,8 @@ Core mode uses discriminated-union tools with an `action` parameter:
 - `action: "swap"` — Swap in a backup as active memory
 - `action: "download_memory"` — Download memory archive as SQL
 
+Knowledge shard export/import is currently reference-only for attachments: the portable contract reserves blob sidecars, but current exports do not package attachment records or bytes and imports do not restore them.
+
 **`manage_jobs`** — Job queue management
 - `action: "list"` — List jobs with filters
 - `action: "get"` — Get single job details
@@ -229,6 +231,16 @@ Core mode uses discriminated-union tools with an `action` parameter:
 - `action: "pause_status"` — Get pause state
 - `action: "pause"` — Pause globally or per archive
 - `action: "resume"` — Resume globally or per archive
+
+**`manage_inference`** — Runtime inference routing and validation
+- `action: "list_models"` — Models with provider health and capabilities
+- `action: "get_embedding_config"` / `list_embedding_configs` — Embedding model configuration
+- `action: "get_config"` — Effective source-attributed provider routing
+- `action: "list_providers"` — Live provider registry
+- `action: "get_config_audit"` — Redacted configuration history
+- `action: "update_config"` — Partial Ollama, OpenAI, llama.cpp, OpenRouter, or embedding-route override
+- `action: "reset_config"` — Remove database overrides
+- `action: "test_connection"` — Probe an inference endpoint
 
 ## Advanced Features
 

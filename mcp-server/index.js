@@ -14,6 +14,12 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import tools from "./tools.js";
+import { CORE_TOOLS } from "./constants/core-tools.js";
+import {
+  buildInferenceAuditPath,
+  buildInferenceConnectionRequest,
+  buildInferenceUpdateRequest,
+} from "./lib/inference-requests.js";
 import { formatFortemiApiError, formatMcpReauthorizationError } from "./lib/api-errors.js";
 import {
   pushSafeAuthCurlHeader,
@@ -39,35 +45,6 @@ const API_KEY = process.env.FORTEMI_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
 const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (43 tools) or "full" (205)
 
-// Core tool surface — high-level agent-friendly tools (issue #365)
-const CORE_TOOLS = new Set([
-  // Notes CRUD
-  "list_notes", "get_note", "update_note", "delete_note", "restore_note",
-  // Consolidated tools (discriminated-union pattern)
-  "capture_knowledge", "search", "record_provenance",
-  "manage_tags", "manage_collection", "manage_concepts", "manage_embeddings",
-  "manage_archives", "manage_encryption", "manage_backups",
-  // Graph & links
-  "explore_graph", "get_topology_stats", "get_graph_diagnostics",
-  "capture_diagnostics_snapshot", "list_diagnostics_snapshots", "compare_diagnostics_snapshots",
-  "recompute_snn_scores", "pfnet_sparsify", "coarse_community_detection", "trigger_graph_maintenance", "get_cold_spots", "get_note_links", "get_related_notes",
-  // Export
-  "export_note",
-  // System & docs
-  "get_documentation", "get_system_info", "health_check",
-  // Multi-memory
-  "select_memory", "get_active_memory",
-  // Attachments
-  "manage_attachments",
-  // Observability
-  "get_knowledge_health", "get_access_frequency",
-  // Jobs & inference
-  "manage_jobs", "manage_inference",
-  // Bulk operations
-  "bulk_reprocess_notes",
-  // Purge (permanent deletion of soft-deleted notes)
-  "purge_note", "purge_notes", "purge_all_notes",
-]);
 const MCP_PORT = parseInt(process.env.MCP_PORT || String(DEFAULTS.MCP_DEFAULT_PORT), 10);
 const MCP_BASE_URL = process.env.MCP_BASE_URL || `http://localhost:${MCP_PORT}`;
 const MAX_UPLOAD_SIZE = parseInt(process.env.MATRIC_MAX_UPLOAD_SIZE_BYTES || String(DEFAULTS.MAX_UPLOAD_SIZE_BYTES), 10);
@@ -1182,22 +1159,20 @@ function createMcpServer() {
             result = await apiRequest("GET", "/api/v1/embedding-configs");
           } else if (miAction === "get_config") {
             result = await apiRequest("GET", "/api/v1/inference/config");
+          } else if (miAction === "list_providers") {
+            result = await apiRequest("GET", "/api/v1/inference/providers");
+          } else if (miAction === "get_config_audit") {
+            result = await apiRequest("GET", buildInferenceAuditPath(args));
           } else if (miAction === "update_config") {
-            const body = {};
-            if (args.ollama) body.ollama = args.ollama;
-            if (args.openai) body.openai = args.openai;
-            const qs = args.validate ? "?validate=true" : "";
-            result = await apiRequest("POST", `/api/v1/inference/config${qs}`, body);
+            const request = buildInferenceUpdateRequest(args);
+            result = await apiRequest("POST", request.path, request.body);
           } else if (miAction === "reset_config") {
             result = await apiRequest("DELETE", "/api/v1/inference/config");
           } else if (miAction === "test_connection") {
             if (!args.base_url) throw new Error("test_connection requires 'base_url'");
-            const body = { base_url: args.base_url };
-            if (args.provider) body.provider = args.provider;
-            if (args.api_key) body.api_key = args.api_key;
-            result = await apiRequest("POST", "/api/v1/inference/test-connection", body);
+            result = await apiRequest("POST", "/api/v1/inference/test-connection", buildInferenceConnectionRequest(args));
           } else {
-            throw new Error(`Unknown manage_inference action: ${miAction}. Valid: list_models, get_embedding_config, list_embedding_configs, get_config, update_config, reset_config, test_connection`);
+            throw new Error(`Unknown manage_inference action: ${miAction}. Valid: list_models, get_embedding_config, list_embedding_configs, get_config, list_providers, get_config_audit, update_config, reset_config, test_connection`);
           }
           break;
         }
@@ -3588,7 +3563,7 @@ Matric Memory is an AI-enhanced knowledge base with semantic search, automatic l
 | \`manage_encryption\` | PKE encryption | generate_keypair, get_address, encrypt, decrypt, list_recipients, verify_address, list/create/get_active/set_active/export/import/delete_keyset |
 | \`manage_backups\` | Backup & restore | export_shard, import_shard, snapshot, restore, list, get_info, get_metadata, update_metadata, download_archive, upload_archive, swap, download_memory |
 | \`manage_jobs\` | Job queue monitoring | list, get, create, stats, pending_count, extraction_stats, pause_status, pause, resume |
-| \`manage_inference\` | Inference config, models & providers | list_models, get_embedding_config, list_embedding_configs, get_config, update_config, reset_config, test_connection |
+| \`manage_inference\` | Inference config, models & providers | list_models, get_embedding_config, list_embedding_configs, get_config, list_providers, get_config_audit, update_config, reset_config, test_connection |
 
 These high-level tools consolidate the fine-grained tools below. Use the consolidated versions for most workflows.
 
