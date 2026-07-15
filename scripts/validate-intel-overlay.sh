@@ -17,6 +17,51 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Keep the copy/paste host service and guide aligned with the security contract
+# from #1045. These checks run before Compose so failures remain actionable even
+# on hosts where the Docker plugin is unavailable.
+service_unit=deploy/vllm-intel-xpu.service.example
+deployment_guide=docs/content/intel-arc-vllm.md
+
+required_unit_patterns=(
+    'EnvironmentFile=%h/.config/fortemi/vllm.env'
+    'NoNewPrivileges=true'
+    'PrivateTmp=true'
+    'ProtectSystem=full'
+    'CapabilityBoundingSet='
+)
+for pattern in "${required_unit_patterns[@]}"; do
+    if ! grep -Fq -- "$pattern" "$service_unit"; then
+        echo "ERROR: $service_unit is missing hardening contract: $pattern" >&2
+        exit 1
+    fi
+done
+if grep -Fq -- '--api-key ${VLLM_API_KEY}' "$service_unit"; then
+    echo "ERROR: do not expose VLLM_API_KEY through the process command line" >&2
+    exit 1
+fi
+
+if ! grep -Fq -- 'OPENAI_API_KEY=${OPENAI_API_KEY:?' docker-compose.intel.yml; then
+    echo "ERROR: docker-compose.intel.yml must require an explicit vLLM API key" >&2
+    exit 1
+fi
+
+required_guide_patterns=(
+    'you must restrict TCP port 8000 with the host firewall'
+    'only a Fortemi-side placeholder'
+    'pinned, locally audited snapshot'
+    'Network exposure check'
+    'this must time out or be refused'
+)
+for pattern in "${required_guide_patterns[@]}"; do
+    if ! grep -Fq -- "$pattern" "$deployment_guide"; then
+        echo "ERROR: $deployment_guide is missing security guidance: $pattern" >&2
+        exit 1
+    fi
+done
+
+echo "Intel host-vLLM security guidance validation passed"
+
 if ! docker compose version >/dev/null 2>&1; then
     echo "ERROR: 'docker compose' plugin not available. The Intel overlay" >&2
     echo "requires Docker Compose v2.17.0+ (see docs/content/intel-arc-vllm.md)." >&2
@@ -30,9 +75,25 @@ echo "Docker Compose version: ${compose_version}"
 # change the asserted defaults. CI has no .env; locally this keeps the
 # validation deterministic.
 rendered=$(mktemp)
-trap 'rm -f "$rendered"' EXIT
+missing_key_error=$(mktemp)
+trap 'rm -f "$rendered" "$missing_key_error"' EXIT
 
-if ! docker compose \
+if docker compose \
+    --env-file /dev/null \
+    -f docker-compose.bundle.yml \
+    -f docker-compose.intel.yml \
+    config --format json >/dev/null 2>"$missing_key_error"; then
+    echo "ERROR: Intel overlay rendered without the required OPENAI_API_KEY" >&2
+    exit 1
+fi
+if ! grep -Fq -- "OPENAI_API_KEY" "$missing_key_error"; then
+    echo "ERROR: keyless render failed for an unexpected reason:" >&2
+    cat "$missing_key_error" >&2
+    exit 1
+fi
+echo "Intel overlay rejects a missing vLLM API key"
+
+if ! OPENAI_API_KEY=validation-only-vllm-key docker compose \
     --env-file /dev/null \
     -f docker-compose.bundle.yml \
     -f docker-compose.intel.yml \
@@ -68,6 +129,7 @@ env = svc["environment"]
 expected = {
     "MATRIC_INFERENCE_DEFAULT": "openai",
     "OPENAI_BASE_URL": "http://host.docker.internal:8000/v1",
+    "OPENAI_API_KEY": "validation-only-vllm-key",
     "MATRIC_EMBEDDING_PROVIDER": "ollama",
     "OPEN3D_CPU_RENDERING": "true",
     "NVIDIA_VISIBLE_DEVICES": "",

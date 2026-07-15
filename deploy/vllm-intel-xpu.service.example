@@ -2,6 +2,7 @@
 Description=vLLM OpenAI API on Intel Arc/XPU for Fortemi
 After=network-online.target
 Wants=network-online.target
+ConditionPathExists=%h/.config/fortemi/vllm.env
 
 [Service]
 Type=simple
@@ -10,11 +11,19 @@ WorkingDirectory=%h
 # Adjust these paths for your host. This example assumes a Python virtualenv
 # with vLLM XPU support installed at %h/ai/vllm-xpu and a local Hugging Face
 # snapshot at %h/models/huggingface/Qwen--Qwen3.5-9B.
+#
+# SECURITY: the all-interface bind is required for Docker-to-host access. Restrict
+# TCP/8000 to the Fortemi Docker subnet with the host firewall before enabling
+# this unit. VLLM_API_KEY must be a random secret shared with Fortemi's
+# OPENAI_API_KEY; the value "local-vllm" does not enable authentication.
 Environment=VLLM_TARGET_DEVICE=xpu
 Environment=VLLM_WORKER_MULTIPROC_METHOD=spawn
 Environment=VLLM_LOGGING_LEVEL=INFO
 Environment=ZE_AFFINITY_MASK=0
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=%h/.config/fortemi/vllm.env
 
+# Keep --trust-remote-code only for a pinned, locally audited model/code snapshot.
 ExecStart=%h/ai/vllm-xpu/bin/python -m vllm.entrypoints.openai.api_server \
   --host 0.0.0.0 \
   --port 8000 \
@@ -30,6 +39,26 @@ ExecStart=%h/ai/vllm-xpu/bin/python -m vllm.entrypoints.openai.api_server \
 Restart=always
 RestartSec=10
 TimeoutStartSec=900
+UMask=0077
+
+# Compatible baseline hardening for a user service that needs Intel XPU access.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Do not enable PrivateDevices: vLLM needs the Intel /dev/dri render device.
+# ProtectHome would hide the example's venv/model paths under %h. Relocate those
+# paths before enabling it. MemoryDenyWriteExecute is omitted because torch/vLLM
+# may use JIT-generated executable memory on XPU.
 
 [Install]
 WantedBy=default.target

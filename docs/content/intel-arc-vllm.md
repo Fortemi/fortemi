@@ -31,14 +31,55 @@ have another embedding-capable provider configured.
   installed on the host).
 - Host Ollama (or another embedding-capable provider) for the embedding route.
 
+## Security boundary
+
+The Fortemi container reaches the host through `host.docker.internal`, so a vLLM
+process bound only to `127.0.0.1` is not reachable from the container on the
+normal Linux bridge topology. The examples therefore retain `--host 0.0.0.0`,
+but **you must restrict TCP port 8000 with the host firewall before starting the
+service**. Allow only the Fortemi Docker network and any explicitly approved
+management network. Do not expose the port to the internet or an untrusted LAN.
+
+vLLM does not infer authentication from Fortemi's `OPENAI_API_KEY`. The literal
+value `local-vllm` used by older examples was only a Fortemi-side placeholder;
+it did not protect the vLLM listener. This guide sets vLLM's supported
+`VLLM_API_KEY` environment variable and uses the same random value for Fortemi's
+`OPENAI_API_KEY`. The environment form avoids exposing the secret in the
+process command line. vLLM applies this authentication to OpenAI-compatible
+endpoints under `/v1`; the host firewall remains the boundary for the entire
+listener. See [vLLM security](https://docs.vllm.ai/en/stable/usage/security/).
+
+`--trust-remote-code` executes Python supplied with the model. Avoid it when the
+model works without custom code. When it is required, download a specific model
+and code revision, review or approve that snapshot, and serve the immutable
+local snapshot. Do not combine `--trust-remote-code` with a floating model
+branch. vLLM also supports `--revision` and `--code-revision` for commit pinning;
+see the [vLLM serve arguments](https://docs.vllm.ai/en/stable/cli/serve/).
+
 ## 1. Start vLLM on the host
 
 Install or activate a vLLM environment with XPU support, then start vLLM with a
 served model name. Fortemi must use the served model name, not the filesystem
 path.
 
+Create a private environment file containing a random API key. Do not use the
+example string `local-vllm` as a credential:
+
+```bash
+install -d -m 0700 ~/.config/fortemi
+umask 077
+printf 'VLLM_API_KEY=%s\n' "$(openssl rand -hex 32)" \
+  > ~/.config/fortemi/vllm.env
+chmod 0600 ~/.config/fortemi/vllm.env
+```
+
+For a manual start, load that value without placing it in shell history:
+
 ```bash
 source ~/ai/vllm-xpu/bin/activate
+set -a
+source ~/.config/fortemi/vllm.env
+set +a
 
 python -m vllm.entrypoints.openai.api_server \
   --host 0.0.0.0 \
@@ -53,18 +94,33 @@ python -m vllm.entrypoints.openai.api_server \
   --no-enable-log-requests
 ```
 
-Validate the OpenAI-compatible endpoint:
+The model path above must be a pinned, locally audited snapshot when
+`--trust-remote-code` is present. Remove that flag if the model does not require
+custom code.
+
+Validate that unauthenticated calls are rejected and authenticated calls work:
 
 ```bash
-curl http://127.0.0.1:8000/v1/models
+curl -o /dev/null -sS -w '%{http_code}\n' \
+  http://127.0.0.1:8000/v1/models
+source ~/.config/fortemi/vllm.env
+curl -H "Authorization: Bearer $VLLM_API_KEY" \
+  http://127.0.0.1:8000/v1/models
 ```
+
+The first command must return `401`; the second must return the model catalog.
 
 If startup hangs during first-run torch compilation on Intel XPU, keep
 `--enforce-eager`. After the cache/runtime is proven stable on your hardware,
 you can experiment without it.
 
 An example user systemd unit is provided in the repository at
-`deploy/vllm-intel-xpu.service.example`.
+`deploy/vllm-intel-xpu.service.example`. Its baseline sandboxing keeps kernel and
+system paths read-only and drops privileges. `PrivateDevices` is intentionally
+omitted because Intel XPU requires `/dev/dri`; `ProtectHome` is omitted because
+the example keeps the venv and model under the user's home; and
+`MemoryDenyWriteExecute` is omitted for torch/vLLM JIT compatibility. Relocate
+the venv/model to locked system paths before adding stronger home protection.
 
 ## 2. Configure Fortemi
 
@@ -75,7 +131,8 @@ COMPOSE_PROFILES=edge
 
 MATRIC_INFERENCE_DEFAULT=openai
 OPENAI_BASE_URL=http://host.docker.internal:8000/v1
-OPENAI_API_KEY=local-vllm
+# Use the VLLM_API_KEY value from ~/.config/fortemi/vllm.env.
+OPENAI_API_KEY=<VLLM_API_KEY>
 OPENAI_GEN_MODEL=qwen3.5:9b
 MATRIC_FAST_GEN_MODEL=qwen3.5:9b
 
@@ -96,6 +153,29 @@ rejects requests for model names it does not serve.
 
 On Linux, `docker-compose.bundle.yml` already maps `host.docker.internal` to the
 host gateway for the Fortemi container.
+
+## Network exposure check
+
+Before production use, inspect the listener and test it from both an approved
+source and an unapproved machine:
+
+```bash
+# The all-interface listener is expected; the firewall is the network boundary.
+ss -ltn 'sport = :8000'
+
+# Run from the Fortemi host or another explicitly approved source: expect 401.
+curl --connect-timeout 3 -o /dev/null -sS -w '%{http_code}\n' \
+  http://<VLLM_HOST_IP>:8000/v1/models
+
+# Run from an unapproved LAN host: this must time out or be refused.
+curl --connect-timeout 3 http://<VLLM_HOST_IP>:8000/v1/models
+```
+
+An HTTP `401` proves the listener is reachable and authentication is active; it
+does **not** prove the firewall is correct. The final command must not reach
+vLLM. If it returns any HTTP status, fix the firewall before proceeding. For an
+intentionally shared LAN deployment, require both a restricted source network
+and the API key; never treat authentication as a replacement for firewalling.
 
 ## 3. Start Fortemi with the Intel overlay
 

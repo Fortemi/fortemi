@@ -27,7 +27,8 @@ services:
       # Route generation through the OpenAI-compatible provider.
       - MATRIC_INFERENCE_DEFAULT=${MATRIC_INFERENCE_DEFAULT:-openai}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://host.docker.internal:8000/v1}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-local-vllm}
+      # No placeholder fallback: host vLLM must enforce the same VLLM_API_KEY.
+      - "OPENAI_API_KEY=${OPENAI_API_KEY:?Set OPENAI_API_KEY to the VLLM_API_KEY used by host vLLM}"
       - OPENAI_GEN_MODEL=${OPENAI_GEN_MODEL:-qwen3.5:9b}
 
       # vLLM does not expose Fortemi's embedding route. Keep embeddings on

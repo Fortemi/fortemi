@@ -149,6 +149,7 @@ echo "Stub vLLM endpoint up on :${STUB_PORT} serving model '${MODEL}'"
 export API_HOST_PORT="$API_PORT" MCP_HOST_PORT="$MCP_PORT"
 export OPENAI_BASE_URL="http://host.docker.internal:${STUB_PORT}/v1"
 export OPENAI_GEN_MODEL="$MODEL"
+export OPENAI_API_KEY=smoke-only-vllm-key
 # Smoke-only relaxations: anonymous API + plain-http issuer.
 export REQUIRE_AUTH=false I_UNDERSTAND_NO_AUTH=true
 export FORTEMI_ALLOW_LOCAL_ISSUER=true
