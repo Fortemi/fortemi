@@ -130,4 +130,4 @@ default-page content inside `<main id="app">` rather than an empty SPA mount.
 If the build fails on internal links, keep `strictLinks` enabled and fix the
 source Markdown or manifest entry. For release publishing issues, verify the
 generated files locally first, then inspect the deploy workflow output and the
-target server path configured by `DEPLOY_PATH`.
+target server path configured by `DOCSITE_DEPLOY_PATH`.

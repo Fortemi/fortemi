@@ -12,6 +12,13 @@ env:
   GHCR_REGISTRY: ghcr.io
   GITEA_REGISTRY: git.integrolabs.net
   IMAGE_NAME: fortemi/fortemi
+  VAULT_ADDR: ${{ vars.VAULT_ADDR }}
+  GH_PUBLISH_TOKEN_VAULT_PATH: ${{ vars.GH_PUBLISH_TOKEN_VAULT_PATH }}
+  GH_PUBLISH_TOKEN_VAULT_FIELD: ${{ vars.GH_PUBLISH_TOKEN_VAULT_FIELD }}
+  BUILD_REPO_TOKEN_VAULT_PATH: ${{ vars.BUILD_REPO_TOKEN_VAULT_PATH }}
+  BUILD_REPO_TOKEN_VAULT_FIELD: ${{ vars.BUILD_REPO_TOKEN_VAULT_FIELD }}
+  HF_TOKEN_VAULT_PATH: ${{ vars.HF_TOKEN_VAULT_PATH }}
+  HF_TOKEN_VAULT_FIELD: ${{ vars.HF_TOKEN_VAULT_FIELD }}
 
 jobs:
   build-pyannote:
@@ -23,11 +30,11 @@ jobs:
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
-      - name: Fetch registry and model tokens from OpenBao
+      - name: Fetch registry and model tokens from vault
         env:
-          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
-          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
-        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.pyannote.spec
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.pyannote.spec
 
       - name: Log in to registries
         run: |

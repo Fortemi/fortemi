@@ -17,6 +17,11 @@ env:
   GITEA_REGISTRY: git.integrolabs.net
   BUILDER_IMAGE: fortemi/fortemi-builder
   TESTDB_IMAGE: fortemi/fortemi-testdb
+  VAULT_ADDR: ${{ vars.VAULT_ADDR }}
+  GH_PUBLISH_TOKEN_VAULT_PATH: ${{ vars.GH_PUBLISH_TOKEN_VAULT_PATH }}
+  GH_PUBLISH_TOKEN_VAULT_FIELD: ${{ vars.GH_PUBLISH_TOKEN_VAULT_FIELD }}
+  BUILD_REPO_TOKEN_VAULT_PATH: ${{ vars.BUILD_REPO_TOKEN_VAULT_PATH }}
+  BUILD_REPO_TOKEN_VAULT_FIELD: ${{ vars.BUILD_REPO_TOKEN_VAULT_FIELD }}
 
 jobs:
   build-builder:
@@ -28,11 +33,11 @@ jobs:
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
-      - name: Fetch registry tokens from OpenBao
+      - name: Fetch registry tokens from vault
         env:
-          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
-          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
-        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.registry.spec
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.registry.spec
 
       - name: Log in to registries
         run: |
@@ -230,9 +235,9 @@ jobs:
 
       - name: Fetch Gitea trigger token
         env:
-          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
-          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
-        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.gitea-release.spec
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.gitea-release.spec
 
       - name: Trigger CI workflows
         run: |

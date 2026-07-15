@@ -43,6 +43,9 @@ env:
   CARGO_TERM_COLOR: always
   GITEA_API: https://git.integrolabs.net/api/v1
   REPO: Fortemi/fortemi
+  VAULT_ADDR: ${{ vars.VAULT_ADDR }}
+  MUTSU_SSH_KEY_VAULT_PATH: ${{ vars.MUTSU_SSH_KEY_VAULT_PATH }}
+  MUTSU_SSH_KEY_VAULT_FIELD: ${{ vars.MUTSU_SSH_KEY_VAULT_FIELD }}
 
 jobs:
   # ─── Linux x86_64 ──────────────────────────────────────────────────────
@@ -95,11 +98,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
-      - name: Fetch mutsu SSH key from OpenBao
+      - name: Fetch mutsu SSH key from vault
         env:
-          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
-          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
-        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.mutsu.spec
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.mutsu.spec
 
       - name: Set up SSH to mutsu
         shell: bash
@@ -251,7 +254,7 @@ jobs:
         if: always()
         run: |
           rm -f ~/.ssh/mutsu_key
-          ci/openbao-fetch.sh --cleanup
+          ci/vault-fetch.sh --cleanup
 
       - name: Upload aarch64 artifact
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3

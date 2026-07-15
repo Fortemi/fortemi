@@ -39,6 +39,11 @@ env:
   # GitHub Container Registry (public releases)
   GHCR_REGISTRY: ghcr.io
   GHCR_IMAGE_NAME: fortemi/fortemi
+  VAULT_ADDR: ${{ vars.VAULT_ADDR }}
+  GH_PUBLISH_TOKEN_VAULT_PATH: ${{ vars.GH_PUBLISH_TOKEN_VAULT_PATH }}
+  GH_PUBLISH_TOKEN_VAULT_FIELD: ${{ vars.GH_PUBLISH_TOKEN_VAULT_FIELD }}
+  BUILD_REPO_TOKEN_VAULT_PATH: ${{ vars.BUILD_REPO_TOKEN_VAULT_PATH }}
+  BUILD_REPO_TOKEN_VAULT_FIELD: ${{ vars.BUILD_REPO_TOKEN_VAULT_FIELD }}
 
 jobs:
   # Keep the public source mirror aligned with authoritative Gitea refs. GHCR
@@ -54,11 +59,11 @@ jobs:
           git checkout ${GITHUB_SHA:-HEAD}
           git fetch origin '+refs/tags/*:refs/tags/*'
 
-      - name: Fetch GitHub source token from OpenBao
+      - name: Fetch GitHub source token from vault
         env:
-          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
-          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
-        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.github-release.spec
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.github-release.spec
 
       - name: Push authoritative source refs
         run: |
@@ -605,11 +610,11 @@ jobs:
           git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
-      - name: Fetch registry token from OpenBao
+      - name: Fetch registry token from vault
         env:
-          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
-          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
-        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.gitea-release.spec
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.gitea-release.spec
 
       - name: Log in to registry
         run: printf '%s\n' "${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
@@ -690,11 +695,11 @@ jobs:
           git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
-      - name: Fetch registry token from OpenBao
+      - name: Fetch registry token from vault
         env:
-          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
-          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
-        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.gitea-release.spec
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.gitea-release.spec
 
       - name: Log in to registry
         run: printf '%s\n' "${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
@@ -800,11 +805,11 @@ jobs:
 
           cat release_notes.md
 
-      - name: Fetch Gitea release token from OpenBao
+      - name: Fetch Gitea release token from vault
         env:
-          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
-          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
-        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.gitea-release.spec
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.gitea-release.spec
 
       - name: Create release
         run: |
@@ -870,11 +875,11 @@ jobs:
           git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
-      - name: Fetch GHCR token from OpenBao
+      - name: Fetch GHCR token from vault
         env:
-          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
-          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
-        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.github-release.spec
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.github-release.spec
 
       - name: Log in to GitHub Container Registry
         run: printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
@@ -947,11 +952,11 @@ jobs:
           git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
-      - name: Fetch GHCR token from OpenBao
+      - name: Fetch GHCR token from vault
         env:
-          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
-          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
-        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.github-release.spec
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.github-release.spec
 
       - name: Log in to GitHub Container Registry
         run: printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
@@ -1089,11 +1094,11 @@ jobs:
           cat release_notes.md
           echo "===================="
 
-      - name: Fetch GitHub release token from OpenBao
+      - name: Fetch GitHub release token from vault
         env:
-          BAO_CI_ROLE_ID: ${{ secrets.BAO_CI_ROLE_ID }}
-          BAO_CI_SECRET_ID: ${{ secrets.BAO_CI_SECRET_ID }}
-        run: ci/openbao-fetch.sh --spec ci/openbao-fetch.github-release.spec
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.github-release.spec
 
       - name: Create GitHub Release
         run: |

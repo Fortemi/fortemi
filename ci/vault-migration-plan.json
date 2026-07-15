@@ -1,0 +1,88 @@
+{
+  "repository": "Fortemi/fortemi",
+  "reader_approle": "ci-fortemi",
+  "bootstrap_tracker_secrets": [
+    "VAULT_CI_ROLE_ID",
+    "VAULT_CI_SECRET_ID"
+  ],
+  "tracker_variables": [
+    "VAULT_ADDR",
+    "FORTEMI_VAULT_MOUNT",
+    "FORTEMI_VAULT_DATA_PREFIX",
+    "FORTEMI_VAULT_METADATA_PREFIX",
+    "BUILD_REPO_TOKEN_VAULT_PATH",
+    "BUILD_REPO_TOKEN_VAULT_FIELD",
+    "GH_PUBLISH_TOKEN_VAULT_PATH",
+    "GH_PUBLISH_TOKEN_VAULT_FIELD",
+    "HF_TOKEN_VAULT_PATH",
+    "HF_TOKEN_VAULT_FIELD",
+    "DEPLOY_SSH_KEY_VAULT_PATH",
+    "DEPLOY_SSH_KEY_VAULT_FIELD",
+    "CLOUDFLARE_API_TOKEN_VAULT_PATH",
+    "CLOUDFLARE_API_TOKEN_VAULT_FIELD",
+    "DOCS_DEPLOY_KEY_VAULT_DATA_PATH",
+    "DOCS_DEPLOY_KEY_VAULT_METADATA_PATH",
+    "GH_PUBLISH_TOKEN_VAULT_DATA_PATH",
+    "GH_PUBLISH_TOKEN_VAULT_METADATA_PATH",
+    "MUTSU_SSH_KEY_VAULT_PATH",
+    "MUTSU_SSH_KEY_VAULT_FIELD",
+    "MUTSU_SSH_KEY_VAULT_DATA_PATH",
+    "MUTSU_SSH_KEY_VAULT_METADATA_PATH",
+    "CLOUDFLARE_API_TOKEN_VAULT_DATA_PATH",
+    "CLOUDFLARE_API_TOKEN_VAULT_METADATA_PATH",
+    "DOCSITE_DEPLOY_HOST",
+    "DOCSITE_DEPLOY_PORT",
+    "DOCSITE_DEPLOY_USER",
+    "DOCSITE_DEPLOY_PATH",
+    "DOCSITE_DEPLOY_PORTAL_PATH",
+    "CLOUDFLARE_ZONE_ID"
+  ],
+  "leaves": [
+    {
+      "path_variable": "BUILD_REPO_TOKEN_VAULT_PATH",
+      "field_variable": "BUILD_REPO_TOKEN_VAULT_FIELD",
+      "type": "api-token",
+      "service": "ci/fortemi",
+      "owner": "itops",
+      "tenant": "internal",
+      "purpose": "Gitea registry publish, workflow dispatch, and release API token for Fortemi",
+      "consumers": "gitea-actions:fortemi:build-builder,ci-builder,build-gliner,build-pyannote,release",
+      "reader_approle": "ci-fortemi",
+      "sensitivity": "high",
+      "rotation": "quarterly",
+      "sop": "itops/docs/security/ci-secret-migration.md"
+    },
+    {
+      "path_variable": "HF_TOKEN_VAULT_PATH",
+      "field_variable": "HF_TOKEN_VAULT_FIELD",
+      "type": "api-token",
+      "service": "ci/fortemi",
+      "owner": "itops",
+      "tenant": "internal",
+      "purpose": "Hugging Face token for pyannote model-loading validation in CI",
+      "consumers": "gitea-actions:fortemi:build-pyannote",
+      "reader_approle": "ci-fortemi",
+      "sensitivity": "high",
+      "rotation": "quarterly",
+      "sop": "itops/docs/security/ci-secret-migration.md"
+    }
+  ],
+  "shared_leaves": [
+    {
+      "path_variable": "CLOUDFLARE_API_TOKEN_VAULT_PATH",
+      "field_variable": "CLOUDFLARE_API_TOKEN_VAULT_FIELD"
+    },
+    {
+      "path_variable": "DEPLOY_SSH_KEY_VAULT_PATH",
+      "field_variable": "DEPLOY_SSH_KEY_VAULT_FIELD"
+    },
+    {
+      "path_variable": "GH_PUBLISH_TOKEN_VAULT_PATH",
+      "field_variable": "GH_PUBLISH_TOKEN_VAULT_FIELD"
+    },
+    {
+      "path_variable": "MUTSU_SSH_KEY_VAULT_PATH",
+      "field_variable": "MUTSU_SSH_KEY_VAULT_FIELD"
+    }
+  ]
+}
