@@ -21461,6 +21461,7 @@ impl std::fmt::Debug for ShardManifest {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
 struct ShardCounts {
     notes: usize,
     collections: usize,
@@ -21491,6 +21492,57 @@ fn invalid_base64_payload(message: &'static str) -> ApiError {
 
 fn shard_import_error(message: &'static str) -> String {
     message.to_string()
+}
+
+const SHARD_IMPORT_COMPONENTS: &[&str] = &["notes", "collections", "tags", "templates", "links"];
+
+fn selected_shard_import_components(
+    manifest: &ShardManifest,
+    include: Option<&str>,
+) -> Result<std::collections::HashSet<String>, String> {
+    if manifest.format != "matric-shard" {
+        return Err("Unsupported knowledge shard format.".to_string());
+    }
+    for component in &manifest.components {
+        if !SHARD_IMPORT_COMPONENTS.contains(&component.as_str()) {
+            return Err(format!(
+                "Unsupported declared shard component: {component}. Import aborted to prevent data loss."
+            ));
+        }
+    }
+
+    let declared = manifest
+        .components
+        .iter()
+        .cloned()
+        .collect::<std::collections::HashSet<_>>();
+    let requested = match include {
+        None => declared.clone(),
+        Some(value) => {
+            let values = value
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>();
+            if values.contains(&"all") {
+                declared.clone()
+            } else {
+                let mut selected = std::collections::HashSet::new();
+                for component in values {
+                    if !SHARD_IMPORT_COMPONENTS.contains(&component) {
+                        return Err(format!(
+                            "Unsupported requested shard component: {component}."
+                        ));
+                    }
+                    if declared.contains(component) {
+                        selected.insert(component.to_string());
+                    }
+                }
+                selected
+            }
+        }
+    };
+    Ok(requested)
 }
 
 /// Create a knowledge shard (portable tar.gz export) with selected components.
@@ -21581,6 +21633,7 @@ async fn knowledge_shard(
                             "title": full_note.note.title,
                             "original_content": full_note.original.content,
                             "revised_content": full_note.revised.content,
+                            "metadata": full_note.note.metadata,
                             "format": full_note.note.format,
                             "source": full_note.note.source,
                             "starred": full_note.note.starred,
@@ -25373,6 +25426,7 @@ async fn knowledge_shard_import_internal(
     schema: &str,
 ) -> Result<ShardImportResponse, ApiError> {
     use flate2::read::GzDecoder;
+    use sha2::{Digest, Sha256};
     use std::collections::HashMap;
     use std::io::Read;
     use tar::Archive;
@@ -25408,26 +25462,40 @@ async fn knowledge_shard_import_internal(
 
     // Parse manifest and check version
     let mut warnings: Vec<String> = Vec::new();
-    let manifest = files
+    let manifest_data = files
         .get("manifest.json")
-        .and_then(|data| serde_json::from_slice::<ShardManifest>(data).ok());
+        .ok_or_else(|| shard_validation_failed("Knowledge shard manifest is required."))?;
+    let manifest = serde_json::from_slice::<ShardManifest>(manifest_data)
+        .map_err(|_| shard_validation_failed("Invalid knowledge shard manifest."))?;
+    let selected_components = selected_shard_import_components(&manifest, opts.include.as_deref())
+        .map_err(ApiError::BadRequest)?;
+
+    for (filename, expected) in &manifest.checksums {
+        let contents = files.get(filename).ok_or_else(|| {
+            shard_validation_failed("Shard component declared by checksum is missing.")
+        })?;
+        let actual = hex::encode(Sha256::digest(contents));
+        if &actual != expected {
+            return Err(shard_validation_failed(
+                "Knowledge shard checksum validation failed.",
+            ));
+        }
+    }
 
     // Check for version mismatch
-    if let Some(ref m) = manifest {
-        let current_version = env!("CARGO_PKG_VERSION");
-        if let Some(ref shard_version) = m.matric_version {
-            if shard_version != current_version {
-                warnings.push(format!(
-                    "Version mismatch: shard created with matric-memory v{}, importing with v{}",
-                    shard_version, current_version
-                ));
-            }
-        } else {
-            warnings.push(
-                "Shard created with older matric-memory version (no version info in manifest)"
-                    .to_string(),
-            );
+    let current_version = env!("CARGO_PKG_VERSION");
+    if let Some(ref shard_version) = manifest.matric_version {
+        if shard_version != current_version {
+            warnings.push(format!(
+                "Version mismatch: shard created with matric-memory v{}, importing with v{}",
+                shard_version, current_version
+            ));
         }
+    } else {
+        warnings.push(
+            "Shard created with older matric-memory version (no version info in manifest)"
+                .to_string(),
+        );
     }
 
     let mut imported = ShardImportCounts::default();
@@ -25435,12 +25503,7 @@ async fn knowledge_shard_import_internal(
     let mut errors: Vec<String> = Vec::new();
 
     // Determine what to import
-    let include_str = opts
-        .include
-        .as_deref()
-        .unwrap_or("notes,collections,tags,templates,links");
-    let components: Vec<&str> = include_str.split(',').map(|s| s.trim()).collect();
-    let should_import = |c: &str| components.contains(&c) || components.contains(&"all");
+    let should_import = |component: &str| selected_components.contains(component);
 
     let on_conflict = &opts.on_conflict;
 
@@ -25462,10 +25525,6 @@ async fn knowledge_shard_import_internal(
                             .get("original_content")
                             .and_then(|v| v.as_str())
                             .unwrap_or_default();
-
-                        if content.is_empty() {
-                            continue;
-                        }
 
                         // Check if note exists
                         let exists = if let Some(id) = original_id {
@@ -25501,11 +25560,15 @@ async fn knowledge_shard_import_internal(
                                         }
                                     }
                                 }
-                                ConflictStrategy::Merge => {} // Keep existing, just add new
+                                ConflictStrategy::Merge => {
+                                    skipped.notes += 1;
+                                    continue;
+                                }
                             }
                         }
 
                         if !opts.dry_run {
+                            let note_id = original_id.unwrap_or_else(matric_core::new_v7);
                             let req = CreateNoteRequest {
                                 content: content.to_string(),
                                 format: note_json
@@ -25527,7 +25590,7 @@ async fn knowledge_shard_import_internal(
                                         .filter_map(|t| t.as_str().map(String::from))
                                         .collect::<Vec<_>>()
                                 }),
-                                metadata: None,
+                                metadata: note_json.get("metadata").cloned(),
                                 document_type_id: None,
                                 // Preserve titles from imported shards (#675) so
                                 // the support archive's filepath-derived titles
@@ -25541,7 +25604,9 @@ async fn knowledge_shard_import_internal(
                             let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
                             let insert_result = ctx
                                 .execute(move |tx| {
-                                    Box::pin(async move { notes.insert_tx(tx, req).await })
+                                    Box::pin(async move {
+                                        notes.insert_with_id_tx(tx, note_id, req).await
+                                    })
                                 })
                                 .await;
 
@@ -25553,7 +25618,9 @@ async fn knowledge_shard_import_internal(
                                     {
                                         let status_req = UpdateNoteStatusRequest {
                                             starred: Some(starred),
-                                            archived: None,
+                                            archived: note_json
+                                                .get("archived")
+                                                .and_then(|v| v.as_bool()),
                                             metadata: None,
                                         };
                                         let notes =
@@ -25564,6 +25631,41 @@ async fn knowledge_shard_import_internal(
                                                     notes
                                                         .update_status_tx(tx, new_id, status_req)
                                                         .await
+                                                })
+                                            })
+                                            .await;
+                                    }
+                                    let created_at = note_json
+                                        .get("created_at")
+                                        .and_then(|value| value.as_str())
+                                        .and_then(|value| {
+                                            chrono::DateTime::parse_from_rfc3339(value).ok()
+                                        })
+                                        .map(|value| value.with_timezone(&chrono::Utc));
+                                    let updated_at = note_json
+                                        .get("updated_at")
+                                        .and_then(|value| value.as_str())
+                                        .and_then(|value| {
+                                            chrono::DateTime::parse_from_rfc3339(value).ok()
+                                        })
+                                        .map(|value| value.with_timezone(&chrono::Utc));
+                                    if created_at.is_some() || updated_at.is_some() {
+                                        let _ = ctx
+                                            .execute(move |tx| {
+                                                Box::pin(async move {
+                                                    sqlx::query(
+                                                        "UPDATE note
+                                                         SET created_at_utc = COALESCE($2, created_at_utc),
+                                                             updated_at_utc = COALESCE($3, updated_at_utc)
+                                                         WHERE id = $1",
+                                                    )
+                                                    .bind(new_id)
+                                                    .bind(created_at)
+                                                    .bind(updated_at)
+                                                    .execute(&mut **tx)
+                                                    .await
+                                                    .map(|_| ())
+                                                    .map_err(matric_db::Error::Database)
                                                 })
                                             })
                                             .await;
@@ -25658,6 +25760,55 @@ async fn knowledge_shard_import_internal(
         }
     }
 
+    // Import standalone tags, including tags not currently assigned to a note.
+    if should_import("tags") {
+        if let Some(data) = files.get("tags.json") {
+            match serde_json::from_slice::<Vec<serde_json::Value>>(data) {
+                Ok(tags) => {
+                    for tag in tags {
+                        let Some(name) = tag.get("name").and_then(|value| value.as_str()) else {
+                            errors.push(shard_import_error("Invalid tag JSON."));
+                            continue;
+                        };
+                        if !opts.dry_run {
+                            let name = name.to_string();
+                            let created_at = tag
+                                .get("created_at")
+                                .and_then(|value| value.as_str())
+                                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                                .map(|value| value.with_timezone(&chrono::Utc))
+                                .unwrap_or_else(chrono::Utc::now);
+                            let res = ctx
+                                .execute(move |tx| {
+                                    Box::pin(async move {
+                                        sqlx::query(
+                                            "INSERT INTO tag (name, created_at_utc)
+                                             VALUES ($1, $2)
+                                             ON CONFLICT (name) DO NOTHING",
+                                        )
+                                        .bind(name)
+                                        .bind(created_at)
+                                        .execute(&mut **tx)
+                                        .await
+                                        .map(|_| ())
+                                        .map_err(matric_db::Error::Database)
+                                    })
+                                })
+                                .await;
+                            match res {
+                                Ok(_) => imported.tags += 1,
+                                Err(_) => skipped.tags += 1,
+                            }
+                        } else {
+                            imported.tags += 1;
+                        }
+                    }
+                }
+                Err(_) => errors.push(shard_import_error("Invalid tags JSON.")),
+            }
+        }
+    }
+
     // Import templates
     if should_import("templates") {
         if let Some(data) = files.get("templates.json") {
@@ -25723,15 +25874,29 @@ async fn knowledge_shard_import_internal(
                     continue;
                 }
                 if let Ok(link) = serde_json::from_str::<serde_json::Value>(line) {
-                    if let (Some(from_id), Some(to_id)) = (
-                        link.get("from_note_id")
-                            .and_then(|v| v.as_str())
-                            .and_then(|s| Uuid::parse_str(s).ok()),
-                        link.get("to_note_id")
-                            .and_then(|v| v.as_str())
-                            .and_then(|s| Uuid::parse_str(s).ok()),
-                    ) {
+                    let from_id = link
+                        .get("from_note_id")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| Uuid::parse_str(s).ok());
+                    let to_id = link
+                        .get("to_note_id")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| Uuid::parse_str(s).ok());
+                    let to_url = link
+                        .get("to_url")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    if let Some(from_id) = from_id {
+                        if to_id.is_none() == to_url.is_none() {
+                            errors.push(shard_import_error("Invalid link target."));
+                            continue;
+                        }
                         if !opts.dry_run {
+                            let link_id = link
+                                .get("id")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| Uuid::parse_str(s).ok())
+                                .unwrap_or_else(matric_core::new_v7);
                             let kind = link
                                 .get("kind")
                                 .and_then(|v| v.as_str())
@@ -25739,13 +25904,47 @@ async fn knowledge_shard_import_internal(
                                 .to_string();
                             let score =
                                 link.get("score").and_then(|v| v.as_f64()).unwrap_or(0.7) as f32;
-                            let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
+                            let created_at = link
+                                .get("created_at")
+                                .and_then(|value| value.as_str())
+                                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                                .map(|value| value.with_timezone(&chrono::Utc))
+                                .unwrap_or_else(chrono::Utc::now);
+                            let metadata = link.get("metadata").cloned();
+                            let replace = matches!(on_conflict, ConflictStrategy::Replace);
                             let res = ctx
                                 .execute(move |tx| {
                                     Box::pin(async move {
-                                        links
-                                            .create_tx(tx, from_id, to_id, &kind, score, None)
-                                            .await
+                                        let conflict = if replace {
+                                            "ON CONFLICT (id) DO UPDATE SET
+                                                from_note_id = EXCLUDED.from_note_id,
+                                                to_note_id = EXCLUDED.to_note_id,
+                                                to_url = EXCLUDED.to_url,
+                                                kind = EXCLUDED.kind,
+                                                score = EXCLUDED.score,
+                                                created_at_utc = EXCLUDED.created_at_utc,
+                                                metadata = EXCLUDED.metadata"
+                                        } else {
+                                            "ON CONFLICT (id) DO NOTHING"
+                                        };
+                                        sqlx::query(&format!(
+                                            "INSERT INTO link
+                                             (id, from_note_id, to_note_id, to_url, kind, score, created_at_utc, metadata)
+                                             VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, '{{}}'::jsonb))
+                                             {conflict}"
+                                        ))
+                                        .bind(link_id)
+                                        .bind(from_id)
+                                        .bind(to_id)
+                                        .bind(to_url)
+                                        .bind(kind)
+                                        .bind(score)
+                                        .bind(created_at)
+                                        .bind(metadata)
+                                        .execute(&mut **tx)
+                                        .await
+                                        .map(|_| ())
+                                        .map_err(matric_db::Error::Database)
                                     })
                                 })
                                 .await;
@@ -25756,6 +25955,8 @@ async fn knowledge_shard_import_internal(
                         } else {
                             imported.links += 1;
                         }
+                    } else {
+                        errors.push(shard_import_error("Invalid link source."));
                     }
                 }
             }
@@ -25772,7 +25973,7 @@ async fn knowledge_shard_import_internal(
 
     Ok(ShardImportResponse {
         status: status.to_string(),
-        manifest,
+        manifest: Some(manifest),
         imported,
         skipped,
         errors,
@@ -33712,6 +33913,61 @@ mod tests {
         assert_eq!(counts.embedding_set_members, 0);
         assert_eq!(counts.embeddings, 0);
         assert_eq!(counts.embedding_configs, 0);
+    }
+
+    #[test]
+    fn shard_counts_accept_partial_portable_manifests() {
+        let counts: ShardCounts = serde_json::from_str(r#"{"notes":2,"tags":1,"links":1}"#)
+            .expect("partial counts are valid");
+        assert_eq!(counts.notes, 2);
+        assert_eq!(counts.tags, 1);
+        assert_eq!(counts.links, 1);
+        assert_eq!(counts.collections, 0);
+        assert_eq!(counts.embedding_sets, 0);
+    }
+
+    #[test]
+    fn shard_import_rejects_unsupported_declared_components() {
+        let manifest = ShardManifest {
+            version: "1.0.0".to_string(),
+            matric_version: Some("fortemi-core-aiwg-index".to_string()),
+            format: "matric-shard".to_string(),
+            created_at: chrono::Utc::now(),
+            components: vec!["notes".to_string(), "provenance_edges".to_string()],
+            counts: ShardCounts::default(),
+            checksums: std::collections::HashMap::new(),
+            min_reader_version: Some("1.0.0".to_string()),
+            migrated_from: None,
+            migration_history: vec![],
+        };
+
+        let error = selected_shard_import_components(&manifest, None)
+            .expect_err("unsupported data must not be silently dropped");
+        assert!(error.contains("provenance_edges"));
+        assert!(error.contains("prevent data loss"));
+    }
+
+    #[test]
+    fn shard_import_defaults_to_all_declared_supported_components() {
+        let manifest = ShardManifest {
+            version: "1.0.0".to_string(),
+            matric_version: Some("fortemi-core-aiwg-index".to_string()),
+            format: "matric-shard".to_string(),
+            created_at: chrono::Utc::now(),
+            components: vec!["notes".to_string(), "tags".to_string(), "links".to_string()],
+            counts: ShardCounts::default(),
+            checksums: std::collections::HashMap::new(),
+            min_reader_version: Some("1.0.0".to_string()),
+            migrated_from: None,
+            migration_history: vec![],
+        };
+
+        let selected =
+            selected_shard_import_components(&manifest, None).expect("portable profile accepted");
+        assert_eq!(selected.len(), 3);
+        assert!(selected.contains("notes"));
+        assert!(selected.contains("tags"));
+        assert!(selected.contains("links"));
     }
 
     #[test]

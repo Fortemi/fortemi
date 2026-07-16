@@ -483,7 +483,19 @@ impl PgNoteRepository {
         tx: &mut Transaction<'_, Postgres>,
         req: CreateNoteRequest,
     ) -> Result<Uuid> {
-        let note_id = new_v7();
+        self.insert_with_id_tx(tx, new_v7(), req).await
+    }
+
+    /// Insert a note with a caller-supplied identity.
+    ///
+    /// Portable archive imports use this path so links and other dependent
+    /// records can retain their source note references.
+    pub async fn insert_with_id_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        req: CreateNoteRequest,
+    ) -> Result<Uuid> {
         let now = Utc::now();
         let hash = Self::hash_content(&req.content);
 
