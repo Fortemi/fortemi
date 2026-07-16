@@ -122,6 +122,9 @@ jobs:
       - name: Check release job guards
         run: python3 scripts/ci/verify-release-job-guards.py
 
+      - name: Check sidecar publication policy
+        run: python3 scripts/ci/verify-sidecar-publication.py
+
       - name: Check migration immutability
         run: python3 scripts/ci/verify-migration-immutability.py
 

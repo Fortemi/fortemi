@@ -192,6 +192,18 @@ Creates a public release on GitHub with:
 
 GLiNER and pyannote sidecar images are released independently from the main Fortémi images. They change infrequently and are expensive to build (ML model downloads), so they have their own workflows.
 
+The native `matric-api` desktop sidecar uses
+`.gitea/workflows/publish-sidecar.yml`. Every main-branch build publishes an
+append-only release named `sidecar-<full-commit>`, with the three platform
+binaries, `SHA256SUMS.txt`, and an in-toto/SLSA provenance statement. The
+workflow verifies an existing immutable identity and fails if its target,
+checksums, provenance, or asset bytes differ.
+
+`sidecar-latest` is a mutable discovery pointer. Consumers must resolve it to
+the immutable commit-qualified release, pin that release URL, and verify the
+checksum manifest and provenance statement. A rolling URL is not a trust
+anchor and may legitimately serve different bytes after a new main build.
+
 ### build-gliner.yaml
 
 | Trigger | Tags |

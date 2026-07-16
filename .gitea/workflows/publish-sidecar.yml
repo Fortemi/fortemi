@@ -11,7 +11,8 @@
 #                                            DMG build (lipo'd with aarch64).
 #
 # Release strategy:
-#   - Push to main: updates rolling `sidecar-latest` release
+#   - Push to main: publishes an immutable `sidecar-<full-commit>` release,
+#     then updates rolling `sidecar-latest` as a discovery pointer
 #   - Tag push (v*): attaches binaries to the versioned release
 #
 # Download URLs:
@@ -270,24 +271,22 @@ jobs:
 
   # ─── Publish to rolling sidecar-latest release ──────────────────────────
   publish-sidecar-latest:
-    name: Publish sidecar-latest
+    name: Publish immutable sidecar and latest pointer
     runs-on: matric-builder
     needs: [build-linux, build-macos]
     if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
     steps:
+      - name: Checkout publication tooling
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
       - name: Download artifacts
         uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a  # v3
         with:
           path: artifacts/
 
-      - name: Publish to sidecar-latest release
+      - name: Prepare sidecar publication
         run: |
-          set -e
-          TOKEN="${{ github.token }}"
-          API="${GITEA_API}/repos/${REPO}"
-          TAG="sidecar-latest"
-
-          # Move binaries to working directory
+          set -euo pipefail
           cp artifacts/matric-api-x86_64-unknown-linux-gnu/matric-api-x86_64-unknown-linux-gnu .
           cp artifacts/matric-api-aarch64-apple-darwin/matric-api-aarch64-apple-darwin .
           cp artifacts/matric-api-x86_64-apple-darwin/matric-api-x86_64-apple-darwin .
@@ -297,84 +296,15 @@ jobs:
           ls -lh matric-api-*
           sha256sum matric-api-*
 
-          # Delete existing release (if any) to recreate with fresh assets
-          EXISTING=$(curl -sf -H "Authorization: token ${TOKEN}" \
-            "${API}/releases/tags/${TAG}" 2>/dev/null || true)
+      - name: Publish immutable sidecar identity
+        env:
+          GITEA_TOKEN: ${{ github.token }}
+        run: scripts/ci/publish-sidecar-release.sh immutable
 
-          if [ -n "${EXISTING}" ] && echo "${EXISTING}" | jq -e '.id' >/dev/null 2>&1; then
-            RELEASE_ID=$(echo "${EXISTING}" | jq -r '.id')
-            echo "Deleting existing ${TAG} release (id: ${RELEASE_ID})..."
-            curl -sf -X DELETE \
-              -H "Authorization: token ${TOKEN}" \
-              "${API}/releases/${RELEASE_ID}"
-          fi
-
-          # Delete existing tag to update it to current commit
-          curl -sf -X DELETE \
-            -H "Authorization: token ${TOKEN}" \
-            "${API}/tags/${TAG}" 2>/dev/null || true
-
-          # Create new release with tag pointing to current commit
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          RELEASE_BODY="Rolling sidecar binaries built from main (${SHORT_SHA}).
-
-          Download and use as a native sidecar:
-          \`\`\`bash
-          # Linux x86_64
-          curl -LO https://git.integrolabs.net/${REPO}/releases/download/${TAG}/matric-api-x86_64-unknown-linux-gnu
-          chmod +x matric-api-x86_64-unknown-linux-gnu
-
-          # macOS Apple Silicon (M1+)
-          curl -LO https://git.integrolabs.net/${REPO}/releases/download/${TAG}/matric-api-aarch64-apple-darwin
-          chmod +x matric-api-aarch64-apple-darwin
-
-          # macOS Intel
-          curl -LO https://git.integrolabs.net/${REPO}/releases/download/${TAG}/matric-api-x86_64-apple-darwin
-          chmod +x matric-api-x86_64-apple-darwin
-          \`\`\`
-
-          Built from commit: ${GITHUB_SHA}
-          Build date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-          RELEASE_RESPONSE=$(curl -sf -X POST \
-            -H "Authorization: token ${TOKEN}" \
-            -H "Content-Type: application/json" \
-            "${API}/releases" \
-            -d "{
-              \"tag_name\": \"${TAG}\",
-              \"target_commitish\": \"${GITHUB_SHA}\",
-              \"name\": \"Sidecar Binaries (latest)\",
-              \"body\": $(echo "${RELEASE_BODY}" | jq -Rs .),
-              \"draft\": false,
-              \"prerelease\": true
-            }")
-
-          RELEASE_ID=$(echo "${RELEASE_RESPONSE}" | jq -r '.id')
-          echo "Created release: id=${RELEASE_ID}"
-
-          # Upload binaries as release assets
-          for BINARY in matric-api-x86_64-unknown-linux-gnu matric-api-aarch64-apple-darwin matric-api-x86_64-apple-darwin; do
-            echo "Uploading ${BINARY}..."
-            curl -sf -X POST \
-              -H "Authorization: token ${TOKEN}" \
-              -H "Content-Type: application/octet-stream" \
-              "${API}/releases/${RELEASE_ID}/assets?name=${BINARY}" \
-              --data-binary @"${BINARY}"
-            echo "  Uploaded ${BINARY}"
-          done
-
-          # Upload checksums
-          sha256sum matric-api-* > SHA256SUMS.txt
-          curl -sf -X POST \
-            -H "Authorization: token ${TOKEN}" \
-            -H "Content-Type: text/plain" \
-            "${API}/releases/${RELEASE_ID}/assets?name=SHA256SUMS.txt" \
-            --data-binary @SHA256SUMS.txt
-          echo "  Uploaded SHA256SUMS.txt"
-
-          echo ""
-          echo "=== Published sidecar-latest ==="
-          echo "  https://git.integrolabs.net/${REPO}/releases/tag/${TAG}"
+      - name: Update rolling discovery pointer
+        env:
+          GITEA_TOKEN: ${{ github.token }}
+        run: scripts/ci/publish-sidecar-release.sh rolling
 
   # ─── Attach binaries to versioned release ───────────────────────────────
   publish-versioned:
