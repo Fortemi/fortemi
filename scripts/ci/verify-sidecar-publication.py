@@ -30,7 +30,8 @@ def main() -> int:
     for needle in (
         'TAG="sidecar-${GITHUB_SHA:0:12}"',
         ".tag_name == $tag",
-        '"${API}/tags/${tag}"',
+        "immutable release asset set mismatch",
+        "removing pre-associated release asset",
         "immutable release checksum manifest replacement detected",
         "immutable release provenance replacement detected",
         "sha256sum -c",

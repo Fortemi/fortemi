@@ -82,12 +82,14 @@ verify_existing_immutable() {
   local release_json="$1"
   local tag="$2"
   local target
-  target=$(jq -r '.target_commitish // empty' <<<"${release_json}")
-  if [[ -z "${target}" ]]; then
-    target=$(curl -fsS -H "Authorization: token ${GITEA_TOKEN}" \
-      "${API}/tags/${tag}" | jq -r '.commit.sha // empty')
+  local actual_tag
+  actual_tag=$(jq -r '.tag_name // empty' <<<"${release_json}")
+  if [[ "${actual_tag}" != "${tag}" ]]; then
+    echo "immutable release tag mismatch: expected ${tag}, got ${actual_tag:-missing}" >&2
+    return 1
   fi
-  if [[ "${target}" != "${GITHUB_SHA}" ]]; then
+  target=$(jq -r '.target_commitish // empty' <<<"${release_json}")
+  if [[ -n "${target}" && "${target}" != "${GITHUB_SHA}" ]]; then
     echo "immutable release target mismatch: expected ${GITHUB_SHA}, got ${target:-missing}" >&2
     return 1
   fi
@@ -95,6 +97,16 @@ verify_existing_immutable() {
   local tmp
   tmp=$(mktemp -d)
   trap 'rm -rf "${tmp}"' RETURN
+  local expected_assets actual_assets
+  expected_assets=$(printf '%s\n' "${BINARIES[@]}" SHA256SUMS.txt \
+    sidecar-provenance.intoto.json | sort)
+  actual_assets=$(jq -r '.assets[].name' <<<"${release_json}" | sort)
+  if [[ "${actual_assets}" != "${expected_assets}" ]]; then
+    echo "immutable release asset set mismatch" >&2
+    diff -u <(printf '%s\n' "${expected_assets}") \
+      <(printf '%s\n' "${actual_assets}") >&2 || true
+    return 1
+  fi
   download_asset "${release_json}" SHA256SUMS.txt "${tmp}/SHA256SUMS.txt"
   download_asset "${release_json}" sidecar-provenance.intoto.json \
     "${tmp}/sidecar-provenance.intoto.json"
@@ -144,6 +156,18 @@ create_release() {
     )"
 }
 
+remove_preassociated_assets() {
+  local release_json="$1"
+  local release_id="$2"
+  while read -r asset_id asset_name; do
+    [[ -n "${asset_id}" ]] || continue
+    echo "removing pre-associated release asset ${asset_name} (${asset_id})"
+    curl -fsS -X DELETE \
+      -H "Authorization: token ${GITEA_TOKEN}" \
+      "${API}/releases/${release_id}/assets/${asset_id}"
+  done < <(jq -r '.assets[]? | "\(.id) \(.name)"' <<<"${release_json}")
+}
+
 upload_assets() {
   local release_id="$1"
   for asset in "${BINARIES[@]}" SHA256SUMS.txt sidecar-provenance.intoto.json; do
@@ -174,6 +198,8 @@ never be replaced. Use sidecar-latest only to discover the current immutable
 tag."
     RESPONSE=$(create_release "${TAG}" "Sidecar Binaries (${SHORT_SHA})" "${BODY}" true)
     RELEASE_ID=$(jq -er '.id' <<<"${RESPONSE}")
+    echo "created immutable release ${TAG} (id=${RELEASE_ID})"
+    remove_preassociated_assets "${RESPONSE}" "${RELEASE_ID}"
     upload_assets "${RELEASE_ID}"
     verify_existing_immutable "$(release_by_tag "${TAG}")" "${TAG}"
     echo "published immutable sidecar release ${TAG}"
@@ -201,6 +227,7 @@ Consumers must pin the immutable tag and verify SHA256SUMS.txt plus
 sidecar-provenance.intoto.json. Assets under sidecar-latest may change."
     RESPONSE=$(create_release "${TAG}" "Sidecar Binaries (latest)" "${BODY}" true)
     RELEASE_ID=$(jq -er '.id' <<<"${RESPONSE}")
+    remove_preassociated_assets "${RESPONSE}" "${RELEASE_ID}"
     upload_assets "${RELEASE_ID}"
     echo "updated sidecar-latest discovery pointer to ${IMMUTABLE_TAG}"
     ;;
