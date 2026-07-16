@@ -67,6 +67,28 @@ release_by_tag() {
     "${API}/releases/tags/$1" 2>/dev/null || true
 }
 
+release_by_id() {
+  curl -fsS -H "Authorization: token ${GITEA_TOKEN}" \
+    "${API}/releases/$1"
+}
+
+wait_for_release_tag() {
+  local tag="$1"
+  local expected_id="$2"
+  local response
+  for _ in {1..10}; do
+    response=$(release_by_tag "${tag}")
+    if jq -e --arg tag "${tag}" --argjson id "${expected_id}" \
+      '.tag_name == $tag and .id == $id' >/dev/null 2>&1 <<<"${response}"; then
+      printf '%s' "${response}"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "release tag index did not expose ${tag} (id=${expected_id})" >&2
+  return 1
+}
+
 download_asset() {
   local release_json="$1"
   local asset_name="$2"
@@ -197,11 +219,19 @@ sidecar-provenance.intoto.json. This release identity is append-only and must
 never be replaced. Use sidecar-latest only to discover the current immutable
 tag."
     RESPONSE=$(create_release "${TAG}" "Sidecar Binaries (${SHORT_SHA})" "${BODY}" true)
+    if ! jq -e --arg tag "${TAG}" --arg target "${GITHUB_SHA}" \
+      '.id and .tag_name == $tag and .target_commitish == $target' \
+      >/dev/null 2>&1 <<<"${RESPONSE}"; then
+      echo "immutable release creation returned an unexpected response" >&2
+      jq '{id, tag_name, target_commitish, message}' <<<"${RESPONSE}" >&2 || true
+      exit 1
+    fi
     RELEASE_ID=$(jq -er '.id' <<<"${RESPONSE}")
     echo "created immutable release ${TAG} (id=${RELEASE_ID})"
     remove_preassociated_assets "${RESPONSE}" "${RELEASE_ID}"
     upload_assets "${RELEASE_ID}"
-    verify_existing_immutable "$(release_by_tag "${TAG}")" "${TAG}"
+    verify_existing_immutable "$(release_by_id "${RELEASE_ID}")" "${TAG}"
+    wait_for_release_tag "${TAG}" "${RELEASE_ID}" >/dev/null
     echo "published immutable sidecar release ${TAG}"
     ;;
   rolling)

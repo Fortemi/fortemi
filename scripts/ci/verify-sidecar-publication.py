@@ -30,6 +30,9 @@ def main() -> int:
     for needle in (
         'TAG="sidecar-${GITHUB_SHA:0:12}"',
         ".tag_name == $tag",
+        "release_by_id",
+        "wait_for_release_tag",
+        "immutable release creation returned an unexpected response",
         "immutable release asset set mismatch",
         "removing pre-associated release asset",
         "immutable release checksum manifest replacement detected",
