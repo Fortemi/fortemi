@@ -204,6 +204,14 @@ the immutable commit-qualified release, pin that release URL, and verify the
 checksum manifest and provenance statement. A rolling URL is not a trust
 anchor and may legitimately serve different bytes after a new main build.
 
+The committed documentation seed at
+`docker/seed-data/fortemi-docs.shard` has a sibling provenance receipt. CI runs
+`scripts/ci/verify-docs-shard-freshness.py` to verify the archive digest, byte
+length, manifest version, server image, and workspace release baseline. When
+`scripts/ci/rebuild-shard-in-ci.sh` is used to refresh the seed, update the
+receipt in the same commit and propagate the exact server-generated artifact to
+downstream conformance suites.
+
 ### build-gliner.yaml
 
 | Trigger | Tags |

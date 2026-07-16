@@ -1,0 +1,12 @@
+{
+  "artifact": "docker/seed-data/fortemi-docs.shard",
+  "byte_length": 1952822,
+  "generated_at": "2026-07-16T14:15:42Z",
+  "generator": "scripts/ci/rebuild-shard-in-ci.sh",
+  "manifest_version": "1.0.0",
+  "server_commit": "bda3598d5dde002a4fd147992addd26c7d487044",
+  "server_image": "git.integrolabs.net/fortemi/fortemi:2026.7.1",
+  "server_version": "2026.7.1",
+  "sha256": "f2f5bad3f792934cf56413b33092a34cd9c143d129e98c5dd2cb8f4092568282",
+  "source_commit": "3e1e93857dbfc1d36c1d7ee06c6f77d06b28dcf9"
+}

@@ -143,3 +143,4 @@ if [ "$SIZE" -lt 102400 ]; then
     exit 1
 fi
 echo ">>> Shard regenerated: $SHARD ($((SIZE / 1024)) KB)"
+echo ">>> Update docker/seed-data/fortemi-docs.shard.receipt.json when committing this artifact."
