@@ -80,8 +80,13 @@ download_asset() {
 
 verify_existing_immutable() {
   local release_json="$1"
+  local tag="$2"
   local target
   target=$(jq -r '.target_commitish // empty' <<<"${release_json}")
+  if [[ -z "${target}" ]]; then
+    target=$(curl -fsS -H "Authorization: token ${GITEA_TOKEN}" \
+      "${API}/tags/${tag}" | jq -r '.commit.sha // empty')
+  fi
   if [[ "${target}" != "${GITHUB_SHA}" ]]; then
     echo "immutable release target mismatch: expected ${GITHUB_SHA}, got ${target:-missing}" >&2
     return 1
@@ -155,8 +160,9 @@ case "${MODE}" in
   immutable)
     TAG="sidecar-${GITHUB_SHA}"
     EXISTING=$(release_by_tag "${TAG}")
-    if jq -e '.id' >/dev/null 2>&1 <<<"${EXISTING}"; then
-      verify_existing_immutable "${EXISTING}"
+    if jq -e --arg tag "${TAG}" '.id and .tag_name == $tag' \
+      >/dev/null 2>&1 <<<"${EXISTING}"; then
+      verify_existing_immutable "${EXISTING}" "${TAG}"
       exit 0
     fi
 
@@ -169,7 +175,7 @@ tag."
     RESPONSE=$(create_release "${TAG}" "Sidecar Binaries (${SHORT_SHA})" "${BODY}" true)
     RELEASE_ID=$(jq -er '.id' <<<"${RESPONSE}")
     upload_assets "${RELEASE_ID}"
-    verify_existing_immutable "$(release_by_tag "${TAG}")"
+    verify_existing_immutable "$(release_by_tag "${TAG}")" "${TAG}"
     echo "published immutable sidecar release ${TAG}"
     ;;
   rolling)

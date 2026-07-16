@@ -29,6 +29,8 @@ def main() -> int:
 
     for needle in (
         'TAG="sidecar-${GITHUB_SHA}"',
+        ".tag_name == $tag",
+        '"${API}/tags/${tag}"',
         "immutable release checksum manifest replacement detected",
         "immutable release provenance replacement detected",
         "sha256sum -c",

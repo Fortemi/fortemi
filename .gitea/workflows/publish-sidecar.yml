@@ -37,6 +37,8 @@ on:
       - 'Cargo.lock'
       - 'migrations/**'
       - '.gitea/workflows/publish-sidecar.yml'
+      - 'scripts/ci/publish-sidecar-release.sh'
+      - 'scripts/ci/verify-sidecar-publication.py'
     tags: ['v*']
   workflow_dispatch:
 
