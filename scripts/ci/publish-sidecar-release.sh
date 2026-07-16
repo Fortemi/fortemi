@@ -78,7 +78,8 @@ wait_for_release_tag() {
   local response
   for _ in {1..10}; do
     response=$(release_by_tag "${tag}")
-    if jq -e --arg tag "${tag}" --argjson id "${expected_id}" \
+    if [[ -n "${response}" ]] && \
+      jq -e --arg tag "${tag}" --argjson id "${expected_id}" \
       '.tag_name == $tag and .id == $id' >/dev/null 2>&1 <<<"${response}"; then
       printf '%s' "${response}"
       return 0
@@ -206,7 +207,8 @@ case "${MODE}" in
   immutable)
     TAG="sidecar-${GITHUB_SHA:0:12}"
     EXISTING=$(release_by_tag "${TAG}")
-    if jq -e --arg tag "${TAG}" '.id and .tag_name == $tag' \
+    if [[ -n "${EXISTING}" ]] && \
+      jq -e --arg tag "${TAG}" '.id and .tag_name == $tag' \
       >/dev/null 2>&1 <<<"${EXISTING}"; then
       verify_existing_immutable "${EXISTING}" "${TAG}"
       exit 0

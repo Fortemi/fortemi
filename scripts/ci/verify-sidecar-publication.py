@@ -32,6 +32,8 @@ def main() -> int:
         ".tag_name == $tag",
         "release_by_id",
         "wait_for_release_tag",
+        '[[ -n "${EXISTING}" ]]',
+        '[[ -n "${response}" ]]',
         "immutable release creation returned an unexpected response",
         "immutable release asset set mismatch",
         "removing pre-associated release asset",
