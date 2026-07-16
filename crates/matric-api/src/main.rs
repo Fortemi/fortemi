@@ -25612,15 +25612,15 @@ async fn knowledge_shard_import_internal(
 
                             match insert_result {
                                 Ok(new_id) => {
-                                    // Update starred status if present
-                                    if let Some(starred) =
-                                        note_json.get("starred").and_then(|v| v.as_bool())
-                                    {
+                                    // Restore status flags independently when present.
+                                    let starred =
+                                        note_json.get("starred").and_then(|v| v.as_bool());
+                                    let archived =
+                                        note_json.get("archived").and_then(|v| v.as_bool());
+                                    if starred.is_some() || archived.is_some() {
                                         let status_req = UpdateNoteStatusRequest {
-                                            starred: Some(starred),
-                                            archived: note_json
-                                                .get("archived")
-                                                .and_then(|v| v.as_bool()),
+                                            starred,
+                                            archived,
                                             metadata: None,
                                         };
                                         let notes =
