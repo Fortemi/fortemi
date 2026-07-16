@@ -194,7 +194,7 @@ GLiNER and pyannote sidecar images are released independently from the main Fort
 
 The native `matric-api` desktop sidecar uses
 `.gitea/workflows/publish-sidecar.yml`. Every main-branch build publishes an
-append-only release named `sidecar-<full-commit>`, with the three platform
+append-only release named `sidecar-<12-char-commit>`, with the three platform
 binaries, `SHA256SUMS.txt`, and an in-toto/SLSA provenance statement. The
 workflow verifies an existing immutable identity and fails if its target,
 checksums, provenance, or asset bytes differ.

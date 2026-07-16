@@ -28,7 +28,7 @@ def main() -> int:
         require(workflow, needle, WORKFLOW, failures)
 
     for needle in (
-        'TAG="sidecar-${GITHUB_SHA}"',
+        'TAG="sidecar-${GITHUB_SHA:0:12}"',
         ".tag_name == $tag",
         '"${API}/tags/${tag}"',
         "immutable release checksum manifest replacement detected",

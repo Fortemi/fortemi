@@ -158,7 +158,7 @@ upload_assets() {
 
 case "${MODE}" in
   immutable)
-    TAG="sidecar-${GITHUB_SHA}"
+    TAG="sidecar-${GITHUB_SHA:0:12}"
     EXISTING=$(release_by_tag "${TAG}")
     if jq -e --arg tag "${TAG}" '.id and .tag_name == $tag' \
       >/dev/null 2>&1 <<<"${EXISTING}"; then
@@ -180,7 +180,7 @@ tag."
     ;;
   rolling)
     TAG="sidecar-latest"
-    IMMUTABLE_TAG="sidecar-${GITHUB_SHA}"
+    IMMUTABLE_TAG="sidecar-${GITHUB_SHA:0:12}"
     EXISTING=$(release_by_tag "${TAG}")
     if jq -e '.id' >/dev/null 2>&1 <<<"${EXISTING}"; then
       RELEASE_ID=$(jq -er '.id' <<<"${EXISTING}")

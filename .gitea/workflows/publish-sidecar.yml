@@ -11,7 +11,7 @@
 #                                            DMG build (lipo'd with aarch64).
 #
 # Release strategy:
-#   - Push to main: publishes an immutable `sidecar-<full-commit>` release,
+#   - Push to main: publishes an immutable `sidecar-<12-char-commit>` release,
 #     then updates rolling `sidecar-latest` as a discovery pointer
 #   - Tag push (v*): attaches binaries to the versioned release
 #
