@@ -34,18 +34,23 @@ jobs:
             echo "VERSION=${VERSION}"
           } >> "${GITHUB_ENV}"
 
-      - name: Checkout release source
+      - name: Checkout automation source
         run: |
           set -euo pipefail
           git clone https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git fetch --depth 1 origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
-          git checkout "${RELEASE_TAG}"
+          git checkout "${GITHUB_SHA:-HEAD}"
 
       - name: Fetch GHCR token from vault
         env:
           VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
           VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
         run: ci/vault-fetch.sh --spec ci/vault-fetch.github-release.spec
+
+      - name: Checkout release source
+        run: |
+          set -euo pipefail
+          git fetch --depth 1 origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          git checkout "${RELEASE_TAG}"
 
       - name: Log in to GitHub Container Registry
         run: printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" | docker login "${GHCR_REGISTRY}" -u fortemi --password-stdin
