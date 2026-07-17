@@ -21447,11 +21447,38 @@ impl std::fmt::Debug for MigrationHistoryEntry {
 }
 
 #[derive(Serialize, Deserialize)]
-struct ShardManifest {
-    /// Shard format version (e.g., "1.0.0")
+struct ShardProducer {
+    name: String,
     version: String,
-    /// matric-memory application version that created this shard (e.g., "2026.1.12")
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    revision: Option<String>,
+}
+
+impl std::fmt::Debug for ShardProducer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShardProducer")
+            .field("name_len", &self.name.len())
+            .field("version_len", &self.version.len())
+            .field(
+                "revision_len",
+                &self.revision.as_ref().map(|value| value.len()),
+            )
+            .finish()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardManifest {
+    /// Knowledge Shard schema version (SemVer, independent of the producer release).
+    version: String,
+    /// Named conformance profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    profile: Option<String>,
+    /// Application identity that created this shard.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    producer: Option<ShardProducer>,
+    /// Legacy producer application version. New exports use `producer`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     matric_version: Option<String>,
     format: String,
     created_at: chrono::DateTime<chrono::Utc>,
@@ -21476,6 +21503,11 @@ impl std::fmt::Debug for ShardManifest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ShardManifest")
             .field("version_len", &self.version.len())
+            .field(
+                "profile_len",
+                &self.profile.as_ref().map(|value| value.len()),
+            )
+            .field("producer_set", &self.producer.is_some())
             .field(
                 "matric_version_len",
                 &self.matric_version.as_ref().map(|value| value.len()),
@@ -21533,21 +21565,185 @@ fn shard_import_error(message: &'static str) -> String {
 }
 
 const SHARD_IMPORT_COMPONENTS: &[&str] = &["notes", "collections", "tags", "templates", "links"];
+const DEFAULT_SHARD_PROFILE: &str = "core-v1";
+const REGISTERED_SHARD_PROFILES: &[&str] = &["core-v1", "full-v1", "record-v1"];
+const DEFAULT_SHARD_EXPORT_COMPONENTS: &str = "notes,collections,tags,templates,links";
+
+fn shard_component_filename(component: &str) -> Option<&'static str> {
+    match component {
+        "notes" => Some("notes.jsonl"),
+        "collections" => Some("collections.json"),
+        "tags" => Some("tags.json"),
+        "templates" => Some("templates.json"),
+        "links" => Some("links.jsonl"),
+        _ => None,
+    }
+}
+
+fn validate_shard_manifest_contract(manifest: &ShardManifest) -> Result<(), String> {
+    use matric_core::shard::{
+        check_shard_compatibility, migrations, CompatibilityResult, MigrationRegistry, Version,
+        CURRENT_SHARD_VERSION,
+    };
+
+    if manifest.format != "matric-shard" {
+        return Err("Unsupported knowledge shard format.".to_string());
+    }
+
+    let profile = manifest
+        .profile
+        .as_deref()
+        .ok_or_else(|| "Knowledge shard profile is required.".to_string())?;
+    if !REGISTERED_SHARD_PROFILES.contains(&profile) {
+        return Err("Unknown knowledge shard profile.".to_string());
+    }
+    if profile != DEFAULT_SHARD_PROFILE {
+        return Err("Knowledge shard profile is not supported by this server release.".to_string());
+    }
+
+    let current = Version::parse(CURRENT_SHARD_VERSION)
+        .map_err(|_| "Current shard schema version is invalid.".to_string())?;
+    Version::parse(&manifest.version)
+        .map_err(|_| "Knowledge shard schema version must be strict SemVer.".to_string())?;
+
+    let min_reader = manifest
+        .min_reader_version
+        .as_deref()
+        .ok_or_else(|| "Knowledge shard minimum reader version is required.".to_string())
+        .and_then(|value| {
+            Version::parse(value).map_err(|_| {
+                "Knowledge shard minimum reader version must be strict SemVer.".to_string()
+            })
+        })?;
+    if !current.is_compatible_with(&min_reader) {
+        return Err("Knowledge shard requires a newer reader contract.".to_string());
+    }
+
+    match check_shard_compatibility(&manifest.version) {
+        CompatibilityResult::Compatible => {}
+        CompatibilityResult::RequiresMigration { from, to } => {
+            let mut registry = MigrationRegistry::new();
+            for migration in migrations::all_migrations() {
+                registry.register(migration);
+            }
+            if registry.find_path(&from, &to).is_none() {
+                return Err("No migration path exists for this shard schema version.".to_string());
+            }
+        }
+        CompatibilityResult::NewerMinor { .. } => {
+            return Err("Knowledge shard schema version is newer than this reader.".to_string());
+        }
+        CompatibilityResult::Incompatible { .. } => {
+            return Err("Knowledge shard schema version is incompatible.".to_string());
+        }
+    }
+
+    if manifest.components.is_empty() {
+        return Err("Knowledge shard must declare at least one component.".to_string());
+    }
+    let mut unique = std::collections::HashSet::new();
+    for component in &manifest.components {
+        if !unique.insert(component) {
+            return Err("Knowledge shard components must be unique.".to_string());
+        }
+        if !SHARD_IMPORT_COMPONENTS.contains(&component.as_str()) {
+            return Err(
+                "Shard profile declares a component unsupported by this server release."
+                    .to_string(),
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn count_jsonl_records(data: &[u8]) -> Result<usize, String> {
+    let text = std::str::from_utf8(data)
+        .map_err(|_| "Knowledge shard component is not valid UTF-8.".to_string())?;
+    let mut count = 0;
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        serde_json::from_str::<serde_json::Value>(line)
+            .map_err(|_| "Knowledge shard component contains invalid JSON.".to_string())?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+fn count_json_array_records(data: &[u8]) -> Result<usize, String> {
+    serde_json::from_slice::<Vec<serde_json::Value>>(data)
+        .map(|values| values.len())
+        .map_err(|_| "Knowledge shard component contains invalid JSON.".to_string())
+}
+
+fn validate_shard_component_inventory(
+    manifest: &ShardManifest,
+    files: &std::collections::HashMap<String, Vec<u8>>,
+) -> Result<(), String> {
+    let expected_files = manifest
+        .components
+        .iter()
+        .map(|component| {
+            shard_component_filename(component)
+                .map(str::to_string)
+                .ok_or_else(|| "Unsupported knowledge shard component.".to_string())
+        })
+        .collect::<Result<std::collections::HashSet<_>, _>>()?;
+
+    for filename in &expected_files {
+        if !files.contains_key(filename) {
+            return Err("Knowledge shard declared component file is missing.".to_string());
+        }
+        if !manifest.checksums.contains_key(filename) {
+            return Err("Knowledge shard declared component checksum is missing.".to_string());
+        }
+    }
+
+    for filename in files.keys().filter(|name| name.as_str() != "manifest.json") {
+        if !expected_files.contains(filename) {
+            return Err("Knowledge shard contains an undeclared component file.".to_string());
+        }
+    }
+    for filename in manifest.checksums.keys() {
+        if !expected_files.contains(filename) {
+            return Err("Knowledge shard checksum declares an unknown component file.".to_string());
+        }
+    }
+
+    for component in &manifest.components {
+        let filename = shard_component_filename(component)
+            .ok_or_else(|| "Unsupported knowledge shard component.".to_string())?;
+        let data = files
+            .get(filename)
+            .ok_or_else(|| "Knowledge shard declared component file is missing.".to_string())?;
+        let actual_count = match component.as_str() {
+            "notes" => count_jsonl_records(data)?,
+            "collections" => count_json_array_records(data)?,
+            "tags" => count_json_array_records(data)?,
+            "templates" => count_json_array_records(data)?,
+            "links" => count_jsonl_records(data)?,
+            _ => return Err("Unsupported knowledge shard component.".to_string()),
+        };
+        let expected_count = match component.as_str() {
+            "notes" => manifest.counts.notes,
+            "collections" => manifest.counts.collections,
+            "tags" => manifest.counts.tags,
+            "templates" => manifest.counts.templates,
+            "links" => manifest.counts.links,
+            _ => unreachable!(),
+        };
+        if actual_count != expected_count {
+            return Err("Knowledge shard component count validation failed.".to_string());
+        }
+    }
+
+    Ok(())
+}
 
 fn selected_shard_import_components(
     manifest: &ShardManifest,
     include: Option<&str>,
 ) -> Result<std::collections::HashSet<String>, String> {
-    if manifest.format != "matric-shard" {
-        return Err("Unsupported knowledge shard format.".to_string());
-    }
-    for component in &manifest.components {
-        if !SHARD_IMPORT_COMPONENTS.contains(&component.as_str()) {
-            return Err(format!(
-                "Unsupported declared shard component: {component}. Import aborted to prevent data loss."
-            ));
-        }
-    }
+    validate_shard_manifest_contract(manifest)?;
 
     let declared = manifest
         .components
@@ -21601,8 +21797,22 @@ async fn knowledge_shard(
     // Parse included components
     let include_str = query
         .include
-        .unwrap_or_else(|| "notes,collections,tags,templates,links,embedding_sets".to_string());
+        .unwrap_or_else(|| DEFAULT_SHARD_EXPORT_COMPONENTS.to_string());
     let components: Vec<&str> = include_str.split(',').map(|s| s.trim()).collect();
+    let unique_components = components
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    if components.is_empty()
+        || unique_components.len() != components.len()
+        || components
+            .iter()
+            .any(|component| !SHARD_IMPORT_COMPONENTS.contains(component))
+    {
+        return Err(shard_validation_failed(
+            "Knowledge shard export components must be supported by core-v1.",
+        ));
+    }
 
     let mut counts = ShardCounts::default();
     let mut checksums: std::collections::HashMap<String, String> = std::collections::HashMap::new();
@@ -21895,14 +22105,20 @@ async fn knowledge_shard(
 
         // Create manifest (added last)
         let manifest = ShardManifest {
-            version: "1.0.0".to_string(),
-            matric_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            version: matric_core::shard::CURRENT_SHARD_VERSION.to_string(),
+            profile: Some(DEFAULT_SHARD_PROFILE.to_string()),
+            producer: Some(ShardProducer {
+                name: "fortemi".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                revision: Some(state.git_sha.clone()),
+            }),
+            matric_version: None,
             format: "matric-shard".to_string(),
             created_at: chrono::Utc::now(),
             components: components.iter().map(|s| s.to_string()).collect(),
             counts,
             checksums: checksums.clone(),
-            min_reader_version: Some("1.0.0".to_string()),
+            min_reader_version: Some(matric_core::shard::CURRENT_SHARD_VERSION.to_string()),
             migrated_from: None,
             migration_history: vec![],
         };
@@ -25368,6 +25584,18 @@ async fn swap_backup(
 
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
 
+    // A destructive swap must pass normal import preflight before existing data changes.
+    if strategy == "wipe" && !dry_run {
+        let validation_opts = ShardImportOptions {
+            include: None,
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: false,
+        };
+        knowledge_shard_import_internal(&state, &shard_data, &validation_opts, &archive_ctx.schema)
+            .await?;
+    }
+
     // If strategy is "wipe", purge existing data first
     if strategy == "wipe" && !dry_run {
         // Purge all notes (which cascades to tags, embeddings, links)
@@ -25519,21 +25747,24 @@ async fn knowledge_shard_import_internal(
             ));
         }
     }
+    validate_shard_component_inventory(&manifest, &files).map_err(ApiError::BadRequest)?;
 
-    // Check for version mismatch
+    // Application release identity is informational and independent of schema negotiation.
     let current_version = env!("CARGO_PKG_VERSION");
-    if let Some(ref shard_version) = manifest.matric_version {
+    let producer_version = manifest
+        .producer
+        .as_ref()
+        .map(|producer| producer.version.as_str())
+        .or(manifest.matric_version.as_deref());
+    if let Some(shard_version) = producer_version {
         if shard_version != current_version {
             warnings.push(format!(
-                "Version mismatch: shard created with matric-memory v{}, importing with v{}",
+                "Producer release differs: shard created with Fortemi v{}, importing with v{}",
                 shard_version, current_version
             ));
         }
     } else {
-        warnings.push(
-            "Shard created with older matric-memory version (no version info in manifest)"
-                .to_string(),
-        );
+        warnings.push("Shard producer release metadata is absent.".to_string());
     }
 
     let mut imported = ShardImportCounts::default();
@@ -30332,6 +30563,8 @@ mod tests {
             sha256: Some("sha256:sk-live-secret-full-digest".to_string()),
             manifest: Some(ShardManifest {
                 version: "2026.6.0-private".to_string(),
+                profile: Some("core-v1-private".to_string()),
+                producer: None,
                 matric_version: Some("2026.6.0-internal".to_string()),
                 format: "matric-shard-private".to_string(),
                 created_at: Utc::now(),
@@ -30802,6 +31035,8 @@ mod tests {
             status: "partial-private-shard".to_string(),
             manifest: Some(ShardManifest {
                 version: "2026.6.0-private".to_string(),
+                profile: Some("core-v1-private".to_string()),
+                producer: None,
                 matric_version: Some("2026.6.0-customer".to_string()),
                 format: "matric-shard-private".to_string(),
                 created_at: Utc::now(),
@@ -33757,6 +33992,54 @@ mod tests {
     // ARCHIVE EXPORT/IMPORT TESTS
     // =========================================================================
 
+    fn valid_core_shard_manifest() -> ShardManifest {
+        ShardManifest {
+            version: matric_core::shard::CURRENT_SHARD_VERSION.to_string(),
+            profile: Some(DEFAULT_SHARD_PROFILE.to_string()),
+            producer: Some(ShardProducer {
+                name: "fortemi".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                revision: Some("fixture-revision".to_string()),
+            }),
+            matric_version: None,
+            format: "matric-shard".to_string(),
+            created_at: chrono::Utc::now(),
+            components: SHARD_IMPORT_COMPONENTS
+                .iter()
+                .map(|component| component.to_string())
+                .collect(),
+            counts: ShardCounts {
+                notes: 1,
+                ..ShardCounts::default()
+            },
+            checksums: SHARD_IMPORT_COMPONENTS
+                .iter()
+                .map(|component| {
+                    (
+                        shard_component_filename(component).unwrap().to_string(),
+                        "0".repeat(64),
+                    )
+                })
+                .collect(),
+            min_reader_version: Some(matric_core::shard::CURRENT_SHARD_VERSION.to_string()),
+            migrated_from: None,
+            migration_history: vec![],
+        }
+    }
+
+    fn valid_core_shard_files() -> std::collections::HashMap<String, Vec<u8>> {
+        [
+            ("manifest.json".to_string(), b"{}".to_vec()),
+            ("notes.jsonl".to_string(), b"{\"id\":\"note-1\"}\n".to_vec()),
+            ("collections.json".to_string(), b"[]".to_vec()),
+            ("tags.json".to_string(), b"[]".to_vec()),
+            ("templates.json".to_string(), b"[]".to_vec()),
+            ("links.jsonl".to_string(), Vec::new()),
+        ]
+        .into_iter()
+        .collect()
+    }
+
     #[test]
     fn test_shard_export_query_defaults() {
         let query: ShardExportQuery = serde_json::from_str("{}").unwrap();
@@ -33765,16 +34048,146 @@ mod tests {
 
     #[test]
     fn test_shard_export_query_with_components() {
-        let json = r#"{"include": "notes,links,embeddings"}"#;
+        let json = r#"{"include": "notes,links"}"#;
         let query: ShardExportQuery = serde_json::from_str(json).unwrap();
-        assert_eq!(query.include, Some("notes,links,embeddings".to_string()));
+        assert_eq!(query.include, Some("notes,links".to_string()));
+    }
+
+    #[test]
+    fn default_shard_profile_is_self_importable() {
+        let manifest = valid_core_shard_manifest();
+        validate_shard_manifest_contract(&manifest).expect("default profile must be accepted");
+        validate_shard_component_inventory(&manifest, &valid_core_shard_files())
+            .expect("default component inventory must be accepted");
+        assert_eq!(manifest.profile.as_deref(), Some("core-v1"));
+        assert_eq!(
+            DEFAULT_SHARD_EXPORT_COMPONENTS,
+            "notes,collections,tags,templates,links"
+        );
+        assert_eq!(manifest.version, matric_core::shard::CURRENT_SHARD_VERSION);
+        assert_eq!(
+            manifest.min_reader_version.as_deref(),
+            Some(matric_core::shard::CURRENT_SHARD_VERSION)
+        );
+    }
+
+    #[test]
+    fn shard_canonical_manifest_fixtures_cover_current_and_next_major() {
+        let current: ShardManifest = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/shards/v1.0.0-minimal.json"
+        ))
+        .expect("current manifest fixture must deserialize");
+        validate_shard_manifest_contract(&current)
+            .expect("current core-v1 manifest fixture must be accepted");
+
+        let next_major: ShardManifest = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/shards/v2.0.0-future.json"
+        ))
+        .expect("next-major manifest fixture must deserialize");
+        assert_eq!(
+            validate_shard_manifest_contract(&next_major).unwrap_err(),
+            "Knowledge shard requires a newer reader contract."
+        );
+    }
+
+    #[test]
+    fn shard_contract_rejects_missing_unknown_and_unsupported_profiles() {
+        let mut manifest = valid_core_shard_manifest();
+        manifest.profile = None;
+        assert_eq!(
+            validate_shard_manifest_contract(&manifest).unwrap_err(),
+            "Knowledge shard profile is required."
+        );
+
+        manifest.profile = Some("future-profile".to_string());
+        assert_eq!(
+            validate_shard_manifest_contract(&manifest).unwrap_err(),
+            "Unknown knowledge shard profile."
+        );
+
+        for profile in ["full-v1", "record-v1"] {
+            manifest.profile = Some(profile.to_string());
+            assert_eq!(
+                validate_shard_manifest_contract(&manifest).unwrap_err(),
+                "Knowledge shard profile is not supported by this server release."
+            );
+        }
+    }
+
+    #[test]
+    fn shard_contract_rejects_invalid_and_incompatible_schema_versions() {
+        let mut manifest = valid_core_shard_manifest();
+        for version in ["1.0", "01.0.0", "1.0.0-beta"] {
+            manifest.version = version.to_string();
+            assert_eq!(
+                validate_shard_manifest_contract(&manifest).unwrap_err(),
+                "Knowledge shard schema version must be strict SemVer."
+            );
+        }
+
+        manifest.version = "2.0.0".to_string();
+        assert_eq!(
+            validate_shard_manifest_contract(&manifest).unwrap_err(),
+            "Knowledge shard schema version is incompatible."
+        );
+    }
+
+    #[test]
+    fn shard_contract_rejects_invalid_or_newer_minimum_reader() {
+        let mut manifest = valid_core_shard_manifest();
+        manifest.min_reader_version = Some("1.0".to_string());
+        assert_eq!(
+            validate_shard_manifest_contract(&manifest).unwrap_err(),
+            "Knowledge shard minimum reader version must be strict SemVer."
+        );
+
+        manifest.min_reader_version = Some("2.0.0".to_string());
+        assert_eq!(
+            validate_shard_manifest_contract(&manifest).unwrap_err(),
+            "Knowledge shard requires a newer reader contract."
+        );
+    }
+
+    #[test]
+    fn shard_inventory_rejects_missing_undeclared_and_count_mismatches() {
+        let manifest = valid_core_shard_manifest();
+
+        let mut files = valid_core_shard_files();
+        files.remove("tags.json");
+        assert_eq!(
+            validate_shard_component_inventory(&manifest, &files).unwrap_err(),
+            "Knowledge shard declared component file is missing."
+        );
+
+        let mut files = valid_core_shard_files();
+        files.insert("embeddings.jsonl".to_string(), Vec::new());
+        assert_eq!(
+            validate_shard_component_inventory(&manifest, &files).unwrap_err(),
+            "Knowledge shard contains an undeclared component file."
+        );
+
+        let mut files = valid_core_shard_files();
+        files.insert(
+            "notes.jsonl".to_string(),
+            b"{\"id\":\"note-1\"}\n{\"id\":\"note-2\"}\n".to_vec(),
+        );
+        assert_eq!(
+            validate_shard_component_inventory(&manifest, &files).unwrap_err(),
+            "Knowledge shard component count validation failed."
+        );
     }
 
     #[test]
     fn test_shard_manifest_serialization() {
         let manifest = ShardManifest {
             version: "1.0.0".to_string(),
-            matric_version: Some("2026.1.12".to_string()),
+            profile: Some(DEFAULT_SHARD_PROFILE.to_string()),
+            producer: Some(ShardProducer {
+                name: "fortemi".to_string(),
+                version: "2026.1.12".to_string(),
+                revision: Some("abc123".to_string()),
+            }),
+            matric_version: None,
             format: "matric-shard".to_string(),
             created_at: chrono::Utc::now(),
             components: vec!["notes".to_string(), "links".to_string()],
@@ -33797,7 +34210,11 @@ mod tests {
 
         let json = serde_json::to_string(&manifest).unwrap();
         assert!(json.contains("\"version\":\"1.0.0\""));
-        assert!(json.contains("\"matric_version\":\"2026.1.12\""));
+        assert!(json.contains("\"profile\":\"core-v1\""));
+        assert!(json.contains(
+            "\"producer\":{\"name\":\"fortemi\",\"version\":\"2026.1.12\",\"revision\":\"abc123\"}"
+        ));
+        assert!(!json.contains("\"matric_version\""));
         assert!(json.contains("\"format\":\"matric-shard\""));
         assert!(json.contains("\"notes\":100"));
         assert!(json.contains("\"links\":50"));
@@ -33808,6 +34225,12 @@ mod tests {
     fn shard_manifest_debug_redacts_versions_checksums_and_migration_details() {
         let manifest = ShardManifest {
             version: "2026.6.0-private".to_string(),
+            profile: Some("core-v1-private".to_string()),
+            producer: Some(ShardProducer {
+                name: "customer-private".to_string(),
+                version: "2026.6.0-private".to_string(),
+                revision: Some("sk-live-private-revision".to_string()),
+            }),
             matric_version: Some("2026.6.0-internal".to_string()),
             format: "matric-shard-private".to_string(),
             created_at: Utc::now(),
@@ -33852,6 +34275,8 @@ mod tests {
 
         assert!(rendered_manifest.contains("ShardManifest"));
         assert!(rendered_manifest.contains("version_len"));
+        assert!(rendered_manifest.contains("profile_len"));
+        assert!(rendered_manifest.contains("producer_set"));
         assert!(rendered_manifest.contains("matric_version_len"));
         assert!(rendered_manifest.contains("format_len"));
         assert!(rendered_manifest.contains("components_count"));
@@ -33865,6 +34290,9 @@ mod tests {
 
         for raw in [
             "2026.6.0-private",
+            "core-v1-private",
+            "customer-private",
+            "sk-live-private-revision",
             "2026.6.0-internal",
             "matric-shard-private",
             "notes-private",
@@ -33968,6 +34396,8 @@ mod tests {
     fn shard_import_rejects_unsupported_declared_components() {
         let manifest = ShardManifest {
             version: "1.0.0".to_string(),
+            profile: Some(DEFAULT_SHARD_PROFILE.to_string()),
+            producer: None,
             matric_version: Some("fortemi-core-aiwg-index".to_string()),
             format: "matric-shard".to_string(),
             created_at: chrono::Utc::now(),
@@ -33981,14 +34411,16 @@ mod tests {
 
         let error = selected_shard_import_components(&manifest, None)
             .expect_err("unsupported data must not be silently dropped");
-        assert!(error.contains("provenance_edges"));
-        assert!(error.contains("prevent data loss"));
+        assert!(error.contains("unsupported by this server release"));
+        assert!(!error.contains("provenance_edges"));
     }
 
     #[test]
     fn shard_import_defaults_to_all_declared_supported_components() {
         let manifest = ShardManifest {
             version: "1.0.0".to_string(),
+            profile: Some(DEFAULT_SHARD_PROFILE.to_string()),
+            producer: None,
             matric_version: Some("fortemi-core-aiwg-index".to_string()),
             format: "matric-shard".to_string(),
             created_at: chrono::Utc::now(),
@@ -34042,6 +34474,12 @@ mod tests {
             status: "success".to_string(),
             manifest: Some(ShardManifest {
                 version: "1.0.0".to_string(),
+                profile: Some(DEFAULT_SHARD_PROFILE.to_string()),
+                producer: Some(ShardProducer {
+                    name: "fortemi".to_string(),
+                    version: "2026.1.12".to_string(),
+                    revision: None,
+                }),
                 matric_version: Some("2026.1.12".to_string()),
                 format: "matric-shard".to_string(),
                 created_at: chrono::Utc::now(),

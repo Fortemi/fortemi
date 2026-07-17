@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Target contract; runtime conformance is pending the release gates in this ADR
+**Implementation status:** Partial runtime enforcement; full conformance remains pending the release gates in this ADR
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -20,8 +20,11 @@ can be parsed. Interoperability requires a single schema authority, explicit
 capability profiles, deterministic validation, and preservation of the
 semantics needed to reconstruct the source graph.
 
-This ADR records the required target contract. It does not claim that the
-current server or any sibling producer already conforms.
+This ADR records the required target contract. The server currently emits
+`core-v1` with the self-importable structured component set and enforces
+profile, schema version, minimum reader, inventory, checksum, and count
+preflight. This does not constitute full profile conformance or atomic
+round-trip evidence.
 
 ## Decision
 
@@ -169,11 +172,13 @@ consumer issue and pull request.
 
 ## Current-state gap
 
-At acceptance time, existing shard code and documentation do not satisfy every
-requirement above. Known gaps include best-effort record skipping, non-fatal
-checksum handling, incomplete component import, and ambiguous reader-version
-metadata. Those behaviors describe legacy implementation state, not the target
-contract.
+The runtime now separates producer identity from strict shard-schema SemVer,
+declares a registered profile, rejects unsupported profiles and components,
+and fails checksum/count/inventory validation before normal import writes.
+Known gaps remain in component schema and reference validation, atomic apply,
+complete semantic preservation, attachment bytes, richer profiles, migration
+history, and cross-repository conformance receipts. Those gaps remain tracked
+release blockers, not implicit `core-v1` or `full-v1` claims.
 
 Until the release gates pass:
 

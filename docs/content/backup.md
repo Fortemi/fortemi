@@ -9,7 +9,7 @@ Fortémi provides multiple backup options:
 | Method | Use Case | Format | Includes |
 |--------|----------|--------|----------|
 | **JSON Export** | App-level backup | JSON | Notes, collections, tags, templates |
-| **Knowledge Shard** | Portable semantic-data backup | .shard | Notes, links, embeddings, sets, checksums; attachment references only |
+| **Knowledge Shard** | Portable semantic-data backup | .shard | `core-v1`: notes, collections, tags, templates, links, checksums |
 | **Knowledge Archive** | Backup + metadata bundle | .archive | Backup file + metadata.json |
 | **Database Snapshot** | Full database backup | pg_dump | Complete database with embeddings |
 | **Shell script** | Automated scheduled backups | pg_dump | Full database with compression |
@@ -37,6 +37,7 @@ Knowledge shards use **semantic versioning** (MAJOR.MINOR.PATCH) to ensure compa
 ### Current Version
 
 - **Shard format version**: `1.0.0`
+- **Default profile**: `core-v1`
 - **Defined in**: `crates/matric-core/src/shard/version.rs`
 
 ### Version Compatibility
@@ -45,22 +46,18 @@ When importing a shard, Fortémi automatically checks version compatibility:
 
 | Scenario | Behavior |
 |----------|----------|
-| Same version (1.0.0 → 1.0.0) | Import directly |
-| Older minor (1.0.0 → 1.1.0) | Import directly, ignore unknown fields |
-| Newer minor (1.1.0 → 1.0.0) | Import with warning, some features may be unavailable |
-| Older major (1.x.x → 2.0.0) | Auto-migrate via registry |
-| Newer major (2.0.0 → 1.0.0) | Fail with upgrade guidance |
+| Same schema version (`1.0.0`) | Import after profile and archive preflight |
+| Older schema version | Import only when the migration registry has a complete path |
+| Newer minor or patch | Reject until this reader explicitly supports it |
+| Different major | Reject as incompatible |
+| Minimum reader newer than `1.0.0` | Reject before mutation |
 
 ### Migration Support
 
-Breaking changes (major version bumps) include automatic migrations:
-
-```
-Shard: 1.0.0, Current: 2.0.0
-↻ Automatic migration applied
-✓ Data transformed to new format
-⚠ Migration warnings logged
-```
+The current contract is `1.0.0`; no historical migration path is registered.
+Older shards are accepted only after a tested migration path is added.
+Application release versions belong in `producer.version` and do not
+participate in schema compatibility.
 
 For detailed information about versioning, compatibility, and troubleshooting, see the [Shard Migration Guide](#/core-systems-shard-migration).
 
@@ -74,11 +71,11 @@ For detailed information about versioning, compatibility, and troubleshooting, s
 # Export all notes as JSON
 curl http://localhost:3000/api/v1/backup/export
 
-# Create knowledge shard (with links, embeddings)
+# Create the default self-importable core-v1 shard
 curl http://localhost:3000/api/v1/backup/knowledge-shard -o backup.shard
 
 # Create shard with specific components
-curl "http://localhost:3000/api/v1/backup/knowledge-shard?include=notes,links,embeddings" -o backup.shard
+curl "http://localhost:3000/api/v1/backup/knowledge-shard?include=notes,links" -o backup.shard
 
 # Trigger database backup
 curl -X POST http://localhost:3000/api/v1/backup/trigger
@@ -93,7 +90,7 @@ curl http://localhost:3000/api/v1/backup/status
 // Export all notes to JSON
 export_all_notes()
 
-// Create knowledge shard with embeddings and links
+// Create the default core-v1 knowledge shard
 knowledge_shard()
 
 // Create shard with specific components
@@ -354,7 +351,7 @@ Check the status of the backup system.
 
 ### knowledge_shard
 
-Create a comprehensive knowledge shard with full data including semantic links and embeddings.
+Create a self-importable `core-v1` knowledge shard.
 
 **Parameters:**
 - `include` - Components to include (comma-separated or array):
@@ -363,9 +360,7 @@ Create a comprehensive knowledge shard with full data including semantic links a
   - `tags` - All tags
   - `templates` - Note templates
   - `links` - Semantic relationships between notes
-  - `embedding_sets` - Embedding set definitions and members
-  - `embeddings` - Vector embeddings (large, optional)
-  - Default: `notes,collections,tags,templates,links,embedding_sets`
+  - Default: `notes,collections,tags,templates,links`
 
 **Returns:**
 ```json
@@ -388,10 +383,6 @@ collections.json        # Folder hierarchy
 tags.json               # Tags with timestamps
 templates.json          # Note templates
 links.jsonl             # Semantic links between notes
-embedding_sets.json     # Set definitions
-embedding_set_members.jsonl
-embedding_configs.json  # Model configurations
-embeddings.jsonl        # Vector data (if included)
 ```
 
 Current server-generated shards are reference-only for binary attachments:
@@ -591,8 +582,8 @@ curl http://localhost:3000/api/v1/backup/status
 Create a comprehensive knowledge shard with selected components.
 
 **Query Parameters:**
-- `include` - Comma-separated components: `notes,collections,tags,templates,links,embedding_sets,embeddings`
-- Default includes everything except embeddings (which can be large)
+- `include` - Comma-separated components: `notes,collections,tags,templates,links`
+- Default: `notes,collections,tags,templates,links`
 
 **Example:**
 ```bash
@@ -602,8 +593,6 @@ curl http://localhost:3000/api/v1/backup/knowledge-shard -o backup.shard
 # Shard with specific components
 curl "http://localhost:3000/api/v1/backup/knowledge-shard?include=notes,links" -o backup.shard
 
-# Include embeddings (large)
-curl "http://localhost:3000/api/v1/backup/knowledge-shard?include=notes,links,embeddings" -o full-backup.shard
 ```
 
 **Response:** Binary .shard file (gzipped tar) with `Content-Disposition: attachment` header.

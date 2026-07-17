@@ -1,6 +1,7 @@
 //! Integration tests for ShardManifest migration metadata (Issue #413).
 //!
 //! Tests verify that ShardManifest correctly handles migration metadata fields:
+//! - profile and producer identity
 //! - min_reader_version
 //! - migrated_from
 //! - migration_history
@@ -22,9 +23,21 @@ struct MigrationHistoryEntry {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct ShardProducer {
+    name: String,
+    version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    revision: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct ShardManifest {
     version: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    producer: Option<ShardProducer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     matric_version: Option<String>,
     format: String,
     created_at: chrono::DateTime<chrono::Utc>,
@@ -58,7 +71,13 @@ struct ShardCounts {
 fn test_new_manifest_includes_min_reader_version() {
     let manifest = ShardManifest {
         version: "1.0.0".to_string(),
-        matric_version: Some("2026.1.12".to_string()),
+        profile: Some("core-v1".to_string()),
+        producer: Some(ShardProducer {
+            name: "fortemi".to_string(),
+            version: "2026.1.12".to_string(),
+            revision: Some("fixture-revision".to_string()),
+        }),
+        matric_version: None,
         format: "matric-shard".to_string(),
         created_at: chrono::Utc::now(),
         components: vec!["notes".to_string()],
@@ -73,6 +92,8 @@ fn test_new_manifest_includes_min_reader_version() {
     let parsed: ShardManifest = serde_json::from_str(&json).unwrap();
 
     assert_eq!(parsed.min_reader_version, Some("1.0.0".to_string()));
+    assert_eq!(parsed.profile, Some("core-v1".to_string()));
+    assert_eq!(parsed.producer.unwrap().name, "fortemi");
 }
 
 #[test]
@@ -103,6 +124,8 @@ fn test_old_manifest_parses_without_new_fields() {
 
     let manifest = parsed.unwrap();
     assert_eq!(manifest.min_reader_version, None);
+    assert_eq!(manifest.profile, None);
+    assert!(manifest.producer.is_none());
     assert_eq!(manifest.migrated_from, None);
     assert!(manifest.migration_history.is_empty());
 }
@@ -122,6 +145,8 @@ fn test_manifest_with_migration_history() {
 
     let manifest = ShardManifest {
         version: "1.1.0".to_string(),
+        profile: Some("core-v1".to_string()),
+        producer: None,
         matric_version: Some("2026.1.12".to_string()),
         format: "matric-shard".to_string(),
         created_at: chrono::Utc::now(),
@@ -168,6 +193,8 @@ fn test_migration_history_entry_serialization() {
 fn test_skip_serializing_empty_migration_history() {
     let manifest = ShardManifest {
         version: "1.0.0".to_string(),
+        profile: Some("core-v1".to_string()),
+        producer: None,
         matric_version: Some("2026.1.12".to_string()),
         format: "matric-shard".to_string(),
         created_at: chrono::Utc::now(),
@@ -189,6 +216,8 @@ fn test_skip_serializing_empty_migration_history() {
 fn test_skip_serializing_none_min_reader_version() {
     let manifest = ShardManifest {
         version: "1.0.0".to_string(),
+        profile: Some("core-v1".to_string()),
+        producer: None,
         matric_version: Some("2026.1.12".to_string()),
         format: "matric-shard".to_string(),
         created_at: chrono::Utc::now(),
@@ -227,6 +256,8 @@ fn test_multiple_migration_history_entries() {
 
     let manifest = ShardManifest {
         version: "1.2.0".to_string(),
+        profile: Some("core-v1".to_string()),
+        producer: None,
         matric_version: Some("2026.1.15".to_string()),
         format: "matric-shard".to_string(),
         created_at: chrono::Utc::now(),
@@ -251,7 +282,13 @@ fn test_backward_compatibility_roundtrip() {
     // Create a manifest with all fields
     let full_manifest = ShardManifest {
         version: "1.0.0".to_string(),
-        matric_version: Some("2026.1.12".to_string()),
+        profile: Some("core-v1".to_string()),
+        producer: Some(ShardProducer {
+            name: "fortemi".to_string(),
+            version: "2026.1.12".to_string(),
+            revision: None,
+        }),
+        matric_version: None,
         format: "matric-shard".to_string(),
         created_at: chrono::Utc::now(),
         components: vec!["notes".to_string(), "tags".to_string()],
@@ -273,6 +310,14 @@ fn test_backward_compatibility_roundtrip() {
     let parsed: ShardManifest = serde_json::from_str(&json).unwrap();
 
     assert_eq!(parsed.version, full_manifest.version);
+    assert_eq!(parsed.profile, full_manifest.profile);
+    assert_eq!(
+        parsed
+            .producer
+            .as_ref()
+            .map(|producer| producer.version.as_str()),
+        Some("2026.1.12")
+    );
     assert_eq!(parsed.matric_version, full_manifest.matric_version);
     assert_eq!(parsed.min_reader_version, full_manifest.min_reader_version);
     assert_eq!(parsed.counts.notes, 42);

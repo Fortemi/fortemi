@@ -24,6 +24,15 @@ impl Version {
                 s.chars().count()
             ));
         }
+        if parts
+            .iter()
+            .any(|part| part.len() > 1 && part.starts_with('0'))
+        {
+            return Err(format!(
+                "Invalid leading zero in version; value_len={}",
+                s.chars().count()
+            ));
+        }
 
         let major = parts[0].parse::<u64>().map_err(|_| {
             format!(
@@ -102,6 +111,9 @@ mod tests {
         assert!(Version::parse("1.0.0.0").is_err());
         assert!(Version::parse("a.b.c").is_err());
         assert!(Version::parse("1.0.x").is_err());
+        assert!(Version::parse("01.0.0").is_err());
+        assert!(Version::parse("1.00.0").is_err());
+        assert!(Version::parse("1.0.00").is_err());
     }
 
     #[test]

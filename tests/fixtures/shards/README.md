@@ -6,7 +6,7 @@ This directory contains test fixtures for the shard migration system.
 
 ### v1.0.0-minimal.json
 
-Minimal valid v1.0.0 shard manifest with no data.
+Canonical minimal `core-v1` manifest for the current reader contract.
 
 **Use cases:**
 - Testing basic deserialization
@@ -15,56 +15,19 @@ Minimal valid v1.0.0 shard manifest with no data.
 
 **Key features:**
 - All required fields present
-- No optional fields
-- Empty counts and components
+- Structured producer identity and schema minimum-reader version
+- One empty, checksummed `notes.jsonl` component
 
-### v1.0.0-full.json
+### Legacy compatibility vectors
 
-Complete v1.0.0 shard manifest with all component types.
-
-**Use cases:**
-- Testing realistic shard import
-- Testing checksum validation
-- Testing component counts
-
-**Key features:**
-- All components included
-- Realistic counts (50 notes, 5 collections, etc.)
-- Checksums for data integrity
-- matric_version field populated
-
-### v1.0.0-with-embeddings.json
-
-v1.0.0 shard focused on embeddings (100 notes with embeddings).
-
-**Use cases:**
-- Testing embedding import
-- Testing large embedding sets
-- Baseline for MRL comparison
-
-**Key features:**
-- 100 notes with embeddings
-- Standard (non-MRL) embedding format
-- Embedding configuration included
-
-### v1.1.0-with-mrl.json
-
-v1.1.0 shard with MRL (Matryoshka Representation Learning) embeddings.
-
-**Use cases:**
-- Testing downgrade impact analysis
-- Testing MRL feature detection
-- Testing migration history
-
-**Key features:**
-- Migration metadata populated
-- min_reader_version specified
-- migration_history with change log
-- Embeddings use truncate_dim field (MRL)
+`v1.0.0-full.json`, `v1.0.0-with-embeddings.json`, and
+`v1.1.0-with-mrl.json` preserve pre-profile manifests for legacy parsing and
+migration tests. They are not current import-conformance fixtures and must not
+be used to claim `core-v1` or `full-v1` support.
 
 ### v2.0.0-future.json
 
-Future major version (v2.0.0) for incompatibility testing.
+Canonical next-major `core-v1` manifest for incompatibility testing.
 
 **Use cases:**
 - Testing major version incompatibility
@@ -73,8 +36,9 @@ Future major version (v2.0.0) for incompatibility testing.
 
 **Key features:**
 - Major version jump (1.x -> 2.x)
-- min_reader_version requires future version
-- Large dataset (200 notes)
+- `min_reader_version` requires shard schema `2.0.0`
+- Producer application identity remains separate from schema versions
+- One empty, checksummed `notes.jsonl` component
 
 ## Usage in Tests
 
@@ -121,7 +85,9 @@ Examples:
 
 ## Validation
 
-All fixtures should be valid JSON and conform to the ShardManifest schema.
+All fixtures must be valid JSON. Files identified above as canonical must
+conform to the current manifest contract; legacy vectors intentionally omit
+new required conformance fields.
 
 Validate with:
 
