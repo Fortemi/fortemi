@@ -1935,7 +1935,28 @@ impl JobHandler for AiRevisionContextualHandler {
             Some("Embedding Phase 1 revision for context discovery..."),
         );
 
-        let embed_backend = matric_inference::OllamaBackend::from_env();
+        let embed_backend = match self.registry.resolve_default_embedding_boxed() {
+            Ok(backend) => backend,
+            Err(e) => {
+                warn!(
+                    error_len = diagnostic_len(&e),
+                    detail = JOB_CONTEXT_DISCOVERY_FAILURE_DETAIL,
+                    "Failed to construct embedding backend for context discovery"
+                );
+                self.update_revision_note(
+                    &schema_ctx,
+                    note_id,
+                    "AI standard revision (contextual enrichment skipped: embedding unavailable)",
+                )
+                .await;
+                self.queue_concept_tagging(&ctx, note_id, schema, &model_override)
+                    .await;
+                return JobResult::Success(Some(ai_contextual_revision_skip_job_result(
+                    "embedding_backend_unavailable",
+                    true,
+                )));
+            }
+        };
         let chunks = vec![phase1_content
             .chars()
             .take(matric_core::defaults::PREVIEW_EMBEDDING)
@@ -2362,11 +2383,11 @@ Output the revised note in clean markdown format. Do not add any labels, markers
 /// Handler for embedding generation jobs.
 pub struct EmbeddingHandler {
     db: Database,
-    backend: OllamaBackend,
+    backend: Arc<dyn EmbeddingBackend>,
 }
 
 impl EmbeddingHandler {
-    pub fn new(db: Database, backend: OllamaBackend) -> Self {
+    pub fn new(db: Database, backend: Arc<dyn EmbeddingBackend>) -> Self {
         Self { db, backend }
     }
 }
@@ -2401,7 +2422,9 @@ impl JobHandler for EmbeddingHandler {
             .start_activity(
                 note_id,
                 "embedding",
-                Some(matric_core::EmbeddingBackend::model_name(&self.backend)),
+                Some(matric_core::EmbeddingBackend::model_name(
+                    self.backend.as_ref(),
+                )),
             )
             .await
             .ok();
@@ -2584,6 +2607,32 @@ impl JobHandler for EmbeddingHandler {
             Err(e) => return embedding_job_failure(e, "generate_embeddings"),
         };
 
+        let expected_dim = embed_config
+            .as_ref()
+            .map(|config| config.dimension as usize)
+            .unwrap_or(matric_core::defaults::EMBED_DIMENSION);
+        if let Some((index, actual_dim)) = vectors
+            .iter()
+            .enumerate()
+            .map(|(index, vector)| (index, vector.as_slice().len()))
+            .find(|(_, dim)| *dim != expected_dim)
+        {
+            warn!(
+                chunk_index = index,
+                expected_dim,
+                actual_dim,
+                model_len = EmbeddingBackend::model_name(self.backend.as_ref())
+                    .chars()
+                    .count(),
+                "Embedding dimension mismatch before storage"
+            );
+            return JobResult::Failed(format!(
+                "Embedding dimension mismatch before storage: configured dimension is {expected_dim}, \
+                 but provider returned {actual_dim} dimensions for chunk {index}. \
+                 Update the embedding config or regenerate storage for the selected model."
+            ));
+        }
+
         ctx.report_progress(70, Some("Storing embeddings..."));
 
         // Pair chunks with vectors
@@ -2593,7 +2642,7 @@ impl JobHandler for EmbeddingHandler {
         let chunk_count = chunk_vectors.len();
 
         // Store embeddings — use set-scoped storage if embedding_set_id is in payload
-        let model_name = EmbeddingBackend::model_name(&self.backend);
+        let model_name = EmbeddingBackend::model_name(self.backend.as_ref());
 
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,

@@ -11,7 +11,7 @@ use tracing::warn;
 
 use crate::{ApiError, AppState};
 use matric_inference::discovery::ModelDiscovery;
-use matric_inference::{OllamaBackend, ProviderHealth};
+use matric_inference::{OllamaBackend, ProviderCapability, ProviderHealth};
 
 const MODEL_DISCOVERY_FAILURE_DETAIL: &str =
     "Model discovery failed. Check server logs for diagnostics.";
@@ -182,10 +182,19 @@ fn is_likely_embedding_model(name: &str) -> bool {
 pub async fn list_models(
     State(state): State<AppState>,
 ) -> Result<Json<ListModelsResponse>, ApiError> {
-    // Determine configured defaults from env vars
+    let registry = state.provider_registry();
+
+    // Determine configured defaults from active provider routing.
     let backend = OllamaBackend::from_env();
-    let default_gen = matric_core::GenerationBackend::model_name(&backend).to_string();
-    let default_embed = matric_core::EmbeddingBackend::model_name(&backend).to_string();
+    let default_gen = state
+        .generation_backend()
+        .as_ref()
+        .map(|b| b.model_name().to_string())
+        .unwrap_or_else(|| matric_core::GenerationBackend::model_name(&backend).to_string());
+    let default_embed = registry
+        .resolve_default_embedding_boxed()
+        .map(|b| b.model_name().to_string())
+        .unwrap_or_else(|_| matric_core::EmbeddingBackend::model_name(&backend).to_string());
     let default_vision = state
         .vision_backend
         .as_ref()
@@ -256,6 +265,91 @@ pub async fn list_models(
         }
     }
 
+    // Add configured models from non-Ollama providers so OpenAI-compatible
+    // vLLM/llama.cpp deployments surface their default chat/embedding routes
+    // even when the provider's /models response is sparse or unavailable.
+    for id in registry.provider_ids() {
+        if id == "ollama" {
+            continue;
+        }
+        let Some(provider) = registry.get_provider(id) else {
+            continue;
+        };
+
+        let mut add_provider_model = |model: String, capability: &str, default_for: Vec<String>| {
+            let slug = format!("{}:{}", provider.id, model);
+            if !models
+                .iter()
+                .any(|m| m.slug == slug && m.provider == provider.id)
+            {
+                models.push(ModelInfo {
+                    slug,
+                    provider: provider.id.clone(),
+                    capabilities: vec![capability.to_string()],
+                    default_for,
+                    parameter_size: None,
+                    quantization: None,
+                    size_bytes: None,
+                    family: Some(provider.id.clone()),
+                });
+            }
+        };
+
+        if provider
+            .capabilities
+            .contains(&ProviderCapability::Generation)
+        {
+            let model =
+                match provider.id.as_str() {
+                    "openai" => std::env::var("OPENAI_GEN_MODEL")
+                        .unwrap_or_else(|_| "gpt-4o-mini".to_string()),
+                    "openrouter" => std::env::var("OPENROUTER_GEN_MODEL")
+                        .unwrap_or_else(|_| "anthropic/claude-sonnet-4".to_string()),
+                    "llamacpp" => std::env::var("LLAMACPP_GEN_MODEL")
+                        .unwrap_or_else(|_| "default".to_string()),
+                    _ => continue,
+                };
+            let is_default =
+                provider.id == registry.default_provider() && model.as_str() == default_gen;
+            add_provider_model(
+                model,
+                "language",
+                if is_default {
+                    vec!["language".to_string()]
+                } else {
+                    vec![]
+                },
+            );
+        }
+
+        if provider
+            .capabilities
+            .contains(&ProviderCapability::Embedding)
+        {
+            let model = match provider.id.as_str() {
+                "openai" => std::env::var("OPENAI_EMBED_MODEL")
+                    .unwrap_or_else(|_| "text-embedding-3-small".to_string()),
+                "openrouter" => std::env::var("OPENROUTER_EMBED_MODEL")
+                    .unwrap_or_else(|_| "text-embedding-3-small".to_string()),
+                "llamacpp" => {
+                    std::env::var("LLAMACPP_EMBED_MODEL").unwrap_or_else(|_| "default".to_string())
+                }
+                _ => continue,
+            };
+            let is_default =
+                provider.id == registry.embedding_provider() && model.as_str() == default_embed;
+            add_provider_model(
+                model,
+                "embedding",
+                if is_default {
+                    vec!["embedding".to_string()]
+                } else {
+                    vec![]
+                },
+            );
+        }
+    }
+
     // Query Whisper for transcription models
     if let Some(ref transcription) = state.transcription_backend {
         let whisper_model = transcription.model_name().to_string();
@@ -311,7 +405,6 @@ pub async fn list_models(
     }
 
     // Build provider info from the registry
-    let registry = state.provider_registry();
     let providers: Vec<ProviderInfo> = registry
         .provider_ids()
         .into_iter()
