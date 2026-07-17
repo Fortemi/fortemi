@@ -1,5 +1,21 @@
 # Shard Migration Guide
 
+## Canonical Contract
+
+Fortemi owns the normative Knowledge Shard schemas. The current supported
+contract is schema `1.0.0`, profile `core-v1`, under
+`contracts/knowledge-shard/1.0.0/core-v1/`. Exact file digests and the golden
+corpus receipt are recorded in `contracts/knowledge-shard/contract.json`.
+
+Consumers must pin an immutable Fortemi commit and verify the receipt before
+using vendored copies. The current schemas cover the manifest plus note,
+collection, tag, template, and link records. `full-v1` and `record-v1` remain
+reserved and unsupported.
+
+Schema validation is necessary but not a full recovery claim. The current
+`core-v1` contract does not include attachment bytes and does not yet prove
+atomic clean-database semantic equality or historical migration conformance.
+
 This guide explains how Fortémi handles versioned knowledge shards, including compatibility checking, automatic migration, and troubleshooting.
 
 > **Current implementation versus target contract:** This page documents the

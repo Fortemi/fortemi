@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "contractRevision": "1",
+  "authority": {
+    "repository": "Fortemi/fortemi",
+    "producerCommit": "Use the immutable Git commit containing this receipt."
+  },
+  "knowledgeShard": {
+    "format": "matric-shard",
+    "schemaVersion": "1.0.0",
+    "minimumReaderVersion": "1.0.0"
+  },
+  "profiles": {
+    "core-v1": {
+      "supported": true,
+      "schemaRoot": "contracts/knowledge-shard/1.0.0/core-v1",
+      "components": ["notes", "collections", "tags", "templates", "links"]
+    },
+    "full-v1": {
+      "supported": false,
+      "status": "reserved"
+    },
+    "record-v1": {
+      "supported": false,
+      "status": "reserved"
+    }
+  },
+  "schemaBundle": {
+    "aggregateAlgorithm": "sha256(raw file bytes concatenated in lexicographic path order)",
+    "sha256": "989a04fa9e2df7eddacb4148e125f111321bcfb1a618fade5178ff24451034e0",
+    "files": {
+      "contracts/knowledge-shard/1.0.0/core-v1/collection.schema.json": "af4bd6b0acaf79d7f750c24ee3eb049efaff154f31bd2c17dd10b2b5aa949af4",
+      "contracts/knowledge-shard/1.0.0/core-v1/link.schema.json": "dc9d610944c515d96012f4c4151ac7d2e001d72b2eb134c26a8fcf02a81cfd64",
+      "contracts/knowledge-shard/1.0.0/core-v1/manifest.schema.json": "65a6cf021d2fb3f167aab54253f54e1ea9f649f37bbc5944449a9cc456e4ee47",
+      "contracts/knowledge-shard/1.0.0/core-v1/note.schema.json": "66ebcb50564946def5ea3f9bc5b0dcbacf788a103f9599ac99f8ad3e2785120b",
+      "contracts/knowledge-shard/1.0.0/core-v1/tag.schema.json": "18e59bc020ca2f4304dd6bd9dc5d2e8fd082b677d745f4f1b742ff0ccf9af01d",
+      "contracts/knowledge-shard/1.0.0/core-v1/template.schema.json": "5504829dcf4053d573b359b355885757ab053553b9be39a0930b02fb235dde59"
+    }
+  },
+  "goldenCorpus": {
+    "root": "tests/fixtures/shards/core-v1-valid",
+    "aggregateAlgorithm": "sha256(raw file bytes concatenated in lexicographic path order)",
+    "sha256": "a99f3a18beb52d0aa3530239747e2be179104d6ab1605e4d3320e6e537deafe4"
+  },
+  "limitations": [
+    "core-v1 attachment records are metadata/reference projections; attachment bytes are not included",
+    "full-v1 and record-v1 are reserved and are not supported by this release",
+    "this receipt does not establish atomic clean-database semantic roundtrip conformance"
+  ]
+}

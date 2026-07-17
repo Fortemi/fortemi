@@ -2213,6 +2213,7 @@ dependencies = [
  "governor",
  "hex",
  "hmac 0.12.1",
+ "jsonschema",
  "kamadak-exif 0.5.5",
  "lru",
  "matric-core",

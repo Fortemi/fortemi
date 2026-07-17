@@ -40,6 +40,23 @@ Canonical next-major `core-v1` manifest for incompatibility testing.
 - Producer application identity remains separate from schema versions
 - One empty, checksummed `notes.jsonl` component
 
+### core-v1-valid/
+
+Canonical non-empty `core-v1` golden corpus for the schemas under
+`contracts/knowledge-shard/1.0.0/core-v1/`. It includes one record for every
+currently supported component and a manifest with exact component checksums.
+
+The corpus demonstrates schema/profile/component validation only. Attachment
+entries are metadata/reference projections and do not include bytes.
+
+### schema-invalid/
+
+Focused negative schema fixtures:
+
+- unknown manifest profile;
+- note record missing stable identity; and
+- link record declaring both a note and URL target.
+
 ## Usage in Tests
 
 ### Loading Fixtures

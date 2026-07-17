@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Partial runtime enforcement; full conformance remains pending the release gates in this ADR
+**Implementation status:** Canonical `core-v1` schemas and partial runtime enforcement; full conformance remains pending the release gates in this ADR
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -26,6 +26,11 @@ profile, schema version, minimum reader, inventory, checksum, and count
 preflight. This does not constitute full profile conformance or atomic
 round-trip evidence.
 
+The normative schema root for the delivered `1.0.0` / `core-v1` contract is
+`contracts/knowledge-shard/1.0.0/core-v1/`. The machine-readable receipt at
+`contracts/knowledge-shard/contract.json` records exact schema digests, the
+golden corpus, supported and reserved profiles, and current limitations.
+
 ## Decision
 
 ### 1. Contract ownership
@@ -44,6 +49,12 @@ Sibling repositories may vendor generated schemas and fixtures for offline
 builds, but must record the upstream revision and verify that vendored copies
 match it. A sibling repository must not redefine a field, component, profile,
 or compatibility rule independently.
+
+The current authority bundle includes the manifest and record schemas for
+notes, collections, tags, templates, and links. Fortemi import compiles and
+applies these same schemas before component inventory/count validation and
+before its normal write phase. Schema failures return a stable class without
+echoing record content or validator diagnostics.
 
 ### 2. Schema version and producer identity
 
@@ -174,11 +185,14 @@ consumer issue and pull request.
 
 The runtime now separates producer identity from strict shard-schema SemVer,
 declares a registered profile, rejects unsupported profiles and components,
-and fails checksum/count/inventory validation before normal import writes.
-Known gaps remain in component schema and reference validation, atomic apply,
-complete semantic preservation, attachment bytes, richer profiles, migration
-history, and cross-repository conformance receipts. Those gaps remain tracked
-release blockers, not implicit `core-v1` or `full-v1` claims.
+and fails canonical manifest/record schema, checksum, count, and inventory
+validation before normal import writes. The current positive and negative
+corpus is pinned by the schema receipt.
+
+Known gaps remain in cross-record reference validation, atomic apply, complete
+semantic preservation, attachment bytes, richer profiles, migration history,
+and cross-repository conformance receipts. Those gaps remain tracked release
+blockers, not implicit `core-v1` or `full-v1` claims.
 
 Until the release gates pass:
 

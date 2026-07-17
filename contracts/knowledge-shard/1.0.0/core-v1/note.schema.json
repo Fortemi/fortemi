@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.0.0/core-v1/note.schema.json",
+  "title": "Fortemi Knowledge Shard core-v1 note record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "title",
+    "original_content",
+    "revised_content",
+    "metadata",
+    "format",
+    "source",
+    "starred",
+    "archived",
+    "collection_id",
+    "created_at",
+    "updated_at",
+    "tags",
+    "attachments"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "title": {
+      "type": ["string", "null"]
+    },
+    "original_content": {
+      "type": "string"
+    },
+    "revised_content": {
+      "type": "string"
+    },
+    "metadata": true,
+    "format": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "starred": {
+      "type": "boolean"
+    },
+    "archived": {
+      "type": "boolean"
+    },
+    "collection_id": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "created_at": {
+      "$ref": "#/$defs/dateTime"
+    },
+    "updated_at": {
+      "$ref": "#/$defs/dateTime"
+    },
+    "tags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/attachmentProjection"
+      }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "attachmentProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "extracted_text",
+        "extraction_status",
+        "reason",
+        "attachment"
+      ],
+      "properties": {
+        "extracted_text": {
+          "type": ["string", "null"]
+        },
+        "extraction_status": {
+          "enum": ["extracted", "pending", "failed", "blocked", "deferred"]
+        },
+        "reason": {
+          "enum": [
+            null,
+            "extraction_pending",
+            "extractor_failed",
+            "quarantined",
+            "large_binary",
+            "unsupported_mime",
+            "no_extracted_text"
+          ]
+        },
+        "attachment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "path", "mime", "checksum", "bytes"],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "mime": {
+              "type": "string",
+              "minLength": 1
+            },
+            "checksum": {
+              "$ref": "#/$defs/sha256"
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  }
+}
