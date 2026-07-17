@@ -4,6 +4,12 @@
 **Date:** 2026-02-01
 **Deciders:** Architecture team
 **Related:** ADR-008 (Magic Bytes Format Detection), docs/content/backup.md
+**Superseded in part by:** ADR-102
+
+> **Contract update (2026-07-17):** ADR-102 is authoritative for canonical
+> profile semantics, fail-closed import, and reader-version metadata.
+> `min_reader_version` is a shard-schema SemVer value, not an application
+> release. Best-effort or partial reads do not constitute profile conformance.
 
 ## Context
 
@@ -31,7 +37,8 @@ Adopt a formal shard schema versioning specification with the following componen
 
 **Manifest `matric_version` Field:**
 - Represents the **application version** that created the shard
-- Informational only; does not affect compatibility
+- Legacy producer metadata, informational only; new schema revisions use the
+  separate `producer` object defined by ADR-102
 - Uses CalVer format: `YYYY.M.PATCH` (e.g., `2026.2.0`)
 
 ### 2. Version Numbering Rules
@@ -56,7 +63,7 @@ Adopt a formal shard schema versioning specification with the following componen
   "matric_version": "2026.2.0",
   "format": "matric-shard",
   "created_at": "2026-02-01T12:00:00Z",
-  "min_reader_version": "2026.1.0",
+  "min_reader_version": "1.0.0",
   "migrated_from": null,
   "migration_history": [],
   "components": [
@@ -92,7 +99,7 @@ Adopt a formal shard schema versioning specification with the following componen
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `min_reader_version` | string | No | Minimum matric-memory version required to read this shard |
+| `min_reader_version` | string | No | Minimum shard-schema SemVer contract required to read this shard without undeclared loss |
 | `migrated_from` | string | No | Original schema version if this shard was auto-upgraded |
 | `migration_history` | array | No | Chain of migrations applied to this shard |
 
@@ -199,30 +206,21 @@ fn validate_no_reserved_fields(
 
 | Reader Version | Shard v1.0.x | Shard v1.1.x | Shard v2.0.x |
 |----------------|--------------|--------------|--------------|
-| matric 2026.1.x | Full | Full | Read-only* |
+| matric 2026.1.x | Full | Full | Incompatible unless a registered migration/profile says otherwise |
 | matric 2026.2.x | Full (auto-migrate) | Full | Full |
 | matric 2026.3.x | Full (auto-migrate) | Full (auto-migrate) | Full |
-
-*Read-only: Can import notes/links but may skip unknown fields or components
 
 ### 8. Human-Readable Version Messages
 
 Implement user-friendly messages for version mismatches:
 
-**Importing newer shard:**
+**Importing an unsupported newer shard:**
 ```
-Warning: This shard was created with matric-memory 2026.3.0 (shard version 2.1.0).
-Your version (2026.1.0) supports shard version 1.x.x.
+Error: This shard requires Knowledge Shard reader contract 2.1.0 or later.
+Your reader supports contract 1.x.
 
-What this means:
-- Core content (notes, collections) will be imported successfully
-- Some newer features may not be available:
-  - Graph metadata (requires 2026.2.0+)
-  - MRL embeddings (requires 2026.2.0+)
-
-Recommendation: Upgrade to matric-memory 2026.2.0+ for full compatibility.
-
-Proceed with best-effort import? [y/N]
+No data was written. Upgrade to a compatible reader or use a registered,
+explicitly loss-reporting profile conversion.
 ```
 
 **Importing older shard:**
@@ -241,7 +239,7 @@ Proceed with migration? [Y/n]
 
 **Incompatible shard:**
 ```
-Error: This shard requires matric-memory 2027.1.0 or later.
+Error: This shard requires Knowledge Shard reader contract 3.0.0 or later.
 
 Shard version: 3.0.0
 Your version: 2026.2.0 (supports up to shard version 2.x.x)
@@ -262,7 +260,7 @@ Please upgrade matric-memory to import this shard.
 - (+) Developers have explicit guidance on version bumps
 - (+) Migration history enables debugging and audit trails
 - (+) Reserved field registry prevents accidental data corruption
-- (+) Forward compatibility through `min_reader_version` field
+- (+) Explicit reader-contract compatibility through `min_reader_version`
 - (+) Foundation for component-level versioning in future
 
 ### Negative
@@ -321,10 +319,10 @@ pub struct MigrationHistoryEntry {
 ```rust
 pub fn check_shard_compatibility(
     manifest: &ShardManifest,
-    current_version: &str,
+    current_schema_version: &str,
 ) -> CompatibilityResult {
     let shard_ver = Version::parse(&manifest.version)?;
-    let current_ver = Version::parse(SHARD_SCHEMA_VERSION)?;
+    let current_ver = Version::parse(current_schema_version)?;
 
     if shard_ver.major > current_ver.major {
         CompatibilityResult::Incompatible {

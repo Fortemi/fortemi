@@ -64,6 +64,12 @@ This directory contains Architecture Decision Records (ADRs) documenting signifi
 | [ADR-029](ADR-029-shard-schema-versioning.md) | Shard Schema Versioning | Accepted | 2026-02-01 |
 | [ADR-030](ADR-030-migration-downgrade-upgrade-ux.md) | Migration Downgrade/Upgrade UX | Accepted | 2026-02-01 |
 
+### Cross-Repository Data Contracts (ADR-102)
+
+| ADR | Title | Status | Date |
+|-----|-------|--------|------|
+| [ADR-102](ADR-102-canonical-knowledge-shard-contract.md) | Canonical Knowledge Shard Contract and Conformance Profiles | Accepted (target) | 2026-07-17 |
+
 ### File Handling (ADR-031 to ADR-036)
 
 | ADR | Title | Status | Date |
@@ -151,6 +157,7 @@ Wallet project design and planning moved to [roko/CustodyCore](https://git.integ
 |--------|---------|
 | **Proposed** | Under discussion, not yet implemented |
 | **Accepted** | Approved and implemented |
+| **Accepted (target)** | Approved direction with implementation conformance gates still pending |
 | **Superseded** | Replaced by a newer ADR |
 | **Deprecated** | No longer recommended |
 
@@ -180,7 +187,7 @@ See [ADR-TEMPLATE.md](ADR-TEMPLATE.md) for the template used when creating new A
 Core Architecture (011-016)
 ├── Multilingual FTS (017-021) - extends search capabilities
 ├── Embedding System (022-027, 077, 081) - extends semantic features
-└── Backup/Migration (028-030) - operational concerns
+└── Backup/Migration (028-030, 102) - migration and portable contract concerns
 
 Inference Backend (001-005, 072)
 └── Encryption (006-010, 050) - secure data handling

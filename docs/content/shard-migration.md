@@ -2,6 +2,13 @@
 
 This guide explains how Fortémi handles versioned knowledge shards, including compatibility checking, automatic migration, and troubleshooting.
 
+> **Current implementation versus target contract:** This page documents the
+> current migration implementation. [ADR-102](../architecture/adr/ADR-102-canonical-knowledge-shard-contract.md)
+> defines the accepted cross-repository target: named profiles, validation
+> before writes, atomic import, and fail-closed integrity checks. Until its
+> release gates pass, warning-based or partial import must not be described as
+> `full-v1` conformance or disaster-recovery completeness.
+
 ## Table of Contents
 
 - [How Versioning Works](#how-versioning-works)

@@ -3,6 +3,13 @@
 **Status:** Accepted
 **Date:** 2026-02-01
 **Deciders:** Architecture team
+**Superseded in part by:** ADR-102
+
+> **Contract update (2026-07-17):** ADR-102 supersedes the best-effort and
+> warning-only behavior in this ADR for canonical Knowledge Shard imports.
+> Profile, integrity, and referential validation must complete before writes;
+> checksum mismatch, malformed required records, and undeclared loss fail the
+> import. Archive migration policy remains unchanged unless separately revised.
 
 ## Context
 
@@ -36,7 +43,7 @@ Implement an **automatic, transparent migration system** for shards and archives
 1. **Detects version on import** via manifest inspection
 2. **Migrates lazily** (on-import only, never modifies source files)
 3. **Uses a migration registry pattern** with chained version handlers
-4. **Degrades gracefully** with warnings instead of hard failures
+4. **Reports compatible migration warnings without undeclared loss**
 5. **Exports always use current version** with full compatibility metadata
 
 ### Shard Schema Versioning
@@ -153,7 +160,8 @@ New versions of Matric can always read old shards:
 1. Version 1.0.0 shards import without modification
 2. Missing optional fields receive documented defaults
 3. Deprecated fields are mapped to current equivalents
-4. Warnings logged but never block import
+4. Compatible migration warnings are returned, but integrity failures or
+   undeclared loss block import before writes
 
 ### Archive Handling
 
@@ -176,13 +184,13 @@ Database archives (pg_dump backups) have different migration semantics:
 
 | Situation | Response |
 |-----------|----------|
-| Unknown fields in shard | Ignore silently (forward compatible) |
+| Unknown fields in shard | Follow the registered schema/profile extension policy |
 | Missing optional fields | Use documented defaults |
 | Missing required fields (old version) | Migrate handler fills defaults |
-| Corrupted JSON in one note | Skip note, warn, continue import |
+| Corrupted JSON in one note | Hard fail before any persistent write |
 | Corrupted manifest | Hard fail (cannot determine version) |
-| Checksum mismatch | Warn but continue (may be truncated transfer) |
-| Unknown file in archive | Ignore (future extension) |
+| Checksum mismatch | Hard fail before any persistent write |
+| Unknown file in archive | Reject unless a registered extension permits it |
 
 ### Definition of Done Updates
 
@@ -201,7 +209,8 @@ Any schema change to shard format requires:
 ### Positive
 
 - (+) **Zero-touch for users**: Migrations happen automatically on import
-- (+) **Never blocks users**: Warnings instead of errors where possible
+- (+) **Actionable compatibility handling**: Safe migrations remain automatic;
+  unsafe imports fail before writes with upgrade or conversion guidance
 - (+) **MCP agent friendly**: No interactive prompts, deterministic behavior
 - (+) **Auditable**: Warnings collected and returned in import response
 - (+) **Testable**: Each migration handler is independently testable
