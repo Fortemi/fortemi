@@ -4,7 +4,8 @@ set -euo pipefail
 # Generate .env configuration for Fortémi Docker bundle
 # Params: INSTALL_DIR, DOMAIN, PROTOCOL, COMPOSE_PROFILES, INFERENCE_PROVIDER,
 #         OLLAMA_GEN_MODEL, OLLAMA_EMBED_MODEL, OPENAI_API_KEY,
-#         OPENROUTER_API_KEY, LLAMACPP_BASE_URL, DATA_DIR
+#         OPENROUTER_API_KEY, LLAMACPP_BASE_URL, DATA_DIR,
+#         FORTEMI_INSTALL_MODE
 
 INSTALL_DIR="${INSTALL_DIR:?INSTALL_DIR is required}"
 DOMAIN="${DOMAIN:-localhost}"
@@ -13,6 +14,30 @@ INFERENCE_PROVIDER="${INFERENCE_PROVIDER:-ollama}"
 OLLAMA_GEN_MODEL="${OLLAMA_GEN_MODEL:-qwen3.5:9b}"
 OLLAMA_EMBED_MODEL="${OLLAMA_EMBED_MODEL:-nomic-embed-text}"
 DATA_DIR="${DATA_DIR:-${INSTALL_DIR}/data}"
+FORTEMI_INSTALL_MODE="${FORTEMI_INSTALL_MODE:-secure}"
+
+case "${FORTEMI_INSTALL_MODE}" in
+    secure)
+        REQUIRE_AUTH_VALUE=true
+        I_UNDERSTAND_NO_AUTH_VALUE=false
+        HOST_VALUE="${HOST:-0.0.0.0}"
+        API_HOST_PORT_VALUE="${API_HOST_PORT:-3000}"
+        MCP_HOST_PORT_VALUE="${MCP_HOST_PORT:-3001}"
+        ;;
+    local-no-auth)
+        REQUIRE_AUTH_VALUE=false
+        I_UNDERSTAND_NO_AUTH_VALUE=true
+        HOST_VALUE="${HOST:-0.0.0.0}"
+        API_HOST_PORT_VALUE="${API_HOST_PORT:-127.0.0.1:3000}"
+        MCP_HOST_PORT_VALUE="${MCP_HOST_PORT:-127.0.0.1:3001}"
+        ;;
+    *)
+        echo "ERROR: FORTEMI_INSTALL_MODE must be 'secure' or 'local-no-auth'."
+        echo "  secure        require authentication and allow normal host binding"
+        echo "  local-no-auth generate the explicit no-auth acknowledgment and bind to 127.0.0.1"
+        exit 1
+        ;;
+esac
 
 # Smart protocol default: http for localhost, https otherwise
 if [ -z "${PROTOCOL:-}" ]; then
@@ -48,6 +73,9 @@ ISSUER_URL=${PROTOCOL}://${DOMAIN}
 # Hardware profile: edge | gpu-12gb | gpu-24gb
 COMPOSE_PROFILES=${COMPOSE_PROFILES}
 
+# Install mode: secure | local-no-auth
+FORTEMI_INSTALL_MODE=${FORTEMI_INSTALL_MODE}
+
 # Inference provider: ollama | openai | openrouter | llamacpp
 MATRIC_INFERENCE_DEFAULT=${INFERENCE_PROVIDER}
 
@@ -57,10 +85,14 @@ REDIS_DATA=${DATA_DIR}/redis
 UPLOAD_DIR=${DATA_DIR}/uploads
 
 # Authentication (ADR-094: fail-closed default, fortemi/fortemi#709).
-# Authentication is required by default. For local single-user sidecar/dev
-# mode only, set REQUIRE_AUTH=false and I_UNDERSTAND_NO_AUTH=true explicitly.
-REQUIRE_AUTH=true
-I_UNDERSTAND_NO_AUTH=false
+# Authentication is required by default. local-no-auth is only for local
+# single-user workstation installs and intentionally binds published ports
+# to 127.0.0.1.
+REQUIRE_AUTH=${REQUIRE_AUTH_VALUE}
+I_UNDERSTAND_NO_AUTH=${I_UNDERSTAND_NO_AUTH_VALUE}
+HOST=${HOST_VALUE}
+API_HOST_PORT=${API_HOST_PORT_VALUE}
+MCP_HOST_PORT=${MCP_HOST_PORT_VALUE}
 EOF
 
 # Append provider-specific configuration
@@ -105,6 +137,12 @@ echo "Configuration written to ${ENV_FILE}"
 echo "  URL:      ${PROTOCOL}://${DOMAIN}"
 echo "  Profile:  ${COMPOSE_PROFILES}"
 echo "  Provider: ${INFERENCE_PROVIDER}"
+echo "  Mode:     ${FORTEMI_INSTALL_MODE}"
+if [ "${FORTEMI_INSTALL_MODE}" = "local-no-auth" ]; then
+    echo "  Auth:     disabled intentionally; host ports bound to 127.0.0.1"
+else
+    echo "  Auth:     required"
+fi
 if [ "${INFERENCE_PROVIDER}" = "ollama" ]; then
     echo "  Model:    ${OLLAMA_GEN_MODEL}"
 fi
