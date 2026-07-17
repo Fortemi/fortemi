@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY contracts ./contracts
 COPY migrations ./migrations
 
 ENV MATRIC_VERSION=${VERSION}
