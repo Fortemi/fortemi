@@ -890,6 +890,12 @@ jobs:
       - name: Log in to GitHub Container Registry
         run: printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
 
+      - name: Set up Docker buildx
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --install arm64
+          docker buildx create --name fortemi-multiarch --use 2>/dev/null || docker buildx use fortemi-multiarch
+          docker buildx inspect --bootstrap
+
       - name: Build and push dev images to ghcr.io
         run: |
           set -euo pipefail
@@ -927,18 +933,18 @@ jobs:
           push_with_retry ${IMAGE}:main
           push_with_retry ${IMAGE}:sha-${SHORT_SHA}
 
-          # Bundle image (all-in-one with embedded PostgreSQL)
-          docker build --no-cache \
+          # Bundle image (all-in-one with embedded PostgreSQL).
+          # Publish as a multi-arch index so Apple Silicon / arm64 Linux hosts
+          # do not pull amd64-only manifests (#12).
+          docker buildx build --no-cache \
+            --platform linux/amd64,linux/arm64 \
             -f Dockerfile.bundle \
             --build-arg VERSION=dev-${SHORT_SHA} \
             --build-arg GIT_SHA=${GITHUB_SHA} \
             --build-arg BUILD_DATE=${BUILD_DATE} \
-            -t ${IMAGE}:bundle-main .
-
-          docker tag ${IMAGE}:bundle-main ${IMAGE}:bundle-sha-${SHORT_SHA}
-
-          push_with_retry ${IMAGE}:bundle-main
-          push_with_retry ${IMAGE}:bundle-sha-${SHORT_SHA}
+            -t ${IMAGE}:bundle-main \
+            -t ${IMAGE}:bundle-sha-${SHORT_SHA} \
+            --push .
 
           echo ""
           echo "=== Published dev images to ghcr.io ==="
@@ -966,6 +972,12 @@ jobs:
 
       - name: Log in to GitHub Container Registry
         run: printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
+
+      - name: Set up Docker buildx
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --install arm64
+          docker buildx create --name fortemi-multiarch --use 2>/dev/null || docker buildx use fortemi-multiarch
+          docker buildx inspect --bootstrap
 
       - name: Build and push to ghcr.io
         run: |
@@ -1015,17 +1027,16 @@ jobs:
 
           # Build bundle image (all-in-one with embedded PostgreSQL).
           # COPYs docker/seed-data which now contains the fresh shard.
-          docker build --no-cache \
+          # Publish as a multi-arch index for linux/amd64 and linux/arm64 (#12).
+          docker buildx build --no-cache \
+            --platform linux/amd64,linux/arm64 \
             -f Dockerfile.bundle \
             --build-arg VERSION=${VERSION} \
             --build-arg GIT_SHA=${GITHUB_SHA} \
             --build-arg BUILD_DATE=${BUILD_DATE} \
-            -t ${IMAGE}:bundle-${VERSION} .
-
-          docker tag ${IMAGE}:bundle-${VERSION} ${IMAGE}:bundle-latest
-
-          push_with_retry ${IMAGE}:bundle-${VERSION}
-          push_with_retry ${IMAGE}:bundle-latest
+            -t ${IMAGE}:bundle-${VERSION} \
+            -t ${IMAGE}:bundle-latest \
+            --push .
 
           # Sidecar images (GLiNER, pyannote) are released independently
           # via build-gliner.yaml and build-pyannote.yaml workflows
