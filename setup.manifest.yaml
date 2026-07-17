@@ -211,6 +211,13 @@ steps:
     script: installer/scripts/verify.sh
     depends_on: [deploy]
 
+  - id: hands-free-local
+    type: script
+    description: Run the complete local workstation install and validation flow
+    script: installer/scripts/hands-free-local.sh
+    depends_on: [clone]
+    verify: "test -s ${INSTALL_DIR}/fortemi-validation.shard"
+
 recovery_procedures:
   - id: full-reset
     description: Stop containers, remove volumes, and redeploy from scratch

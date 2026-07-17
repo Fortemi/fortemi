@@ -10,6 +10,20 @@ This document covers the one-time host preparation (removing the native ollama i
 
 ---
 
+## Hands-free local server install
+
+For a local Fortemi server install without the HotM workstation stack, run the bundled installer and validator from the Fortemi checkout:
+
+```bash
+FORTEMI_INSTALL_MODE=local-no-auth ./installer/scripts/hands-free-local.sh
+```
+
+The script detects Docker, Compose, OS and hardware profile, container host reachability, and NVIDIA runtime availability. On non-NVIDIA hosts it generates `.fortemi-local.override.yml` to clear NVIDIA reservations and disable Open3D probing, writes `.env`, starts the bundle, creates a validation note, queues and waits for embeddings, runs FTS/semantic/hybrid search, tries chat when configured, exports `fortemi-validation.shard`, and prints a pass/fail report with next actions.
+
+Use `FORTEMI_INSTALL_MODE=secure` for an authenticated install, `FORTEMI_HARDWARE_PROFILE=cpu|intel|amd|nvidia` to override detection, or `FORTEMI_SKIP_DEPLOY=true` to run validation against an already-started bundle.
+
+---
+
 ## One-time host prep
 
 ### 1. Stop and remove the native ollama install
