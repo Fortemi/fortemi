@@ -34685,11 +34685,24 @@ mod tests {
                 "Knowledge shard component does not match canonical core-v1 schema."
             );
         }
-        let mut invalid_hash = valid_note;
+        let mut invalid_hash = valid_note.clone();
         invalid_hash["attachments"][0]["attachment"]["checksum"] = serde_json::json!("not-a-hash");
         assert_eq!(
             validate_shard_json_schema(
                 &invalid_hash,
+                CORE_V1_NOTE_SCHEMA,
+                "Knowledge shard component does not match canonical core-v1 schema.",
+            )
+            .unwrap_err(),
+            "Knowledge shard component does not match canonical core-v1 schema."
+        );
+        let mut invalid_digest_algorithm = valid_note;
+        invalid_digest_algorithm["attachments"][0]["attachment"]["checksum"] = serde_json::json!(
+            "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        );
+        assert_eq!(
+            validate_shard_json_schema(
+                &invalid_digest_algorithm,
                 CORE_V1_NOTE_SCHEMA,
                 "Knowledge shard component does not match canonical core-v1 schema.",
             )

@@ -90,7 +90,7 @@
     },
     "sha256": {
       "type": "string",
-      "pattern": "^[0-9a-f]{64}$"
+      "pattern": "^blake3:[0-9a-f]{64}$"
     },
     "attachmentProjection": {
       "type": "object",

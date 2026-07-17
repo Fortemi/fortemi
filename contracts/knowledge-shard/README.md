@@ -24,6 +24,7 @@ Consumers must pin an immutable Fortemi commit, verify every digest in
 copies are receipts, not independent definitions.
 
 `core-v1` currently includes attachment metadata/reference projections but not
-attachment bytes. `full-v1` and `record-v1` remain reserved and unsupported.
-The presence of these schemas does not establish atomic recovery, historical
-migration, or full-profile conformance.
+attachment bytes. Attachment content identities use the server's canonical
+`blake3:<64 lowercase hex>` form. `full-v1` and `record-v1` remain reserved and
+unsupported. The presence of these schemas does not establish atomic recovery,
+historical migration, or full-profile conformance.

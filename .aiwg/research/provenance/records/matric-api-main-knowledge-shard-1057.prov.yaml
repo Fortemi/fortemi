@@ -3,12 +3,12 @@ metadata:
   created_at: "2026-07-17T22:09:45Z"
   description: "Provenance for Fortemi issue #1057 canonical Knowledge Shard runtime validation"
 entity:
-  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:516006248a56312112b0cad1f8cd0bfa4e0a24f2846379d9ae3d615a79cb7e46"
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:28c00dd134515f3dea96d3bcd292f8584b7c5a5db9db7b5ac45e0422cf248a97"
   type: code
   created_at: "2026-07-17T22:09:45Z"
-  updated_at: "2026-07-17T22:09:45Z"
-  checksum: "sha256:516006248a56312112b0cad1f8cd0bfa4e0a24f2846379d9ae3d615a79cb7e46"
-  size_bytes: 1675169
+  updated_at: "2026-07-17T22:18:22Z"
+  checksum: "sha256:28c00dd134515f3dea96d3bcd292f8584b7c5a5db9db7b5ac45e0422cf248a97"
+  size_bytes: 1675786
   attributes:
     language: rust
     issue: "Fortemi/Fortemi#1057"
@@ -17,8 +17,8 @@ activity:
   id: "urn:aiwg:activity:modification:knowledge-shard-runtime-1057:001"
   type: modification
   started_at: "2026-07-17T21:55:00Z"
-  ended_at: "2026-07-17T22:13:31Z"
-  description: "Compile and enforce canonical core-v1 manifest and record schemas before shard import writes"
+  ended_at: "2026-07-17T22:19:46Z"
+  description: "Compile and enforce canonical core-v1 manifest and record schemas, including the BLAKE3 attachment digest constraint, before shard import writes"
   attributes:
     verification:
       - "cargo test -p matric-api --bin matric-api canonical_core_v1"
@@ -41,23 +41,23 @@ agent:
       - test-engineer
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:516006248a56312112b0cad1f8cd0bfa4e0a24f2846379d9ae3d615a79cb7e46"
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:28c00dd134515f3dea96d3bcd292f8584b7c5a5db9db7b5ac45e0422cf248a97"
     activity: "urn:aiwg:activity:modification:knowledge-shard-runtime-1057:001"
-    time: "2026-07-17T22:09:45Z"
+    time: "2026-07-17T22:18:22Z"
   used:
     - activity: "urn:aiwg:activity:modification:knowledge-shard-runtime-1057:001"
       entity: "urn:gitea:issue:Fortemi/Fortemi:1057"
       role: requirement
     - activity: "urn:aiwg:activity:modification:knowledge-shard-runtime-1057:001"
-      entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:ff6aedc199d37e47ee81b3e4a2f7a4006140039bc8713377418978704d6e5ee5"
+      entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:c6a64ce71bb5368b4fafbe4ec405e95760c3acb0f75d87a7203a9dd5c9642de7"
       role: canonical_contract
   wasDerivedFrom:
-    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:516006248a56312112b0cad1f8cd0bfa4e0a24f2846379d9ae3d615a79cb7e46"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:28c00dd134515f3dea96d3bcd292f8584b7c5a5db9db7b5ac45e0422cf248a97"
       source: "urn:gitea:issue:Fortemi/Fortemi:1057"
       derivation_type: implements
       activity: "urn:aiwg:activity:modification:knowledge-shard-runtime-1057:001"
-    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:516006248a56312112b0cad1f8cd0bfa4e0a24f2846379d9ae3d615a79cb7e46"
-      source: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:ff6aedc199d37e47ee81b3e4a2f7a4006140039bc8713377418978704d6e5ee5"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:28c00dd134515f3dea96d3bcd292f8584b7c5a5db9db7b5ac45e0422cf248a97"
+      source: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:c6a64ce71bb5368b4fafbe4ec405e95760c3acb0f75d87a7203a9dd5c9642de7"
       derivation_type: conforms_to
       activity: "urn:aiwg:activity:modification:knowledge-shard-runtime-1057:001"
   wasAssociatedWith:
@@ -65,5 +65,5 @@ relationships:
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:516006248a56312112b0cad1f8cd0bfa4e0a24f2846379d9ae3d615a79cb7e46"
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:28c00dd134515f3dea96d3bcd292f8584b7c5a5db9db7b5ac45e0422cf248a97"
     agent: "urn:aiwg:agent:codex-gpt-5"
