@@ -124,14 +124,15 @@ if devices:
     failures.append(f"deploy.resources.reservations.devices not cleared: {devices!r}")
 
 # 2. Split-provider environment: generation via host vLLM, embeddings on
-#    Ollama, NVIDIA env blanked, CPU rendering for Open3D.
+#    Ollama, NVIDIA env blanked, Open3D renderer disabled.
 env = svc["environment"]
 expected = {
     "MATRIC_INFERENCE_DEFAULT": "openai",
     "OPENAI_BASE_URL": "http://host.docker.internal:8000/v1",
     "OPENAI_API_KEY": "validation-only-vllm-key",
     "MATRIC_EMBEDDING_PROVIDER": "ollama",
-    "OPEN3D_CPU_RENDERING": "true",
+    "RENDERER_ENABLED": "false",
+    "OPEN3D_ENABLED": "false",
     "NVIDIA_VISIBLE_DEVICES": "",
     "NVIDIA_DRIVER_CAPABILITIES": "",
 }

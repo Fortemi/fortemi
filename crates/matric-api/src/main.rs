@@ -2235,35 +2235,56 @@ async fn main() -> anyhow::Result<()> {
     // Create search engine
     let search = Arc::new(HybridSearchEngine::new(db.clone()));
 
+    // Build shared provider registry for multi-provider inference routing (#432).
+    // Created before provider probes so startup diagnostics match configured
+    // Ollama/OpenAI-compatible routing.
+    let provider_registry = std::sync::Arc::new(matric_inference::ProviderRegistry::from_env());
+
     // Verify inference backend configuration and reachability at startup.
     // Logs clear errors for misconfigured or unreachable endpoints (#568).
     {
-        let backend = OllamaBackend::from_env();
-        let base_url = backend.base_url().to_string();
-        info!(
-            base_url_class = telemetry_url_class(&base_url),
-            base_url_len = telemetry_text_len(&base_url),
-            embed_model_len = telemetry_text_len(EmbeddingBackend::model_name(&backend)),
-            gen_model_len = telemetry_text_len(GenerationBackend::model_name(&backend)),
-            "Inference backend configured"
-        );
-        match backend.health_check().await {
-            Ok(true) => info!(
-                base_url_class = telemetry_url_class(&base_url),
-                base_url_len = telemetry_text_len(&base_url),
-                "Inference backend reachable"
+        match provider_registry.resolve_default_generation_boxed() {
+            Ok(backend) => {
+                info!(
+                    provider_len = telemetry_text_len(provider_registry.default_provider()),
+                    gen_model_len =
+                        telemetry_text_len(GenerationBackend::model_name(backend.as_ref())),
+                    "Generation backend configured"
+                );
+                match backend.health_check().await {
+                    Ok(true) => info!(
+                        provider_len = telemetry_text_len(provider_registry.default_provider()),
+                        "Generation backend reachable"
+                    ),
+                    Ok(false) => warn!(
+                        provider_len = telemetry_text_len(provider_registry.default_provider()),
+                        "Generation backend unreachable — generation and AI revision will fail until the provider is reachable"
+                    ),
+                    Err(e) => warn!(
+                        provider_len = telemetry_text_len(provider_registry.default_provider()),
+                        error_len = telemetry_text_len(&e.to_string()),
+                        "Generation backend health check failed"
+                    ),
+                }
+            }
+            Err(e) => warn!(
+                provider_len = telemetry_text_len(provider_registry.default_provider()),
+                error_len = telemetry_text_len(&e.to_string()),
+                "Generation backend configuration failed"
             ),
-            Ok(false) => warn!(
-                base_url_class = telemetry_url_class(&base_url),
-                base_url_len = telemetry_text_len(&base_url),
-                "Inference backend unreachable — embedding, generation, and AI revision will fail. \
-                 Check that Ollama is running or set OLLAMA_BASE / OLLAMA_HOST"
+        }
+
+        match provider_registry.resolve_default_embedding_boxed() {
+            Ok(backend) => info!(
+                provider_len = telemetry_text_len(provider_registry.embedding_provider()),
+                embed_model_len =
+                    telemetry_text_len(EmbeddingBackend::model_name(backend.as_ref())),
+                "Embedding backend configured"
             ),
             Err(e) => warn!(
-                base_url_class = telemetry_url_class(&base_url),
-                base_url_len = telemetry_text_len(&base_url),
+                provider_len = telemetry_text_len(provider_registry.embedding_provider()),
                 error_len = telemetry_text_len(&e.to_string()),
-                "Inference backend health check failed — check OLLAMA_BASE / OLLAMA_HOST configuration"
+                "Embedding backend configuration failed"
             ),
         }
     }
@@ -2366,10 +2387,6 @@ async fn main() -> anyhow::Result<()> {
     } else {
         info!("Diarization backend disabled: DIARIZATION_BASE_URL not set");
     }
-
-    // Build shared provider registry for multi-provider inference routing (#432).
-    // Created before the worker so it's available to both job handlers and AppState.
-    let provider_registry = std::sync::Arc::new(matric_inference::ProviderRegistry::from_env());
 
     // Load pause state from database for global/per-archive job control (Issue #466).
     let pause_state = match PauseState::load(db.pool.clone()).await {
@@ -2544,9 +2561,20 @@ async fn main() -> anyhow::Result<()> {
                 provider_registry.clone(),
             ))
             .await;
-        worker
-            .register_handler(EmbeddingHandler::new(db.clone(), OllamaBackend::from_env()))
-            .await;
+        match provider_registry.resolve_default_embedding_boxed() {
+            Ok(backend) => {
+                worker
+                    .register_handler(EmbeddingHandler::new(db.clone(), Arc::from(backend)))
+                    .await;
+            }
+            Err(error) => {
+                warn!(
+                    error_len = telemetry_text_len(&error.to_string()),
+                    provider_len = telemetry_text_len(provider_registry.embedding_provider()),
+                    "Embedding handler not registered because the configured embedding provider could not be constructed"
+                );
+            }
+        }
         worker
             .register_handler(TitleGenerationHandler::new(
                 db.clone(),

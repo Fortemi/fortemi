@@ -365,40 +365,52 @@ trap cleanup SIGTERM SIGINT
 echo ">>> Starting Open3D 3D Renderer..."
 mkdir -p /var/log/matric
 RENDERER_PORT="${RENDERER_PORT:-8080}"
+RENDERER_ENABLED="${RENDERER_ENABLED:-${OPEN3D_ENABLED:-true}}"
 
 # EGL headless rendering environment
 export XDG_RUNTIME_DIR=/tmp
 
-# Try GPU first (EGL device), fall back to software rendering
-if [ -e /dev/dri ] || [ -e /dev/nvidia0 ]; then
-    echo "  GPU detected — using EGL device rendering"
-    export EGL_PLATFORM=device
-else
-    echo "  No GPU detected — using CPU software rendering"
-    export OPEN3D_CPU_RENDERING=true
-    # Mesa llvmpipe needs GL version override for Open3D's Filament backend
-    export MESA_GL_VERSION_OVERRIDE=4.5
-    export LIBGL_ALWAYS_SOFTWARE=1
-fi
-
-# Probe: test if Open3D can initialize before starting the full renderer.
-# Open3D 0.19.0's Filament backend may segfault during EGL init if no GPU
-# device is available. Running the probe in a subprocess catches the crash
-# cleanly instead of logging confusing segfault messages.
 RENDERER_AVAILABLE=false
-if python3 -c "
+case "$(printf '%s' "$RENDERER_ENABLED" | tr '[:upper:]' '[:lower:]')" in
+    0|false|no|off)
+        echo "  Open3D renderer disabled by RENDERER_ENABLED/OPEN3D_ENABLED"
+        ;;
+    *)
+        # Try GPU first (EGL device). CPU software rendering is opt-in because
+        # Open3D's Filament backend can segfault on some non-GPU hosts.
+        if [ -e /dev/dri ] || [ -e /dev/nvidia0 ]; then
+            echo "  GPU detected — using EGL device rendering"
+            export EGL_PLATFORM=device
+        elif [ "${OPEN3D_CPU_RENDERING:-}" = "true" ] || [ "${OPEN3D_CPU_RENDERING:-}" = "1" ]; then
+            echo "  No GPU detected — using requested CPU software rendering"
+            export OPEN3D_CPU_RENDERING=true
+            # Mesa llvmpipe needs GL version override for Open3D's Filament backend
+            export MESA_GL_VERSION_OVERRIDE=4.5
+            export LIBGL_ALWAYS_SOFTWARE=1
+        else
+            echo "  No GPU detected — skipping Open3D probe; set OPEN3D_CPU_RENDERING=true to try CPU rendering"
+        fi
+
+        if [ -e /dev/dri ] || [ -e /dev/nvidia0 ] || [ "${OPEN3D_CPU_RENDERING:-}" = "true" ]; then
+            # Probe: test if Open3D can initialize before starting the full renderer.
+            # Open3D 0.19.0's Filament backend may segfault during EGL init if no GPU
+            # device is available. Running the probe in a subprocess contains the crash.
+            if python3 -c "
 import open3d as o3d
 r = o3d.visualization.rendering.OffscreenRenderer(64, 64)
 del r
 print('ok')
 " > /dev/null 2>&1; then
-    echo "  Open3D probe passed — renderer available"
-    RENDERER_AVAILABLE=true
-else
-    echo "  Open3D probe failed — renderer unavailable (no GPU or EGL init failed)"
-    echo "  3D model extraction will be disabled. To enable, add GPU device reservation"
-    echo "  to docker-compose.bundle.yml (see deploy.resources.reservations.devices)"
-fi
+                echo "  Open3D probe passed — renderer available"
+                RENDERER_AVAILABLE=true
+            else
+                echo "  Open3D probe failed — renderer unavailable (no GPU or EGL init failed)"
+                echo "  3D model extraction will be disabled. To enable, add GPU device reservation"
+                echo "  to docker-compose.bundle.yml (see deploy.resources.reservations.devices)"
+            fi
+        fi
+        ;;
+esac
 
 RENDERER_READY=false
 if [ "$RENDERER_AVAILABLE" = true ]; then

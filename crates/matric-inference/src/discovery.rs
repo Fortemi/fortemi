@@ -361,9 +361,15 @@ impl ModelDiscovery {
             let discovered = DiscoveredModel {
                 name: model.name.clone(),
                 size: model.size,
-                family: model.details.as_ref().map(|d| d.family.clone()),
-                parameter_size: model.details.as_ref().map(|d| d.parameter_size.clone()),
-                quantization: model.details.as_ref().map(|d| d.quantization_level.clone()),
+                family: model.details.as_ref().and_then(|d| d.family.clone()),
+                parameter_size: model
+                    .details
+                    .as_ref()
+                    .and_then(|d| d.parameter_size.clone()),
+                quantization: model
+                    .details
+                    .as_ref()
+                    .and_then(|d| d.quantization_level.clone()),
                 has_known_capabilities: has_known_caps,
                 capabilities,
             };
@@ -683,17 +689,23 @@ impl fmt::Debug for OllamaModel {
 
 #[derive(Deserialize)]
 struct OllamaModelDetails {
-    family: String,
-    parameter_size: String,
-    quantization_level: String,
+    family: Option<String>,
+    parameter_size: Option<String>,
+    quantization_level: Option<String>,
 }
 
 impl fmt::Debug for OllamaModelDetails {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OllamaModelDetails")
-            .field("family_len", &self.family.len())
-            .field("parameter_size_len", &self.parameter_size.len())
-            .field("quantization_level_len", &self.quantization_level.len())
+            .field("family_len", &self.family.as_ref().map(String::len))
+            .field(
+                "parameter_size_len",
+                &self.parameter_size.as_ref().map(String::len),
+            )
+            .field(
+                "quantization_level_len",
+                &self.quantization_level.as_ref().map(String::len),
+            )
             .finish()
     }
 }
@@ -857,9 +869,9 @@ mod tests {
                 name: "ollama-private@example.com".to_string(),
                 size: 7,
                 details: Some(OllamaModelDetails {
-                    family: "family-private".to_string(),
-                    parameter_size: "secret-parameter".to_string(),
-                    quantization_level: "secret-quant".to_string(),
+                    family: Some("family-private".to_string()),
+                    parameter_size: Some("secret-parameter".to_string()),
+                    quantization_level: Some("secret-quant".to_string()),
                 }),
             }],
         };

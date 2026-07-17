@@ -459,6 +459,64 @@ impl ProviderRegistry {
         self.resolve_generation_boxed(&format!("{}:{model}", self.default_provider))
     }
 
+    /// Resolve the configured embedding provider using its environment model.
+    pub fn resolve_default_embedding_boxed(
+        &self,
+    ) -> Result<Box<dyn matric_core::EmbeddingBackend>> {
+        let provider_id = self.embedding_provider();
+        let config = self
+            .providers
+            .get(provider_id)
+            .ok_or_else(|| Error::Config(format!("Unknown provider: {}", provider_id)))?;
+
+        if !config.capabilities.contains(&ProviderCapability::Embedding) {
+            return Err(Error::Config(format!(
+                "Provider '{}' does not support embeddings",
+                provider_id
+            )));
+        }
+
+        match provider_id {
+            #[cfg(feature = "ollama")]
+            "ollama" => Ok(Box::new(crate::OllamaBackend::from_env())),
+            #[cfg(feature = "openai")]
+            "openai" | "openrouter" | "llamacpp" => {
+                let embed_model = match provider_id {
+                    "openai" => std::env::var("OPENAI_EMBED_MODEL")
+                        .unwrap_or_else(|_| "text-embedding-3-small".to_string()),
+                    "openrouter" => std::env::var("OPENROUTER_EMBED_MODEL")
+                        .unwrap_or_else(|_| "text-embedding-3-small".to_string()),
+                    "llamacpp" => std::env::var("LLAMACPP_EMBED_MODEL")
+                        .unwrap_or_else(|_| "default".to_string()),
+                    _ => unreachable!(),
+                };
+                let embed_dim = match provider_id {
+                    "openai" => std::env::var("OPENAI_EMBED_DIM").ok(),
+                    "openrouter" => std::env::var("OPENROUTER_EMBED_DIM").ok(),
+                    "llamacpp" => std::env::var("LLAMACPP_EMBED_DIM").ok(),
+                    _ => None,
+                }
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(1536);
+                let oai_config = crate::OpenAIConfig {
+                    base_url: config.base_url.clone(),
+                    api_key: config.api_key.clone(),
+                    embed_model,
+                    embed_dimension: embed_dim,
+                    http_referer: config.http_referer.clone(),
+                    x_title: config.x_title.clone(),
+                    timeout_seconds: config.timeout.as_secs(),
+                    ..Default::default()
+                };
+                Ok(Box::new(crate::OpenAIBackend::new(oai_config)?))
+            }
+            _ => Err(Error::Config(format!(
+                "Provider '{}' not compiled in (check feature flags)",
+                provider_id
+            ))),
+        }
+    }
+
     /// Resolve an optional model override to a boxed generation backend.
     ///
     /// - `None` → `Ok(None)` — caller should use its default backend

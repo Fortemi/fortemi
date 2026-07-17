@@ -142,8 +142,9 @@ OLLAMA_HOST=http://host.docker.internal:11434
 OLLAMA_EMBED_MODEL=nomic-embed-text
 OLLAMA_EMBED_DIM=768
 
-# Intel profile: do not ask Docker for NVIDIA devices.
-OPEN3D_CPU_RENDERING=true
+# Intel profile: do not ask Docker for NVIDIA devices or probe Open3D.
+RENDERER_ENABLED=false
+OPEN3D_ENABLED=false
 NVIDIA_VISIBLE_DEVICES=
 NVIDIA_DRIVER_CAPABILITIES=
 ```
@@ -202,7 +203,7 @@ CPU-sidecar profile. On an Intel host it starts:
 | `whisper` (CPU) | `edge` | Audio transcription | CPU |
 | `pyannote` (CPU) | `edge` | Speaker diarization | CPU |
 | `gliner` | *(always)* | Zero-shot entity extraction | CPU |
-| `open3d` | *(always)* | 3D model rendering (`OPEN3D_CPU_RENDERING=true`) | CPU |
+| `open3d` | disabled by Intel overlay | 3D model rendering | disabled |
 
 The GPU Whisper/pyannote profiles (`gpu-12gb`, `gpu-24gb`) remain NVIDIA/CUDA
 oriented — do not use them on Intel hosts unless you provide separate
