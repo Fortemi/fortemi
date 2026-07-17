@@ -17070,12 +17070,22 @@ async fn search_notes(
     }
     // Generate query embedding for semantic/hybrid search
     let query_embedding = if config.semantic_weight > 0.0 && !query.q.trim().is_empty() {
-        let backend = OllamaBackend::from_env();
-        backend
-            .embed_texts(std::slice::from_ref(&query.q))
-            .await
-            .ok()
-            .and_then(|vecs| vecs.into_iter().next())
+        match state.provider_registry().resolve_default_embedding_boxed() {
+            Ok(backend) => backend
+                .embed_texts(std::slice::from_ref(&query.q))
+                .await
+                .ok()
+                .and_then(|vecs| vecs.into_iter().next()),
+            Err(e) => {
+                warn!(
+                    error_len = telemetry_text_len(&e.to_string()),
+                    provider_len =
+                        telemetry_text_len(state.provider_registry().embedding_provider()),
+                    "Search query embedding backend could not be constructed"
+                );
+                None
+            }
+        }
     } else {
         None
     };
