@@ -47,6 +47,15 @@ params:
       Hardware profile — edge (6-8GB VRAM), gpu-12gb (12-16GB), or gpu-24gb (24GB+).
       GPU profiles only apply to local inference (Ollama/llama.cpp).
 
+  - name: FORTEMI_INSTALL_MODE
+    type: choice
+    choices: [secure, local-no-auth]
+    default: secure
+    description: >-
+      First-run auth mode. secure requires authentication. local-no-auth writes
+      the explicit no-auth acknowledgment and binds published API/MCP ports to
+      127.0.0.1 for single-user workstation installs.
+
   - name: INFERENCE_PROVIDER
     type: choice
     choices: [ollama, openai, openrouter, llamacpp]
