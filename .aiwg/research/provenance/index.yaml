@@ -1,0 +1,8 @@
+metadata:
+  schema_version: "1.0.0"
+  updated_at: "2026-07-17T21:29:12Z"
+records:
+  - entity: "crates/matric-api/src/main.rs"
+    record: "records/matric-api-main-openapi-contract-1060.prov.yaml"
+  - entity: "crates/matric-api/src/handlers/inference_complete.rs"
+    record: "records/inference-complete-openapi-contract-1060.prov.yaml"

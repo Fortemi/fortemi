@@ -1,0 +1,52 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-17T21:29:12Z"
+  description: "Provenance for inference completion OpenAPI annotations added by Fortemi issue #1060"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+  type: code
+  created_at: "2026-04-16T12:24:59-04:00"
+  updated_at: "2026-07-17T21:29:12Z"
+  checksum: "sha256:77590e29e56726fadf667c9bf78c6f66cf98d2b1c4c45bd5ec8903ef87387c35"
+  size_bytes: 27402
+  attributes:
+    language: rust
+    issue: "Fortemi/Fortemi#1060"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-inference-openapi:001"
+  type: modification
+  started_at: "2026-07-17T21:15:00Z"
+  ended_at: "2026-07-17T21:29:12Z"
+  description: "Describe inference completion requests, responses, and routes in OpenAPI"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+  attributes:
+    delegated_roles:
+      - api-designer
+      - software-implementer
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-inference-openapi:001"
+    time: "2026-07-17T21:29:12Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:fortemi-inference-openapi:001"
+      entity: "urn:gitea:issue:Fortemi/Fortemi:1060"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+      source: "urn:gitea:issue:Fortemi/Fortemi:1060"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-inference-openapi:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-inference-openapi:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

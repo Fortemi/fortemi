@@ -530,21 +530,27 @@ jobs:
           VERBOSE=1 \
             bash scripts/container-api-tests.sh
 
-      - name: Export OpenAPI spec
+      - name: Verify published OpenAPI contract
         run: |
           TEST_PORT=$((13001 + (GITHUB_RUN_ID % 1000)))
-          curl -sf http://localhost:${TEST_PORT}/openapi.yaml -o openapi.yaml
+          curl -sf http://localhost:${TEST_PORT}/openapi.yaml -o openapi-runtime.yaml
+          scripts/ci/openapi-contract.sh receipt \
+            openapi-runtime.yaml \
+            openapi-contract-receipt.json
 
       - name: Export AsyncAPI spec
         run: |
           TEST_PORT=$((13001 + (GITHUB_RUN_ID % 1000)))
           curl -sf http://localhost:${TEST_PORT}/asyncapi.yaml -o asyncapi.yaml
 
-      - name: Upload OpenAPI spec artifact
+      - name: Upload OpenAPI contract artifact
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
         with:
-          name: openapi-spec
-          path: openapi.yaml
+          name: openapi-contract
+          path: |
+            contracts/openapi/openapi.yaml
+            contracts/openapi/openapi.sha256
+            openapi-contract-receipt.json
 
       - name: Upload AsyncAPI spec artifact
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3

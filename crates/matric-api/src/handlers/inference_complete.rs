@@ -19,6 +19,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
 use tracing::{debug, error, info, warn};
+use utoipa::ToSchema;
 
 use crate::{ApiError, AppState};
 
@@ -30,7 +31,7 @@ const INFERENCE_COMPLETION_PROVIDER_DETAIL: &str =
 // =============================================================================
 
 /// A single chat message — `{role, content}`.
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize, ToSchema)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
@@ -55,7 +56,7 @@ impl std::fmt::Debug for ChatMessage {
 /// forwarded — the underlying `GenerationBackend` trait doesn't take them.
 /// When the trait grows a richer API these become effective; kept in the
 /// wire format now to avoid a breaking change later.
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, ToSchema)]
 #[allow(dead_code)]
 pub struct CompleteRequest {
     /// Provider id — `ollama`, `openai`, `openrouter`, `llamacpp`. If absent
@@ -161,7 +162,7 @@ fn complete_text_len(value: &str) -> usize {
 }
 
 /// Response body for `/complete`.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, ToSchema)]
 pub struct CompleteResponse {
     pub content: String,
     pub finish_reason: String,
@@ -181,7 +182,7 @@ impl std::fmt::Debug for CompleteResponse {
 }
 
 /// One entry in the `/providers` response.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, ToSchema)]
 pub struct ProviderInfo {
     pub id: String,
     pub r#type: String,
@@ -221,7 +222,7 @@ impl std::fmt::Debug for ProviderInfo {
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, ToSchema)]
 pub struct ProvidersResponse {
     pub providers: Vec<ProviderInfo>,
 }
@@ -249,6 +250,14 @@ const INFERENCE_FAILURE_MESSAGE: &str =
 /// providers in the registry have env-var config wired and can be used
 /// without BYOK; profiles in the catalog but not in the registry render as
 /// "available, bring your own key".
+#[utoipa::path(
+    get,
+    path = "/api/v1/inference/providers",
+    tag = "Inference",
+    responses(
+        (status = 200, description = "Available inference providers", body = ProvidersResponse),
+    )
+)]
 pub async fn list_providers(State(state): State<AppState>) -> impl IntoResponse {
     use matric_inference::provider_profiles;
 
@@ -302,6 +311,17 @@ pub async fn list_providers(State(state): State<AppState>) -> impl IntoResponse 
 ///
 /// Stateless: builds a fresh backend from request-time creds (or registered
 /// config or env), runs one generate call, returns the result.
+#[utoipa::path(
+    post,
+    path = "/api/v1/inference/complete",
+    tag = "Inference",
+    request_body = CompleteRequest,
+    responses(
+        (status = 200, description = "Completion result", body = CompleteResponse),
+        (status = 400, description = "Invalid request or provider configuration"),
+        (status = 502, description = "Inference provider failure"),
+    )
+)]
 pub async fn complete(
     State(state): State<AppState>,
     Json(req): Json<CompleteRequest>,
@@ -394,6 +414,17 @@ pub async fn complete(
 /// one `delta` event per NDJSON chunk from upstream. Backends that still
 /// use the trait default fall back to a single large `delta` (wire
 /// compatible, just not progressive).
+#[utoipa::path(
+    post,
+    path = "/api/v1/inference/stream",
+    tag = "Inference",
+    request_body = CompleteRequest,
+    responses(
+        (status = 200, description = "Server-sent completion stream", content_type = "text/event-stream"),
+        (status = 400, description = "Invalid request or provider configuration"),
+        (status = 502, description = "Inference provider failure"),
+    )
+)]
 pub async fn stream(
     State(state): State<AppState>,
     Json(req): Json<CompleteRequest>,

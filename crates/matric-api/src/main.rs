@@ -1052,10 +1052,7 @@ impl AppState {
     paths(
         create_webhook, list_webhooks, get_webhook, update_webhook,
         create_incoming_webhook_receiver, list_incoming_webhook_receivers,
-        get_incoming_webhook_receiver, receive_incoming_webhook,
-        update_incoming_webhook_receiver, delete_incoming_webhook_receiver,
         create_inbound_source, list_inbound_sources, delete_inbound_source,
-        validate_incoming_webhook_payload_handler, twilio_realtime_ws,
         get_call,
         delete_webhook_handler, list_webhook_deliveries, test_webhook, rate_limit_status,
         health_check, system_compatibility, get_notes_timeline, get_notes_activity, get_knowledge_health,
@@ -1085,14 +1082,18 @@ impl AppState {
         remove_embedding_set_member, refresh_embedding_set, list_embedding_configs, get_default_embedding_config,
         get_embedding_config, create_embedding_config, update_embedding_config, delete_embedding_config,
         create_job, get_job, pending_jobs_count, list_jobs,
-        queue_stats, extraction_stats, oauth_discovery, oauth_protected_resource,
+        queue_stats, get_job_pause_status, pause_jobs_global, resume_jobs_global,
+        pause_jobs_archive, resume_jobs_archive, extraction_stats,
+        oauth_discovery, oauth_protected_resource,
         oauth_register, oauth_token, oauth_introspect, oauth_revoke,
         oauth_authorize_get, oauth_authorize_post, list_api_keys, create_api_key,
         revoke_api_key, backup_export, backup_download, backup_import,
         backup_trigger, backup_status, knowledge_shard, knowledge_shard_import,
+        knowledge_shard_import_upload,
         list_attachments, list_all_attachments, upload_attachment, upload_attachment_multipart,
         tus_options, tus_create_upload, tus_head_upload, tus_patch_upload, tus_delete_upload,
-        get_attachment, download_attachment, delete_attachment, list_backups, get_backup_info,
+        get_attachment, download_attachment, get_attachment_subtitles, get_attachment_thumbnail,
+        get_sprite_vtt, get_sprite_sheet, delete_attachment, list_backups, get_backup_info,
         swap_backup, memory_backup_download, database_backup_download, database_backup_snapshot,
         database_backup_upload, database_backup_restore, knowledge_archive_download, knowledge_archive_upload,
         get_backup_metadata, update_backup_metadata, memory_info,
@@ -1115,8 +1116,16 @@ impl AppState {
         handlers::chat::chat_handler,
         handlers::chat::chat_stream_handler,
         handlers::chat::list_chat_models,
-        // handlers::ingest_stream
-        handlers::ingest_stream::ingest_stream_handler,
+        // handlers::inference_complete
+        handlers::inference_complete::list_providers,
+        handlers::inference_complete::complete,
+        handlers::inference_complete::stream,
+        // handlers::inference_config
+        handlers::inference_config::get_inference_config,
+        handlers::inference_config::update_inference_config,
+        handlers::inference_config::delete_inference_config,
+        handlers::inference_config::get_inference_config_audit,
+        handlers::inference_config::test_connection,
         // handlers::ingest_tokens (#829)
         handlers::ingest_tokens::mint_ingest_token,
         handlers::ingest_tokens::revoke_ingest_token,
@@ -1124,10 +1133,18 @@ impl AppState {
         handlers::pke::pke_keygen, handlers::pke::pke_address,
         handlers::pke::pke_encrypt, handlers::pke::pke_decrypt,
         handlers::pke::pke_recipients, handlers::pke::pke_verify,
+        handlers::pke::list_keysets, handlers::pke::create_keyset,
+        handlers::pke::get_active_keyset, handlers::pke::set_active_keyset,
+        handlers::pke::delete_keyset, handlers::pke::export_keyset,
+        handlers::pke::import_keyset,
         // handlers::provenance
         handlers::provenance::create_prov_location, handlers::provenance::create_named_location,
         handlers::provenance::create_prov_device, handlers::provenance::create_file_provenance,
         handlers::provenance::create_note_provenance,
+        streaming_health_check, health_check_live, get_related_notes,
+        graph_diagnostics, capture_diagnostics_snapshot, list_diagnostics_snapshots,
+        compare_diagnostics_snapshots, recompute_snn_scores, pfnet_sparsify,
+        coarse_community_detection, trigger_graph_maintenance,
     ),
     components(
         schemas(
@@ -1341,6 +1358,9 @@ fn openapi_yaml_with_problem_contract() -> String {
     let mut value: serde_yaml::Value =
         serde_yaml::from_str(&spec).expect("OpenAPI YAML must parse for extension injection");
 
+    add_openapi_memory_aliases(&mut value);
+    apply_openapi_route_security(&mut value);
+
     let contract = serde_json::json!({
         "content_type": "application/problem+json",
         "documentation": "/docs/api-error-contract",
@@ -1355,8 +1375,299 @@ fn openapi_yaml_with_problem_contract() -> String {
         serde_yaml::Value::String("x-fortemi-error-contract".to_string()),
         serde_yaml::to_value(contract).expect("Problem contract extension must serialize"),
     );
+    root.insert(
+        serde_yaml::Value::String("x-fortemi-contract".to_string()),
+        serde_yaml::to_value(serde_json::json!({
+            "artifact_path": "contracts/openapi/openapi.yaml",
+            "contract_revision": "1",
+            "producer": "Fortemi/Fortemi",
+            "producer_commit": "Use the immutable Git commit containing this artifact.",
+            "receipt_path": "openapi-contract-receipt.json",
+        }))
+        .expect("Contract metadata extension must serialize"),
+    );
 
     serde_yaml::to_string(&value).expect("OpenAPI YAML with problem extension must serialize")
+}
+
+const OPENAPI_HTTP_METHODS: &[&str] = &[
+    "get", "put", "post", "delete", "options", "head", "patch", "trace",
+];
+
+fn yaml_key(name: &str) -> serde_yaml::Value {
+    serde_yaml::Value::String(name.to_string())
+}
+
+fn add_openapi_memory_aliases(value: &mut serde_yaml::Value) {
+    const ALIASES: &[(&str, &str)] = &[
+        ("/api/v1/archives", "/api/v1/memories"),
+        ("/api/v1/archives/{name}", "/api/v1/memories/{name}"),
+        (
+            "/api/v1/archives/{name}/clone",
+            "/api/v1/memories/{name}/clone",
+        ),
+        (
+            "/api/v1/archives/{name}/set-default",
+            "/api/v1/memories/{name}/set-default",
+        ),
+        (
+            "/api/v1/archives/{name}/stats",
+            "/api/v1/memories/{name}/stats",
+        ),
+    ];
+
+    let paths = value
+        .as_mapping_mut()
+        .and_then(|root| root.get_mut(yaml_key("paths")))
+        .and_then(serde_yaml::Value::as_mapping_mut)
+        .expect("OpenAPI paths must be a mapping");
+
+    for (source, alias) in ALIASES {
+        let mut path_item = paths
+            .get(yaml_key(source))
+            .unwrap_or_else(|| panic!("OpenAPI alias source is missing: {source}"))
+            .clone();
+        let operations = path_item
+            .as_mapping_mut()
+            .expect("OpenAPI path item must be a mapping");
+        for method in OPENAPI_HTTP_METHODS {
+            let Some(operation) = operations
+                .get_mut(yaml_key(method))
+                .and_then(serde_yaml::Value::as_mapping_mut)
+            else {
+                continue;
+            };
+            let operation_id = operation
+                .get(yaml_key("operationId"))
+                .and_then(serde_yaml::Value::as_str)
+                .unwrap_or_else(|| panic!("OpenAPI {source} {method} operationId is missing"));
+            operation.insert(
+                yaml_key("operationId"),
+                serde_yaml::Value::String(format!("{operation_id}_memory_alias")),
+            );
+        }
+        paths.insert(yaml_key(alias), path_item);
+    }
+}
+
+fn apply_openapi_route_security(value: &mut serde_yaml::Value) {
+    let root = value
+        .as_mapping_mut()
+        .expect("OpenAPI document must be a mapping");
+    let components = root
+        .get_mut(yaml_key("components"))
+        .and_then(serde_yaml::Value::as_mapping_mut)
+        .expect("OpenAPI components must be a mapping");
+    let security_schemes = components
+        .entry(yaml_key("securitySchemes"))
+        .or_insert_with(|| serde_yaml::Value::Mapping(serde_yaml::Mapping::new()))
+        .as_mapping_mut()
+        .expect("OpenAPI securitySchemes must be a mapping");
+    security_schemes.insert(
+        yaml_key("bearerAuth"),
+        serde_yaml::to_value(serde_json::json!({
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }))
+        .expect("Bearer security scheme must serialize"),
+    );
+
+    let paths = root
+        .get_mut(yaml_key("paths"))
+        .and_then(serde_yaml::Value::as_mapping_mut)
+        .expect("OpenAPI paths must be a mapping");
+    for (path_value, path_item) in paths {
+        let path = path_value
+            .as_str()
+            .expect("OpenAPI path keys must be strings");
+        let public = route_policy::is_public_without_bearer(path);
+        let operations = path_item
+            .as_mapping_mut()
+            .expect("OpenAPI path item must be a mapping");
+        for method in OPENAPI_HTTP_METHODS {
+            let Some(operation) = operations
+                .get_mut(yaml_key(method))
+                .and_then(serde_yaml::Value::as_mapping_mut)
+            else {
+                continue;
+            };
+            let requirement = if public {
+                serde_yaml::Value::Sequence(Vec::new())
+            } else {
+                serde_yaml::to_value(vec![serde_json::json!({"bearerAuth": []})])
+                    .expect("Bearer security requirement must serialize")
+            };
+            operation.insert(yaml_key("security"), requirement);
+        }
+    }
+}
+
+fn validate_generated_openapi(yaml: &str) -> Result<(), String> {
+    let value: serde_yaml::Value = serde_yaml::from_str(yaml)
+        .map_err(|_| "OpenAPI document is not valid YAML.".to_string())?;
+    let root = value
+        .as_mapping()
+        .ok_or_else(|| "OpenAPI document root must be a mapping.".to_string())?;
+    let field = |name: &str| root.get(serde_yaml::Value::String(name.to_string()));
+
+    if field("openapi").and_then(serde_yaml::Value::as_str) != Some("3.1.0") {
+        return Err("OpenAPI document must declare version 3.1.0.".to_string());
+    }
+    let info = field("info")
+        .and_then(serde_yaml::Value::as_mapping)
+        .ok_or_else(|| "OpenAPI document info is required.".to_string())?;
+    for name in ["title", "version"] {
+        if info
+            .get(serde_yaml::Value::String(name.to_string()))
+            .and_then(serde_yaml::Value::as_str)
+            .is_none_or(str::is_empty)
+        {
+            return Err(format!("OpenAPI info.{name} is required."));
+        }
+    }
+    let paths = field("paths")
+        .and_then(serde_yaml::Value::as_mapping)
+        .ok_or_else(|| "OpenAPI document paths are required.".to_string())?;
+    if paths.is_empty() {
+        return Err("OpenAPI document must contain at least one path.".to_string());
+    }
+    let schemas = field("components")
+        .and_then(serde_yaml::Value::as_mapping)
+        .and_then(|components| {
+            components
+                .get(serde_yaml::Value::String("schemas".to_string()))
+                .and_then(serde_yaml::Value::as_mapping)
+        })
+        .ok_or_else(|| "OpenAPI component schemas are required.".to_string())?;
+    if schemas.is_empty() {
+        return Err("OpenAPI document must contain component schemas.".to_string());
+    }
+    if field("x-fortemi-error-contract").is_none() {
+        return Err("OpenAPI problem error contract extension is required.".to_string());
+    }
+    if field("x-fortemi-contract").is_none() {
+        return Err("OpenAPI immutable artifact metadata extension is required.".to_string());
+    }
+
+    let security_schemes = field("components")
+        .and_then(serde_yaml::Value::as_mapping)
+        .and_then(|components| components.get(yaml_key("securitySchemes")))
+        .and_then(serde_yaml::Value::as_mapping)
+        .ok_or_else(|| "OpenAPI security schemes are required.".to_string())?;
+    let bearer = security_schemes
+        .get(yaml_key("bearerAuth"))
+        .and_then(serde_yaml::Value::as_mapping)
+        .ok_or_else(|| "OpenAPI bearerAuth security scheme is required.".to_string())?;
+    if bearer
+        .get(yaml_key("type"))
+        .and_then(serde_yaml::Value::as_str)
+        != Some("http")
+        || bearer
+            .get(yaml_key("scheme"))
+            .and_then(serde_yaml::Value::as_str)
+            != Some("bearer")
+    {
+        return Err("OpenAPI bearerAuth must use the HTTP bearer scheme.".to_string());
+    }
+
+    let documented_paths: std::collections::BTreeSet<&str> =
+        paths.keys().filter_map(serde_yaml::Value::as_str).collect();
+    for policy in route_policy::ROUTE_POLICY_INVENTORY {
+        let documented = documented_paths.contains(policy.path);
+        if policy.docs == route_policy::DocsExposureClass::Hidden {
+            if documented {
+                return Err(format!(
+                    "Hidden route must not appear in OpenAPI: {}.",
+                    policy.path
+                ));
+            }
+        } else if !matches!(policy.path, "/openapi.yaml" | "/asyncapi.yaml") && !documented {
+            return Err(format!(
+                "Exposed route is missing from OpenAPI: {}.",
+                policy.path
+            ));
+        }
+    }
+
+    for (path_value, path_item) in paths {
+        let path = path_value
+            .as_str()
+            .ok_or_else(|| "OpenAPI path key must be a string.".to_string())?;
+        let policy = route_policy::ROUTE_POLICY_INVENTORY
+            .iter()
+            .find(|policy| policy.path == path)
+            .ok_or_else(|| format!("OpenAPI path has no route policy: {path}."))?;
+        if policy.docs == route_policy::DocsExposureClass::Hidden {
+            return Err(format!("OpenAPI path is classified hidden: {path}."));
+        }
+
+        let operations = path_item
+            .as_mapping()
+            .ok_or_else(|| format!("OpenAPI path item must be a mapping: {path}."))?;
+        let mut operation_count = 0;
+        for method in OPENAPI_HTTP_METHODS {
+            let Some(operation) = operations
+                .get(yaml_key(method))
+                .and_then(serde_yaml::Value::as_mapping)
+            else {
+                continue;
+            };
+            operation_count += 1;
+            if operation
+                .get(yaml_key("operationId"))
+                .and_then(serde_yaml::Value::as_str)
+                .is_none_or(str::is_empty)
+            {
+                return Err(format!("OpenAPI operationId is missing: {method} {path}."));
+            }
+            if operation
+                .get(yaml_key("responses"))
+                .and_then(serde_yaml::Value::as_mapping)
+                .is_none_or(serde_yaml::Mapping::is_empty)
+            {
+                return Err(format!("OpenAPI responses are missing: {method} {path}."));
+            }
+            let security = operation
+                .get(yaml_key("security"))
+                .and_then(serde_yaml::Value::as_sequence)
+                .ok_or_else(|| {
+                    format!("OpenAPI security requirement is missing: {method} {path}.")
+                })?;
+            let public = route_policy::is_public_without_bearer(path);
+            if public != security.is_empty() {
+                return Err(format!(
+                    "OpenAPI security requirement disagrees with route policy: {method} {path}."
+                ));
+            }
+        }
+        if operation_count == 0 {
+            return Err(format!("OpenAPI path has no HTTP operations: {path}."));
+        }
+    }
+
+    Ok(())
+}
+
+fn export_openapi_if_requested() -> anyhow::Result<bool> {
+    let mut args = std::env::args_os().skip(1);
+    let Some(command) = args.next() else {
+        return Ok(false);
+    };
+    if command != "--export-openapi" {
+        return Ok(false);
+    }
+    let output = args
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("usage: matric-api --export-openapi <output-path>"))?;
+    if args.next().is_some() {
+        anyhow::bail!("usage: matric-api --export-openapi <output-path>");
+    }
+
+    let yaml = openapi_yaml_with_problem_contract();
+    validate_generated_openapi(&yaml).map_err(anyhow::Error::msg)?;
+    std::fs::write(output, yaml)?;
+    Ok(true)
 }
 
 /// Serve AsyncAPI 3.0 YAML spec (auto-generated from ServerEvent metadata + schemars).
@@ -1986,6 +2297,10 @@ fn parse_allowed_origins_value(origins_str: &str) -> Vec<HeaderValue> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if export_openapi_if_requested()? {
+        return Ok(());
+    }
+
     // Load environment variables
     dotenvy::dotenv().ok();
 
@@ -14235,9 +14550,9 @@ struct AddMemberBody {
     position: Option<i32>,
 }
 
-#[utoipa::path(post, path = "/api/v1/concepts/collections/{collection_id}/members/{concept_id}", tag = "SKOS",
+#[utoipa::path(post, path = "/api/v1/concepts/collections/{id}/members/{concept_id}", tag = "SKOS",
     params(
-        ("collection_id" = Uuid, Path, description = "Collection ID"),
+        ("id" = Uuid, Path, description = "Collection ID"),
         ("concept_id" = Uuid, Path, description = "Concept ID"),
     ),
     responses((status = 201, description = "Created"))
@@ -14282,9 +14597,9 @@ async fn add_skos_collection_member(
     Ok(StatusCode::CREATED)
 }
 
-#[utoipa::path(delete, path = "/api/v1/concepts/collections/{collection_id}/members/{concept_id}", tag = "SKOS",
+#[utoipa::path(delete, path = "/api/v1/concepts/collections/{id}/members/{concept_id}", tag = "SKOS",
     params(
-        ("collection_id" = Uuid, Path, description = "Collection ID"),
+        ("id" = Uuid, Path, description = "Collection ID"),
         ("concept_id" = Uuid, Path, description = "Concept ID"),
     ),
     responses((status = 204, description = "Success"))
@@ -15033,6 +15348,17 @@ struct PfnetSparsifyBody {
     dry_run: Option<bool>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/graph/community/coarse",
+    tag = "Graph",
+    request_body = CoarseCommunityBody,
+    responses(
+        (status = 200, description = "Coarse community detection result"),
+        (status = 400, description = "Invalid community detection parameters"),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 async fn coarse_community_detection(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -41722,6 +42048,69 @@ mod tests {
             path_count >= 100,
             "Expected at least 100 API paths, found {}. Did handler annotations get removed?",
             path_count
+        );
+    }
+
+    #[test]
+    fn generated_openapi_passes_strict_contract_validation() {
+        validate_generated_openapi(&openapi_yaml_with_problem_contract())
+            .expect("generated OpenAPI must satisfy the published contract");
+    }
+
+    #[test]
+    fn openapi_validation_rejects_malformed_and_incomplete_fixtures() {
+        let malformed = "openapi: [";
+        assert_eq!(
+            validate_generated_openapi(malformed),
+            Err("OpenAPI document is not valid YAML.".to_string())
+        );
+
+        let mut incomplete: serde_yaml::Value =
+            serde_yaml::from_str(&openapi_yaml_with_problem_contract())
+                .expect("generated OpenAPI fixture must parse");
+        incomplete
+            .as_mapping_mut()
+            .and_then(|root| root.get_mut(yaml_key("paths")))
+            .and_then(serde_yaml::Value::as_mapping_mut)
+            .expect("paths fixture")
+            .remove(yaml_key("/health/live"));
+        let incomplete =
+            serde_yaml::to_string(&incomplete).expect("incomplete fixture must serialize");
+        assert_eq!(
+            validate_generated_openapi(&incomplete),
+            Err("Exposed route is missing from OpenAPI: /health/live.".to_string())
+        );
+    }
+
+    #[test]
+    fn openapi_validation_rejects_operation_without_explicit_security() {
+        let mut incomplete: serde_yaml::Value =
+            serde_yaml::from_str(&openapi_yaml_with_problem_contract())
+                .expect("generated OpenAPI fixture must parse");
+        incomplete
+            .as_mapping_mut()
+            .and_then(|root| root.get_mut(yaml_key("paths")))
+            .and_then(serde_yaml::Value::as_mapping_mut)
+            .and_then(|paths| paths.get_mut(yaml_key("/health/live")))
+            .and_then(serde_yaml::Value::as_mapping_mut)
+            .and_then(|path| path.get_mut(yaml_key("get")))
+            .and_then(serde_yaml::Value::as_mapping_mut)
+            .expect("health operation fixture")
+            .remove(yaml_key("security"));
+        let incomplete =
+            serde_yaml::to_string(&incomplete).expect("incomplete fixture must serialize");
+        assert_eq!(
+            validate_generated_openapi(&incomplete),
+            Err("OpenAPI security requirement is missing: get /health/live.".to_string())
+        );
+    }
+
+    #[test]
+    fn committed_openapi_artifact_is_current() {
+        assert_eq!(
+            openapi_yaml_with_problem_contract(),
+            include_str!("../../../contracts/openapi/openapi.yaml"),
+            "run scripts/ci/openapi-contract.sh generate"
         );
     }
 

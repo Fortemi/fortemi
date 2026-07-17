@@ -1,0 +1,65 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-17T21:29:12Z"
+  description: "Provenance for Fortemi issue #1060 OpenAPI generation and validation changes"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+  type: code
+  created_at: "2026-02-05T11:45:09-05:00"
+  updated_at: "2026-07-17T21:29:12Z"
+  checksum: "sha256:2efd97c4554904a4508c3dc1494f92c1a6aeee68d0665be6a6e9a765df6704da"
+  size_bytes: 1662584
+  attributes:
+    language: rust
+    issue: "Fortemi/Fortemi#1060"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-openapi-contract-main:001"
+  type: modification
+  started_at: "2026-07-17T21:15:00Z"
+  ended_at: "2026-07-17T21:29:12Z"
+  description: "Generate, secure, validate, and export the deterministic Fortemi OpenAPI contract"
+  attributes:
+    verification:
+      - "cargo test -p matric-api --bin matric-api"
+      - "cargo clippy -p matric-api --bin matric-api -- -D warnings"
+      - "scripts/ci/openapi-contract.sh check"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+  attributes:
+    delegated_roles:
+      - api-designer
+      - software-implementer
+      - test-engineer
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-openapi-contract-main:001"
+    time: "2026-07-17T21:29:12Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:fortemi-openapi-contract-main:001"
+      entity: "urn:gitea:issue:Fortemi/Fortemi:1060"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:fortemi-openapi-contract-main:001"
+      entity: "urn:aiwg:artifact:crates/matric-api/src/route_policy.rs"
+      role: route_policy_authority
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+      source: "urn:gitea:issue:Fortemi/Fortemi:1060"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-openapi-contract-main:001"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+      source: "urn:aiwg:artifact:crates/matric-api/src/route_policy.rs"
+      derivation_type: conforms_to
+      activity: "urn:aiwg:activity:modification:fortemi-openapi-contract-main:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-openapi-contract-main:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"
