@@ -1,0 +1,89 @@
+name: Publish GHCR Bundle Backfill
+
+on:
+  push:
+    tags:
+      - 'publish-ghcr-bundle-latest-v*'
+
+env:
+  GHCR_REGISTRY: ghcr.io
+  GHCR_IMAGE_NAME: fortemi/fortemi
+  VAULT_ADDR: ${{ vars.VAULT_ADDR }}
+  GH_PUBLISH_TOKEN_VAULT_PATH: ${{ vars.GH_PUBLISH_TOKEN_VAULT_PATH }}
+  GH_PUBLISH_TOKEN_VAULT_FIELD: ${{ vars.GH_PUBLISH_TOKEN_VAULT_FIELD }}
+
+jobs:
+  publish-ghcr-bundle-backfill:
+    name: Publish GHCR Bundle Backfill
+    runs-on: matric-builder
+    if: startsWith(github.ref, 'refs/tags/publish-ghcr-bundle-latest-v')
+    steps:
+      - name: Resolve release tag
+        run: |
+          set -euo pipefail
+          RELEASE_TAG="${GITHUB_REF_NAME#publish-ghcr-bundle-latest-}"
+          VERSION="${RELEASE_TAG#v}"
+
+          if ! printf '%s\n' "${RELEASE_TAG}" | grep -Eq '^v[0-9]+(\.[0-9]+){1,3}(-[A-Za-z0-9._-]+)?$'; then
+            echo "Invalid release tag derived from ${GITHUB_REF_NAME}: ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+
+          {
+            echo "RELEASE_TAG=${RELEASE_TAG}"
+            echo "VERSION=${VERSION}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Checkout release source
+        run: |
+          set -euo pipefail
+          git clone https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git fetch --depth 1 origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          git checkout "${RELEASE_TAG}"
+
+      - name: Fetch GHCR token from vault
+        env:
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.github-release.spec
+
+      - name: Log in to GitHub Container Registry
+        run: printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" | docker login "${GHCR_REGISTRY}" -u fortemi --password-stdin
+
+      - name: Set up Docker buildx
+        run: |
+          set -euo pipefail
+          docker run --privileged --rm tonistiigi/binfmt --install arm64
+          docker buildx create --name fortemi-multiarch --use 2>/dev/null || docker buildx use fortemi-multiarch
+          docker buildx inspect --bootstrap
+
+      - name: Build and push GHCR bundle tags
+        run: |
+          set -euo pipefail
+          IMAGE="${GHCR_REGISTRY}/${GHCR_IMAGE_NAME}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          GIT_SHA=$(git rev-parse HEAD)
+
+          echo "Backfilling GHCR bundle release ${RELEASE_TAG} (${GIT_SHA})"
+
+          # Keep the bundle's in-product help archive consistent with the
+          # release source before Dockerfile.bundle copies docker/seed-data.
+          docker build --no-cache \
+            --build-arg VERSION="${VERSION}" \
+            --build-arg GIT_SHA="${GIT_SHA}" \
+            --build-arg BUILD_DATE="${BUILD_DATE}" \
+            -t "${IMAGE}:${VERSION}" .
+
+          scripts/ci/rebuild-shard-in-ci.sh "${IMAGE}:${VERSION}"
+
+          docker buildx build --no-cache \
+            --platform linux/amd64,linux/arm64 \
+            -f Dockerfile.bundle \
+            --build-arg VERSION="${VERSION}" \
+            --build-arg GIT_SHA="${GIT_SHA}" \
+            --build-arg BUILD_DATE="${BUILD_DATE}" \
+            -t "${IMAGE}:bundle-${VERSION}" \
+            -t "${IMAGE}:bundle-latest" \
+            --push .
+
+          echo "Published ${IMAGE}:bundle-${VERSION} and ${IMAGE}:bundle-latest as linux/amd64 + linux/arm64 indexes"
