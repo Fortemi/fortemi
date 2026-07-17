@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'build/gliner/**'
+      - '.gitea/workflows/build-gliner.yaml'
     tags: ['sidecar-gliner-v*']
   workflow_dispatch:
 
@@ -38,6 +39,12 @@ jobs:
         run: |
           printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
           printf '%s\n' "${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" | docker login ${GITEA_REGISTRY} -u ${{ gitea.actor }} --password-stdin
+
+      - name: Set up Docker buildx
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --install arm64
+          docker buildx create --name fortemi-multiarch --use 2>/dev/null || docker buildx use fortemi-multiarch
+          docker buildx inspect --bootstrap
 
       - name: Determine tags
         run: |
@@ -118,45 +125,14 @@ jobs:
           docker stop gliner-verify && docker rm gliner-verify
           echo "All GLiNER tests passed!"
 
-      - name: Push images
+      - name: Push multi-arch images
         run: |
-          GHCR="${GHCR_REGISTRY}/${IMAGE_NAME}"
-          GITEA="${GITEA_REGISTRY}/${IMAGE_NAME}"
-          SHORT_SHA="${GITHUB_SHA:0:7}"
+          echo "Publishing GLiNER multi-arch image indexes to both registries..."
+          docker buildx build --no-cache \
+            --platform linux/amd64,linux/arm64 \
+            -f build/gliner/Dockerfile \
+            ${DOCKER_TAGS} \
+            --push \
+            build/gliner
 
-          push_with_retry() {
-            local image=$1
-            local max_attempts=3
-            local attempt=1
-            while [ $attempt -le $max_attempts ]; do
-              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
-              if docker push "${image}"; then
-                return 0
-              fi
-              echo "Push failed, waiting before retry..."
-              sleep $((attempt * 5))
-              attempt=$((attempt + 1))
-            done
-            echo "Failed to push ${image} after ${max_attempts} attempts"
-            return 1
-          }
-
-          echo "Pushing to Gitea Registry..."
-          push_with_retry ${GITEA}:gliner
-          push_with_retry ${GITEA}:gliner-${SHORT_SHA}
-          push_with_retry ${GITEA}:gliner-main
-          push_with_retry ${GITEA}:gliner-latest
-
-          echo "Pushing to GitHub Container Registry..."
-          push_with_retry ${GHCR}:gliner
-          push_with_retry ${GHCR}:gliner-${SHORT_SHA}
-          push_with_retry ${GHCR}:gliner-latest
-
-          # Push versioned tags if this is a release
-          if echo "${GITHUB_REF}" | grep -q 'refs/tags/sidecar-gliner-v'; then
-            VERSION="${GITHUB_REF_NAME#sidecar-gliner-v}"
-            push_with_retry ${GITEA}:gliner-${VERSION}
-            push_with_retry ${GHCR}:gliner-${VERSION}
-          fi
-
-          echo "Published GLiNER images to both registries"
+          echo "Published GLiNER linux/amd64 + linux/arm64 images to both registries"
