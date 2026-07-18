@@ -44471,7 +44471,7 @@ not-json
         ))
         .expect("contract receipt must be valid JSON");
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert_eq!(receipt["contractRevision"], "15");
+        assert_eq!(receipt["contractRevision"], "16");
         assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
@@ -44481,7 +44481,7 @@ not-json
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
         assert_eq!(
             receipt["profiles"]["full-v1"]["status"],
-            "manifest-schema-candidate"
+            "integrated-archive-candidate"
         );
         assert_eq!(receipt["profiles"]["record-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["record-v1"]["status"], "supported");
@@ -44711,6 +44711,32 @@ not-json
                 .as_str()
                 .expect("full-v1 manifest candidate fixture digest must be a string")
         );
+        for (path_key, digest_key) in [
+            (
+                "candidateIntegratedArchive",
+                "candidateIntegratedArchiveSha256",
+            ),
+            (
+                "candidateIntegratedArchiveReceipt",
+                "candidateIntegratedArchiveReceiptSha256",
+            ),
+            (
+                "candidateIntegratedArchiveGenerator",
+                "candidateIntegratedArchiveGeneratorSha256",
+            ),
+        ] {
+            let path = receipt["profiles"]["full-v1"][path_key]
+                .as_str()
+                .expect("full-v1 integrated candidate receipt path must be a string");
+            let bytes = std::fs::read(workspace_root.join(path))
+                .expect("full-v1 integrated candidate receipt path must exist");
+            assert_eq!(
+                hex::encode(sha2::Sha256::digest(bytes)),
+                receipt["profiles"]["full-v1"][digest_key]
+                    .as_str()
+                    .expect("full-v1 integrated candidate digest must be a string")
+            );
+        }
 
         let historical = &receipt["historicalReleases"]["1.0.0/core-v1"];
         let mut historical_schema_bundle = sha2::Sha256::new();
@@ -45112,6 +45138,106 @@ not-json
                 "Knowledge shard manifest does not match published full-v1 candidate schema."
             );
         }
+    }
+
+    #[test]
+    fn full_v1_integrated_candidate_blob_digest_receipt() {
+        assert_eq!(
+            matric_db::compute_content_hash(b"Fortemi full-v1 attachment fixture\n"),
+            "blake3:1098b345e8aacd29e640d3bf724368680c1bfd401b5a9105cb2dc924740c27ad"
+        );
+    }
+
+    #[test]
+    fn full_v1_integrated_candidate_archive_round_trips_semantics_and_required_bytes() {
+        use sha2::Digest;
+
+        fn assert_typed_jsonl_round_trip<T>(data: &[u8])
+        where
+            T: serde::de::DeserializeOwned + serde::Serialize,
+        {
+            for line in std::str::from_utf8(data).unwrap().lines() {
+                let expected: serde_json::Value = serde_json::from_str(line).unwrap();
+                let typed: T = serde_json::from_value(expected.clone()).unwrap();
+                assert_eq!(serde_json::to_value(typed).unwrap(), expected);
+            }
+        }
+
+        let archive =
+            include_bytes!("../../../tests/fixtures/shards/full-v1-integrated-candidate.shard");
+        let receipt: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../tests/fixtures/shards/full-v1-integrated-candidate.shard.receipt.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            hex::encode(sha2::Sha256::digest(archive)),
+            receipt["archiveSha256"].as_str().unwrap()
+        );
+
+        let files = read_shard_archive(archive, ShardArchiveLimits::default())
+            .expect("integrated candidate archive must pass bounded archive preflight");
+        assert_eq!(
+            hex::encode(sha2::Sha256::digest(&files["manifest.json"])),
+            receipt["manifestSha256"].as_str().unwrap()
+        );
+        let manifest = parse_and_validate_shard_manifest(&files["manifest.json"])
+            .expect("integrated candidate manifest must match its published schema");
+        assert_eq!(manifest.profile.as_deref(), Some("full-v1"));
+        assert_eq!(manifest.components.len(), 33);
+        assert_eq!(manifest.checksums.len(), 33);
+        assert_eq!(
+            validate_shard_manifest_contract(&manifest).unwrap_err(),
+            "Knowledge shard profile is not supported by this server release."
+        );
+        validate_shard_component_inventory(&manifest, &files)
+            .expect("integrated candidate component inventory must validate");
+        for (filename, expected) in &manifest.checksums {
+            assert_eq!(
+                hex::encode(sha2::Sha256::digest(&files[filename])),
+                *expected,
+                "integrated candidate checksum drift: {filename}"
+            );
+        }
+
+        let attachment_digests = validate_shard_relationships(&files)
+            .expect("integrated candidate relationships must be coherent");
+        let sidecars = validate_shard_sidecars(&files, &attachment_digests, "full-v1")
+            .expect("integrated candidate must contain every required attachment byte");
+        assert_eq!(attachment_digests.len(), 1);
+        assert_eq!(sidecars.len(), 1);
+        let attachment_reference_count =
+            parse_shard_component_records("notes", &files["notes.jsonl"])
+                .unwrap()
+                .iter()
+                .map(|note| note["attachments"].as_array().unwrap().len())
+                .sum::<usize>();
+        assert_eq!(
+            attachment_reference_count,
+            receipt["attachmentReferenceCount"].as_u64().unwrap() as usize
+        );
+        let blob_checksum = receipt["blobChecksum"].as_str().unwrap();
+        assert_eq!(
+            sidecars[blob_checksum],
+            b"Fortemi full-v1 attachment fixture\n"
+        );
+
+        assert_typed_jsonl_round_trip::<ShardNoteOriginalRecord>(&files["note_originals.jsonl"]);
+        assert_typed_jsonl_round_trip::<ShardNoteOriginalHistoryRecord>(
+            &files["note_original_history.jsonl"],
+        );
+        assert_typed_jsonl_round_trip::<ShardNoteRevisedCurrentRecord>(
+            &files["note_revised_current.jsonl"],
+        );
+        assert_typed_jsonl_round_trip::<ShardNoteRevisionRecord>(&files["note_revisions.jsonl"]);
+
+        let entries = files
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice(), tar::EntryType::Regular))
+            .collect::<Vec<_>>();
+        let rebuilt = test_shard_archive(&entries);
+        let round_tripped = read_shard_archive(&rebuilt, ShardArchiveLimits::default())
+            .expect("rebuilt integrated candidate archive must remain readable");
+        assert_eq!(round_tripped, files);
     }
 
     #[test]

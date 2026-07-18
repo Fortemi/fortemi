@@ -1,0 +1,26 @@
+{
+  "profile": "full-v1",
+  "status": "integrated-candidate",
+  "archive": "tests/fixtures/shards/full-v1-integrated-candidate.shard",
+  "archiveSha256": "4bc447f01bf78fca7f9e2dd1b6391aa3052000e1d12c26c04939273f0ce8c5d6",
+  "manifestSha256": "b22add185f3c6131c1b297a24443c2fdc3e12ca9026768af6c0c36abb6b9339a",
+  "componentCount": 33,
+  "componentChecksumCount": 33,
+  "noteCount": 2,
+  "attachmentReferenceCount": 2,
+  "distinctBlobCount": 1,
+  "blobChecksum": "blake3:1098b345e8aacd29e640d3bf724368680c1bfd401b5a9105cb2dc924740c27ad",
+  "blobBytes": 35,
+  "semanticAssertions": [
+    "all component schemas and cross-component relationships validate",
+    "original and revised current content match the note projection",
+    "revision parent chain and current revision identity are preserved",
+    "two attachment references resolve to one byte-identical sidecar"
+  ],
+  "conformanceClaim": false,
+  "remainingGates": [
+    "canonical signature envelope and signed export",
+    "supported full-v1 export and import routes",
+    "cross-repository producer and consumer receipts"
+  ]
+}

@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, a strict complete-inventory candidate `full-v1` manifest, digest-pinned candidate rich component boundaries with transactional apply paths, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, signed-import verification, and disk-backed streaming preflight for opt-in verified attachment sidecars; `full-v1` conformance remains pending its integrated golden round trip, signed export, mandatory-byte round trip, and cross-repository gates
+**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, a reproducible integrated candidate `full-v1` archive with complete-inventory, semantic/revision, and mandatory-byte proof, digest-pinned rich component boundaries with transactional apply paths, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, signed-import verification, and disk-backed streaming preflight for opt-in verified attachment sidecars; `full-v1` conformance remains pending signed export, supported route round trip, and cross-repository gates
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -78,10 +78,11 @@ archive while preserving IDs, bodies, the empty revision, relationships,
 attachment reference, and tombstone instant. The durable receipt lives beside
 the integration fixture.
 
-Contract revision 15 publishes a strict candidate manifest that requires all
-33 `full-v1` components, all 34 count fields, and all 33 component checksums,
-plus candidate embedding, note-revision, provenance, SKOS, graph, and community
-boundaries under
+Contract revision 16 publishes a reproducible integrated candidate archive
+that requires all 33 `full-v1` components, all 34 count fields, all 33
+component checksums, and one mandatory content-addressed attachment sidecar
+shared by two references. It unifies candidate embedding, note-revision,
+provenance, SKOS, graph, and community boundaries under
 `contracts/knowledge-shard/1.1.0/full-v1/`, with separately digest-pinned
 corpora. The revision boundary covers current original state, original history,
 the current revised snapshot, and the complete revision chain. The provenance
@@ -95,15 +96,20 @@ concepts, labels, notes, semantic and mapping relations, memberships, note
 tags, and ordered collections. The graph boundary preserves source lineage,
 weighted note edges, nested communities, and assignments. These component
 schemas are compiled by the server and exercised by bounded schema,
-relationship, candidate-corpus, and negative-drift tests.
+relationship, candidate-corpus, and negative-drift tests. The deterministic
+generator normalizes the component families onto coherent note identities and
+emits an immutable archive and adjacent receipt. Bounded archive preflight,
+complete inventory and checksum validation, cross-component relationship
+validation, typed revision serialization, mandatory-byte validation,
+deduplication, and archive read/write/read equality all pass against those
+exact bytes.
 Dormant embedding, revision, provenance, SKOS, graph, and community apply paths
 run inside the existing schema-scoped import transaction. Their database tests
 prove exact source-field restoration, repeated replace convergence, skip and
-dry-run accounting, and rollback after a late injected failure. The integrated
-`full-v1` golden archive, signed export, mandatory-byte end-to-end round-trip
-receipt, cross-repository matrix, and profile support remain pending; runtime
-validation accepts the candidate manifest shape and then fails closed at the
-unsupported-profile gate.
+dry-run accounting, and rollback after a late injected failure. Signed export,
+supported route round trip, the cross-repository matrix, and profile support
+remain pending; runtime validation accepts the candidate manifest shape and
+then fails closed at the unsupported-profile gate.
 
 ## Decision
 
