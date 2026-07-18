@@ -90,6 +90,16 @@ function validateRulePack(pack, filename) {
       throw new Error(`rule pack ${filename} declares unknown profile: ${profile}`);
     }
   }
+  for (const contract of pack.contracts || []) {
+    for (const field of ["id", "file", "severity", "category", "remediation"]) {
+      if (!contract[field] || typeof contract[field] !== "string") {
+        throw new Error(`rule pack ${filename} contract missing ${field}`);
+      }
+    }
+    if (typeof contract.validate !== "function") {
+      throw new Error(`rule pack ${filename} contract ${contract.id} must define validate(content)`);
+    }
+  }
   for (const rule of pack.rules) {
     for (const field of ["id", "severity", "category", "remediation"]) {
       if (!rule[field] || typeof rule[field] !== "string") {
@@ -223,7 +233,7 @@ function fingerprint(ruleId, relativePath, lineNumber, line) {
     .slice(0, 16);
 }
 
-function scan(root, profilePolicy = PROFILE_POLICY) {
+function scan(root, profilePolicy = PROFILE_POLICY, enforceContracts = true) {
   const findings = [];
   for (const file of collectFiles(root)) {
     const relativePath = path.relative(root, file);
@@ -250,6 +260,30 @@ function scan(root, profilePolicy = PROFILE_POLICY) {
         });
       }
     });
+  }
+  if (enforceContracts) {
+    for (const pack of ACTIVE_RULE_PACKS) {
+      for (const contract of pack.contracts || []) {
+        const file = path.join(root, contract.file);
+        const surface = classifySurface(contract.file);
+        if (!profilePolicy.surfaces.has(surface)) continue;
+        const content = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+        if (content && contract.validate(content)) continue;
+        findings.push({
+          rule: contract.id,
+          pack: pack.id,
+          issue: pack.ownerIssue,
+          severity: contract.severity,
+          profile: PROFILE,
+          surface,
+          category: contract.category,
+          file: contract.file,
+          line: 1,
+          fingerprint: fingerprint(contract.id, contract.file, 1, contract.id),
+          remediation: contract.remediation,
+        });
+      }
+    }
   }
   return findings;
 }
@@ -427,7 +461,7 @@ function runSelfTest() {
       path.join(tmp, "docs", "negative.md"),
       ACTIVE_RULE_PACKS.flatMap((pack) => pack.negativeFixtures).join("\n")
     );
-    const findings = scan(tmp, allSurfacePolicy);
+    const findings = scan(tmp, allSurfacePolicy, false);
     const positiveFindings = findings.filter((finding) => finding.file.endsWith("positive.md"));
     const negativeFindings = findings.filter((finding) => finding.file.endsWith("negative.md"));
     if (positiveFindings.length < 10) {
@@ -465,7 +499,7 @@ function runSelfTest() {
       throw new Error(`expected baseline to classify all positives as known, got ${JSON.stringify(counts)}`);
     }
     fs.appendFileSync(path.join(tmp, "docs", "positive.md"), "\nPOSTGRES_PASSWORD=matric");
-    const expandedFindings = classifyFindings(scan(tmp, allSurfacePolicy), baseline);
+    const expandedFindings = classifyFindings(scan(tmp, allSurfacePolicy, false), baseline);
     const expandedCounts = countByState(expandedFindings);
     if (expandedCounts.new !== 1) {
       throw new Error(`expected one new finding after baseline, got ${JSON.stringify(expandedCounts)}`);

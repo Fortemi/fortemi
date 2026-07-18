@@ -5556,10 +5556,10 @@ Monitor job progress and system events in real-time via Server-Sent Events.
 # Subscribe to all events
 curl -N https://your-domain.com/api/v1/events
 
-# With authentication
+# Preferred authentication for clients that can set headers
 curl -N -H "Authorization: Bearer <ACCESS_TOKEN>" https://your-domain.com/api/v1/events
 
-# Or via query param (useful for EventSource)
+# Browser EventSource compatibility only
 curl -N "https://your-domain.com/api/v1/events?token=<STREAM_TOKEN>"
 
 # Filter to job events only
@@ -5571,6 +5571,11 @@ curl -N "https://your-domain.com/api/v1/events?types=job.completed,job.failed"
 # Filter to a specific entity
 curl -N "https://your-domain.com/api/v1/events?entity_id=<note-uuid>"
 \`\`\`
+
+Use a short-lived, audience-bound, stream-scoped token for the EventSource
+query path. Never put a reusable access token or API key in the URL, and redact
+query strings containing \`token\` from proxy, ingress, and application access
+logs. Prefer the Authorization header whenever the client can set it.
 
 ## Event Types
 

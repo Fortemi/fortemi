@@ -34,6 +34,42 @@ module.exports = {
     "secret_set: true",
     "task-specific embeddings",
   ],
+  contracts: [
+    {
+      id: "streaming-query-token-caveat-static",
+      file: "docs/content/real-time-events.md",
+      severity: "high",
+      category: "missing_query_token_security_guidance",
+      validate(content) {
+        return (
+          ["short-lived", "audience-bound", "stream-scoped"].every((text) =>
+            content.includes(text)
+          ) &&
+          /Prefer\s+the Authorization header/.test(content) &&
+          /redact\s+query strings/.test(content)
+        );
+      },
+      remediation:
+        "Document header preference plus short-lived, audience-bound, stream-scoped query tokens and access-log redaction.",
+    },
+    {
+      id: "streaming-query-token-caveat-mcp",
+      file: "mcp-server/index.js",
+      severity: "high",
+      category: "missing_query_token_security_guidance",
+      validate(content) {
+        return (
+          ["short-lived", "audience-bound", "stream-scoped"].every((text) =>
+            content.includes(text)
+          ) &&
+          /Prefer\s+the Authorization header/.test(content) &&
+          /redact\s+query strings/.test(content)
+        );
+      },
+      remediation:
+        "Keep model-visible streaming help aligned with the static query-token security guidance.",
+    },
+  ],
   rules: [
     {
       id: "docs-token-placeholder",
