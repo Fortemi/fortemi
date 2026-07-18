@@ -159,8 +159,11 @@ jobs:
       - name: Analyze post-Feb migration risk
         run: python3 scripts/ci/analyze-post-feb-migrations.py > migration-risk-report.json
 
-      - name: Docs contract advisory scan
-        run: DOCS_CONTRACT_MODE=advisory bash scripts/ci/docs-contract.sh .
+      - name: Test docs contract rule packs
+        run: node scripts/ci/docs-contract.cjs --self-test --profile=hosted_strict
+
+      - name: Enforce hosted-strict docs contract
+        run: DOCS_CONTRACT_MODE=blocking bash scripts/ci/docs-contract.sh . --profile=hosted_strict
 
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
