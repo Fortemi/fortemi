@@ -22522,6 +22522,8 @@ const FULL_V1_PROVENANCE_LOCATION_SCHEMA: &str = include_str!(
 );
 const FULL_V1_PROVENANCE_DEVICE_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/provenance-device.schema.json");
+const FULL_V1_PROVENANCE_RECORD_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/provenance-record.schema.json");
 
 #[derive(Clone, Copy)]
 struct ShardArchiveLimits {
@@ -22973,6 +22975,8 @@ fn validate_shard_json_schema(
         LazyLock::new(|| compile_shard_json_schema(FULL_V1_PROVENANCE_LOCATION_SCHEMA));
     static FULL_PROVENANCE_DEVICE: LazyLock<Result<jsonschema::Validator, String>> =
         LazyLock::new(|| compile_shard_json_schema(FULL_V1_PROVENANCE_DEVICE_SCHEMA));
+    static FULL_PROVENANCE_RECORD: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_PROVENANCE_RECORD_SCHEMA));
 
     let validator = match schema_json {
         LEGACY_CORE_V1_MANIFEST_SCHEMA => &*LEGACY_MANIFEST,
@@ -23005,6 +23009,7 @@ fn validate_shard_json_schema(
         FULL_V1_NAMED_LOCATION_SCHEMA => &*FULL_NAMED_LOCATION,
         FULL_V1_PROVENANCE_LOCATION_SCHEMA => &*FULL_PROVENANCE_LOCATION,
         FULL_V1_PROVENANCE_DEVICE_SCHEMA => &*FULL_PROVENANCE_DEVICE,
+        FULL_V1_PROVENANCE_RECORD_SCHEMA => &*FULL_PROVENANCE_RECORD,
         _ => return Err("Unknown canonical knowledge shard schema.".to_string()),
     }
     .as_ref()
@@ -23080,6 +23085,7 @@ fn shard_component_schema(version: &str, profile: &str, component: &str) -> Opti
         ("1.1.0", "full-v1", "named_locations") => Some(FULL_V1_NAMED_LOCATION_SCHEMA),
         ("1.1.0", "full-v1", "provenance_locations") => Some(FULL_V1_PROVENANCE_LOCATION_SCHEMA),
         ("1.1.0", "full-v1", "provenance_devices") => Some(FULL_V1_PROVENANCE_DEVICE_SCHEMA),
+        ("1.1.0", "full-v1", "provenance_records") => Some(FULL_V1_PROVENANCE_RECORD_SCHEMA),
         _ => None,
     }
 }
@@ -41326,7 +41332,7 @@ not-json
         ))
         .expect("contract receipt must be valid JSON");
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert_eq!(receipt["contractRevision"], "10");
+        assert_eq!(receipt["contractRevision"], "11");
         assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
@@ -41336,7 +41342,7 @@ not-json
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
         assert_eq!(
             receipt["profiles"]["full-v1"]["status"],
-            "spatial-provenance-boundary-candidate"
+            "unified-provenance-boundary-candidate"
         );
         assert_eq!(receipt["profiles"]["record-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["record-v1"]["status"], "supported");
@@ -41497,6 +41503,22 @@ not-json
             receipt["profiles"]["full-v1"]["candidateSpatialProvenanceCorpusSha256"]
                 .as_str()
                 .expect("full-v1 spatial provenance candidate fixture digest must be a string")
+        );
+
+        let mut full_v1_unified_provenance_fixture_bundle = sha2::Sha256::new();
+        for relative in [
+            "tests/fixtures/shards/full-v1-unified-provenance-candidate/provenance_records.jsonl",
+        ] {
+            full_v1_unified_provenance_fixture_bundle.update(
+                std::fs::read(workspace_root.join(relative))
+                    .expect("full-v1 unified provenance candidate corpus receipt path must exist"),
+            );
+        }
+        assert_eq!(
+            hex::encode(full_v1_unified_provenance_fixture_bundle.finalize()),
+            receipt["profiles"]["full-v1"]["candidateUnifiedProvenanceCorpusSha256"]
+                .as_str()
+                .expect("full-v1 unified provenance candidate fixture digest must be a string")
         );
 
         let historical = &receipt["historicalReleases"]["1.0.0/core-v1"];
@@ -41743,6 +41765,54 @@ not-json
             .unwrap_err(),
             "Knowledge shard component does not match canonical full-v1 candidate schema."
         );
+    }
+
+    #[test]
+    fn full_v1_candidate_unified_provenance_schema_validates_pinned_corpus() {
+        let data = include_bytes!(
+            "../../../tests/fixtures/shards/full-v1-unified-provenance-candidate/provenance_records.jsonl"
+        );
+        assert_eq!(
+            validate_shard_component_schema_for_profile(
+                matric_core::shard::CURRENT_SHARD_VERSION,
+                "full-v1",
+                "provenance_records",
+                data,
+            )
+            .unwrap(),
+            1
+        );
+
+        let record: serde_json::Value = serde_json::from_slice(data).unwrap();
+        for invalid in [
+            {
+                let mut invalid = record.clone();
+                invalid["attachment_id"] = serde_json::Value::Null;
+                invalid["note_id"] = serde_json::Value::Null;
+                invalid
+            },
+            {
+                let mut invalid = record.clone();
+                invalid["capture_time"]["lower"] = serde_json::Value::Null;
+                invalid
+            },
+            {
+                let mut invalid = record;
+                invalid["original_capture_time"]["lower_infinite"] = serde_json::json!(true);
+                invalid
+            },
+        ] {
+            assert_eq!(
+                validate_shard_component_schema_for_profile(
+                    matric_core::shard::CURRENT_SHARD_VERSION,
+                    "full-v1",
+                    "provenance_records",
+                    &serde_json::to_vec(&invalid).unwrap(),
+                )
+                .unwrap_err(),
+                "Knowledge shard component does not match canonical full-v1 candidate schema."
+            );
+        }
     }
 
     #[test]

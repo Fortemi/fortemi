@@ -109,8 +109,19 @@ observations, and device agents. Geometry is encoded as lowercase,
 SRID-bearing EWKB hex so point and boundary coordinates survive without
 decimal projection loss. Runtime schema and relationship preflight reject
 duplicate registry coordinates, invalid geometry encodings, and unknown named
-location references. Unified attachment/note provenance and spatial registry
-apply behavior are not part of this corpus.
+location references. Spatial registry apply behavior is not part of this
+corpus.
+
+### full-v1-unified-provenance-candidate/
+
+Digest-pinned candidate record for unified note/attachment provenance. It
+references identities in the revision-linked and spatial candidate corpora and
+preserves exact PostgreSQL timestamp-range shape, temporal confidence, device,
+location and activity links, extraction metadata, AI context, and user
+correction state. Runtime schema and relationship preflight reject missing
+targets, duplicate note coordinates, invalid range shapes and enums, and
+unknown cross-boundary references. Transactional apply is not part of this
+corpus.
 
 ### schema-invalid/
 
