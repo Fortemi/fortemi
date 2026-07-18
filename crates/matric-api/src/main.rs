@@ -23343,6 +23343,7 @@ struct MigratedShardArchive {
     manifest: ShardManifest,
     files: std::collections::HashMap<String, Vec<u8>>,
     warnings: Vec<String>,
+    bytes_changed: bool,
 }
 
 fn serialize_shard_component_records(
@@ -23376,6 +23377,7 @@ fn migrate_shard_archive_to_current(
             manifest,
             files,
             warnings: Vec::new(),
+            bytes_changed: false,
         });
     }
 
@@ -23447,6 +23449,7 @@ fn migrate_shard_archive_to_current(
             "Migrated Knowledge Shard schema {source_version} to {CURRENT_SHARD_VERSION}; \
              defaulted deleted_at to null for {defaulted_tombstones} legacy note records."
         )],
+        bytes_changed: true,
     })
 }
 
@@ -28439,19 +28442,23 @@ where
     let files = migrated.files;
     let selected_components = selected_shard_import_components(&manifest, opts.include.as_deref())
         .map_err(ApiError::BadRequest)?;
-    for (filename, expected) in &manifest.checksums {
-        let contents = files.get(filename).ok_or_else(|| {
-            shard_validation_failed("Shard component declared by checksum is missing.")
-        })?;
-        let actual = hex::encode(Sha256::digest(contents));
-        if &actual != expected {
-            return Err(shard_validation_failed(
-                "Knowledge shard checksum validation failed.",
-            ));
+    let attachment_digests = if migrated.bytes_changed {
+        for (filename, expected) in &manifest.checksums {
+            let contents = files.get(filename).ok_or_else(|| {
+                shard_validation_failed("Shard component declared by checksum is missing.")
+            })?;
+            let actual = hex::encode(Sha256::digest(contents));
+            if &actual != expected {
+                return Err(shard_validation_failed(
+                    "Knowledge shard checksum validation failed.",
+                ));
+            }
         }
-    }
-    validate_shard_component_inventory(&manifest, &files).map_err(ApiError::BadRequest)?;
-    let attachment_digests = validate_shard_relationships(&files).map_err(ApiError::BadRequest)?;
+        validate_shard_component_inventory(&manifest, &files).map_err(ApiError::BadRequest)?;
+        validate_shard_relationships(&files).map_err(ApiError::BadRequest)?
+    } else {
+        source_attachment_digests
+    };
     let sidecars = validate_streamed_shard_sidecars(
         &source_sidecars,
         &attachment_digests,
@@ -36981,6 +36988,47 @@ not-json
 
         assert_eq!(visited, 1);
         assert_eq!(error, "Knowledge shard test visitor failed.");
+    }
+
+    #[test]
+    fn current_shard_migration_is_an_explicit_noop() {
+        let manifest = valid_core_shard_manifest();
+        let files = valid_core_shard_files();
+        let migrated = migrate_shard_archive_to_current(manifest, files.clone())
+            .expect("current shard migration is a no-op");
+
+        assert!(!migrated.bytes_changed);
+        assert!(migrated.warnings.is_empty());
+        assert_eq!(migrated.files, files);
+        assert_eq!(
+            migrated.manifest.version,
+            matric_core::shard::CURRENT_SHARD_VERSION
+        );
+    }
+
+    #[test]
+    fn historical_shard_migration_marks_changed_output_for_revalidation() {
+        let files = read_shard_archive(
+            &hierarchical_core_shard_bytes(),
+            ShardArchiveLimits::default(),
+        )
+        .expect("read historical shard fixture");
+        let manifest = parse_and_validate_shard_manifest(&files["manifest.json"])
+            .expect("parse historical shard manifest");
+        assert_eq!(manifest.version, "1.0.0");
+
+        let migrated = migrate_shard_archive_to_current(manifest, files)
+            .expect("migrate historical shard fixture");
+        assert!(migrated.bytes_changed);
+        assert!(!migrated.warnings.is_empty());
+        assert_eq!(
+            migrated.manifest.version,
+            matric_core::shard::CURRENT_SHARD_VERSION
+        );
+        validate_shard_component_inventory(&migrated.manifest, &migrated.files)
+            .expect("migrated output passes current inventory validation");
+        validate_shard_relationships(&migrated.files)
+            .expect("migrated output passes current relationship validation");
     }
 
     #[test]

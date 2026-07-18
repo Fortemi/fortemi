@@ -52,6 +52,12 @@ and preflight raw buffers remain bounded-buffered, and export is not
 single-pass live emission, so the route does not constitute fully streaming or
 `full-v1` profile conformance.
 
+Current-version bytes complete checksum, schema/count, relationship, and
+sidecar validation once before the explicit no-op migration result. Historical
+migration output is a distinct representation and therefore repeats the full
+checksum, schema/count, relationship, and sidecar validation before staging or
+database mutation.
+
 The current normative schema root for `1.1.0` / `core-v1` is
 `contracts/knowledge-shard/1.1.0/core-v1/`. The immutable `1.0.0` authority
 remains at `contracts/knowledge-shard/1.0.0/core-v1/`. The machine-readable
