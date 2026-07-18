@@ -22914,7 +22914,7 @@ fn parse_shard_component_records_with_limits(
     max_record_bytes: usize,
 ) -> Result<Vec<serde_json::Value>, String> {
     match component {
-        "notes" | "links" => {
+        "notes" | "links" | "embedding_set_members" | "embeddings" => {
             let mut records = Vec::new();
             visit_shard_jsonl_values_with_limits(data, max_records, max_record_bytes, |record| {
                 records.push(record);
@@ -22922,7 +22922,7 @@ fn parse_shard_component_records_with_limits(
             })?;
             Ok(records)
         }
-        "collections" | "tags" | "templates" => {
+        "collections" | "tags" | "templates" | "embedding_sets" | "embedding_configs" => {
             let mut records = Vec::new();
             visit_shard_json_array_values_with_limits(
                 data,
@@ -23169,7 +23169,117 @@ fn validate_shard_relationships(
         )?;
     }
 
+    validate_shard_embedding_relationships(files, &note_ids)?;
+
     Ok(attachment_digests)
+}
+
+fn validate_shard_embedding_relationships(
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    note_ids: &std::collections::HashSet<Uuid>,
+) -> Result<(), String> {
+    let mut config_ids = std::collections::HashSet::new();
+    let mut config_names = std::collections::HashSet::new();
+    if let Some(data) = files.get("embedding_configs.json") {
+        for value in parse_shard_component_records("embedding_configs", data)? {
+            let config = serde_json::from_value::<ShardEmbeddingConfigRecord>(value)
+                .map_err(|_| "Knowledge shard embedding configs are invalid.".to_string())?;
+            if !config_ids.insert(config.id) {
+                return Err(
+                    "Knowledge shard embedding config identities must be unique.".to_string(),
+                );
+            }
+            if !config_names.insert(config.name) {
+                return Err("Knowledge shard embedding config names must be unique.".to_string());
+            }
+        }
+    }
+
+    let mut set_ids = std::collections::HashSet::new();
+    let mut set_names = std::collections::HashSet::new();
+    let mut set_slugs = std::collections::HashSet::new();
+    if let Some(data) = files.get("embedding_sets.json") {
+        for value in parse_shard_component_records("embedding_sets", data)? {
+            let set = serde_json::from_value::<ShardEmbeddingSetRecord>(value)
+                .map_err(|_| "Knowledge shard embedding sets are invalid.".to_string())?;
+            if !set_ids.insert(set.id) {
+                return Err("Knowledge shard embedding set identities must be unique.".to_string());
+            }
+            if !set_names.insert(set.name) {
+                return Err("Knowledge shard embedding set names must be unique.".to_string());
+            }
+            if !set_slugs.insert(set.slug) {
+                return Err("Knowledge shard embedding set slugs must be unique.".to_string());
+            }
+            if set
+                .embedding_config_id
+                .is_some_and(|config_id| !config_ids.contains(&config_id))
+            {
+                return Err(
+                    "Knowledge shard embedding set references an unknown config.".to_string(),
+                );
+            }
+        }
+    }
+
+    let mut memberships = std::collections::HashSet::new();
+    if let Some(data) = files.get("embedding_set_members.jsonl") {
+        for value in parse_shard_component_records("embedding_set_members", data)? {
+            let member = serde_json::from_value::<ShardEmbeddingSetMemberRecord>(value)
+                .map_err(|_| "Knowledge shard embedding set members are invalid.".to_string())?;
+            if !memberships.insert((member.embedding_set_id, member.note_id)) {
+                return Err("Knowledge shard embedding set memberships must be unique.".to_string());
+            }
+            if !set_ids.contains(&member.embedding_set_id) {
+                return Err(
+                    "Knowledge shard embedding set member references an unknown set.".to_string(),
+                );
+            }
+            if !note_ids.contains(&member.note_id) {
+                return Err(
+                    "Knowledge shard embedding set member references an unknown note.".to_string(),
+                );
+            }
+        }
+    }
+
+    let mut embedding_ids = std::collections::HashSet::new();
+    let mut embedding_keys = std::collections::HashSet::new();
+    if let Some(data) = files.get("embeddings.jsonl") {
+        for value in parse_shard_component_records("embeddings", data)? {
+            let embedding = serde_json::from_value::<ShardEmbeddingRecord>(value)
+                .map_err(|_| "Knowledge shard embeddings are invalid.".to_string())?;
+            if !embedding_ids.insert(embedding.id) {
+                return Err("Knowledge shard embedding identities must be unique.".to_string());
+            }
+            if let (Some(note_id), Some(set_id)) = (embedding.note_id, embedding.embedding_set_id) {
+                if !embedding_keys.insert((note_id, set_id, embedding.chunk_index)) {
+                    return Err("Knowledge shard embedding coordinates must be unique.".to_string());
+                }
+            }
+            if embedding
+                .note_id
+                .is_some_and(|note_id| !note_ids.contains(&note_id))
+            {
+                return Err("Knowledge shard embedding references an unknown note.".to_string());
+            }
+            if embedding
+                .embedding_set_id
+                .is_some_and(|set_id| !set_ids.contains(&set_id))
+            {
+                return Err(
+                    "Knowledge shard embedding references an unknown embedding set.".to_string(),
+                );
+            }
+            if embedding.vector.as_ref().is_some_and(|vector| {
+                vector.is_empty() || vector.iter().any(|value| !value.is_finite())
+            }) {
+                return Err("Knowledge shard embedding vector is invalid.".to_string());
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -39541,6 +39651,222 @@ not-json
         };
         assert_eq!(
             message,
+            "Knowledge shard component exceeds the record count limit."
+        );
+    }
+
+    fn valid_shard_embedding_relationship_fixture() -> (
+        std::collections::HashMap<String, Vec<u8>>,
+        std::collections::HashSet<Uuid>,
+        Uuid,
+        Uuid,
+        Uuid,
+    ) {
+        let config_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648f101").unwrap();
+        let set_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648f102").unwrap();
+        let note_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648f103").unwrap();
+        let embedding_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648f104").unwrap();
+        let timestamp = "2026-07-18T09:30:00Z";
+        let configs = serde_json::json!([{
+            "id": config_id,
+            "name": "Research config",
+            "description": null,
+            "model": "test-model",
+            "dimension": 3,
+            "chunk_size": 512,
+            "chunk_overlap": 64,
+            "hnsw_m": null,
+            "hnsw_ef_construction": null,
+            "ivfflat_lists": null,
+            "is_default": null,
+            "supports_mrl": null,
+            "matryoshka_dims": null,
+            "default_truncate_dim": null,
+            "provider": null,
+            "provider_config": null,
+            "content_types": null,
+            "strengths": null,
+            "limitations": null,
+            "recommended_for": null,
+            "benchmark_scores": null,
+            "is_available": null,
+            "document_composition": {},
+            "created_at": timestamp,
+            "updated_at": timestamp
+        }]);
+        let sets = serde_json::json!([{
+            "id": set_id,
+            "name": "Research",
+            "slug": "research",
+            "description": null,
+            "purpose": null,
+            "usage_hints": null,
+            "keywords": null,
+            "set_type": "full",
+            "mode": "manual",
+            "criteria": null,
+            "embedding_config_id": config_id,
+            "truncate_dim": null,
+            "auto_embed_rules": null,
+            "index_status": "ready",
+            "index_type": null,
+            "last_indexed_at": null,
+            "document_count": null,
+            "embedding_count": null,
+            "embeddings_current": null,
+            "index_size_bytes": null,
+            "is_system": null,
+            "is_active": null,
+            "auto_refresh": null,
+            "refresh_interval": null,
+            "last_refresh_at": null,
+            "agent_metadata": null,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+            "created_by": null
+        }]);
+        let member = serde_json::json!({
+            "embedding_set_id": set_id,
+            "note_id": note_id,
+            "membership_type": null,
+            "added_at": null,
+            "added_by": null
+        });
+        let embedding = serde_json::json!({
+            "id": embedding_id,
+            "note_id": note_id,
+            "embedding_set_id": set_id,
+            "chunk_index": 0,
+            "text": "bounded test text",
+            "vector": [0.25, -0.5, 1.0],
+            "model": "test-model",
+            "created_at": timestamp
+        });
+
+        let files = std::collections::HashMap::from([
+            (
+                "embedding_configs.json".to_string(),
+                serde_json::to_vec(&configs).unwrap(),
+            ),
+            (
+                "embedding_sets.json".to_string(),
+                serde_json::to_vec(&sets).unwrap(),
+            ),
+            (
+                "embedding_set_members.jsonl".to_string(),
+                serde_json::to_vec(&member).unwrap(),
+            ),
+            (
+                "embeddings.jsonl".to_string(),
+                serde_json::to_vec(&embedding).unwrap(),
+            ),
+        ]);
+        (
+            files,
+            std::collections::HashSet::from([note_id]),
+            config_id,
+            set_id,
+            embedding_id,
+        )
+    }
+
+    #[test]
+    fn shard_embedding_relationship_preflight_accepts_complete_boundary() {
+        let (files, note_ids, ..) = valid_shard_embedding_relationship_fixture();
+        validate_shard_embedding_relationships(&files, &note_ids).unwrap();
+    }
+
+    #[test]
+    fn shard_embedding_relationship_preflight_rejects_unknown_references() {
+        let (files, note_ids, ..) = valid_shard_embedding_relationship_fixture();
+        let unknown_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648ffff").unwrap();
+
+        let mut unknown_config = files.clone();
+        let mut sets =
+            serde_json::from_slice::<serde_json::Value>(&unknown_config["embedding_sets.json"])
+                .unwrap();
+        sets[0]["embedding_config_id"] = serde_json::json!(unknown_id);
+        unknown_config.insert(
+            "embedding_sets.json".to_string(),
+            serde_json::to_vec(&sets).unwrap(),
+        );
+        assert_eq!(
+            validate_shard_embedding_relationships(&unknown_config, &note_ids).unwrap_err(),
+            "Knowledge shard embedding set references an unknown config."
+        );
+
+        let mut unknown_note = files.clone();
+        let mut member = serde_json::from_slice::<serde_json::Value>(
+            &unknown_note["embedding_set_members.jsonl"],
+        )
+        .unwrap();
+        member["note_id"] = serde_json::json!(unknown_id);
+        unknown_note.insert(
+            "embedding_set_members.jsonl".to_string(),
+            serde_json::to_vec(&member).unwrap(),
+        );
+        assert_eq!(
+            validate_shard_embedding_relationships(&unknown_note, &note_ids).unwrap_err(),
+            "Knowledge shard embedding set member references an unknown note."
+        );
+
+        let mut unknown_set = files;
+        let mut embedding =
+            serde_json::from_slice::<serde_json::Value>(&unknown_set["embeddings.jsonl"]).unwrap();
+        embedding["embedding_set_id"] = serde_json::json!(unknown_id);
+        unknown_set.insert(
+            "embeddings.jsonl".to_string(),
+            serde_json::to_vec(&embedding).unwrap(),
+        );
+        assert_eq!(
+            validate_shard_embedding_relationships(&unknown_set, &note_ids).unwrap_err(),
+            "Knowledge shard embedding references an unknown embedding set."
+        );
+    }
+
+    #[test]
+    fn shard_embedding_relationship_preflight_rejects_duplicate_coordinates() {
+        let (mut files, note_ids, _, _, embedding_id) =
+            valid_shard_embedding_relationship_fixture();
+        let mut duplicate =
+            serde_json::from_slice::<serde_json::Value>(&files["embeddings.jsonl"]).unwrap();
+        duplicate["id"] = serde_json::json!(Uuid::now_v7());
+        files.get_mut("embeddings.jsonl").unwrap().extend([b'\n']);
+        files
+            .get_mut("embeddings.jsonl")
+            .unwrap()
+            .extend(serde_json::to_vec(&duplicate).unwrap());
+        assert_eq!(
+            validate_shard_embedding_relationships(&files, &note_ids).unwrap_err(),
+            "Knowledge shard embedding coordinates must be unique."
+        );
+
+        let mut duplicate_identity = duplicate;
+        duplicate_identity["id"] = serde_json::json!(embedding_id);
+        duplicate_identity["chunk_index"] = serde_json::json!(1);
+        let (mut files, note_ids, ..) = valid_shard_embedding_relationship_fixture();
+        files.get_mut("embeddings.jsonl").unwrap().extend([b'\n']);
+        files
+            .get_mut("embeddings.jsonl")
+            .unwrap()
+            .extend(serde_json::to_vec(&duplicate_identity).unwrap());
+        assert_eq!(
+            validate_shard_embedding_relationships(&files, &note_ids).unwrap_err(),
+            "Knowledge shard embedding identities must be unique."
+        );
+    }
+
+    #[test]
+    fn shard_embedding_component_parsing_is_bounded() {
+        let data = serde_json::to_vec(&serde_json::json!([{}, {}])).unwrap();
+        assert_eq!(
+            parse_shard_component_records_with_limits("embedding_configs", &data, 1, 1024)
+                .unwrap_err(),
+            "Knowledge shard component exceeds the record count limit."
+        );
+        assert_eq!(
+            parse_shard_component_records_with_limits("embedding_set_members", b"{}\n{}", 1, 1024,)
+                .unwrap_err(),
             "Knowledge shard component exceeds the record count limit."
         );
     }
