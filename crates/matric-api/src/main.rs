@@ -22037,6 +22037,16 @@ struct ShardCounts {
     skos_collections: usize,
     #[serde(skip_serializing_if = "shard_count_is_zero")]
     skos_collection_members: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    graph_sources: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    graph_edges: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    community_sets: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    communities: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    community_assignments: usize,
     collections: usize,
     tags: usize,
     templates: usize,
@@ -22467,6 +22477,71 @@ struct ShardSkosCollectionMemberRecord {
     concept_id: Uuid,
     position: Option<i32>,
     added_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardGraphSourceRecord {
+    id: String,
+    name: String,
+    kind: String,
+    source_table: Option<String>,
+    embedding_set_id: Option<Uuid>,
+    virtual_set_id: Option<String>,
+    model: Option<String>,
+    dimension: Option<i32>,
+    truncate_dimension: Option<i32>,
+    metric: Option<String>,
+    algorithm: Option<String>,
+    parameters: Option<serde_json::Value>,
+    input_hash: String,
+    freshness: serde_json::Value,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardGraphEdgeRecord {
+    graph_source_id: String,
+    from_note_id: Uuid,
+    to_note_id: Uuid,
+    weight: f64,
+    kind: String,
+    rank: Option<i32>,
+    metadata: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardCommunityRecord {
+    id: String,
+    label: Option<String>,
+    rank: Option<i32>,
+    size: Option<i32>,
+    confidence: Option<f64>,
+    representative_note_ids: Option<Vec<Uuid>>,
+    metadata: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardCommunitySetRecord {
+    id: String,
+    graph_source_id: String,
+    name: String,
+    source_type: String,
+    algorithm: Option<String>,
+    parameters: Option<serde_json::Value>,
+    input_hash: String,
+    freshness: serde_json::Value,
+    communities: Vec<ShardCommunityRecord>,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardCommunityAssignmentRecord {
+    community_set_id: String,
+    community_id: String,
+    note_id: Uuid,
+    confidence: Option<f64>,
+    source_type: String,
+    metadata: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -23042,6 +23117,10 @@ fn shard_component_filename(component: &str) -> Option<&'static str> {
         "note_skos_tags" => Some("note_skos_tags.jsonl"),
         "skos_collections" => Some("skos_collections.json"),
         "skos_collection_members" => Some("skos_collection_members.jsonl"),
+        "graph_sources" => Some("graph_sources.json"),
+        "graph_edges" => Some("graph_edges.jsonl"),
+        "communities" => Some("communities.json"),
+        "community_assignments" => Some("community_assignments.jsonl"),
         "collections" => Some("collections.json"),
         "tags" => Some("tags.json"),
         "templates" => Some("templates.json"),
@@ -23411,6 +23490,8 @@ fn parse_shard_component_records_with_limits(
         | "skos_scheme_memberships"
         | "note_skos_tags"
         | "skos_collection_members"
+        | "graph_edges"
+        | "community_assignments"
         | "links"
         | "embedding_set_members"
         | "embeddings" => {
@@ -23422,7 +23503,8 @@ fn parse_shard_component_records_with_limits(
             Ok(records)
         }
         "collections" | "tags" | "templates" | "skos_schemes" | "skos_concepts"
-        | "skos_collections" | "embedding_sets" | "embedding_configs" => {
+        | "skos_collections" | "graph_sources" | "communities" | "embedding_sets"
+        | "embedding_configs" => {
             let mut records = Vec::new();
             visit_shard_json_array_values_with_limits(
                 data,
@@ -23704,6 +23786,7 @@ fn validate_shard_relationships(
     )?;
     validate_shard_embedding_relationships(files, &note_ids)?;
     validate_shard_skos_relationships(files, &note_ids)?;
+    validate_shard_graph_relationships(files, &note_ids)?;
 
     Ok(attachment_digests)
 }
@@ -24639,6 +24722,218 @@ fn validate_shard_skos_relationships(
     Ok(())
 }
 
+fn shard_json_object_or_null(value: Option<&serde_json::Value>) -> bool {
+    value.is_none_or(serde_json::Value::is_object)
+}
+
+fn validate_shard_graph_relationships(
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    note_ids: &std::collections::HashSet<Uuid>,
+) -> Result<(), String> {
+    let sources = files
+        .get("graph_sources.json")
+        .map(|data| {
+            parse_shard_component_records("graph_sources", data)?
+                .into_iter()
+                .map(|value| {
+                    serde_json::from_value::<ShardGraphSourceRecord>(value)
+                        .map_err(|_| "Knowledge shard graph sources are invalid.".to_string())
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let mut source_ids = std::collections::HashSet::new();
+    for source in &sources {
+        if !source_ids.insert(source.id.as_str()) {
+            return Err("Knowledge shard graph source identities must be unique.".to_string());
+        }
+        if !matches!(
+            source.kind.as_str(),
+            "link" | "similarity" | "search" | "manual" | "imported"
+        ) || source
+            .source_table
+            .as_deref()
+            .is_some_and(|value| !matches!(value, "link" | "embedding" | "manual"))
+            || source
+                .metric
+                .as_deref()
+                .is_some_and(|value| !matches!(value, "cosine" | "inner_product" | "l2"))
+        {
+            return Err("Knowledge shard graph source enum value is invalid.".to_string());
+        }
+        if source.dimension.is_some_and(|dimension| dimension <= 0)
+            || source
+                .truncate_dimension
+                .is_some_and(|dimension| dimension <= 0)
+            || matches!(
+                (source.dimension, source.truncate_dimension),
+                (Some(dimension), Some(truncate)) if truncate > dimension
+            )
+        {
+            return Err("Knowledge shard graph source dimension is invalid.".to_string());
+        }
+        if !source.freshness.is_object() || !shard_json_object_or_null(source.parameters.as_ref()) {
+            return Err("Knowledge shard graph source metadata is invalid.".to_string());
+        }
+    }
+
+    let mut edge_coordinates = std::collections::HashSet::new();
+    if let Some(data) = files.get("graph_edges.jsonl") {
+        for value in parse_shard_component_records("graph_edges", data)? {
+            let edge = serde_json::from_value::<ShardGraphEdgeRecord>(value)
+                .map_err(|_| "Knowledge shard graph edges are invalid.".to_string())?;
+            if !edge_coordinates.insert((
+                edge.graph_source_id.clone(),
+                edge.from_note_id,
+                edge.to_note_id,
+                edge.kind.clone(),
+            )) {
+                return Err("Knowledge shard graph edges must be unique.".to_string());
+            }
+            if !source_ids.contains(edge.graph_source_id.as_str()) {
+                return Err("Knowledge shard graph edge references an unknown source.".to_string());
+            }
+            if edge.from_note_id == edge.to_note_id
+                || !note_ids.contains(&edge.from_note_id)
+                || !note_ids.contains(&edge.to_note_id)
+            {
+                return Err("Knowledge shard graph edge note reference is invalid.".to_string());
+            }
+            if !matches!(edge.kind.as_str(), "link" | "similarity" | "manual") {
+                return Err("Knowledge shard graph edge type is invalid.".to_string());
+            }
+            if !edge.weight.is_finite()
+                || edge.rank.is_some_and(|rank| rank < 0)
+                || !shard_json_object_or_null(edge.metadata.as_ref())
+            {
+                return Err("Knowledge shard graph edge metadata is invalid.".to_string());
+            }
+        }
+    }
+
+    let sets = files
+        .get("communities.json")
+        .map(|data| {
+            parse_shard_component_records("communities", data)?
+                .into_iter()
+                .map(|value| {
+                    serde_json::from_value::<ShardCommunitySetRecord>(value)
+                        .map_err(|_| "Knowledge shard community sets are invalid.".to_string())
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let mut set_ids = std::collections::HashSet::new();
+    let mut community_ids = std::collections::HashSet::new();
+    for set in &sets {
+        if !set_ids.insert(set.id.as_str()) {
+            return Err("Knowledge shard community set identities must be unique.".to_string());
+        }
+        if !source_ids.contains(set.graph_source_id.as_str()) {
+            return Err(
+                "Knowledge shard community set references an unknown graph source.".to_string(),
+            );
+        }
+        if !matches!(
+            set.source_type.as_str(),
+            "precomputed" | "dynamic-snapshot" | "user-authored" | "imported"
+        ) {
+            return Err("Knowledge shard community source type is invalid.".to_string());
+        }
+        if !set.freshness.is_object() || !shard_json_object_or_null(set.parameters.as_ref()) {
+            return Err("Knowledge shard community set metadata is invalid.".to_string());
+        }
+        for community in &set.communities {
+            if !community_ids.insert((set.id.as_str(), community.id.as_str())) {
+                return Err("Knowledge shard community identities must be unique.".to_string());
+            }
+            if community.rank.is_some_and(|rank| rank < 0)
+                || community.size.is_some_and(|size| size < 0)
+                || community.confidence.is_some_and(|confidence| {
+                    !confidence.is_finite() || !(0.0..=1.0).contains(&confidence)
+                })
+                || !shard_json_object_or_null(community.metadata.as_ref())
+            {
+                return Err("Knowledge shard community metadata is invalid.".to_string());
+            }
+            if let Some(representatives) = &community.representative_note_ids {
+                let mut unique = std::collections::HashSet::new();
+                if representatives
+                    .iter()
+                    .any(|note_id| !note_ids.contains(note_id) || !unique.insert(*note_id))
+                {
+                    return Err(
+                        "Knowledge shard community representative note reference is invalid."
+                            .to_string(),
+                    );
+                }
+            }
+        }
+    }
+
+    let mut assignments = std::collections::HashSet::new();
+    if let Some(data) = files.get("community_assignments.jsonl") {
+        for value in parse_shard_component_records("community_assignments", data)? {
+            let assignment = serde_json::from_value::<ShardCommunityAssignmentRecord>(value)
+                .map_err(|_| "Knowledge shard community assignments are invalid.".to_string())?;
+            if !assignments.insert((assignment.community_set_id.clone(), assignment.note_id)) {
+                return Err("Knowledge shard community assignments must be unique.".to_string());
+            }
+            if !community_ids.contains(&(
+                assignment.community_set_id.as_str(),
+                assignment.community_id.as_str(),
+            )) {
+                return Err(
+                    "Knowledge shard community assignment references an unknown community."
+                        .to_string(),
+                );
+            }
+            if !note_ids.contains(&assignment.note_id) {
+                return Err(
+                    "Knowledge shard community assignment references an unknown note.".to_string(),
+                );
+            }
+            if !matches!(
+                assignment.source_type.as_str(),
+                "precomputed" | "dynamic-snapshot" | "user-authored" | "imported"
+            ) {
+                return Err(
+                    "Knowledge shard community assignment source type is invalid.".to_string(),
+                );
+            }
+            if assignment.confidence.is_some_and(|confidence| {
+                !confidence.is_finite() || !(0.0..=1.0).contains(&confidence)
+            }) || !shard_json_object_or_null(assignment.metadata.as_ref())
+            {
+                return Err("Knowledge shard community assignment metadata is invalid.".to_string());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_shard_community_count(data: &[u8], expected_count: usize) -> Result<(), String> {
+    let actual_count = parse_shard_component_records("communities", data)?
+        .into_iter()
+        .map(|value| {
+            serde_json::from_value::<ShardCommunitySetRecord>(value)
+                .map(|set| set.communities.len())
+                .map_err(|_| "Knowledge shard community sets are invalid.".to_string())
+        })
+        .try_fold(0usize, |total, count| {
+            total
+                .checked_add(count?)
+                .ok_or_else(|| "Knowledge shard component count validation failed.".to_string())
+        })?;
+    if actual_count != expected_count {
+        return Err("Knowledge shard component count validation failed.".to_string());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 fn validate_shard_sidecars<'a>(
     files: &'a std::collections::HashMap<String, Vec<u8>>,
@@ -24865,6 +25160,10 @@ fn validate_shard_component_inventory(
             "note_skos_tags" => manifest.counts.note_skos_tags,
             "skos_collections" => manifest.counts.skos_collections,
             "skos_collection_members" => manifest.counts.skos_collection_members,
+            "graph_sources" => manifest.counts.graph_sources,
+            "graph_edges" => manifest.counts.graph_edges,
+            "communities" => manifest.counts.community_sets,
+            "community_assignments" => manifest.counts.community_assignments,
             "collections" => manifest.counts.collections,
             "tags" => manifest.counts.tags,
             "templates" => manifest.counts.templates,
@@ -24877,6 +25176,9 @@ fn validate_shard_component_inventory(
         };
         if actual_count != expected_count {
             return Err("Knowledge shard component count validation failed.".to_string());
+        }
+        if component == "communities" {
+            validate_shard_community_count(data, manifest.counts.communities)?;
         }
     }
 
@@ -26133,6 +26435,186 @@ async fn knowledge_shard(
             })?;
         }
 
+        if components.contains(&"graph_sources") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, name, kind, source_table, embedding_set_id, virtual_set_id,
+                       model, dimension, truncate_dimension, metric, algorithm,
+                       parameters_json, input_hash, freshness_json, created_at
+                FROM graph_source
+                ORDER BY created_at, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read graph sources", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardGraphSourceRecord {
+                    id: row.get("id"),
+                    name: row.get("name"),
+                    kind: row.get("kind"),
+                    source_table: row.get("source_table"),
+                    embedding_set_id: row.get("embedding_set_id"),
+                    virtual_set_id: row.get("virtual_set_id"),
+                    model: row.get("model"),
+                    dimension: row.get("dimension"),
+                    truncate_dimension: row.get("truncate_dimension"),
+                    metric: row.get("metric"),
+                    algorithm: row.get("algorithm"),
+                    parameters: row.get("parameters_json"),
+                    input_hash: row.get("input_hash"),
+                    freshness: row.get("freshness_json"),
+                    created_at: row.get("created_at"),
+                })
+                .collect::<Vec<_>>();
+            counts.graph_sources = records.len();
+            let data = serde_json::to_vec_pretty(&records)
+                .map_err(|error| shard_operation_failed("serialize graph sources", error))?;
+            add_json_file("graph_sources.json", &data)
+                .map_err(|error| shard_operation_failed("add graph sources to shard", error))?;
+        }
+
+        if components.contains(&"graph_edges") {
+            let rows = sqlx::query(
+                r#"
+                SELECT graph_source_id, from_note_id, to_note_id, weight, kind,
+                       rank, metadata_json
+                FROM graph_edge_artifact
+                ORDER BY graph_source_id, from_note_id, to_note_id, kind
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read graph edges", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardGraphEdgeRecord {
+                    graph_source_id: row.get("graph_source_id"),
+                    from_note_id: row.get("from_note_id"),
+                    to_note_id: row.get("to_note_id"),
+                    weight: row.get("weight"),
+                    kind: row.get("kind"),
+                    rank: row.get("rank"),
+                    metadata: row.get("metadata_json"),
+                })
+                .collect::<Vec<_>>();
+            counts.graph_edges = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize graph edges")?;
+            add_json_file("graph_edges.jsonl", &data)
+                .map_err(|error| shard_operation_failed("add graph edges to shard", error))?;
+        }
+
+        if components.contains(&"communities") {
+            let set_rows = sqlx::query(
+                r#"
+                SELECT id, graph_source_id, name, source_type, algorithm,
+                       parameters_json, input_hash, freshness_json, created_at
+                FROM community_set
+                ORDER BY created_at, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read community sets", error))?;
+            validate_shard_export_record_count(set_rows.len())?;
+            let community_rows = sqlx::query(
+                r#"
+                SELECT id, community_set_id, label, rank, size, confidence,
+                       representative_note_ids, metadata_json
+                FROM community
+                ORDER BY community_set_id, rank NULLS LAST, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read communities", error))?;
+            validate_shard_export_record_count(community_rows.len())?;
+            let mut communities_by_set =
+                std::collections::HashMap::<String, Vec<ShardCommunityRecord>>::new();
+            for row in community_rows {
+                communities_by_set
+                    .entry(row.get("community_set_id"))
+                    .or_default()
+                    .push(ShardCommunityRecord {
+                        id: row.get("id"),
+                        label: row.get("label"),
+                        rank: row.get("rank"),
+                        size: row.get("size"),
+                        confidence: row.get("confidence"),
+                        representative_note_ids: row.get("representative_note_ids"),
+                        metadata: row.get("metadata_json"),
+                    });
+            }
+            counts.communities = communities_by_set.values().map(Vec::len).sum();
+            let records = set_rows
+                .into_iter()
+                .map(|row| {
+                    let id: String = row.get("id");
+                    ShardCommunitySetRecord {
+                        communities: communities_by_set.remove(&id).unwrap_or_default(),
+                        id,
+                        graph_source_id: row.get("graph_source_id"),
+                        name: row.get("name"),
+                        source_type: row.get("source_type"),
+                        algorithm: row.get("algorithm"),
+                        parameters: row.get("parameters_json"),
+                        input_hash: row.get("input_hash"),
+                        freshness: row.get("freshness_json"),
+                        created_at: row.get("created_at"),
+                    }
+                })
+                .collect::<Vec<_>>();
+            counts.community_sets = records.len();
+            let data = serde_json::to_vec_pretty(&records)
+                .map_err(|error| shard_operation_failed("serialize community sets", error))?;
+            add_json_file("communities.json", &data)
+                .map_err(|error| shard_operation_failed("add communities to shard", error))?;
+        }
+
+        if components.contains(&"community_assignments") {
+            let rows = sqlx::query(
+                r#"
+                SELECT community_set_id, community_id, note_id, confidence,
+                       source_type, metadata_json
+                FROM community_assignment
+                ORDER BY community_set_id, community_id, note_id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read community assignments", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardCommunityAssignmentRecord {
+                    community_set_id: row.get("community_set_id"),
+                    community_id: row.get("community_id"),
+                    note_id: row.get("note_id"),
+                    confidence: row.get("confidence"),
+                    source_type: row.get("source_type"),
+                    metadata: row.get("metadata_json"),
+                })
+                .collect::<Vec<_>>();
+            counts.community_assignments = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize community assignments")?;
+            add_json_file("community_assignments.jsonl", &data).map_err(|error| {
+                shard_operation_failed("add community assignments to shard", error)
+            })?;
+        }
+
         // Export collections
         if components.contains(&"collections") {
             let collections_repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
@@ -26721,6 +27203,11 @@ struct ShardImportCounts {
     note_skos_tags: usize,
     skos_collections: usize,
     skos_collection_members: usize,
+    graph_sources: usize,
+    graph_edges: usize,
+    community_sets: usize,
+    communities: usize,
+    community_assignments: usize,
     collections: usize,
     tags: usize,
     templates: usize,
@@ -31986,6 +32473,297 @@ async fn apply_shard_skos_components_tx(
     Ok(())
 }
 
+async fn apply_shard_graph_components_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    selected_components: &std::collections::HashSet<String>,
+    opts: &ShardImportOptions,
+    imported: &mut ShardImportCounts,
+    skipped: &mut ShardImportCounts,
+) -> Result<(), ApiError> {
+    let should_import = |component: &str| selected_components.contains(component);
+    let replace = matches!(opts.on_conflict, ConflictStrategy::Replace);
+    let complete_family = [
+        "graph_sources",
+        "graph_edges",
+        "communities",
+        "community_assignments",
+    ]
+    .into_iter()
+    .all(should_import);
+
+    if replace && complete_family && !opts.dry_run {
+        sqlx::query("DELETE FROM graph_source")
+            .execute(&mut **tx)
+            .await
+            .map_err(|error| shard_operation_failed("replace imported graph artifacts", error))?;
+    }
+
+    if should_import("graph_sources") {
+        if let Some(data) = files.get("graph_sources.json") {
+            let sources =
+                serde_json::from_slice::<Vec<ShardGraphSourceRecord>>(data).map_err(|_| {
+                    shard_validation_failed("Knowledge shard graph sources are invalid.")
+                })?;
+            for source in sources {
+                if opts.dry_run {
+                    imported.graph_sources += 1;
+                    continue;
+                }
+                let conflict = if replace {
+                    "ON CONFLICT (id) DO UPDATE SET
+                         name = EXCLUDED.name,
+                         kind = EXCLUDED.kind,
+                         source_table = EXCLUDED.source_table,
+                         embedding_set_id = EXCLUDED.embedding_set_id,
+                         virtual_set_id = EXCLUDED.virtual_set_id,
+                         model = EXCLUDED.model,
+                         dimension = EXCLUDED.dimension,
+                         truncate_dimension = EXCLUDED.truncate_dimension,
+                         metric = EXCLUDED.metric,
+                         algorithm = EXCLUDED.algorithm,
+                         parameters_json = EXCLUDED.parameters_json,
+                         input_hash = EXCLUDED.input_hash,
+                         freshness_json = EXCLUDED.freshness_json,
+                         created_at = EXCLUDED.created_at"
+                } else {
+                    "ON CONFLICT (id) DO NOTHING"
+                };
+                let result = sqlx::query(&format!(
+                    "INSERT INTO graph_source (
+                         id, name, kind, source_table, embedding_set_id, virtual_set_id,
+                         model, dimension, truncate_dimension, metric, algorithm,
+                         parameters_json, input_hash, freshness_json, created_at
+                     ) VALUES (
+                         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                         $11, $12, $13, $14, $15
+                     )
+                     {conflict}"
+                ))
+                .bind(source.id)
+                .bind(source.name)
+                .bind(source.kind)
+                .bind(source.source_table)
+                .bind(source.embedding_set_id)
+                .bind(source.virtual_set_id)
+                .bind(source.model)
+                .bind(source.dimension)
+                .bind(source.truncate_dimension)
+                .bind(source.metric)
+                .bind(source.algorithm)
+                .bind(source.parameters)
+                .bind(source.input_hash)
+                .bind(source.freshness)
+                .bind(source.created_at)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| shard_operation_failed("apply graph source import", error))?;
+                if result.rows_affected() == 0 {
+                    skipped.graph_sources += 1;
+                } else {
+                    imported.graph_sources += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("graph_edges") {
+        if let Some(data) = files.get("graph_edges.jsonl") {
+            let edges = shard_jsonl_records::<ShardGraphEdgeRecord>(
+                data,
+                "Knowledge shard graph edges are invalid.",
+            )?;
+            for edge in edges {
+                let edge = edge?;
+                if opts.dry_run {
+                    imported.graph_edges += 1;
+                    continue;
+                }
+                let conflict = if replace {
+                    "ON CONFLICT (graph_source_id, from_note_id, to_note_id, kind)
+                     DO UPDATE SET
+                         weight = EXCLUDED.weight,
+                         rank = EXCLUDED.rank,
+                         metadata_json = EXCLUDED.metadata_json"
+                } else {
+                    "ON CONFLICT (graph_source_id, from_note_id, to_note_id, kind)
+                     DO NOTHING"
+                };
+                let result = sqlx::query(&format!(
+                    "INSERT INTO graph_edge_artifact (
+                         graph_source_id, from_note_id, to_note_id, weight,
+                         kind, rank, metadata_json
+                     ) VALUES (
+                         $1, $2, $3, $4, $5, $6, $7
+                     )
+                     {conflict}"
+                ))
+                .bind(edge.graph_source_id)
+                .bind(edge.from_note_id)
+                .bind(edge.to_note_id)
+                .bind(edge.weight)
+                .bind(edge.kind)
+                .bind(edge.rank)
+                .bind(edge.metadata)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| shard_operation_failed("apply graph edge import", error))?;
+                if result.rows_affected() == 0 {
+                    skipped.graph_edges += 1;
+                } else {
+                    imported.graph_edges += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("communities") {
+        if let Some(data) = files.get("communities.json") {
+            let sets =
+                serde_json::from_slice::<Vec<ShardCommunitySetRecord>>(data).map_err(|_| {
+                    shard_validation_failed("Knowledge shard community sets are invalid.")
+                })?;
+            for set in sets {
+                if opts.dry_run {
+                    imported.community_sets += 1;
+                    imported.communities += set.communities.len();
+                    continue;
+                }
+                let conflict = if replace {
+                    "ON CONFLICT (id) DO UPDATE SET
+                         graph_source_id = EXCLUDED.graph_source_id,
+                         name = EXCLUDED.name,
+                         source_type = EXCLUDED.source_type,
+                         algorithm = EXCLUDED.algorithm,
+                         parameters_json = EXCLUDED.parameters_json,
+                         input_hash = EXCLUDED.input_hash,
+                         freshness_json = EXCLUDED.freshness_json,
+                         created_at = EXCLUDED.created_at"
+                } else {
+                    "ON CONFLICT (id) DO NOTHING"
+                };
+                let result = sqlx::query(&format!(
+                    "INSERT INTO community_set (
+                         id, graph_source_id, name, source_type, algorithm,
+                         parameters_json, input_hash, freshness_json, created_at
+                     ) VALUES (
+                         $1, $2, $3, $4, $5, $6, $7, $8, $9
+                     )
+                     {conflict}"
+                ))
+                .bind(&set.id)
+                .bind(set.graph_source_id)
+                .bind(set.name)
+                .bind(set.source_type)
+                .bind(set.algorithm)
+                .bind(set.parameters)
+                .bind(set.input_hash)
+                .bind(set.freshness)
+                .bind(set.created_at)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| shard_operation_failed("apply community set import", error))?;
+                if result.rows_affected() == 0 {
+                    skipped.community_sets += 1;
+                } else {
+                    imported.community_sets += 1;
+                }
+
+                for community in set.communities {
+                    let conflict = if replace {
+                        "ON CONFLICT (community_set_id, id) DO UPDATE SET
+                             label = EXCLUDED.label,
+                             rank = EXCLUDED.rank,
+                             size = EXCLUDED.size,
+                             confidence = EXCLUDED.confidence,
+                             representative_note_ids = EXCLUDED.representative_note_ids,
+                             metadata_json = EXCLUDED.metadata_json"
+                    } else {
+                        "ON CONFLICT (community_set_id, id) DO NOTHING"
+                    };
+                    let result = sqlx::query(&format!(
+                        "INSERT INTO community (
+                             community_set_id, id, label, rank, size, confidence,
+                             representative_note_ids, metadata_json
+                         ) VALUES (
+                             $1, $2, $3, $4, $5, $6, $7, $8
+                         )
+                         {conflict}"
+                    ))
+                    .bind(&set.id)
+                    .bind(community.id)
+                    .bind(community.label)
+                    .bind(community.rank)
+                    .bind(community.size)
+                    .bind(community.confidence)
+                    .bind(community.representative_note_ids)
+                    .bind(community.metadata)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| shard_operation_failed("apply community import", error))?;
+                    if result.rows_affected() == 0 {
+                        skipped.communities += 1;
+                    } else {
+                        imported.communities += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if should_import("community_assignments") {
+        if let Some(data) = files.get("community_assignments.jsonl") {
+            let assignments = shard_jsonl_records::<ShardCommunityAssignmentRecord>(
+                data,
+                "Knowledge shard community assignments are invalid.",
+            )?;
+            for assignment in assignments {
+                let assignment = assignment?;
+                if opts.dry_run {
+                    imported.community_assignments += 1;
+                    continue;
+                }
+                let conflict = if replace {
+                    "ON CONFLICT (community_set_id, note_id) DO UPDATE SET
+                         community_id = EXCLUDED.community_id,
+                         confidence = EXCLUDED.confidence,
+                         source_type = EXCLUDED.source_type,
+                         metadata_json = EXCLUDED.metadata_json"
+                } else {
+                    "ON CONFLICT (community_set_id, note_id) DO NOTHING"
+                };
+                let result = sqlx::query(&format!(
+                    "INSERT INTO community_assignment (
+                         community_set_id, community_id, note_id, confidence,
+                         source_type, metadata_json
+                     ) VALUES (
+                         $1, $2, $3, $4, $5, $6
+                     )
+                     {conflict}"
+                ))
+                .bind(assignment.community_set_id)
+                .bind(assignment.community_id)
+                .bind(assignment.note_id)
+                .bind(assignment.confidence)
+                .bind(assignment.source_type)
+                .bind(assignment.metadata)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("apply community assignment import", error)
+                })?;
+                if result.rows_affected() == 0 {
+                    skipped.community_assignments += 1;
+                } else {
+                    imported.community_assignments += 1;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 async fn apply_shard_embedding_components_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     files: &std::collections::HashMap<String, Vec<u8>>,
@@ -32406,6 +33184,11 @@ async fn apply_validated_shard_components(
     if policy.wipe_before_apply && !opts.dry_run {
         for (component, statement, context) in [
             (
+                "graph_sources",
+                "DELETE FROM graph_source",
+                "wipe graph artifacts before knowledge shard import",
+            ),
+            (
                 "skos_collection_members",
                 "DELETE FROM skos_collection_member",
                 "wipe SKOS collection members before knowledge shard import",
@@ -32731,6 +33514,16 @@ async fn apply_validated_shard_components(
     .await?;
 
     apply_shard_skos_components_tx(
+        &mut tx,
+        files,
+        selected_components,
+        opts,
+        &mut imported,
+        &mut skipped,
+    )
+    .await?;
+
+    apply_shard_graph_components_tx(
         &mut tx,
         files,
         selected_components,
@@ -38013,6 +38806,11 @@ mod tests {
                 note_skos_tags: 1,
                 skos_collections: 1,
                 skos_collection_members: 1,
+                graph_sources: 1,
+                graph_edges: 1,
+                community_sets: 1,
+                communities: 1,
+                community_assignments: 1,
                 collections: 1,
                 tags: 1,
                 templates: 1,
@@ -38095,6 +38893,11 @@ mod tests {
                 note_skos_tags: 1,
                 skos_collections: 1,
                 skos_collection_members: 1,
+                graph_sources: 1,
+                graph_edges: 1,
+                community_sets: 1,
+                communities: 1,
+                community_assignments: 1,
                 collections: 1,
                 tags: 1,
                 templates: 1,
@@ -48138,6 +48941,370 @@ not-json
         }
     }
 
+    fn valid_shard_graph_relationship_fixture() -> (
+        std::collections::HashMap<String, Vec<u8>>,
+        std::collections::HashSet<Uuid>,
+    ) {
+        let first_note_id = "018f6d2d-bc00-7cc8-8ad2-f147d6a2e701";
+        let second_note_id = "018f6d2d-bc00-7cc8-8ad2-f147d6a2e702";
+        let timestamp = "2026-07-18T15:30:00Z";
+        let graph_source_id = "graph-source-portable";
+        let community_set_id = "community-set-portable";
+        let jsonl = |records: Vec<serde_json::Value>| {
+            records
+                .into_iter()
+                .map(|record| serde_json::to_string(&record).unwrap())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .into_bytes()
+        };
+        let files = std::collections::HashMap::from([
+            (
+                "graph_sources.json".to_string(),
+                serde_json::to_vec(&serde_json::json!([{
+                    "id": graph_source_id,
+                    "name": "Portable similarity graph",
+                    "kind": "similarity",
+                    "source_table": "embedding",
+                    "embedding_set_id": null,
+                    "virtual_set_id": "filter:portable",
+                    "model": "fixture-model",
+                    "dimension": 768,
+                    "truncate_dimension": 64,
+                    "metric": "cosine",
+                    "algorithm": "hnsw",
+                    "parameters": {"threshold": 0.7},
+                    "input_hash": "sha256:graph-input",
+                    "freshness": {
+                        "status": "fresh",
+                        "checked_at": timestamp,
+                        "source_hashes": {"notes": "sha256:notes"}
+                    },
+                    "created_at": timestamp
+                }]))
+                .unwrap(),
+            ),
+            (
+                "graph_edges.jsonl".to_string(),
+                jsonl(vec![serde_json::json!({
+                    "graph_source_id": graph_source_id,
+                    "from_note_id": first_note_id,
+                    "to_note_id": second_note_id,
+                    "weight": 0.875,
+                    "kind": "similarity",
+                    "rank": 0,
+                    "metadata": {"explanation": "fixture"}
+                })]),
+            ),
+            (
+                "communities.json".to_string(),
+                serde_json::to_vec(&serde_json::json!([{
+                    "id": community_set_id,
+                    "graph_source_id": graph_source_id,
+                    "name": "Portable communities",
+                    "source_type": "precomputed",
+                    "algorithm": "louvain",
+                    "parameters": {"resolution": 1.0},
+                    "input_hash": "sha256:community-input",
+                    "freshness": {"status": "fresh", "checked_at": timestamp},
+                    "communities": [
+                        {
+                            "id": "community-a",
+                            "label": "Alpha",
+                            "rank": 0,
+                            "size": 1,
+                            "confidence": 0.95,
+                            "representative_note_ids": [first_note_id],
+                            "metadata": {"color": "red"}
+                        },
+                        {
+                            "id": "community-b",
+                            "label": null,
+                            "rank": 1,
+                            "size": 1,
+                            "confidence": null,
+                            "representative_note_ids": null,
+                            "metadata": null
+                        }
+                    ],
+                    "created_at": timestamp
+                }]))
+                .unwrap(),
+            ),
+            (
+                "community_assignments.jsonl".to_string(),
+                jsonl(vec![
+                    serde_json::json!({
+                        "community_set_id": community_set_id,
+                        "community_id": "community-a",
+                        "note_id": first_note_id,
+                        "confidence": 0.95,
+                        "source_type": "precomputed",
+                        "metadata": {"reason": "central"}
+                    }),
+                    serde_json::json!({
+                        "community_set_id": community_set_id,
+                        "community_id": "community-b",
+                        "note_id": second_note_id,
+                        "confidence": null,
+                        "source_type": "precomputed",
+                        "metadata": null
+                    }),
+                ]),
+            ),
+        ]);
+        let note_ids = [first_note_id, second_note_id]
+            .into_iter()
+            .map(|id| Uuid::parse_str(id).unwrap())
+            .collect();
+        (files, note_ids)
+    }
+
+    #[test]
+    fn shard_graph_preflight_accepts_complete_boundary_and_rejects_bad_references() {
+        let (files, note_ids) = valid_shard_graph_relationship_fixture();
+        validate_shard_graph_relationships(&files, &note_ids).unwrap();
+        validate_shard_community_count(&files["communities.json"], 2).unwrap();
+        assert_eq!(
+            validate_shard_community_count(&files["communities.json"], 1).unwrap_err(),
+            "Knowledge shard component count validation failed."
+        );
+        for (component, filename) in [
+            ("graph_sources", "graph_sources.json"),
+            ("graph_edges", "graph_edges.jsonl"),
+            ("communities", "communities.json"),
+            ("community_assignments", "community_assignments.jsonl"),
+        ] {
+            assert_eq!(shard_component_filename(component), Some(filename));
+        }
+
+        let mut invalid = files.clone();
+        let mut assignments = parse_shard_component_records(
+            "community_assignments",
+            &invalid["community_assignments.jsonl"],
+        )
+        .unwrap();
+        assignments[0]["community_id"] = serde_json::json!("community-missing");
+        invalid.insert(
+            "community_assignments.jsonl".to_string(),
+            assignments
+                .into_iter()
+                .map(|assignment| serde_json::to_string(&assignment).unwrap())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .into_bytes(),
+        );
+        assert_eq!(
+            validate_shard_graph_relationships(&invalid, &note_ids).unwrap_err(),
+            "Knowledge shard community assignment references an unknown community."
+        );
+    }
+
+    async fn shard_graph_snapshot(ctx: &matric_db::SchemaContext) -> serde_json::Value {
+        ctx.query(|tx| {
+            Box::pin(async move {
+                sqlx::query_scalar::<_, serde_json::Value>(
+                    "SELECT jsonb_build_object(
+                       'sources', COALESCE((
+                         SELECT jsonb_agg(to_jsonb(gs) ORDER BY gs.created_at, gs.id)
+                         FROM graph_source gs
+                       ), '[]'::jsonb),
+                       'edges', COALESCE((
+                         SELECT jsonb_agg(
+                           to_jsonb(ge)
+                           ORDER BY ge.graph_source_id, ge.from_note_id, ge.to_note_id, ge.kind
+                         )
+                         FROM graph_edge_artifact ge
+                       ), '[]'::jsonb),
+                       'sets', COALESCE((
+                         SELECT jsonb_agg(to_jsonb(cs) ORDER BY cs.created_at, cs.id)
+                         FROM community_set cs
+                       ), '[]'::jsonb),
+                       'communities', COALESCE((
+                         SELECT jsonb_agg(
+                           to_jsonb(c) ORDER BY c.community_set_id, c.rank NULLS LAST, c.id
+                         )
+                         FROM community c
+                       ), '[]'::jsonb),
+                       'assignments', COALESCE((
+                         SELECT jsonb_agg(
+                           to_jsonb(ca)
+                           ORDER BY ca.community_set_id, ca.community_id, ca.note_id
+                         )
+                         FROM community_assignment ca
+                       ), '[]'::jsonb)
+                     )",
+                )
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(matric_db::Error::Database)
+            })
+        })
+        .await
+        .expect("read graph shard snapshot")
+    }
+
+    #[tokio::test]
+    async fn shard_graph_apply_is_atomic_and_repeatable() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let success_name = format!("sh-graph-ok-{}", Uuid::new_v4().simple());
+        let rollback_name = format!("sh-graph-rb-{}", Uuid::new_v4().simple());
+        let success = db
+            .archives
+            .create_archive_schema(&success_name, Some("Shard graph apply success"))
+            .await
+            .expect("create graph success schema");
+        let rollback = db
+            .archives
+            .create_archive_schema(&rollback_name, Some("Shard graph apply rollback"))
+            .await
+            .expect("create graph rollback schema");
+        let (files, note_ids) = valid_shard_graph_relationship_fixture();
+        validate_shard_graph_relationships(&files, &note_ids).unwrap();
+
+        for schema in [&success.schema_name, &rollback.schema_name] {
+            let ctx = db.for_schema(schema).unwrap();
+            let mut tx = ctx.begin_tx().await.expect("begin graph note seed");
+            for (index, note_id) in note_ids.iter().copied().enumerate() {
+                matric_db::PgNoteRepository::new(db.pool.clone())
+                    .insert_with_id_tx(
+                        &mut tx,
+                        note_id,
+                        CreateNoteRequest {
+                            content: format!("Graph shard note {index}"),
+                            format: "markdown".to_string(),
+                            source: "knowledge-shard-test".to_string(),
+                            collection_id: None,
+                            tags: Some(Vec::new()),
+                            metadata: Some(serde_json::json!({})),
+                            document_type_id: None,
+                            title: Some(format!("Graph apply note {index}")),
+                        },
+                    )
+                    .await
+                    .expect("seed graph note");
+            }
+            tx.commit().await.expect("commit graph note seed");
+        }
+
+        let components = [
+            "graph_sources",
+            "graph_edges",
+            "communities",
+            "community_assignments",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<std::collections::HashSet<_>>();
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let success_ctx = db.for_schema(&success.schema_name).unwrap();
+        let mut expected = None;
+        for pass in 0..2 {
+            let mut tx = success_ctx.begin_tx().await.expect("begin graph apply");
+            let mut imported = ShardImportCounts::default();
+            let mut skipped = ShardImportCounts::default();
+            apply_shard_graph_components_tx(
+                &mut tx,
+                &files,
+                &components,
+                &opts,
+                &mut imported,
+                &mut skipped,
+            )
+            .await
+            .expect("apply complete graph boundary");
+            tx.commit().await.expect("commit graph boundary");
+            assert_eq!(imported.graph_sources, 1, "pass {pass}");
+            assert_eq!(imported.graph_edges, 1, "pass {pass}");
+            assert_eq!(imported.community_sets, 1, "pass {pass}");
+            assert_eq!(imported.communities, 2, "pass {pass}");
+            assert_eq!(imported.community_assignments, 2, "pass {pass}");
+            assert_eq!(skipped.graph_sources, 0, "pass {pass}");
+            assert_eq!(skipped.community_assignments, 0, "pass {pass}");
+
+            let snapshot = shard_graph_snapshot(&success_ctx).await;
+            assert_eq!(snapshot["sources"].as_array().unwrap().len(), 1);
+            assert_eq!(snapshot["edges"].as_array().unwrap().len(), 1);
+            assert_eq!(snapshot["communities"].as_array().unwrap().len(), 2);
+            assert_eq!(snapshot["assignments"].as_array().unwrap().len(), 2);
+            assert_eq!(
+                snapshot["sources"][0]["virtual_set_id"],
+                serde_json::json!("filter:portable")
+            );
+            assert_eq!(
+                snapshot["communities"][1]["representative_note_ids"],
+                serde_json::Value::Null
+            );
+            assert_eq!(
+                snapshot["assignments"][1]["confidence"],
+                serde_json::Value::Null
+            );
+            if let Some(expected) = &expected {
+                assert_eq!(&snapshot, expected, "pass {pass}");
+            } else {
+                expected = Some(snapshot);
+            }
+        }
+
+        let rollback_ctx = db.for_schema(&rollback.schema_name).unwrap();
+        let baseline = shard_graph_snapshot(&rollback_ctx).await;
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin failed graph apply");
+        sqlx::query(
+            "CREATE FUNCTION reject_shard_community_assignment()
+             RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN
+                 RAISE EXCEPTION 'injected community assignment failure';
+             END;
+             $$",
+        )
+        .execute(&mut *tx)
+        .await
+        .expect("create graph failure function");
+        sqlx::query(
+            "CREATE TRIGGER reject_shard_community_assignment
+             BEFORE INSERT ON community_assignment
+             FOR EACH ROW EXECUTE FUNCTION reject_shard_community_assignment()",
+        )
+        .execute(&mut *tx)
+        .await
+        .expect("create graph failure trigger");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        let error = apply_shard_graph_components_tx(
+            &mut tx,
+            &files,
+            &components,
+            &opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect_err("late graph failure must abort the apply transaction");
+        assert!(matches!(error, ApiError::OperationFailed { .. }));
+        tx.rollback().await.expect("roll back failed graph apply");
+        assert_eq!(shard_graph_snapshot(&rollback_ctx).await, baseline);
+
+        for archive_name in [success_name, rollback_name] {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .expect("drop isolated graph test schema");
+        }
+    }
+
     #[test]
     fn test_shard_manifest_serialization() {
         let manifest = ShardManifest {
@@ -48174,6 +49341,11 @@ not-json
                 note_skos_tags: 0,
                 skos_collections: 0,
                 skos_collection_members: 0,
+                graph_sources: 0,
+                graph_edges: 0,
+                community_sets: 0,
+                communities: 0,
+                community_assignments: 0,
                 collections: 5,
                 tags: 20,
                 templates: 3,
@@ -48241,6 +49413,11 @@ not-json
                 note_skos_tags: 0,
                 skos_collections: 0,
                 skos_collection_members: 0,
+                graph_sources: 0,
+                graph_edges: 0,
+                community_sets: 0,
+                communities: 0,
+                community_assignments: 0,
                 collections: 1,
                 tags: 2,
                 templates: 1,
@@ -48513,6 +49690,11 @@ not-json
                 note_skos_tags: 0,
                 skos_collections: 0,
                 skos_collection_members: 0,
+                graph_sources: 0,
+                graph_edges: 0,
+                community_sets: 0,
+                communities: 0,
+                community_assignments: 0,
                 collections: 2,
                 tags: 0,
                 templates: 1,
