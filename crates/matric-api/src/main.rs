@@ -22009,6 +22009,12 @@ struct ShardCounts {
     provenance_edges: usize,
     #[serde(skip_serializing_if = "shard_count_is_zero")]
     provenance_activities: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    named_locations: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    provenance_locations: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    provenance_devices: usize,
     collections: usize,
     tags: usize,
     templates: usize,
@@ -22200,6 +22206,63 @@ struct ShardProvenanceActivityRecord {
     started_at: chrono::DateTime<chrono::Utc>,
     ended_at: Option<chrono::DateTime<chrono::Utc>>,
     metadata: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardNamedLocationRecord {
+    id: Uuid,
+    name: String,
+    slug: String,
+    display_name: Option<String>,
+    location_type: String,
+    point_ewkb_hex: Option<String>,
+    boundary_ewkb_hex: Option<String>,
+    radius_m: Option<f32>,
+    address_line: Option<String>,
+    locality: Option<String>,
+    admin_area: Option<String>,
+    country: Option<String>,
+    country_code: Option<String>,
+    postal_code: Option<String>,
+    timezone: Option<String>,
+    altitude_m: Option<f32>,
+    owner_id: Option<Uuid>,
+    is_private: Option<bool>,
+    metadata: Option<serde_json::Value>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardProvenanceLocationRecord {
+    id: Uuid,
+    point_ewkb_hex: String,
+    horizontal_accuracy_m: Option<f32>,
+    altitude_m: Option<f32>,
+    vertical_accuracy_m: Option<f32>,
+    heading_degrees: Option<f32>,
+    speed_mps: Option<f32>,
+    named_location_id: Option<Uuid>,
+    source: String,
+    confidence: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardProvenanceDeviceRecord {
+    id: Uuid,
+    device_make: Option<String>,
+    device_model: Option<String>,
+    device_os: Option<String>,
+    device_os_version: Option<String>,
+    software: Option<String>,
+    software_version: Option<String>,
+    has_gps: Option<bool>,
+    has_accelerometer: Option<bool>,
+    sensor_metadata: Option<serde_json::Value>,
+    owner_id: Option<Uuid>,
+    device_name: Option<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -22752,6 +22815,9 @@ fn shard_component_filename(component: &str) -> Option<&'static str> {
         "note_revisions" => Some("note_revisions.jsonl"),
         "provenance_edges" => Some("provenance_edges.jsonl"),
         "provenance_activities" => Some("provenance_activities.jsonl"),
+        "named_locations" => Some("named_locations.jsonl"),
+        "provenance_locations" => Some("provenance_locations.jsonl"),
+        "provenance_devices" => Some("provenance_devices.jsonl"),
         "collections" => Some("collections.json"),
         "tags" => Some("tags.json"),
         "templates" => Some("templates.json"),
@@ -23094,6 +23160,9 @@ fn parse_shard_component_records_with_limits(
         | "note_revisions"
         | "provenance_edges"
         | "provenance_activities"
+        | "named_locations"
+        | "provenance_locations"
+        | "provenance_devices"
         | "links"
         | "embedding_set_members"
         | "embeddings" => {
@@ -23144,6 +23213,9 @@ fn validate_shard_component_schema_for_profile(
             | "note_revisions"
             | "provenance_edges"
             | "provenance_activities"
+            | "named_locations"
+            | "provenance_locations"
+            | "provenance_devices"
             | "links"
             | "embedding_set_members"
             | "embeddings"
@@ -23932,6 +24004,9 @@ fn validate_shard_component_inventory(
             "note_revisions" => manifest.counts.note_revisions,
             "provenance_edges" => manifest.counts.provenance_edges,
             "provenance_activities" => manifest.counts.provenance_activities,
+            "named_locations" => manifest.counts.named_locations,
+            "provenance_locations" => manifest.counts.provenance_locations,
+            "provenance_devices" => manifest.counts.provenance_devices,
             "collections" => manifest.counts.collections,
             "tags" => manifest.counts.tags,
             "templates" => manifest.counts.templates,
@@ -24587,6 +24662,144 @@ async fn knowledge_shard(
             let data = serialize_shard_export_jsonl(&records, "serialize provenance activities")?;
             add_json_file("provenance_activities.jsonl", &data).map_err(|error| {
                 shard_operation_failed("add provenance activities to shard", error)
+            })?;
+        }
+
+        if components.contains(&"named_locations") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, name, slug, display_name, location_type,
+                       CASE WHEN point IS NULL
+                         THEN NULL
+                         ELSE encode(ST_AsEWKB(point::geometry), 'hex')
+                       END AS point_ewkb_hex,
+                       CASE WHEN boundary IS NULL
+                         THEN NULL
+                         ELSE encode(ST_AsEWKB(boundary::geometry), 'hex')
+                       END AS boundary_ewkb_hex,
+                       radius_m, address_line, locality, admin_area, country,
+                       country_code, postal_code, timezone, altitude_m, owner_id,
+                       is_private, metadata, created_at, updated_at
+                FROM named_location
+                ORDER BY slug, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read named locations", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardNamedLocationRecord {
+                    id: row.get("id"),
+                    name: row.get("name"),
+                    slug: row.get("slug"),
+                    display_name: row.get("display_name"),
+                    location_type: row.get("location_type"),
+                    point_ewkb_hex: row.get("point_ewkb_hex"),
+                    boundary_ewkb_hex: row.get("boundary_ewkb_hex"),
+                    radius_m: row.get("radius_m"),
+                    address_line: row.get("address_line"),
+                    locality: row.get("locality"),
+                    admin_area: row.get("admin_area"),
+                    country: row.get("country"),
+                    country_code: row.get("country_code"),
+                    postal_code: row.get("postal_code"),
+                    timezone: row.get("timezone"),
+                    altitude_m: row.get("altitude_m"),
+                    owner_id: row.get("owner_id"),
+                    is_private: row.get("is_private"),
+                    metadata: row.get("metadata"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                })
+                .collect::<Vec<_>>();
+            counts.named_locations = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize named locations")?;
+            add_json_file("named_locations.jsonl", &data)
+                .map_err(|error| shard_operation_failed("add named locations to shard", error))?;
+        }
+
+        if components.contains(&"provenance_locations") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, encode(ST_AsEWKB(point::geometry), 'hex') AS point_ewkb_hex,
+                       horizontal_accuracy_m, altitude_m, vertical_accuracy_m,
+                       heading_degrees, speed_mps, named_location_id, source,
+                       confidence, created_at
+                FROM prov_location
+                ORDER BY created_at, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read provenance locations", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardProvenanceLocationRecord {
+                    id: row.get("id"),
+                    point_ewkb_hex: row.get("point_ewkb_hex"),
+                    horizontal_accuracy_m: row.get("horizontal_accuracy_m"),
+                    altitude_m: row.get("altitude_m"),
+                    vertical_accuracy_m: row.get("vertical_accuracy_m"),
+                    heading_degrees: row.get("heading_degrees"),
+                    speed_mps: row.get("speed_mps"),
+                    named_location_id: row.get("named_location_id"),
+                    source: row.get("source"),
+                    confidence: row.get("confidence"),
+                    created_at: row.get("created_at"),
+                })
+                .collect::<Vec<_>>();
+            counts.provenance_locations = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize provenance locations")?;
+            add_json_file("provenance_locations.jsonl", &data).map_err(|error| {
+                shard_operation_failed("add provenance locations to shard", error)
+            })?;
+        }
+
+        if components.contains(&"provenance_devices") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, device_make, device_model, device_os, device_os_version,
+                       software, software_version, has_gps, has_accelerometer,
+                       sensor_metadata, owner_id, device_name, created_at
+                FROM prov_agent_device
+                ORDER BY created_at, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read provenance devices", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardProvenanceDeviceRecord {
+                    id: row.get("id"),
+                    device_make: row.get("device_make"),
+                    device_model: row.get("device_model"),
+                    device_os: row.get("device_os"),
+                    device_os_version: row.get("device_os_version"),
+                    software: row.get("software"),
+                    software_version: row.get("software_version"),
+                    has_gps: row.get("has_gps"),
+                    has_accelerometer: row.get("has_accelerometer"),
+                    sensor_metadata: row.get("sensor_metadata"),
+                    owner_id: row.get("owner_id"),
+                    device_name: row.get("device_name"),
+                    created_at: row.get("created_at"),
+                })
+                .collect::<Vec<_>>();
+            counts.provenance_devices = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize provenance devices")?;
+            add_json_file("provenance_devices.jsonl", &data).map_err(|error| {
+                shard_operation_failed("add provenance devices to shard", error)
             })?;
         }
 
@@ -41483,6 +41696,94 @@ not-json
         assert!(activity_json["metadata"].is_null());
     }
 
+    #[test]
+    fn shard_spatial_provenance_records_preserve_identity_geometry_and_nulls() {
+        let named_location_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d021").unwrap();
+        let location_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d022").unwrap();
+        let device_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d023").unwrap();
+        let timestamp = "2026-07-18T13:30:00Z";
+        let point_ewkb_hex = "0101000020e6100000000000000000f03f0000000000000040";
+
+        let named_location =
+            serde_json::from_value::<ShardNamedLocationRecord>(serde_json::json!({
+                "id": named_location_id,
+                "name": "Exact place",
+                "slug": "exact-place",
+                "display_name": null,
+                "location_type": "poi",
+                "point_ewkb_hex": point_ewkb_hex,
+                "boundary_ewkb_hex": null,
+                "radius_m": null,
+                "address_line": null,
+                "locality": "Test City",
+                "admin_area": null,
+                "country": null,
+                "country_code": null,
+                "postal_code": null,
+                "timezone": "UTC",
+                "altitude_m": null,
+                "owner_id": null,
+                "is_private": null,
+                "metadata": null,
+                "created_at": timestamp,
+                "updated_at": timestamp
+            }))
+            .unwrap();
+        let named_location_json = serde_json::to_value(named_location).unwrap();
+        assert_eq!(named_location_json["id"], named_location_id.to_string());
+        assert_eq!(named_location_json["point_ewkb_hex"], point_ewkb_hex);
+        assert!(named_location_json["boundary_ewkb_hex"].is_null());
+        assert!(named_location_json["owner_id"].is_null());
+        assert!(named_location_json["is_private"].is_null());
+        assert!(named_location_json["metadata"].is_null());
+
+        let location = serde_json::from_value::<ShardProvenanceLocationRecord>(serde_json::json!({
+            "id": location_id,
+            "point_ewkb_hex": point_ewkb_hex,
+            "horizontal_accuracy_m": 4.5,
+            "altitude_m": null,
+            "vertical_accuracy_m": null,
+            "heading_degrees": null,
+            "speed_mps": null,
+            "named_location_id": named_location_id,
+            "source": "gps_exif",
+            "confidence": "high",
+            "created_at": timestamp
+        }))
+        .unwrap();
+        let location_json = serde_json::to_value(location).unwrap();
+        assert_eq!(location_json["id"], location_id.to_string());
+        assert_eq!(location_json["point_ewkb_hex"], point_ewkb_hex);
+        assert_eq!(
+            location_json["named_location_id"],
+            named_location_id.to_string()
+        );
+        assert!(location_json["altitude_m"].is_null());
+
+        let device = serde_json::from_value::<ShardProvenanceDeviceRecord>(serde_json::json!({
+            "id": device_id,
+            "device_make": "Fortemi",
+            "device_model": null,
+            "device_os": null,
+            "device_os_version": null,
+            "software": null,
+            "software_version": null,
+            "has_gps": null,
+            "has_accelerometer": null,
+            "sensor_metadata": null,
+            "owner_id": null,
+            "device_name": null,
+            "created_at": timestamp
+        }))
+        .unwrap();
+        let device_json = serde_json::to_value(device).unwrap();
+        assert_eq!(device_json["id"], device_id.to_string());
+        assert!(device_json["device_model"].is_null());
+        assert!(device_json["has_gps"].is_null());
+        assert!(device_json["sensor_metadata"].is_null());
+        assert!(device_json["owner_id"].is_null());
+    }
+
     fn valid_shard_note_history_relationship_fixture() -> (
         std::collections::HashMap<String, Vec<u8>>,
         std::collections::HashSet<Uuid>,
@@ -43214,6 +43515,11 @@ not-json
                 .unwrap_err(),
             "Knowledge shard component exceeds the record count limit."
         );
+        assert_eq!(
+            parse_shard_component_records_with_limits("named_locations", b"{}\n{}", 1, 1024,)
+                .unwrap_err(),
+            "Knowledge shard component exceeds the record count limit."
+        );
     }
 
     #[test]
@@ -43238,6 +43544,9 @@ not-json
                 note_revisions: 0,
                 provenance_edges: 0,
                 provenance_activities: 0,
+                named_locations: 0,
+                provenance_locations: 0,
+                provenance_devices: 0,
                 collections: 5,
                 tags: 20,
                 templates: 3,
@@ -43291,6 +43600,9 @@ not-json
                 note_revisions: 0,
                 provenance_edges: 0,
                 provenance_activities: 0,
+                named_locations: 0,
+                provenance_locations: 0,
+                provenance_devices: 0,
                 collections: 1,
                 tags: 2,
                 templates: 1,
