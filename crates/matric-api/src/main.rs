@@ -22115,17 +22115,20 @@ struct ShardLinkRecord {
     metadata: serde_json::Value,
 }
 
-fn parse_shard_jsonl<T>(data: &[u8], invalid_message: &'static str) -> Result<Vec<T>, ApiError>
+fn shard_jsonl_records<'a, T>(
+    data: &'a [u8],
+    invalid_message: &'static str,
+) -> Result<impl Iterator<Item = Result<T, ApiError>> + 'a, ApiError>
 where
-    T: serde::de::DeserializeOwned,
+    T: serde::de::DeserializeOwned + 'a,
 {
     let text = std::str::from_utf8(data).map_err(|_| shard_validation_failed(invalid_message))?;
-    text.lines()
+    Ok(text
+        .lines()
         .filter(|line| !line.trim().is_empty())
-        .map(|line| {
+        .map(move |line| {
             serde_json::from_str(line).map_err(|_| shard_validation_failed(invalid_message))
-        })
-        .collect()
+        }))
 }
 
 fn shard_operation_failed(context: &'static str, error: impl std::fmt::Display) -> ApiError {
@@ -27941,10 +27944,13 @@ async fn apply_validated_shard_components(
 
     if should_import("notes") {
         if let Some(notes_data) = files.get("notes.jsonl") {
-            let notes: Vec<ShardNoteRecord> =
-                parse_shard_jsonl(notes_data, "Knowledge shard notes are invalid.")?;
+            let notes = shard_jsonl_records::<ShardNoteRecord>(
+                notes_data,
+                "Knowledge shard notes are invalid.",
+            )?;
             let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
             for note in notes {
+                let note = note?;
                 let exists = notes_repo
                     .exists_tx(&mut tx, note.id)
                     .await
@@ -28150,9 +28156,10 @@ async fn apply_validated_shard_components(
 
     if should_import("links") {
         if let Some(data) = files.get("links.jsonl") {
-            let links: Vec<ShardLinkRecord> =
-                parse_shard_jsonl(data, "Knowledge shard links are invalid.")?;
+            let links =
+                shard_jsonl_records::<ShardLinkRecord>(data, "Knowledge shard links are invalid.")?;
             for link in links {
+                let link = link?;
                 if !opts.dry_run {
                     let conflict = if matches!(opts.on_conflict, ConflictStrategy::Replace) {
                         "ON CONFLICT (id) DO UPDATE SET
@@ -36565,6 +36572,28 @@ mod tests {
             decode_shard_base64_to_tempfile("H4sIAAAAAAAA!", SHARD_MAX_COMPRESSED_BYTES),
             Err(ShardBase64DecodeError::InvalidBase64)
         ));
+    }
+
+    #[test]
+    fn shard_jsonl_records_decode_lazily_one_record_at_a_time() {
+        let data = br#"{"id":1}
+
+not-json
+{"id":3}"#;
+        let mut records = shard_jsonl_records::<serde_json::Value>(
+            data,
+            "Knowledge shard test records are invalid.",
+        )
+        .expect("create lazy JSONL iterator");
+
+        assert_eq!(records.next().unwrap().unwrap()["id"], 1);
+        assert!(matches!(
+            records.next().unwrap(),
+            Err(ApiError::BadRequest(message))
+                if message == "Knowledge shard test records are invalid."
+        ));
+        assert_eq!(records.next().unwrap().unwrap()["id"], 3);
+        assert!(records.next().is_none());
     }
 
     #[test]

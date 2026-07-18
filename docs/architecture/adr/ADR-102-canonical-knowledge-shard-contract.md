@@ -41,9 +41,12 @@ request-scoped temporary file, and on-disk swap reads its existing file
 directly into the same reader-based preflight. The legacy JSON request retains
 its bounded encoded string, but base64 decoding streams through a fixed buffer
 into a request-scoped temporary file before the same reader-based preflight.
-Structured component files remain bounded-buffered, and export is not
-single-pass live emission, so the route does not constitute fully streaming or
-`full-v1` profile conformance.
+Structured component files remain bounded-buffered, but transactional apply
+deserializes JSONL notes and links one record at a time instead of retaining a
+second component-sized typed vector. JSON-array components and preflight raw
+buffers remain bounded-buffered, and export is not single-pass live emission,
+so the route does not constitute fully streaming or `full-v1` profile
+conformance.
 
 The current normative schema root for `1.1.0` / `core-v1` is
 `contracts/knowledge-shard/1.1.0/core-v1/`. The immutable `1.0.0` authority
