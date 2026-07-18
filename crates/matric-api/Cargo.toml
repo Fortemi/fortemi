@@ -45,6 +45,7 @@ chrono.workspace = true
 
 # Utilities
 base64.workspace = true
+ring.workspace = true
 urlencoding = "2.1"
 regex = "1"
 kamadak-exif = "0.5"

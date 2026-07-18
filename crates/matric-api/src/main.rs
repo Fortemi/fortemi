@@ -4,6 +4,7 @@ mod handlers;
 mod middleware;
 mod query_types;
 mod route_policy;
+mod shard_signature;
 
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
@@ -22913,10 +22914,10 @@ fn read_shard_archive(
 
         let declared_size = usize::try_from(entry.size())
             .map_err(|_| "Knowledge shard entry exceeds the size limit.".to_string())?;
-        let entry_limit = if name == "manifest.json" {
-            limits.max_manifest_bytes
-        } else {
-            limits.max_entry_bytes
+        let entry_limit = match name.as_str() {
+            "manifest.json" => limits.max_manifest_bytes,
+            shard_signature::SIGNATURE_ENTRY => shard_signature::MAX_SIGNATURE_ENVELOPE_BYTES,
+            _ => limits.max_entry_bytes,
         };
         if declared_size > entry_limit {
             return Err("Knowledge shard entry exceeds the size limit.".to_string());
@@ -23003,10 +23004,10 @@ fn read_shard_archive_streaming_sidecars_from_reader<R: std::io::Read>(
 
         let declared_size = usize::try_from(entry.size())
             .map_err(|_| "Knowledge shard entry exceeds the size limit.".to_string())?;
-        let entry_limit = if name == "manifest.json" {
-            limits.max_manifest_bytes
-        } else {
-            limits.max_entry_bytes
+        let entry_limit = match name.as_str() {
+            "manifest.json" => limits.max_manifest_bytes,
+            shard_signature::SIGNATURE_ENTRY => shard_signature::MAX_SIGNATURE_ENVELOPE_BYTES,
+            _ => limits.max_entry_bytes,
         };
         if declared_size > entry_limit {
             return Err("Knowledge shard entry exceeds the size limit.".to_string());
@@ -25115,7 +25116,12 @@ fn validate_shard_component_inventory(
         }
     }
 
-    for filename in files.keys().filter(|name| name.as_str() != "manifest.json") {
+    for filename in files.keys().filter(|name| {
+        !matches!(
+            name.as_str(),
+            "manifest.json" | shard_signature::SIGNATURE_ENTRY
+        )
+    }) {
         if !expected_files.contains(filename) && shard_blob_entry_checksum(filename).is_none() {
             return Err("Knowledge shard contains an undeclared component file.".to_string());
         }
@@ -27129,6 +27135,8 @@ struct ShardImportBody {
     /// Whether to skip embedding regeneration (use imported embeddings)
     #[serde(default)]
     skip_embedding_regen: bool,
+    /// Publisher signature verification policy.
+    verify_signature: Option<shard_signature::ShardSignaturePolicy>,
 }
 
 impl std::fmt::Debug for ShardImportBody {
@@ -27142,6 +27150,7 @@ impl std::fmt::Debug for ShardImportBody {
             .field("dry_run", &self.dry_run)
             .field("on_conflict", &self.on_conflict)
             .field("skip_embedding_regen", &self.skip_embedding_regen)
+            .field("verify_signature", &self.verify_signature)
             .finish()
     }
 }
@@ -27234,6 +27243,7 @@ async fn knowledge_shard_import(
         ));
     }
 
+    let signature_policy = body.verify_signature;
     let opts = ShardImportOptions {
         include: body.include,
         dry_run: body.dry_run,
@@ -27268,6 +27278,7 @@ async fn knowledge_shard_import(
         shard_reader,
         compressed_bytes,
         &opts,
+        signature_policy,
         &archive_ctx.schema,
         false,
     )
@@ -27289,6 +27300,8 @@ struct ShardUploadQuery {
     /// Whether to skip embedding regeneration
     #[serde(default)]
     skip_embedding_regen: bool,
+    /// Publisher signature verification policy.
+    verify_signature: Option<shard_signature::ShardSignaturePolicy>,
 }
 
 impl fmt::Debug for ShardUploadQuery {
@@ -27301,6 +27314,7 @@ impl fmt::Debug for ShardUploadQuery {
             .field("dry_run", &self.dry_run)
             .field("on_conflict", &self.on_conflict)
             .field("skip_embedding_regen", &self.skip_embedding_regen)
+            .field("verify_signature", &self.verify_signature)
             .finish()
     }
 }
@@ -27308,6 +27322,13 @@ impl fmt::Debug for ShardUploadQuery {
 /// Import a knowledge shard via multipart file upload.
 /// Preferred over the JSON/base64 endpoint for large shards.
 #[utoipa::path(post, path = "/api/v1/backup/knowledge-shard/upload", tag = "Backup",
+    params(
+        ("include" = Option<String>, Query, description = "Components to import as a comma-separated list"),
+        ("dry_run" = Option<bool>, Query, description = "Validate without importing"),
+        ("on_conflict" = Option<ConflictStrategy>, Query, description = "Conflict resolution strategy for notes"),
+        ("skip_embedding_regen" = Option<bool>, Query, description = "Use imported embeddings without regeneration"),
+        ("verify_signature" = Option<shard_signature::ShardSignaturePolicy>, Query, description = "Publisher signature verification policy"),
+    ),
     responses((status = 200, description = "Success")))]
 async fn knowledge_shard_import_upload(
     State(state): State<AppState>,
@@ -27369,6 +27390,7 @@ async fn knowledge_shard_import_upload(
         .reopen()
         .map_err(|error| shard_operation_failed("read shard upload", error))?;
 
+    let signature_policy = query.verify_signature;
     let opts = ShardImportOptions {
         include: query.include,
         dry_run: query.dry_run,
@@ -27381,6 +27403,7 @@ async fn knowledge_shard_import_upload(
         shard_reader,
         compressed_bytes,
         &opts,
+        signature_policy,
         &archive_ctx.schema,
         false,
     )
@@ -30660,6 +30683,7 @@ async fn swap_backup(
         file,
         compressed_bytes,
         &opts,
+        None,
         &archive_ctx.schema,
         wipe_before_apply,
     )
@@ -33755,6 +33779,7 @@ async fn knowledge_shard_import_internal_with_wipe(
         std::io::Cursor::new(shard_bytes),
         shard_bytes.len(),
         opts,
+        None,
         schema,
         wipe_before_apply,
     )
@@ -33766,6 +33791,7 @@ async fn knowledge_shard_import_internal_from_reader_with_wipe<R>(
     shard_reader: R,
     compressed_bytes: usize,
     opts: &ShardImportOptions,
+    signature_policy: Option<shard_signature::ShardSignaturePolicy>,
     schema: &str,
     wipe_before_apply: bool,
 ) -> Result<ShardImportResponse, ApiError>
@@ -33793,6 +33819,25 @@ where
     let source_sidecars = source_archive.sidecars;
 
     let mut warnings: Vec<String> = Vec::new();
+    let trusted_keys_json = match std::env::var("FORTEMI_SHARD_TRUSTED_KEYS_JSON") {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(ApiError::ServiceUnavailable(
+                "Knowledge shard trusted-key configuration is invalid.".to_string(),
+            ));
+        }
+    };
+    let trust_store = shard_signature::parse_trust_store(trusted_keys_json.as_deref())
+        .map_err(ApiError::ServiceUnavailable)?;
+    shard_signature::enforce_signature_policy(
+        &source_files,
+        source_sidecars.keys(),
+        signature_policy,
+        trust_store.as_ref(),
+        &mut warnings,
+    )
+    .map_err(ApiError::BadRequest)?;
     let manifest_data = source_files
         .get("manifest.json")
         .ok_or_else(|| shard_validation_failed("Knowledge shard manifest is required."))?;
@@ -38762,6 +38807,7 @@ mod tests {
             dry_run: true,
             on_conflict: ConflictStrategy::Replace,
             skip_embedding_regen: true,
+            verify_signature: Some(shard_signature::ShardSignaturePolicy::Require),
         };
         let response = ShardImportResponse {
             status: "partial-private-shard".to_string(),
@@ -38835,6 +38881,7 @@ mod tests {
         assert!(rendered_body.contains("ShardImportBody"));
         assert!(rendered_body.contains("shard_base64_len"));
         assert!(rendered_body.contains("include_len"));
+        assert!(rendered_body.contains("verify_signature"));
         assert!(rendered_response.contains("ShardImportResponse"));
         assert!(rendered_response.contains("status_len"));
         assert!(rendered_response.contains("manifest_set"));
@@ -39560,6 +39607,7 @@ mod tests {
             dry_run: true,
             on_conflict: ConflictStrategy::Merge,
             skip_embedding_regen: true,
+            verify_signature: Some(shard_signature::ShardSignaturePolicy::Require),
         };
         let attachments = ListGlobalAttachmentsQuery {
             limit: Some(25),
@@ -39605,6 +39653,7 @@ mod tests {
         assert!(debug.contains("content_len"));
         assert!(debug.contains("track_len"));
         assert!(debug.contains("include_len"));
+        assert!(debug.contains("verify_signature"));
         assert!(debug.contains("filename_len"));
         assert!(debug.contains("variant_len"));
         assert!(debug.contains("vision_mode_len"));
@@ -44098,6 +44147,7 @@ not-json
                     .expect("open file-backed shard import"),
                 exported_bytes.len(),
                 &opts,
+                None,
                 &destination.schema_name,
                 false,
             )
@@ -45033,6 +45083,11 @@ not-json
     #[test]
     fn shard_inventory_rejects_missing_undeclared_and_count_mismatches() {
         let manifest = valid_core_shard_manifest();
+
+        let mut files = valid_core_shard_files();
+        files.insert(shard_signature::SIGNATURE_ENTRY.to_string(), b"{}".to_vec());
+        validate_shard_component_inventory(&manifest, &files)
+            .expect("the reserved signature envelope is not a manifest component");
 
         let mut files = valid_core_shard_files();
         files.remove("tags.json");
@@ -49627,6 +49682,7 @@ not-json
         assert!(!body.dry_run);
         assert!(matches!(body.on_conflict, ConflictStrategy::Skip));
         assert!(!body.skip_embedding_regen);
+        assert!(body.verify_signature.is_none());
     }
 
     #[test]
@@ -49636,7 +49692,8 @@ not-json
             "include": "notes,collections",
             "dry_run": true,
             "on_conflict": "replace",
-            "skip_embedding_regen": true
+            "skip_embedding_regen": true,
+            "verify_signature": "prefer"
         }"#;
         let body: ShardImportBody = serde_json::from_str(json).unwrap();
         assert_eq!(body.shard_base64, "H4sIAAAAAAAA");
@@ -49644,6 +49701,10 @@ not-json
         assert!(body.dry_run);
         assert!(matches!(body.on_conflict, ConflictStrategy::Replace));
         assert!(body.skip_embedding_regen);
+        assert!(matches!(
+            body.verify_signature,
+            Some(shard_signature::ShardSignaturePolicy::Prefer)
+        ));
     }
 
     #[test]

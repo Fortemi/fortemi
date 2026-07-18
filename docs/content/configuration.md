@@ -53,6 +53,7 @@ DATABASE_URL=<DATABASE_URL>
 | `ALLOWED_ORIGINS` | String | `http://localhost:3000` | Comma-separated list of allowed CORS origins |
 | `MATRIC_MAX_BODY_SIZE_BYTES` | Integer | `2147483648` | Maximum request body size in bytes (default: 2 GB, needed for database backup uploads) |
 | `MATRIC_MAX_UPLOAD_SIZE_BYTES` | Integer | `52428800` | Maximum file upload size in bytes (default: 50 MB). Enforced at the multipart upload route and validated per-file. |
+| `FORTEMI_SHARD_TRUSTED_KEYS_JSON` | JSON array | None | Allowlisted Knowledge Shard Ed25519 public keys as `{"key_id","public_key","revoked"}` records. `public_key` is an unpadded base64url-encoded 32-byte key. When configured, shard imports default to signature policy `require`. |
 
 **Example:**
 ```bash
@@ -61,6 +62,7 @@ PORT=8080       # Custom port
 ALLOWED_ORIGINS=https://memory.example.com,http://localhost:3000
 MATRIC_MAX_BODY_SIZE_BYTES=2147483648
 MATRIC_MAX_UPLOAD_SIZE_BYTES=104857600  # 100 MB
+FORTEMI_SHARD_TRUSTED_KEYS_JSON='[{"key_id":"publisher-1","public_key":"<BASE64URL_PUBLIC_KEY>"}]'
 ```
 
 ### Authentication

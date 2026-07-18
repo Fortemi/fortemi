@@ -972,6 +972,37 @@ paths:
         Import a knowledge shard via multipart file upload.
         Preferred over the JSON/base64 endpoint for large shards.
       operationId: knowledge_shard_import_upload
+      parameters:
+      - name: include
+        in: query
+        description: Components to import as a comma-separated list
+        required: false
+        schema:
+          type: string
+      - name: dry_run
+        in: query
+        description: Validate without importing
+        required: false
+        schema:
+          type: boolean
+      - name: on_conflict
+        in: query
+        description: Conflict resolution strategy for notes
+        required: false
+        schema:
+          $ref: '#/components/schemas/ConflictStrategy'
+      - name: skip_embedding_regen
+        in: query
+        description: Use imported embeddings without regeneration
+        required: false
+        schema:
+          type: boolean
+      - name: verify_signature
+        in: query
+        description: Publisher signature verification policy
+        required: false
+        schema:
+          $ref: '#/components/schemas/ShardSignaturePolicy'
       responses:
         '200':
           description: Success
@@ -11010,6 +11041,17 @@ components:
         skip_embedding_regen:
           type: boolean
           description: Whether to skip embedding regeneration (use imported embeddings)
+        verify_signature:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/ShardSignaturePolicy'
+            description: Publisher signature verification policy.
+    ShardSignaturePolicy:
+      type: string
+      enum:
+      - require
+      - prefer
+      - trusted-local-only
     SkosAuditLogEntry:
       type: object
       description: Audit log entry for taxonomy changes.
