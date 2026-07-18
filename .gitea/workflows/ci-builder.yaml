@@ -875,7 +875,7 @@ jobs:
     runs-on: matric-builder
     # Promote the exact internal artifacts after their gated publication
     # instead of compiling the same source again for a second registry.
-    needs: publish-dev
+    needs: [publish-dev, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests]
     # Belt-and-suspenders gating to exclude tag pushes. The branch-equality
     # check should be sufficient — `refs/tags/vX.Y.Z` is not equal to
     # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
@@ -931,7 +931,7 @@ jobs:
     name: Publish to GitHub (ghcr.io)
     runs-on: matric-builder
     # The internal release artifacts are the source of truth for GHCR.
-    needs: publish-release
+    needs: [publish-release, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
