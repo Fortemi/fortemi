@@ -22363,6 +22363,16 @@ const FULL_V1_EMBEDDING_SET_MEMBER_SCHEMA: &str = include_str!(
 );
 const FULL_V1_EMBEDDING_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/embedding.schema.json");
+const FULL_V1_NOTE_ORIGINAL_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/note-original.schema.json");
+const FULL_V1_NOTE_ORIGINAL_HISTORY_SCHEMA: &str = include_str!(
+    "../../../contracts/knowledge-shard/1.1.0/full-v1/note-original-history.schema.json"
+);
+const FULL_V1_NOTE_REVISED_CURRENT_SCHEMA: &str = include_str!(
+    "../../../contracts/knowledge-shard/1.1.0/full-v1/note-revised-current.schema.json"
+);
+const FULL_V1_NOTE_REVISION_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/note-revision.schema.json");
 
 #[derive(Clone, Copy)]
 struct ShardArchiveLimits {
@@ -22790,6 +22800,14 @@ fn validate_shard_json_schema(
         LazyLock::new(|| compile_shard_json_schema(FULL_V1_EMBEDDING_SET_MEMBER_SCHEMA));
     static FULL_EMBEDDING: LazyLock<Result<jsonschema::Validator, String>> =
         LazyLock::new(|| compile_shard_json_schema(FULL_V1_EMBEDDING_SCHEMA));
+    static FULL_NOTE_ORIGINAL: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_NOTE_ORIGINAL_SCHEMA));
+    static FULL_NOTE_ORIGINAL_HISTORY: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_NOTE_ORIGINAL_HISTORY_SCHEMA));
+    static FULL_NOTE_REVISED_CURRENT: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_NOTE_REVISED_CURRENT_SCHEMA));
+    static FULL_NOTE_REVISION: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_NOTE_REVISION_SCHEMA));
 
     let validator = match schema_json {
         LEGACY_CORE_V1_MANIFEST_SCHEMA => &*LEGACY_MANIFEST,
@@ -22813,6 +22831,10 @@ fn validate_shard_json_schema(
         FULL_V1_EMBEDDING_SET_SCHEMA => &*FULL_EMBEDDING_SET,
         FULL_V1_EMBEDDING_SET_MEMBER_SCHEMA => &*FULL_EMBEDDING_SET_MEMBER,
         FULL_V1_EMBEDDING_SCHEMA => &*FULL_EMBEDDING,
+        FULL_V1_NOTE_ORIGINAL_SCHEMA => &*FULL_NOTE_ORIGINAL,
+        FULL_V1_NOTE_ORIGINAL_HISTORY_SCHEMA => &*FULL_NOTE_ORIGINAL_HISTORY,
+        FULL_V1_NOTE_REVISED_CURRENT_SCHEMA => &*FULL_NOTE_REVISED_CURRENT,
+        FULL_V1_NOTE_REVISION_SCHEMA => &*FULL_NOTE_REVISION,
         _ => return Err("Unknown canonical knowledge shard schema.".to_string()),
     }
     .as_ref()
@@ -22879,6 +22901,10 @@ fn shard_component_schema(version: &str, profile: &str, component: &str) -> Opti
         ("1.1.0", "full-v1", "embedding_sets") => Some(FULL_V1_EMBEDDING_SET_SCHEMA),
         ("1.1.0", "full-v1", "embedding_set_members") => Some(FULL_V1_EMBEDDING_SET_MEMBER_SCHEMA),
         ("1.1.0", "full-v1", "embeddings") => Some(FULL_V1_EMBEDDING_SCHEMA),
+        ("1.1.0", "full-v1", "note_originals") => Some(FULL_V1_NOTE_ORIGINAL_SCHEMA),
+        ("1.1.0", "full-v1", "note_original_history") => Some(FULL_V1_NOTE_ORIGINAL_HISTORY_SCHEMA),
+        ("1.1.0", "full-v1", "note_revised_current") => Some(FULL_V1_NOTE_REVISED_CURRENT_SCHEMA),
+        ("1.1.0", "full-v1", "note_revisions") => Some(FULL_V1_NOTE_REVISION_SCHEMA),
         _ => None,
     }
 }
@@ -40003,7 +40029,7 @@ not-json
         ))
         .expect("contract receipt must be valid JSON");
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert_eq!(receipt["contractRevision"], "5");
+        assert_eq!(receipt["contractRevision"], "6");
         assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
@@ -40013,7 +40039,7 @@ not-json
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
         assert_eq!(
             receipt["profiles"]["full-v1"]["status"],
-            "embedding-boundary-candidate"
+            "revision-boundary-candidate"
         );
         assert_eq!(receipt["profiles"]["record-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["record-v1"]["status"], "supported");
@@ -40122,6 +40148,25 @@ not-json
                 .expect("full-v1 candidate fixture digest must be a string")
         );
 
+        let mut full_v1_revision_fixture_bundle = sha2::Sha256::new();
+        for relative in [
+            "tests/fixtures/shards/full-v1-revision-candidate/note_original_history.jsonl",
+            "tests/fixtures/shards/full-v1-revision-candidate/note_originals.jsonl",
+            "tests/fixtures/shards/full-v1-revision-candidate/note_revised_current.jsonl",
+            "tests/fixtures/shards/full-v1-revision-candidate/note_revisions.jsonl",
+        ] {
+            full_v1_revision_fixture_bundle.update(
+                std::fs::read(workspace_root.join(relative))
+                    .expect("full-v1 revision candidate corpus receipt path must exist"),
+            );
+        }
+        assert_eq!(
+            hex::encode(full_v1_revision_fixture_bundle.finalize()),
+            receipt["profiles"]["full-v1"]["candidateRevisionCorpusSha256"]
+                .as_str()
+                .expect("full-v1 revision candidate fixture digest must be a string")
+        );
+
         let historical = &receipt["historicalReleases"]["1.0.0/core-v1"];
         let mut historical_schema_bundle = sha2::Sha256::new();
         for relative in [
@@ -40207,6 +40252,56 @@ not-json
                 )
                 .unwrap(),
                 1,
+                "candidate component must validate: {component}"
+            );
+        }
+    }
+
+    #[test]
+    fn full_v1_candidate_note_revision_schemas_validate_pinned_corpus() {
+        for (component, data, expected_count) in [
+            (
+                "note_originals",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-revision-candidate/note_originals.jsonl"
+                )
+                .as_slice(),
+                1,
+            ),
+            (
+                "note_original_history",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-revision-candidate/note_original_history.jsonl"
+                )
+                .as_slice(),
+                2,
+            ),
+            (
+                "note_revised_current",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-revision-candidate/note_revised_current.jsonl"
+                )
+                .as_slice(),
+                1,
+            ),
+            (
+                "note_revisions",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-revision-candidate/note_revisions.jsonl"
+                )
+                .as_slice(),
+                2,
+            ),
+        ] {
+            assert_eq!(
+                validate_shard_component_schema_for_profile(
+                    matric_core::shard::CURRENT_SHARD_VERSION,
+                    "full-v1",
+                    component,
+                    data,
+                )
+                .unwrap(),
+                expected_count,
                 "candidate component must validate: {component}"
             );
         }

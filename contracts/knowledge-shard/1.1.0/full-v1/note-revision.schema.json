@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.1.0/full-v1/note-revision.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 candidate note revision record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "note_id",
+    "parent_revision_id",
+    "revision_number",
+    "content",
+    "type",
+    "summary",
+    "rationale",
+    "created_at_utc",
+    "ai_generated_at",
+    "user_last_edited_at",
+    "is_user_edited",
+    "generation_count",
+    "model"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "note_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "parent_revision_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "revision_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "content": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "rationale": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "created_at_utc": {
+      "$ref": "#/$defs/dateTime"
+    },
+    "ai_generated_at": {
+      "$ref": "#/$defs/nullableDateTime"
+    },
+    "user_last_edited_at": {
+      "$ref": "#/$defs/nullableDateTime"
+    },
+    "is_user_edited": {
+      "type": "boolean"
+    },
+    "generation_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "model": {
+      "$ref": "#/$defs/nullableString"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nullableUuid": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableDateTime": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/dateTime"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

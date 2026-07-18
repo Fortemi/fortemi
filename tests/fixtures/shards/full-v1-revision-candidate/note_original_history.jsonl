@@ -1,0 +1,2 @@
+{"id":"018f4c11-9f14-7d33-8a21-1c80f648e011","note_id":"018f4c11-9f14-7d33-8a21-1c80f648e001","version_number":1,"content":"First original source","hash":"blake3:first-original","created_at_utc":"2026-07-18T10:00:00Z","created_by":"user"}
+{"id":"018f4c11-9f14-7d33-8a21-1c80f648e012","note_id":"018f4c11-9f14-7d33-8a21-1c80f648e001","version_number":2,"content":"Second original source","hash":"blake3:second-original","created_at_utc":"2026-07-18T11:00:00Z","created_by":"restore"}

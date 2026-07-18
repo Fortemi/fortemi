@@ -84,6 +84,14 @@ component schema and embedding relationship preflight against this boundary,
 but still rejects `full-v1` manifests. This directory is not a conformance
 archive and must not be used to claim profile support.
 
+### full-v1-revision-candidate/
+
+Digest-pinned candidate records for current original state, original-content
+history, the current revised snapshot, and the note revision chain. Runtime
+schema and relationship preflight use this corpus to reject duplicate,
+cross-note, or out-of-order revision references before any future apply path.
+The corpus is not a `full-v1` manifest or conformance claim.
+
 ### schema-invalid/
 
 Focused negative schema fixtures:

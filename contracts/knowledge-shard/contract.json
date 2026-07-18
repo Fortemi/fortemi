@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractRevision": "5",
+  "contractRevision": "6",
   "authority": {
     "repository": "Fortemi/fortemi",
     "producerCommit": "Use the immutable Git commit containing this receipt."
@@ -18,19 +18,25 @@
     },
     "full-v1": {
       "supported": false,
-      "status": "embedding-boundary-candidate",
+      "status": "revision-boundary-candidate",
       "candidateComponentSchemaRoot": "contracts/knowledge-shard/1.1.0/full-v1",
       "candidateComponents": [
         "embedding_configs",
         "embedding_sets",
         "embedding_set_members",
-        "embeddings"
+        "embeddings",
+        "note_originals",
+        "note_original_history",
+        "note_revised_current",
+        "note_revisions"
       ],
       "candidateGoldenCorpusRoot": "tests/fixtures/shards/full-v1-embedding-candidate",
       "candidateGoldenCorpusSha256": "9745279f0dca478712b9248ef86137be6d75e7d627a9cfd69652204f231b383d",
+      "candidateRevisionCorpusRoot": "tests/fixtures/shards/full-v1-revision-candidate",
+      "candidateRevisionCorpusSha256": "ac0325e9433fbb8d558a10a681a84677bc05bda5d5ae7571d25739712d661c17",
       "remainingReleaseGates": [
         "canonical full-v1 manifest and complete component inventory",
-        "transactional embedding import and semantic round-trip equality",
+        "transactional revision-history import and semantic round-trip equality",
         "SKOS, provenance, graph, community, and signature schemas and apply paths",
         "attachment byte sidecar conformance",
         "cross-repository producer and consumer receipts"
@@ -60,7 +66,7 @@
   },
   "schemaBundle": {
     "aggregateAlgorithm": "sha256(raw file bytes concatenated in lexicographic path order)",
-    "sha256": "b33c6d14fefb34f398cfe03b5d6c1a9cb5ccbb0ef7b73a4a708afb77794eb422",
+    "sha256": "e599b4a54e5bfc72291118713b9a68fbe6875043e1704bdbcd816cbb52007f6c",
     "files": {
       "contracts/knowledge-shard/1.1.0/core-v1/collection.schema.json": "4708374341b2ca1c9f51290c140281deaefd33aaad0cf5051d17b53eb23f3cf6",
       "contracts/knowledge-shard/1.1.0/core-v1/link.schema.json": "c907ca29ab9233af2e8f45d0a39beeeb3c1bdf2219f947ac353689af6c1c848f",
@@ -72,6 +78,10 @@
       "contracts/knowledge-shard/1.1.0/full-v1/embedding-set-member.schema.json": "011ca0653b89b3075a251b3c4d7ac92888d414cb00763381eebcfe9018a101aa",
       "contracts/knowledge-shard/1.1.0/full-v1/embedding-set.schema.json": "7d8dc0d4caf3c45835181c336d5111e10c1a07086e2e21252122fde2024586b8",
       "contracts/knowledge-shard/1.1.0/full-v1/embedding.schema.json": "6244717fc964e4b493b6bc534a6c1250d8ad0dc45975e74cf29ec68b6eba7615",
+      "contracts/knowledge-shard/1.1.0/full-v1/note-original-history.schema.json": "d8c4f0724748b38cde81dae727a305e2ac515965df22e0de5d86806bfd6f8ce4",
+      "contracts/knowledge-shard/1.1.0/full-v1/note-original.schema.json": "bc525530162860fcdd2b6583352a23dd75029eb3e0c7e318e27900650425b3e7",
+      "contracts/knowledge-shard/1.1.0/full-v1/note-revised-current.schema.json": "2f128e9a0cb18618e0141d16f76b6f66635aeddb523691e592b1c13604f5f950",
+      "contracts/knowledge-shard/1.1.0/full-v1/note-revision.schema.json": "a86bbec5d992d1d7d91530ea6efc698ac5b6c3070f5b44a80cb9449002b7d31e",
       "contracts/knowledge-shard/1.1.0/record-v1/collection.schema.json": "61bc4d717b097b3e6c77b716a9adaa71acbca9228b66f0d4b7d83a060476680d",
       "contracts/knowledge-shard/1.1.0/record-v1/link.schema.json": "3fe3b6632412c23319f8a4385c937066fbf2ba90af7f8170eaa57a951f4d65c5",
       "contracts/knowledge-shard/1.1.0/record-v1/manifest.schema.json": "42cd8b8c3d30014b819076fa4ab4e462d18171511985f428d8fa99947466ee03",
@@ -97,7 +107,7 @@
     "schema 1.0.0 note records migrate missing deleted_at to the documented null active-state default",
     "core-v1 attachment records are metadata/reference projections by default; optional verified sidecars do not establish full-v1 conformance",
     "record-v1 covers only notes, collections, tags, note-to-note links, and attachment projections; producers must report every omitted or lossy source concept",
-    "full-v1 has digest-pinned candidate embedding component schemas only; it has no canonical manifest and is not supported by this release",
+    "full-v1 has digest-pinned candidate embedding and note-revision component schemas only; it has no canonical manifest and is not supported by this release",
     "complete absent-versus-null preservation requires a later schema-major or new profile identifier"
   ]
 }
