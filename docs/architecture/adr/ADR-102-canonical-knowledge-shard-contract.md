@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Canonical `core-v1` schemas and partial runtime enforcement; full conformance remains pending the release gates in this ADR
+**Implementation status:** Canonical `core-v1` schemas, relationship preflight, and identity-preserving structured import; full conformance remains pending the release gates in this ADR
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -23,8 +23,10 @@ semantics needed to reconstruct the source graph.
 This ADR records the required target contract. The server currently emits
 `core-v1` with the self-importable structured component set and enforces
 profile, schema version, minimum reader, inventory, checksum, and count
-preflight. This does not constitute full profile conformance or atomic
-round-trip evidence.
+preflight. It also validates collection/note/template/link relationships,
+exports complete collection hierarchies, and preserves collection and template
+identities and timestamps during import. This does not constitute full profile
+conformance or atomic round-trip evidence.
 
 The normative schema root for the delivered `1.0.0` / `core-v1` contract is
 `contracts/knowledge-shard/1.0.0/core-v1/`. The machine-readable receipt at
@@ -185,13 +187,17 @@ consumer issue and pull request.
 
 The runtime now separates producer identity from strict shard-schema SemVer,
 declares a registered profile, rejects unsupported profiles and components,
-and fails canonical manifest/record schema, checksum, count, and inventory
-validation before normal import writes. The current positive and negative
-corpus is pinned by the schema receipt.
+and fails canonical manifest/record schema, checksum, count, inventory,
+collection topology, and note/template/link reference validation before normal
+import writes. Default export includes roots and descendants. Import creates
+collections before dependent notes and templates, preserves collection and
+template IDs and source timestamps, restores source note timestamps after
+revised content, and uses stable-ID conflict handling for repeated imports. The
+current positive and negative corpus is pinned by the schema receipt.
 
-Known gaps remain in cross-record reference validation, atomic apply, complete
-semantic preservation, attachment bytes, richer profiles, migration history,
-and cross-repository conformance receipts. Those gaps remain tracked release
+Known gaps remain in atomic apply, complete tombstone and absent/null semantic
+preservation, attachment bytes, richer profiles, migration history, and
+cross-repository conformance receipts. Those gaps remain tracked release
 blockers, not implicit `core-v1` or `full-v1` claims.
 
 Until the release gates pass:

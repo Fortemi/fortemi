@@ -1,0 +1,64 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T01:22:06Z"
+  description: "Provenance for Fortemi issue #1056 complete collection hierarchy export"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-db/src/collections.rs:sha256:c16379b32f8475892f1681bd62941e7024ef1b93792f9d00f84195782dd35bb5"
+  type: code
+  created_at: "2026-07-18T01:22:06Z"
+  updated_at: "2026-07-18T01:22:06Z"
+  checksum: "sha256:c16379b32f8475892f1681bd62941e7024ef1b93792f9d00f84195782dd35bb5"
+  size_bytes: 21239
+  attributes:
+    language: rust
+    issue: "Fortemi/Fortemi#1056"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:collection-hierarchy-export-1056:001"
+  type: modification
+  started_at: "2026-07-18T01:08:00Z"
+  ended_at: "2026-07-18T01:22:06Z"
+  description: "Add a transaction-scoped complete collection listing for Knowledge Shard export without changing the root-only interactive hierarchy API"
+  attributes:
+    verification:
+      - "cargo test -p matric-db --lib collection --locked --features migrations: 22 passed"
+      - "cargo check -p matric-api -p matric-db --locked"
+      - "cargo clippy -p matric-api --bin matric-api -p matric-db --lib --locked -- -D warnings"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+  attributes:
+    delegated_roles:
+      - software-implementer
+      - test-engineer
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/collections.rs:sha256:c16379b32f8475892f1681bd62941e7024ef1b93792f9d00f84195782dd35bb5"
+    activity: "urn:aiwg:activity:modification:collection-hierarchy-export-1056:001"
+    time: "2026-07-18T01:22:06Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:collection-hierarchy-export-1056:001"
+      entity: "urn:gitea:issue:Fortemi/Fortemi:1056"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:collection-hierarchy-export-1056:001"
+      entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:b9a428ccdad849f44dc6a3bec849c207c930cc98b0efae3c429adc672b13f6e3"
+      role: architecture
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/collections.rs:sha256:c16379b32f8475892f1681bd62941e7024ef1b93792f9d00f84195782dd35bb5"
+      source: "urn:gitea:issue:Fortemi/Fortemi:1056"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:collection-hierarchy-export-1056:001"
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/collections.rs:sha256:c16379b32f8475892f1681bd62941e7024ef1b93792f9d00f84195782dd35bb5"
+      source: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:b9a428ccdad849f44dc6a3bec849c207c930cc98b0efae3c429adc672b13f6e3"
+      derivation_type: conforms_to
+      activity: "urn:aiwg:activity:modification:collection-hierarchy-export-1056:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:collection-hierarchy-export-1056:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/collections.rs:sha256:c16379b32f8475892f1681bd62941e7024ef1b93792f9d00f84195782dd35bb5"
+    agent: "urn:aiwg:agent:codex-gpt-5"

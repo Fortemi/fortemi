@@ -363,6 +363,36 @@ impl PgCollectionRepository {
             .collect())
     }
 
+    /// List every collection within an existing transaction.
+    ///
+    /// Knowledge Shard export uses this instead of `list_tx(None)`, which
+    /// intentionally returns roots only for the interactive hierarchy API.
+    pub async fn list_all_tx(&self, tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Collection>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT c.id, c.name, c.description, c.parent_id, c.created_at_utc,
+                   COALESCE((SELECT COUNT(*) FROM note WHERE collection_id = c.id), 0) as note_count
+            FROM collection c
+            ORDER BY c.created_at_utc, c.id
+            "#,
+        )
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| Collection {
+                id: r.get("id"),
+                name: r.get("name"),
+                description: r.get("description"),
+                parent_id: r.get("parent_id"),
+                created_at_utc: r.get("created_at_utc"),
+                note_count: r.get("note_count"),
+            })
+            .collect())
+    }
+
     /// Update a collection within an existing transaction.
     pub async fn update_tx(
         &self,

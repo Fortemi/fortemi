@@ -14,6 +14,13 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   response, and contract validation rejects missing statuses, media types, or
   `ProblemDetails` schema references.
 
+### Fixed
+
+- **Knowledge Shard structured round trips (#1056):** default exports now
+  include complete collection hierarchies, imports reject incoherent
+  collection/note/template/link references before writes, and collection,
+  template, and note timestamp identities survive clean and repeated imports.
+
 ## [2026.7.1] - 2026-07-13
 
 Upgrade-reliability and Intel inference deployment release. This release fixes

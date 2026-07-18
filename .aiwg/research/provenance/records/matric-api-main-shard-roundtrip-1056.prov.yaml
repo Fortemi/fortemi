@@ -1,0 +1,67 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T01:22:06Z"
+  description: "Provenance for Fortemi issue #1056 Knowledge Shard semantic roundtrip enforcement"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:cce89b58dc2dcc40b936dfd9bc4c2dd88e892cc867dac1cf10789a14c7513687"
+  type: code
+  created_at: "2026-07-18T01:22:06Z"
+  updated_at: "2026-07-18T01:22:06Z"
+  checksum: "sha256:cce89b58dc2dcc40b936dfd9bc4c2dd88e892cc867dac1cf10789a14c7513687"
+  size_bytes: 1709446
+  attributes:
+    language: rust
+    issue: "Fortemi/Fortemi#1056"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-roundtrip-1056:001"
+  type: modification
+  started_at: "2026-07-18T01:08:00Z"
+  ended_at: "2026-07-18T01:22:06Z"
+  description: "Validate cross-record relationships, preserve collection and template identities, order dependent imports, preserve note timestamps, and prove server-export to clean-server convergence"
+  attributes:
+    verification:
+      - "cargo test -p matric-api --bin matric-api --locked: 767 passed"
+      - "cargo test -p matric-api shard_ --bin matric-api --locked: 29 passed"
+      - "cargo test -p matric-api canonical_core_v1 --bin matric-api --locked: 3 passed"
+      - "cargo test -p matric-api --test shard_manifest_migration_metadata_test --locked: 8 passed"
+      - "cargo clippy -p matric-api --bin matric-api -p matric-db --lib --locked -- -D warnings"
+      - "scripts/ci/openapi-contract.sh check"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+  attributes:
+    delegated_roles:
+      - software-implementer
+      - test-engineer
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:cce89b58dc2dcc40b936dfd9bc4c2dd88e892cc867dac1cf10789a14c7513687"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-roundtrip-1056:001"
+    time: "2026-07-18T01:22:06Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-roundtrip-1056:001"
+      entity: "urn:gitea:issue:Fortemi/Fortemi:1056"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-roundtrip-1056:001"
+      entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:c6a64ce71bb5368b4fafbe4ec405e95760c3acb0f75d87a7203a9dd5c9642de7"
+      role: canonical_contract
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:cce89b58dc2dcc40b936dfd9bc4c2dd88e892cc867dac1cf10789a14c7513687"
+      source: "urn:gitea:issue:Fortemi/Fortemi:1056"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:knowledge-shard-roundtrip-1056:001"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:cce89b58dc2dcc40b936dfd9bc4c2dd88e892cc867dac1cf10789a14c7513687"
+      source: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:c6a64ce71bb5368b4fafbe4ec405e95760c3acb0f75d87a7203a9dd5c9642de7"
+      derivation_type: conforms_to
+      activity: "urn:aiwg:activity:modification:knowledge-shard-roundtrip-1056:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-roundtrip-1056:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:cce89b58dc2dcc40b936dfd9bc4c2dd88e892cc867dac1cf10789a14c7513687"
+    agent: "urn:aiwg:agent:codex-gpt-5"

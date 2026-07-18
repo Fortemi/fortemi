@@ -21949,6 +21949,28 @@ struct ShardCounts {
     embedding_configs: usize,
 }
 
+#[derive(Clone, Deserialize)]
+struct ShardCollectionRecord {
+    id: Uuid,
+    name: String,
+    description: Option<String>,
+    parent_id: Option<Uuid>,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Deserialize)]
+struct ShardTemplateRecord {
+    id: Uuid,
+    name: String,
+    description: Option<String>,
+    content: String,
+    format: String,
+    default_tags: Vec<String>,
+    collection_id: Option<Uuid>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+}
+
 fn shard_operation_failed(context: &'static str, error: impl std::fmt::Display) -> ApiError {
     let diagnostic = error.to_string();
     ApiError::OperationFailed {
@@ -22103,6 +22125,135 @@ fn validate_shard_component_schema(component: &str, data: &[u8]) -> Result<usize
         )?;
     }
     Ok(records.len())
+}
+
+fn ordered_shard_collections(data: &[u8]) -> Result<Vec<ShardCollectionRecord>, String> {
+    let mut pending = serde_json::from_slice::<Vec<ShardCollectionRecord>>(data)
+        .map_err(|_| "Knowledge shard collections are invalid.".to_string())?;
+    let all_ids = pending
+        .iter()
+        .map(|collection| collection.id)
+        .collect::<std::collections::HashSet<_>>();
+    if all_ids.len() != pending.len() {
+        return Err("Knowledge shard collection identities must be unique.".to_string());
+    }
+    if pending.iter().any(|collection| {
+        collection.parent_id == Some(collection.id)
+            || collection
+                .parent_id
+                .is_some_and(|parent_id| !all_ids.contains(&parent_id))
+    }) {
+        return Err("Knowledge shard collection hierarchy is invalid.".to_string());
+    }
+
+    let mut ordered = Vec::with_capacity(pending.len());
+    let mut emitted = std::collections::HashSet::new();
+    while !pending.is_empty() {
+        let Some(index) = pending.iter().position(|collection| {
+            collection
+                .parent_id
+                .is_none_or(|parent_id| emitted.contains(&parent_id))
+        }) else {
+            return Err("Knowledge shard collection hierarchy contains a cycle.".to_string());
+        };
+        let collection = pending.remove(index);
+        emitted.insert(collection.id);
+        ordered.push(collection);
+    }
+    Ok(ordered)
+}
+
+fn validate_shard_relationships(
+    files: &std::collections::HashMap<String, Vec<u8>>,
+) -> Result<(), String> {
+    let collections = files
+        .get("collections.json")
+        .map(|data| ordered_shard_collections(data))
+        .transpose()?
+        .unwrap_or_default();
+    let collection_ids = collections
+        .iter()
+        .map(|collection| collection.id)
+        .collect::<std::collections::HashSet<_>>();
+
+    let notes = files
+        .get("notes.jsonl")
+        .map(|data| parse_shard_component_records("notes", data))
+        .transpose()?
+        .unwrap_or_default();
+    let mut note_ids = std::collections::HashSet::new();
+    for note in &notes {
+        let id = note
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| Uuid::parse_str(value).ok())
+            .ok_or_else(|| "Knowledge shard note identity is invalid.".to_string())?;
+        if !note_ids.insert(id) {
+            return Err("Knowledge shard note identities must be unique.".to_string());
+        }
+        if let Some(collection_id) = note
+            .get("collection_id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| Uuid::parse_str(value).ok())
+        {
+            if !collection_ids.contains(&collection_id) {
+                return Err("Knowledge shard note references an unknown collection.".to_string());
+            }
+        }
+    }
+
+    let templates = files
+        .get("templates.json")
+        .map(|data| {
+            serde_json::from_slice::<Vec<ShardTemplateRecord>>(data)
+                .map_err(|_| "Knowledge shard templates are invalid.".to_string())
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let mut template_ids = std::collections::HashSet::new();
+    for template in &templates {
+        if !template_ids.insert(template.id) {
+            return Err("Knowledge shard template identities must be unique.".to_string());
+        }
+        if template
+            .collection_id
+            .is_some_and(|collection_id| !collection_ids.contains(&collection_id))
+        {
+            return Err("Knowledge shard template references an unknown collection.".to_string());
+        }
+    }
+
+    let links = files
+        .get("links.jsonl")
+        .map(|data| parse_shard_component_records("links", data))
+        .transpose()?
+        .unwrap_or_default();
+    let mut link_ids = std::collections::HashSet::new();
+    for link in &links {
+        let id = link
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| Uuid::parse_str(value).ok())
+            .ok_or_else(|| "Knowledge shard link identity is invalid.".to_string())?;
+        if !link_ids.insert(id) {
+            return Err("Knowledge shard link identities must be unique.".to_string());
+        }
+        let from_id = link
+            .get("from_note_id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| Uuid::parse_str(value).ok());
+        let to_id = link
+            .get("to_note_id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| Uuid::parse_str(value).ok());
+        if from_id.is_none_or(|note_id| !note_ids.contains(&note_id))
+            || to_id.is_some_and(|note_id| !note_ids.contains(&note_id))
+        {
+            return Err("Knowledge shard link references an unknown note.".to_string());
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_shard_manifest_contract(manifest: &ShardManifest) -> Result<(), String> {
@@ -22412,7 +22563,7 @@ async fn knowledge_shard(
         if components.contains(&"collections") {
             let collections_repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
             let collections = collections_repo
-                .list_tx(&mut tx, None)
+                .list_all_tx(&mut tx)
                 .await
                 .unwrap_or_default();
             counts.collections = collections.len();
@@ -26248,6 +26399,7 @@ async fn knowledge_shard_import_internal(
         }
     }
     validate_shard_component_inventory(&manifest, &files).map_err(ApiError::BadRequest)?;
+    validate_shard_relationships(&files).map_err(ApiError::BadRequest)?;
 
     // Application release identity is informational and independent of schema negotiation.
     let current_version = env!("CARGO_PKG_VERSION");
@@ -26275,6 +26427,68 @@ async fn knowledge_shard_import_internal(
     let should_import = |component: &str| selected_components.contains(component);
 
     let on_conflict = &opts.on_conflict;
+
+    // Collections must exist before notes and templates can retain their
+    // source hierarchy references.
+    if should_import("collections") {
+        if let Some(data) = files.get("collections.json") {
+            let collections = ordered_shard_collections(data).map_err(ApiError::BadRequest)?;
+            for collection in collections {
+                if opts.dry_run {
+                    imported.collections += 1;
+                    continue;
+                }
+                let replace = matches!(on_conflict, ConflictStrategy::Replace);
+                let res = ctx
+                    .execute(move |tx| {
+                        Box::pin(async move {
+                            let result = if replace {
+                                sqlx::query(
+                                    "INSERT INTO collection
+                                     (id, name, description, parent_id, created_at_utc)
+                                     VALUES ($1, $2, $3, $4, $5)
+                                     ON CONFLICT (id) DO UPDATE SET
+                                         name = EXCLUDED.name,
+                                         description = EXCLUDED.description,
+                                         parent_id = EXCLUDED.parent_id,
+                                         created_at_utc = EXCLUDED.created_at_utc",
+                                )
+                                .bind(collection.id)
+                                .bind(collection.name)
+                                .bind(collection.description)
+                                .bind(collection.parent_id)
+                                .bind(collection.created_at)
+                                .execute(&mut **tx)
+                                .await
+                            } else {
+                                sqlx::query(
+                                    "INSERT INTO collection
+                                     (id, name, description, parent_id, created_at_utc)
+                                     VALUES ($1, $2, $3, $4, $5)
+                                     ON CONFLICT (id) DO NOTHING",
+                                )
+                                .bind(collection.id)
+                                .bind(collection.name)
+                                .bind(collection.description)
+                                .bind(collection.parent_id)
+                                .bind(collection.created_at)
+                                .execute(&mut **tx)
+                                .await
+                            };
+                            result
+                                .map(|result| result.rows_affected())
+                                .map_err(matric_db::Error::Database)
+                        })
+                    })
+                    .await;
+                match res {
+                    Ok(0) => skipped.collections += 1,
+                    Ok(_) => imported.collections += 1,
+                    Err(_) => errors.push(shard_import_error("Collection import failed.")),
+                }
+            }
+        }
+    }
 
     // Import notes
     if should_import("notes") {
@@ -26404,6 +26618,33 @@ async fn knowledge_shard_import_internal(
                                             })
                                             .await;
                                     }
+                                    // Update revised content if available
+                                    if let Some(revised) =
+                                        note_json.get("revised_content").and_then(|v| v.as_str())
+                                    {
+                                        if !revised.is_empty() {
+                                            let notes = matric_db::PgNoteRepository::new(
+                                                state.db.pool.clone(),
+                                            );
+                                            let revised = revised.to_string();
+                                            let _ = ctx
+                                                .execute(move |tx| {
+                                                    Box::pin(async move {
+                                                        notes
+                                                            .update_revised_tx(
+                                                                tx,
+                                                                new_id,
+                                                                &revised,
+                                                                Some("Imported"),
+                                                            )
+                                                            .await
+                                                    })
+                                                })
+                                                .await;
+                                        }
+                                    }
+                                    // Apply source timestamps after revision restoration, which
+                                    // otherwise advances updated_at to the import time.
                                     let created_at = note_json
                                         .get("created_at")
                                         .and_then(|value| value.as_str())
@@ -26439,31 +26680,6 @@ async fn knowledge_shard_import_internal(
                                             })
                                             .await;
                                     }
-                                    // Update revised content if available
-                                    if let Some(revised) =
-                                        note_json.get("revised_content").and_then(|v| v.as_str())
-                                    {
-                                        if !revised.is_empty() {
-                                            let notes = matric_db::PgNoteRepository::new(
-                                                state.db.pool.clone(),
-                                            );
-                                            let revised = revised.to_string();
-                                            let _ = ctx
-                                                .execute(move |tx| {
-                                                    Box::pin(async move {
-                                                        notes
-                                                            .update_revised_tx(
-                                                                tx,
-                                                                new_id,
-                                                                &revised,
-                                                                Some("Imported"),
-                                                            )
-                                                            .await
-                                                    })
-                                                })
-                                                .await;
-                                        }
-                                    }
                                     if !opts.skip_embedding_regen {
                                         queue_nlp_pipeline(
                                             &state.db,
@@ -26484,46 +26700,6 @@ async fn knowledge_shard_import_internal(
                         }
                     }
                     Err(_) => errors.push(shard_import_error("Invalid note JSON.")),
-                }
-            }
-        }
-    }
-
-    // Import collections
-    if should_import("collections") {
-        if let Some(data) = files.get("collections.json") {
-            if let Ok(collections) = serde_json::from_slice::<Vec<serde_json::Value>>(data) {
-                for coll in collections {
-                    if let Some(name) = coll.get("name").and_then(|v| v.as_str()) {
-                        if !opts.dry_run {
-                            let collections =
-                                matric_db::PgCollectionRepository::new(state.db.pool.clone());
-                            let name = name.to_string();
-                            let desc = coll
-                                .get("description")
-                                .and_then(|v| v.as_str())
-                                .map(String::from);
-                            let parent_id = coll
-                                .get("parent_id")
-                                .and_then(|v| v.as_str())
-                                .and_then(|s| Uuid::parse_str(s).ok());
-                            let res = ctx
-                                .execute(move |tx| {
-                                    Box::pin(async move {
-                                        collections
-                                            .create_tx(tx, &name, desc.as_deref(), parent_id)
-                                            .await
-                                    })
-                                })
-                                .await;
-                            match res {
-                                Ok(_) => imported.collections += 1,
-                                Err(_) => skipped.collections += 1,
-                            }
-                        } else {
-                            imported.collections += 1;
-                        }
-                    }
                 }
             }
         }
@@ -26581,54 +26757,74 @@ async fn knowledge_shard_import_internal(
     // Import templates
     if should_import("templates") {
         if let Some(data) = files.get("templates.json") {
-            if let Ok(templates) = serde_json::from_slice::<Vec<serde_json::Value>>(data) {
-                for tmpl in templates {
-                    if let (Some(name), Some(content)) = (
-                        tmpl.get("name").and_then(|v| v.as_str()),
-                        tmpl.get("content").and_then(|v| v.as_str()),
-                    ) {
-                        if !opts.dry_run {
-                            let req = matric_core::CreateTemplateRequest {
-                                name: name.to_string(),
-                                description: tmpl
-                                    .get("description")
-                                    .and_then(|v| v.as_str())
-                                    .map(String::from),
-                                content: content.to_string(),
-                                format: Some(
-                                    tmpl.get("format")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("markdown")
-                                        .to_string(),
-                                ),
-                                default_tags: tmpl
-                                    .get("default_tags")
-                                    .and_then(|v| v.as_array())
-                                    .map(|arr| {
-                                        arr.iter()
-                                            .filter_map(|t| t.as_str().map(String::from))
-                                            .collect()
-                                    }),
-                                collection_id: tmpl
-                                    .get("collection_id")
-                                    .and_then(|v| v.as_str())
-                                    .and_then(|s| Uuid::parse_str(s).ok()),
+            let templates = serde_json::from_slice::<Vec<ShardTemplateRecord>>(data)
+                .map_err(|_| shard_validation_failed("Knowledge shard templates are invalid."))?;
+            for template in templates {
+                if opts.dry_run {
+                    imported.templates += 1;
+                    continue;
+                }
+                let replace = matches!(on_conflict, ConflictStrategy::Replace);
+                let res = ctx
+                    .execute(move |tx| {
+                        Box::pin(async move {
+                            let result = if replace {
+                                sqlx::query(
+                                    "INSERT INTO note_template
+                                     (id, name, description, content, format, default_tags,
+                                      collection_id, created_at_utc, updated_at_utc)
+                                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                                     ON CONFLICT (id) DO UPDATE SET
+                                         name = EXCLUDED.name,
+                                         description = EXCLUDED.description,
+                                         content = EXCLUDED.content,
+                                         format = EXCLUDED.format,
+                                         default_tags = EXCLUDED.default_tags,
+                                         collection_id = EXCLUDED.collection_id,
+                                         created_at_utc = EXCLUDED.created_at_utc,
+                                         updated_at_utc = EXCLUDED.updated_at_utc",
+                                )
+                                .bind(template.id)
+                                .bind(template.name)
+                                .bind(template.description)
+                                .bind(template.content)
+                                .bind(template.format)
+                                .bind(template.default_tags)
+                                .bind(template.collection_id)
+                                .bind(template.created_at)
+                                .bind(template.updated_at)
+                                .execute(&mut **tx)
+                                .await
+                            } else {
+                                sqlx::query(
+                                    "INSERT INTO note_template
+                                     (id, name, description, content, format, default_tags,
+                                      collection_id, created_at_utc, updated_at_utc)
+                                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                                     ON CONFLICT (id) DO NOTHING",
+                                )
+                                .bind(template.id)
+                                .bind(template.name)
+                                .bind(template.description)
+                                .bind(template.content)
+                                .bind(template.format)
+                                .bind(template.default_tags)
+                                .bind(template.collection_id)
+                                .bind(template.created_at)
+                                .bind(template.updated_at)
+                                .execute(&mut **tx)
+                                .await
                             };
-                            let templates =
-                                matric_db::PgTemplateRepository::new(state.db.pool.clone());
-                            let res = ctx
-                                .execute(move |tx| {
-                                    Box::pin(async move { templates.create_tx(tx, req).await })
-                                })
-                                .await;
-                            match res {
-                                Ok(_) => imported.templates += 1,
-                                Err(_) => skipped.templates += 1,
-                            }
-                        } else {
-                            imported.templates += 1;
-                        }
-                    }
+                            result
+                                .map(|result| result.rows_affected())
+                                .map_err(matric_db::Error::Database)
+                        })
+                    })
+                    .await;
+                match res {
+                    Ok(0) => skipped.templates += 1,
+                    Ok(_) => imported.templates += 1,
+                    Err(_) => errors.push(shard_import_error("Template import failed.")),
                 }
             }
         }
@@ -34537,6 +34733,99 @@ mod tests {
         .collect()
     }
 
+    fn hierarchical_core_shard_bytes() -> Vec<u8> {
+        use sha2::Digest;
+
+        let child_id = "018f2d2d-bc00-7cc8-8ad2-f147d6a2e779";
+        let root_id = "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77b";
+        let mut collections: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../tests/fixtures/shards/core-v1-valid/collections.json"
+        ))
+        .unwrap();
+        collections.as_array_mut().unwrap().insert(
+            0,
+            serde_json::json!({
+                "id": child_id,
+                "name": "Fixture child collection",
+                "description": "Nested fixture",
+                "parent_id": root_id,
+                "created_at": "2026-07-17T11:10:00Z",
+                "note_count": 1
+            }),
+        );
+
+        let mut note: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/shards/core-v1-valid/notes.jsonl"
+        ))
+        .unwrap();
+        note["collection_id"] = serde_json::json!(child_id);
+        let mut linked_note = note.clone();
+        linked_note["id"] = serde_json::json!("018f2d2d-bc00-7cc8-8ad2-f147d6a2e778");
+        linked_note["title"] = serde_json::json!("Linked fixture");
+        linked_note["collection_id"] = serde_json::json!(root_id);
+        linked_note["created_at"] = serde_json::json!("2026-07-17T12:03:00Z");
+        linked_note["updated_at"] = serde_json::json!("2026-07-17T12:04:00Z");
+        let notes =
+            format!("{}\n{}", serde_json::to_string(&note).unwrap(), linked_note).into_bytes();
+
+        let mut link: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/shards/core-v1-valid/links.jsonl"
+        ))
+        .unwrap();
+        link["to_note_id"] = serde_json::json!("018f2d2d-bc00-7cc8-8ad2-f147d6a2e778");
+        link["to_url"] = serde_json::Value::Null;
+
+        let mut components = std::collections::BTreeMap::from([
+            (
+                "collections.json",
+                serde_json::to_vec_pretty(&collections).unwrap(),
+            ),
+            ("links.jsonl", serde_json::to_vec(&link).unwrap()),
+            ("notes.jsonl", notes),
+            (
+                "tags.json",
+                include_bytes!("../../../tests/fixtures/shards/core-v1-valid/tags.json").to_vec(),
+            ),
+            (
+                "templates.json",
+                include_bytes!("../../../tests/fixtures/shards/core-v1-valid/templates.json")
+                    .to_vec(),
+            ),
+        ]);
+
+        let mut manifest: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../tests/fixtures/shards/core-v1-valid/manifest.json"
+        ))
+        .unwrap();
+        manifest["counts"]["collections"] = serde_json::json!(2);
+        manifest["counts"]["notes"] = serde_json::json!(2);
+        for (filename, bytes) in &components {
+            manifest["checksums"][filename] =
+                serde_json::json!(hex::encode(sha2::Sha256::digest(bytes)));
+        }
+
+        let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut archive = tar::Builder::new(encoder);
+        for (filename, bytes) in &mut components {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            archive
+                .append_data(&mut header, *filename, bytes.as_slice())
+                .unwrap();
+        }
+        let manifest = serde_json::to_vec_pretty(&manifest).unwrap();
+        let mut header = tar::Header::new_gnu();
+        header.set_size(manifest.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        archive
+            .append_data(&mut header, "manifest.json", manifest.as_slice())
+            .unwrap();
+        archive.into_inner().unwrap().finish().unwrap()
+    }
+
     #[test]
     fn test_shard_export_query_defaults() {
         let query: ShardExportQuery = serde_json::from_str("{}").unwrap();
@@ -34649,6 +34938,332 @@ mod tests {
         }
         validate_shard_component_inventory(&manifest, &files)
             .expect("golden component records must match canonical schemas");
+        validate_shard_relationships(&files)
+            .expect("golden component relationships must be coherent");
+    }
+
+    #[test]
+    fn shard_collection_preflight_orders_parents_before_children() {
+        let root = Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e771").unwrap();
+        let child = Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e772").unwrap();
+        let data = serde_json::to_vec(&serde_json::json!([
+            {
+                "id": child,
+                "name": "Child",
+                "description": null,
+                "parent_id": root,
+                "created_at": "2026-07-17T12:01:00Z",
+                "note_count": 0
+            },
+            {
+                "id": root,
+                "name": "Root",
+                "description": null,
+                "parent_id": null,
+                "created_at": "2026-07-17T12:00:00Z",
+                "note_count": 0
+            }
+        ]))
+        .unwrap();
+
+        let ordered = ordered_shard_collections(&data).expect("hierarchy must be sortable");
+        assert_eq!(
+            ordered
+                .iter()
+                .map(|collection| collection.id)
+                .collect::<Vec<_>>(),
+            vec![root, child]
+        );
+    }
+
+    #[test]
+    fn shard_collection_preflight_rejects_missing_parents_cycles_and_duplicate_ids() {
+        let first = "018f2d2d-bc00-7cc8-8ad2-f147d6a2e771";
+        let second = "018f2d2d-bc00-7cc8-8ad2-f147d6a2e772";
+        let record = |id: &str, parent_id: serde_json::Value| {
+            serde_json::json!({
+                "id": id,
+                "name": id,
+                "description": null,
+                "parent_id": parent_id,
+                "created_at": "2026-07-17T12:00:00Z",
+                "note_count": 0
+            })
+        };
+
+        let missing = serde_json::to_vec(&vec![record(first, serde_json::json!(second))]).unwrap();
+        assert_eq!(
+            ordered_shard_collections(&missing)
+                .err()
+                .expect("missing parent must be rejected"),
+            "Knowledge shard collection hierarchy is invalid."
+        );
+
+        let cycle = serde_json::to_vec(&vec![
+            record(first, serde_json::json!(second)),
+            record(second, serde_json::json!(first)),
+        ])
+        .unwrap();
+        assert_eq!(
+            ordered_shard_collections(&cycle)
+                .err()
+                .expect("cycle must be rejected"),
+            "Knowledge shard collection hierarchy contains a cycle."
+        );
+
+        let duplicate = serde_json::to_vec(&vec![
+            record(first, serde_json::Value::Null),
+            record(first, serde_json::Value::Null),
+        ])
+        .unwrap();
+        assert_eq!(
+            ordered_shard_collections(&duplicate)
+                .err()
+                .expect("duplicate identity must be rejected"),
+            "Knowledge shard collection identities must be unique."
+        );
+    }
+
+    #[test]
+    fn shard_relationship_preflight_rejects_unknown_targets() {
+        let mut files = valid_core_shard_files();
+        files.insert(
+            "notes.jsonl".to_string(),
+            br#"{"id":"018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a","collection_id":"018f2d2d-bc00-7cc8-8ad2-f147d6a2e77b"}"#
+                .to_vec(),
+        );
+        assert_eq!(
+            validate_shard_relationships(&files).unwrap_err(),
+            "Knowledge shard note references an unknown collection."
+        );
+
+        files.insert(
+            "notes.jsonl".to_string(),
+            br#"{"id":"018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a","collection_id":null}"#.to_vec(),
+        );
+        files.insert(
+            "links.jsonl".to_string(),
+            br#"{"id":"018f2d2d-bc00-7cc8-8ad2-f147d6a2e77e","from_note_id":"018f2d2d-bc00-7cc8-8ad2-f147d6a2e779","to_note_id":null}"#
+                .to_vec(),
+        );
+        assert_eq!(
+            validate_shard_relationships(&files).unwrap_err(),
+            "Knowledge shard link references an unknown note."
+        );
+    }
+
+    #[tokio::test]
+    async fn shard_core_v1_server_export_clean_import_preserves_semantic_state() {
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let source_name = format!("shard-source-{}", Uuid::new_v4().simple());
+        let source = db
+            .archives
+            .create_archive_schema(&source_name, Some("Knowledge Shard source test"))
+            .await
+            .expect("create isolated shard source");
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(
+            &state,
+            &hierarchical_core_shard_bytes(),
+            &opts,
+            &source.schema_name,
+        )
+        .await
+        .expect("seed isolated shard source");
+
+        let export = knowledge_shard(
+            State(state.clone()),
+            Extension(ArchiveContext {
+                schema: source.schema_name.clone(),
+                is_default: false,
+                name: Some(source_name.clone()),
+            }),
+            Query(ShardExportQuery { include: None }),
+        )
+        .await
+        .expect("export source archive")
+        .into_response();
+        assert_eq!(export.status(), StatusCode::OK);
+        let exported_bytes = axum::body::to_bytes(export.into_body(), usize::MAX)
+            .await
+            .expect("read server export");
+
+        let destination_name = format!("shard-destination-{}", Uuid::new_v4().simple());
+        let destination = db
+            .archives
+            .create_archive_schema(
+                &destination_name,
+                Some("Knowledge Shard clean destination test"),
+            )
+            .await
+            .expect("create isolated clean shard destination");
+
+        for _ in 0..2 {
+            let result = knowledge_shard_import_internal(
+                &state,
+                &exported_bytes,
+                &opts,
+                &destination.schema_name,
+            )
+            .await
+            .expect("server-exported shard import must succeed");
+            assert_eq!(result.status, "success");
+            assert_eq!(result.imported.collections, 2);
+            assert_eq!(result.imported.notes, 2);
+            assert_eq!(result.imported.templates, 1);
+            assert_eq!(result.imported.links, 1);
+            assert!(result.errors.is_empty());
+        }
+
+        let ctx = db.for_schema(&destination.schema_name).unwrap();
+        let snapshot = ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    let child =
+                        sqlx::query_as::<_, (Uuid, Option<Uuid>, chrono::DateTime<chrono::Utc>)>(
+                            "SELECT id, parent_id, created_at_utc
+                         FROM collection
+                         WHERE id = '018f2d2d-bc00-7cc8-8ad2-f147d6a2e779'",
+                        )
+                        .fetch_one(&mut **tx)
+                        .await
+                        .map_err(matric_db::Error::Database)?;
+                    let note = sqlx::query_as::<
+                        _,
+                        (
+                            Uuid,
+                            Option<Uuid>,
+                            chrono::DateTime<chrono::Utc>,
+                            chrono::DateTime<chrono::Utc>,
+                            serde_json::Value,
+                            String,
+                        ),
+                    >(
+                        "SELECT n.id, n.collection_id, n.created_at_utc, n.updated_at_utc,
+                                n.metadata, nrc.content
+                         FROM note n
+                         JOIN note_revised_current nrc ON nrc.note_id = n.id
+                         WHERE n.id = '018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a'",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)?;
+                    let template = sqlx::query_as::<
+                        _,
+                        (
+                            Uuid,
+                            Option<Uuid>,
+                            chrono::DateTime<chrono::Utc>,
+                            chrono::DateTime<chrono::Utc>,
+                        ),
+                    >(
+                        "SELECT id, collection_id, created_at_utc, updated_at_utc
+                         FROM note_template",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)?;
+                    let link = sqlx::query_as::<_, (Uuid, Uuid, Option<Uuid>, Option<String>)>(
+                        "SELECT id, from_note_id, to_note_id, to_url FROM link",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)?;
+                    let counts = sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM collection),
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM note_template),
+                           (SELECT COUNT(*) FROM link)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)?;
+                    Ok((child, note, template, link, counts))
+                })
+            })
+            .await
+            .expect("read imported semantic state");
+
+        let root_id = Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e77b").unwrap();
+        let child_id = Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e779").unwrap();
+        assert_eq!(snapshot.0 .0, child_id);
+        assert_eq!(snapshot.0 .1, Some(root_id));
+        assert_eq!(
+            snapshot.0 .2,
+            chrono::DateTime::parse_from_rfc3339("2026-07-17T11:10:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc)
+        );
+        assert_eq!(
+            snapshot.1 .0,
+            Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a").unwrap()
+        );
+        assert_eq!(snapshot.1 .1, Some(child_id));
+        assert_eq!(
+            snapshot.1 .2,
+            chrono::DateTime::parse_from_rfc3339("2026-07-17T12:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc)
+        );
+        assert_eq!(
+            snapshot.1 .3,
+            chrono::DateTime::parse_from_rfc3339("2026-07-17T12:01:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc)
+        );
+        assert_eq!(snapshot.1 .4, serde_json::Value::Null);
+        assert_eq!(snapshot.1 .5, "Revised fixture content");
+        assert_eq!(
+            snapshot.2 .0,
+            Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e77d").unwrap()
+        );
+        assert_eq!(snapshot.2 .1, Some(root_id));
+        assert_eq!(
+            snapshot.2 .2,
+            chrono::DateTime::parse_from_rfc3339("2026-07-17T11:40:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc)
+        );
+        assert_eq!(
+            snapshot.2 .3,
+            chrono::DateTime::parse_from_rfc3339("2026-07-17T11:41:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc)
+        );
+        assert_eq!(
+            snapshot.3 .0,
+            Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e77e").unwrap()
+        );
+        assert_eq!(
+            snapshot.3 .1,
+            Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a").unwrap()
+        );
+        assert_eq!(
+            snapshot.3 .2,
+            Some(Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e778").unwrap())
+        );
+        assert!(snapshot.3 .3.is_none());
+        assert_eq!(snapshot.4, (2, 2, 1, 1));
+
+        db.archives
+            .drop_archive_schema(&destination_name)
+            .await
+            .expect("drop isolated clean shard destination");
+        db.archives
+            .drop_archive_schema(&source_name)
+            .await
+            .expect("drop isolated shard source");
     }
 
     #[test]
