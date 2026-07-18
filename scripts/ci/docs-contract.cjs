@@ -32,12 +32,14 @@ const ALLOWLIST_PATH = path.resolve(
 const RULE_PACK_DIR = path.join(__dirname, "docs-contract-rules");
 
 const DEFAULT_SCAN_PATHS = [
+  ".env.example",
   ".gitea/workflows",
   "Dockerfile",
   "Dockerfile.bundle",
   "docker-compose.yml",
   "docker-compose.bundle.yml",
   "docker-compose.workstation.yml",
+  "deploy",
   "crates/matric-crypto/src/lib.rs",
   "crates/matric-crypto/src/pke/mod.rs",
   "docs",
@@ -157,6 +159,7 @@ Baselines store fingerprints and metadata only; raw matched values are never wri
 }
 
 function isTextFile(filePath) {
+  if (path.basename(filePath) === ".env.example") return true;
   const ext = path.extname(filePath).toLowerCase();
   return [
     "",
