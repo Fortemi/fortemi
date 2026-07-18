@@ -1359,6 +1359,7 @@ fn openapi_yaml_with_problem_contract() -> String {
         serde_yaml::from_str(&spec).expect("OpenAPI YAML must parse for extension injection");
 
     add_openapi_memory_aliases(&mut value);
+    apply_openapi_problem_responses(&mut value);
     apply_openapi_route_security(&mut value);
 
     let contract = serde_json::json!({
@@ -1447,6 +1448,46 @@ fn add_openapi_memory_aliases(value: &mut serde_yaml::Value) {
             );
         }
         paths.insert(yaml_key(alias), path_item);
+    }
+}
+
+fn apply_openapi_problem_responses(value: &mut serde_yaml::Value) {
+    let paths = value
+        .as_mapping_mut()
+        .and_then(|root| root.get_mut(yaml_key("paths")))
+        .and_then(serde_yaml::Value::as_mapping_mut)
+        .expect("OpenAPI paths must be a mapping");
+
+    for path_item in paths.values_mut() {
+        let operations = path_item
+            .as_mapping_mut()
+            .expect("OpenAPI path item must be a mapping");
+        for method in OPENAPI_HTTP_METHODS {
+            let Some(operation) = operations
+                .get_mut(yaml_key(method))
+                .and_then(serde_yaml::Value::as_mapping_mut)
+            else {
+                continue;
+            };
+            let responses = operation
+                .get_mut(yaml_key("responses"))
+                .and_then(serde_yaml::Value::as_mapping_mut)
+                .expect("OpenAPI operation responses must be a mapping");
+            responses.insert(
+                yaml_key("429"),
+                serde_yaml::to_value(serde_json::json!({
+                    "description": "Global request rate limit exceeded",
+                    "content": {
+                        "application/problem+json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProblemDetails",
+                            },
+                        },
+                    },
+                }))
+                .expect("OpenAPI rate-limit response must serialize"),
+            );
+        }
     }
 }
 
@@ -1627,6 +1668,44 @@ fn validate_generated_openapi(yaml: &str) -> Result<(), String> {
                 .is_none_or(serde_yaml::Mapping::is_empty)
             {
                 return Err(format!("OpenAPI responses are missing: {method} {path}."));
+            }
+            let responses = operation
+                .get(yaml_key("responses"))
+                .and_then(serde_yaml::Value::as_mapping)
+                .expect("validated OpenAPI responses must be a mapping");
+            let rate_limit_schema = responses
+                .get(yaml_key("429"))
+                .and_then(serde_yaml::Value::as_mapping)
+                .and_then(|response| response.get(yaml_key("content")))
+                .and_then(serde_yaml::Value::as_mapping)
+                .and_then(|content| content.get(yaml_key("application/problem+json")))
+                .and_then(serde_yaml::Value::as_mapping)
+                .and_then(|media| media.get(yaml_key("schema")))
+                .and_then(serde_yaml::Value::as_mapping)
+                .and_then(|schema| schema.get(yaml_key("$ref")))
+                .and_then(serde_yaml::Value::as_str);
+            if rate_limit_schema != Some("#/components/schemas/ProblemDetails") {
+                return Err(format!(
+                    "OpenAPI 429 response must use the ProblemDetails schema: {method} {path}."
+                ));
+            }
+            let has_response_schema = responses.values().any(|response| {
+                response
+                    .as_mapping()
+                    .and_then(|response| response.get(yaml_key("content")))
+                    .and_then(serde_yaml::Value::as_mapping)
+                    .is_some_and(|content| {
+                        content.values().any(|media| {
+                            media
+                                .as_mapping()
+                                .is_some_and(|media| media.contains_key(yaml_key("schema")))
+                        })
+                    })
+            });
+            if !has_response_schema {
+                return Err(format!(
+                    "OpenAPI operation has no schema-bearing response: {method} {path}."
+                ));
             }
             let security = operation
                 .get(yaml_key("security"))
@@ -42420,6 +42499,128 @@ mod tests {
         assert_eq!(
             validate_generated_openapi(&incomplete),
             Err("OpenAPI security requirement is missing: get /health/live.".to_string())
+        );
+    }
+
+    #[test]
+    fn openapi_validation_rejects_incomplete_problem_response_contract() {
+        let generated: serde_yaml::Value =
+            serde_yaml::from_str(&openapi_yaml_with_problem_contract())
+                .expect("generated OpenAPI fixture must parse");
+
+        let mut missing_status = generated.clone();
+        missing_status
+            .as_mapping_mut()
+            .and_then(|root| root.get_mut(yaml_key("paths")))
+            .and_then(serde_yaml::Value::as_mapping_mut)
+            .and_then(|paths| paths.get_mut(yaml_key("/health/live")))
+            .and_then(serde_yaml::Value::as_mapping_mut)
+            .and_then(|path| path.get_mut(yaml_key("get")))
+            .and_then(serde_yaml::Value::as_mapping_mut)
+            .and_then(|operation| operation.get_mut(yaml_key("responses")))
+            .and_then(serde_yaml::Value::as_mapping_mut)
+            .expect("health responses fixture")
+            .remove(yaml_key("429"));
+        let missing_status =
+            serde_yaml::to_string(&missing_status).expect("missing-status fixture must serialize");
+        assert_eq!(
+            validate_generated_openapi(&missing_status),
+            Err(
+                "OpenAPI 429 response must use the ProblemDetails schema: get /health/live."
+                    .to_string()
+            )
+        );
+
+        let mut wrong_media_type = generated;
+        let content = wrong_media_type
+            .as_mapping_mut()
+            .and_then(|root| root.get_mut(yaml_key("paths")))
+            .and_then(serde_yaml::Value::as_mapping_mut)
+            .and_then(|paths| paths.get_mut(yaml_key("/health/live")))
+            .and_then(serde_yaml::Value::as_mapping_mut)
+            .and_then(|path| path.get_mut(yaml_key("get")))
+            .and_then(serde_yaml::Value::as_mapping_mut)
+            .and_then(|operation| operation.get_mut(yaml_key("responses")))
+            .and_then(serde_yaml::Value::as_mapping_mut)
+            .and_then(|responses| responses.get_mut(yaml_key("429")))
+            .and_then(serde_yaml::Value::as_mapping_mut)
+            .and_then(|response| response.get_mut(yaml_key("content")))
+            .and_then(serde_yaml::Value::as_mapping_mut)
+            .expect("rate-limit content fixture");
+        let problem = content
+            .remove(yaml_key("application/problem+json"))
+            .expect("problem media fixture");
+        content.insert(yaml_key("application/json"), problem);
+        let wrong_media_type = serde_yaml::to_string(&wrong_media_type)
+            .expect("wrong-media-type fixture must serialize");
+        assert_eq!(
+            validate_generated_openapi(&wrong_media_type),
+            Err(
+                "OpenAPI 429 response must use the ProblemDetails schema: get /health/live."
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn generated_openapi_has_schema_bearing_response_for_every_operation() {
+        let generated: serde_yaml::Value =
+            serde_yaml::from_str(&openapi_yaml_with_problem_contract())
+                .expect("generated OpenAPI fixture must parse");
+        let paths = generated
+            .as_mapping()
+            .and_then(|root| root.get(yaml_key("paths")))
+            .and_then(serde_yaml::Value::as_mapping)
+            .expect("generated OpenAPI paths");
+        let mut operation_count = 0;
+        let mut schema_bearing_operation_count = 0;
+        let mut schema_bearing_response_count = 0;
+
+        for path_item in paths.values() {
+            let operations = path_item.as_mapping().expect("OpenAPI path item");
+            for method in OPENAPI_HTTP_METHODS {
+                let Some(operation) = operations
+                    .get(yaml_key(method))
+                    .and_then(serde_yaml::Value::as_mapping)
+                else {
+                    continue;
+                };
+                operation_count += 1;
+                let responses = operation
+                    .get(yaml_key("responses"))
+                    .and_then(serde_yaml::Value::as_mapping)
+                    .expect("OpenAPI operation responses");
+                let operation_schema_count = responses
+                    .values()
+                    .filter(|response| {
+                        response
+                            .as_mapping()
+                            .and_then(|response| response.get(yaml_key("content")))
+                            .and_then(serde_yaml::Value::as_mapping)
+                            .is_some_and(|content| {
+                                content.values().any(|media| {
+                                    media
+                                        .as_mapping()
+                                        .is_some_and(|media| media.contains_key(yaml_key("schema")))
+                                })
+                            })
+                    })
+                    .count();
+                schema_bearing_response_count += operation_schema_count;
+                if operation_schema_count > 0 {
+                    schema_bearing_operation_count += 1;
+                }
+            }
+        }
+
+        assert!(
+            operation_count >= 249,
+            "expected at least the delivered 249 operations"
+        );
+        assert_eq!(schema_bearing_operation_count, operation_count);
+        assert!(
+            schema_bearing_response_count >= operation_count,
+            "every operation must expose at least one schema-bearing response"
         );
     }
 

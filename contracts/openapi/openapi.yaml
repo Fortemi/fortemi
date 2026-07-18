@@ -19,6 +19,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /.well-known/oauth-protected-resource:
     get:
@@ -31,6 +37,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /api/v1/api-keys:
     get:
@@ -41,6 +53,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -57,6 +75,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/api-keys/{id}:
@@ -78,6 +102,12 @@ paths:
           description: Success
         '404':
           description: Not found
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/archives:
@@ -96,6 +126,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -127,6 +163,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/archives/{name}:
@@ -153,6 +195,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -181,6 +229,12 @@ paths:
       responses:
         '204':
           description: No Content
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     patch:
@@ -220,6 +274,12 @@ paths:
       responses:
         '204':
           description: No Content
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/archives/{name}/clone:
@@ -262,6 +322,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/archives/{name}/set-default:
@@ -292,6 +358,12 @@ paths:
       responses:
         '204':
           description: No Content
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/archives/{name}/stats:
@@ -321,6 +393,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/attachments:
@@ -371,6 +449,12 @@ paths:
       responses:
         '200':
           description: Paginated list of attachments
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/attachments/{attachment_id}:
@@ -390,6 +474,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -408,6 +498,12 @@ paths:
       responses:
         '204':
           description: No Content
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/attachments/{attachment_id}/download:
@@ -440,6 +536,12 @@ paths:
           description: Partial content (Range request)
         '416':
           description: Range not satisfiable
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/attachments/{attachment_id}/sprites/{sprite_index}:
@@ -472,6 +574,12 @@ paths:
             image/jpeg: {}
         '404':
           description: Sprite sheet not found
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/attachments/{attachment_id}/subtitles:
@@ -504,6 +612,12 @@ paths:
             text/vtt: {}
         '404':
           description: Attachment not found or no transcript segments
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/attachments/{attachment_id}/thumbnail:
@@ -529,6 +643,12 @@ paths:
           description: Thumbnail JPEG
         '404':
           description: No thumbnail available
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/attachments/{attachment_id}/thumbnails.vtt:
@@ -555,6 +675,12 @@ paths:
             text/vtt: {}
         '404':
           description: No sprite thumbnails available
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/audio/transcribe:
@@ -579,6 +705,12 @@ paths:
       responses:
         '200':
           description: Transcription result
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/database:
@@ -589,6 +721,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/database/restore:
@@ -609,6 +747,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/database/snapshot:
@@ -626,6 +770,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/database/upload:
@@ -643,6 +793,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/download:
@@ -656,6 +812,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/export:
@@ -669,6 +831,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/import:
@@ -688,6 +856,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/knowledge-archive:
@@ -699,6 +873,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/knowledge-archive/{filename}:
@@ -719,6 +899,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/knowledge-shard:
@@ -732,6 +918,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/knowledge-shard/import:
@@ -751,6 +943,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/knowledge-shard/upload:
@@ -764,6 +962,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/list:
@@ -778,6 +982,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/list/{filename}:
@@ -796,6 +1006,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/memory/{name}:
@@ -819,6 +1035,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/metadata/{filename}:
@@ -837,6 +1059,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     put:
@@ -860,6 +1088,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/status:
@@ -871,6 +1105,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/swap:
@@ -890,6 +1130,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/backup/trigger:
@@ -911,6 +1157,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/calls/{id}:
@@ -951,6 +1203,12 @@ paths:
                 $ref: '#/components/schemas/CallDetailResponse'
         '404':
           description: Call session not found
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/chat:
@@ -978,6 +1236,12 @@ paths:
           description: Invalid request
         '503':
           description: Chat unavailable or busy
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/chat/models:
@@ -995,6 +1259,12 @@ paths:
           description: Available chat models
         '503':
           description: Ollama not reachable
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/chat/stream:
@@ -1030,6 +1300,12 @@ paths:
           description: Invalid request
         '503':
           description: Chat unavailable or busy
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/collections:
@@ -1040,6 +1316,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -1055,6 +1337,12 @@ paths:
       responses:
         '201':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/collections/{id}:
@@ -1072,6 +1360,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -1096,6 +1390,12 @@ paths:
           description: Success
         '409':
           description: Collection is not empty (use force=true to delete anyway)
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     patch:
@@ -1118,6 +1418,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/collections/{id}/export:
@@ -1136,6 +1442,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/collections/{id}/notes:
@@ -1153,6 +1465,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts:
@@ -1163,6 +1481,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -1178,6 +1502,12 @@ paths:
       responses:
         '201':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/autocomplete:
@@ -1188,6 +1518,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/collections:
@@ -1198,6 +1534,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -1213,6 +1555,12 @@ paths:
       responses:
         '201':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/collections/{id}:
@@ -1230,6 +1578,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -1246,6 +1600,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     patch:
@@ -1268,6 +1628,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/collections/{id}/members:
@@ -1292,6 +1658,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/collections/{id}/members/{concept_id}:
@@ -1322,6 +1694,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -1346,6 +1724,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/governance:
@@ -1356,6 +1740,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/schemes:
@@ -1366,6 +1756,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -1381,6 +1777,12 @@ paths:
       responses:
         '201':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/schemes/export/turtle:
@@ -1392,6 +1794,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/schemes/{id}:
@@ -1409,6 +1817,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -1425,6 +1839,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     patch:
@@ -1447,6 +1867,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/schemes/{id}/export/turtle:
@@ -1465,6 +1891,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/schemes/{id}/top-concepts:
@@ -1482,6 +1914,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}:
@@ -1499,6 +1937,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -1515,6 +1959,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     patch:
@@ -1537,6 +1987,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/ancestors:
@@ -1554,6 +2010,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/broader:
@@ -1571,6 +2033,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -1593,6 +2061,12 @@ paths:
       responses:
         '201':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/broader/{target_id}:
@@ -1616,6 +2090,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/descendants:
@@ -1633,6 +2113,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/full:
@@ -1650,6 +2136,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/narrower:
@@ -1667,6 +2159,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -1689,6 +2187,12 @@ paths:
       responses:
         '201':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/narrower/{target_id}:
@@ -1712,6 +2216,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/related:
@@ -1729,6 +2239,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -1751,6 +2267,12 @@ paths:
       responses:
         '201':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/related/{target_id}:
@@ -1774,6 +2296,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/document-types:
@@ -1792,6 +2320,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -1817,6 +2351,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/document-types/detect:
@@ -1846,6 +2386,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/document-types/{name}:
@@ -1872,6 +2418,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -1901,6 +2453,12 @@ paths:
       responses:
         '204':
           description: No Content
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     patch:
@@ -1937,6 +2495,12 @@ paths:
       responses:
         '204':
           description: No Content
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/embedding-configs:
@@ -1948,6 +2512,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -1964,6 +2534,12 @@ paths:
       responses:
         '201':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/embedding-configs/default:
@@ -1975,6 +2551,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/embedding-configs/{id}:
@@ -1994,6 +2576,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -2012,6 +2600,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     patch:
@@ -2036,6 +2630,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/embedding-sets:
@@ -2047,6 +2647,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -2063,6 +2669,12 @@ paths:
       responses:
         '201':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/embedding-sets/{slug}:
@@ -2081,6 +2693,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -2098,6 +2716,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     patch:
@@ -2121,6 +2745,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/embedding-sets/{slug}/members:
@@ -2139,6 +2769,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -2162,6 +2798,12 @@ paths:
       responses:
         '201':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/embedding-sets/{slug}/members/{note_id}:
@@ -2187,6 +2829,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/embedding-sets/{slug}/refresh:
@@ -2205,6 +2853,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/extraction/stats:
@@ -2221,6 +2875,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/graph/cold-spots:
@@ -2261,6 +2921,12 @@ paths:
           description: Cold spot analysis
         '500':
           description: Internal server error
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/graph/community/coarse:
@@ -2281,6 +2947,12 @@ paths:
           description: Invalid community detection parameters
         '500':
           description: Internal server error
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/graph/diagnostics:
@@ -2301,6 +2973,12 @@ paths:
           description: Graph quality diagnostics
         '500':
           description: Internal server error
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/graph/diagnostics/compare:
@@ -2330,6 +3008,12 @@ paths:
           description: Snapshot not found
         '500':
           description: Internal server error
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/graph/diagnostics/history:
@@ -2350,6 +3034,12 @@ paths:
           description: List of diagnostics snapshots
         '500':
           description: Internal server error
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/graph/diagnostics/snapshot:
@@ -2379,6 +3069,12 @@ paths:
           description: Diagnostics snapshot captured
         '500':
           description: Internal server error
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/graph/maintenance:
@@ -2401,6 +3097,12 @@ paths:
           description: Job already pending (deduplicated)
         '201':
           description: Job queued
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/graph/pfnet/sparsify:
@@ -2432,6 +3134,12 @@ paths:
           description: PFNET sparsification result
         '500':
           description: Internal server error
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/graph/snn/recompute:
@@ -2469,6 +3177,12 @@ paths:
           description: SNN scores recomputed
         '500':
           description: Internal server error
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/graph/topology/stats:
@@ -2487,6 +3201,12 @@ paths:
           description: Graph topology statistics
         '500':
           description: Internal server error
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/graph/{id}:
@@ -2505,6 +3225,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/health/access-frequency:
@@ -2548,6 +3274,12 @@ paths:
       responses:
         '200':
           description: Access frequency report
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /api/v1/health/knowledge:
     get:
@@ -2558,6 +3290,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /api/v1/health/orphan-tags:
     get:
@@ -2568,6 +3306,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /api/v1/health/stale-notes:
     get:
@@ -2578,6 +3322,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /api/v1/health/streaming:
     get:
@@ -2587,6 +3337,12 @@ paths:
       responses:
         '200':
           description: Streaming subsystem health and realtime metrics
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /api/v1/health/tag-cooccurrence:
     get:
@@ -2597,6 +3353,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /api/v1/health/unlinked-notes:
     get:
@@ -2607,6 +3369,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /api/v1/inbound-sources:
     get:
@@ -2616,6 +3384,12 @@ paths:
       responses:
         '200':
           description: Registered inbound source connectors
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -2633,6 +3407,12 @@ paths:
           description: Connector registered
         '400':
           description: Invalid name/kind
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/inbound-sources/{name}:
@@ -2652,6 +3432,12 @@ paths:
           description: Connector deregistered
         '404':
           description: Unknown source name
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/inference/complete:
@@ -2680,6 +3466,12 @@ paths:
           description: Invalid request or provider configuration
         '502':
           description: Inference provider failure
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/inference/config:
@@ -2696,6 +3488,12 @@ paths:
           description: Effective inference configuration
         '500':
           description: Database error
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -2728,6 +3526,12 @@ paths:
           description: Validation error
         '500':
           description: Database or backend error
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -2743,6 +3547,12 @@ paths:
           description: Config reset to env/defaults
         '500':
           description: Database or backend error
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/inference/config/audit:
@@ -2779,6 +3589,12 @@ paths:
           description: Audit entries
         '500':
           description: Database error
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/inference/providers:
@@ -2801,6 +3617,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProvidersResponse'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/inference/stream:
@@ -2830,6 +3652,12 @@ paths:
           description: Invalid request or provider configuration
         '502':
           description: Inference provider failure
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/inference/test-connection:
@@ -2858,6 +3686,12 @@ paths:
                 $ref: '#/components/schemas/TestConnectionResponse'
         '400':
           description: Invalid request body
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/ingest/tokens:
@@ -2886,6 +3720,12 @@ paths:
           description: Authentication required
         '503':
           description: Token store unavailable (Redis required to mint stream tokens)
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/ingest/tokens/{token_id}:
@@ -2911,6 +3751,12 @@ paths:
           description: Authentication required
         '404':
           description: Token not found or already expired
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/jobs:
@@ -2921,6 +3767,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -2936,6 +3788,12 @@ paths:
       responses:
         '201':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/jobs/pause:
@@ -2947,6 +3805,12 @@ paths:
       responses:
         '200':
           description: Jobs paused globally
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/jobs/pause/{archive}:
@@ -2965,6 +3829,12 @@ paths:
       responses:
         '200':
           description: Jobs paused for archive
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/jobs/pending:
@@ -2975,6 +3845,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/jobs/resume:
@@ -2986,6 +3862,12 @@ paths:
       responses:
         '200':
           description: Jobs resumed globally
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/jobs/resume/{archive}:
@@ -3004,6 +3886,12 @@ paths:
       responses:
         '200':
           description: Jobs resumed for archive
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/jobs/stats:
@@ -3014,6 +3902,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/jobs/status:
@@ -3025,6 +3919,12 @@ paths:
       responses:
         '200':
           description: Current pause state
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/jobs/{id}:
@@ -3043,6 +3943,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/memories/overview:
@@ -3058,6 +3964,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/memories/search:
@@ -3074,6 +3986,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/memory/info:
@@ -3087,6 +4005,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/models:
@@ -3107,6 +4031,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ListModelsResponse'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes:
@@ -3117,6 +4047,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -3134,6 +4070,12 @@ paths:
           description: Created
         '400':
           description: Bad request
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/activity:
@@ -3145,6 +4087,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/bulk:
@@ -3163,6 +4111,12 @@ paths:
           description: Success
         '400':
           description: Bad request
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/reprocess:
@@ -3185,6 +4139,12 @@ paths:
       responses:
         '200':
           description: Jobs queued for bulk reprocessing
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/timeline:
@@ -3196,6 +4156,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}:
@@ -3216,6 +4182,12 @@ paths:
           description: Success
         '404':
           description: Not found
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -3235,6 +4207,12 @@ paths:
           description: Success
         '404':
           description: Not found
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     patch:
@@ -3262,6 +4240,12 @@ paths:
           description: Bad request
         '404':
           description: Not found
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/attachments:
@@ -3281,6 +4265,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -3305,6 +4295,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/attachments/tus:
@@ -3351,6 +4347,12 @@ paths:
           description: Bad request (missing or invalid Tus-Resumable header, missing or non-positive Upload-Length, or size exceeds maximum)
         '404':
           description: Note not found
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     options:
@@ -3373,6 +4375,12 @@ paths:
       responses:
         '204':
           description: Tus server capabilities (Tus-Resumable, Tus-Version, Tus-Extension, Tus-Max-Size headers)
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/attachments/tus/{upload_id}:
@@ -3404,6 +4412,12 @@ paths:
           description: Upload cancelled and staging file cleaned up
         '404':
           description: Upload not found
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     head:
@@ -3435,6 +4449,12 @@ paths:
           description: 'Upload state in headers: Upload-Offset (bytes received), Upload-Length (total bytes), Upload-Expires (RFC 7231 datetime), Cache-Control: no-store'
         '404':
           description: Upload not found or has expired
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     patch:
@@ -3492,6 +4512,12 @@ paths:
           description: Upload not found or has expired
         '409':
           description: Upload-Offset mismatch between client and server
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/attachments/upload:
@@ -3515,6 +4541,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/backlinks:
@@ -3534,6 +4566,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/concepts:
@@ -3551,6 +4589,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -3573,6 +4617,12 @@ paths:
       responses:
         '201':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/concepts/{concept_id}:
@@ -3596,6 +4646,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/export:
@@ -3614,6 +4670,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/full:
@@ -3641,6 +4703,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/links:
@@ -3659,6 +4727,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/memory-provenance:
@@ -3681,6 +4755,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/move:
@@ -3704,6 +4784,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/provenance:
@@ -3727,6 +4813,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/purge:
@@ -3750,6 +4842,12 @@ paths:
           description: Success
         '404':
           description: Not found
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/related:
@@ -3793,6 +4891,12 @@ paths:
       responses:
         '200':
           description: Related notes
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/reprocess:
@@ -3824,6 +4928,12 @@ paths:
           description: Success
         '404':
           description: Not found
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/restore:
@@ -3844,6 +4954,12 @@ paths:
           description: Success
         '404':
           description: Not found
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/status:
@@ -3870,6 +4986,12 @@ paths:
           description: Success
         '404':
           description: Not found
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/tags:
@@ -3888,6 +5010,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     put:
@@ -3911,6 +5039,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/versions:
@@ -3930,6 +5064,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/versions/diff:
@@ -3949,6 +5089,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/versions/{version}:
@@ -3975,6 +5121,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -4000,6 +5152,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/versions/{version}/restore:
@@ -4031,6 +5189,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/pke/address:
@@ -4049,6 +5213,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/pke/decrypt:
@@ -4067,6 +5237,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/pke/encrypt:
@@ -4085,6 +5261,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/pke/keygen:
@@ -4103,6 +5285,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/pke/keysets:
@@ -4115,6 +5303,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -4132,6 +5326,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/pke/keysets/active:
@@ -4144,6 +5344,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/pke/keysets/import:
@@ -4162,6 +5368,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/pke/keysets/{name_or_id}:
@@ -4181,6 +5393,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/pke/keysets/{name_or_id}/active:
@@ -4200,6 +5418,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/pke/keysets/{name_or_id}/export:
@@ -4219,6 +5443,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/pke/recipients:
@@ -4237,6 +5467,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/pke/verify/{address}:
@@ -4256,6 +5492,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/provenance/devices:
@@ -4274,6 +5516,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/provenance/files:
@@ -4292,6 +5540,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/provenance/locations:
@@ -4310,6 +5564,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/provenance/named-locations:
@@ -4328,6 +5588,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/provenance/notes:
@@ -4346,6 +5612,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/rate-limit/status:
@@ -4357,6 +5629,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/search:
@@ -4367,6 +5645,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/search/federated:
@@ -4393,6 +5677,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/system/compatibility:
@@ -4403,6 +5693,12 @@ paths:
       responses:
         '200':
           description: Public-safe API compatibility and coarse capability metadata
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /api/v1/tags:
     get:
@@ -4412,6 +5708,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/templates:
@@ -4422,6 +5724,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -4437,6 +5745,12 @@ paths:
       responses:
         '201':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/templates/{id}:
@@ -4455,6 +5769,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -4472,6 +5792,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     patch:
@@ -4495,6 +5821,12 @@ paths:
       responses:
         '204':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/templates/{id}/instantiate:
@@ -4519,6 +5851,12 @@ paths:
       responses:
         '201':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/vision/describe:
@@ -4543,6 +5881,12 @@ paths:
       responses:
         '200':
           description: Image description result
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/webhooks:
@@ -4553,6 +5897,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -4568,6 +5918,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/webhooks/incoming:
@@ -4578,6 +5934,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -4593,6 +5955,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/webhooks/{id}:
@@ -4611,6 +5979,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -4628,6 +6002,12 @@ paths:
       responses:
         '204':
           description: No Content
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     patch:
@@ -4651,6 +6031,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/webhooks/{id}/deliveries:
@@ -4669,6 +6055,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/webhooks/{id}/test:
@@ -4687,6 +6079,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /health:
@@ -4697,6 +6095,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /health/live:
     get:
@@ -4718,6 +6122,12 @@ paths:
           description: Healthy or degraded
         '503':
           description: Critical service unavailable
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /oauth/authorize:
     get:
@@ -4728,6 +6138,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
     post:
       tags:
@@ -4743,6 +6159,12 @@ paths:
       responses:
         '302':
           description: Redirect
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /oauth/introspect:
     post:
@@ -4759,6 +6181,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /oauth/register:
     post:
@@ -4774,6 +6202,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /oauth/revoke:
     post:
@@ -4790,6 +6224,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /oauth/token:
     post:
@@ -4806,6 +6246,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security: []
   /api/v1/memories:
     get:
@@ -4823,6 +6269,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     post:
@@ -4854,6 +6306,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/memories/{name}:
@@ -4880,6 +6338,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     delete:
@@ -4908,6 +6372,12 @@ paths:
       responses:
         '204':
           description: No Content
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
     patch:
@@ -4947,6 +6417,12 @@ paths:
       responses:
         '204':
           description: No Content
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/memories/{name}/clone:
@@ -4989,6 +6465,12 @@ paths:
       responses:
         '201':
           description: Created
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/memories/{name}/set-default:
@@ -5019,6 +6501,12 @@ paths:
       responses:
         '204':
           description: No Content
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
   /api/v1/memories/{name}/stats:
@@ -5048,6 +6536,12 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
       security:
       - bearerAuth: []
 components:

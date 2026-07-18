@@ -7,6 +7,13 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Added
+
+- **OpenAPI response coverage (#1060):** every documented operation now
+  publishes the global rate-limit middleware's schema-bearing RFC 9457 `429`
+  response, and contract validation rejects missing statuses, media types, or
+  `ProblemDetails` schema references.
+
 ## [2026.7.1] - 2026-07-13
 
 Upgrade-reliability and Intel inference deployment release. This release fixes

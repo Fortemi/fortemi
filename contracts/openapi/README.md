@@ -15,3 +15,9 @@ Consumers pin the producer Git commit and fetch
 `contracts/openapi/openapi.yaml` from that immutable revision. CI publishes
 the same file with `openapi-contract-receipt.json`, which records the producer
 commit, contract revision/version, stable path, and SHA-256 digest.
+
+Every documented operation includes the global middleware's `429`
+`application/problem+json` response using the shared `ProblemDetails` schema.
+This gives consumers a schema-bearing response boundary for every operation
+without inventing success payload schemas for handlers that have not declared
+one. Existing typed success responses and body-free statuses remain unchanged.
