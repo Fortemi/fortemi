@@ -42,7 +42,7 @@ const INVALID_DATE_FORMAT_MESSAGE: &str =
 pub struct FlexibleDateTime(pub DateTime<Utc>);
 
 impl FlexibleDateTime {
-    /// Returns the inner DateTime<Utc>
+    /// Returns the inner `DateTime<Utc>`.
     pub fn into_inner(self) -> DateTime<Utc> {
         self.0
     }
