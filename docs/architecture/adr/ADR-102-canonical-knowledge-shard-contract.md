@@ -38,8 +38,10 @@ request-scoped disk-backed archive, validates the completed compressed artifact
 before returning success, and streams that file to the client in bounded
 chunks. The preferred multipart import spools bounded compressed chunks into a
 request-scoped temporary file, and on-disk swap reads its existing file
-directly into the same reader-based preflight. The legacy JSON/base64 request
-and structured component files remain bounded-buffered, and export is not
+directly into the same reader-based preflight. The legacy JSON request retains
+its bounded encoded string, but base64 decoding streams through a fixed buffer
+into a request-scoped temporary file before the same reader-based preflight.
+Structured component files remain bounded-buffered, and export is not
 single-pass live emission, so the route does not constitute fully streaming or
 `full-v1` profile conformance.
 
@@ -253,8 +255,8 @@ then validates the migrated current representation before writes.
 
 Known gaps remain in complete absent-versus-null semantic preservation across
 all accepted current records, `full-v1`, current-minus-two historical migration
-coverage, and end-to-end streaming archive processing across legacy JSON/base64
-ingress, structured components, and single-pass live export emission.
+coverage, and end-to-end streaming archive processing across the legacy JSON
+request buffer, structured components, and single-pass live export emission.
 `record-v1` does not imply
 preservation of templates, embeddings,
 SKOS, provenance, graph/community data, URL-only links, signature guarantees,

@@ -22231,6 +22231,54 @@ fn shard_base64_size_limit(max_compressed_bytes: usize) -> usize {
     max_compressed_bytes.saturating_add(2) / 3 * 4
 }
 
+#[derive(Debug)]
+enum ShardBase64DecodeError {
+    InvalidBase64,
+    SizeLimit,
+    Io(std::io::Error),
+}
+
+fn decode_shard_base64_to_tempfile(
+    encoded: &str,
+    max_compressed_bytes: usize,
+) -> Result<(tempfile::NamedTempFile, usize), ShardBase64DecodeError> {
+    use std::io::{Read, Write};
+
+    let mut shard_file = tempfile::NamedTempFile::new().map_err(ShardBase64DecodeError::Io)?;
+    let mut decoder = base64::read::DecoderReader::new(
+        encoded.as_bytes(),
+        &base64::engine::general_purpose::STANDARD,
+    );
+    let mut decoded_bytes = 0usize;
+    let mut buffer = [0_u8; 64 * 1024];
+
+    loop {
+        let read = decoder.read(&mut buffer).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::InvalidData {
+                ShardBase64DecodeError::InvalidBase64
+            } else {
+                ShardBase64DecodeError::Io(error)
+            }
+        })?;
+        if read == 0 {
+            break;
+        }
+
+        decoded_bytes = decoded_bytes
+            .checked_add(read)
+            .ok_or(ShardBase64DecodeError::SizeLimit)?;
+        if decoded_bytes > max_compressed_bytes {
+            return Err(ShardBase64DecodeError::SizeLimit);
+        }
+        shard_file
+            .write_all(&buffer[..read])
+            .map_err(ShardBase64DecodeError::Io)?;
+    }
+
+    shard_file.flush().map_err(ShardBase64DecodeError::Io)?;
+    Ok((shard_file, decoded_bytes))
+}
+
 fn validate_shard_entry_name(name: &str) -> Result<(), String> {
     let bytes = name.as_bytes();
     if name.is_empty()
@@ -24088,17 +24136,12 @@ async fn knowledge_shard_import(
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<ShardImportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use base64::Engine;
-
     let max_compressed_bytes = state.max_upload_size.min(SHARD_MAX_COMPRESSED_BYTES);
     if body.shard_base64.len() > shard_base64_size_limit(max_compressed_bytes) {
         return Err(shard_validation_failed(
             "Knowledge shard exceeds the compressed size limit.",
         ));
     }
-    let shard_bytes = base64::engine::general_purpose::STANDARD
-        .decode(&body.shard_base64)
-        .map_err(|_| invalid_base64_payload("Invalid base64-encoded shard data."))?;
 
     let opts = ShardImportOptions {
         include: body.include,
@@ -24106,9 +24149,38 @@ async fn knowledge_shard_import(
         on_conflict: body.on_conflict,
         skip_embedding_regen: body.skip_embedding_regen,
     };
+    let decoded = tokio::task::spawn_blocking(move || {
+        decode_shard_base64_to_tempfile(&body.shard_base64, max_compressed_bytes)
+    })
+    .await
+    .map_err(|error| shard_operation_failed("decode shard upload", error))?;
+    let (shard_file, compressed_bytes) = match decoded {
+        Ok(decoded) => decoded,
+        Err(ShardBase64DecodeError::InvalidBase64) => {
+            return Err(invalid_base64_payload("Invalid base64-encoded shard data."));
+        }
+        Err(ShardBase64DecodeError::SizeLimit) => {
+            return Err(shard_validation_failed(
+                "Knowledge shard exceeds the compressed size limit.",
+            ));
+        }
+        Err(ShardBase64DecodeError::Io(error)) => {
+            return Err(shard_operation_failed("write decoded shard upload", error));
+        }
+    };
+    let shard_reader = shard_file
+        .reopen()
+        .map_err(|error| shard_operation_failed("read decoded shard upload", error))?;
 
-    let result =
-        knowledge_shard_import_internal(&state, &shard_bytes, &opts, &archive_ctx.schema).await?;
+    let result = knowledge_shard_import_internal_from_reader_with_wipe(
+        &state,
+        shard_reader,
+        compressed_bytes,
+        &opts,
+        &archive_ctx.schema,
+        false,
+    )
+    .await?;
     Ok(Json(result))
 }
 
@@ -28175,8 +28247,8 @@ async fn apply_validated_shard_components(
     Ok((imported, skipped, queued_note_ids))
 }
 
-/// Internal shard import function (reused by JSON, multipart, and swap endpoints).
-/// Accepts raw tar.gz bytes + options for archive-scoped imports (#421).
+/// Byte-slice compatibility wrapper for shard import tests.
+#[cfg(test)]
 async fn knowledge_shard_import_internal(
     state: &AppState,
     shard_bytes: &[u8],
@@ -28186,6 +28258,7 @@ async fn knowledge_shard_import_internal(
     knowledge_shard_import_internal_with_wipe(state, shard_bytes, opts, schema, false).await
 }
 
+#[cfg(test)]
 async fn knowledge_shard_import_internal_with_wipe(
     state: &AppState,
     shard_bytes: &[u8],
@@ -36461,6 +36534,37 @@ mod tests {
                 }
             })
             .sum()
+    }
+
+    #[test]
+    fn shard_base64_decoder_spools_exact_bytes_and_enforces_decoded_limit() {
+        use base64::Engine as _;
+
+        let payload = vec![0x5a; 128 * 1024 + 17];
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&payload);
+        let (shard_file, decoded_bytes) = decode_shard_base64_to_tempfile(&encoded, payload.len())
+            .expect("decode shard to temporary file");
+
+        assert_eq!(decoded_bytes, payload.len());
+        assert_eq!(
+            std::fs::read(shard_file.path()).expect("read decoded shard file"),
+            payload
+        );
+
+        let rounding_edge = base64::engine::general_purpose::STANDARD.encode([1_u8, 2, 3]);
+        assert_eq!(rounding_edge.len(), shard_base64_size_limit(1));
+        assert!(matches!(
+            decode_shard_base64_to_tempfile(&rounding_edge, 1),
+            Err(ShardBase64DecodeError::SizeLimit)
+        ));
+    }
+
+    #[test]
+    fn shard_base64_decoder_rejects_invalid_input() {
+        assert!(matches!(
+            decode_shard_base64_to_tempfile("H4sIAAAAAAAA!", SHARD_MAX_COMPRESSED_BYTES),
+            Err(ShardBase64DecodeError::InvalidBase64)
+        ));
     }
 
     #[test]
