@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractRevision": "14",
+  "contractRevision": "15",
   "authority": {
     "repository": "Fortemi/fortemi",
     "producerCommit": "Use the immutable Git commit containing this receipt."
@@ -18,9 +18,14 @@
     },
     "full-v1": {
       "supported": false,
-      "status": "rich-schema-apply-candidate",
+      "status": "manifest-schema-candidate",
       "candidateComponentSchemaRoot": "contracts/knowledge-shard/1.1.0/full-v1",
       "candidateComponents": [
+        "notes",
+        "collections",
+        "tags",
+        "templates",
+        "links",
         "embedding_configs",
         "embedding_sets",
         "embedding_set_members",
@@ -50,6 +55,10 @@
         "communities",
         "community_assignments"
       ],
+      "candidateManifestSchema": "contracts/knowledge-shard/1.1.0/full-v1/manifest.schema.json",
+      "candidateManifestSchemaSha256": "3bc34056745a710e959676fc498f16f385a36a98bb1e3d9c59f3e5f9dd95e423",
+      "candidateManifestFixture": "tests/fixtures/shards/full-v1-manifest-candidate/manifest.json",
+      "candidateManifestFixtureSha256": "c1211e44af9f5d5dfaed9e52e9f868ffc8149fab60aa68fcc087be64165b4ae9",
       "candidateGoldenCorpusRoot": "tests/fixtures/shards/full-v1-embedding-candidate",
       "candidateGoldenCorpusSha256": "9745279f0dca478712b9248ef86137be6d75e7d627a9cfd69652204f231b383d",
       "candidateRevisionCorpusRoot": "tests/fixtures/shards/full-v1-revision-candidate",
@@ -65,7 +74,7 @@
       "candidateGraphCorpusRoot": "tests/fixtures/shards/full-v1-graph-candidate",
       "candidateGraphCorpusSha256": "35bae18cb763f28929b1877d32a23317b472b5fa3bd3d5744fc0bea6c460f7b5",
       "remainingReleaseGates": [
-        "canonical full-v1 manifest, complete component inventory, and end-to-end revision round-trip receipt",
+        "integrated full-v1 golden archive and end-to-end semantic and revision round-trip receipt",
         "canonical signature envelope schema and signed export",
         "mandatory full-v1 attachment byte sidecar round-trip conformance",
         "cross-repository producer and consumer receipts"
@@ -95,7 +104,7 @@
   },
   "schemaBundle": {
     "aggregateAlgorithm": "sha256(raw file bytes concatenated in lexicographic path order)",
-    "sha256": "60b0442ceae316a7389d2d8d16e3d4213b6f68f0cb073f556471306c73e7ef45",
+    "sha256": "bee7abcc6207c76af3a56dcbb9034be3f529ab78cf5c59be44f43ebe589ee211",
     "files": {
       "contracts/knowledge-shard/1.1.0/core-v1/collection.schema.json": "4708374341b2ca1c9f51290c140281deaefd33aaad0cf5051d17b53eb23f3cf6",
       "contracts/knowledge-shard/1.1.0/core-v1/link.schema.json": "c907ca29ab9233af2e8f45d0a39beeeb3c1bdf2219f947ac353689af6c1c848f",
@@ -111,6 +120,7 @@
       "contracts/knowledge-shard/1.1.0/full-v1/embedding.schema.json": "6244717fc964e4b493b6bc534a6c1250d8ad0dc45975e74cf29ec68b6eba7615",
       "contracts/knowledge-shard/1.1.0/full-v1/graph-edge.schema.json": "7df521c217de27f114254737e3745bd4daf693ff432cab84d7faded47f79f1a6",
       "contracts/knowledge-shard/1.1.0/full-v1/graph-source.schema.json": "bbe45c85518783028932b416495d4beb0b4316e38a9d085d494a438aeb51668c",
+      "contracts/knowledge-shard/1.1.0/full-v1/manifest.schema.json": "3bc34056745a710e959676fc498f16f385a36a98bb1e3d9c59f3e5f9dd95e423",
       "contracts/knowledge-shard/1.1.0/full-v1/named-location.schema.json": "f86ec38aa92432765ee1424f57a58abb8cef85d14f2396a40ca237848f4bb118",
       "contracts/knowledge-shard/1.1.0/full-v1/note-skos-tag.schema.json": "c161aee0a71a0733f57676f013d62e14c88c635780ead967b7f3cc5e6f0ba9b4",
       "contracts/knowledge-shard/1.1.0/full-v1/note-original-history.schema.json": "d8c4f0724748b38cde81dae727a305e2ac515965df22e0de5d86806bfd6f8ce4",
@@ -156,7 +166,7 @@
     "schema 1.0.0 note records migrate missing deleted_at to the documented null active-state default",
     "core-v1 attachment records are metadata/reference projections by default; optional verified sidecars do not establish full-v1 conformance",
     "record-v1 covers only notes, collections, tags, note-to-note links, and attachment projections; producers must report every omitted or lossy source concept",
-    "full-v1 has digest-pinned candidate embedding, note-revision, provenance, SKOS, graph, and community schemas with transactional apply paths; the profile has no canonical manifest or signed export and is not supported by this release",
+    "full-v1 has a strict complete-inventory candidate manifest plus digest-pinned candidate embedding, note-revision, provenance, SKOS, graph, and community schemas with transactional apply paths; the profile has no signed export or integrated golden round trip and is not supported by this release",
     "complete absent-versus-null preservation requires a later schema-major or new profile identifier"
   ]
 }

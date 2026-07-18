@@ -75,6 +75,15 @@ machine-readable loss report, Fortemi dry-run/rejection/repeated-import
 assertions, the server re-export, and React's validated return import. The
 database integration test consumes these bytes by default.
 
+### full-v1-manifest-candidate/
+
+A strict candidate manifest declaring all 33 required `full-v1` components,
+all 34 count fields, and all 33 component checksums. Its checksums bind the
+separately pinned core and rich candidate corpora. Runtime schema validation
+accepts this complete inventory and then rejects the still-unsupported profile
+before writes. This fixture is not an integrated golden archive or conformance
+claim.
+
 ### full-v1-embedding-candidate/
 
 Digest-pinned candidate records for embedding configs, embedding sets,

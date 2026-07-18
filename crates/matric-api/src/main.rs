@@ -22731,6 +22731,8 @@ const RECORD_V1_TAG_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.1.0/record-v1/tag.schema.json");
 const RECORD_V1_LINK_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.1.0/record-v1/link.schema.json");
+const FULL_V1_MANIFEST_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/manifest.schema.json");
 const FULL_V1_EMBEDDING_CONFIG_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/embedding-config.schema.json");
 const FULL_V1_EMBEDDING_SET_SCHEMA: &str =
@@ -23235,6 +23237,8 @@ fn validate_shard_json_schema(
         LazyLock::new(|| compile_shard_json_schema(RECORD_V1_TAG_SCHEMA));
     static RECORD_LINK: LazyLock<Result<jsonschema::Validator, String>> =
         LazyLock::new(|| compile_shard_json_schema(RECORD_V1_LINK_SCHEMA));
+    static FULL_MANIFEST: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_MANIFEST_SCHEMA));
     static FULL_EMBEDDING_CONFIG: LazyLock<Result<jsonschema::Validator, String>> =
         LazyLock::new(|| compile_shard_json_schema(FULL_V1_EMBEDDING_CONFIG_SCHEMA));
     static FULL_EMBEDDING_SET: LazyLock<Result<jsonschema::Validator, String>> =
@@ -23310,6 +23314,7 @@ fn validate_shard_json_schema(
         RECORD_V1_COLLECTION_SCHEMA => &*RECORD_COLLECTION,
         RECORD_V1_TAG_SCHEMA => &*RECORD_TAG,
         RECORD_V1_LINK_SCHEMA => &*RECORD_LINK,
+        FULL_V1_MANIFEST_SCHEMA => &*FULL_MANIFEST,
         FULL_V1_EMBEDDING_CONFIG_SCHEMA => &*FULL_EMBEDDING_CONFIG,
         FULL_V1_EMBEDDING_SET_SCHEMA => &*FULL_EMBEDDING_SET,
         FULL_V1_EMBEDDING_SET_MEMBER_SCHEMA => &*FULL_EMBEDDING_SET_MEMBER,
@@ -23354,6 +23359,7 @@ fn shard_manifest_schema(version: &str, profile: &str) -> Option<&'static str> {
         ("1.1.0", "core-v1") => Some(CORE_V1_MANIFEST_SCHEMA),
         (_, "core-v1") => Some(LEGACY_CORE_V1_MANIFEST_SCHEMA),
         ("1.1.0", "record-v1") => Some(RECORD_V1_MANIFEST_SCHEMA),
+        ("1.1.0", "full-v1") => Some(FULL_V1_MANIFEST_SCHEMA),
         _ => None,
     }
 }
@@ -23376,11 +23382,12 @@ fn parse_and_validate_shard_manifest(data: &[u8]) -> Result<ShardManifest, Strin
     let schema = shard_manifest_schema(version, profile).ok_or_else(|| {
         "Knowledge shard manifest does not match canonical core-v1 schema.".to_string()
     })?;
-    validate_shard_json_schema(
-        &value,
-        schema,
-        "Knowledge shard manifest does not match canonical core-v1 schema.",
-    )?;
+    let schema_failure = if profile == "full-v1" {
+        "Knowledge shard manifest does not match published full-v1 candidate schema."
+    } else {
+        "Knowledge shard manifest does not match canonical core-v1 schema."
+    };
+    validate_shard_json_schema(&value, schema, schema_failure)?;
     serde_json::from_value(value).map_err(|_| "Invalid knowledge shard manifest.".to_string())
 }
 
@@ -23400,6 +23407,11 @@ fn shard_component_schema(version: &str, profile: &str, component: &str) -> Opti
         ("1.1.0", "record-v1", "collections") => Some(RECORD_V1_COLLECTION_SCHEMA),
         ("1.1.0", "record-v1", "tags") => Some(RECORD_V1_TAG_SCHEMA),
         ("1.1.0", "record-v1", "links") => Some(RECORD_V1_LINK_SCHEMA),
+        ("1.1.0", "full-v1", "notes") => Some(CORE_V1_NOTE_SCHEMA),
+        ("1.1.0", "full-v1", "collections") => Some(CORE_V1_COLLECTION_SCHEMA),
+        ("1.1.0", "full-v1", "tags") => Some(CORE_V1_TAG_SCHEMA),
+        ("1.1.0", "full-v1", "templates") => Some(CORE_V1_TEMPLATE_SCHEMA),
+        ("1.1.0", "full-v1", "links") => Some(CORE_V1_LINK_SCHEMA),
         ("1.1.0", "full-v1", "embedding_configs") => Some(FULL_V1_EMBEDDING_CONFIG_SCHEMA),
         ("1.1.0", "full-v1", "embedding_sets") => Some(FULL_V1_EMBEDDING_SET_SCHEMA),
         ("1.1.0", "full-v1", "embedding_set_members") => Some(FULL_V1_EMBEDDING_SET_MEMBER_SCHEMA),
@@ -44459,7 +44471,7 @@ not-json
         ))
         .expect("contract receipt must be valid JSON");
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert_eq!(receipt["contractRevision"], "14");
+        assert_eq!(receipt["contractRevision"], "15");
         assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
@@ -44469,7 +44481,7 @@ not-json
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
         assert_eq!(
             receipt["profiles"]["full-v1"]["status"],
-            "rich-schema-apply-candidate"
+            "manifest-schema-candidate"
         );
         assert_eq!(receipt["profiles"]["record-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["record-v1"]["status"], "supported");
@@ -44688,6 +44700,16 @@ not-json
             receipt["profiles"]["full-v1"]["candidateGraphCorpusSha256"]
                 .as_str()
                 .expect("full-v1 graph candidate fixture digest must be a string")
+        );
+        let full_v1_manifest_fixture = std::fs::read(
+            workspace_root.join("tests/fixtures/shards/full-v1-manifest-candidate/manifest.json"),
+        )
+        .expect("full-v1 manifest candidate fixture must exist");
+        assert_eq!(
+            hex::encode(sha2::Sha256::digest(full_v1_manifest_fixture)),
+            receipt["profiles"]["full-v1"]["candidateManifestFixtureSha256"]
+                .as_str()
+                .expect("full-v1 manifest candidate fixture digest must be a string")
         );
 
         let historical = &receipt["historicalReleases"]["1.0.0/core-v1"];
@@ -45031,6 +45053,65 @@ not-json
             .unwrap_err(),
             "Knowledge shard component does not match canonical full-v1 candidate schema."
         );
+    }
+
+    #[test]
+    fn full_v1_candidate_manifest_requires_complete_inventory() {
+        let fixture = include_bytes!(
+            "../../../tests/fixtures/shards/full-v1-manifest-candidate/manifest.json"
+        );
+        let manifest = parse_and_validate_shard_manifest(fixture)
+            .expect("complete full-v1 candidate manifest must match its published schema");
+        assert_eq!(manifest.profile.as_deref(), Some("full-v1"));
+        assert_eq!(manifest.components.len(), 33);
+        assert_eq!(manifest.checksums.len(), 33);
+        assert_eq!(manifest.counts.community_sets, 1);
+        assert_eq!(manifest.counts.communities, 1);
+        assert_eq!(
+            validate_shard_manifest_contract(&manifest).unwrap_err(),
+            "Knowledge shard profile is not supported by this server release."
+        );
+        assert_eq!(
+            validate_shard_component_schema_for_profile(
+                "1.1.0",
+                "full-v1",
+                "notes",
+                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.1-valid/notes.jsonl"),
+            )
+            .unwrap(),
+            1
+        );
+
+        let candidate: serde_json::Value = serde_json::from_slice(fixture).unwrap();
+        for invalid in [
+            {
+                let mut value = candidate.clone();
+                value["components"].as_array_mut().unwrap().pop();
+                value
+            },
+            {
+                let mut value = candidate.clone();
+                value["counts"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("communities");
+                value
+            },
+            {
+                let mut value = candidate.clone();
+                value["checksums"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("communities.json");
+                value
+            },
+        ] {
+            assert_eq!(
+                parse_and_validate_shard_manifest(&serde_json::to_vec(&invalid).unwrap())
+                    .unwrap_err(),
+                "Knowledge shard manifest does not match published full-v1 candidate schema."
+            );
+        }
     }
 
     #[test]
