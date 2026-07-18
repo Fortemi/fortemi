@@ -22704,6 +22704,36 @@ fn parse_shard_component_records(
     )
 }
 
+fn visit_shard_jsonl_values_with_limits<F>(
+    data: &[u8],
+    max_records: usize,
+    max_record_bytes: usize,
+    mut visit: F,
+) -> Result<usize, String>
+where
+    F: FnMut(serde_json::Value) -> Result<(), String>,
+{
+    let text = std::str::from_utf8(data)
+        .map_err(|_| "Knowledge shard component is not valid UTF-8.".to_string())?;
+    let mut record_count = 0usize;
+    for (line_index, line) in text.lines().enumerate() {
+        if line_index >= max_records {
+            return Err("Knowledge shard component exceeds the record count limit.".to_string());
+        }
+        if line.trim().is_empty() {
+            continue;
+        }
+        if line.len() > max_record_bytes {
+            return Err("Knowledge shard component record exceeds the size limit.".to_string());
+        }
+        let record = serde_json::from_str(line)
+            .map_err(|_| "Knowledge shard component contains invalid JSON.".to_string())?;
+        visit(record)?;
+        record_count += 1;
+    }
+    Ok(record_count)
+}
+
 fn parse_shard_component_records_with_limits(
     component: &str,
     data: &[u8],
@@ -22748,29 +22778,11 @@ fn parse_shard_component_records_with_limits(
 
     match component {
         "notes" | "links" => {
-            let text = std::str::from_utf8(data)
-                .map_err(|_| "Knowledge shard component is not valid UTF-8.".to_string())?;
             let mut records = Vec::new();
-            for (line_index, line) in text.lines().enumerate() {
-                if line_index >= max_records {
-                    return Err(
-                        "Knowledge shard component exceeds the record count limit.".to_string()
-                    );
-                }
-                if line.trim().is_empty() {
-                    continue;
-                }
-                if line.len() > max_record_bytes {
-                    return Err(
-                        "Knowledge shard component record exceeds the size limit.".to_string()
-                    );
-                }
-                records.push(
-                    serde_json::from_str(line).map_err(|_| {
-                        "Knowledge shard component contains invalid JSON.".to_string()
-                    })?,
-                );
-            }
+            visit_shard_jsonl_values_with_limits(data, max_records, max_record_bytes, |record| {
+                records.push(record);
+                Ok(())
+            })?;
             Ok(records)
         }
         "collections" | "tags" | "templates" => {
@@ -22809,6 +22821,20 @@ fn validate_shard_component_schema_for_profile(
 ) -> Result<usize, String> {
     let schema = shard_component_schema(version, profile, component)
         .ok_or_else(|| "Unsupported knowledge shard component.".to_string())?;
+    if matches!(component, "notes" | "links") {
+        return visit_shard_jsonl_values_with_limits(
+            data,
+            SHARD_MAX_RECORDS_PER_COMPONENT,
+            SHARD_MAX_RECORD_BYTES,
+            |record| {
+                validate_shard_json_schema(
+                    &record,
+                    schema,
+                    "Knowledge shard component does not match canonical core-v1 schema.",
+                )
+            },
+        );
+    }
     let records = parse_shard_component_records(component, data)?;
     for record in &records {
         validate_shard_json_schema(
@@ -22869,76 +22895,93 @@ fn validate_shard_relationships(
         .map(|collection| collection.id)
         .collect::<std::collections::HashSet<_>>();
 
-    let notes = files
-        .get("notes.jsonl")
-        .map(|data| parse_shard_component_records("notes", data))
-        .transpose()?
-        .unwrap_or_default();
     let mut note_ids = std::collections::HashSet::new();
     let mut attachment_ids = std::collections::HashSet::new();
     let mut attachment_digests = std::collections::HashMap::<String, (i64, String)>::new();
-    for note in &notes {
-        let id = note
-            .get("id")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| Uuid::parse_str(value).ok())
-            .ok_or_else(|| "Knowledge shard note identity is invalid.".to_string())?;
-        if !note_ids.insert(id) {
-            return Err("Knowledge shard note identities must be unique.".to_string());
-        }
-        if let Some(collection_id) = note
-            .get("collection_id")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| Uuid::parse_str(value).ok())
-        {
-            if !collection_ids.contains(&collection_id) {
-                return Err("Knowledge shard note references an unknown collection.".to_string());
-            }
-        }
-        if let Some(attachments) = note
-            .get("attachments")
-            .and_then(serde_json::Value::as_array)
-        {
-            for projection in attachments {
-                let attachment = projection
-                    .get("attachment")
-                    .and_then(serde_json::Value::as_object)
-                    .ok_or_else(|| {
-                        "Knowledge shard attachment projection is invalid.".to_string()
-                    })?;
-                let attachment_id = attachment
+    if let Some(data) = files.get("notes.jsonl") {
+        visit_shard_jsonl_values_with_limits(
+            data,
+            SHARD_MAX_RECORDS_PER_COMPONENT,
+            SHARD_MAX_RECORD_BYTES,
+            |note| {
+                let id = note
                     .get("id")
                     .and_then(serde_json::Value::as_str)
                     .and_then(|value| Uuid::parse_str(value).ok())
-                    .ok_or_else(|| "Knowledge shard attachment identity is invalid.".to_string())?;
-                if !attachment_ids.insert(attachment_id) {
-                    return Err("Knowledge shard attachment identities must be unique.".to_string());
+                    .ok_or_else(|| "Knowledge shard note identity is invalid.".to_string())?;
+                if !note_ids.insert(id) {
+                    return Err("Knowledge shard note identities must be unique.".to_string());
                 }
-                let checksum = attachment
-                    .get("checksum")
+                if let Some(collection_id) = note
+                    .get("collection_id")
                     .and_then(serde_json::Value::as_str)
-                    .ok_or_else(|| "Knowledge shard attachment checksum is invalid.".to_string())?;
-                let bytes = attachment
-                    .get("bytes")
-                    .and_then(serde_json::Value::as_i64)
-                    .ok_or_else(|| "Knowledge shard attachment size is invalid.".to_string())?;
-                let mime = attachment
-                    .get("mime")
-                    .and_then(serde_json::Value::as_str)
-                    .ok_or_else(|| {
-                        "Knowledge shard attachment media type is invalid.".to_string()
-                    })?;
-                if let Some((declared_bytes, declared_mime)) = attachment_digests.get(checksum) {
-                    if *declared_bytes != bytes || declared_mime != mime {
+                    .and_then(|value| Uuid::parse_str(value).ok())
+                {
+                    if !collection_ids.contains(&collection_id) {
                         return Err(
-                            "Knowledge shard attachment digest declarations conflict.".to_string()
+                            "Knowledge shard note references an unknown collection.".to_string()
                         );
                     }
-                } else {
-                    attachment_digests.insert(checksum.to_string(), (bytes, mime.to_string()));
                 }
-            }
-        }
+                if let Some(attachments) = note
+                    .get("attachments")
+                    .and_then(serde_json::Value::as_array)
+                {
+                    for projection in attachments {
+                        let attachment = projection
+                            .get("attachment")
+                            .and_then(serde_json::Value::as_object)
+                            .ok_or_else(|| {
+                                "Knowledge shard attachment projection is invalid.".to_string()
+                            })?;
+                        let attachment_id = attachment
+                            .get("id")
+                            .and_then(serde_json::Value::as_str)
+                            .and_then(|value| Uuid::parse_str(value).ok())
+                            .ok_or_else(|| {
+                                "Knowledge shard attachment identity is invalid.".to_string()
+                            })?;
+                        if !attachment_ids.insert(attachment_id) {
+                            return Err(
+                                "Knowledge shard attachment identities must be unique.".to_string()
+                            );
+                        }
+                        let checksum = attachment
+                            .get("checksum")
+                            .and_then(serde_json::Value::as_str)
+                            .ok_or_else(|| {
+                                "Knowledge shard attachment checksum is invalid.".to_string()
+                            })?;
+                        let bytes = attachment
+                            .get("bytes")
+                            .and_then(serde_json::Value::as_i64)
+                            .ok_or_else(|| {
+                                "Knowledge shard attachment size is invalid.".to_string()
+                            })?;
+                        let mime = attachment
+                            .get("mime")
+                            .and_then(serde_json::Value::as_str)
+                            .ok_or_else(|| {
+                                "Knowledge shard attachment media type is invalid.".to_string()
+                            })?;
+                        if let Some((declared_bytes, declared_mime)) =
+                            attachment_digests.get(checksum)
+                        {
+                            if *declared_bytes != bytes || declared_mime != mime {
+                                return Err(
+                                    "Knowledge shard attachment digest declarations conflict."
+                                        .to_string(),
+                                );
+                            }
+                        } else {
+                            attachment_digests
+                                .insert(checksum.to_string(), (bytes, mime.to_string()));
+                        }
+                    }
+                }
+                Ok(())
+            },
+        )?;
     }
 
     let templates = files
@@ -22962,34 +23005,37 @@ fn validate_shard_relationships(
         }
     }
 
-    let links = files
-        .get("links.jsonl")
-        .map(|data| parse_shard_component_records("links", data))
-        .transpose()?
-        .unwrap_or_default();
     let mut link_ids = std::collections::HashSet::new();
-    for link in &links {
-        let id = link
-            .get("id")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| Uuid::parse_str(value).ok())
-            .ok_or_else(|| "Knowledge shard link identity is invalid.".to_string())?;
-        if !link_ids.insert(id) {
-            return Err("Knowledge shard link identities must be unique.".to_string());
-        }
-        let from_id = link
-            .get("from_note_id")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| Uuid::parse_str(value).ok());
-        let to_id = link
-            .get("to_note_id")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| Uuid::parse_str(value).ok());
-        if from_id.is_none_or(|note_id| !note_ids.contains(&note_id))
-            || to_id.is_some_and(|note_id| !note_ids.contains(&note_id))
-        {
-            return Err("Knowledge shard link references an unknown note.".to_string());
-        }
+    if let Some(data) = files.get("links.jsonl") {
+        visit_shard_jsonl_values_with_limits(
+            data,
+            SHARD_MAX_RECORDS_PER_COMPONENT,
+            SHARD_MAX_RECORD_BYTES,
+            |link| {
+                let id = link
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|value| Uuid::parse_str(value).ok())
+                    .ok_or_else(|| "Knowledge shard link identity is invalid.".to_string())?;
+                if !link_ids.insert(id) {
+                    return Err("Knowledge shard link identities must be unique.".to_string());
+                }
+                let from_id = link
+                    .get("from_note_id")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|value| Uuid::parse_str(value).ok());
+                let to_id = link
+                    .get("to_note_id")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|value| Uuid::parse_str(value).ok());
+                if from_id.is_none_or(|note_id| !note_ids.contains(&note_id))
+                    || to_id.is_some_and(|note_id| !note_ids.contains(&note_id))
+                {
+                    return Err("Knowledge shard link references an unknown note.".to_string());
+                }
+                Ok(())
+            },
+        )?;
     }
 
     Ok(attachment_digests)
@@ -36861,6 +36907,19 @@ not-json
             .unwrap_err(),
             "Knowledge shard component record exceeds the size limit."
         );
+    }
+
+    #[test]
+    fn shard_jsonl_value_visitor_processes_records_before_reading_later_lines() {
+        let mut visited = 0usize;
+        let error = visit_shard_jsonl_values_with_limits(b"{\"id\":1}\nnot-json\n", 2, 32, |_| {
+            visited += 1;
+            Err("stop after first record".to_string())
+        })
+        .unwrap_err();
+
+        assert_eq!(visited, 1);
+        assert_eq!(error, "stop after first record");
     }
 
     #[test]
