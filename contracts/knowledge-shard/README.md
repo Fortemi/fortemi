@@ -13,13 +13,16 @@ The current contract revision supports Knowledge Shard schema `1.1.0` under
 - `record-v1`: notes, collections, tags, note-to-note links, and
   attachment projections.
 
-Revision 6 also publishes digest-pinned candidate schemas and fixtures for the
+Revision 7 publishes digest-pinned candidate schemas and fixtures for the
 `full-v1` embedding and note-revision boundaries. The latter covers current
 original state, original history, current revised snapshots, and revision
 chains so later provenance records can retain their referenced identities.
-These files are reviewable authority inputs, not a supported profile. There is
-no canonical `full-v1` manifest or revision apply claim yet, and runtime
-manifest validation continues to reject `full-v1`.
+Both candidate boundaries have bounded relationship validation and
+transactional apply paths with convergence, dry-run, conflict-accounting, and
+late-failure rollback tests. These files and dormant paths are reviewable
+authority inputs, not a supported profile. There is no canonical `full-v1`
+manifest or end-to-end revision round-trip claim yet, and runtime manifest
+validation continues to reject `full-v1`.
 
 Each profile has its own manifest and record schemas under
 `contracts/knowledge-shard/1.1.0/<profile>/`. Fortemi import selects and
@@ -50,7 +53,7 @@ receipt is stored at
 `tests/fixtures/shards/record-v1-fortemi-react-df4762a.shard.receipt.json`;
 the exact producer archive is a permanent integration fixture. `full-v1`
 remains unsupported beyond its candidate embedding and note-revision component
-boundaries.
+boundaries and transactional apply paths.
 Complete absent-versus-null preservation
 still requires a schema-major or new profile identifier because `deleted_at`
 is optional during the 1.1 transition.

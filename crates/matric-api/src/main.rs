@@ -21997,9 +21997,13 @@ impl std::fmt::Debug for ShardManifest {
 #[serde(default)]
 struct ShardCounts {
     notes: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
     note_originals: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
     note_original_history: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
     note_revised_current: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
     note_revisions: usize,
     collections: usize,
     tags: usize,
@@ -22009,6 +22013,10 @@ struct ShardCounts {
     embedding_set_members: usize,
     embeddings: usize,
     embedding_configs: usize,
+}
+
+fn shard_count_is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 #[derive(Clone, Deserialize)]
@@ -23161,6 +23169,7 @@ fn validate_shard_relationships(
         .collect::<std::collections::HashSet<_>>();
 
     let mut note_ids = std::collections::HashSet::new();
+    let mut note_contents = std::collections::HashMap::new();
     let mut attachment_ids = std::collections::HashSet::new();
     let mut attachment_digests = std::collections::HashMap::<String, (i64, String)>::new();
     if let Some(data) = files.get("notes.jsonl") {
@@ -23176,6 +23185,17 @@ fn validate_shard_relationships(
                     .ok_or_else(|| "Knowledge shard note identity is invalid.".to_string())?;
                 if !note_ids.insert(id) {
                     return Err("Knowledge shard note identities must be unique.".to_string());
+                }
+                if let (Some(original_content), Some(revised_content)) = (
+                    note.get("original_content")
+                        .and_then(serde_json::Value::as_str),
+                    note.get("revised_content")
+                        .and_then(serde_json::Value::as_str),
+                ) {
+                    note_contents.insert(
+                        id,
+                        (original_content.to_string(), revised_content.to_string()),
+                    );
                 }
                 if let Some(collection_id) = note
                     .get("collection_id")
@@ -23303,7 +23323,7 @@ fn validate_shard_relationships(
         )?;
     }
 
-    validate_shard_note_history_relationships(files, &note_ids)?;
+    validate_shard_note_history_relationships(files, &note_ids, &note_contents)?;
     validate_shard_embedding_relationships(files, &note_ids)?;
 
     Ok(attachment_digests)
@@ -23312,6 +23332,7 @@ fn validate_shard_relationships(
 fn validate_shard_note_history_relationships(
     files: &std::collections::HashMap<String, Vec<u8>>,
     note_ids: &std::collections::HashSet<Uuid>,
+    note_contents: &std::collections::HashMap<Uuid, (String, String)>,
 ) -> Result<(), String> {
     let mut original_note_ids = std::collections::HashSet::new();
     let mut current_original_versions = std::collections::HashMap::new();
@@ -23321,6 +23342,15 @@ fn validate_shard_note_history_relationships(
                 .map_err(|_| "Knowledge shard note originals are invalid.".to_string())?;
             if !note_ids.contains(&original.note_id) {
                 return Err("Knowledge shard note original references an unknown note.".to_string());
+            }
+            if note_contents
+                .get(&original.note_id)
+                .is_some_and(|(content, _)| content != &original.content)
+            {
+                return Err(
+                    "Knowledge shard note original conflicts with current note content."
+                        .to_string(),
+                );
             }
             if !original_note_ids.insert(original.note_id) {
                 return Err("Knowledge shard note original identities must be unique.".to_string());
@@ -23415,6 +23445,15 @@ fn validate_shard_note_history_relationships(
             if !note_ids.contains(&current.note_id) {
                 return Err(
                     "Knowledge shard current note revision references an unknown note.".to_string(),
+                );
+            }
+            if note_contents
+                .get(&current.note_id)
+                .is_some_and(|(_, content)| content != &current.content)
+            {
+                return Err(
+                    "Knowledge shard current note revision conflicts with current note content."
+                        .to_string(),
                 );
             }
             if !revised_note_ids.insert(current.note_id) {
@@ -24940,6 +24979,10 @@ impl std::fmt::Debug for ShardImportResponse {
 #[derive(Debug, Serialize, Default)]
 struct ShardImportCounts {
     notes: usize,
+    note_originals: usize,
+    note_original_history: usize,
+    note_revised_current: usize,
+    note_revisions: usize,
     collections: usize,
     tags: usize,
     templates: usize,
@@ -28652,6 +28695,283 @@ async fn apply_shard_attachment_projections(
     Ok(())
 }
 
+async fn apply_shard_note_history_components_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    selected_components: &std::collections::HashSet<String>,
+    opts: &ShardImportOptions,
+    imported: &mut ShardImportCounts,
+    skipped: &mut ShardImportCounts,
+) -> Result<(), ApiError> {
+    let should_import = |component: &str| selected_components.contains(component);
+    let replace = matches!(opts.on_conflict, ConflictStrategy::Replace);
+
+    if should_import("note_originals") {
+        if let Some(data) = files.get("note_originals.jsonl") {
+            let originals = shard_jsonl_records::<ShardNoteOriginalRecord>(
+                data,
+                "Knowledge shard note originals are invalid.",
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+            if opts.dry_run {
+                imported.note_originals += originals.len();
+            } else {
+                if replace {
+                    let note_ids = originals
+                        .iter()
+                        .map(|original| original.note_id)
+                        .collect::<Vec<_>>();
+                    sqlx::query("DELETE FROM note_original WHERE note_id = ANY($1)")
+                        .bind(&note_ids)
+                        .execute(&mut **tx)
+                        .await
+                        .map_err(|error| {
+                            shard_operation_failed("replace imported note originals", error)
+                        })?;
+                }
+                for original in originals {
+                    let conflict = if replace {
+                        "ON CONFLICT (note_id) DO UPDATE SET
+                             id = EXCLUDED.id,
+                             content = EXCLUDED.content,
+                             hash = EXCLUDED.hash,
+                             user_created_at = EXCLUDED.user_created_at,
+                             user_last_edited_at = EXCLUDED.user_last_edited_at,
+                             version_number = EXCLUDED.version_number"
+                    } else {
+                        "ON CONFLICT (note_id) DO NOTHING"
+                    };
+                    let result = sqlx::query(&format!(
+                        "INSERT INTO note_original
+                         (id, note_id, content, hash, user_created_at,
+                          user_last_edited_at, version_number)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7)
+                         {conflict}"
+                    ))
+                    .bind(original.id)
+                    .bind(original.note_id)
+                    .bind(original.content)
+                    .bind(original.hash)
+                    .bind(original.user_created_at)
+                    .bind(original.user_last_edited_at)
+                    .bind(original.version_number)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| shard_operation_failed("apply note original import", error))?;
+                    if result.rows_affected() == 0 {
+                        skipped.note_originals += 1;
+                    } else {
+                        imported.note_originals += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if should_import("note_original_history") {
+        if let Some(data) = files.get("note_original_history.jsonl") {
+            let history = shard_jsonl_records::<ShardNoteOriginalHistoryRecord>(
+                data,
+                "Knowledge shard note original history is invalid.",
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+            if opts.dry_run {
+                imported.note_original_history += history.len();
+            } else {
+                if replace {
+                    let mut note_ids = history
+                        .iter()
+                        .map(|record| record.note_id)
+                        .collect::<Vec<_>>();
+                    note_ids.sort_unstable();
+                    note_ids.dedup();
+                    sqlx::query("DELETE FROM note_original_history WHERE note_id = ANY($1)")
+                        .bind(&note_ids)
+                        .execute(&mut **tx)
+                        .await
+                        .map_err(|error| {
+                            shard_operation_failed("replace imported note original history", error)
+                        })?;
+                }
+                for record in history {
+                    let conflict = if replace {
+                        "ON CONFLICT (id) DO UPDATE SET
+                             note_id = EXCLUDED.note_id,
+                             version_number = EXCLUDED.version_number,
+                             content = EXCLUDED.content,
+                             hash = EXCLUDED.hash,
+                             created_at_utc = EXCLUDED.created_at_utc,
+                             created_by = EXCLUDED.created_by"
+                    } else {
+                        "ON CONFLICT DO NOTHING"
+                    };
+                    let result = sqlx::query(&format!(
+                        "INSERT INTO note_original_history
+                         (id, note_id, version_number, content, hash, created_at_utc, created_by)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7)
+                         {conflict}"
+                    ))
+                    .bind(record.id)
+                    .bind(record.note_id)
+                    .bind(record.version_number)
+                    .bind(record.content)
+                    .bind(record.hash)
+                    .bind(record.created_at_utc)
+                    .bind(record.created_by)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("apply note original history import", error)
+                    })?;
+                    if result.rows_affected() == 0 {
+                        skipped.note_original_history += 1;
+                    } else {
+                        imported.note_original_history += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if should_import("note_revisions") {
+        if let Some(data) = files.get("note_revisions.jsonl") {
+            let mut revisions = shard_jsonl_records::<ShardNoteRevisionRecord>(
+                data,
+                "Knowledge shard note revisions are invalid.",
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+            revisions
+                .sort_by_key(|revision| (revision.note_id, revision.revision_number, revision.id));
+            if opts.dry_run {
+                imported.note_revisions += revisions.len();
+            } else {
+                if replace {
+                    let mut note_ids = revisions
+                        .iter()
+                        .map(|revision| revision.note_id)
+                        .collect::<Vec<_>>();
+                    note_ids.sort_unstable();
+                    note_ids.dedup();
+                    sqlx::query(
+                        "UPDATE note_revised_current
+                         SET last_revision_id = NULL
+                         WHERE note_id = ANY($1)",
+                    )
+                    .bind(&note_ids)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("clear replaced current revision references", error)
+                    })?;
+                    sqlx::query("DELETE FROM note_revision WHERE note_id = ANY($1)")
+                        .bind(&note_ids)
+                        .execute(&mut **tx)
+                        .await
+                        .map_err(|error| {
+                            shard_operation_failed("replace imported note revisions", error)
+                        })?;
+                }
+                for revision in revisions {
+                    let conflict = if replace {
+                        "ON CONFLICT (id) DO UPDATE SET
+                             note_id = EXCLUDED.note_id,
+                             parent_revision_id = EXCLUDED.parent_revision_id,
+                             revision_number = EXCLUDED.revision_number,
+                             content = EXCLUDED.content,
+                             type = EXCLUDED.type,
+                             summary = EXCLUDED.summary,
+                             rationale = EXCLUDED.rationale,
+                             created_at_utc = EXCLUDED.created_at_utc,
+                             ai_generated_at = EXCLUDED.ai_generated_at,
+                             user_last_edited_at = EXCLUDED.user_last_edited_at,
+                             is_user_edited = EXCLUDED.is_user_edited,
+                             generation_count = EXCLUDED.generation_count,
+                             model = EXCLUDED.model"
+                    } else {
+                        "ON CONFLICT DO NOTHING"
+                    };
+                    let result = sqlx::query(&format!(
+                        "INSERT INTO note_revision
+                         (id, note_id, parent_revision_id, revision_number, content, type,
+                          summary, rationale, created_at_utc, ai_generated_at,
+                          user_last_edited_at, is_user_edited, generation_count, model)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                         {conflict}"
+                    ))
+                    .bind(revision.id)
+                    .bind(revision.note_id)
+                    .bind(revision.parent_revision_id)
+                    .bind(revision.revision_number)
+                    .bind(revision.content)
+                    .bind(revision.revision_type)
+                    .bind(revision.summary)
+                    .bind(revision.rationale)
+                    .bind(revision.created_at_utc)
+                    .bind(revision.ai_generated_at)
+                    .bind(revision.user_last_edited_at)
+                    .bind(revision.is_user_edited)
+                    .bind(revision.generation_count)
+                    .bind(revision.model)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| shard_operation_failed("apply note revision import", error))?;
+                    if result.rows_affected() == 0 {
+                        skipped.note_revisions += 1;
+                    } else {
+                        imported.note_revisions += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if should_import("note_revised_current") {
+        if let Some(data) = files.get("note_revised_current.jsonl") {
+            let records = shard_jsonl_records::<ShardNoteRevisedCurrentRecord>(
+                data,
+                "Knowledge shard current note revisions are invalid.",
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+            if opts.dry_run {
+                imported.note_revised_current += records.len();
+            } else {
+                for record in records {
+                    let conflict = if replace {
+                        "ON CONFLICT (note_id) DO UPDATE SET
+                             content = EXCLUDED.content,
+                             last_revision_id = EXCLUDED.last_revision_id,
+                             ai_metadata = EXCLUDED.ai_metadata"
+                    } else {
+                        "ON CONFLICT (note_id) DO NOTHING"
+                    };
+                    let result = sqlx::query(&format!(
+                        "INSERT INTO note_revised_current
+                         (note_id, content, last_revision_id, ai_metadata)
+                         VALUES ($1, $2, $3, $4)
+                         {conflict}"
+                    ))
+                    .bind(record.note_id)
+                    .bind(record.content)
+                    .bind(record.last_revision_id)
+                    .bind(record.ai_metadata)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("apply current note revision import", error)
+                    })?;
+                    if result.rows_affected() == 0 {
+                        skipped.note_revised_current += 1;
+                    } else {
+                        imported.note_revised_current += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 async fn apply_shard_embedding_components_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     files: &std::collections::HashMap<String, Vec<u8>>,
@@ -29305,6 +29625,16 @@ async fn apply_validated_shard_components(
             }
         }
     }
+
+    apply_shard_note_history_components_tx(
+        &mut tx,
+        files,
+        selected_components,
+        opts,
+        &mut imported,
+        &mut skipped,
+    )
+    .await?;
 
     apply_shard_embedding_components_tx(
         &mut tx,
@@ -34559,6 +34889,10 @@ mod tests {
             }),
             imported: ShardImportCounts {
                 notes: 1,
+                note_originals: 1,
+                note_original_history: 1,
+                note_revised_current: 1,
+                note_revisions: 1,
                 collections: 1,
                 tags: 1,
                 templates: 1,
@@ -34621,6 +34955,10 @@ mod tests {
                 .to_string(),
             stats: Some(ShardImportCounts {
                 notes: 1,
+                note_originals: 1,
+                note_original_history: 1,
+                note_revised_current: 1,
+                note_revisions: 1,
                 collections: 1,
                 tags: 1,
                 templates: 1,
@@ -40029,7 +40367,7 @@ not-json
         ))
         .expect("contract receipt must be valid JSON");
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert_eq!(receipt["contractRevision"], "6");
+        assert_eq!(receipt["contractRevision"], "7");
         assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
@@ -40039,7 +40377,7 @@ not-json
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
         assert_eq!(
             receipt["profiles"]["full-v1"]["status"],
-            "revision-boundary-candidate"
+            "revision-apply-candidate"
         );
         assert_eq!(receipt["profiles"]["record-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["record-v1"]["status"], "supported");
@@ -40711,6 +41049,7 @@ not-json
     fn valid_shard_note_history_relationship_fixture() -> (
         std::collections::HashMap<String, Vec<u8>>,
         std::collections::HashSet<Uuid>,
+        std::collections::HashMap<Uuid, (String, String)>,
         Uuid,
         Uuid,
     ) {
@@ -40813,6 +41152,13 @@ not-json
                 ),
             ]),
             std::collections::HashSet::from([note_id]),
+            std::collections::HashMap::from([(
+                note_id,
+                (
+                    "current original".to_string(),
+                    "current revision".to_string(),
+                ),
+            )]),
             first_revision_id,
             current_revision_id,
         )
@@ -40820,13 +41166,13 @@ not-json
 
     #[test]
     fn shard_note_history_preflight_accepts_complete_boundary() {
-        let (files, note_ids, ..) = valid_shard_note_history_relationship_fixture();
-        validate_shard_note_history_relationships(&files, &note_ids).unwrap();
+        let (files, note_ids, note_contents, ..) = valid_shard_note_history_relationship_fixture();
+        validate_shard_note_history_relationships(&files, &note_ids, &note_contents).unwrap();
     }
 
     #[test]
     fn shard_note_history_preflight_rejects_invalid_version_and_parent_order() {
-        let (files, note_ids, first_revision_id, ..) =
+        let (files, note_ids, note_contents, first_revision_id, ..) =
             valid_shard_note_history_relationship_fixture();
 
         let mut invalid_history = files.clone();
@@ -40841,7 +41187,8 @@ not-json
             serialize_shard_export_jsonl(&history, "serialize test history").unwrap(),
         );
         assert_eq!(
-            validate_shard_note_history_relationships(&invalid_history, &note_ids).unwrap_err(),
+            validate_shard_note_history_relationships(&invalid_history, &note_ids, &note_contents)
+                .unwrap_err(),
             "Knowledge shard note original history version ordering is invalid."
         );
 
@@ -40857,14 +41204,38 @@ not-json
             serialize_shard_export_jsonl(&revisions, "serialize test revisions").unwrap(),
         );
         assert_eq!(
-            validate_shard_note_history_relationships(&invalid_parent, &note_ids).unwrap_err(),
+            validate_shard_note_history_relationships(&invalid_parent, &note_ids, &note_contents)
+                .unwrap_err(),
             "Knowledge shard note revision parent relationship is invalid."
         );
     }
 
     #[test]
     fn shard_note_history_preflight_rejects_duplicate_and_mismatched_current_revision() {
-        let (files, note_ids, ..) = valid_shard_note_history_relationship_fixture();
+        let (files, note_ids, note_contents, first_revision_id, ..) =
+            valid_shard_note_history_relationship_fixture();
+
+        let mut mismatched_original = note_contents.clone();
+        mismatched_original
+            .get_mut(note_ids.iter().next().unwrap())
+            .unwrap()
+            .0 = "drifted original content".to_string();
+        assert_eq!(
+            validate_shard_note_history_relationships(&files, &note_ids, &mismatched_original)
+                .unwrap_err(),
+            "Knowledge shard note original conflicts with current note content."
+        );
+
+        let mut mismatched_revised = note_contents.clone();
+        mismatched_revised
+            .get_mut(note_ids.iter().next().unwrap())
+            .unwrap()
+            .1 = "drifted revised content".to_string();
+        assert_eq!(
+            validate_shard_note_history_relationships(&files, &note_ids, &mismatched_revised)
+                .unwrap_err(),
+            "Knowledge shard current note revision conflicts with current note content."
+        );
 
         let mut duplicate = files.clone();
         let mut revisions =
@@ -40878,7 +41249,8 @@ not-json
             serialize_shard_export_jsonl(&revisions, "serialize duplicate revisions").unwrap(),
         );
         assert_eq!(
-            validate_shard_note_history_relationships(&duplicate, &note_ids).unwrap_err(),
+            validate_shard_note_history_relationships(&duplicate, &note_ids, &note_contents)
+                .unwrap_err(),
             "Knowledge shard note revision identities must be unique."
         );
 
@@ -40888,15 +41260,396 @@ not-json
             &mismatched_current["note_revised_current.jsonl"],
         )
         .unwrap();
-        current[0]["content"] = serde_json::json!("drifted current content");
+        current[0]["last_revision_id"] = serde_json::json!(first_revision_id);
         mismatched_current.insert(
             "note_revised_current.jsonl".to_string(),
             serialize_shard_export_jsonl(&current, "serialize test current revision").unwrap(),
         );
         assert_eq!(
-            validate_shard_note_history_relationships(&mismatched_current, &note_ids).unwrap_err(),
+            validate_shard_note_history_relationships(
+                &mismatched_current,
+                &note_ids,
+                &note_contents
+            )
+            .unwrap_err(),
             "Knowledge shard current note revision reference is invalid."
         );
+    }
+
+    async fn shard_note_history_snapshot(
+        ctx: &matric_db::SchemaContext,
+        note_id: Uuid,
+    ) -> serde_json::Value {
+        ctx.query(move |tx| {
+            Box::pin(async move {
+                sqlx::query_scalar::<_, serde_json::Value>(
+                    "SELECT jsonb_build_object(
+                       'original', (
+                         SELECT jsonb_build_object(
+                           'id', id,
+                           'note_id', note_id,
+                           'content', content,
+                           'hash', hash,
+                           'user_created_at', user_created_at,
+                           'user_last_edited_at', user_last_edited_at,
+                           'version_number', version_number
+                         )
+                         FROM note_original
+                         WHERE note_id = $1
+                       ),
+                       'original_history', COALESCE((
+                         SELECT jsonb_agg(
+                           jsonb_build_object(
+                             'id', id,
+                             'note_id', note_id,
+                             'version_number', version_number,
+                             'content', content,
+                             'hash', hash,
+                             'created_at_utc', created_at_utc,
+                             'created_by', created_by
+                           )
+                           ORDER BY version_number, id
+                         )
+                         FROM note_original_history
+                         WHERE note_id = $1
+                       ), '[]'::jsonb),
+                       'revised_current', (
+                         SELECT jsonb_build_object(
+                           'note_id', note_id,
+                           'content', content,
+                           'last_revision_id', last_revision_id,
+                           'ai_metadata', ai_metadata
+                         )
+                         FROM note_revised_current
+                         WHERE note_id = $1
+                       ),
+                       'revisions', COALESCE((
+                         SELECT jsonb_agg(
+                           jsonb_build_object(
+                             'id', id,
+                             'note_id', note_id,
+                             'parent_revision_id', parent_revision_id,
+                             'revision_number', revision_number,
+                             'content', content,
+                             'type', type,
+                             'summary', summary,
+                             'rationale', rationale,
+                             'created_at_utc', created_at_utc,
+                             'ai_generated_at', ai_generated_at,
+                             'user_last_edited_at', user_last_edited_at,
+                             'is_user_edited', is_user_edited,
+                             'generation_count', generation_count,
+                             'model', model
+                           )
+                           ORDER BY revision_number, id
+                         )
+                         FROM note_revision
+                         WHERE note_id = $1
+                       ), '[]'::jsonb)
+                     )",
+                )
+                .bind(note_id)
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(matric_db::Error::Database)
+            })
+        })
+        .await
+        .expect("read note history snapshot")
+    }
+
+    #[tokio::test]
+    async fn shard_note_history_apply_is_atomic_and_repeatable() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let success_name = format!("sh-rev-ok-{}", Uuid::new_v4().simple());
+        let rollback_name = format!("sh-rev-rb-{}", Uuid::new_v4().simple());
+        let success = db
+            .archives
+            .create_archive_schema(&success_name, Some("Shard revision apply success test"))
+            .await
+            .expect("create revision success schema");
+        let rollback = db
+            .archives
+            .create_archive_schema(&rollback_name, Some("Shard revision apply rollback test"))
+            .await
+            .expect("create revision rollback schema");
+
+        let (files, note_ids, note_contents, first_revision_id, current_revision_id) =
+            valid_shard_note_history_relationship_fixture();
+        let note_id = *note_ids.iter().next().unwrap();
+        validate_shard_note_history_relationships(&files, &note_ids, &note_contents).unwrap();
+        let selected_components = [
+            "note_originals",
+            "note_original_history",
+            "note_revised_current",
+            "note_revisions",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<std::collections::HashSet<_>>();
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+
+        for schema in [&success.schema_name, &rollback.schema_name] {
+            let ctx = db.for_schema(schema).unwrap();
+            let mut tx = ctx.begin_tx().await.expect("begin revision note seed");
+            matric_db::PgNoteRepository::new(db.pool.clone())
+                .insert_with_id_tx(
+                    &mut tx,
+                    note_id,
+                    CreateNoteRequest {
+                        content: "seed original".to_string(),
+                        format: "markdown".to_string(),
+                        source: "knowledge-shard-test".to_string(),
+                        collection_id: None,
+                        tags: Some(Vec::new()),
+                        metadata: Some(serde_json::json!({})),
+                        document_type_id: None,
+                        title: Some("Revision apply note".to_string()),
+                    },
+                )
+                .await
+                .expect("seed revision note");
+            tx.commit().await.expect("commit revision note seed");
+        }
+
+        let expected_timestamp = "2026-07-18T12:00:00+00:00";
+        let expected = serde_json::json!({
+            "original": {
+                "id": null,
+                "note_id": note_id,
+                "content": "current original",
+                "hash": "blake3:current",
+                "user_created_at": null,
+                "user_last_edited_at": expected_timestamp,
+                "version_number": 3
+            },
+            "original_history": [
+                {
+                    "id": "018f4c11-9f14-7d33-8a21-1c80f648e004",
+                    "note_id": note_id,
+                    "version_number": 1,
+                    "content": "first original",
+                    "hash": "blake3:first",
+                    "created_at_utc": expected_timestamp,
+                    "created_by": "user"
+                },
+                {
+                    "id": "018f4c11-9f14-7d33-8a21-1c80f648e005",
+                    "note_id": note_id,
+                    "version_number": 2,
+                    "content": "second original",
+                    "hash": "blake3:second",
+                    "created_at_utc": expected_timestamp,
+                    "created_by": "restore"
+                }
+            ],
+            "revised_current": {
+                "note_id": note_id,
+                "content": "current revision",
+                "last_revision_id": current_revision_id,
+                "ai_metadata": null
+            },
+            "revisions": [
+                {
+                    "id": first_revision_id,
+                    "note_id": note_id,
+                    "parent_revision_id": null,
+                    "revision_number": 1,
+                    "content": "first revision",
+                    "type": "ai_enhancement",
+                    "summary": null,
+                    "rationale": null,
+                    "created_at_utc": expected_timestamp,
+                    "ai_generated_at": null,
+                    "user_last_edited_at": null,
+                    "is_user_edited": false,
+                    "generation_count": 1,
+                    "model": null
+                },
+                {
+                    "id": current_revision_id,
+                    "note_id": note_id,
+                    "parent_revision_id": first_revision_id,
+                    "revision_number": 2,
+                    "content": "current revision",
+                    "type": "user_edit",
+                    "summary": "Current",
+                    "rationale": null,
+                    "created_at_utc": expected_timestamp,
+                    "ai_generated_at": expected_timestamp,
+                    "user_last_edited_at": expected_timestamp,
+                    "is_user_edited": true,
+                    "generation_count": 2,
+                    "model": "test-model"
+                }
+            ]
+        });
+
+        let success_ctx = db.for_schema(&success.schema_name).unwrap();
+        for expected_pass in 0..2 {
+            let mut tx = success_ctx.begin_tx().await.expect("begin revision apply");
+            let mut imported = ShardImportCounts::default();
+            let mut skipped = ShardImportCounts::default();
+            apply_shard_note_history_components_tx(
+                &mut tx,
+                &files,
+                &selected_components,
+                &opts,
+                &mut imported,
+                &mut skipped,
+            )
+            .await
+            .expect("apply complete note revision boundary");
+            tx.commit().await.expect("commit note revision boundary");
+            assert_eq!(imported.note_originals, 1, "pass {expected_pass}");
+            assert_eq!(imported.note_original_history, 2, "pass {expected_pass}");
+            assert_eq!(imported.note_revised_current, 1, "pass {expected_pass}");
+            assert_eq!(imported.note_revisions, 2, "pass {expected_pass}");
+            assert_eq!(skipped.note_originals, 0, "pass {expected_pass}");
+            assert_eq!(skipped.note_original_history, 0, "pass {expected_pass}");
+            assert_eq!(skipped.note_revised_current, 0, "pass {expected_pass}");
+            assert_eq!(skipped.note_revisions, 0, "pass {expected_pass}");
+            assert_eq!(
+                shard_note_history_snapshot(&success_ctx, note_id).await,
+                expected,
+                "pass {expected_pass}"
+            );
+        }
+
+        let skip_opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Skip,
+            skip_embedding_regen: true,
+        };
+        let mut tx = success_ctx.begin_tx().await.expect("begin revision skip");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        apply_shard_note_history_components_tx(
+            &mut tx,
+            &files,
+            &selected_components,
+            &skip_opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect("skip existing note revision boundary");
+        tx.commit().await.expect("commit revision skip");
+        assert_eq!(imported.note_originals, 0);
+        assert_eq!(imported.note_original_history, 0);
+        assert_eq!(imported.note_revised_current, 0);
+        assert_eq!(imported.note_revisions, 0);
+        assert_eq!(skipped.note_originals, 1);
+        assert_eq!(skipped.note_original_history, 2);
+        assert_eq!(skipped.note_revised_current, 1);
+        assert_eq!(skipped.note_revisions, 2);
+        assert_eq!(
+            shard_note_history_snapshot(&success_ctx, note_id).await,
+            expected
+        );
+
+        let rollback_ctx = db.for_schema(&rollback.schema_name).unwrap();
+        let baseline = shard_note_history_snapshot(&rollback_ctx, note_id).await;
+        let dry_run_opts = ShardImportOptions {
+            include: None,
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin revision dry run");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        apply_shard_note_history_components_tx(
+            &mut tx,
+            &files,
+            &selected_components,
+            &dry_run_opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect("dry-run complete note revision boundary");
+        tx.rollback().await.expect("roll back revision dry run");
+        assert_eq!(imported.note_originals, 1);
+        assert_eq!(imported.note_original_history, 2);
+        assert_eq!(imported.note_revised_current, 1);
+        assert_eq!(imported.note_revisions, 2);
+        assert_eq!(skipped.note_originals, 0);
+        assert_eq!(skipped.note_original_history, 0);
+        assert_eq!(skipped.note_revised_current, 0);
+        assert_eq!(skipped.note_revisions, 0);
+        assert_eq!(
+            shard_note_history_snapshot(&rollback_ctx, note_id).await,
+            baseline
+        );
+
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin failed revision apply");
+        sqlx::query(
+            "CREATE FUNCTION reject_shard_current_revision()
+             RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN
+                 IF NEW.content = 'current revision' THEN
+                     RAISE EXCEPTION 'injected current revision failure';
+                 END IF;
+                 RETURN NEW;
+             END;
+             $$",
+        )
+        .execute(&mut *tx)
+        .await
+        .expect("create revision failure function");
+        sqlx::query(
+            "CREATE TRIGGER reject_shard_current_revision
+             BEFORE INSERT OR UPDATE ON note_revised_current
+             FOR EACH ROW EXECUTE FUNCTION reject_shard_current_revision()",
+        )
+        .execute(&mut *tx)
+        .await
+        .expect("create revision failure trigger");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        let error = apply_shard_note_history_components_tx(
+            &mut tx,
+            &files,
+            &selected_components,
+            &opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect_err("late current revision failure must abort the apply transaction");
+        assert!(matches!(error, ApiError::OperationFailed { .. }));
+        tx.rollback()
+            .await
+            .expect("roll back failed revision apply");
+        assert_eq!(
+            shard_note_history_snapshot(&rollback_ctx, note_id).await,
+            baseline
+        );
+
+        for archive_name in [success_name, rollback_name] {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .expect("drop isolated revision test schema");
+        }
     }
 
     fn valid_shard_embedding_relationship_fixture() -> (
@@ -41809,6 +42562,10 @@ not-json
             }),
             imported: ShardImportCounts {
                 notes: 10,
+                note_originals: 0,
+                note_original_history: 0,
+                note_revised_current: 0,
+                note_revisions: 0,
                 collections: 2,
                 tags: 0,
                 templates: 1,

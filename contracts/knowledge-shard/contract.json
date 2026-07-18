@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractRevision": "6",
+  "contractRevision": "7",
   "authority": {
     "repository": "Fortemi/fortemi",
     "producerCommit": "Use the immutable Git commit containing this receipt."
@@ -18,7 +18,7 @@
     },
     "full-v1": {
       "supported": false,
-      "status": "revision-boundary-candidate",
+      "status": "revision-apply-candidate",
       "candidateComponentSchemaRoot": "contracts/knowledge-shard/1.1.0/full-v1",
       "candidateComponents": [
         "embedding_configs",
@@ -35,8 +35,7 @@
       "candidateRevisionCorpusRoot": "tests/fixtures/shards/full-v1-revision-candidate",
       "candidateRevisionCorpusSha256": "ac0325e9433fbb8d558a10a681a84677bc05bda5d5ae7571d25739712d661c17",
       "remainingReleaseGates": [
-        "canonical full-v1 manifest and complete component inventory",
-        "transactional revision-history import and semantic round-trip equality",
+        "canonical full-v1 manifest, complete component inventory, and end-to-end revision round-trip receipt",
         "SKOS, provenance, graph, community, and signature schemas and apply paths",
         "attachment byte sidecar conformance",
         "cross-repository producer and consumer receipts"
@@ -107,7 +106,7 @@
     "schema 1.0.0 note records migrate missing deleted_at to the documented null active-state default",
     "core-v1 attachment records are metadata/reference projections by default; optional verified sidecars do not establish full-v1 conformance",
     "record-v1 covers only notes, collections, tags, note-to-note links, and attachment projections; producers must report every omitted or lossy source concept",
-    "full-v1 has digest-pinned candidate embedding and note-revision component schemas only; it has no canonical manifest and is not supported by this release",
+    "full-v1 has digest-pinned candidate embedding and note-revision component schemas plus transactional apply paths only; it has no canonical manifest and is not supported by this release",
     "complete absent-versus-null preservation requires a later schema-major or new profile identifier"
   ]
 }

@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, digest-pinned candidate `full-v1` embedding and note-revision component schemas and fixtures, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, and disk-backed streaming preflight for opt-in verified attachment sidecars; `full-v1` conformance remains pending the release gates in this ADR
+**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, digest-pinned candidate `full-v1` embedding and note-revision component schemas, fixtures, and transactional apply paths, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, and disk-backed streaming preflight for opt-in verified attachment sidecars; `full-v1` conformance remains pending the release gates in this ADR
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -78,16 +78,19 @@ archive while preserving IDs, bodies, the empty revision, relationships,
 attachment reference, and tombstone instant. The durable receipt lives beside
 the integration fixture.
 
-Contract revision 6 publishes candidate embedding and note-revision component
+Contract revision 7 publishes candidate embedding and note-revision component
 boundaries under `contracts/knowledge-shard/1.1.0/full-v1/`, with separately
 digest-pinned corpora. The revision boundary covers current original state,
 original history, the current revised snapshot, and the complete revision
 chain needed before provenance edges can retain their referenced identities.
 These component schemas are compiled by the server and exercised by bounded
-schema and relationship preflight tests. The dormant embedding apply path is
-transactional, but the revision apply path, canonical `full-v1` manifest, and
-profile support remain pending; manifest validation continues to fail closed
-for `full-v1`.
+schema and relationship preflight tests. Dormant embedding and revision apply
+paths run inside the existing schema-scoped import transaction. Their database
+tests prove exact source-field restoration, repeated replace convergence,
+skip and dry-run accounting, and rollback after a late injected failure. The
+canonical `full-v1` manifest, complete component inventory, end-to-end revision
+round-trip receipt, and profile support remain pending; manifest validation
+continues to fail closed for `full-v1`.
 
 ## Decision
 
