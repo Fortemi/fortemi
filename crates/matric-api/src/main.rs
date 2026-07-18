@@ -23255,17 +23255,58 @@ fn migrate_shard_archive_to_current(
     })
 }
 
-async fn load_shard_blob_sidecars_tx(
+struct ShardBlobExportSource {
+    blob_id: Uuid,
+    entry_name: String,
+    checksum: String,
+    size_bytes: usize,
+    storage_backend: String,
+    storage_path: Option<String>,
+}
+
+struct ShardHashingReader<R> {
+    inner: R,
+    hasher: blake3::Hasher,
+    size_bytes: u64,
+}
+
+impl<R> ShardHashingReader<R> {
+    fn new(inner: R) -> Self {
+        Self {
+            inner,
+            hasher: blake3::Hasher::new(),
+            size_bytes: 0,
+        }
+    }
+
+    fn verified(self, expected_checksum: &str, expected_size: u64) -> bool {
+        self.size_bytes == expected_size
+            && format!("blake3:{}", self.hasher.finalize().to_hex()) == expected_checksum
+    }
+}
+
+impl<R: std::io::Read> std::io::Read for ShardHashingReader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let read = self.inner.read(buffer)?;
+        self.size_bytes = self
+            .size_bytes
+            .checked_add(read as u64)
+            .ok_or_else(|| std::io::Error::other("attachment sidecar size overflow"))?;
+        self.hasher.update(&buffer[..read]);
+        Ok(read)
+    }
+}
+
+async fn load_shard_blob_export_inventory_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     note_ids: &[Uuid],
-    backend: Option<&FilesystemBackend>,
     max_entries: usize,
     max_bytes: usize,
-) -> Result<std::collections::BTreeMap<String, Vec<u8>>, ApiError> {
+) -> Result<Vec<ShardBlobExportSource>, ApiError> {
     use sqlx::Row;
 
     if note_ids.is_empty() {
-        return Ok(std::collections::BTreeMap::new());
+        return Ok(Vec::new());
     }
     let rows = sqlx::query(
         "SELECT DISTINCT ON (ab.content_hash)
@@ -23288,7 +23329,7 @@ async fn load_shard_blob_sidecars_tx(
     }
 
     let mut total_bytes = 0usize;
-    let mut sidecars = std::collections::BTreeMap::new();
+    let mut sidecars = Vec::with_capacity(rows.len());
     for row in rows {
         let blob_id: Uuid = row.get("id");
         let checksum: String = row.get("content_hash");
@@ -23311,37 +23352,21 @@ async fn load_shard_blob_sidecars_tx(
                 "Knowledge shard exceeds the uncompressed size limit.",
             ));
         }
-
         let storage_backend: String = row.get("storage_backend");
-        let bytes = if storage_backend == "database" {
-            sqlx::query_scalar::<_, Option<Vec<u8>>>(
-                "SELECT data FROM attachment_blob WHERE id = $1",
-            )
-            .bind(blob_id)
-            .fetch_one(&mut **tx)
-            .await
-            .map_err(|error| shard_operation_failed("read database attachment sidecar", error))?
-            .ok_or_else(|| shard_validation_failed("Stored attachment bytes are unavailable."))?
-        } else {
-            let storage_path = row
-                .get::<Option<String>, _>("storage_path")
-                .ok_or_else(|| shard_validation_failed("Stored attachment path is unavailable."))?;
-            backend
-                .ok_or_else(|| {
-                    shard_validation_failed(
-                        "Knowledge shard attachment sidecars require configured filesystem storage.",
-                    )
-                })?
-                .read(&storage_path)
-                .await
-                .map_err(|error| shard_operation_failed("read attachment sidecar", error))?
-        };
-        if bytes.len() != declared_bytes || matric_db::compute_content_hash(&bytes) != checksum {
+        let storage_path = row.get::<Option<String>, _>("storage_path");
+        if storage_backend == "filesystem" && storage_path.is_none() {
             return Err(shard_validation_failed(
-                "Stored attachment bytes failed integrity validation.",
+                "Stored attachment path is unavailable.",
             ));
         }
-        sidecars.insert(entry_name, bytes);
+        sidecars.push(ShardBlobExportSource {
+            blob_id,
+            entry_name,
+            checksum,
+            size_bytes: declared_bytes,
+            storage_backend,
+            storage_path,
+        });
     }
     Ok(sidecars)
 }
@@ -23399,10 +23424,13 @@ async fn knowledge_shard(
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let mut tx = ctx.begin_tx().await?;
 
-    // Create tar.gz in memory
-    let mut shard_data = Vec::new();
+    let shard_file = tempfile::NamedTempFile::new()
+        .map_err(|error| shard_operation_failed("prepare shard export file", error))?;
     {
-        let encoder = GzEncoder::new(&mut shard_data, Compression::default());
+        let output = shard_file
+            .reopen()
+            .map_err(|error| shard_operation_failed("open shard export file", error))?;
+        let encoder = GzEncoder::new(output, Compression::default());
         let mut tar = Builder::new(encoder);
         let mut archive_bytes = 0usize;
 
@@ -23714,27 +23742,88 @@ async fn knowledge_shard(
                 .max_uncompressed_bytes
                 .saturating_sub(archive_bytes);
             let filesystem_backend = state.db.filesystem_storage_backend();
-            let sidecars = load_shard_blob_sidecars_tx(
+            let sidecars = load_shard_blob_export_inventory_tx(
                 &mut tx,
                 &exported_note_ids,
-                filesystem_backend.as_ref(),
                 max_blob_entries,
                 max_blob_bytes,
             )
             .await?;
-            for (name, bytes) in sidecars {
-                archive_bytes = archive_bytes.checked_add(bytes.len()).ok_or_else(|| {
-                    shard_validation_failed("Knowledge shard exceeds the uncompressed size limit.")
-                })?;
+            for sidecar in sidecars {
+                archive_bytes = archive_bytes
+                    .checked_add(sidecar.size_bytes)
+                    .ok_or_else(|| {
+                        shard_validation_failed(
+                            "Knowledge shard exceeds the uncompressed size limit.",
+                        )
+                    })?;
                 let mut header = tar::Header::new_gnu();
-                header.set_size(bytes.len() as u64);
+                header.set_size(sidecar.size_bytes as u64);
                 header.set_mode(0o644);
                 header.set_mtime(chrono::Utc::now().timestamp() as u64);
                 header.set_cksum();
-                tar.append_data(&mut header, name, bytes.as_slice())
+                if sidecar.storage_backend == "database" {
+                    let bytes = sqlx::query_scalar::<_, Option<Vec<u8>>>(
+                        "SELECT data FROM attachment_blob WHERE id = $1",
+                    )
+                    .bind(sidecar.blob_id)
+                    .fetch_one(&mut *tx)
+                    .await
                     .map_err(|error| {
-                        shard_operation_failed("add attachment sidecar to shard", error)
+                        shard_operation_failed("read database attachment sidecar", error)
+                    })?
+                    .ok_or_else(|| {
+                        shard_validation_failed("Stored attachment bytes are unavailable.")
                     })?;
+                    if bytes.len() != sidecar.size_bytes
+                        || matric_db::compute_content_hash(&bytes) != sidecar.checksum
+                    {
+                        return Err(shard_validation_failed(
+                            "Stored attachment bytes failed integrity validation.",
+                        ));
+                    }
+                    tar.append_data(&mut header, sidecar.entry_name, bytes.as_slice())
+                        .map_err(|error| {
+                            shard_operation_failed("add attachment sidecar to shard", error)
+                        })?;
+                } else {
+                    let backend = filesystem_backend.as_ref().ok_or_else(|| {
+                        shard_validation_failed(
+                            "Knowledge shard attachment sidecars require configured filesystem storage.",
+                        )
+                    })?;
+                    let storage_path = sidecar.storage_path.as_deref().ok_or_else(|| {
+                        shard_validation_failed("Stored attachment path is unavailable.")
+                    })?;
+                    let path = backend.resolve_path(storage_path).ok_or_else(|| {
+                        shard_validation_failed("Stored attachment path is unavailable.")
+                    })?;
+                    let file = std::fs::File::open(path).map_err(|error| {
+                        shard_operation_failed("open attachment sidecar", error)
+                    })?;
+                    if file
+                        .metadata()
+                        .map_err(|error| {
+                            shard_operation_failed("read attachment sidecar metadata", error)
+                        })?
+                        .len()
+                        != sidecar.size_bytes as u64
+                    {
+                        return Err(shard_validation_failed(
+                            "Stored attachment bytes failed integrity validation.",
+                        ));
+                    }
+                    let mut reader = ShardHashingReader::new(file);
+                    tar.append_data(&mut header, sidecar.entry_name, &mut reader)
+                        .map_err(|error| {
+                            shard_operation_failed("add attachment sidecar to shard", error)
+                        })?;
+                    if !reader.verified(&sidecar.checksum, sidecar.size_bytes as u64) {
+                        return Err(shard_validation_failed(
+                            "Stored attachment bytes failed integrity validation.",
+                        ));
+                    }
+                }
             }
         }
 
@@ -23780,11 +23869,22 @@ async fn knowledge_shard(
         tar.append_data(&mut header, "manifest.json", manifest_data.as_slice())
             .map_err(|e| shard_operation_failed("add manifest to shard", e))?;
 
-        // Finalize tar
-        tar.finish()
-            .map_err(|e| shard_operation_failed("finalize shard archive", e))?;
+        let encoder = tar
+            .into_inner()
+            .map_err(|error| shard_operation_failed("finalize shard archive", error))?;
+        encoder
+            .finish()
+            .map_err(|error| shard_operation_failed("compress shard archive", error))?;
     }
-    if shard_data.len() > archive_limits.max_compressed_bytes {
+    let compressed_bytes = usize::try_from(
+        shard_file
+            .as_file()
+            .metadata()
+            .map_err(|error| shard_operation_failed("read shard export metadata", error))?
+            .len(),
+    )
+    .map_err(|_| shard_validation_failed("Knowledge shard exceeds the compressed size limit."))?;
+    if compressed_bytes > archive_limits.max_compressed_bytes {
         return Err(shard_validation_failed(
             "Knowledge shard exceeds the compressed size limit.",
         ));
@@ -23806,8 +23906,35 @@ async fn knowledge_shard(
             .parse()
             .unwrap(),
     );
+    headers.insert(
+        header::CONTENT_LENGTH,
+        compressed_bytes
+            .to_string()
+            .parse()
+            .map_err(|error| shard_operation_failed("build shard content length", error))?,
+    );
 
-    Ok((StatusCode::OK, headers, shard_data))
+    let file = tokio::fs::File::open(shard_file.path())
+        .await
+        .map_err(|error| shard_operation_failed("open completed shard export", error))?;
+    let temporary_path = shard_file.into_temp_path();
+    let stream = futures::stream::try_unfold(
+        (file, temporary_path),
+        |(mut file, temporary_path)| async move {
+            use tokio::io::AsyncReadExt;
+
+            let mut buffer = vec![0_u8; 64 * 1024];
+            let read = file.read(&mut buffer).await?;
+            if read == 0 {
+                Ok::<_, std::io::Error>(None)
+            } else {
+                buffer.truncate(read);
+                Ok(Some((Bytes::from(buffer), (file, temporary_path))))
+            }
+        },
+    );
+
+    Ok((StatusCode::OK, headers, Body::from_stream(stream)))
 }
 
 // =============================================================================
@@ -36461,6 +36588,32 @@ mod tests {
     }
 
     #[test]
+    fn shard_hashing_reader_verifies_streamed_export_bytes() {
+        use std::io::Read;
+
+        let bytes = b"filesystem attachment export bytes";
+        let checksum = matric_db::compute_content_hash(bytes);
+        let mut reader = ShardHashingReader::new(std::io::Cursor::new(bytes));
+        let mut copied = Vec::new();
+        reader
+            .read_to_end(&mut copied)
+            .expect("stream attachment export bytes");
+        assert_eq!(copied, bytes);
+        assert!(reader.verified(&checksum, bytes.len() as u64));
+
+        let mut wrong_hash = ShardHashingReader::new(std::io::Cursor::new(bytes));
+        std::io::copy(&mut wrong_hash, &mut std::io::sink()).unwrap();
+        assert!(!wrong_hash.verified(
+            &matric_db::compute_content_hash(b"different bytes"),
+            bytes.len() as u64
+        ));
+
+        let mut wrong_size = ShardHashingReader::new(std::io::Cursor::new(bytes));
+        std::io::copy(&mut wrong_size, &mut std::io::sink()).unwrap();
+        assert!(!wrong_size.verified(&checksum, bytes.len() as u64 + 1));
+    }
+
+    #[test]
     fn shard_sidecar_preflight_validates_referenced_bytes_and_ignores_orphans() {
         let bytes = b"portable attachment bytes".to_vec();
         let checksum = matric_db::compute_content_hash(&bytes);
@@ -37902,9 +38055,16 @@ mod tests {
         .expect("export shard with sidecars")
         .into_response();
         assert_eq!(export.status(), StatusCode::OK);
+        let content_length = export
+            .headers()
+            .get(header::CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<usize>().ok())
+            .expect("sidecar export content length");
         let exported_bytes = axum::body::to_bytes(export.into_body(), usize::MAX)
             .await
             .expect("read sidecar export");
+        assert_eq!(content_length, exported_bytes.len());
         let exported_files =
             read_shard_archive(&exported_bytes, ShardArchiveLimits::default()).unwrap();
         let sidecar_name = shard_blob_entry_name(&attachment_checksum).unwrap();

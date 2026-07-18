@@ -29,9 +29,12 @@ identities and timestamps during import. Its REST route can optionally export
 and restore verified attachment bytes as digest-addressed sidecars, while
 missing entries remain reference-only. Import reads sidecar payloads in bounded
 chunks into isolated preflight files instead of retaining them in the
-in-memory component map. Compressed request bodies, structured component files,
-and export archives remain bounded-buffered, so the route does not constitute
-end-to-end streaming or `full-v1` profile conformance.
+in-memory component map. Export streams filesystem sidecars through integrity
+verification into a request-scoped disk-backed archive, validates the completed
+compressed artifact before returning success, and streams that file to the
+client in bounded chunks. Compressed request bodies and structured component
+files remain bounded-buffered, and export is not single-pass live emission, so
+the route does not constitute fully streaming or `full-v1` profile conformance.
 
 The current normative schema root for `1.1.0` / `core-v1` is
 `contracts/knowledge-shard/1.1.0/core-v1/`. The immutable `1.0.0` authority
@@ -239,7 +242,7 @@ then validates the migrated current representation before writes.
 Known gaps remain in complete absent-versus-null semantic preservation across
 all accepted current records, `full-v1`, current-minus-two historical migration
 coverage, and end-to-end streaming archive processing across request ingress
-and export emission. `record-v1` does not imply
+and single-pass live export emission. `record-v1` does not imply
 preservation of templates, embeddings,
 SKOS, provenance, graph/community data, URL-only links, signature guarantees,
 or attachment bytes. Making tombstone-field presence mandatory requires a
@@ -255,8 +258,12 @@ entries through a 64 KiB copy-and-hash buffer into request-scoped temporary
 files. After the complete manifest, inventory, component, relationship, length,
 and digest preflight succeeds, the HTTP route streams referenced files through
 the storage staging primitive. It exports available verified bytes when
-`include_blobs=true`. This satisfies only the opt-in `core-v1` attachment-byte
-import prerequisite, not end-to-end streaming or the `full-v1` attachment gate.
+`include_blobs=true`: filesystem content is hashed directly into a disk-backed
+archive, legacy database content is bounded to one blob at a time, and the
+completed archive is size-checked before a bounded response stream owns its
+temporary-file cleanup. This satisfies only the opt-in `core-v1`
+attachment-byte transport prerequisites, not single-pass end-to-end streaming
+or the `full-v1` attachment gate.
 
 Until the release gates pass:
 
