@@ -117,11 +117,13 @@ text/metadata back to attachment records. JSON export and knowledge-shard note
 records expose attachment projections with metadata and extracted text only.
 
 Current server shard export is reference-only: it does not write `blobs/`
-entries. Current server shard import restores note data but does not restore
-attachment projections or resolve sidecar entries. The optional sidecar section
-above is the cross-edition format contract for a future self-contained export
-and import mode; its presence in this document is not a claim that the server
-already implements byte round-tripping.
+entries. Current server shard import restores attachment projection identities,
+display filenames, extraction state and text, and digest metadata as
+reference-only attachment records. References with the same digest share one
+blob metadata row, but no attachment content is synthesized or resolved from a
+sidecar. The optional sidecar section above is the cross-edition format contract
+for a future self-contained export and import mode; its presence in this
+document is not a claim that the server already implements byte round-tripping.
 
 The server filesystem backend has an internal streaming stage, verify,
 promote, and discard primitive for future shard sidecar restoration. Staged

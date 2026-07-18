@@ -1,0 +1,55 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T03:47:12Z"
+  description: "Provenance for the AIWG binary attachment test plan reference-import evidence update"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md:sha256:4988eb73b743d1e682d39e472eda1f8b1077cb3dcb736d113c97e35623f1827e"
+  type: document
+  created_at: "2026-07-18T03:47:12Z"
+  updated_at: "2026-07-18T03:47:12Z"
+  checksum: "sha256:4988eb73b743d1e682d39e472eda1f8b1077cb3dcb736d113c97e35623f1827e"
+  size_bytes: 5674
+  attributes:
+    format: markdown
+    issue: "Fortemi/fortemi#1057"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:binary-attachment-test-plan-reference-import-1057:001"
+  type: modification
+  started_at: "2026-07-18T03:39:00Z"
+  ended_at: "2026-07-18T03:47:12Z"
+  description: "Record reference-only restoration and digest-deduplication evidence while retaining the remaining sidecar byte test gates"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md:sha256:4988eb73b743d1e682d39e472eda1f8b1077cb3dcb736d113c97e35623f1827e"
+    activity: "urn:aiwg:activity:modification:binary-attachment-test-plan-reference-import-1057:001"
+    time: "2026-07-18T03:47:12Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:binary-attachment-test-plan-reference-import-1057:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1057"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:binary-attachment-test-plan-reference-import-1057:001"
+      entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:acec151631e0543c47062c01eb9c2f5bf18339a0d26c96f09a7ff63a76f0cfb0"
+      role: test_evidence
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md:sha256:4988eb73b743d1e682d39e472eda1f8b1077cb3dcb736d113c97e35623f1827e"
+      source: "urn:aiwg:artifact:.aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md:sha256:fbf680c2431d742eea160467e7c6d4360a8ce91c2864dc4b677ca3870feae686"
+      derivation_type: extends
+      activity: "urn:aiwg:activity:modification:binary-attachment-test-plan-reference-import-1057:001"
+    - entity: "urn:aiwg:artifact:.aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md:sha256:4988eb73b743d1e682d39e472eda1f8b1077cb3dcb736d113c97e35623f1827e"
+      source: "urn:gitea:issue:Fortemi/fortemi:1057"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:modification:binary-attachment-test-plan-reference-import-1057:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:binary-attachment-test-plan-reference-import-1057:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md:sha256:4988eb73b743d1e682d39e472eda1f8b1077cb3dcb736d113c97e35623f1827e"
+    agent: "urn:aiwg:agent:codex-gpt-5"

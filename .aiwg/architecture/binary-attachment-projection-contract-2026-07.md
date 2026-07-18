@@ -48,9 +48,11 @@ byte-free. Missing matching entries are valid reference-only attachments, and
 readers ignore unknown or unreferenced `blobs/` entries. Large entries may be
 streamed, with the key derived from the digest of the complete content.
 
-The current server emits reference-only shards and does not restore attachment
-records or bytes during shard import. This decision fixes the interoperable
-format; it does not claim that server byte round-tripping is implemented.
+The current server emits reference-only shards and restores bounded attachment
+projection records during shard import. It retains attachment identity,
+extraction state and text, and digest metadata without synthesizing attachment
+content. This decision fixes the interoperable format; reference restoration
+does not claim that server byte round-tripping is implemented.
 
 Each projection record also carries stable extraction classification fields:
 

@@ -195,19 +195,23 @@ rejecting unsafe paths, duplicate names, and non-regular tar entries. Default
 export includes roots and descendants. Import creates collections before
 dependent notes and templates, preserves collection and template IDs and source
 timestamps, restores source note timestamps after revised content, and uses
-stable-ID conflict handling for repeated imports. Ordinary import applies all
-selected database components in one schema-scoped transaction; a late database
-failure rolls back collections, notes, tags, templates, and links together, and
-post-import NLP jobs are queued only after commit. The current positive and
-negative corpus is pinned by the schema receipt. Destructive shard swap
-validates before mutation, then deletes the existing core-v1 entity families
-and applies the validated shard within the same transaction. A late apply
-failure therefore restores the pre-swap state.
+stable-ID conflict handling for repeated imports. Reference-only attachment
+projections retain attachment IDs, display filenames, extraction state and
+text, canonical digest metadata, and shared-blob deduplication; attachment IDs
+and conflicting declarations are rejected during relationship preflight.
+Ordinary import applies all selected database components in one schema-scoped
+transaction; a late database failure rolls back collections, notes, tags,
+templates, links, attachments, and reference blobs together, and post-import
+NLP jobs are queued only after commit. The current positive and negative corpus
+is pinned by the schema receipt. Destructive shard swap validates before
+mutation, then deletes the existing core-v1 entity families and applies the
+validated shard within the same transaction. A late apply failure therefore
+restores the pre-swap state.
 
 Known gaps remain in complete tombstone and absent/null semantic preservation,
-attachment bytes, richer profiles, migration history, and cross-repository
-conformance receipts. Those gaps remain tracked release blockers, not implicit
-`core-v1` or `full-v1` claims.
+attachment bytes and sidecar route integration, richer profiles, migration
+history, and cross-repository conformance receipts. Those gaps remain tracked
+release blockers, not implicit `core-v1` or `full-v1` claims.
 
 The filesystem backend now provides a bounded-memory staging primitive for a
 future attachment-byte importer. It streams bytes into an isolated

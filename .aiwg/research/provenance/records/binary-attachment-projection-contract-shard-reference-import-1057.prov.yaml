@@ -1,0 +1,55 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T03:47:12Z"
+  description: "Provenance for the AIWG binary attachment contract reference-import status update"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/architecture/binary-attachment-projection-contract-2026-07.md:sha256:65fc8bbb0d3a8ba21f3655113980255c3cbf1b09640f033bce38deb27a6212ec"
+  type: document
+  created_at: "2026-07-18T03:47:12Z"
+  updated_at: "2026-07-18T03:47:12Z"
+  checksum: "sha256:65fc8bbb0d3a8ba21f3655113980255c3cbf1b09640f033bce38deb27a6212ec"
+  size_bytes: 7316
+  attributes:
+    format: markdown
+    issue: "Fortemi/fortemi#1057"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:binary-attachment-contract-reference-import-1057:001"
+  type: modification
+  started_at: "2026-07-18T03:39:00Z"
+  ended_at: "2026-07-18T03:47:12Z"
+  description: "Record the delivered reference-only projection restoration boundary without claiming attachment-byte or full-v1 support"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/architecture/binary-attachment-projection-contract-2026-07.md:sha256:65fc8bbb0d3a8ba21f3655113980255c3cbf1b09640f033bce38deb27a6212ec"
+    activity: "urn:aiwg:activity:modification:binary-attachment-contract-reference-import-1057:001"
+    time: "2026-07-18T03:47:12Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:binary-attachment-contract-reference-import-1057:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1057"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:binary-attachment-contract-reference-import-1057:001"
+      entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:acec151631e0543c47062c01eb9c2f5bf18339a0d26c96f09a7ff63a76f0cfb0"
+      role: implementation_evidence
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/architecture/binary-attachment-projection-contract-2026-07.md:sha256:65fc8bbb0d3a8ba21f3655113980255c3cbf1b09640f033bce38deb27a6212ec"
+      source: "urn:aiwg:artifact:.aiwg/architecture/binary-attachment-projection-contract-2026-07.md:sha256:d224ec8c625814d677425cd41d18a93d59b8ad90cbfa5319ad23f9192a16454d"
+      derivation_type: extends
+      activity: "urn:aiwg:activity:modification:binary-attachment-contract-reference-import-1057:001"
+    - entity: "urn:aiwg:artifact:.aiwg/architecture/binary-attachment-projection-contract-2026-07.md:sha256:65fc8bbb0d3a8ba21f3655113980255c3cbf1b09640f033bce38deb27a6212ec"
+      source: "urn:gitea:issue:Fortemi/fortemi:1057"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:binary-attachment-contract-reference-import-1057:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:binary-attachment-contract-reference-import-1057:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/architecture/binary-attachment-projection-contract-2026-07.md:sha256:65fc8bbb0d3a8ba21f3655113980255c3cbf1b09640f033bce38deb27a6212ec"
+    agent: "urn:aiwg:agent:codex-gpt-5"

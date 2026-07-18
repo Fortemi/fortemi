@@ -29,6 +29,10 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   include complete collection hierarchies, imports reject incoherent
   collection/note/template/link references before writes, and collection,
   template, and note timestamp identities survive clean and repeated imports.
+- **Knowledge Shard attachment projections (#1057):** `core-v1` imports now
+  restore stable attachment identities, filenames, extraction state and text,
+  canonical digest metadata, and digest-deduplicated reference blobs inside the
+  shard transaction. Attachment bytes remain outside the `core-v1` archive.
 
 ### Security
 

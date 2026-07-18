@@ -13,8 +13,8 @@ collection, tag, template, and link records. `full-v1` and `record-v1` remain
 reserved and unsupported.
 
 Schema validation is necessary but not a full recovery claim. The current
-`core-v1` contract does not include attachment bytes and does not yet prove
-atomic clean-database semantic equality or historical migration conformance.
+`core-v1` contract restores reference-only attachment projections but does not
+include attachment bytes or prove historical migration conformance.
 
 This guide explains how Fortémi handles versioned knowledge shards, including compatibility checking, automatic migration, and troubleshooting.
 

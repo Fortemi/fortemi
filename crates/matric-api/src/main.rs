@@ -20577,6 +20577,20 @@ fn binary_attachment_projection_state(
     }
 }
 
+fn knowledge_shard_attachment_projection_reason(
+    metadata: Option<&serde_json::Value>,
+) -> Option<&'static str> {
+    match metadata?.get("knowledge_shard")?.get("reason")?.as_str()? {
+        "extraction_pending" => Some("extraction_pending"),
+        "large_binary" => Some("large_binary"),
+        "unsupported_mime" => Some("unsupported_mime"),
+        "no_extracted_text" => Some("no_extracted_text"),
+        "extractor_failed" => Some("extractor_failed"),
+        "quarantined" => Some("quarantined"),
+        _ => None,
+    }
+}
+
 async fn binary_attachment_export_projections_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     note_id: Uuid,
@@ -20584,8 +20598,9 @@ async fn binary_attachment_export_projections_tx(
     use sqlx::Row;
 
     let rows = sqlx::query(
-        r#"SELECT a.id, a.filename, a.status, a.extracted_text,
-                  ab.content_type, ab.content_hash, ab.size_bytes
+        r#"SELECT a.id, a.filename, a.status::text AS status, a.extracted_text,
+                  a.extracted_metadata, ab.content_type, ab.content_hash,
+                  ab.size_bytes, ab.storage_backend
            FROM attachment a
            JOIN attachment_blob ab ON a.blob_id = ab.id
            WHERE a.note_id = $1
@@ -20600,14 +20615,21 @@ async fn binary_attachment_export_projections_tx(
         .map(|row| {
             let status: String = row.get("status");
             let extracted_text: Option<String> = row.get("extracted_text");
+            let extracted_metadata: Option<serde_json::Value> = row.get("extracted_metadata");
             let mime: String = row.get("content_type");
             let bytes: i64 = row.get("size_bytes");
+            let storage_backend: String = row.get("storage_backend");
             let (extraction_status, reason) = binary_attachment_projection_state(
                 &status,
                 extracted_text.as_deref(),
                 &mime,
                 bytes,
             );
+            let reason = if storage_backend == "reference" {
+                knowledge_shard_attachment_projection_reason(extracted_metadata.as_ref()).or(reason)
+            } else {
+                reason
+            };
 
             BinaryAttachmentExportProjection {
                 extracted_text,
@@ -22008,6 +22030,45 @@ struct ShardNoteRecord {
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
     tags: Vec<String>,
+    attachments: Vec<ShardAttachmentProjection>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ShardAttachmentExtractionStatus {
+    Extracted,
+    Pending,
+    Failed,
+    Blocked,
+    Deferred,
+}
+
+impl ShardAttachmentExtractionStatus {
+    fn database_status(&self) -> &'static str {
+        match self {
+            Self::Extracted | Self::Deferred => "completed",
+            Self::Pending => "queued",
+            Self::Failed => "failed",
+            Self::Blocked => "quarantined",
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct ShardAttachmentReference {
+    id: Uuid,
+    path: String,
+    mime: String,
+    checksum: String,
+    bytes: i64,
+}
+
+#[derive(Deserialize)]
+struct ShardAttachmentProjection {
+    extracted_text: Option<String>,
+    extraction_status: ShardAttachmentExtractionStatus,
+    reason: Option<String>,
+    attachment: ShardAttachmentReference,
 }
 
 #[derive(Deserialize)]
@@ -22470,6 +22531,8 @@ fn validate_shard_relationships(
         .transpose()?
         .unwrap_or_default();
     let mut note_ids = std::collections::HashSet::new();
+    let mut attachment_ids = std::collections::HashSet::new();
+    let mut attachment_digests = std::collections::HashMap::<String, (i64, String)>::new();
     for note in &notes {
         let id = note
             .get("id")
@@ -22486,6 +22549,50 @@ fn validate_shard_relationships(
         {
             if !collection_ids.contains(&collection_id) {
                 return Err("Knowledge shard note references an unknown collection.".to_string());
+            }
+        }
+        if let Some(attachments) = note
+            .get("attachments")
+            .and_then(serde_json::Value::as_array)
+        {
+            for projection in attachments {
+                let attachment = projection
+                    .get("attachment")
+                    .and_then(serde_json::Value::as_object)
+                    .ok_or_else(|| {
+                        "Knowledge shard attachment projection is invalid.".to_string()
+                    })?;
+                let attachment_id = attachment
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|value| Uuid::parse_str(value).ok())
+                    .ok_or_else(|| "Knowledge shard attachment identity is invalid.".to_string())?;
+                if !attachment_ids.insert(attachment_id) {
+                    return Err("Knowledge shard attachment identities must be unique.".to_string());
+                }
+                let checksum = attachment
+                    .get("checksum")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| "Knowledge shard attachment checksum is invalid.".to_string())?;
+                let bytes = attachment
+                    .get("bytes")
+                    .and_then(serde_json::Value::as_i64)
+                    .ok_or_else(|| "Knowledge shard attachment size is invalid.".to_string())?;
+                let mime = attachment
+                    .get("mime")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| {
+                        "Knowledge shard attachment media type is invalid.".to_string()
+                    })?;
+                if let Some((declared_bytes, declared_mime)) = attachment_digests.get(checksum) {
+                    if *declared_bytes != bytes || declared_mime != mime {
+                        return Err(
+                            "Knowledge shard attachment digest declarations conflict.".to_string()
+                        );
+                    }
+                } else {
+                    attachment_digests.insert(checksum.to_string(), (bytes, mime.to_string()));
+                }
             }
         }
     }
@@ -26606,6 +26713,78 @@ async fn swap_backup(
     }))
 }
 
+async fn apply_shard_attachment_projections(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    note_id: Uuid,
+    projections: &[ShardAttachmentProjection],
+) -> Result<(), ApiError> {
+    for (display_order, projection) in projections.iter().enumerate() {
+        let attachment = &projection.attachment;
+        let existing_blob = sqlx::query_as::<_, (Uuid, String, i64)>(
+            "SELECT id, content_type, size_bytes
+             FROM attachment_blob
+             WHERE content_hash = $1",
+        )
+        .bind(&attachment.checksum)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|error| shard_operation_failed("check attachment blob conflict", error))?;
+
+        let blob_id = if let Some((blob_id, content_type, size_bytes)) = existing_blob {
+            if content_type != attachment.mime || size_bytes != attachment.bytes {
+                return Err(shard_validation_failed(
+                    "Knowledge shard attachment conflicts with existing content metadata.",
+                ));
+            }
+            blob_id
+        } else {
+            let blob_id = Uuid::now_v7();
+            sqlx::query(
+                "INSERT INTO attachment_blob
+                 (id, content_hash, content_type, size_bytes, storage_type,
+                  storage_backend, storage_path, verification_status)
+                 VALUES ($1, $2, $3, $4, 'reference', 'reference', NULL, 'reference_only')",
+            )
+            .bind(blob_id)
+            .bind(&attachment.checksum)
+            .bind(&attachment.mime)
+            .bind(attachment.bytes)
+            .execute(&mut **tx)
+            .await
+            .map_err(|error| shard_operation_failed("insert reference attachment blob", error))?;
+            blob_id
+        };
+
+        let display_order = i32::try_from(display_order).map_err(|_| {
+            shard_validation_failed("Knowledge shard contains too many note attachments.")
+        })?;
+        let extracted_metadata = serde_json::json!({
+            "knowledge_shard": {
+                "reference_only": true,
+                "reason": projection.reason.as_deref(),
+            }
+        });
+        sqlx::query(
+            "INSERT INTO attachment
+             (id, note_id, blob_id, filename, original_filename, display_order,
+              status, extracted_text, extracted_metadata)
+             VALUES ($1, $2, $3, $4, $4, $5, $6::attachment_status, $7, $8)",
+        )
+        .bind(attachment.id)
+        .bind(note_id)
+        .bind(blob_id)
+        .bind(&attachment.path)
+        .bind(display_order)
+        .bind(projection.extraction_status.database_status())
+        .bind(&projection.extracted_text)
+        .bind(extracted_metadata)
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| shard_operation_failed("insert reference attachment", error))?;
+    }
+    Ok(())
+}
+
 async fn apply_validated_shard_components(
     state: &AppState,
     files: &std::collections::HashMap<String, Vec<u8>>,
@@ -26622,9 +26801,18 @@ async fn apply_validated_shard_components(
     let mut imported = ShardImportCounts::default();
     let mut skipped = ShardImportCounts::default();
     let mut queued_note_ids = Vec::new();
+    let mut reference_blob_cleanup_candidates = Vec::new();
     let should_import = |component: &str| selected_components.contains(component);
 
     if wipe_before_apply && !opts.dry_run {
+        reference_blob_cleanup_candidates = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM attachment_blob WHERE storage_backend = 'reference'",
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|error| {
+            shard_operation_failed("list reference blobs before knowledge shard wipe", error)
+        })?;
         for (statement, context) in [
             (
                 "DELETE FROM note",
@@ -26719,6 +26907,20 @@ async fn apply_validated_shard_components(
                             continue;
                         }
                         ConflictStrategy::Replace if !opts.dry_run => {
+                            let replaced_reference_blobs = sqlx::query_scalar::<_, Uuid>(
+                                "SELECT ab.id
+                                 FROM attachment a
+                                 JOIN attachment_blob ab ON ab.id = a.blob_id
+                                 WHERE a.note_id = $1
+                                   AND ab.storage_backend = 'reference'",
+                            )
+                            .bind(note.id)
+                            .fetch_all(&mut *tx)
+                            .await
+                            .map_err(|error| {
+                                shard_operation_failed("list replaced note reference blobs", error)
+                            })?;
+                            reference_blob_cleanup_candidates.extend(replaced_reference_blobs);
                             notes_repo
                                 .hard_delete_tx(&mut tx, note.id)
                                 .await
@@ -26790,6 +26992,7 @@ async fn apply_validated_shard_components(
                 .map_err(|error| {
                     shard_operation_failed("restore imported note timestamps", error)
                 })?;
+                apply_shard_attachment_projections(&mut tx, note_id, &note.attachments).await?;
                 if !opts.skip_embedding_regen {
                     queued_note_ids.push(note_id);
                 }
@@ -26925,6 +27128,21 @@ async fn apply_validated_shard_components(
                 imported.links += 1;
             }
         }
+    }
+
+    if !opts.dry_run && !reference_blob_cleanup_candidates.is_empty() {
+        reference_blob_cleanup_candidates.sort_unstable();
+        reference_blob_cleanup_candidates.dedup();
+        sqlx::query(
+            "DELETE FROM attachment_blob
+             WHERE storage_backend = 'reference'
+               AND reference_count = 0
+               AND id = ANY($1)",
+        )
+        .bind(&reference_blob_cleanup_candidates)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| shard_operation_failed("delete orphaned reference blobs", error))?;
     }
 
     if opts.dry_run {
@@ -34655,6 +34873,31 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_shard_attachment_reason_reuses_only_contract_classes() {
+        let known = serde_json::json!({
+            "knowledge_shard": {
+                "reference_only": true,
+                "reason": "no_extracted_text"
+            }
+        });
+        assert_eq!(
+            knowledge_shard_attachment_projection_reason(Some(&known)),
+            Some("no_extracted_text")
+        );
+
+        let unsafe_diagnostic = serde_json::json!({
+            "knowledge_shard": {
+                "reference_only": true,
+                "reason": "postgres://user:secret@db.internal"
+            }
+        });
+        assert_eq!(
+            knowledge_shard_attachment_projection_reason(Some(&unsafe_diagnostic)),
+            None
+        );
+    }
+
+    #[test]
     fn test_backup_status_response_serialization() {
         let response = BackupStatusResponse {
             backup_directory: "/var/backups/test".to_string(),
@@ -34914,12 +35157,22 @@ mod tests {
         ))
         .unwrap();
         note["collection_id"] = serde_json::json!(child_id);
+        note["attachments"][0]["extracted_text"] = serde_json::json!("Fixture attachment text");
+        note["attachments"][0]["extraction_status"] = serde_json::json!("extracted");
+        note["attachments"][0]["reason"] = serde_json::Value::Null;
         let mut linked_note = note.clone();
         linked_note["id"] = serde_json::json!("018f2d2d-bc00-7cc8-8ad2-f147d6a2e778");
         linked_note["title"] = serde_json::json!("Linked fixture");
         linked_note["collection_id"] = serde_json::json!(root_id);
         linked_note["created_at"] = serde_json::json!("2026-07-17T12:03:00Z");
         linked_note["updated_at"] = serde_json::json!("2026-07-17T12:04:00Z");
+        linked_note["attachments"][0]["attachment"]["id"] =
+            serde_json::json!("018f2d2d-bc00-7cc8-8ad2-f147d6a2e780");
+        linked_note["attachments"][0]["attachment"]["path"] =
+            serde_json::json!("linked-fixture.bin");
+        linked_note["attachments"][0]["extracted_text"] = serde_json::Value::Null;
+        linked_note["attachments"][0]["extraction_status"] = serde_json::json!("failed");
+        linked_note["attachments"][0]["reason"] = serde_json::json!("extractor_failed");
         let notes =
             format!("{}\n{}", serde_json::to_string(&note).unwrap(), linked_note).into_bytes();
 
@@ -35384,6 +35637,111 @@ mod tests {
         );
     }
 
+    #[test]
+    fn shard_attachment_projection_statuses_map_to_bounded_database_states() {
+        for (status, expected) in [
+            ("extracted", "completed"),
+            ("pending", "queued"),
+            ("failed", "failed"),
+            ("blocked", "quarantined"),
+            ("deferred", "completed"),
+        ] {
+            let status: ShardAttachmentExtractionStatus =
+                serde_json::from_str(&format!("\"{status}\"")).unwrap();
+            assert_eq!(status.database_status(), expected);
+        }
+    }
+
+    #[test]
+    fn shard_relationship_preflight_rejects_attachment_identity_and_digest_conflicts() {
+        let note = |note_id: &str, attachment_id: &str, mime: &str, bytes: i64| {
+            serde_json::json!({
+                "id": note_id,
+                "collection_id": null,
+                "attachments": [{
+                    "attachment": {
+                        "id": attachment_id,
+                        "checksum": format!("blake3:{}", "1".repeat(64)),
+                        "mime": mime,
+                        "bytes": bytes
+                    }
+                }]
+            })
+        };
+        let first_note_id = "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a";
+        let second_note_id = "018f2d2d-bc00-7cc8-8ad2-f147d6a2e778";
+        let first_attachment_id = "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77c";
+        let second_attachment_id = "018f2d2d-bc00-7cc8-8ad2-f147d6a2e780";
+
+        let mut files = valid_core_shard_files();
+        files.insert(
+            "notes.jsonl".to_string(),
+            format!(
+                "{}\n{}",
+                note(
+                    first_note_id,
+                    first_attachment_id,
+                    "application/octet-stream",
+                    7
+                ),
+                note(
+                    second_note_id,
+                    first_attachment_id,
+                    "application/octet-stream",
+                    7
+                )
+            )
+            .into_bytes(),
+        );
+        assert_eq!(
+            validate_shard_relationships(&files).unwrap_err(),
+            "Knowledge shard attachment identities must be unique."
+        );
+
+        files.insert(
+            "notes.jsonl".to_string(),
+            format!(
+                "{}\n{}",
+                note(
+                    first_note_id,
+                    first_attachment_id,
+                    "application/octet-stream",
+                    7
+                ),
+                note(
+                    second_note_id,
+                    second_attachment_id,
+                    "application/octet-stream",
+                    8
+                )
+            )
+            .into_bytes(),
+        );
+        assert_eq!(
+            validate_shard_relationships(&files).unwrap_err(),
+            "Knowledge shard attachment digest declarations conflict."
+        );
+
+        files.insert(
+            "notes.jsonl".to_string(),
+            format!(
+                "{}\n{}",
+                note(
+                    first_note_id,
+                    first_attachment_id,
+                    "application/octet-stream",
+                    7
+                ),
+                note(second_note_id, second_attachment_id, "text/plain", 7)
+            )
+            .into_bytes(),
+        );
+        assert_eq!(
+            validate_shard_relationships(&files).unwrap_err(),
+            "Knowledge shard attachment digest declarations conflict."
+        );
+    }
+
     #[tokio::test]
     async fn shard_core_v1_server_export_clean_import_preserves_semantic_state() {
         let database_url = std::env::var("DATABASE_URL")
@@ -35466,12 +35824,14 @@ mod tests {
             .unwrap()
             .query(|tx| {
                 Box::pin(async move {
-                    sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                    sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
                         "SELECT
                            (SELECT COUNT(*) FROM collection),
                            (SELECT COUNT(*) FROM note),
                            (SELECT COUNT(*) FROM note_template),
-                           (SELECT COUNT(*) FROM link)",
+                           (SELECT COUNT(*) FROM link),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob)",
                     )
                     .fetch_one(&mut **tx)
                     .await
@@ -35480,7 +35840,7 @@ mod tests {
             })
             .await
             .expect("read clean destination after rejected dry-run");
-        assert_eq!(clean_counts, (0, 0, 0, 0));
+        assert_eq!(clean_counts, (0, 0, 0, 0, 0, 0));
 
         let rollback_name = format!("shard-rollback-{}", Uuid::new_v4().simple());
         let rollback_destination = db
@@ -35536,13 +35896,15 @@ mod tests {
         let rollback_counts = rollback_ctx
             .query(|tx| {
                 Box::pin(async move {
-                    sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
+                    sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64, i64)>(
                         "SELECT
                            (SELECT COUNT(*) FROM collection),
                            (SELECT COUNT(*) FROM note),
                            (SELECT COUNT(*) FROM tag),
                            (SELECT COUNT(*) FROM note_template),
-                           (SELECT COUNT(*) FROM link)",
+                           (SELECT COUNT(*) FROM link),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob)",
                     )
                     .fetch_one(&mut **tx)
                     .await
@@ -35551,7 +35913,7 @@ mod tests {
             })
             .await
             .expect("read destination after rolled-back import");
-        assert_eq!(rollback_counts, (0, 0, 0, 0, 0));
+        assert_eq!(rollback_counts, (0, 0, 0, 0, 0, 0, 0));
 
         let sentinel_collection_id = Uuid::new_v4();
         let sentinel_note_id = Uuid::new_v4();
@@ -35687,12 +36049,14 @@ mod tests {
         let swapped_state = rollback_ctx
             .query(move |tx| {
                 Box::pin(async move {
-                    sqlx::query_as::<_, (i64, i64, i64, i64, bool, bool, bool, bool)>(
+                    sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64, bool, bool, bool, bool)>(
                         "SELECT
                            (SELECT COUNT(*) FROM collection),
                            (SELECT COUNT(*) FROM note),
                            (SELECT COUNT(*) FROM note_template),
                            (SELECT COUNT(*) FROM link),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob),
                            EXISTS(SELECT 1 FROM collection WHERE id = $1),
                            EXISTS(SELECT 1 FROM note WHERE id = $2),
                            EXISTS(SELECT 1 FROM tag WHERE name = 'preexisting-sentinel-tag'),
@@ -35708,7 +36072,10 @@ mod tests {
             })
             .await
             .expect("read committed destructive swap state");
-        assert_eq!(swapped_state, (2, 2, 1, 1, false, false, false, false));
+        assert_eq!(
+            swapped_state,
+            (2, 2, 1, 1, 2, 1, false, false, false, false)
+        );
         db.archives
             .drop_archive_schema(&rollback_name)
             .await
@@ -35785,17 +36152,59 @@ mod tests {
                     .fetch_one(&mut **tx)
                     .await
                     .map_err(matric_db::Error::Database)?;
-                    let counts = sqlx::query_as::<_, (i64, i64, i64, i64)>(
-                        "SELECT
-                           (SELECT COUNT(*) FROM collection),
-                           (SELECT COUNT(*) FROM note),
-                           (SELECT COUNT(*) FROM note_template),
-                           (SELECT COUNT(*) FROM link)",
+                    let attachments = sqlx::query_as::<
+                        _,
+                        (
+                            Uuid,
+                            Uuid,
+                            String,
+                            String,
+                            Option<String>,
+                            serde_json::Value,
+                        ),
+                    >(
+                        "SELECT id, note_id, filename, status::text, extracted_text,
+                                extracted_metadata
+                         FROM attachment
+                         ORDER BY id",
+                    )
+                    .fetch_all(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)?;
+                    let blob = sqlx::query_as::<
+                        _,
+                        (
+                            String,
+                            String,
+                            i64,
+                            String,
+                            String,
+                            Option<String>,
+                            Option<String>,
+                            i32,
+                        ),
+                    >(
+                        "SELECT content_hash, content_type, size_bytes, storage_type,
+                                storage_backend, storage_path, verification_status,
+                                reference_count
+                         FROM attachment_blob",
                     )
                     .fetch_one(&mut **tx)
                     .await
                     .map_err(matric_db::Error::Database)?;
-                    Ok((child, note, template, link, counts))
+                    let counts = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM collection),
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM note_template),
+                           (SELECT COUNT(*) FROM link),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)?;
+                    Ok((child, note, template, link, attachments, blob, counts))
                 })
             })
             .await
@@ -35860,7 +36269,53 @@ mod tests {
             Some(Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e778").unwrap())
         );
         assert!(snapshot.3 .3.is_none());
-        assert_eq!(snapshot.4, (2, 2, 1, 1));
+        assert_eq!(snapshot.4.len(), 2);
+        assert_eq!(
+            snapshot.4[0],
+            (
+                Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e77c").unwrap(),
+                Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a").unwrap(),
+                "fixture.bin".to_string(),
+                "completed".to_string(),
+                Some("Fixture attachment text".to_string()),
+                serde_json::json!({
+                    "knowledge_shard": {
+                        "reference_only": true,
+                        "reason": null
+                    }
+                }),
+            )
+        );
+        assert_eq!(
+            snapshot.4[1],
+            (
+                Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e780").unwrap(),
+                Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e778").unwrap(),
+                "linked-fixture.bin".to_string(),
+                "failed".to_string(),
+                None,
+                serde_json::json!({
+                    "knowledge_shard": {
+                        "reference_only": true,
+                        "reason": "extractor_failed"
+                    }
+                }),
+            )
+        );
+        assert_eq!(
+            snapshot.5,
+            (
+                format!("blake3:{}", "0123456789abcdef".repeat(4)),
+                "application/octet-stream".to_string(),
+                7,
+                "reference".to_string(),
+                "reference".to_string(),
+                None,
+                Some("reference_only".to_string()),
+                2,
+            )
+        );
+        assert_eq!(snapshot.6, (2, 2, 1, 1, 2, 1));
 
         db.archives
             .drop_archive_schema(&destination_name)

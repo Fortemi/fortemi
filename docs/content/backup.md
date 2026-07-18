@@ -386,9 +386,10 @@ links.jsonl             # Semantic links between notes
 ```
 
 Current server-generated shards are reference-only for binary attachments:
-attachment metadata may appear in note records, but the archive does not include
-`blobs/` sidecar entries and import does not restore attachment records or
-bytes. The optional self-contained sidecar format is defined in
+attachment metadata may appear in note records, and import restores that
+metadata as digest-deduplicated reference attachment records. The archive does
+not include `blobs/` sidecar entries, and import does not restore or synthesize
+attachment bytes. The optional self-contained sidecar format is defined in
 [Binary Attachment Projection](#/core-systems-binary-attachment-projection).
 
 **Import safety limits:**
@@ -408,7 +409,9 @@ Dry-run and real import use the same structure, checksum, schema, count, and
 relationship preflight before normal writes. Ordinary import applies all
 selected database components in one schema-scoped transaction: any database
 failure rolls back collections, notes, tags, templates, and links together.
-NLP regeneration is queued only after that transaction commits.
+Reference attachment records and blob metadata use the same transaction, so
+they also roll back on a late failure. NLP regeneration is queued only after
+that transaction commits.
 
 Destructive on-disk swap accepts only `wipe` or `merge`. The `wipe` strategy
 validates the complete shard before mutation, then deletes the existing

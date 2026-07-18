@@ -68,10 +68,11 @@ The remaining React/browser and AIWG index/export adoption work stays in `Fortem
 
 The sidecar, exact-encoding, and display-filename assertions added by
 `Fortemi/fortemi#1046` are contract requirements, not claims about the coverage
-of the earlier #1013 tests. Server implementation requires new archive tests for
-blob deduplication, missing and unknown entries, digest mismatch, bounded
-streaming, attachment restoration, and byte round-tripping before it can claim
-self-contained shard support.
+of the earlier #1013 tests. `Fortemi/fortemi#1057` proves atomic reference-only
+attachment restoration and digest metadata deduplication. Server implementation
+still requires archive tests for sidecar missing and unknown entries, digest
+mismatch, bounded route streaming, byte restoration, and byte round-tripping
+before it can claim self-contained shard support.
 
 ## Non-Goals
 

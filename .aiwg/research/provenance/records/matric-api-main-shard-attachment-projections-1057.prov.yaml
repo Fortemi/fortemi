@@ -1,0 +1,76 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T03:47:12Z"
+  description: "Provenance for Fortemi issue #1057 reference-only Knowledge Shard attachment projection restoration"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:acec151631e0543c47062c01eb9c2f5bf18339a0d26c96f09a7ff63a76f0cfb0"
+  type: code
+  created_at: "2026-07-18T03:47:12Z"
+  updated_at: "2026-07-18T03:47:12Z"
+  checksum: "sha256:acec151631e0543c47062c01eb9c2f5bf18339a0d26c96f09a7ff63a76f0cfb0"
+  size_bytes: 1743387
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1057"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-attachment-projections-1057:001"
+  type: modification
+  started_at: "2026-07-18T03:20:00Z"
+  ended_at: "2026-07-18T03:47:12Z"
+  description: "Restore canonical core-v1 attachment projections as atomic reference-only records, deduplicate shared digests, reject identity and metadata conflicts, and prove rollback and repeated convergence"
+  attributes:
+    verification:
+      - "cargo test -p matric-api --bin matric-api --locked shard_core_v1_server_export_clean_import_preserves_semantic_state: 1 passed"
+      - "cargo test -p matric-api --bin matric-api --locked: 775 passed"
+      - "cargo test -p matric-api --locked: passed including integration tests and doctests"
+      - "cargo clippy -p matric-api --all-targets --locked -- -D warnings"
+      - "cargo check -p matric-api --bin matric-api --locked"
+      - "scripts/ci/openapi-contract.sh check"
+      - "npm run docs:contract"
+      - "npm run docs:build"
+      - "cargo fmt --all -- --check"
+      - "git diff --check"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+  attributes:
+    delegated_roles:
+      - security-engineer
+      - software-implementer
+      - test-engineer
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:acec151631e0543c47062c01eb9c2f5bf18339a0d26c96f09a7ff63a76f0cfb0"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-attachment-projections-1057:001"
+    time: "2026-07-18T03:47:12Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-attachment-projections-1057:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1057"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-attachment-projections-1057:001"
+      entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:c6a64ce71bb5368b4fafbe4ec405e95760c3acb0f75d87a7203a9dd5c9642de7"
+      role: canonical_contract
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:acec151631e0543c47062c01eb9c2f5bf18339a0d26c96f09a7ff63a76f0cfb0"
+      source: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:414762e2fe149565728bd8aed1402ad1d328e07eb4809578d3c34535a0196138"
+      derivation_type: extends
+      activity: "urn:aiwg:activity:modification:knowledge-shard-attachment-projections-1057:001"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:acec151631e0543c47062c01eb9c2f5bf18339a0d26c96f09a7ff63a76f0cfb0"
+      source: "urn:gitea:issue:Fortemi/fortemi:1057"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:knowledge-shard-attachment-projections-1057:001"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:acec151631e0543c47062c01eb9c2f5bf18339a0d26c96f09a7ff63a76f0cfb0"
+      source: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:c6a64ce71bb5368b4fafbe4ec405e95760c3acb0f75d87a7203a9dd5c9642de7"
+      derivation_type: conforms_to
+      activity: "urn:aiwg:activity:modification:knowledge-shard-attachment-projections-1057:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-attachment-projections-1057:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:acec151631e0543c47062c01eb9c2f5bf18339a0d26c96f09a7ff63a76f0cfb0"
+    agent: "urn:aiwg:agent:codex-gpt-5"
