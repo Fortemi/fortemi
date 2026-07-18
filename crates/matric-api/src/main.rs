@@ -22015,6 +22015,8 @@ struct ShardCounts {
     provenance_locations: usize,
     #[serde(skip_serializing_if = "shard_count_is_zero")]
     provenance_devices: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    provenance_records: usize,
     collections: usize,
     tags: usize,
     templates: usize,
@@ -22262,6 +22264,44 @@ struct ShardProvenanceDeviceRecord {
     sensor_metadata: Option<serde_json::Value>,
     owner_id: Option<Uuid>,
     device_name: Option<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardTimestampRange {
+    empty: bool,
+    lower: Option<chrono::DateTime<chrono::Utc>>,
+    lower_inclusive: bool,
+    lower_infinite: bool,
+    upper: Option<chrono::DateTime<chrono::Utc>>,
+    upper_inclusive: bool,
+    upper_infinite: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardUnifiedProvenanceRecord {
+    id: Uuid,
+    attachment_id: Option<Uuid>,
+    note_id: Option<Uuid>,
+    capture_time: Option<ShardTimestampRange>,
+    capture_timezone: Option<String>,
+    capture_duration_seconds: Option<f32>,
+    time_source: Option<String>,
+    time_confidence: Option<String>,
+    location_id: Option<Uuid>,
+    device_id: Option<Uuid>,
+    activity_id: Option<Uuid>,
+    event_type: Option<String>,
+    event_title: Option<String>,
+    event_description: Option<String>,
+    raw_metadata: Option<serde_json::Value>,
+    ai_context: Option<serde_json::Value>,
+    ai_processed_at: Option<chrono::DateTime<chrono::Utc>>,
+    ai_model: Option<String>,
+    user_corrected: Option<bool>,
+    original_capture_time: Option<ShardTimestampRange>,
+    original_location_id: Option<Uuid>,
+    correction_note: Option<String>,
     created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -22825,6 +22865,7 @@ fn shard_component_filename(component: &str) -> Option<&'static str> {
         "named_locations" => Some("named_locations.jsonl"),
         "provenance_locations" => Some("provenance_locations.jsonl"),
         "provenance_devices" => Some("provenance_devices.jsonl"),
+        "provenance_records" => Some("provenance_records.jsonl"),
         "collections" => Some("collections.json"),
         "tags" => Some("tags.json"),
         "templates" => Some("templates.json"),
@@ -23182,6 +23223,7 @@ fn parse_shard_component_records_with_limits(
         | "named_locations"
         | "provenance_locations"
         | "provenance_devices"
+        | "provenance_records"
         | "links"
         | "embedding_set_members"
         | "embeddings" => {
@@ -23235,6 +23277,7 @@ fn validate_shard_component_schema_for_profile(
             | "named_locations"
             | "provenance_locations"
             | "provenance_devices"
+            | "provenance_records"
             | "links"
             | "embedding_set_members"
             | "embeddings"
@@ -24112,6 +24155,7 @@ fn validate_shard_component_inventory(
             "named_locations" => manifest.counts.named_locations,
             "provenance_locations" => manifest.counts.provenance_locations,
             "provenance_devices" => manifest.counts.provenance_devices,
+            "provenance_records" => manifest.counts.provenance_records,
             "collections" => manifest.counts.collections,
             "tags" => manifest.counts.tags,
             "templates" => manifest.counts.templates,
@@ -24905,6 +24949,99 @@ async fn knowledge_shard(
             let data = serialize_shard_export_jsonl(&records, "serialize provenance devices")?;
             add_json_file("provenance_devices.jsonl", &data).map_err(|error| {
                 shard_operation_failed("add provenance devices to shard", error)
+            })?;
+        }
+
+        if components.contains(&"provenance_records") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, attachment_id, note_id,
+                       CASE WHEN capture_time IS NULL THEN NULL
+                         ELSE jsonb_build_object(
+                           'empty', isempty(capture_time),
+                           'lower', lower(capture_time),
+                           'lower_inclusive', lower_inc(capture_time),
+                           'lower_infinite', lower_inf(capture_time),
+                           'upper', upper(capture_time),
+                           'upper_inclusive', upper_inc(capture_time),
+                           'upper_infinite', upper_inf(capture_time)
+                         )
+                       END AS capture_time,
+                       capture_timezone, capture_duration_seconds, time_source,
+                       time_confidence, location_id, device_id, activity_id,
+                       event_type, event_title, event_description, raw_metadata,
+                       ai_context, ai_processed_at, ai_model, user_corrected,
+                       CASE WHEN original_capture_time IS NULL THEN NULL
+                         ELSE jsonb_build_object(
+                           'empty', isempty(original_capture_time),
+                           'lower', lower(original_capture_time),
+                           'lower_inclusive', lower_inc(original_capture_time),
+                           'lower_infinite', lower_inf(original_capture_time),
+                           'upper', upper(original_capture_time),
+                           'upper_inclusive', upper_inc(original_capture_time),
+                           'upper_infinite', upper_inf(original_capture_time)
+                         )
+                       END AS original_capture_time,
+                       original_location_id, correction_note, created_at
+                FROM provenance
+                ORDER BY created_at, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read unified provenance records", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| {
+                    let capture_time = row
+                        .get::<Option<serde_json::Value>, _>("capture_time")
+                        .map(serde_json::from_value)
+                        .transpose()
+                        .map_err(|error| {
+                            shard_operation_failed("decode provenance capture time", error)
+                        })?;
+                    let original_capture_time = row
+                        .get::<Option<serde_json::Value>, _>("original_capture_time")
+                        .map(serde_json::from_value)
+                        .transpose()
+                        .map_err(|error| {
+                            shard_operation_failed("decode original provenance capture time", error)
+                        })?;
+                    Ok(ShardUnifiedProvenanceRecord {
+                        id: row.get("id"),
+                        attachment_id: row.get("attachment_id"),
+                        note_id: row.get("note_id"),
+                        capture_time,
+                        capture_timezone: row.get("capture_timezone"),
+                        capture_duration_seconds: row.get("capture_duration_seconds"),
+                        time_source: row.get("time_source"),
+                        time_confidence: row.get("time_confidence"),
+                        location_id: row.get("location_id"),
+                        device_id: row.get("device_id"),
+                        activity_id: row.get("activity_id"),
+                        event_type: row.get("event_type"),
+                        event_title: row.get("event_title"),
+                        event_description: row.get("event_description"),
+                        raw_metadata: row.get("raw_metadata"),
+                        ai_context: row.get("ai_context"),
+                        ai_processed_at: row.get("ai_processed_at"),
+                        ai_model: row.get("ai_model"),
+                        user_corrected: row.get("user_corrected"),
+                        original_capture_time,
+                        original_location_id: row.get("original_location_id"),
+                        correction_note: row.get("correction_note"),
+                        created_at: row.get("created_at"),
+                    })
+                })
+                .collect::<Result<Vec<_>, ApiError>>()?;
+            counts.provenance_records = records.len();
+            let data =
+                serialize_shard_export_jsonl(&records, "serialize unified provenance records")?;
+            add_json_file("provenance_records.jsonl", &data).map_err(|error| {
+                shard_operation_failed("add unified provenance records to shard", error)
             })?;
         }
 
@@ -41962,6 +42099,121 @@ not-json
         assert!(device_json["owner_id"].is_null());
     }
 
+    #[test]
+    fn shard_unified_provenance_records_preserve_targets_ranges_and_nulls() {
+        let provenance_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d041").unwrap();
+        let attachment_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d042").unwrap();
+        let note_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d043").unwrap();
+        let location_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d044").unwrap();
+        let timestamp = "2026-07-18T14:00:00Z";
+        let capture_time = serde_json::json!({
+            "empty": false,
+            "lower": "2026-07-18T13:00:00Z",
+            "lower_inclusive": true,
+            "lower_infinite": false,
+            "upper": "2026-07-18T13:30:00Z",
+            "upper_inclusive": true,
+            "upper_infinite": false
+        });
+        let empty_range = serde_json::json!({
+            "empty": true,
+            "lower": null,
+            "lower_inclusive": false,
+            "lower_infinite": false,
+            "upper": null,
+            "upper_inclusive": false,
+            "upper_infinite": false
+        });
+
+        let record = serde_json::from_value::<ShardUnifiedProvenanceRecord>(serde_json::json!({
+            "id": provenance_id,
+            "attachment_id": attachment_id,
+            "note_id": note_id,
+            "capture_time": capture_time.clone(),
+            "capture_timezone": "UTC",
+            "capture_duration_seconds": 1800.0,
+            "time_source": "device_clock",
+            "time_confidence": "high",
+            "location_id": location_id,
+            "device_id": null,
+            "activity_id": null,
+            "event_type": "recording",
+            "event_title": null,
+            "event_description": null,
+            "raw_metadata": null,
+            "ai_context": null,
+            "ai_processed_at": null,
+            "ai_model": null,
+            "user_corrected": null,
+            "original_capture_time": empty_range.clone(),
+            "original_location_id": null,
+            "correction_note": null,
+            "created_at": timestamp
+        }))
+        .unwrap();
+        let record_json = serde_json::to_value(record).unwrap();
+        assert_eq!(record_json["id"], provenance_id.to_string());
+        assert_eq!(record_json["attachment_id"], attachment_id.to_string());
+        assert_eq!(record_json["note_id"], note_id.to_string());
+        assert_eq!(record_json["capture_time"], capture_time);
+        assert_eq!(record_json["original_capture_time"], empty_range);
+        assert!(record_json["device_id"].is_null());
+        assert!(record_json["activity_id"].is_null());
+        assert!(record_json["raw_metadata"].is_null());
+        assert!(record_json["user_corrected"].is_null());
+    }
+
+    #[tokio::test]
+    async fn shard_timestamp_range_projection_normalizes_database_timezone() {
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect range projection database");
+        let mut tx = db.pool.begin().await.expect("begin range projection");
+        sqlx::query("SET LOCAL TIME ZONE 'America/New_York'")
+            .execute(&mut *tx)
+            .await
+            .expect("set non-UTC projection timezone");
+        let value = sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT jsonb_build_object(
+               'empty', isempty(value),
+               'lower', lower(value),
+               'lower_inclusive', lower_inc(value),
+               'lower_infinite', lower_inf(value),
+               'upper', upper(value),
+               'upper_inclusive', upper_inc(value),
+               'upper_infinite', upper_inf(value)
+             )
+             FROM (
+               SELECT tstzrange(
+                 '2026-07-18 13:00:00+00',
+                 '2026-07-18 13:30:00+00',
+                 '[]'
+               ) AS value
+             ) projected",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .expect("project timestamp range");
+        tx.rollback().await.expect("roll back range projection");
+
+        let range = serde_json::from_value::<ShardTimestampRange>(value)
+            .expect("decode projected timestamp range");
+        assert_eq!(
+            serde_json::to_value(range).unwrap(),
+            serde_json::json!({
+                "empty": false,
+                "lower": "2026-07-18T13:00:00Z",
+                "lower_inclusive": true,
+                "lower_infinite": false,
+                "upper": "2026-07-18T13:30:00Z",
+                "upper_inclusive": true,
+                "upper_infinite": false
+            })
+        );
+    }
+
     fn valid_shard_spatial_provenance_relationship_fixture(
     ) -> (std::collections::HashMap<String, Vec<u8>>, Uuid, Uuid, Uuid) {
         let named_location_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d031").unwrap();
@@ -43841,6 +44093,11 @@ not-json
                 .unwrap_err(),
             "Knowledge shard component exceeds the record count limit."
         );
+        assert_eq!(
+            parse_shard_component_records_with_limits("provenance_records", b"{}\n{}", 1, 1024,)
+                .unwrap_err(),
+            "Knowledge shard component exceeds the record count limit."
+        );
     }
 
     #[test]
@@ -43868,6 +44125,7 @@ not-json
                 named_locations: 0,
                 provenance_locations: 0,
                 provenance_devices: 0,
+                provenance_records: 0,
                 collections: 5,
                 tags: 20,
                 templates: 3,
@@ -43924,6 +44182,7 @@ not-json
                 named_locations: 0,
                 provenance_locations: 0,
                 provenance_devices: 0,
+                provenance_records: 0,
                 collections: 1,
                 tags: 2,
                 templates: 1,
