@@ -1,0 +1,70 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T02:30:33Z"
+  description: "Provenance for Fortemi issue #923 bounded Knowledge Shard archive preflight"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:2b0e42d24b3596cf67cc608b5c1eb85198eac5e16692b6c1cf36a38452a9aacd"
+  type: code
+  created_at: "2026-07-18T02:30:33Z"
+  updated_at: "2026-07-18T02:32:58Z"
+  checksum: "sha256:2b0e42d24b3596cf67cc608b5c1eb85198eac5e16692b6c1cf36a38452a9aacd"
+  size_bytes: 1729508
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#923"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-bounds-923:001"
+  type: modification
+  started_at: "2026-07-18T02:13:04Z"
+  ended_at: "2026-07-18T02:32:58Z"
+  description: "Bound compressed and expanded shard ingestion, reject unsafe archive structure, limit component records, and exercise dry-run checksum validation before writes"
+  attributes:
+    verification:
+      - "cargo test -p matric-api --bin matric-api --locked: 772 passed"
+      - "cargo test -p matric-api --bin matric-api shard_ --locked: 32 passed"
+      - "cargo clippy -p matric-api --all-targets --locked -- -D warnings"
+      - "cargo check -p matric-api --bin matric-api --locked"
+      - "scripts/ci/openapi-contract.sh check"
+      - "npm run docs:build"
+      - "cargo fmt --all -- --check"
+      - "git diff --check"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+  attributes:
+    delegated_roles:
+      - security-engineer
+      - software-implementer
+      - test-engineer
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:2b0e42d24b3596cf67cc608b5c1eb85198eac5e16692b6c1cf36a38452a9aacd"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-bounds-923:001"
+    time: "2026-07-18T02:32:58Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-bounds-923:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:923"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-bounds-923:001"
+      entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:c6a64ce71bb5368b4fafbe4ec405e95760c3acb0f75d87a7203a9dd5c9642de7"
+      role: canonical_contract
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:2b0e42d24b3596cf67cc608b5c1eb85198eac5e16692b6c1cf36a38452a9aacd"
+      source: "urn:gitea:issue:Fortemi/fortemi:923"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:knowledge-shard-bounds-923:001"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:2b0e42d24b3596cf67cc608b5c1eb85198eac5e16692b6c1cf36a38452a9aacd"
+      source: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:c6a64ce71bb5368b4fafbe4ec405e95760c3acb0f75d87a7203a9dd5c9642de7"
+      derivation_type: conforms_to
+      activity: "urn:aiwg:activity:modification:knowledge-shard-bounds-923:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-bounds-923:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:2b0e42d24b3596cf67cc608b5c1eb85198eac5e16692b6c1cf36a38452a9aacd"
+    agent: "urn:aiwg:agent:codex-gpt-5"

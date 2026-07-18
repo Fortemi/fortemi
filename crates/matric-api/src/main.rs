@@ -3422,6 +3422,8 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(matric_core::defaults::MAX_BODY_SIZE_BYTES);
 
     let max_upload_size = state.max_upload_size;
+    let shard_max_compressed_bytes = max_upload_size.min(SHARD_MAX_COMPRESSED_BYTES);
+    let shard_max_base64_bytes = shard_base64_size_limit(shard_max_compressed_bytes);
 
     // Build router
     let app = Router::new()
@@ -3901,11 +3903,15 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/backup/knowledge-shard", get(knowledge_shard))
         .route(
             "/api/v1/backup/knowledge-shard/import",
-            post(knowledge_shard_import),
+            post(knowledge_shard_import).layer(DefaultBodyLimit::max(
+                shard_max_base64_bytes + SHARD_REQUEST_OVERHEAD_BYTES,
+            )),
         )
         .route(
             "/api/v1/backup/knowledge-shard/upload",
-            post(knowledge_shard_import_upload),
+            post(knowledge_shard_import_upload).layer(DefaultBodyLimit::max(
+                shard_max_compressed_bytes + SHARD_REQUEST_OVERHEAD_BYTES,
+            )),
         )
         // Database backups (full pg_dump, includes embeddings)
         .route("/api/v1/backup/database", get(database_backup_download))
@@ -21998,6 +22004,15 @@ const SHARD_IMPORT_COMPONENTS: &[&str] = &["notes", "collections", "tags", "temp
 const DEFAULT_SHARD_PROFILE: &str = "core-v1";
 const REGISTERED_SHARD_PROFILES: &[&str] = &["core-v1", "full-v1", "record-v1"];
 const DEFAULT_SHARD_EXPORT_COMPONENTS: &str = "notes,collections,tags,templates,links";
+const SHARD_MAX_COMPRESSED_BYTES: usize = matric_core::defaults::MAX_UPLOAD_SIZE_BYTES;
+const SHARD_MAX_UNCOMPRESSED_BYTES: usize = SHARD_MAX_COMPRESSED_BYTES * 4;
+const SHARD_MAX_ENTRY_BYTES: usize = SHARD_MAX_COMPRESSED_BYTES;
+const SHARD_MAX_MANIFEST_BYTES: usize = 1024 * 1024;
+const SHARD_MAX_ENTRIES: usize = 64;
+const SHARD_MAX_ENTRY_NAME_BYTES: usize = 255;
+const SHARD_MAX_RECORDS_PER_COMPONENT: usize = 250_000;
+const SHARD_MAX_RECORD_BYTES: usize = 4 * 1024 * 1024;
+const SHARD_REQUEST_OVERHEAD_BYTES: usize = 1024 * 1024;
 const CORE_V1_MANIFEST_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.0.0/core-v1/manifest.schema.json");
 const CORE_V1_NOTE_SCHEMA: &str =
@@ -22010,6 +22025,134 @@ const CORE_V1_TEMPLATE_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.0.0/core-v1/template.schema.json");
 const CORE_V1_LINK_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.0.0/core-v1/link.schema.json");
+
+#[derive(Clone, Copy)]
+struct ShardArchiveLimits {
+    max_compressed_bytes: usize,
+    max_uncompressed_bytes: usize,
+    max_entry_bytes: usize,
+    max_manifest_bytes: usize,
+    max_entries: usize,
+}
+
+impl Default for ShardArchiveLimits {
+    fn default() -> Self {
+        Self {
+            max_compressed_bytes: SHARD_MAX_COMPRESSED_BYTES,
+            max_uncompressed_bytes: SHARD_MAX_UNCOMPRESSED_BYTES,
+            max_entry_bytes: SHARD_MAX_ENTRY_BYTES,
+            max_manifest_bytes: SHARD_MAX_MANIFEST_BYTES,
+            max_entries: SHARD_MAX_ENTRIES,
+        }
+    }
+}
+
+impl ShardArchiveLimits {
+    fn for_compressed_limit(max_compressed_bytes: usize) -> Self {
+        let max_compressed_bytes = max_compressed_bytes.min(SHARD_MAX_COMPRESSED_BYTES);
+        Self {
+            max_compressed_bytes,
+            max_uncompressed_bytes: max_compressed_bytes.saturating_mul(4),
+            max_entry_bytes: max_compressed_bytes,
+            ..Self::default()
+        }
+    }
+}
+
+fn shard_base64_size_limit(max_compressed_bytes: usize) -> usize {
+    max_compressed_bytes.saturating_add(2) / 3 * 4
+}
+
+fn validate_shard_entry_name(name: &str) -> Result<(), String> {
+    let bytes = name.as_bytes();
+    if name.is_empty()
+        || bytes.len() > SHARD_MAX_ENTRY_NAME_BYTES
+        || name.starts_with('/')
+        || name.contains('\\')
+        || bytes.get(1) == Some(&b':')
+        || bytes.iter().any(|byte| byte.is_ascii_control())
+        || name
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    {
+        return Err("Knowledge shard contains an unsafe archive entry path.".to_string());
+    }
+    Ok(())
+}
+
+fn read_shard_archive(
+    shard_bytes: &[u8],
+    limits: ShardArchiveLimits,
+) -> Result<std::collections::HashMap<String, Vec<u8>>, String> {
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+    use tar::Archive;
+
+    if shard_bytes.len() > limits.max_compressed_bytes {
+        return Err("Knowledge shard exceeds the compressed size limit.".to_string());
+    }
+
+    let decoder = GzDecoder::new(shard_bytes);
+    let mut tar_reader = Archive::new(decoder);
+    let mut files = std::collections::HashMap::new();
+    let mut total_uncompressed_bytes = 0usize;
+    let mut entry_count = 0usize;
+
+    for entry in tar_reader
+        .entries()
+        .map_err(|_| "Invalid knowledge shard archive.".to_string())?
+        .raw(true)
+    {
+        entry_count = entry_count
+            .checked_add(1)
+            .ok_or_else(|| "Knowledge shard exceeds the archive entry limit.".to_string())?;
+        if entry_count > limits.max_entries {
+            return Err("Knowledge shard exceeds the archive entry limit.".to_string());
+        }
+
+        let mut entry = entry.map_err(|_| "Invalid knowledge shard entry.".to_string())?;
+        if !entry.header().entry_type().is_file() {
+            return Err("Knowledge shard contains a non-regular archive entry.".to_string());
+        }
+
+        let path_bytes = entry.path_bytes();
+        let name = std::str::from_utf8(path_bytes.as_ref())
+            .map_err(|_| "Knowledge shard contains an unsafe archive entry path.".to_string())?
+            .to_string();
+        validate_shard_entry_name(&name)?;
+        if files.contains_key(&name) {
+            return Err("Knowledge shard contains a duplicate archive entry.".to_string());
+        }
+
+        let declared_size = usize::try_from(entry.size())
+            .map_err(|_| "Knowledge shard entry exceeds the size limit.".to_string())?;
+        let entry_limit = if name == "manifest.json" {
+            limits.max_manifest_bytes
+        } else {
+            limits.max_entry_bytes
+        };
+        if declared_size > entry_limit {
+            return Err("Knowledge shard entry exceeds the size limit.".to_string());
+        }
+        total_uncompressed_bytes = total_uncompressed_bytes
+            .checked_add(declared_size)
+            .ok_or_else(|| "Knowledge shard exceeds the uncompressed size limit.".to_string())?;
+        if total_uncompressed_bytes > limits.max_uncompressed_bytes {
+            return Err("Knowledge shard exceeds the uncompressed size limit.".to_string());
+        }
+
+        let mut contents = Vec::with_capacity(declared_size);
+        entry
+            .read_to_end(&mut contents)
+            .map_err(|_| "Invalid knowledge shard entry contents.".to_string())?;
+        if contents.len() != declared_size {
+            return Err("Invalid knowledge shard entry contents.".to_string());
+        }
+        files.insert(name, contents);
+    }
+
+    Ok(files)
+}
 
 fn shard_component_filename(component: &str) -> Option<&'static str> {
     match component {
@@ -22096,21 +22239,106 @@ fn parse_shard_component_records(
     component: &str,
     data: &[u8],
 ) -> Result<Vec<serde_json::Value>, String> {
+    parse_shard_component_records_with_limits(
+        component,
+        data,
+        SHARD_MAX_RECORDS_PER_COMPONENT,
+        SHARD_MAX_RECORD_BYTES,
+    )
+}
+
+fn parse_shard_component_records_with_limits(
+    component: &str,
+    data: &[u8],
+    max_records: usize,
+    max_record_bytes: usize,
+) -> Result<Vec<serde_json::Value>, String> {
+    const RECORD_COUNT_LIMIT_MARKER: &str = "__fortemi_shard_record_count_limit__";
+    const RECORD_SIZE_LIMIT_MARKER: &str = "__fortemi_shard_record_size_limit__";
+
+    struct BoundedJsonArrayVisitor {
+        max_records: usize,
+        max_record_bytes: usize,
+    }
+
+    impl<'de> serde::de::Visitor<'de> for BoundedJsonArrayVisitor {
+        type Value = Vec<serde_json::Value>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a bounded JSON array")
+        }
+
+        fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            let mut records = Vec::new();
+            while let Some(record) = sequence.next_element::<serde_json::Value>()? {
+                if records.len() >= self.max_records {
+                    return Err(serde::de::Error::custom(RECORD_COUNT_LIMIT_MARKER));
+                }
+                let encoded_len = serde_json::to_vec(&record)
+                    .map_err(serde::de::Error::custom)?
+                    .len();
+                if encoded_len > self.max_record_bytes {
+                    return Err(serde::de::Error::custom(RECORD_SIZE_LIMIT_MARKER));
+                }
+                records.push(record);
+            }
+            Ok(records)
+        }
+    }
+
     match component {
         "notes" | "links" => {
             let text = std::str::from_utf8(data)
                 .map_err(|_| "Knowledge shard component is not valid UTF-8.".to_string())?;
-            text.lines()
-                .filter(|line| !line.trim().is_empty())
-                .map(|line| {
-                    serde_json::from_str(line)
-                        .map_err(|_| "Knowledge shard component contains invalid JSON.".to_string())
-                })
-                .collect()
+            let mut records = Vec::new();
+            for (line_index, line) in text.lines().enumerate() {
+                if line_index >= max_records {
+                    return Err(
+                        "Knowledge shard component exceeds the record count limit.".to_string()
+                    );
+                }
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if line.len() > max_record_bytes {
+                    return Err(
+                        "Knowledge shard component record exceeds the size limit.".to_string()
+                    );
+                }
+                records.push(
+                    serde_json::from_str(line).map_err(|_| {
+                        "Knowledge shard component contains invalid JSON.".to_string()
+                    })?,
+                );
+            }
+            Ok(records)
         }
         "collections" | "tags" | "templates" => {
-            serde_json::from_slice::<Vec<serde_json::Value>>(data)
-                .map_err(|_| "Knowledge shard component contains invalid JSON.".to_string())
+            let mut deserializer = serde_json::Deserializer::from_slice(data);
+            let records = serde::de::Deserializer::deserialize_seq(
+                &mut deserializer,
+                BoundedJsonArrayVisitor {
+                    max_records,
+                    max_record_bytes,
+                },
+            )
+            .map_err(|error| {
+                let error = error.to_string();
+                if error.contains(RECORD_COUNT_LIMIT_MARKER) {
+                    "Knowledge shard component exceeds the record count limit.".to_string()
+                } else if error.contains(RECORD_SIZE_LIMIT_MARKER) {
+                    "Knowledge shard component record exceeds the size limit.".to_string()
+                } else {
+                    "Knowledge shard component contains invalid JSON.".to_string()
+                }
+            })?;
+            deserializer
+                .end()
+                .map_err(|_| "Knowledge shard component contains invalid JSON.".to_string())?;
+            Ok(records)
         }
         _ => Err("Unsupported knowledge shard component.".to_string()),
     }
@@ -22905,6 +23133,12 @@ async fn knowledge_shard_import(
 ) -> Result<impl IntoResponse, ApiError> {
     use base64::Engine;
 
+    let max_compressed_bytes = state.max_upload_size.min(SHARD_MAX_COMPRESSED_BYTES);
+    if body.shard_base64.len() > shard_base64_size_limit(max_compressed_bytes) {
+        return Err(shard_validation_failed(
+            "Knowledge shard exceeds the compressed size limit.",
+        ));
+    }
     let shard_bytes = base64::engine::general_purpose::STANDARD
         .decode(&body.shard_base64)
         .map_err(|_| invalid_base64_payload("Invalid base64-encoded shard data."))?;
@@ -22963,6 +23197,7 @@ async fn knowledge_shard_import_upload(
 ) -> Result<impl IntoResponse, ApiError> {
     // Read the uploaded shard file
     let mut shard_bytes: Option<Vec<u8>> = None;
+    let max_compressed_bytes = state.max_upload_size.min(SHARD_MAX_COMPRESSED_BYTES);
 
     while let Some(field) = multipart
         .next_field()
@@ -22970,13 +23205,24 @@ async fn knowledge_shard_import_upload(
         .map_err(|_| ApiError::BadRequest("Invalid multipart upload request.".to_string()))?
     {
         if field.name() == Some("file") || field.name() == Some("shard") {
-            shard_bytes = Some(
-                field
-                    .bytes()
-                    .await
-                    .map_err(|_| ApiError::BadRequest("Invalid uploaded shard data.".to_string()))?
-                    .to_vec(),
-            );
+            let mut field = field;
+            let mut uploaded = Vec::new();
+            while let Some(chunk) = field
+                .chunk()
+                .await
+                .map_err(|_| ApiError::BadRequest("Invalid uploaded shard data.".to_string()))?
+            {
+                let next_len = uploaded.len().checked_add(chunk.len()).ok_or_else(|| {
+                    shard_validation_failed("Knowledge shard exceeds the compressed size limit.")
+                })?;
+                if next_len > max_compressed_bytes {
+                    return Err(shard_validation_failed(
+                        "Knowledge shard exceeds the compressed size limit.",
+                    ));
+                }
+                uploaded.extend_from_slice(&chunk);
+            }
+            shard_bytes = Some(uploaded);
             break;
         }
     }
@@ -26230,11 +26476,26 @@ async fn swap_backup(
         ));
     }
 
-    // Read shard file
-    let mut file = File::open(&path).map_err(|e| shard_operation_failed("open shard file", e))?;
-    let mut shard_data = Vec::new();
-    file.read_to_end(&mut shard_data)
+    // Bound the on-disk read before allocating the restore payload.
+    let file_size = std::fs::metadata(&path)
+        .map_err(|e| shard_operation_failed("read shard file metadata", e))?
+        .len();
+    let max_compressed_bytes = state.max_upload_size.min(SHARD_MAX_COMPRESSED_BYTES);
+    if file_size > max_compressed_bytes as u64 {
+        return Err(shard_validation_failed(
+            "Knowledge shard exceeds the compressed size limit.",
+        ));
+    }
+    let file = File::open(&path).map_err(|e| shard_operation_failed("open shard file", e))?;
+    let mut shard_data = Vec::with_capacity(file_size as usize);
+    file.take((max_compressed_bytes + 1) as u64)
+        .read_to_end(&mut shard_data)
         .map_err(|e| shard_operation_failed("read shard file", e))?;
+    if shard_data.len() > max_compressed_bytes {
+        return Err(shard_validation_failed(
+            "Knowledge shard exceeds the compressed size limit.",
+        ));
+    }
 
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
 
@@ -26345,11 +26606,7 @@ async fn knowledge_shard_import_internal(
     opts: &ShardImportOptions,
     schema: &str,
 ) -> Result<ShardImportResponse, ApiError> {
-    use flate2::read::GzDecoder;
     use sha2::{Digest, Sha256};
-    use std::collections::HashMap;
-    use std::io::Read;
-    use tar::Archive;
 
     let ctx = state.db.for_schema(schema)?;
     let schema_for_jobs = if schema != "public" {
@@ -26358,27 +26615,11 @@ async fn knowledge_shard_import_internal(
         None
     };
 
-    // Parse tar.gz
-    let decoder = GzDecoder::new(shard_bytes);
-    let mut tar_reader = Archive::new(decoder);
-
-    let mut files: HashMap<String, Vec<u8>> = HashMap::new();
-    for entry in tar_reader
-        .entries()
-        .map_err(|_| shard_validation_failed("Invalid shard archive."))?
-    {
-        let mut entry = entry.map_err(|_| shard_validation_failed("Invalid shard entry."))?;
-        let entry_path = entry
-            .path()
-            .map_err(|_| shard_validation_failed("Invalid path in shard archive."))?;
-        let name = entry_path.to_string_lossy().to_string();
-
-        let mut contents = Vec::new();
-        entry
-            .read_to_end(&mut contents)
-            .map_err(|_| shard_validation_failed("Invalid shard entry contents."))?;
-        files.insert(name, contents);
-    }
+    let files = read_shard_archive(
+        shard_bytes,
+        ShardArchiveLimits::for_compressed_limit(state.max_upload_size),
+    )
+    .map_err(ApiError::BadRequest)?;
 
     // Parse manifest and check version
     let mut warnings: Vec<String> = Vec::new();
@@ -34887,6 +35128,183 @@ mod tests {
         archive.into_inner().unwrap().finish().unwrap()
     }
 
+    fn test_shard_archive(entries: &[(&str, &[u8], tar::EntryType)]) -> Vec<u8> {
+        let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut archive = tar::Builder::new(encoder);
+        for (name, bytes, entry_type) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(*entry_type);
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o644);
+            header.set_path(name).unwrap();
+            header.set_cksum();
+            archive.append(&header, *bytes).unwrap();
+        }
+        archive.into_inner().unwrap().finish().unwrap()
+    }
+
+    fn test_shard_archive_with_raw_name(name: &[u8]) -> Vec<u8> {
+        let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut archive = tar::Builder::new(encoder);
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_size(0);
+        header.set_mode(0o644);
+        header.as_mut_bytes()[..100].fill(0);
+        header.as_mut_bytes()[..name.len()].copy_from_slice(name);
+        header.set_cksum();
+        archive.append(&header, std::io::empty()).unwrap();
+        archive.into_inner().unwrap().finish().unwrap()
+    }
+
+    fn replace_shard_entry(shard: &[u8], target: &str, replacement: &[u8]) -> Vec<u8> {
+        use std::io::Read;
+
+        let decoder = flate2::read::GzDecoder::new(shard);
+        let mut source = tar::Archive::new(decoder);
+        let mut entries = Vec::new();
+        for entry in source.entries().unwrap() {
+            let mut entry = entry.unwrap();
+            let name = entry.path().unwrap().to_string_lossy().to_string();
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).unwrap();
+            if name == target {
+                bytes = replacement.to_vec();
+            }
+            entries.push((name, bytes));
+        }
+
+        let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut archive = tar::Builder::new(encoder);
+        for (name, bytes) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            archive
+                .append_data(&mut header, name, bytes.as_slice())
+                .unwrap();
+        }
+        archive.into_inner().unwrap().finish().unwrap()
+    }
+
+    #[test]
+    fn shard_archive_reader_rejects_unsafe_duplicate_and_non_regular_entries() {
+        let unsafe_path = test_shard_archive_with_raw_name(b"../evil");
+        assert_eq!(
+            read_shard_archive(&unsafe_path, ShardArchiveLimits::default()).unwrap_err(),
+            "Knowledge shard contains an unsafe archive entry path."
+        );
+
+        let duplicate = test_shard_archive(&[
+            ("notes.jsonl", b"one", tar::EntryType::Regular),
+            ("notes.jsonl", b"two", tar::EntryType::Regular),
+        ]);
+        assert_eq!(
+            read_shard_archive(&duplicate, ShardArchiveLimits::default()).unwrap_err(),
+            "Knowledge shard contains a duplicate archive entry."
+        );
+
+        for entry_type in [
+            tar::EntryType::Directory,
+            tar::EntryType::Symlink,
+            tar::EntryType::XHeader,
+            tar::EntryType::XGlobalHeader,
+        ] {
+            let non_regular = test_shard_archive(&[("unsupported", b"", entry_type)]);
+            assert_eq!(
+                read_shard_archive(&non_regular, ShardArchiveLimits::default()).unwrap_err(),
+                "Knowledge shard contains a non-regular archive entry."
+            );
+        }
+    }
+
+    #[test]
+    fn shard_archive_reader_enforces_compressed_uncompressed_entry_and_count_limits() {
+        let one_entry = test_shard_archive(&[("notes.jsonl", b"12345", tar::EntryType::Regular)]);
+        let limits = ShardArchiveLimits {
+            max_compressed_bytes: one_entry.len() - 1,
+            ..ShardArchiveLimits::default()
+        };
+        assert_eq!(
+            read_shard_archive(&one_entry, limits).unwrap_err(),
+            "Knowledge shard exceeds the compressed size limit."
+        );
+
+        let limits = ShardArchiveLimits {
+            max_entry_bytes: 4,
+            ..ShardArchiveLimits::default()
+        };
+        assert_eq!(
+            read_shard_archive(&one_entry, limits).unwrap_err(),
+            "Knowledge shard entry exceeds the size limit."
+        );
+
+        let limits = ShardArchiveLimits {
+            max_uncompressed_bytes: 4,
+            ..ShardArchiveLimits::default()
+        };
+        assert_eq!(
+            read_shard_archive(&one_entry, limits).unwrap_err(),
+            "Knowledge shard exceeds the uncompressed size limit."
+        );
+
+        let two_entries = test_shard_archive(&[
+            ("notes.jsonl", b"", tar::EntryType::Regular),
+            ("links.jsonl", b"", tar::EntryType::Regular),
+        ]);
+        let limits = ShardArchiveLimits {
+            max_entries: 1,
+            ..ShardArchiveLimits::default()
+        };
+        assert_eq!(
+            read_shard_archive(&two_entries, limits).unwrap_err(),
+            "Knowledge shard exceeds the archive entry limit."
+        );
+
+        let manifest = test_shard_archive(&[("manifest.json", b"12345", tar::EntryType::Regular)]);
+        let limits = ShardArchiveLimits {
+            max_manifest_bytes: 4,
+            ..ShardArchiveLimits::default()
+        };
+        assert_eq!(
+            read_shard_archive(&manifest, limits).unwrap_err(),
+            "Knowledge shard entry exceeds the size limit."
+        );
+    }
+
+    #[test]
+    fn shard_component_parser_enforces_record_count_and_size_limits() {
+        assert_eq!(
+            parse_shard_component_records_with_limits("notes", b"{}\n{}\n", 1, 16).unwrap_err(),
+            "Knowledge shard component exceeds the record count limit."
+        );
+        assert_eq!(
+            parse_shard_component_records_with_limits(
+                "notes",
+                br#"{"content":"too large"}"#,
+                2,
+                4,
+            )
+            .unwrap_err(),
+            "Knowledge shard component record exceeds the size limit."
+        );
+        assert_eq!(
+            parse_shard_component_records_with_limits("tags", br#"[{},{}]"#, 1, 16).unwrap_err(),
+            "Knowledge shard component exceeds the record count limit."
+        );
+        assert_eq!(
+            parse_shard_component_records_with_limits(
+                "templates",
+                br#"[{"content":"too large"}]"#,
+                2,
+                4,
+            )
+            .unwrap_err(),
+            "Knowledge shard component record exceeds the size limit."
+        );
+    }
+
     #[test]
     fn test_shard_export_query_defaults() {
         let query: ShardExportQuery = serde_json::from_str("{}").unwrap();
@@ -35168,6 +35586,48 @@ mod tests {
             )
             .await
             .expect("create isolated clean shard destination");
+
+        let dry_run_opts = ShardImportOptions {
+            include: None,
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let tampered = replace_shard_entry(&exported_bytes, "notes.jsonl", b"{}\n");
+        let error = knowledge_shard_import_internal(
+            &state,
+            &tampered,
+            &dry_run_opts,
+            &destination.schema_name,
+        )
+        .await
+        .expect_err("dry-run must reject the same checksum mismatch as real import");
+        match error {
+            ApiError::BadRequest(message) => {
+                assert_eq!(message, "Knowledge shard checksum validation failed.")
+            }
+            other => panic!("unexpected dry-run validation error: {other:?}"),
+        }
+        let clean_counts = db
+            .for_schema(&destination.schema_name)
+            .unwrap()
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM collection),
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM note_template),
+                           (SELECT COUNT(*) FROM link)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read clean destination after rejected dry-run");
+        assert_eq!(clean_counts, (0, 0, 0, 0));
 
         for _ in 0..2 {
             let result = knowledge_shard_import_internal(

@@ -391,6 +391,24 @@ attachment metadata may appear in note records, but the archive does not include
 bytes. The optional self-contained sidecar format is defined in
 [Binary Attachment Projection](#/core-systems-binary-attachment-projection).
 
+**Import safety limits:**
+
+- Compressed shard bytes: 50 MiB maximum, or a smaller
+  `MATRIC_MAX_UPLOAD_SIZE_BYTES` operator limit.
+- Expanded component bytes: four times the effective compressed limit in
+  total; no component may exceed the effective compressed limit.
+- Manifest: 1 MiB maximum.
+- Archive inventory: 64 regular-file entries with safe UTF-8 relative names;
+  duplicate names and all non-regular tar entry types are rejected.
+- Component records: 250,000 records per component and 4 MiB per record.
+
+Multipart upload reads the file incrementally up to the compressed limit.
+Base64 and on-disk swap inputs are bounded before decode or allocation.
+Dry-run and real import use the same structure, checksum, schema, count, and
+relationship preflight before normal writes. Atomic application of the entire
+validated plan remains a tracked conformance gap; do not treat `core-v1` as a
+complete disaster-recovery profile.
+
 ### knowledge_shard_import
 
 Restore from a knowledge shard created by `knowledge_shard`.

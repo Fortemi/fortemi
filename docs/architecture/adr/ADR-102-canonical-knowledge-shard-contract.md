@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Canonical `core-v1` schemas, relationship preflight, and identity-preserving structured import; full conformance remains pending the release gates in this ADR
+**Implementation status:** Canonical `core-v1` schemas, bounded archive and relationship preflight, and identity-preserving structured import; full conformance remains pending the release gates in this ADR
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -189,11 +189,14 @@ The runtime now separates producer identity from strict shard-schema SemVer,
 declares a registered profile, rejects unsupported profiles and components,
 and fails canonical manifest/record schema, checksum, count, inventory,
 collection topology, and note/template/link reference validation before normal
-import writes. Default export includes roots and descendants. Import creates
-collections before dependent notes and templates, preserves collection and
-template IDs and source timestamps, restores source note timestamps after
-revised content, and uses stable-ID conflict handling for repeated imports. The
-current positive and negative corpus is pinned by the schema receipt.
+import writes. Archive preflight also bounds compressed and expanded bytes,
+entry count and size, manifest size, and component record count and size while
+rejecting unsafe paths, duplicate names, and non-regular tar entries. Default
+export includes roots and descendants. Import creates collections before
+dependent notes and templates, preserves collection and template IDs and source
+timestamps, restores source note timestamps after revised content, and uses
+stable-ID conflict handling for repeated imports. The current positive and
+negative corpus is pinned by the schema receipt.
 
 Known gaps remain in atomic apply, complete tombstone and absent/null semantic
 preservation, attachment bytes, richer profiles, migration history, and

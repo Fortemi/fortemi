@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-18T01:22:06Z"
+  updated_at: "2026-07-18T02:32:58Z"
 records:
   - entity: "contracts/knowledge-shard/contract.json"
     record: "records/knowledge-shard-contract-1057.prov.yaml"
@@ -14,3 +14,5 @@ records:
     record: "records/matric-api-main-shard-roundtrip-1056.prov.yaml"
   - entity: "crates/matric-db/src/collections.rs"
     record: "records/matric-db-collections-shard-roundtrip-1056.prov.yaml"
+  - entity: "crates/matric-api/src/main.rs"
+    record: "records/matric-api-main-shard-bounds-923.prov.yaml"

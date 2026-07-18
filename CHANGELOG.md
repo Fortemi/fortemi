@@ -24,6 +24,13 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   collection/note/template/link references before writes, and collection,
   template, and note timestamp identities survive clean and repeated imports.
 
+### Security
+
+- **Bounded Knowledge Shard import (#923):** shard upload, base64 import, and
+  on-disk swap now reject oversized compressed or expanded archives, unsafe or
+  duplicate paths, non-regular tar entries, excessive entries, and oversized
+  component records before checksum/schema validation or database mutation.
+
 ## [2026.7.1] - 2026-07-13
 
 Upgrade-reliability and Intel inference deployment release. This release fixes
