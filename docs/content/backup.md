@@ -410,11 +410,13 @@ selected database components in one schema-scoped transaction: any database
 failure rolls back collections, notes, tags, templates, and links together.
 NLP regeneration is queued only after that transaction commits.
 
-Destructive on-disk swap with the `wipe` strategy validates before deletion,
-but wipe and apply are not yet one atomic operation. A later apply failure can
-therefore leave the destination wiped. Keep a database-level backup before a
-destructive swap, and do not treat `core-v1` as a complete disaster-recovery
-profile.
+Destructive on-disk swap accepts only `wipe` or `merge`. The `wipe` strategy
+validates the complete shard before mutation, then deletes the existing
+core-v1 entity families and applies the validated shard in the same
+schema-scoped transaction. A late apply failure restores the pre-swap state.
+This atomic database boundary does not make `core-v1` a complete
+disaster-recovery profile: attachment bytes and richer profile data remain
+outside its current preservation contract.
 
 ### knowledge_shard_import
 

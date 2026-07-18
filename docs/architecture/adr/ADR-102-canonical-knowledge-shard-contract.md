@@ -199,13 +199,15 @@ stable-ID conflict handling for repeated imports. Ordinary import applies all
 selected database components in one schema-scoped transaction; a late database
 failure rolls back collections, notes, tags, templates, and links together, and
 post-import NLP jobs are queued only after commit. The current positive and
-negative corpus is pinned by the schema receipt.
+negative corpus is pinned by the schema receipt. Destructive shard swap
+validates before mutation, then deletes the existing core-v1 entity families
+and applies the validated shard within the same transaction. A late apply
+failure therefore restores the pre-swap state.
 
-Known gaps remain in atomic destructive wipe-plus-apply swap, complete
-tombstone and absent/null semantic preservation, attachment bytes, richer
-profiles, migration history, and cross-repository conformance receipts. Those
-gaps remain tracked release blockers, not implicit `core-v1` or `full-v1`
-claims.
+Known gaps remain in complete tombstone and absent/null semantic preservation,
+attachment bytes, richer profiles, migration history, and cross-repository
+conformance receipts. Those gaps remain tracked release blockers, not implicit
+`core-v1` or `full-v1` claims.
 
 Until the release gates pass:
 

@@ -32,7 +32,9 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   component records before checksum/schema validation or database mutation.
   Ordinary imports apply every selected database component in one
   schema-scoped transaction, fail closed on any database error, and enqueue NLP
-  work only after commit.
+  work only after commit. Destructive on-disk `wipe` swaps validate first, then
+  wipe and apply in that same transaction so a late failure restores the
+  previous core-v1 state; undocumented swap strategies are rejected.
 
 ## [2026.7.1] - 2026-07-13
 

@@ -26484,6 +26484,16 @@ impl std::fmt::Debug for SwapBackupResponse {
     }
 }
 
+fn swap_wipes_existing_data(strategy: Option<&str>) -> Result<bool, ApiError> {
+    match strategy.unwrap_or("wipe") {
+        "wipe" => Ok(true),
+        "merge" => Ok(false),
+        _ => Err(ApiError::BadRequest(
+            "Swap strategy must be either 'wipe' or 'merge'.".to_string(),
+        )),
+    }
+}
+
 /// Swap to a different backup (restore from shard file on disk).
 /// Respects X-Fortemi-Memory header for archive-scoped swaps (#421).
 #[utoipa::path(post, path = "/api/v1/backup/swap", tag = "Backup",
@@ -26497,7 +26507,7 @@ async fn swap_backup(
     use std::io::Read;
 
     let dry_run = req.dry_run.unwrap_or(false);
-    let strategy = req.strategy.as_deref().unwrap_or("wipe");
+    let wipe_before_apply = swap_wipes_existing_data(req.strategy.as_deref())?;
 
     let backup_dir =
         std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
@@ -26541,71 +26551,6 @@ async fn swap_backup(
         ));
     }
 
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
-
-    // A destructive swap must pass normal import preflight before existing data changes.
-    if strategy == "wipe" && !dry_run {
-        let validation_opts = ShardImportOptions {
-            include: None,
-            dry_run: true,
-            on_conflict: ConflictStrategy::Replace,
-            skip_embedding_regen: false,
-        };
-        knowledge_shard_import_internal(&state, &shard_data, &validation_opts, &archive_ctx.schema)
-            .await?;
-    }
-
-    // If strategy is "wipe", purge existing data first
-    if strategy == "wipe" && !dry_run {
-        // Purge all notes (which cascades to tags, embeddings, links)
-        let list_req = ListNotesRequest {
-            limit: Some(100000),
-            filter: Some("all".to_string()), // Include archived
-            ..Default::default()
-        };
-        let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
-        let notes = ctx
-            .query(move |tx| Box::pin(async move { notes_repo.list_tx(tx, list_req).await }))
-            .await?;
-        for note in notes.notes {
-            let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
-            let id = note.id;
-            let _ = ctx
-                .execute(move |tx| Box::pin(async move { notes_repo.hard_delete_tx(tx, id).await }))
-                .await;
-        }
-
-        // Purge collections
-        let collections_repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
-        let collections = ctx
-            .query(move |tx| Box::pin(async move { collections_repo.list_tx(tx, None).await }))
-            .await
-            .unwrap_or_default();
-        for coll in collections {
-            let collections_repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
-            let id = coll.id;
-            let _ = ctx
-                .execute(move |tx| {
-                    Box::pin(async move { collections_repo.delete_tx(tx, id).await })
-                })
-                .await;
-        }
-
-        // Purge templates
-        let templates_repo = matric_db::PgTemplateRepository::new(state.db.pool.clone());
-        let templates: Vec<matric_core::NoteTemplate> = ctx
-            .query(move |tx| Box::pin(async move { templates_repo.list_tx(tx).await }))
-            .await
-            .unwrap_or_default();
-        for tmpl in templates {
-            let templates_repo = matric_db::PgTemplateRepository::new(state.db.pool.clone());
-            let id = tmpl.id;
-            let _ = ctx
-                .execute(move |tx| Box::pin(async move { templates_repo.delete_tx(tx, id).await }))
-                .await;
-        }
-    }
-
     // Import from shard
     let opts = ShardImportOptions {
         include: None,
@@ -26615,8 +26560,14 @@ async fn swap_backup(
     };
 
     // Call the shard import logic with archive schema
-    let result =
-        knowledge_shard_import_internal(&state, &shard_data, &opts, &archive_ctx.schema).await?;
+    let result = knowledge_shard_import_internal_with_wipe(
+        &state,
+        &shard_data,
+        &opts,
+        &archive_ctx.schema,
+        wipe_before_apply,
+    )
+    .await?;
 
     Ok(Json(SwapBackupResponse {
         status: result.status.clone(),
@@ -26648,6 +26599,7 @@ async fn apply_validated_shard_components(
     selected_components: &std::collections::HashSet<String>,
     opts: &ShardImportOptions,
     schema: &str,
+    wipe_before_apply: bool,
 ) -> Result<(ShardImportCounts, ShardImportCounts, Vec<Uuid>), ApiError> {
     let ctx = state.db.for_schema(schema)?;
     let mut tx = ctx
@@ -26658,6 +26610,29 @@ async fn apply_validated_shard_components(
     let mut skipped = ShardImportCounts::default();
     let mut queued_note_ids = Vec::new();
     let should_import = |component: &str| selected_components.contains(component);
+
+    if wipe_before_apply && !opts.dry_run {
+        for (statement, context) in [
+            (
+                "DELETE FROM note",
+                "wipe notes before knowledge shard import",
+            ),
+            (
+                "DELETE FROM note_template",
+                "wipe templates before knowledge shard import",
+            ),
+            (
+                "DELETE FROM collection",
+                "wipe collections before knowledge shard import",
+            ),
+            ("DELETE FROM tag", "wipe tags before knowledge shard import"),
+        ] {
+            sqlx::query(statement)
+                .execute(&mut *tx)
+                .await
+                .map_err(|error| shard_operation_failed(context, error))?;
+        }
+    }
 
     // Collections must exist before notes and templates can retain their
     // source hierarchy references.
@@ -26960,6 +26935,16 @@ async fn knowledge_shard_import_internal(
     opts: &ShardImportOptions,
     schema: &str,
 ) -> Result<ShardImportResponse, ApiError> {
+    knowledge_shard_import_internal_with_wipe(state, shard_bytes, opts, schema, false).await
+}
+
+async fn knowledge_shard_import_internal_with_wipe(
+    state: &AppState,
+    shard_bytes: &[u8],
+    opts: &ShardImportOptions,
+    schema: &str,
+    wipe_before_apply: bool,
+) -> Result<ShardImportResponse, ApiError> {
     use sha2::{Digest, Sha256};
 
     let schema_for_jobs = if schema != "public" {
@@ -27015,8 +27000,15 @@ async fn knowledge_shard_import_internal(
         warnings.push("Shard producer release metadata is absent.".to_string());
     }
 
-    let (imported, skipped, queued_note_ids) =
-        apply_validated_shard_components(state, &files, &selected_components, opts, schema).await?;
+    let (imported, skipped, queued_note_ids) = apply_validated_shard_components(
+        state,
+        &files,
+        &selected_components,
+        opts,
+        schema,
+        wipe_before_apply,
+    )
+    .await?;
 
     for note_id in queued_note_ids {
         queue_nlp_pipeline(
@@ -32002,6 +31994,21 @@ mod tests {
     }
 
     #[test]
+    fn swap_backup_strategy_accepts_only_documented_modes() {
+        assert!(swap_wipes_existing_data(None).unwrap());
+        assert!(swap_wipes_existing_data(Some("wipe")).unwrap());
+        assert!(!swap_wipes_existing_data(Some("merge")).unwrap());
+
+        let error = swap_wipes_existing_data(Some("replace")).unwrap_err();
+        match error {
+            ApiError::BadRequest(message) => {
+                assert_eq!(message, "Swap strategy must be either 'wipe' or 'merge'.")
+            }
+            other => panic!("unexpected strategy validation error: {other:?}"),
+        }
+    }
+
+    #[test]
     fn database_restore_debug_redacts_filenames_memory_and_messages() {
         let request = DatabaseRestoreRequest {
             filename: "customer-postgres-secret-mm_key_restore.sql.gz".to_string(),
@@ -35532,6 +35539,163 @@ mod tests {
             .await
             .expect("read destination after rolled-back import");
         assert_eq!(rollback_counts, (0, 0, 0, 0, 0));
+
+        let sentinel_collection_id = Uuid::new_v4();
+        let sentinel_note_id = Uuid::new_v4();
+        let sentinel_template_id = Uuid::new_v4();
+        let mut sentinel_tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin sentinel state setup");
+        let sentinel_time = chrono::Utc::now();
+        sqlx::query(
+            "INSERT INTO collection (id, name, description, created_at_utc)
+             VALUES ($1, 'Preexisting sentinel collection', NULL, $2)",
+        )
+        .bind(sentinel_collection_id)
+        .bind(sentinel_time)
+        .execute(&mut *sentinel_tx)
+        .await
+        .expect("insert sentinel collection");
+        let notes_repo = matric_db::PgNoteRepository::new(db.pool.clone());
+        notes_repo
+            .insert_with_id_tx(
+                &mut sentinel_tx,
+                sentinel_note_id,
+                CreateNoteRequest {
+                    content: "Preexisting sentinel note".to_string(),
+                    format: "markdown".to_string(),
+                    source: "test".to_string(),
+                    collection_id: Some(sentinel_collection_id),
+                    tags: Some(Vec::new()),
+                    metadata: Some(serde_json::json!({"sentinel": true})),
+                    document_type_id: None,
+                    title: Some("Preexisting sentinel".to_string()),
+                },
+            )
+            .await
+            .expect("insert sentinel note");
+        sqlx::query(
+            "INSERT INTO tag (name, created_at_utc)
+             VALUES ('preexisting-sentinel-tag', $1)",
+        )
+        .bind(sentinel_time)
+        .execute(&mut *sentinel_tx)
+        .await
+        .expect("insert sentinel tag");
+        sqlx::query(
+            "INSERT INTO note_template
+             (id, name, description, content, format, default_tags,
+              collection_id, created_at_utc, updated_at_utc)
+             VALUES ($1, 'Preexisting sentinel template', NULL, 'sentinel',
+                     'markdown', '{}', $2, $3, $3)",
+        )
+        .bind(sentinel_template_id)
+        .bind(sentinel_collection_id)
+        .bind(sentinel_time)
+        .execute(&mut *sentinel_tx)
+        .await
+        .expect("insert sentinel template");
+        sentinel_tx
+            .commit()
+            .await
+            .expect("commit sentinel state setup");
+
+        let error = knowledge_shard_import_internal_with_wipe(
+            &state,
+            &exported_bytes,
+            &opts,
+            &rollback_destination.schema_name,
+            true,
+        )
+        .await
+        .expect_err("late link failure must roll back destructive wipe and import");
+        if !matches!(&error, ApiError::OperationFailed { .. }) {
+            panic!("destructive swap failure must use the safe operation error: {error:?}");
+        }
+        let restored_sentinel = rollback_ctx
+            .query(move |tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64, i64, bool, bool, bool, bool)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM collection),
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM tag),
+                           (SELECT COUNT(*) FROM note_template),
+                           (SELECT COUNT(*) FROM link),
+                           EXISTS(SELECT 1 FROM collection WHERE id = $1),
+                           EXISTS(SELECT 1 FROM note WHERE id = $2),
+                           EXISTS(SELECT 1 FROM tag WHERE name = 'preexisting-sentinel-tag'),
+                           EXISTS(SELECT 1 FROM note_template WHERE id = $3)",
+                    )
+                    .bind(sentinel_collection_id)
+                    .bind(sentinel_note_id)
+                    .bind(sentinel_template_id)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read sentinel state after rolled-back destructive swap");
+        assert_eq!(restored_sentinel, (1, 1, 1, 1, 0, true, true, true, true));
+
+        let mut cleanup_tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin failure injection cleanup");
+        sqlx::query("DROP TRIGGER reject_shard_link_insert ON link")
+            .execute(&mut *cleanup_tx)
+            .await
+            .expect("drop late-write failure trigger");
+        sqlx::query("DROP FUNCTION reject_shard_link_insert()")
+            .execute(&mut *cleanup_tx)
+            .await
+            .expect("drop late-write failure function");
+        cleanup_tx
+            .commit()
+            .await
+            .expect("commit failure injection cleanup");
+
+        let swapped = knowledge_shard_import_internal_with_wipe(
+            &state,
+            &exported_bytes,
+            &opts,
+            &rollback_destination.schema_name,
+            true,
+        )
+        .await
+        .expect("destructive swap must succeed after failure injection is removed");
+        assert_eq!(swapped.status, "success");
+        assert_eq!(swapped.imported.collections, 2);
+        assert_eq!(swapped.imported.notes, 2);
+        assert_eq!(swapped.imported.templates, 1);
+        assert_eq!(swapped.imported.links, 1);
+        let swapped_state = rollback_ctx
+            .query(move |tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64, bool, bool, bool, bool)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM collection),
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM note_template),
+                           (SELECT COUNT(*) FROM link),
+                           EXISTS(SELECT 1 FROM collection WHERE id = $1),
+                           EXISTS(SELECT 1 FROM note WHERE id = $2),
+                           EXISTS(SELECT 1 FROM tag WHERE name = 'preexisting-sentinel-tag'),
+                           EXISTS(SELECT 1 FROM note_template WHERE id = $3)",
+                    )
+                    .bind(sentinel_collection_id)
+                    .bind(sentinel_note_id)
+                    .bind(sentinel_template_id)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read committed destructive swap state");
+        assert_eq!(swapped_state, (2, 2, 1, 1, false, false, false, false));
         db.archives
             .drop_archive_schema(&rollback_name)
             .await
