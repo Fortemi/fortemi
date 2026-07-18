@@ -43677,14 +43677,12 @@ not-json
         );
 
         let mut full_v1_unified_provenance_fixture_bundle = sha2::Sha256::new();
-        for relative in [
-            "tests/fixtures/shards/full-v1-unified-provenance-candidate/provenance_records.jsonl",
-        ] {
-            full_v1_unified_provenance_fixture_bundle.update(
-                std::fs::read(workspace_root.join(relative))
-                    .expect("full-v1 unified provenance candidate corpus receipt path must exist"),
-            );
-        }
+        let relative =
+            "tests/fixtures/shards/full-v1-unified-provenance-candidate/provenance_records.jsonl";
+        full_v1_unified_provenance_fixture_bundle.update(
+            std::fs::read(workspace_root.join(relative))
+                .expect("full-v1 unified provenance candidate corpus receipt path must exist"),
+        );
         assert_eq!(
             hex::encode(full_v1_unified_provenance_fixture_bundle.finalize()),
             receipt["profiles"]["full-v1"]["candidateUnifiedProvenanceCorpusSha256"]
@@ -44776,14 +44774,16 @@ not-json
         );
     }
 
-    fn valid_shard_unified_provenance_relationship_fixture() -> (
+    type ShardUnifiedProvenanceFixture = (
         std::collections::HashMap<String, Vec<u8>>,
         std::collections::HashSet<Uuid>,
         std::collections::HashSet<Uuid>,
         std::collections::HashSet<Uuid>,
         ShardSpatialProvenanceIds,
         Uuid,
-    ) {
+    );
+
+    fn valid_shard_unified_provenance_relationship_fixture() -> ShardUnifiedProvenanceFixture {
         let (mut files, _, location_id, device_id) =
             valid_shard_spatial_provenance_relationship_fixture();
         let note_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d051").unwrap();
@@ -44872,7 +44872,7 @@ not-json
         duplicate_identity
             .get_mut("provenance_records.jsonl")
             .unwrap()
-            .extend_from_slice(&[b'\n']);
+            .extend_from_slice(b"\n");
         duplicate_identity
             .get_mut("provenance_records.jsonl")
             .unwrap()
@@ -45073,13 +45073,15 @@ not-json
         }
     }
 
-    fn valid_shard_note_history_relationship_fixture() -> (
+    type ShardNoteHistoryFixture = (
         std::collections::HashMap<String, Vec<u8>>,
         std::collections::HashSet<Uuid>,
         std::collections::HashMap<Uuid, (String, String)>,
         Uuid,
         Uuid,
-    ) {
+    );
+
+    fn valid_shard_note_history_relationship_fixture() -> ShardNoteHistoryFixture {
         let note_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648e001").unwrap();
         let first_revision_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648e002").unwrap();
         let current_revision_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648e003").unwrap();
@@ -45303,13 +45305,15 @@ not-json
         );
     }
 
-    fn valid_shard_revision_provenance_relationship_fixture() -> (
+    type ShardRevisionProvenanceFixture = (
         std::collections::HashMap<String, Vec<u8>>,
         std::collections::HashSet<Uuid>,
         std::collections::HashMap<Uuid, Uuid>,
         Uuid,
         Uuid,
-    ) {
+    );
+
+    fn valid_shard_revision_provenance_relationship_fixture() -> ShardRevisionProvenanceFixture {
         let (mut files, note_ids, note_contents, _, current_revision_id) =
             valid_shard_note_history_relationship_fixture();
         let note_id = *note_ids.iter().next().unwrap();
