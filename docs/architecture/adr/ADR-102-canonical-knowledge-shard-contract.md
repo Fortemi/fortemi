@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, digest-pinned candidate `full-v1` embedding, note-revision, and revision-linked provenance component boundaries and transactional apply paths, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, and disk-backed streaming preflight for opt-in verified attachment sidecars; `full-v1` conformance remains pending the release gates in this ADR
+**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, digest-pinned candidate `full-v1` embedding, note-revision, revision-linked provenance, and spatial provenance registry boundaries, transactional apply paths for the first three boundaries, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, and disk-backed streaming preflight for opt-in verified attachment sidecars; `full-v1` conformance remains pending the release gates in this ADR
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -78,22 +78,24 @@ archive while preserving IDs, bodies, the empty revision, relationships,
 attachment reference, and tombstone instant. The durable receipt lives beside
 the integration fixture.
 
-Contract revision 9 publishes candidate embedding, note-revision, and
-revision-linked provenance component boundaries under
+Contract revision 10 publishes candidate embedding, note-revision,
+revision-linked provenance, and spatial provenance registry boundaries under
 `contracts/knowledge-shard/1.1.0/full-v1/`, with separately digest-pinned
 corpora. The revision boundary covers current original state, original history,
 the current revised snapshot, and the complete revision chain. The provenance
 boundary preserves W3C-PROV edges and processing activities that reference
-those exact note and revision identities. These component schemas are compiled
-by the server and exercised by bounded schema and relationship preflight
-tests. Dormant embedding, revision, and revision-linked provenance apply paths
+those exact note and revision identities. The spatial registry boundary
+preserves named places, exact SRID-bearing PostGIS geometry, location
+observations, and device agents. These component schemas are compiled by the
+server and exercised by bounded schema and relationship preflight tests.
+Dormant embedding, revision, and revision-linked provenance apply paths
 run inside the existing schema-scoped import transaction. Their database tests
 prove exact source-field restoration, repeated replace convergence, skip and
 dry-run accounting, and rollback after a late injected failure. The spatial
-and unified provenance families, canonical `full-v1` manifest, complete
-component inventory, end-to-end revision round-trip receipt, and profile
-support remain pending; manifest validation continues to fail closed for
-`full-v1`.
+spatial registry apply path, unified note/attachment provenance, canonical
+`full-v1` manifest, complete component inventory, end-to-end revision
+round-trip receipt, and profile support remain pending; manifest validation
+continues to fail closed for `full-v1`.
 
 ## Decision
 

@@ -102,6 +102,16 @@ identities to exist in the note-revision boundary. Spatial locations, devices,
 named places, unified attachment/note provenance, and apply behavior are not
 part of this corpus.
 
+### full-v1-spatial-provenance-candidate/
+
+Digest-pinned candidate records for named places, exact PostGIS location
+observations, and device agents. Geometry is encoded as lowercase,
+SRID-bearing EWKB hex so point and boundary coordinates survive without
+decimal projection loss. Runtime schema and relationship preflight reject
+duplicate registry coordinates, invalid geometry encodings, and unknown named
+location references. Unified attachment/note provenance and spatial registry
+apply behavior are not part of this corpus.
+
 ### schema-invalid/
 
 Focused negative schema fixtures:

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractRevision": "9",
+  "contractRevision": "10",
   "authority": {
     "repository": "Fortemi/fortemi",
     "producerCommit": "Use the immutable Git commit containing this receipt."
@@ -18,7 +18,7 @@
     },
     "full-v1": {
       "supported": false,
-      "status": "revision-provenance-apply-candidate",
+      "status": "spatial-provenance-boundary-candidate",
       "candidateComponentSchemaRoot": "contracts/knowledge-shard/1.1.0/full-v1",
       "candidateComponents": [
         "embedding_configs",
@@ -30,7 +30,10 @@
         "note_revised_current",
         "note_revisions",
         "provenance_edges",
-        "provenance_activities"
+        "provenance_activities",
+        "named_locations",
+        "provenance_locations",
+        "provenance_devices"
       ],
       "candidateGoldenCorpusRoot": "tests/fixtures/shards/full-v1-embedding-candidate",
       "candidateGoldenCorpusSha256": "9745279f0dca478712b9248ef86137be6d75e7d627a9cfd69652204f231b383d",
@@ -38,9 +41,11 @@
       "candidateRevisionCorpusSha256": "ac0325e9433fbb8d558a10a681a84677bc05bda5d5ae7571d25739712d661c17",
       "candidateProvenanceCorpusRoot": "tests/fixtures/shards/full-v1-provenance-candidate",
       "candidateProvenanceCorpusSha256": "dac91f6de3c472435bf5e880183c3dceffcba5578004da4c6dc9943c1773d84c",
+      "candidateSpatialProvenanceCorpusRoot": "tests/fixtures/shards/full-v1-spatial-provenance-candidate",
+      "candidateSpatialProvenanceCorpusSha256": "b5310c5156851d80c32d99354333250d74b4df77ff72aa0727474f3ba8692f51",
       "remainingReleaseGates": [
         "canonical full-v1 manifest, complete component inventory, and end-to-end revision round-trip receipt",
-        "spatial and unified provenance, SKOS, graph, community, and signature schemas and apply paths",
+        "spatial provenance registry apply, unified provenance, SKOS, graph, community, and signature schemas and apply paths",
         "attachment byte sidecar conformance",
         "cross-repository producer and consumer receipts"
       ]
@@ -69,7 +74,7 @@
   },
   "schemaBundle": {
     "aggregateAlgorithm": "sha256(raw file bytes concatenated in lexicographic path order)",
-    "sha256": "97cee20d0fb2cad43d5ff0d1cd6a8b491cfbca07e98a060f3397a70e665e68d0",
+    "sha256": "7284ea0167de6478d4696de9b5edbea3f50c0f65cae65d1029fc1c4250b70b5c",
     "files": {
       "contracts/knowledge-shard/1.1.0/core-v1/collection.schema.json": "4708374341b2ca1c9f51290c140281deaefd33aaad0cf5051d17b53eb23f3cf6",
       "contracts/knowledge-shard/1.1.0/core-v1/link.schema.json": "c907ca29ab9233af2e8f45d0a39beeeb3c1bdf2219f947ac353689af6c1c848f",
@@ -81,12 +86,15 @@
       "contracts/knowledge-shard/1.1.0/full-v1/embedding-set-member.schema.json": "011ca0653b89b3075a251b3c4d7ac92888d414cb00763381eebcfe9018a101aa",
       "contracts/knowledge-shard/1.1.0/full-v1/embedding-set.schema.json": "7d8dc0d4caf3c45835181c336d5111e10c1a07086e2e21252122fde2024586b8",
       "contracts/knowledge-shard/1.1.0/full-v1/embedding.schema.json": "6244717fc964e4b493b6bc534a6c1250d8ad0dc45975e74cf29ec68b6eba7615",
+      "contracts/knowledge-shard/1.1.0/full-v1/named-location.schema.json": "f86ec38aa92432765ee1424f57a58abb8cef85d14f2396a40ca237848f4bb118",
       "contracts/knowledge-shard/1.1.0/full-v1/note-original-history.schema.json": "d8c4f0724748b38cde81dae727a305e2ac515965df22e0de5d86806bfd6f8ce4",
       "contracts/knowledge-shard/1.1.0/full-v1/note-original.schema.json": "bc525530162860fcdd2b6583352a23dd75029eb3e0c7e318e27900650425b3e7",
       "contracts/knowledge-shard/1.1.0/full-v1/note-revised-current.schema.json": "2f128e9a0cb18618e0141d16f76b6f66635aeddb523691e592b1c13604f5f950",
       "contracts/knowledge-shard/1.1.0/full-v1/note-revision.schema.json": "a86bbec5d992d1d7d91530ea6efc698ac5b6c3070f5b44a80cb9449002b7d31e",
       "contracts/knowledge-shard/1.1.0/full-v1/provenance-activity.schema.json": "01250dafd0604bb233f67c2d8aca334e890237ffc9022bc622ee1a66cc2f9977",
+      "contracts/knowledge-shard/1.1.0/full-v1/provenance-device.schema.json": "8037afafe7b83b6c61df7da424bdea7afd74ca6a89249ffc6c27dcb9e4d62772",
       "contracts/knowledge-shard/1.1.0/full-v1/provenance-edge.schema.json": "80c84d675873c82687b629fc2f59392a03621531255c5a1d720571ed853cd3c1",
+      "contracts/knowledge-shard/1.1.0/full-v1/provenance-location.schema.json": "48a2cc223a8d1ee453889375392bc968358baf027509ba701853d840d30b8a14",
       "contracts/knowledge-shard/1.1.0/record-v1/collection.schema.json": "61bc4d717b097b3e6c77b716a9adaa71acbca9228b66f0d4b7d83a060476680d",
       "contracts/knowledge-shard/1.1.0/record-v1/link.schema.json": "3fe3b6632412c23319f8a4385c937066fbf2ba90af7f8170eaa57a951f4d65c5",
       "contracts/knowledge-shard/1.1.0/record-v1/manifest.schema.json": "42cd8b8c3d30014b819076fa4ab4e462d18171511985f428d8fa99947466ee03",
@@ -112,7 +120,7 @@
     "schema 1.0.0 note records migrate missing deleted_at to the documented null active-state default",
     "core-v1 attachment records are metadata/reference projections by default; optional verified sidecars do not establish full-v1 conformance",
     "record-v1 covers only notes, collections, tags, note-to-note links, and attachment projections; producers must report every omitted or lossy source concept",
-    "full-v1 has digest-pinned candidate embedding, note-revision, and revision-linked provenance component boundaries plus transactional apply paths only; it has no canonical manifest and is not supported by this release",
+    "full-v1 has digest-pinned candidate embedding, note-revision, revision-linked provenance, and spatial provenance registry boundaries; transactional apply paths cover the first three boundaries only, and the profile has no canonical manifest and is not supported by this release",
     "complete absent-versus-null preservation requires a later schema-major or new profile identifier"
   ]
 }

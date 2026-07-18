@@ -13,14 +13,17 @@ The current contract revision supports Knowledge Shard schema `1.1.0` under
 - `record-v1`: notes, collections, tags, note-to-note links, and
   attachment projections.
 
-Revision 9 publishes digest-pinned candidate schemas and fixtures for the
-`full-v1` embedding, note-revision, and revision-linked provenance boundaries.
+Revision 10 publishes digest-pinned candidate schemas and fixtures for the
+`full-v1` embedding, note-revision, revision-linked provenance, and spatial
+provenance registry boundaries.
 The revision boundary covers current original state, original history, current
 revised snapshots, and revision chains. The provenance boundary adds the
 W3C-PROV edges and processing activities that reference those exact note and
-revision identities. All three boundaries have bounded relationship validation
-and transactional apply paths with convergence, dry-run, conflict-accounting,
-and late-failure rollback tests. These files and dormant paths are reviewable
+revision identities. The spatial registry boundary adds named places, exact
+PostGIS location observations, and device agents. All four boundaries have
+bounded relationship validation. The first three also have transactional apply
+paths with convergence, dry-run, conflict-accounting, and late-failure rollback
+tests. These files and dormant paths are reviewable
 authority inputs, not a supported profile. There is no canonical `full-v1`
 manifest or end-to-end revision round-trip claim yet, and runtime manifest
 validation continues to reject `full-v1`.
@@ -53,8 +56,9 @@ by the selected export. The pinned React producer/server consumer/React return
 receipt is stored at
 `tests/fixtures/shards/record-v1-fortemi-react-df4762a.shard.receipt.json`;
 the exact producer archive is a permanent integration fixture. `full-v1`
-remains unsupported beyond its candidate embedding, note-revision, and
-revision-linked provenance component boundaries and transactional apply paths.
+remains unsupported beyond its candidate embedding, note-revision,
+revision-linked provenance, and spatial provenance registry boundaries; only
+the first three have transactional apply paths.
 Complete absent-versus-null preservation
 still requires a schema-major or new profile identifier because `deleted_at`
 is optional during the 1.1 transition.
