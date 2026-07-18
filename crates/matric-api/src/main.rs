@@ -2374,6 +2374,39 @@ fn parse_allowed_origins_value(origins_str: &str) -> Vec<HeaderValue> {
         .collect()
 }
 
+fn cors_layer(allowed_origins: Vec<HeaderValue>) -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(allowed_origins))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::ACCEPT,
+            header::RANGE,
+            header::CACHE_CONTROL,
+            "X-Fortemi-Memory".parse().unwrap(),
+        ])
+        .expose_headers([
+            header::ACCEPT_RANGES,
+            header::CONTENT_RANGE,
+            header::CONTENT_LENGTH,
+            header::CONTENT_DISPOSITION,
+            header::ETAG,
+            "x-request-id".parse().unwrap(),
+        ])
+        .allow_credentials(true)
+        .max_age(std::time::Duration::from_secs(
+            matric_core::defaults::CORS_MAX_AGE_SECS,
+        ))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     if export_openapi_if_requested()? {
@@ -3982,37 +4015,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(axum::middleware::from_fn(security_headers_middleware))
         .layer({
             // Issue #462: Secure CORS configuration with origin whitelist
-            let allowed_origins = parse_allowed_origins();
-
-            CorsLayer::new()
-                .allow_origin(AllowOrigin::list(allowed_origins))
-                .allow_methods([
-                    Method::GET,
-                    Method::POST,
-                    Method::PUT,
-                    Method::PATCH,
-                    Method::DELETE,
-                    Method::OPTIONS,
-                ])
-                .allow_headers([
-                    header::AUTHORIZATION,
-                    header::CONTENT_TYPE,
-                    header::ACCEPT,
-                    header::RANGE,
-                    "X-Fortemi-Memory".parse().unwrap(),
-                ])
-                .expose_headers([
-                    header::ACCEPT_RANGES,
-                    header::CONTENT_RANGE,
-                    header::CONTENT_LENGTH,
-                    header::CONTENT_DISPOSITION,
-                    header::ETAG,
-                    "x-request-id".parse().unwrap(),
-                ])
-                .allow_credentials(true)
-                .max_age(std::time::Duration::from_secs(
-                    matric_core::defaults::CORS_MAX_AGE_SECS,
-                ))
+            cors_layer(parse_allowed_origins())
         })
         // Allow up to 2GB uploads for database backups and knowledge shards
         .layer(RequestBodyLimitLayer::new(max_body_size)) // 2 GB
@@ -29132,6 +29135,64 @@ fn get_db_size_via_psql(expr: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tower::ServiceExt;
+
+    async fn cors_preflight(requested_headers: &str) -> axum::response::Response {
+        Router::new()
+            .route("/health", get(|| async { StatusCode::OK }))
+            .layer(cors_layer(vec![HeaderValue::from_static(
+                "http://127.0.0.1:1421",
+            )]))
+            .oneshot(
+                axum::http::Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/health")
+                    .header(header::ORIGIN, "http://127.0.0.1:1421")
+                    .header(header::ACCESS_CONTROL_REQUEST_METHOD, Method::GET.as_str())
+                    .header(header::ACCESS_CONTROL_REQUEST_HEADERS, requested_headers)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn cors_allows_hotm_cache_control_and_memory_headers() {
+        let response = cors_preflight("cache-control,x-fortemi-memory").await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some(&HeaderValue::from_static("http://127.0.0.1:1421"))
+        );
+        let allowed_headers = response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_HEADERS)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_ascii_lowercase();
+        assert!(allowed_headers.contains("cache-control"));
+        assert!(allowed_headers.contains("x-fortemi-memory"));
+    }
+
+    #[tokio::test]
+    async fn cors_rejects_unlisted_custom_request_header() {
+        let response = cors_preflight("x-unrelated-custom-header").await;
+
+        let allowed_headers = response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_HEADERS)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_ascii_lowercase();
+        assert!(
+            !allowed_headers.contains("x-unrelated-custom-header"),
+            "unlisted custom request header must not be authorized"
+        );
+    }
 
     #[test]
     fn search_query_debug_redacts_query_filters_tags_and_embedding_set() {

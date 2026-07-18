@@ -86,6 +86,9 @@ fn test_cors_allowed_headers_restricted() {
     // - AUTHORIZATION (for Bearer tokens)
     // - CONTENT_TYPE (for JSON payloads)
     // - ACCEPT (for content negotiation)
+    // - RANGE (for partial content requests)
+    // - CACHE_CONTROL (for explicit client cache policy)
+    // - X-FORTEMI-MEMORY (for archive routing)
     //
     // Implementation MUST NOT use:
     // - .allow_headers(Any)
@@ -179,7 +182,7 @@ mod documentation_tests {
         //     CorsLayer::new()
         //         .allow_origin(AllowOrigin::list(allowed_origins))
         //         .allow_methods([Method::GET, Method::POST, ...])
-        //         .allow_headers([header::AUTHORIZATION, ...])
+        //         .allow_headers([header::AUTHORIZATION, header::CACHE_CONTROL, ...])
         //         .allow_credentials(true)
         //         .max_age(Duration::from_secs(3600))
         // )

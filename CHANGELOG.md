@@ -16,6 +16,9 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Fixed
 
+- **Browser CORS compatibility (#1062):** configured HotM origins may send the
+  standard `Cache-Control` request header used by archive health and job
+  polling while unrelated custom request headers remain rejected.
 - **Knowledge Shard structured round trips (#1056):** default exports now
   include complete collection hierarchies, imports reject incoherent
   collection/note/template/link references before writes, and collection,
