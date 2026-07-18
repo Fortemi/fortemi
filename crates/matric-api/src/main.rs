@@ -21980,6 +21980,54 @@ struct ShardTemplateRecord {
     updated_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Deserialize)]
+struct ShardNoteRecord {
+    id: Uuid,
+    title: Option<String>,
+    original_content: String,
+    revised_content: String,
+    metadata: serde_json::Value,
+    format: String,
+    source: String,
+    starred: bool,
+    archived: bool,
+    collection_id: Option<Uuid>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+    tags: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ShardTagRecord {
+    name: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Deserialize)]
+struct ShardLinkRecord {
+    id: Uuid,
+    from_note_id: Uuid,
+    to_note_id: Option<Uuid>,
+    to_url: Option<String>,
+    kind: String,
+    score: f32,
+    created_at: chrono::DateTime<chrono::Utc>,
+    metadata: serde_json::Value,
+}
+
+fn parse_shard_jsonl<T>(data: &[u8], invalid_message: &'static str) -> Result<Vec<T>, ApiError>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let text = std::str::from_utf8(data).map_err(|_| shard_validation_failed(invalid_message))?;
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            serde_json::from_str(line).map_err(|_| shard_validation_failed(invalid_message))
+        })
+        .collect()
+}
+
 fn shard_operation_failed(context: &'static str, error: impl std::fmt::Display) -> ApiError {
     let diagnostic = error.to_string();
     ApiError::OperationFailed {
@@ -21994,10 +22042,6 @@ fn shard_validation_failed(message: &'static str) -> ApiError {
 
 fn invalid_base64_payload(message: &'static str) -> ApiError {
     ApiError::BadRequest(message.to_string())
-}
-
-fn shard_import_error(message: &'static str) -> String {
-    message.to_string()
 }
 
 const SHARD_IMPORT_COMPONENTS: &[&str] = &["notes", "collections", "tags", "templates", "links"];
@@ -26598,6 +26642,316 @@ async fn swap_backup(
     }))
 }
 
+async fn apply_validated_shard_components(
+    state: &AppState,
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    selected_components: &std::collections::HashSet<String>,
+    opts: &ShardImportOptions,
+    schema: &str,
+) -> Result<(ShardImportCounts, ShardImportCounts, Vec<Uuid>), ApiError> {
+    let ctx = state.db.for_schema(schema)?;
+    let mut tx = ctx
+        .begin_tx()
+        .await
+        .map_err(|error| shard_operation_failed("begin import transaction", error))?;
+    let mut imported = ShardImportCounts::default();
+    let mut skipped = ShardImportCounts::default();
+    let mut queued_note_ids = Vec::new();
+    let should_import = |component: &str| selected_components.contains(component);
+
+    // Collections must exist before notes and templates can retain their
+    // source hierarchy references.
+    if should_import("collections") {
+        if let Some(data) = files.get("collections.json") {
+            let collections = ordered_shard_collections(data).map_err(ApiError::BadRequest)?;
+            for collection in collections {
+                if opts.dry_run {
+                    imported.collections += 1;
+                    continue;
+                }
+                let result = if matches!(opts.on_conflict, ConflictStrategy::Replace) {
+                    sqlx::query(
+                        "INSERT INTO collection
+                         (id, name, description, parent_id, created_at_utc)
+                         VALUES ($1, $2, $3, $4, $5)
+                         ON CONFLICT (id) DO UPDATE SET
+                             name = EXCLUDED.name,
+                             description = EXCLUDED.description,
+                             parent_id = EXCLUDED.parent_id,
+                             created_at_utc = EXCLUDED.created_at_utc",
+                    )
+                    .bind(collection.id)
+                    .bind(collection.name)
+                    .bind(collection.description)
+                    .bind(collection.parent_id)
+                    .bind(collection.created_at)
+                    .execute(&mut *tx)
+                    .await
+                } else {
+                    sqlx::query(
+                        "INSERT INTO collection
+                         (id, name, description, parent_id, created_at_utc)
+                         VALUES ($1, $2, $3, $4, $5)
+                         ON CONFLICT (id) DO NOTHING",
+                    )
+                    .bind(collection.id)
+                    .bind(collection.name)
+                    .bind(collection.description)
+                    .bind(collection.parent_id)
+                    .bind(collection.created_at)
+                    .execute(&mut *tx)
+                    .await
+                }
+                .map_err(|error| shard_operation_failed("apply collection import", error))?;
+                if result.rows_affected() == 0 {
+                    skipped.collections += 1;
+                } else {
+                    imported.collections += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("notes") {
+        if let Some(notes_data) = files.get("notes.jsonl") {
+            let notes: Vec<ShardNoteRecord> =
+                parse_shard_jsonl(notes_data, "Knowledge shard notes are invalid.")?;
+            let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+            for note in notes {
+                let exists = notes_repo
+                    .exists_tx(&mut tx, note.id)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("check imported note conflict", error)
+                    })?;
+                if exists {
+                    match opts.on_conflict {
+                        ConflictStrategy::Skip | ConflictStrategy::Merge => {
+                            skipped.notes += 1;
+                            continue;
+                        }
+                        ConflictStrategy::Replace if !opts.dry_run => {
+                            notes_repo
+                                .hard_delete_tx(&mut tx, note.id)
+                                .await
+                                .map_err(|error| {
+                                    shard_operation_failed("replace imported note", error)
+                                })?;
+                        }
+                        ConflictStrategy::Replace => {}
+                    }
+                }
+
+                if opts.dry_run {
+                    imported.notes += 1;
+                    continue;
+                }
+
+                let note_id = note.id;
+                let req = CreateNoteRequest {
+                    content: note.original_content,
+                    format: note.format,
+                    source: note.source,
+                    collection_id: note.collection_id,
+                    tags: Some(note.tags),
+                    metadata: Some(note.metadata),
+                    document_type_id: None,
+                    title: note.title,
+                };
+                notes_repo
+                    .insert_with_id_tx(&mut tx, note_id, req)
+                    .await
+                    .map_err(|error| shard_operation_failed("insert imported note", error))?;
+                notes_repo
+                    .update_status_tx(
+                        &mut tx,
+                        note_id,
+                        UpdateNoteStatusRequest {
+                            starred: Some(note.starred),
+                            archived: Some(note.archived),
+                            metadata: None,
+                        },
+                    )
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("restore imported note status", error)
+                    })?;
+                if !note.revised_content.is_empty() {
+                    notes_repo
+                        .update_revised_tx(
+                            &mut tx,
+                            note_id,
+                            &note.revised_content,
+                            Some("Imported"),
+                        )
+                        .await
+                        .map_err(|error| {
+                            shard_operation_failed("restore imported note revision", error)
+                        })?;
+                }
+                sqlx::query(
+                    "UPDATE note
+                     SET created_at_utc = $2, updated_at_utc = $3
+                     WHERE id = $1",
+                )
+                .bind(note_id)
+                .bind(note.created_at)
+                .bind(note.updated_at)
+                .execute(&mut *tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("restore imported note timestamps", error)
+                })?;
+                if !opts.skip_embedding_regen {
+                    queued_note_ids.push(note_id);
+                }
+                imported.notes += 1;
+            }
+        }
+    }
+
+    if should_import("tags") {
+        if let Some(data) = files.get("tags.json") {
+            let tags = serde_json::from_slice::<Vec<ShardTagRecord>>(data)
+                .map_err(|_| shard_validation_failed("Knowledge shard tags are invalid."))?;
+            for tag in tags {
+                if !opts.dry_run {
+                    sqlx::query(
+                        "INSERT INTO tag (name, created_at_utc)
+                         VALUES ($1, $2)
+                         ON CONFLICT (name) DO NOTHING",
+                    )
+                    .bind(tag.name)
+                    .bind(tag.created_at)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|error| shard_operation_failed("apply tag import", error))?;
+                }
+                imported.tags += 1;
+            }
+        }
+    }
+
+    if should_import("templates") {
+        if let Some(data) = files.get("templates.json") {
+            let templates = serde_json::from_slice::<Vec<ShardTemplateRecord>>(data)
+                .map_err(|_| shard_validation_failed("Knowledge shard templates are invalid."))?;
+            for template in templates {
+                if opts.dry_run {
+                    imported.templates += 1;
+                    continue;
+                }
+                let result = if matches!(opts.on_conflict, ConflictStrategy::Replace) {
+                    sqlx::query(
+                        "INSERT INTO note_template
+                         (id, name, description, content, format, default_tags,
+                          collection_id, created_at_utc, updated_at_utc)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                         ON CONFLICT (id) DO UPDATE SET
+                             name = EXCLUDED.name,
+                             description = EXCLUDED.description,
+                             content = EXCLUDED.content,
+                             format = EXCLUDED.format,
+                             default_tags = EXCLUDED.default_tags,
+                             collection_id = EXCLUDED.collection_id,
+                             created_at_utc = EXCLUDED.created_at_utc,
+                             updated_at_utc = EXCLUDED.updated_at_utc",
+                    )
+                    .bind(template.id)
+                    .bind(template.name)
+                    .bind(template.description)
+                    .bind(template.content)
+                    .bind(template.format)
+                    .bind(template.default_tags)
+                    .bind(template.collection_id)
+                    .bind(template.created_at)
+                    .bind(template.updated_at)
+                    .execute(&mut *tx)
+                    .await
+                } else {
+                    sqlx::query(
+                        "INSERT INTO note_template
+                         (id, name, description, content, format, default_tags,
+                          collection_id, created_at_utc, updated_at_utc)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                         ON CONFLICT (id) DO NOTHING",
+                    )
+                    .bind(template.id)
+                    .bind(template.name)
+                    .bind(template.description)
+                    .bind(template.content)
+                    .bind(template.format)
+                    .bind(template.default_tags)
+                    .bind(template.collection_id)
+                    .bind(template.created_at)
+                    .bind(template.updated_at)
+                    .execute(&mut *tx)
+                    .await
+                }
+                .map_err(|error| shard_operation_failed("apply template import", error))?;
+                if result.rows_affected() == 0 {
+                    skipped.templates += 1;
+                } else {
+                    imported.templates += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("links") {
+        if let Some(data) = files.get("links.jsonl") {
+            let links: Vec<ShardLinkRecord> =
+                parse_shard_jsonl(data, "Knowledge shard links are invalid.")?;
+            for link in links {
+                if !opts.dry_run {
+                    let conflict = if matches!(opts.on_conflict, ConflictStrategy::Replace) {
+                        "ON CONFLICT (id) DO UPDATE SET
+                            from_note_id = EXCLUDED.from_note_id,
+                            to_note_id = EXCLUDED.to_note_id,
+                            to_url = EXCLUDED.to_url,
+                            kind = EXCLUDED.kind,
+                            score = EXCLUDED.score,
+                            created_at_utc = EXCLUDED.created_at_utc,
+                            metadata = EXCLUDED.metadata"
+                    } else {
+                        "ON CONFLICT (id) DO NOTHING"
+                    };
+                    sqlx::query(&format!(
+                        "INSERT INTO link
+                         (id, from_note_id, to_note_id, to_url, kind, score, created_at_utc, metadata)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                         {conflict}"
+                    ))
+                    .bind(link.id)
+                    .bind(link.from_note_id)
+                    .bind(link.to_note_id)
+                    .bind(link.to_url)
+                    .bind(link.kind)
+                    .bind(link.score)
+                    .bind(link.created_at)
+                    .bind(link.metadata)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|error| shard_operation_failed("apply link import", error))?;
+                }
+                imported.links += 1;
+            }
+        }
+    }
+
+    if opts.dry_run {
+        tx.rollback()
+            .await
+            .map_err(|error| shard_operation_failed("roll back import dry-run", error))?;
+    } else {
+        tx.commit()
+            .await
+            .map_err(|error| shard_operation_failed("commit import transaction", error))?;
+    }
+
+    Ok((imported, skipped, queued_note_ids))
+}
+
 /// Internal shard import function (reused by JSON, multipart, and swap endpoints).
 /// Accepts raw tar.gz bytes + options for archive-scoped imports (#421).
 async fn knowledge_shard_import_internal(
@@ -26608,7 +26962,6 @@ async fn knowledge_shard_import_internal(
 ) -> Result<ShardImportResponse, ApiError> {
     use sha2::{Digest, Sha256};
 
-    let ctx = state.db.for_schema(schema)?;
     let schema_for_jobs = if schema != "public" {
         Some(schema.to_string())
     } else {
@@ -26621,7 +26974,6 @@ async fn knowledge_shard_import_internal(
     )
     .map_err(ApiError::BadRequest)?;
 
-    // Parse manifest and check version
     let mut warnings: Vec<String> = Vec::new();
     let manifest_data = files
         .get("manifest.json")
@@ -26663,529 +27015,27 @@ async fn knowledge_shard_import_internal(
         warnings.push("Shard producer release metadata is absent.".to_string());
     }
 
-    let mut imported = ShardImportCounts::default();
-    let mut skipped = ShardImportCounts::default();
-    let mut errors: Vec<String> = Vec::new();
+    let (imported, skipped, queued_note_ids) =
+        apply_validated_shard_components(state, &files, &selected_components, opts, schema).await?;
 
-    // Determine what to import
-    let should_import = |component: &str| selected_components.contains(component);
-
-    let on_conflict = &opts.on_conflict;
-
-    // Collections must exist before notes and templates can retain their
-    // source hierarchy references.
-    if should_import("collections") {
-        if let Some(data) = files.get("collections.json") {
-            let collections = ordered_shard_collections(data).map_err(ApiError::BadRequest)?;
-            for collection in collections {
-                if opts.dry_run {
-                    imported.collections += 1;
-                    continue;
-                }
-                let replace = matches!(on_conflict, ConflictStrategy::Replace);
-                let res = ctx
-                    .execute(move |tx| {
-                        Box::pin(async move {
-                            let result = if replace {
-                                sqlx::query(
-                                    "INSERT INTO collection
-                                     (id, name, description, parent_id, created_at_utc)
-                                     VALUES ($1, $2, $3, $4, $5)
-                                     ON CONFLICT (id) DO UPDATE SET
-                                         name = EXCLUDED.name,
-                                         description = EXCLUDED.description,
-                                         parent_id = EXCLUDED.parent_id,
-                                         created_at_utc = EXCLUDED.created_at_utc",
-                                )
-                                .bind(collection.id)
-                                .bind(collection.name)
-                                .bind(collection.description)
-                                .bind(collection.parent_id)
-                                .bind(collection.created_at)
-                                .execute(&mut **tx)
-                                .await
-                            } else {
-                                sqlx::query(
-                                    "INSERT INTO collection
-                                     (id, name, description, parent_id, created_at_utc)
-                                     VALUES ($1, $2, $3, $4, $5)
-                                     ON CONFLICT (id) DO NOTHING",
-                                )
-                                .bind(collection.id)
-                                .bind(collection.name)
-                                .bind(collection.description)
-                                .bind(collection.parent_id)
-                                .bind(collection.created_at)
-                                .execute(&mut **tx)
-                                .await
-                            };
-                            result
-                                .map(|result| result.rows_affected())
-                                .map_err(matric_db::Error::Database)
-                        })
-                    })
-                    .await;
-                match res {
-                    Ok(0) => skipped.collections += 1,
-                    Ok(_) => imported.collections += 1,
-                    Err(_) => errors.push(shard_import_error("Collection import failed.")),
-                }
-            }
-        }
+    for note_id in queued_note_ids {
+        queue_nlp_pipeline(
+            &state.db,
+            note_id,
+            RevisionMode::None,
+            &state.event_bus,
+            schema_for_jobs.as_deref(),
+            None,
+        )
+        .await;
     }
-
-    // Import notes
-    if should_import("notes") {
-        if let Some(notes_data) = files.get("notes.jsonl") {
-            let notes_str = String::from_utf8_lossy(notes_data);
-            for line in notes_str.lines() {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                match serde_json::from_str::<serde_json::Value>(line) {
-                    Ok(note_json) => {
-                        let original_id = note_json
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .and_then(|s| Uuid::parse_str(s).ok());
-                        let content = note_json
-                            .get("original_content")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default();
-
-                        // Check if note exists
-                        let exists = if let Some(id) = original_id {
-                            let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
-                            ctx.query(move |tx| {
-                                Box::pin(async move { notes.fetch_tx(tx, id).await })
-                            })
-                            .await
-                            .is_ok()
-                        } else {
-                            false
-                        };
-
-                        if exists {
-                            match on_conflict {
-                                ConflictStrategy::Skip => {
-                                    skipped.notes += 1;
-                                    continue;
-                                }
-                                ConflictStrategy::Replace => {
-                                    if let Some(id) = original_id {
-                                        if !opts.dry_run {
-                                            let notes = matric_db::PgNoteRepository::new(
-                                                state.db.pool.clone(),
-                                            );
-                                            let _ = ctx
-                                                .execute(move |tx| {
-                                                    Box::pin(async move {
-                                                        notes.hard_delete_tx(tx, id).await
-                                                    })
-                                                })
-                                                .await;
-                                        }
-                                    }
-                                }
-                                ConflictStrategy::Merge => {
-                                    skipped.notes += 1;
-                                    continue;
-                                }
-                            }
-                        }
-
-                        if !opts.dry_run {
-                            let note_id = original_id.unwrap_or_else(matric_core::new_v7);
-                            let req = CreateNoteRequest {
-                                content: content.to_string(),
-                                format: note_json
-                                    .get("format")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("markdown")
-                                    .to_string(),
-                                source: note_json
-                                    .get("source")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("import")
-                                    .to_string(),
-                                collection_id: note_json
-                                    .get("collection_id")
-                                    .and_then(|v| v.as_str())
-                                    .and_then(|s| Uuid::parse_str(s).ok()),
-                                tags: note_json.get("tags").and_then(|v| v.as_array()).map(|arr| {
-                                    arr.iter()
-                                        .filter_map(|t| t.as_str().map(String::from))
-                                        .collect::<Vec<_>>()
-                                }),
-                                metadata: note_json.get("metadata").cloned(),
-                                document_type_id: None,
-                                // Preserve titles from imported shards (#675) so
-                                // the support archive's filepath-derived titles
-                                // survive round-trips through the shard format.
-                                title: note_json
-                                    .get("title")
-                                    .and_then(|v| v.as_str())
-                                    .map(String::from),
-                            };
-
-                            let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
-                            let insert_result = ctx
-                                .execute(move |tx| {
-                                    Box::pin(async move {
-                                        notes.insert_with_id_tx(tx, note_id, req).await
-                                    })
-                                })
-                                .await;
-
-                            match insert_result {
-                                Ok(new_id) => {
-                                    // Restore status flags independently when present.
-                                    let starred =
-                                        note_json.get("starred").and_then(|v| v.as_bool());
-                                    let archived =
-                                        note_json.get("archived").and_then(|v| v.as_bool());
-                                    if starred.is_some() || archived.is_some() {
-                                        let status_req = UpdateNoteStatusRequest {
-                                            starred,
-                                            archived,
-                                            metadata: None,
-                                        };
-                                        let notes =
-                                            matric_db::PgNoteRepository::new(state.db.pool.clone());
-                                        let _ = ctx
-                                            .execute(move |tx| {
-                                                Box::pin(async move {
-                                                    notes
-                                                        .update_status_tx(tx, new_id, status_req)
-                                                        .await
-                                                })
-                                            })
-                                            .await;
-                                    }
-                                    // Update revised content if available
-                                    if let Some(revised) =
-                                        note_json.get("revised_content").and_then(|v| v.as_str())
-                                    {
-                                        if !revised.is_empty() {
-                                            let notes = matric_db::PgNoteRepository::new(
-                                                state.db.pool.clone(),
-                                            );
-                                            let revised = revised.to_string();
-                                            let _ = ctx
-                                                .execute(move |tx| {
-                                                    Box::pin(async move {
-                                                        notes
-                                                            .update_revised_tx(
-                                                                tx,
-                                                                new_id,
-                                                                &revised,
-                                                                Some("Imported"),
-                                                            )
-                                                            .await
-                                                    })
-                                                })
-                                                .await;
-                                        }
-                                    }
-                                    // Apply source timestamps after revision restoration, which
-                                    // otherwise advances updated_at to the import time.
-                                    let created_at = note_json
-                                        .get("created_at")
-                                        .and_then(|value| value.as_str())
-                                        .and_then(|value| {
-                                            chrono::DateTime::parse_from_rfc3339(value).ok()
-                                        })
-                                        .map(|value| value.with_timezone(&chrono::Utc));
-                                    let updated_at = note_json
-                                        .get("updated_at")
-                                        .and_then(|value| value.as_str())
-                                        .and_then(|value| {
-                                            chrono::DateTime::parse_from_rfc3339(value).ok()
-                                        })
-                                        .map(|value| value.with_timezone(&chrono::Utc));
-                                    if created_at.is_some() || updated_at.is_some() {
-                                        let _ = ctx
-                                            .execute(move |tx| {
-                                                Box::pin(async move {
-                                                    sqlx::query(
-                                                        "UPDATE note
-                                                         SET created_at_utc = COALESCE($2, created_at_utc),
-                                                             updated_at_utc = COALESCE($3, updated_at_utc)
-                                                         WHERE id = $1",
-                                                    )
-                                                    .bind(new_id)
-                                                    .bind(created_at)
-                                                    .bind(updated_at)
-                                                    .execute(&mut **tx)
-                                                    .await
-                                                    .map(|_| ())
-                                                    .map_err(matric_db::Error::Database)
-                                                })
-                                            })
-                                            .await;
-                                    }
-                                    if !opts.skip_embedding_regen {
-                                        queue_nlp_pipeline(
-                                            &state.db,
-                                            new_id,
-                                            RevisionMode::None,
-                                            &state.event_bus,
-                                            schema_for_jobs.as_deref(),
-                                            None,
-                                        )
-                                        .await;
-                                    }
-                                    imported.notes += 1;
-                                }
-                                Err(_) => errors.push(shard_import_error("Note import failed.")),
-                            }
-                        } else {
-                            imported.notes += 1;
-                        }
-                    }
-                    Err(_) => errors.push(shard_import_error("Invalid note JSON.")),
-                }
-            }
-        }
-    }
-
-    // Import standalone tags, including tags not currently assigned to a note.
-    if should_import("tags") {
-        if let Some(data) = files.get("tags.json") {
-            match serde_json::from_slice::<Vec<serde_json::Value>>(data) {
-                Ok(tags) => {
-                    for tag in tags {
-                        let Some(name) = tag.get("name").and_then(|value| value.as_str()) else {
-                            errors.push(shard_import_error("Invalid tag JSON."));
-                            continue;
-                        };
-                        if !opts.dry_run {
-                            let name = name.to_string();
-                            let created_at = tag
-                                .get("created_at")
-                                .and_then(|value| value.as_str())
-                                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-                                .map(|value| value.with_timezone(&chrono::Utc))
-                                .unwrap_or_else(chrono::Utc::now);
-                            let res = ctx
-                                .execute(move |tx| {
-                                    Box::pin(async move {
-                                        sqlx::query(
-                                            "INSERT INTO tag (name, created_at_utc)
-                                             VALUES ($1, $2)
-                                             ON CONFLICT (name) DO NOTHING",
-                                        )
-                                        .bind(name)
-                                        .bind(created_at)
-                                        .execute(&mut **tx)
-                                        .await
-                                        .map(|_| ())
-                                        .map_err(matric_db::Error::Database)
-                                    })
-                                })
-                                .await;
-                            match res {
-                                Ok(_) => imported.tags += 1,
-                                Err(_) => skipped.tags += 1,
-                            }
-                        } else {
-                            imported.tags += 1;
-                        }
-                    }
-                }
-                Err(_) => errors.push(shard_import_error("Invalid tags JSON.")),
-            }
-        }
-    }
-
-    // Import templates
-    if should_import("templates") {
-        if let Some(data) = files.get("templates.json") {
-            let templates = serde_json::from_slice::<Vec<ShardTemplateRecord>>(data)
-                .map_err(|_| shard_validation_failed("Knowledge shard templates are invalid."))?;
-            for template in templates {
-                if opts.dry_run {
-                    imported.templates += 1;
-                    continue;
-                }
-                let replace = matches!(on_conflict, ConflictStrategy::Replace);
-                let res = ctx
-                    .execute(move |tx| {
-                        Box::pin(async move {
-                            let result = if replace {
-                                sqlx::query(
-                                    "INSERT INTO note_template
-                                     (id, name, description, content, format, default_tags,
-                                      collection_id, created_at_utc, updated_at_utc)
-                                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                                     ON CONFLICT (id) DO UPDATE SET
-                                         name = EXCLUDED.name,
-                                         description = EXCLUDED.description,
-                                         content = EXCLUDED.content,
-                                         format = EXCLUDED.format,
-                                         default_tags = EXCLUDED.default_tags,
-                                         collection_id = EXCLUDED.collection_id,
-                                         created_at_utc = EXCLUDED.created_at_utc,
-                                         updated_at_utc = EXCLUDED.updated_at_utc",
-                                )
-                                .bind(template.id)
-                                .bind(template.name)
-                                .bind(template.description)
-                                .bind(template.content)
-                                .bind(template.format)
-                                .bind(template.default_tags)
-                                .bind(template.collection_id)
-                                .bind(template.created_at)
-                                .bind(template.updated_at)
-                                .execute(&mut **tx)
-                                .await
-                            } else {
-                                sqlx::query(
-                                    "INSERT INTO note_template
-                                     (id, name, description, content, format, default_tags,
-                                      collection_id, created_at_utc, updated_at_utc)
-                                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                                     ON CONFLICT (id) DO NOTHING",
-                                )
-                                .bind(template.id)
-                                .bind(template.name)
-                                .bind(template.description)
-                                .bind(template.content)
-                                .bind(template.format)
-                                .bind(template.default_tags)
-                                .bind(template.collection_id)
-                                .bind(template.created_at)
-                                .bind(template.updated_at)
-                                .execute(&mut **tx)
-                                .await
-                            };
-                            result
-                                .map(|result| result.rows_affected())
-                                .map_err(matric_db::Error::Database)
-                        })
-                    })
-                    .await;
-                match res {
-                    Ok(0) => skipped.templates += 1,
-                    Ok(_) => imported.templates += 1,
-                    Err(_) => errors.push(shard_import_error("Template import failed.")),
-                }
-            }
-        }
-    }
-
-    // Import links
-    if should_import("links") {
-        if let Some(data) = files.get("links.jsonl") {
-            let links_str = String::from_utf8_lossy(data);
-            for line in links_str.lines() {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                if let Ok(link) = serde_json::from_str::<serde_json::Value>(line) {
-                    let from_id = link
-                        .get("from_note_id")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| Uuid::parse_str(s).ok());
-                    let to_id = link
-                        .get("to_note_id")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| Uuid::parse_str(s).ok());
-                    let to_url = link
-                        .get("to_url")
-                        .and_then(|v| v.as_str())
-                        .map(String::from);
-                    if let Some(from_id) = from_id {
-                        if to_id.is_none() == to_url.is_none() {
-                            errors.push(shard_import_error("Invalid link target."));
-                            continue;
-                        }
-                        if !opts.dry_run {
-                            let link_id = link
-                                .get("id")
-                                .and_then(|v| v.as_str())
-                                .and_then(|s| Uuid::parse_str(s).ok())
-                                .unwrap_or_else(matric_core::new_v7);
-                            let kind = link
-                                .get("kind")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("semantic")
-                                .to_string();
-                            let score =
-                                link.get("score").and_then(|v| v.as_f64()).unwrap_or(0.7) as f32;
-                            let created_at = link
-                                .get("created_at")
-                                .and_then(|value| value.as_str())
-                                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-                                .map(|value| value.with_timezone(&chrono::Utc))
-                                .unwrap_or_else(chrono::Utc::now);
-                            let metadata = link.get("metadata").cloned();
-                            let replace = matches!(on_conflict, ConflictStrategy::Replace);
-                            let res = ctx
-                                .execute(move |tx| {
-                                    Box::pin(async move {
-                                        let conflict = if replace {
-                                            "ON CONFLICT (id) DO UPDATE SET
-                                                from_note_id = EXCLUDED.from_note_id,
-                                                to_note_id = EXCLUDED.to_note_id,
-                                                to_url = EXCLUDED.to_url,
-                                                kind = EXCLUDED.kind,
-                                                score = EXCLUDED.score,
-                                                created_at_utc = EXCLUDED.created_at_utc,
-                                                metadata = EXCLUDED.metadata"
-                                        } else {
-                                            "ON CONFLICT (id) DO NOTHING"
-                                        };
-                                        sqlx::query(&format!(
-                                            "INSERT INTO link
-                                             (id, from_note_id, to_note_id, to_url, kind, score, created_at_utc, metadata)
-                                             VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, '{{}}'::jsonb))
-                                             {conflict}"
-                                        ))
-                                        .bind(link_id)
-                                        .bind(from_id)
-                                        .bind(to_id)
-                                        .bind(to_url)
-                                        .bind(kind)
-                                        .bind(score)
-                                        .bind(created_at)
-                                        .bind(metadata)
-                                        .execute(&mut **tx)
-                                        .await
-                                        .map(|_| ())
-                                        .map_err(matric_db::Error::Database)
-                                    })
-                                })
-                                .await;
-                            match res {
-                                Ok(_) => imported.links += 1,
-                                Err(_) => skipped.links += 1,
-                            }
-                        } else {
-                            imported.links += 1;
-                        }
-                    } else {
-                        errors.push(shard_import_error("Invalid link source."));
-                    }
-                }
-            }
-        }
-    }
-
-    let status = if errors.is_empty() {
-        "success"
-    } else if imported.notes > 0 {
-        "partial"
-    } else {
-        "failed"
-    };
 
     Ok(ShardImportResponse {
-        status: status.to_string(),
+        status: "success".to_string(),
         manifest: Some(manifest),
         imported,
         skipped,
-        errors,
+        errors: Vec::new(),
         warnings,
         dry_run: opts.dry_run,
     })
@@ -33362,23 +33212,6 @@ mod tests {
         assert!(problem.get("error_description").is_none());
     }
 
-    #[test]
-    fn shard_import_error_returns_fixed_text_without_raw_detail() {
-        let db_message = shard_import_error("Note import failed.");
-        let json_message = shard_import_error("Invalid note JSON.");
-
-        assert_eq!(db_message, "Note import failed.");
-        assert_eq!(json_message, "Invalid note JSON.");
-        for message in [db_message, json_message] {
-            assert!(!message.contains("postgres://"));
-            assert!(!message.contains("secret"));
-            assert!(!message.contains("/srv/fortemi"));
-            assert!(!message.contains("SQLSTATE"));
-            assert!(!message.contains("line"));
-            assert!(!message.contains("column"));
-        }
-    }
-
     #[tokio::test]
     async fn shard_validation_failed_returns_fixed_problem_without_raw_detail() {
         let err = shard_validation_failed("Invalid shard archive.");
@@ -35628,6 +35461,81 @@ mod tests {
             .await
             .expect("read clean destination after rejected dry-run");
         assert_eq!(clean_counts, (0, 0, 0, 0));
+
+        let rollback_name = format!("shard-rollback-{}", Uuid::new_v4().simple());
+        let rollback_destination = db
+            .archives
+            .create_archive_schema(&rollback_name, Some("Knowledge Shard atomic rollback test"))
+            .await
+            .expect("create isolated rollback destination");
+        let rollback_ctx = db.for_schema(&rollback_destination.schema_name).unwrap();
+        let mut setup_tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin rollback failure injection setup");
+        sqlx::query(
+            "CREATE FUNCTION reject_shard_link_insert()
+             RETURNS trigger
+             LANGUAGE plpgsql
+             AS $$
+             BEGIN
+                 RAISE EXCEPTION 'injected shard link failure';
+             END;
+             $$",
+        )
+        .execute(&mut *setup_tx)
+        .await
+        .expect("create deterministic late-write failure function");
+        sqlx::query(
+            "CREATE TRIGGER reject_shard_link_insert
+             BEFORE INSERT ON link
+             FOR EACH ROW EXECUTE FUNCTION reject_shard_link_insert()",
+        )
+        .execute(&mut *setup_tx)
+        .await
+        .expect("create deterministic late-write failure trigger");
+        setup_tx
+            .commit()
+            .await
+            .expect("commit rollback failure injection setup");
+
+        let error = knowledge_shard_import_internal(
+            &state,
+            &exported_bytes,
+            &opts,
+            &rollback_destination.schema_name,
+        )
+        .await
+        .expect_err("late link failure must abort the entire shard import");
+        match &error {
+            ApiError::OperationFailed { operation, .. } => {
+                assert_eq!(*operation, "Knowledge shard")
+            }
+            other => panic!("database apply failure must use the safe operation error: {other:?}"),
+        }
+        let rollback_counts = rollback_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM collection),
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM tag),
+                           (SELECT COUNT(*) FROM note_template),
+                           (SELECT COUNT(*) FROM link)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read destination after rolled-back import");
+        assert_eq!(rollback_counts, (0, 0, 0, 0, 0));
+        db.archives
+            .drop_archive_schema(&rollback_name)
+            .await
+            .expect("drop isolated rollback destination");
 
         for _ in 0..2 {
             let result = knowledge_shard_import_internal(

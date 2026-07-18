@@ -1,0 +1,75 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T02:48:11Z"
+  description: "Provenance for Fortemi issue #923 atomic Knowledge Shard database apply"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:89a3255db5273c40221bc49295789ae9e286b0e3698ee1bf979b9ded2f8d0352"
+  type: code
+  created_at: "2026-07-18T02:48:11Z"
+  updated_at: "2026-07-18T02:48:11Z"
+  checksum: "sha256:89a3255db5273c40221bc49295789ae9e286b0e3698ee1bf979b9ded2f8d0352"
+  size_bytes: 1718764
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#923"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-atomic-apply-923:002"
+  type: modification
+  started_at: "2026-07-18T02:38:35Z"
+  ended_at: "2026-07-18T02:48:11Z"
+  description: "Apply validated collections, notes, tags, templates, and links in one schema transaction, fail closed on database errors, defer NLP enqueue until commit, and prove rollback after a deterministic late link-write failure"
+  attributes:
+    verification:
+      - "cargo test -p matric-api --bin matric-api --locked shard_core_v1_server_export_clean_import_preserves_semantic_state: 1 passed"
+      - "cargo test -p matric-api --bin matric-api --locked: 771 passed"
+      - "cargo clippy -p matric-api --all-targets --locked -- -D warnings"
+      - "cargo check -p matric-api --bin matric-api --locked"
+      - "scripts/ci/openapi-contract.sh check"
+      - "npm run docs:contract"
+      - "npm run docs:build"
+      - "cargo fmt --all -- --check"
+      - "git diff --check"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+  attributes:
+    delegated_roles:
+      - security-engineer
+      - software-implementer
+      - test-engineer
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:89a3255db5273c40221bc49295789ae9e286b0e3698ee1bf979b9ded2f8d0352"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-atomic-apply-923:002"
+    time: "2026-07-18T02:48:11Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-atomic-apply-923:002"
+      entity: "urn:gitea:issue:Fortemi/fortemi:923"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-atomic-apply-923:002"
+      entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:c6a64ce71bb5368b4fafbe4ec405e95760c3acb0f75d87a7203a9dd5c9642de7"
+      role: canonical_contract
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:89a3255db5273c40221bc49295789ae9e286b0e3698ee1bf979b9ded2f8d0352"
+      source: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:2b0e42d24b3596cf67cc608b5c1eb85198eac5e16692b6c1cf36a38452a9aacd"
+      derivation_type: extends
+      activity: "urn:aiwg:activity:modification:knowledge-shard-atomic-apply-923:002"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:89a3255db5273c40221bc49295789ae9e286b0e3698ee1bf979b9ded2f8d0352"
+      source: "urn:gitea:issue:Fortemi/fortemi:923"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:knowledge-shard-atomic-apply-923:002"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:89a3255db5273c40221bc49295789ae9e286b0e3698ee1bf979b9ded2f8d0352"
+      source: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:c6a64ce71bb5368b4fafbe4ec405e95760c3acb0f75d87a7203a9dd5c9642de7"
+      derivation_type: conforms_to
+      activity: "urn:aiwg:activity:modification:knowledge-shard-atomic-apply-923:002"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-atomic-apply-923:002"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:89a3255db5273c40221bc49295789ae9e286b0e3698ee1bf979b9ded2f8d0352"
+    agent: "urn:aiwg:agent:codex-gpt-5"

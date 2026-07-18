@@ -195,13 +195,17 @@ rejecting unsafe paths, duplicate names, and non-regular tar entries. Default
 export includes roots and descendants. Import creates collections before
 dependent notes and templates, preserves collection and template IDs and source
 timestamps, restores source note timestamps after revised content, and uses
-stable-ID conflict handling for repeated imports. The current positive and
+stable-ID conflict handling for repeated imports. Ordinary import applies all
+selected database components in one schema-scoped transaction; a late database
+failure rolls back collections, notes, tags, templates, and links together, and
+post-import NLP jobs are queued only after commit. The current positive and
 negative corpus is pinned by the schema receipt.
 
-Known gaps remain in atomic apply, complete tombstone and absent/null semantic
-preservation, attachment bytes, richer profiles, migration history, and
-cross-repository conformance receipts. Those gaps remain tracked release
-blockers, not implicit `core-v1` or `full-v1` claims.
+Known gaps remain in atomic destructive wipe-plus-apply swap, complete
+tombstone and absent/null semantic preservation, attachment bytes, richer
+profiles, migration history, and cross-repository conformance receipts. Those
+gaps remain tracked release blockers, not implicit `core-v1` or `full-v1`
+claims.
 
 Until the release gates pass:
 

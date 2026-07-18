@@ -405,9 +405,16 @@ bytes. The optional self-contained sidecar format is defined in
 Multipart upload reads the file incrementally up to the compressed limit.
 Base64 and on-disk swap inputs are bounded before decode or allocation.
 Dry-run and real import use the same structure, checksum, schema, count, and
-relationship preflight before normal writes. Atomic application of the entire
-validated plan remains a tracked conformance gap; do not treat `core-v1` as a
-complete disaster-recovery profile.
+relationship preflight before normal writes. Ordinary import applies all
+selected database components in one schema-scoped transaction: any database
+failure rolls back collections, notes, tags, templates, and links together.
+NLP regeneration is queued only after that transaction commits.
+
+Destructive on-disk swap with the `wipe` strategy validates before deletion,
+but wipe and apply are not yet one atomic operation. A later apply failure can
+therefore leave the destination wiped. Keep a database-level backup before a
+destructive swap, and do not treat `core-v1` as a complete disaster-recovery
+profile.
 
 ### knowledge_shard_import
 

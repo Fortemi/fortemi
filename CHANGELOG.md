@@ -30,6 +30,9 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   on-disk swap now reject oversized compressed or expanded archives, unsafe or
   duplicate paths, non-regular tar entries, excessive entries, and oversized
   component records before checksum/schema validation or database mutation.
+  Ordinary imports apply every selected database component in one
+  schema-scoped transaction, fail closed on any database error, and enqueue NLP
+  work only after commit.
 
 ## [2026.7.1] - 2026-07-13
 
