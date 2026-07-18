@@ -8,6 +8,11 @@ repository.workspace = true
 authors.workspace = true
 homepage.workspace = true
 
+[[test]]
+name = "feb_to_current_migration_gate"
+path = "tests/feb_to_current_migration_gate.rs"
+required-features = ["migrations"]
+
 [dependencies]
 # Internal
 matric-core.workspace = true
