@@ -22017,6 +22017,26 @@ struct ShardCounts {
     provenance_devices: usize,
     #[serde(skip_serializing_if = "shard_count_is_zero")]
     provenance_records: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    skos_schemes: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    skos_concepts: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    skos_labels: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    skos_notes: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    skos_relations: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    skos_mapping_relations: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    skos_scheme_memberships: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    note_skos_tags: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    skos_collections: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    skos_collection_members: usize,
     collections: usize,
     tags: usize,
     templates: usize,
@@ -22303,6 +22323,150 @@ struct ShardUnifiedProvenanceRecord {
     original_location_id: Option<Uuid>,
     correction_note: Option<String>,
     created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardSkosSchemeRecord {
+    id: Uuid,
+    uri: Option<String>,
+    notation: String,
+    title: String,
+    description: Option<String>,
+    creator: Option<String>,
+    publisher: Option<String>,
+    rights: Option<String>,
+    version: Option<String>,
+    is_active: bool,
+    is_system: bool,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+    issued_at: Option<chrono::DateTime<chrono::Utc>>,
+    modified_at: Option<chrono::DateTime<chrono::Utc>>,
+    embedding: Option<Vec<f32>>,
+    embedding_model: Option<String>,
+    embedded_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardSkosConceptRecord {
+    id: Uuid,
+    primary_scheme_id: Uuid,
+    uri: Option<String>,
+    notation: Option<String>,
+    facet_type: Option<String>,
+    facet_source: Option<String>,
+    facet_domain: Option<String>,
+    facet_scope: Option<String>,
+    status: String,
+    promoted_at: Option<chrono::DateTime<chrono::Utc>>,
+    deprecated_at: Option<chrono::DateTime<chrono::Utc>>,
+    deprecation_reason: Option<String>,
+    replaced_by_id: Option<Uuid>,
+    note_count: i32,
+    first_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    depth: i32,
+    broader_count: i32,
+    narrower_count: i32,
+    related_count: i32,
+    antipatterns: Vec<String>,
+    antipattern_checked_at: Option<chrono::DateTime<chrono::Utc>>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+    embedding: Option<Vec<f32>>,
+    embedding_model: Option<String>,
+    embedded_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardSkosLabelRecord {
+    id: Uuid,
+    concept_id: Uuid,
+    label_type: String,
+    value: String,
+    language: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardSkosNoteRecord {
+    id: Uuid,
+    concept_id: Uuid,
+    note_type: String,
+    value: String,
+    language: String,
+    author: Option<String>,
+    source: Option<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardSkosRelationRecord {
+    id: Uuid,
+    subject_id: Uuid,
+    object_id: Uuid,
+    relation_type: String,
+    inference_score: Option<f32>,
+    is_inferred: bool,
+    is_validated: bool,
+    created_at: chrono::DateTime<chrono::Utc>,
+    created_by: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardSkosMappingRelationRecord {
+    id: Uuid,
+    concept_id: Uuid,
+    target_uri: String,
+    target_scheme_uri: Option<String>,
+    target_label: Option<String>,
+    relation_type: String,
+    confidence: Option<f32>,
+    is_validated: bool,
+    created_at: chrono::DateTime<chrono::Utc>,
+    validated_at: Option<chrono::DateTime<chrono::Utc>>,
+    validated_by: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardSkosSchemeMembershipRecord {
+    concept_id: Uuid,
+    scheme_id: Uuid,
+    is_top_concept: bool,
+    added_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardNoteSkosTagRecord {
+    note_id: Uuid,
+    concept_id: Uuid,
+    source: String,
+    confidence: Option<f32>,
+    relevance_score: Option<f32>,
+    is_primary: bool,
+    created_at: chrono::DateTime<chrono::Utc>,
+    created_by: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardSkosCollectionRecord {
+    id: Uuid,
+    uri: Option<String>,
+    pref_label: String,
+    definition: Option<String>,
+    is_ordered: bool,
+    scheme_id: Option<Uuid>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardSkosCollectionMemberRecord {
+    collection_id: Uuid,
+    concept_id: Uuid,
+    position: Option<i32>,
+    added_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -22868,6 +23032,16 @@ fn shard_component_filename(component: &str) -> Option<&'static str> {
         "provenance_locations" => Some("provenance_locations.jsonl"),
         "provenance_devices" => Some("provenance_devices.jsonl"),
         "provenance_records" => Some("provenance_records.jsonl"),
+        "skos_schemes" => Some("skos_schemes.json"),
+        "skos_concepts" => Some("skos_concepts.json"),
+        "skos_labels" => Some("skos_labels.jsonl"),
+        "skos_notes" => Some("skos_notes.jsonl"),
+        "skos_relations" => Some("skos_relations.jsonl"),
+        "skos_mapping_relations" => Some("skos_mapping_relations.jsonl"),
+        "skos_scheme_memberships" => Some("skos_scheme_memberships.jsonl"),
+        "note_skos_tags" => Some("note_skos_tags.jsonl"),
+        "skos_collections" => Some("skos_collections.json"),
+        "skos_collection_members" => Some("skos_collection_members.jsonl"),
         "collections" => Some("collections.json"),
         "tags" => Some("tags.json"),
         "templates" => Some("templates.json"),
@@ -23230,6 +23404,13 @@ fn parse_shard_component_records_with_limits(
         | "provenance_locations"
         | "provenance_devices"
         | "provenance_records"
+        | "skos_labels"
+        | "skos_notes"
+        | "skos_relations"
+        | "skos_mapping_relations"
+        | "skos_scheme_memberships"
+        | "note_skos_tags"
+        | "skos_collection_members"
         | "links"
         | "embedding_set_members"
         | "embeddings" => {
@@ -23240,7 +23421,8 @@ fn parse_shard_component_records_with_limits(
             })?;
             Ok(records)
         }
-        "collections" | "tags" | "templates" | "embedding_sets" | "embedding_configs" => {
+        "collections" | "tags" | "templates" | "skos_schemes" | "skos_concepts"
+        | "skos_collections" | "embedding_sets" | "embedding_configs" => {
             let mut records = Vec::new();
             visit_shard_json_array_values_with_limits(
                 data,
@@ -25226,6 +25408,385 @@ async fn knowledge_shard(
                 serialize_shard_export_jsonl(&records, "serialize unified provenance records")?;
             add_json_file("provenance_records.jsonl", &data).map_err(|error| {
                 shard_operation_failed("add unified provenance records to shard", error)
+            })?;
+        }
+
+        if components.contains(&"skos_schemes") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, uri, notation, title, description, creator, publisher,
+                       rights, version, is_active, is_system, created_at, updated_at,
+                       issued_at, modified_at, embedding, embedding_model, embedded_at
+                FROM skos_concept_scheme
+                ORDER BY notation, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read SKOS schemes", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardSkosSchemeRecord {
+                    id: row.get("id"),
+                    uri: row.get("uri"),
+                    notation: row.get("notation"),
+                    title: row.get("title"),
+                    description: row.get("description"),
+                    creator: row.get("creator"),
+                    publisher: row.get("publisher"),
+                    rights: row.get("rights"),
+                    version: row.get("version"),
+                    is_active: row.get("is_active"),
+                    is_system: row.get("is_system"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                    issued_at: row.get("issued_at"),
+                    modified_at: row.get("modified_at"),
+                    embedding: row
+                        .get::<Option<pgvector::Vector>, _>("embedding")
+                        .map(|value| value.as_slice().to_vec()),
+                    embedding_model: row.get("embedding_model"),
+                    embedded_at: row.get("embedded_at"),
+                })
+                .collect::<Vec<_>>();
+            counts.skos_schemes = records.len();
+            let data = serde_json::to_vec_pretty(&records)
+                .map_err(|error| shard_operation_failed("serialize SKOS schemes", error))?;
+            add_json_file("skos_schemes.json", &data)
+                .map_err(|error| shard_operation_failed("add SKOS schemes to shard", error))?;
+        }
+
+        if components.contains(&"skos_concepts") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, primary_scheme_id, uri, notation,
+                       facet_type::text AS facet_type, facet_source, facet_domain,
+                       facet_scope, status::text AS status, promoted_at, deprecated_at,
+                       deprecation_reason, replaced_by_id, note_count, first_used_at,
+                       last_used_at, depth, broader_count, narrower_count, related_count,
+                       antipatterns::text[] AS antipatterns, antipattern_checked_at,
+                       created_at, updated_at, embedding, embedding_model, embedded_at
+                FROM skos_concept
+                ORDER BY primary_scheme_id, notation NULLS LAST, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read SKOS concepts", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardSkosConceptRecord {
+                    id: row.get("id"),
+                    primary_scheme_id: row.get("primary_scheme_id"),
+                    uri: row.get("uri"),
+                    notation: row.get("notation"),
+                    facet_type: row.get("facet_type"),
+                    facet_source: row.get("facet_source"),
+                    facet_domain: row.get("facet_domain"),
+                    facet_scope: row.get("facet_scope"),
+                    status: row.get("status"),
+                    promoted_at: row.get("promoted_at"),
+                    deprecated_at: row.get("deprecated_at"),
+                    deprecation_reason: row.get("deprecation_reason"),
+                    replaced_by_id: row.get("replaced_by_id"),
+                    note_count: row.get("note_count"),
+                    first_used_at: row.get("first_used_at"),
+                    last_used_at: row.get("last_used_at"),
+                    depth: row.get("depth"),
+                    broader_count: row.get("broader_count"),
+                    narrower_count: row.get("narrower_count"),
+                    related_count: row.get("related_count"),
+                    antipatterns: row.get("antipatterns"),
+                    antipattern_checked_at: row.get("antipattern_checked_at"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                    embedding: row
+                        .get::<Option<pgvector::Vector>, _>("embedding")
+                        .map(|value| value.as_slice().to_vec()),
+                    embedding_model: row.get("embedding_model"),
+                    embedded_at: row.get("embedded_at"),
+                })
+                .collect::<Vec<_>>();
+            counts.skos_concepts = records.len();
+            let data = serde_json::to_vec_pretty(&records)
+                .map_err(|error| shard_operation_failed("serialize SKOS concepts", error))?;
+            add_json_file("skos_concepts.json", &data)
+                .map_err(|error| shard_operation_failed("add SKOS concepts to shard", error))?;
+        }
+
+        if components.contains(&"skos_labels") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, concept_id, label_type::text AS label_type, value,
+                       language, created_at
+                FROM skos_concept_label
+                ORDER BY concept_id, language, label_type, value, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read SKOS labels", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardSkosLabelRecord {
+                    id: row.get("id"),
+                    concept_id: row.get("concept_id"),
+                    label_type: row.get("label_type"),
+                    value: row.get("value"),
+                    language: row.get("language"),
+                    created_at: row.get("created_at"),
+                })
+                .collect::<Vec<_>>();
+            counts.skos_labels = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize SKOS labels")?;
+            add_json_file("skos_labels.jsonl", &data)
+                .map_err(|error| shard_operation_failed("add SKOS labels to shard", error))?;
+        }
+
+        if components.contains(&"skos_notes") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, concept_id, note_type::text AS note_type, value, language,
+                       author, source, created_at, updated_at
+                FROM skos_concept_note
+                ORDER BY concept_id, note_type, language, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read SKOS notes", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardSkosNoteRecord {
+                    id: row.get("id"),
+                    concept_id: row.get("concept_id"),
+                    note_type: row.get("note_type"),
+                    value: row.get("value"),
+                    language: row.get("language"),
+                    author: row.get("author"),
+                    source: row.get("source"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                })
+                .collect::<Vec<_>>();
+            counts.skos_notes = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize SKOS notes")?;
+            add_json_file("skos_notes.jsonl", &data)
+                .map_err(|error| shard_operation_failed("add SKOS notes to shard", error))?;
+        }
+
+        if components.contains(&"skos_relations") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, subject_id, object_id, relation_type::text AS relation_type,
+                       inference_score, is_inferred, is_validated, created_at, created_by
+                FROM skos_semantic_relation_edge
+                ORDER BY subject_id, object_id, relation_type, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read SKOS relations", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardSkosRelationRecord {
+                    id: row.get("id"),
+                    subject_id: row.get("subject_id"),
+                    object_id: row.get("object_id"),
+                    relation_type: row.get("relation_type"),
+                    inference_score: row.get("inference_score"),
+                    is_inferred: row.get("is_inferred"),
+                    is_validated: row.get("is_validated"),
+                    created_at: row.get("created_at"),
+                    created_by: row.get("created_by"),
+                })
+                .collect::<Vec<_>>();
+            counts.skos_relations = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize SKOS relations")?;
+            add_json_file("skos_relations.jsonl", &data)
+                .map_err(|error| shard_operation_failed("add SKOS relations to shard", error))?;
+        }
+
+        if components.contains(&"skos_mapping_relations") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, concept_id, target_uri, target_scheme_uri, target_label,
+                       relation_type::text AS relation_type, confidence, is_validated,
+                       created_at, validated_at, validated_by
+                FROM skos_mapping_relation_edge
+                ORDER BY concept_id, target_uri, relation_type, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read SKOS mapping relations", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardSkosMappingRelationRecord {
+                    id: row.get("id"),
+                    concept_id: row.get("concept_id"),
+                    target_uri: row.get("target_uri"),
+                    target_scheme_uri: row.get("target_scheme_uri"),
+                    target_label: row.get("target_label"),
+                    relation_type: row.get("relation_type"),
+                    confidence: row.get("confidence"),
+                    is_validated: row.get("is_validated"),
+                    created_at: row.get("created_at"),
+                    validated_at: row.get("validated_at"),
+                    validated_by: row.get("validated_by"),
+                })
+                .collect::<Vec<_>>();
+            counts.skos_mapping_relations = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize SKOS mapping relations")?;
+            add_json_file("skos_mapping_relations.jsonl", &data).map_err(|error| {
+                shard_operation_failed("add SKOS mapping relations to shard", error)
+            })?;
+        }
+
+        if components.contains(&"skos_scheme_memberships") {
+            let rows = sqlx::query(
+                r#"
+                SELECT concept_id, scheme_id, is_top_concept, added_at
+                FROM skos_concept_in_scheme
+                ORDER BY concept_id, scheme_id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read SKOS scheme memberships", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardSkosSchemeMembershipRecord {
+                    concept_id: row.get("concept_id"),
+                    scheme_id: row.get("scheme_id"),
+                    is_top_concept: row.get("is_top_concept"),
+                    added_at: row.get("added_at"),
+                })
+                .collect::<Vec<_>>();
+            counts.skos_scheme_memberships = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize SKOS scheme memberships")?;
+            add_json_file("skos_scheme_memberships.jsonl", &data).map_err(|error| {
+                shard_operation_failed("add SKOS scheme memberships to shard", error)
+            })?;
+        }
+
+        if components.contains(&"note_skos_tags") {
+            let rows = sqlx::query(
+                r#"
+                SELECT note_id, concept_id, source, confidence, relevance_score,
+                       is_primary, created_at, created_by
+                FROM note_skos_concept
+                ORDER BY note_id, concept_id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read note SKOS tags", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardNoteSkosTagRecord {
+                    note_id: row.get("note_id"),
+                    concept_id: row.get("concept_id"),
+                    source: row.get("source"),
+                    confidence: row.get("confidence"),
+                    relevance_score: row.get("relevance_score"),
+                    is_primary: row.get("is_primary"),
+                    created_at: row.get("created_at"),
+                    created_by: row.get("created_by"),
+                })
+                .collect::<Vec<_>>();
+            counts.note_skos_tags = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize note SKOS tags")?;
+            add_json_file("note_skos_tags.jsonl", &data)
+                .map_err(|error| shard_operation_failed("add note SKOS tags to shard", error))?;
+        }
+
+        if components.contains(&"skos_collections") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, uri, pref_label, definition, is_ordered, scheme_id,
+                       created_at, updated_at
+                FROM skos_collection
+                ORDER BY pref_label, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read SKOS collections", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardSkosCollectionRecord {
+                    id: row.get("id"),
+                    uri: row.get("uri"),
+                    pref_label: row.get("pref_label"),
+                    definition: row.get("definition"),
+                    is_ordered: row.get("is_ordered"),
+                    scheme_id: row.get("scheme_id"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                })
+                .collect::<Vec<_>>();
+            counts.skos_collections = records.len();
+            let data = serde_json::to_vec_pretty(&records)
+                .map_err(|error| shard_operation_failed("serialize SKOS collections", error))?;
+            add_json_file("skos_collections.json", &data)
+                .map_err(|error| shard_operation_failed("add SKOS collections to shard", error))?;
+        }
+
+        if components.contains(&"skos_collection_members") {
+            let rows = sqlx::query(
+                r#"
+                SELECT collection_id, concept_id, position, added_at
+                FROM skos_collection_member
+                ORDER BY collection_id, position NULLS LAST, concept_id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read SKOS collection members", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardSkosCollectionMemberRecord {
+                    collection_id: row.get("collection_id"),
+                    concept_id: row.get("concept_id"),
+                    position: row.get("position"),
+                    added_at: row.get("added_at"),
+                })
+                .collect::<Vec<_>>();
+            counts.skos_collection_members = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize SKOS collection members")?;
+            add_json_file("skos_collection_members.jsonl", &data).map_err(|error| {
+                shard_operation_failed("add SKOS collection members to shard", error)
             })?;
         }
 
@@ -45802,6 +46363,93 @@ not-json
                 .unwrap_err(),
             "Knowledge shard component exceeds the record count limit."
         );
+        assert_eq!(
+            parse_shard_component_records_with_limits("skos_concepts", &data, 1, 1024).unwrap_err(),
+            "Knowledge shard component exceeds the record count limit."
+        );
+        assert_eq!(
+            parse_shard_component_records_with_limits("skos_relations", b"{}\n{}", 1, 1024,)
+                .unwrap_err(),
+            "Knowledge shard component exceeds the record count limit."
+        );
+    }
+
+    #[test]
+    fn shard_skos_candidate_components_have_stable_archive_names() {
+        let expected = [
+            ("skos_schemes", "skos_schemes.json"),
+            ("skos_concepts", "skos_concepts.json"),
+            ("skos_labels", "skos_labels.jsonl"),
+            ("skos_notes", "skos_notes.jsonl"),
+            ("skos_relations", "skos_relations.jsonl"),
+            ("skos_mapping_relations", "skos_mapping_relations.jsonl"),
+            ("skos_scheme_memberships", "skos_scheme_memberships.jsonl"),
+            ("note_skos_tags", "note_skos_tags.jsonl"),
+            ("skos_collections", "skos_collections.json"),
+            ("skos_collection_members", "skos_collection_members.jsonl"),
+        ];
+
+        for (component, filename) in expected {
+            assert_eq!(shard_component_filename(component), Some(filename));
+        }
+    }
+
+    #[test]
+    fn shard_skos_concept_record_preserves_rich_server_fields() {
+        let value = serde_json::json!({
+            "id": "018f2d2d-bc00-7cc8-8ad2-f147d6a2e771",
+            "primary_scheme_id": "018f2d2d-bc00-7cc8-8ad2-f147d6a2e772",
+            "uri": "https://example.test/concepts/portable",
+            "notation": "portable",
+            "facet_type": "personality",
+            "facet_source": "operator",
+            "facet_domain": "knowledge-management",
+            "facet_scope": "portable shard data",
+            "status": "approved",
+            "promoted_at": "2026-07-17T12:00:00Z",
+            "deprecated_at": null,
+            "deprecation_reason": null,
+            "replaced_by_id": null,
+            "note_count": 4,
+            "first_used_at": "2026-07-15T12:00:00Z",
+            "last_used_at": "2026-07-17T12:00:00Z",
+            "depth": 2,
+            "broader_count": 1,
+            "narrower_count": 3,
+            "related_count": 2,
+            "antipatterns": ["overlapping"],
+            "antipattern_checked_at": "2026-07-17T12:00:00Z",
+            "created_at": "2026-07-14T12:00:00Z",
+            "updated_at": "2026-07-17T12:00:00Z",
+            "embedding": [0.125, -0.25],
+            "embedding_model": "fixture-model",
+            "embedded_at": "2026-07-17T12:00:00Z"
+        });
+
+        let record: ShardSkosConceptRecord = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(record).unwrap(), value);
+    }
+
+    #[test]
+    fn shard_skos_counts_are_present_only_when_nonzero() {
+        let counts = ShardCounts {
+            skos_schemes: 1,
+            skos_concepts: 2,
+            skos_labels: 3,
+            skos_notes: 4,
+            skos_relations: 5,
+            skos_mapping_relations: 6,
+            skos_scheme_memberships: 7,
+            note_skos_tags: 8,
+            skos_collections: 9,
+            skos_collection_members: 10,
+            ..ShardCounts::default()
+        };
+        let value = serde_json::to_value(counts).unwrap();
+
+        assert_eq!(value["skos_schemes"], 1);
+        assert_eq!(value["skos_collection_members"], 10);
+        assert!(value.get("note_originals").is_none());
     }
 
     #[test]
@@ -45830,6 +46478,16 @@ not-json
                 provenance_locations: 0,
                 provenance_devices: 0,
                 provenance_records: 0,
+                skos_schemes: 0,
+                skos_concepts: 0,
+                skos_labels: 0,
+                skos_notes: 0,
+                skos_relations: 0,
+                skos_mapping_relations: 0,
+                skos_scheme_memberships: 0,
+                note_skos_tags: 0,
+                skos_collections: 0,
+                skos_collection_members: 0,
                 collections: 5,
                 tags: 20,
                 templates: 3,
@@ -45887,6 +46545,16 @@ not-json
                 provenance_locations: 0,
                 provenance_devices: 0,
                 provenance_records: 0,
+                skos_schemes: 0,
+                skos_concepts: 0,
+                skos_labels: 0,
+                skos_notes: 0,
+                skos_relations: 0,
+                skos_mapping_relations: 0,
+                skos_scheme_memberships: 0,
+                note_skos_tags: 0,
+                skos_collections: 0,
+                skos_collection_members: 0,
                 collections: 1,
                 tags: 2,
                 templates: 1,
