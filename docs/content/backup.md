@@ -722,7 +722,7 @@ BACKUP_ENCRYPT=/etc/Fortémi/backup-key.pub
 
 # Database
 PGUSER=matric
-PGPASSWORD=<POSTGRES_PASSWORD>
+PGPASSFILE=/run/secrets/fortemi-pgpass
 PGHOST=localhost
 PGPORT=5432
 PGDATABASE=matric
@@ -730,6 +730,11 @@ PGDATABASE=matric
 # Logging
 LOG_FILE=/var/log/Fortémi/backup.log
 ```
+
+`PGPASSFILE` must point to an operator-managed secret file owned by the backup
+service account with mode `0600`. Its PostgreSQL password-file entry uses
+`hostname:port:database:username:<POSTGRES_PASSWORD>`; do not place the password
+in the tracked configuration file, command line, or shell history.
 
 Or use environment variables:
 
@@ -817,25 +822,28 @@ journalctl -u matric-backup.service -f
 # 1. Stop the API service
 sudo systemctl stop matric-api
 
+# Use an operator-managed PostgreSQL password file (mode 0600)
+export PGPASSFILE=/run/secrets/fortemi-pgpass
+
 # 2. List available backups
 ls -lh /var/backups/fortemi/
 
 # 3. Drop and recreate database
-PGPASSWORD=<POSTGRES_PASSWORD> psql -U matric -h localhost -c "DROP DATABASE matric;"
-PGPASSWORD=<POSTGRES_PASSWORD> psql -U matric -h localhost -c "CREATE DATABASE matric;"
+psql -U matric -h localhost -c "DROP DATABASE matric;"
+psql -U matric -h localhost -c "CREATE DATABASE matric;"
 
 # 4. Restore from backup
 # For .sql files:
-PGPASSWORD=<POSTGRES_PASSWORD> psql -U matric -h localhost -d matric -f backup.sql
+psql -U matric -h localhost -d matric -f backup.sql
 
 # For .sql.gz files:
-gunzip -c matric_backup_YYYYMMDD.sql.gz | PGPASSWORD=<POSTGRES_PASSWORD> psql -U matric -h localhost -d matric
+gunzip -c matric_backup_YYYYMMDD.sql.gz | psql -U matric -h localhost -d matric
 
 # For pg_dump custom format (.sql without compression):
-PGPASSWORD=<POSTGRES_PASSWORD> pg_restore -U matric -h localhost -d matric backup.sql
+pg_restore -U matric -h localhost -d matric backup.sql
 
 # 5. Verify
-PGPASSWORD=<POSTGRES_PASSWORD> psql -U matric -h localhost -d matric -c "SELECT COUNT(*) FROM note;"
+psql -U matric -h localhost -d matric -c "SELECT COUNT(*) FROM note;"
 
 # 6. Restart API
 sudo systemctl start matric-api
@@ -925,7 +933,8 @@ BACKUP_RETAIN=30 \
 ls -lh /var/backups/fortemi/migrations/
 
 # Now run migration
-PGPASSWORD=<POSTGRES_PASSWORD> psql -U matric -h localhost -d matric -f migrations/new_migration.sql
+PGPASSFILE=/run/secrets/fortemi-pgpass \
+  psql -U matric -h localhost -d matric -f migrations/new_migration.sql
 ```
 
 ## Monitoring

@@ -18,6 +18,23 @@ what can reach logs, metrics, health, diagnostics, and retained payload sinks.
 | `secret_adjacent_topology` | Provider base URLs, recording URLs, presigned URLs, callback URLs, internal hosts, bucket names, filesystem paths. | Store only where product behavior requires it and protect reads by object/admin policy. Credential-bearing URLs are secrets. | Redacted class/fingerprint when approved; never return embedded credentials or tokens. | URL class, host class, path length, query-token presence, and stable destination-policy reason. |
 | `content_derived_sensitive` | Search/cache keys, prompts, generated responses, transcripts, extraction metadata, inbound payloads, tool args/results. | Treat as product content or retained diagnostic content, not as operational log metadata. | Govern by product object policy and DSAR/retention rules. | Lengths/counts/parser names/stable codes only unless an approved protected diagnostic sink is active. |
 
+## Deployment Secret Origins
+
+Every `deployment_secret` must also carry one of these origin classes in
+inventory, validation, and operator documentation:
+
+| Origin class | Allowed use | Documentation and runtime rule |
+|---|---|---|
+| `development_default` | Disposable local-development environments only. | Must be explicitly labeled local-only. Native, operator, and hosted profiles reject it. |
+| `test_fixture_secret` | Isolated automated tests and deterministic scanner fixtures only. | Must not appear in public/operator examples. Exact exemptions require an owner issue and review date. |
+| `operator_supplied_secret` | Self-hosted/native credentials provisioned by the operator through a protected environment file, mounted secret file, or configured secret store. | Docs use scanner-safe placeholders or secret-file references. The value is never committed, echoed, or returned by status APIs. |
+| `generated_runtime_secret` | Credentials generated during controlled bootstrap or rotation. | Store only in the configured protected sink, display at most once when required, and retain metadata rather than the raw value. |
+
+Database and backup credentials are `deployment_secret` values. Local database
+credentials may be `development_default` or `test_fixture_secret`; production
+database credentials must be `operator_supplied_secret` or
+`generated_runtime_secret`.
+
 ## Surface Inventory
 
 Hosted secret handling must account for these surfaces:
