@@ -22,9 +22,14 @@ set -euo pipefail
 
 API_IMAGE="${1:?Usage: $0 <api-image-tag>}"
 
-NETWORK="shard-rebuild-$$"
-DB_NAME="shard-rebuild-db-$$"
-API_NAME="shard-rebuild-api-$$"
+# Shell PIDs repeat across isolated CI job containers, so they are not unique
+# on the shared Docker daemon. Include workflow identity and fresh entropy to
+# avoid colliding with a stale or concurrent shard-rebuild stack.
+RUN_TOKEN="${GITHUB_RUN_ID:-local}-${GITHUB_JOB:-job}-${RANDOM}-$$"
+RUN_TOKEN="${RUN_TOKEN//[^a-zA-Z0-9_.-]/-}"
+NETWORK="shard-rebuild-${RUN_TOKEN}"
+DB_NAME="shard-rebuild-db-${RUN_TOKEN}"
+API_NAME="shard-rebuild-api-${RUN_TOKEN}"
 TESTDB_IMAGE="matric-testdb:shard-rebuild"
 DB_USER="${SHARD_REBUILD_DB_USER:-matric}"
 DB_PASSWORD="${SHARD_REBUILD_DB_PASSWORD:-fortemi-shard-${RANDOM:-0}-$$}"
@@ -33,7 +38,9 @@ DB_DATABASE="${SHARD_REBUILD_DB_NAME:-matric}"
 # Use a unique host port so reruns or other publication workflows cannot
 # collide with this transient stack. A fixed `-p 3000:3000` collided in CI
 # run #1509 ("Bind for 0.0.0.0:3000 failed: port is already allocated").
-HOST_PORT=$((30000 + ($$ % 5000)))
+RUN_ID="${GITHUB_RUN_ID:-0}"
+[[ "$RUN_ID" =~ ^[0-9]+$ ]] || RUN_ID=0
+HOST_PORT=$((30000 + ((RUN_ID + RANDOM + $$) % 5000)))
 API_URL="http://localhost:${HOST_PORT}"
 
 cleanup() {
