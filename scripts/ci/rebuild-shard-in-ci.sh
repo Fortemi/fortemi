@@ -30,13 +30,9 @@ DB_USER="${SHARD_REBUILD_DB_USER:-matric}"
 DB_PASSWORD="${SHARD_REBUILD_DB_PASSWORD:-fortemi-shard-${RANDOM:-0}-$$}"
 DB_DATABASE="${SHARD_REBUILD_DB_NAME:-matric}"
 
-# Unique host port per invocation. Both `publish-release` (Gitea) and
-# `publish-github` (ghcr.io) jobs in ci-builder.yaml run in parallel on
-# the same matric-builder runner; both call this script. A fixed
-# `-p 3000:3000` collides — observed in CI run #1509 ("Bind for
-# 0.0.0.0:3000 failed: port is already allocated"). Pick a port from a
-# wide ephemeral-ish range based on the PID; collision risk is
-# negligible across the two parallel jobs.
+# Use a unique host port so reruns or other publication workflows cannot
+# collide with this transient stack. A fixed `-p 3000:3000` collided in CI
+# run #1509 ("Bind for 0.0.0.0:3000 failed: port is already allocated").
 HOST_PORT=$((30000 + ($$ % 5000)))
 API_URL="http://localhost:${HOST_PORT}"
 

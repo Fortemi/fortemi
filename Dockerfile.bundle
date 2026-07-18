@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Dockerfile.bundle - All-in-one Fortémi with embedded PostgreSQL + MCP
 #
 # Usage:
@@ -11,6 +12,7 @@ ARG VERSION=dev
 ARG GIT_SHA=unknown
 ARG BUILD_DATE=unknown
 ARG CARGO_BUILD_JOBS=8
+ARG TARGETARCH
 
 WORKDIR /app
 
@@ -29,7 +31,9 @@ ENV MATRIC_VERSION=${VERSION}
 ENV MATRIC_GIT_SHA=${GIT_SHA}
 ENV MATRIC_BUILD_DATE=${BUILD_DATE}
 
-RUN cargo build --release --jobs ${CARGO_BUILD_JOBS} --package matric-api --package matric-crypto && \
+RUN --mount=type=cache,id=fortemi-bundle-cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=fortemi-bundle-target-${TARGETARCH},target=/app/target,sharing=locked \
+    cargo build --locked --release --jobs ${CARGO_BUILD_JOBS} --package matric-api --package matric-crypto && \
     cp target/release/matric-api /app/matric-api && \
     cp target/release/matric-pke /app/matric-pke
 

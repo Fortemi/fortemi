@@ -873,7 +873,9 @@ jobs:
   publish-github-dev:
     name: Publish Dev Image to GitHub (ghcr.io)
     runs-on: matric-builder
-    needs: [test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests]
+    # Promote the exact internal artifacts after their gated publication
+    # instead of compiling the same source again for a second registry.
+    needs: publish-dev
     # Belt-and-suspenders gating to exclude tag pushes. The branch-equality
     # check should be sufficient — `refs/tags/vX.Y.Z` is not equal to
     # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
@@ -887,14 +889,18 @@ jobs:
           git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
-      - name: Fetch GHCR token from vault
+      - name: Fetch registry tokens from vault
         env:
           VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
           VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
-        run: ci/vault-fetch.sh --spec ci/vault-fetch.github-release.spec
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.container-promotion.spec
 
-      - name: Log in to GitHub Container Registry
-        run: printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
+      - name: Log in to registries
+        run: |
+          printf '%s\n' "${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" |
+            docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
+          printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" |
+            docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
 
       - name: Set up Docker buildx
         run: |
@@ -902,66 +908,30 @@ jobs:
           docker buildx create --name fortemi-multiarch --use 2>/dev/null || docker buildx use fortemi-multiarch
           docker buildx inspect --bootstrap
 
-      - name: Build and push dev images to ghcr.io
+      - name: Promote dev images to ghcr.io
         run: |
           set -euo pipefail
-          IMAGE="${GHCR_REGISTRY}/${GHCR_IMAGE_NAME}"
           SHORT_SHA="${GITHUB_SHA:0:7}"
-          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-          push_with_retry() {
-            local image=$1
-            local max_attempts=3
-            local attempt=1
-            while [ $attempt -le $max_attempts ]; do
-              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
-              if docker push "${image}"; then
-                echo "Successfully pushed ${image}"
-                return 0
-              fi
-              echo "Push failed, waiting before retry..."
-              sleep $((attempt * 5))
-              attempt=$((attempt + 1))
-            done
-            echo "Failed to push ${image} after ${max_attempts} attempts"
-            exit 1
-          }
-
-          # API-only image (for Kubernetes / external DB / compose)
-          docker build --no-cache \
-            --build-arg VERSION=dev-${SHORT_SHA} \
-            --build-arg GIT_SHA=${GITHUB_SHA} \
-            --build-arg BUILD_DATE=${BUILD_DATE} \
-            -t ${IMAGE}:main .
-
-          docker tag ${IMAGE}:main ${IMAGE}:sha-${SHORT_SHA}
-
-          push_with_retry ${IMAGE}:main
-          push_with_retry ${IMAGE}:sha-${SHORT_SHA}
-
-          # Bundle image (all-in-one with embedded PostgreSQL).
-          # Publish as a multi-arch index so Apple Silicon / arm64 Linux hosts
-          # do not pull amd64-only manifests (#12).
-          docker buildx build --no-cache \
-            --platform linux/amd64,linux/arm64 \
-            -f Dockerfile.bundle \
-            --build-arg VERSION=dev-${SHORT_SHA} \
-            --build-arg GIT_SHA=${GITHUB_SHA} \
-            --build-arg BUILD_DATE=${BUILD_DATE} \
-            -t ${IMAGE}:bundle-main \
-            -t ${IMAGE}:bundle-sha-${SHORT_SHA} \
-            --push .
+          export SOURCE_IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          export TARGET_IMAGE="${GHCR_REGISTRY}/${GHCR_IMAGE_NAME}"
+          export API_SOURCE_TAG="sha-${SHORT_SHA}"
+          export BUNDLE_SOURCE_TAG="bundle-${SHORT_SHA}"
+          export API_TARGET_TAGS="sha-${SHORT_SHA} main"
+          export BUNDLE_TARGET_TAGS="bundle-sha-${SHORT_SHA} bundle-main"
+          export VERSION="dev-${SHORT_SHA}"
+          scripts/ci/promote-ghcr-images.sh
 
           echo ""
           echo "=== Published dev images to ghcr.io ==="
-          echo "  ${IMAGE}:main, :sha-${SHORT_SHA}"
-          echo "  ${IMAGE}:bundle-main, :bundle-sha-${SHORT_SHA}"
+          echo "  ${TARGET_IMAGE}:main, :sha-${SHORT_SHA}"
+          echo "  ${TARGET_IMAGE}:bundle-main, :bundle-sha-${SHORT_SHA}"
 
   # Push release images to GitHub Container Registry
   publish-github:
     name: Publish to GitHub (ghcr.io)
     runs-on: matric-builder
-    needs: [test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests]
+    # The internal release artifacts are the source of truth for GHCR.
+    needs: publish-release
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
@@ -970,14 +940,18 @@ jobs:
           git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
-      - name: Fetch GHCR token from vault
+      - name: Fetch registry tokens from vault
         env:
           VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
           VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
-        run: ci/vault-fetch.sh --spec ci/vault-fetch.github-release.spec
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.container-promotion.spec
 
-      - name: Log in to GitHub Container Registry
-        run: printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
+      - name: Log in to registries
+        run: |
+          printf '%s\n' "${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" |
+            docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
+          printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" |
+            docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
 
       - name: Set up Docker buildx
         run: |
@@ -985,71 +959,24 @@ jobs:
           docker buildx create --name fortemi-multiarch --use 2>/dev/null || docker buildx use fortemi-multiarch
           docker buildx inspect --bootstrap
 
-      - name: Build and push to ghcr.io
+      - name: Promote release images to ghcr.io
         run: |
           set -euo pipefail
-          IMAGE="${GHCR_REGISTRY}/${GHCR_IMAGE_NAME}"
           VERSION="${GITHUB_REF_NAME#v}"
-          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-          # Retry function for transient registry errors
-          push_with_retry() {
-            local image=$1
-            local max_attempts=3
-            local attempt=1
-            while [ $attempt -le $max_attempts ]; do
-              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
-              if docker push "${image}"; then
-                echo "Successfully pushed ${image}"
-                return 0
-              fi
-              echo "Push failed, waiting before retry..."
-              sleep $((attempt * 5))
-              attempt=$((attempt + 1))
-            done
-            echo "Failed to push ${image} after ${max_attempts} attempts"
-            exit 1
-          }
-
-          echo "Building release images for GitHub: ${VERSION}"
-
-          # Build API-only image (for Kubernetes/external DB deployments)
-          docker build --no-cache \
-            --build-arg VERSION=${VERSION} \
-            --build-arg GIT_SHA=${GITHUB_SHA} \
-            --build-arg BUILD_DATE=${BUILD_DATE} \
-            -t ${IMAGE}:${VERSION} .
-
-          docker tag ${IMAGE}:${VERSION} ${IMAGE}:latest
-
-          push_with_retry ${IMAGE}:${VERSION}
-          push_with_retry ${IMAGE}:latest
-
-          # Regenerate fortemi-docs.shard against the freshly-built API image
-          # so the bundle ships an up-to-date in-product help archive (#652).
-          # Failure here aborts the bundle build — we never ship a stale shard
-          # in a tagged release.
-          scripts/ci/rebuild-shard-in-ci.sh ${IMAGE}:${VERSION}
-
-          # Build bundle image (all-in-one with embedded PostgreSQL).
-          # COPYs docker/seed-data which now contains the fresh shard.
-          # Publish as a multi-arch index for linux/amd64 and linux/arm64 (#12).
-          docker buildx build --no-cache \
-            --platform linux/amd64,linux/arm64 \
-            -f Dockerfile.bundle \
-            --build-arg VERSION=${VERSION} \
-            --build-arg GIT_SHA=${GITHUB_SHA} \
-            --build-arg BUILD_DATE=${BUILD_DATE} \
-            -t ${IMAGE}:bundle-${VERSION} \
-            -t ${IMAGE}:bundle-latest \
-            --push .
+          export SOURCE_IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          export TARGET_IMAGE="${GHCR_REGISTRY}/${GHCR_IMAGE_NAME}"
+          export API_SOURCE_TAG="${VERSION}"
+          export BUNDLE_SOURCE_TAG="bundle-${VERSION}"
+          export API_TARGET_TAGS="${VERSION} latest"
+          export BUNDLE_TARGET_TAGS="bundle-${VERSION} bundle-latest"
+          scripts/ci/promote-ghcr-images.sh
 
           # Sidecar images (GLiNER, pyannote) are released independently
           # via build-gliner.yaml and build-pyannote.yaml workflows
 
           echo "Published to GitHub Container Registry:"
-          echo "  API-only: ${IMAGE}:${VERSION}, ${IMAGE}:latest"
-          echo "  Bundle:   ${IMAGE}:bundle-${VERSION}, ${IMAGE}:bundle-latest"
+          echo "  API-only: ${TARGET_IMAGE}:${VERSION}, ${TARGET_IMAGE}:latest"
+          echo "  Bundle:   ${TARGET_IMAGE}:bundle-${VERSION}, ${TARGET_IMAGE}:bundle-latest"
 
   # Create GitHub Release with changelog
   create-github-release:
