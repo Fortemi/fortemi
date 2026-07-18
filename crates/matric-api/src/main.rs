@@ -22005,6 +22005,10 @@ struct ShardCounts {
     note_revised_current: usize,
     #[serde(skip_serializing_if = "shard_count_is_zero")]
     note_revisions: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    provenance_edges: usize,
+    #[serde(skip_serializing_if = "shard_count_is_zero")]
+    provenance_activities: usize,
     collections: usize,
     tags: usize,
     templates: usize,
@@ -22174,6 +22178,28 @@ struct ShardNoteRevisionRecord {
     is_user_edited: bool,
     generation_count: i32,
     model: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardProvenanceEdgeRecord {
+    id: Uuid,
+    revision_id: Option<Uuid>,
+    source_note_id: Option<Uuid>,
+    source_url: Option<String>,
+    relation: String,
+    created_at_utc: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardProvenanceActivityRecord {
+    id: Uuid,
+    note_id: Uuid,
+    revision_id: Option<Uuid>,
+    activity_type: String,
+    model_name: Option<String>,
+    started_at: chrono::DateTime<chrono::Utc>,
+    ended_at: Option<chrono::DateTime<chrono::Utc>>,
+    metadata: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -22719,6 +22745,8 @@ fn shard_component_filename(component: &str) -> Option<&'static str> {
         "note_original_history" => Some("note_original_history.jsonl"),
         "note_revised_current" => Some("note_revised_current.jsonl"),
         "note_revisions" => Some("note_revisions.jsonl"),
+        "provenance_edges" => Some("provenance_edges.jsonl"),
+        "provenance_activities" => Some("provenance_activities.jsonl"),
         "collections" => Some("collections.json"),
         "tags" => Some("tags.json"),
         "templates" => Some("templates.json"),
@@ -23051,6 +23079,8 @@ fn parse_shard_component_records_with_limits(
         | "note_original_history"
         | "note_revised_current"
         | "note_revisions"
+        | "provenance_edges"
+        | "provenance_activities"
         | "links"
         | "embedding_set_members"
         | "embeddings" => {
@@ -23099,6 +23129,8 @@ fn validate_shard_component_schema_for_profile(
             | "note_original_history"
             | "note_revised_current"
             | "note_revisions"
+            | "provenance_edges"
+            | "provenance_activities"
             | "links"
             | "embedding_set_members"
             | "embeddings"
@@ -23819,6 +23851,8 @@ fn validate_shard_component_inventory(
             "note_original_history" => manifest.counts.note_original_history,
             "note_revised_current" => manifest.counts.note_revised_current,
             "note_revisions" => manifest.counts.note_revisions,
+            "provenance_edges" => manifest.counts.provenance_edges,
+            "provenance_activities" => manifest.counts.provenance_activities,
             "collections" => manifest.counts.collections,
             "tags" => manifest.counts.tags,
             "templates" => manifest.counts.templates,
@@ -24408,6 +24442,72 @@ async fn knowledge_shard(
             let data = serialize_shard_export_jsonl(&records, "serialize current note revisions")?;
             add_json_file("note_revised_current.jsonl", &data).map_err(|error| {
                 shard_operation_failed("add current note revisions to shard", error)
+            })?;
+        }
+
+        if components.contains(&"provenance_edges") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, revision_id, source_note_id, source_url, relation, created_at_utc
+                FROM provenance_edge
+                ORDER BY revision_id, created_at_utc, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read provenance edges", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardProvenanceEdgeRecord {
+                    id: row.get("id"),
+                    revision_id: row.get("revision_id"),
+                    source_note_id: row.get("source_note_id"),
+                    source_url: row.get("source_url"),
+                    relation: row.get("relation"),
+                    created_at_utc: row.get("created_at_utc"),
+                })
+                .collect::<Vec<_>>();
+            counts.provenance_edges = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize provenance edges")?;
+            add_json_file("provenance_edges.jsonl", &data)
+                .map_err(|error| shard_operation_failed("add provenance edges to shard", error))?;
+        }
+
+        if components.contains(&"provenance_activities") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, note_id, revision_id, activity_type, model_name,
+                       started_at, ended_at, metadata
+                FROM provenance_activity
+                ORDER BY note_id, started_at, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read provenance activities", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardProvenanceActivityRecord {
+                    id: row.get("id"),
+                    note_id: row.get("note_id"),
+                    revision_id: row.get("revision_id"),
+                    activity_type: row.get("activity_type"),
+                    model_name: row.get("model_name"),
+                    started_at: row.get("started_at"),
+                    ended_at: row.get("ended_at"),
+                    metadata: row.get("metadata"),
+                })
+                .collect::<Vec<_>>();
+            counts.provenance_activities = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize provenance activities")?;
+            add_json_file("provenance_activities.jsonl", &data).map_err(|error| {
+                shard_operation_failed("add provenance activities to shard", error)
             })?;
         }
 
@@ -41046,6 +41146,49 @@ not-json
         );
     }
 
+    #[test]
+    fn shard_revision_provenance_records_preserve_identity_and_nulls() {
+        let edge_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d001").unwrap();
+        let activity_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d002").unwrap();
+        let note_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d003").unwrap();
+        let timestamp = "2026-07-18T12:30:00Z";
+
+        let edge = serde_json::from_value::<ShardProvenanceEdgeRecord>(serde_json::json!({
+            "id": edge_id,
+            "revision_id": null,
+            "source_note_id": null,
+            "source_url": "https://example.invalid/source",
+            "relation": "wasDerivedFrom",
+            "created_at_utc": timestamp
+        }))
+        .unwrap();
+        let edge_json = serde_json::to_value(edge).unwrap();
+        assert_eq!(edge_json["id"], edge_id.to_string());
+        assert!(edge_json["revision_id"].is_null());
+        assert!(edge_json["source_note_id"].is_null());
+        assert_eq!(edge_json["source_url"], "https://example.invalid/source");
+        assert_eq!(edge_json["created_at_utc"], timestamp);
+
+        let activity = serde_json::from_value::<ShardProvenanceActivityRecord>(serde_json::json!({
+            "id": activity_id,
+            "note_id": note_id,
+            "revision_id": null,
+            "activity_type": "context_update",
+            "model_name": null,
+            "started_at": timestamp,
+            "ended_at": null,
+            "metadata": null
+        }))
+        .unwrap();
+        let activity_json = serde_json::to_value(activity).unwrap();
+        assert_eq!(activity_json["id"], activity_id.to_string());
+        assert_eq!(activity_json["note_id"], note_id.to_string());
+        assert!(activity_json["revision_id"].is_null());
+        assert!(activity_json["model_name"].is_null());
+        assert!(activity_json["ended_at"].is_null());
+        assert!(activity_json["metadata"].is_null());
+    }
+
     fn valid_shard_note_history_relationship_fixture() -> (
         std::collections::HashMap<String, Vec<u8>>,
         std::collections::HashSet<Uuid>,
@@ -42225,7 +42368,7 @@ not-json
     }
 
     #[test]
-    fn shard_embedding_component_parsing_is_bounded() {
+    fn shard_candidate_component_parsing_is_bounded() {
         let data = serde_json::to_vec(&serde_json::json!([{}, {}])).unwrap();
         assert_eq!(
             parse_shard_component_records_with_limits("embedding_configs", &data, 1, 1024)
@@ -42234,6 +42377,11 @@ not-json
         );
         assert_eq!(
             parse_shard_component_records_with_limits("embedding_set_members", b"{}\n{}", 1, 1024,)
+                .unwrap_err(),
+            "Knowledge shard component exceeds the record count limit."
+        );
+        assert_eq!(
+            parse_shard_component_records_with_limits("provenance_edges", b"{}\n{}", 1, 1024,)
                 .unwrap_err(),
             "Knowledge shard component exceeds the record count limit."
         );
@@ -42259,6 +42407,8 @@ not-json
                 note_original_history: 0,
                 note_revised_current: 0,
                 note_revisions: 0,
+                provenance_edges: 0,
+                provenance_activities: 0,
                 collections: 5,
                 tags: 20,
                 templates: 3,
@@ -42310,6 +42460,8 @@ not-json
                 note_original_history: 0,
                 note_revised_current: 0,
                 note_revisions: 0,
+                provenance_edges: 0,
+                provenance_activities: 0,
                 collections: 1,
                 tags: 2,
                 templates: 1,
