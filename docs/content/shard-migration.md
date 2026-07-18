@@ -2,16 +2,19 @@
 
 ## Canonical Contract
 
-Fortemi owns the normative Knowledge Shard schemas. The current supported
-contract is schema `1.1.0`, profile `core-v1`, under
-`contracts/knowledge-shard/1.1.0/core-v1/`. The immutable `1.0.0` schemas,
-current and historical file digests, golden corpora, and migration target are
-recorded in `contracts/knowledge-shard/contract.json`.
+Fortemi owns the normative Knowledge Shard schemas. The current contract is
+schema `1.1.0` with `core-v1` and the reduced `record-v1` candidate under
+`contracts/knowledge-shard/1.1.0/`. The immutable `1.0.0` schemas, current and
+historical file digests, profile corpora, and migration target are recorded in
+`contracts/knowledge-shard/contract.json`.
 
 Consumers must pin an immutable Fortemi commit and verify the receipt before
-using vendored copies. The current schemas cover the manifest plus note,
-collection, tag, template, and link records. `full-v1` and `record-v1` remain
-reserved and unsupported.
+using vendored copies. `core-v1` covers note, collection, tag, template, and
+link records. The `record-v1` candidate covers notes, collections, tags,
+note-to-note links, and attachment projections; its producer must return a
+machine-readable report for every omitted or lossy source concept. It remains
+non-advertised until the pinned React producer/server consumer receipt passes.
+`full-v1` remains reserved and unsupported.
 
 Schema validation is necessary but not a full recovery claim. The current
 `core-v1` REST route is reference-only by default and can opt into verified

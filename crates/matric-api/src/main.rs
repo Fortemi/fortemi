@@ -22124,6 +22124,7 @@ fn invalid_base64_payload(message: &'static str) -> ApiError {
 }
 
 const SHARD_IMPORT_COMPONENTS: &[&str] = &["notes", "collections", "tags", "templates", "links"];
+const RECORD_V1_IMPORT_COMPONENTS: &[&str] = &["notes", "collections", "tags", "links"];
 const DEFAULT_SHARD_PROFILE: &str = "core-v1";
 const REGISTERED_SHARD_PROFILES: &[&str] = &["core-v1", "full-v1", "record-v1"];
 const DEFAULT_SHARD_EXPORT_COMPONENTS: &str = "notes,collections,tags,templates,links";
@@ -22161,6 +22162,16 @@ const CORE_V1_TEMPLATE_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.1.0/core-v1/template.schema.json");
 const CORE_V1_LINK_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.1.0/core-v1/link.schema.json");
+const RECORD_V1_MANIFEST_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/record-v1/manifest.schema.json");
+const RECORD_V1_NOTE_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/record-v1/note.schema.json");
+const RECORD_V1_COLLECTION_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/record-v1/collection.schema.json");
+const RECORD_V1_TAG_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/record-v1/tag.schema.json");
+const RECORD_V1_LINK_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/record-v1/link.schema.json");
 
 #[derive(Clone, Copy)]
 struct ShardArchiveLimits {
@@ -22360,6 +22371,16 @@ fn validate_shard_json_schema(
         LazyLock::new(|| compile_shard_json_schema(CORE_V1_TEMPLATE_SCHEMA));
     static LINK: LazyLock<Result<jsonschema::Validator, String>> =
         LazyLock::new(|| compile_shard_json_schema(CORE_V1_LINK_SCHEMA));
+    static RECORD_MANIFEST: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(RECORD_V1_MANIFEST_SCHEMA));
+    static RECORD_NOTE: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(RECORD_V1_NOTE_SCHEMA));
+    static RECORD_COLLECTION: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(RECORD_V1_COLLECTION_SCHEMA));
+    static RECORD_TAG: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(RECORD_V1_TAG_SCHEMA));
+    static RECORD_LINK: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(RECORD_V1_LINK_SCHEMA));
 
     let validator = match schema_json {
         LEGACY_CORE_V1_MANIFEST_SCHEMA => &*LEGACY_MANIFEST,
@@ -22374,6 +22395,11 @@ fn validate_shard_json_schema(
         CORE_V1_TAG_SCHEMA => &*TAG,
         CORE_V1_TEMPLATE_SCHEMA => &*TEMPLATE,
         CORE_V1_LINK_SCHEMA => &*LINK,
+        RECORD_V1_MANIFEST_SCHEMA => &*RECORD_MANIFEST,
+        RECORD_V1_NOTE_SCHEMA => &*RECORD_NOTE,
+        RECORD_V1_COLLECTION_SCHEMA => &*RECORD_COLLECTION,
+        RECORD_V1_TAG_SCHEMA => &*RECORD_TAG,
+        RECORD_V1_LINK_SCHEMA => &*RECORD_LINK,
         _ => return Err("Unknown canonical knowledge shard schema.".to_string()),
     }
     .as_ref()
@@ -22385,10 +22411,12 @@ fn validate_shard_json_schema(
     }
 }
 
-fn shard_manifest_schema(version: &str) -> &'static str {
-    match version {
-        "1.1.0" => CORE_V1_MANIFEST_SCHEMA,
-        _ => LEGACY_CORE_V1_MANIFEST_SCHEMA,
+fn shard_manifest_schema(version: &str, profile: &str) -> Option<&'static str> {
+    match (version, profile) {
+        ("1.1.0", "core-v1") => Some(CORE_V1_MANIFEST_SCHEMA),
+        (_, "core-v1") => Some(LEGACY_CORE_V1_MANIFEST_SCHEMA),
+        ("1.1.0", "record-v1") => Some(RECORD_V1_MANIFEST_SCHEMA),
+        _ => None,
     }
 }
 
@@ -22401,7 +22429,15 @@ fn parse_and_validate_shard_manifest(data: &[u8]) -> Result<ShardManifest, Strin
         .ok_or_else(|| "Knowledge shard schema version is required.".to_string())?;
     matric_core::shard::Version::parse(version)
         .map_err(|_| "Knowledge shard schema version must be strict SemVer.".to_string())?;
-    let schema = shard_manifest_schema(version);
+    let profile = value
+        .get("profile")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            "Knowledge shard manifest does not match canonical core-v1 schema.".to_string()
+        })?;
+    let schema = shard_manifest_schema(version, profile).ok_or_else(|| {
+        "Knowledge shard manifest does not match canonical core-v1 schema.".to_string()
+    })?;
     validate_shard_json_schema(
         &value,
         schema,
@@ -22410,18 +22446,22 @@ fn parse_and_validate_shard_manifest(data: &[u8]) -> Result<ShardManifest, Strin
     serde_json::from_value(value).map_err(|_| "Invalid knowledge shard manifest.".to_string())
 }
 
-fn shard_component_schema(version: &str, component: &str) -> Option<&'static str> {
-    match (version, component) {
-        ("1.0.0", "notes") => Some(LEGACY_CORE_V1_NOTE_SCHEMA),
-        ("1.0.0", "collections") => Some(LEGACY_CORE_V1_COLLECTION_SCHEMA),
-        ("1.0.0", "tags") => Some(LEGACY_CORE_V1_TAG_SCHEMA),
-        ("1.0.0", "templates") => Some(LEGACY_CORE_V1_TEMPLATE_SCHEMA),
-        ("1.0.0", "links") => Some(LEGACY_CORE_V1_LINK_SCHEMA),
-        ("1.1.0", "notes") => Some(CORE_V1_NOTE_SCHEMA),
-        ("1.1.0", "collections") => Some(CORE_V1_COLLECTION_SCHEMA),
-        ("1.1.0", "tags") => Some(CORE_V1_TAG_SCHEMA),
-        ("1.1.0", "templates") => Some(CORE_V1_TEMPLATE_SCHEMA),
-        ("1.1.0", "links") => Some(CORE_V1_LINK_SCHEMA),
+fn shard_component_schema(version: &str, profile: &str, component: &str) -> Option<&'static str> {
+    match (version, profile, component) {
+        ("1.0.0", "core-v1", "notes") => Some(LEGACY_CORE_V1_NOTE_SCHEMA),
+        ("1.0.0", "core-v1", "collections") => Some(LEGACY_CORE_V1_COLLECTION_SCHEMA),
+        ("1.0.0", "core-v1", "tags") => Some(LEGACY_CORE_V1_TAG_SCHEMA),
+        ("1.0.0", "core-v1", "templates") => Some(LEGACY_CORE_V1_TEMPLATE_SCHEMA),
+        ("1.0.0", "core-v1", "links") => Some(LEGACY_CORE_V1_LINK_SCHEMA),
+        ("1.1.0", "core-v1", "notes") => Some(CORE_V1_NOTE_SCHEMA),
+        ("1.1.0", "core-v1", "collections") => Some(CORE_V1_COLLECTION_SCHEMA),
+        ("1.1.0", "core-v1", "tags") => Some(CORE_V1_TAG_SCHEMA),
+        ("1.1.0", "core-v1", "templates") => Some(CORE_V1_TEMPLATE_SCHEMA),
+        ("1.1.0", "core-v1", "links") => Some(CORE_V1_LINK_SCHEMA),
+        ("1.1.0", "record-v1", "notes") => Some(RECORD_V1_NOTE_SCHEMA),
+        ("1.1.0", "record-v1", "collections") => Some(RECORD_V1_COLLECTION_SCHEMA),
+        ("1.1.0", "record-v1", "tags") => Some(RECORD_V1_TAG_SCHEMA),
+        ("1.1.0", "record-v1", "links") => Some(RECORD_V1_LINK_SCHEMA),
         _ => None,
     }
 }
@@ -22535,12 +22575,13 @@ fn parse_shard_component_records_with_limits(
     }
 }
 
-fn validate_shard_component_schema(
+fn validate_shard_component_schema_for_profile(
     version: &str,
+    profile: &str,
     component: &str,
     data: &[u8],
 ) -> Result<usize, String> {
-    let schema = shard_component_schema(version, component)
+    let schema = shard_component_schema(version, profile, component)
         .ok_or_else(|| "Unsupported knowledge shard component.".to_string())?;
     let records = parse_shard_component_records(component, data)?;
     for record in &records {
@@ -22770,9 +22811,15 @@ fn validate_shard_manifest_contract(manifest: &ShardManifest) -> Result<(), Stri
     if !REGISTERED_SHARD_PROFILES.contains(&profile) {
         return Err("Unknown knowledge shard profile.".to_string());
     }
-    if profile != DEFAULT_SHARD_PROFILE {
-        return Err("Knowledge shard profile is not supported by this server release.".to_string());
-    }
+    let profile_components = match profile {
+        DEFAULT_SHARD_PROFILE => SHARD_IMPORT_COMPONENTS,
+        "record-v1" => RECORD_V1_IMPORT_COMPONENTS,
+        _ => {
+            return Err(
+                "Knowledge shard profile is not supported by this server release.".to_string(),
+            );
+        }
+    };
 
     let current = Version::parse(CURRENT_SHARD_VERSION)
         .map_err(|_| "Current shard schema version is invalid.".to_string())?;
@@ -22819,7 +22866,7 @@ fn validate_shard_manifest_contract(manifest: &ShardManifest) -> Result<(), Stri
         if !unique.insert(component) {
             return Err("Knowledge shard components must be unique.".to_string());
         }
-        if !SHARD_IMPORT_COMPONENTS.contains(&component.as_str()) {
+        if !profile_components.contains(&component.as_str()) {
             return Err(
                 "Shard profile declares a component unsupported by this server release."
                     .to_string(),
@@ -22834,6 +22881,10 @@ fn validate_shard_component_inventory(
     manifest: &ShardManifest,
     files: &std::collections::HashMap<String, Vec<u8>>,
 ) -> Result<(), String> {
+    let profile = manifest
+        .profile
+        .as_deref()
+        .ok_or_else(|| "Knowledge shard profile is required.".to_string())?;
     let expected_files = manifest
         .components
         .iter()
@@ -22870,7 +22921,12 @@ fn validate_shard_component_inventory(
         let data = files
             .get(filename)
             .ok_or_else(|| "Knowledge shard declared component file is missing.".to_string())?;
-        let actual_count = validate_shard_component_schema(&manifest.version, component, data)?;
+        let actual_count = validate_shard_component_schema_for_profile(
+            &manifest.version,
+            profile,
+            component,
+            data,
+        )?;
         let expected_count = match component.as_str() {
             "notes" => manifest.counts.notes,
             "collections" => manifest.counts.collections,
@@ -35873,6 +35929,38 @@ mod tests {
         archive.into_inner().unwrap().finish().unwrap()
     }
 
+    fn record_v1_shard_bytes() -> Vec<u8> {
+        test_shard_archive(&[
+            (
+                "notes.jsonl",
+                include_bytes!("../../../tests/fixtures/shards/record-v1-v1.1-valid/notes.jsonl"),
+                tar::EntryType::Regular,
+            ),
+            (
+                "collections.json",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/record-v1-v1.1-valid/collections.json"
+                ),
+                tar::EntryType::Regular,
+            ),
+            (
+                "tags.json",
+                include_bytes!("../../../tests/fixtures/shards/record-v1-v1.1-valid/tags.json"),
+                tar::EntryType::Regular,
+            ),
+            (
+                "links.jsonl",
+                include_bytes!("../../../tests/fixtures/shards/record-v1-v1.1-valid/links.jsonl"),
+                tar::EntryType::Regular,
+            ),
+            (
+                "manifest.json",
+                include_bytes!("../../../tests/fixtures/shards/record-v1-v1.1-valid/manifest.json"),
+                tar::EntryType::Regular,
+            ),
+        ])
+    }
+
     fn test_shard_archive_with_raw_name(name: &[u8]) -> Vec<u8> {
         let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         let mut archive = tar::Builder::new(encoder);
@@ -36284,6 +36372,87 @@ mod tests {
             .expect("golden component records must match canonical schemas");
         validate_shard_relationships(&files)
             .expect("golden component relationships must be coherent");
+    }
+
+    #[test]
+    fn canonical_record_v1_schemas_compile_and_validate_golden_corpus() {
+        for schema_json in [
+            RECORD_V1_MANIFEST_SCHEMA,
+            RECORD_V1_NOTE_SCHEMA,
+            RECORD_V1_COLLECTION_SCHEMA,
+            RECORD_V1_TAG_SCHEMA,
+            RECORD_V1_LINK_SCHEMA,
+        ] {
+            let schema: serde_json::Value =
+                serde_json::from_str(schema_json).expect("canonical schema must be valid JSON");
+            jsonschema::validator_for(&schema).expect("canonical schema must compile");
+        }
+
+        let manifest_data =
+            include_bytes!("../../../tests/fixtures/shards/record-v1-v1.1-valid/manifest.json");
+        let manifest = parse_and_validate_shard_manifest(manifest_data)
+            .expect("record-v1 golden manifest must match canonical schema");
+        validate_shard_manifest_contract(&manifest)
+            .expect("record-v1 golden manifest must match runtime profile contract");
+
+        let files = [
+            (
+                "manifest.json".to_string(),
+                manifest_data.as_slice().to_vec(),
+            ),
+            (
+                "notes.jsonl".to_string(),
+                include_bytes!("../../../tests/fixtures/shards/record-v1-v1.1-valid/notes.jsonl")
+                    .to_vec(),
+            ),
+            (
+                "collections.json".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/record-v1-v1.1-valid/collections.json"
+                )
+                .to_vec(),
+            ),
+            (
+                "tags.json".to_string(),
+                include_bytes!("../../../tests/fixtures/shards/record-v1-v1.1-valid/tags.json")
+                    .to_vec(),
+            ),
+            (
+                "links.jsonl".to_string(),
+                include_bytes!("../../../tests/fixtures/shards/record-v1-v1.1-valid/links.jsonl")
+                    .to_vec(),
+            ),
+        ]
+        .into_iter()
+        .collect::<std::collections::HashMap<_, _>>();
+
+        for (filename, expected) in &manifest.checksums {
+            let actual = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&files[filename]));
+            assert_eq!(
+                &actual, expected,
+                "record-v1 golden component checksum drift: {filename}"
+            );
+        }
+        validate_shard_component_inventory(&manifest, &files)
+            .expect("record-v1 records must match canonical schemas");
+        validate_shard_relationships(&files)
+            .expect("record-v1 component relationships must be coherent");
+
+        let mut url_link: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/shards/record-v1-v1.1-valid/links.jsonl"
+        ))
+        .expect("record-v1 golden link must parse");
+        url_link["to_note_id"] = serde_json::Value::Null;
+        url_link["to_url"] = serde_json::json!("https://example.invalid/not-record-portable");
+        assert_eq!(
+            validate_shard_json_schema(
+                &url_link,
+                RECORD_V1_LINK_SCHEMA,
+                "Knowledge shard component does not match canonical record-v1 schema.",
+            )
+            .unwrap_err(),
+            "Knowledge shard component does not match canonical record-v1 schema."
+        );
     }
 
     #[test]
@@ -37184,6 +37353,148 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shard_record_v1_clean_import_is_atomic_and_repeatable() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let destination_name = format!("record-v1-destination-{}", Uuid::new_v4().simple());
+        let destination = db
+            .archives
+            .create_archive_schema(
+                &destination_name,
+                Some("Knowledge Shard record-v1 destination test"),
+            )
+            .await
+            .expect("create isolated record-v1 destination");
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let shard = record_v1_shard_bytes();
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let dry_run_opts = ShardImportOptions {
+            include: None,
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+
+        let dry_run = knowledge_shard_import_internal(
+            &state,
+            &shard,
+            &dry_run_opts,
+            &destination.schema_name,
+        )
+        .await
+        .expect("record-v1 dry-run must validate");
+        assert_eq!(
+            dry_run
+                .manifest
+                .as_ref()
+                .and_then(|manifest| manifest.profile.as_deref()),
+            Some("record-v1")
+        );
+        assert_eq!(dry_run.imported.notes, 2);
+        assert_eq!(dry_run.imported.collections, 1);
+        assert_eq!(dry_run.imported.links, 1);
+
+        let destination_ctx = db.for_schema(&destination.schema_name).unwrap();
+        let read_counts = || {
+            let destination_ctx = destination_ctx.clone();
+            async move {
+                destination_ctx
+                    .query(|tx| {
+                        Box::pin(async move {
+                            sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+                                "SELECT
+                                   (SELECT COUNT(*) FROM note),
+                                   (SELECT COUNT(*) FROM collection),
+                                   (SELECT COUNT(*) FROM tag),
+                                   (SELECT COUNT(*) FROM note_template),
+                                   (SELECT COUNT(*) FROM link),
+                                   (SELECT COUNT(*) FROM attachment)",
+                            )
+                            .fetch_one(&mut **tx)
+                            .await
+                            .map_err(matric_db::Error::Database)
+                        })
+                    })
+                    .await
+                    .expect("read record-v1 destination counts")
+            }
+        };
+        assert_eq!(read_counts().await, (0, 0, 0, 0, 0, 0));
+
+        let mut unsupported_manifest: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../tests/fixtures/shards/record-v1-v1.1-valid/manifest.json"
+        ))
+        .unwrap();
+        unsupported_manifest["profile"] = serde_json::json!("full-v1");
+        let rejected = replace_shard_entry(
+            &shard,
+            "manifest.json",
+            &serde_json::to_vec_pretty(&unsupported_manifest).unwrap(),
+        );
+        let error =
+            knowledge_shard_import_internal(&state, &rejected, &opts, &destination.schema_name)
+                .await
+                .expect_err("reserved profile must fail before mutation");
+        assert!(matches!(error, ApiError::BadRequest(_)));
+        assert_eq!(read_counts().await, (0, 0, 0, 0, 0, 0));
+
+        for _ in 0..2 {
+            let result =
+                knowledge_shard_import_internal(&state, &shard, &opts, &destination.schema_name)
+                    .await
+                    .expect("record-v1 replace import must converge");
+            assert_eq!(
+                result
+                    .manifest
+                    .as_ref()
+                    .and_then(|manifest| manifest.profile.as_deref()),
+                Some("record-v1")
+            );
+        }
+        assert_eq!(read_counts().await, (2, 1, 1, 0, 1, 1));
+
+        let tombstones = destination_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (Uuid, Option<chrono::DateTime<chrono::Utc>>)>(
+                        "SELECT id, deleted_at
+                         FROM note
+                         ORDER BY id",
+                    )
+                    .fetch_all(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read record-v1 tombstones");
+        assert_eq!(tombstones.len(), 2);
+        assert_eq!(tombstones[0].1, None);
+        assert_eq!(
+            tombstones[1].1,
+            Some(
+                chrono::DateTime::parse_from_rfc3339("2026-07-18T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&chrono::Utc)
+            )
+        );
+
+        db.archives
+            .drop_archive_schema(&destination_name)
+            .await
+            .expect("drop isolated record-v1 destination");
+    }
+
+    #[tokio::test]
     async fn shard_optional_sidecars_round_trip_and_fail_without_partial_storage() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
@@ -37455,7 +37766,7 @@ mod tests {
             "../../../contracts/knowledge-shard/contract.json"
         ))
         .expect("contract receipt must be valid JSON");
-        assert_eq!(receipt["contractRevision"], "2");
+        assert_eq!(receipt["contractRevision"], "3");
         assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
@@ -37464,6 +37775,15 @@ mod tests {
         assert_eq!(receipt["profiles"]["core-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
         assert_eq!(receipt["profiles"]["record-v1"]["supported"], false);
+        assert_eq!(receipt["profiles"]["record-v1"]["status"], "candidate");
+        assert_eq!(
+            receipt["profiles"]["record-v1"]["serverImportCandidate"],
+            true
+        );
+        assert_eq!(
+            receipt["profiles"]["record-v1"]["schemaRoot"],
+            "contracts/knowledge-shard/1.1.0/record-v1"
+        );
 
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let schema_files = receipt["schemaBundle"]["files"]
@@ -37508,6 +37828,26 @@ mod tests {
             receipt["goldenCorpus"]["sha256"]
                 .as_str()
                 .expect("fixture bundle digest must be a string")
+        );
+
+        let mut record_fixture_bundle = sha2::Sha256::new();
+        for relative in [
+            "tests/fixtures/shards/record-v1-v1.1-valid/collections.json",
+            "tests/fixtures/shards/record-v1-v1.1-valid/links.jsonl",
+            "tests/fixtures/shards/record-v1-v1.1-valid/manifest.json",
+            "tests/fixtures/shards/record-v1-v1.1-valid/notes.jsonl",
+            "tests/fixtures/shards/record-v1-v1.1-valid/tags.json",
+        ] {
+            record_fixture_bundle.update(
+                std::fs::read(workspace_root.join(relative))
+                    .expect("record-v1 corpus receipt path must exist"),
+            );
+        }
+        assert_eq!(
+            hex::encode(record_fixture_bundle.finalize()),
+            receipt["profiles"]["record-v1"]["goldenCorpusSha256"]
+                .as_str()
+                .expect("record-v1 fixture digest must be a string")
         );
 
         let historical = &receipt["historicalReleases"]["1.0.0/core-v1"];
@@ -37565,8 +37905,9 @@ mod tests {
             "Knowledge shard manifest does not match canonical core-v1 schema."
         );
 
-        let note_error = validate_shard_component_schema(
+        let note_error = validate_shard_component_schema_for_profile(
             matric_core::shard::CURRENT_SHARD_VERSION,
+            DEFAULT_SHARD_PROFILE,
             "notes",
             include_bytes!("../../../tests/fixtures/shards/schema-invalid/note-missing-id.json"),
         )
@@ -37576,8 +37917,9 @@ mod tests {
             "Knowledge shard component does not match canonical core-v1 schema."
         );
 
-        let link_error = validate_shard_component_schema(
+        let link_error = validate_shard_component_schema_for_profile(
             matric_core::shard::CURRENT_SHARD_VERSION,
+            DEFAULT_SHARD_PROFILE,
             "links",
             include_bytes!(
                 "../../../tests/fixtures/shards/schema-invalid/link-ambiguous-target.json"
@@ -37682,13 +38024,24 @@ mod tests {
             "Unknown knowledge shard profile."
         );
 
-        for profile in ["full-v1", "record-v1"] {
-            manifest.profile = Some(profile.to_string());
-            assert_eq!(
-                validate_shard_manifest_contract(&manifest).unwrap_err(),
-                "Knowledge shard profile is not supported by this server release."
-            );
-        }
+        manifest.profile = Some("full-v1".to_string());
+        assert_eq!(
+            validate_shard_manifest_contract(&manifest).unwrap_err(),
+            "Knowledge shard profile is not supported by this server release."
+        );
+
+        let record_manifest = parse_and_validate_shard_manifest(include_bytes!(
+            "../../../tests/fixtures/shards/record-v1-v1.1-valid/manifest.json"
+        ))
+        .expect("record-v1 golden manifest must match canonical schema");
+        validate_shard_manifest_contract(&record_manifest)
+            .expect("record-v1 must be supported by this server release");
+
+        manifest.profile = Some("record-v1".to_string());
+        assert_eq!(
+            validate_shard_manifest_contract(&manifest).unwrap_err(),
+            "Shard profile declares a component unsupported by this server release."
+        );
     }
 
     #[test]

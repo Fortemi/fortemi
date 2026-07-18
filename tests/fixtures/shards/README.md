@@ -57,6 +57,15 @@ Current schema `1.1.0` `core-v1` golden corpus under
 `deleted_at: null`; live database tests separately cover a non-null tombstone
 timestamp and repeated import convergence.
 
+### record-v1-v1.1-valid/
+
+Current schema `1.1.0` `record-v1` golden corpus under
+`contracts/knowledge-shard/1.1.0/record-v1/`. It covers the authority-owned
+RecordStore subset: active and tombstoned notes, attachment projections, one
+collection, one tag, and one note-to-note link. Templates and all richer
+components are fixed at zero. Runtime tests prove dry-run zero mutation,
+reserved-profile rejection, clean import, and repeated replace convergence.
+
 ### schema-invalid/
 
 Focused negative schema fixtures:

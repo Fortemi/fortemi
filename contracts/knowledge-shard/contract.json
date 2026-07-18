@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractRevision": "2",
+  "contractRevision": "3",
   "authority": {
     "repository": "Fortemi/fortemi",
     "producerCommit": "Use the immutable Git commit containing this receipt."
@@ -22,19 +22,35 @@
     },
     "record-v1": {
       "supported": false,
-      "status": "reserved"
+      "status": "candidate",
+      "serverImportCandidate": true,
+      "schemaRoot": "contracts/knowledge-shard/1.1.0/record-v1",
+      "components": [
+        "notes",
+        "collections",
+        "tags",
+        "links"
+      ],
+      "requiresLossReport": true,
+      "goldenCorpusRoot": "tests/fixtures/shards/record-v1-v1.1-valid",
+      "goldenCorpusSha256": "76ad7cdeba3c5935ca39a32044609b0cc826862145910f8450b0d2b5fc128a19"
     }
   },
   "schemaBundle": {
     "aggregateAlgorithm": "sha256(raw file bytes concatenated in lexicographic path order)",
-    "sha256": "272df54aac6abf90d3d2005c2cf7cf938e3e6e140d4d15d67f2732d9b5108230",
+    "sha256": "2963063ea7b332c0fdc7d00463f2775f05886d822a89b6422992206e8c111362",
     "files": {
       "contracts/knowledge-shard/1.1.0/core-v1/collection.schema.json": "4708374341b2ca1c9f51290c140281deaefd33aaad0cf5051d17b53eb23f3cf6",
       "contracts/knowledge-shard/1.1.0/core-v1/link.schema.json": "c907ca29ab9233af2e8f45d0a39beeeb3c1bdf2219f947ac353689af6c1c848f",
       "contracts/knowledge-shard/1.1.0/core-v1/manifest.schema.json": "b1946ade68d9ee0abd6f1ba083853f754d538bd8e07d03508b1b6a0793fa939d",
       "contracts/knowledge-shard/1.1.0/core-v1/note.schema.json": "1494dda5ab3184ff0c302d91d103b10dfba4872c48dec7e2eaaf83d18f62d487",
       "contracts/knowledge-shard/1.1.0/core-v1/tag.schema.json": "79f4a6a7a996600a0ddb44a6194e2744196c47af8d72c04b8d78a2f42899b92a",
-      "contracts/knowledge-shard/1.1.0/core-v1/template.schema.json": "fdd4f9a6d2c9e34652e67652424bd81d479bdd16772a0375dbf12bc4b181db17"
+      "contracts/knowledge-shard/1.1.0/core-v1/template.schema.json": "fdd4f9a6d2c9e34652e67652424bd81d479bdd16772a0375dbf12bc4b181db17",
+      "contracts/knowledge-shard/1.1.0/record-v1/collection.schema.json": "61bc4d717b097b3e6c77b716a9adaa71acbca9228b66f0d4b7d83a060476680d",
+      "contracts/knowledge-shard/1.1.0/record-v1/link.schema.json": "3fe3b6632412c23319f8a4385c937066fbf2ba90af7f8170eaa57a951f4d65c5",
+      "contracts/knowledge-shard/1.1.0/record-v1/manifest.schema.json": "42cd8b8c3d30014b819076fa4ab4e462d18171511985f428d8fa99947466ee03",
+      "contracts/knowledge-shard/1.1.0/record-v1/note.schema.json": "b684e6765cd972486b8b207c1c19adc8097761ffefcb738def15700e0707a273",
+      "contracts/knowledge-shard/1.1.0/record-v1/tag.schema.json": "48fed2ac2e19cd4c6ed955e07070f7f3771365c2cc08efdea09c3186e9a51922"
     }
   },
   "goldenCorpus": {
@@ -54,7 +70,8 @@
   "limitations": [
     "schema 1.0.0 note records migrate missing deleted_at to the documented null active-state default",
     "core-v1 attachment records are metadata/reference projections by default; optional verified sidecars do not establish full-v1 conformance",
-    "full-v1 and record-v1 are reserved and are not supported by this release",
+    "record-v1 covers only notes, collections, tags, note-to-note links, and attachment projections; producers must report every omitted or lossy source concept",
+    "full-v1 is reserved and is not supported by this release",
     "complete absent-versus-null preservation requires a later schema-major or new profile identifier"
   ]
 }

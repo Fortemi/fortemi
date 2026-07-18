@@ -1,0 +1,30 @@
+{
+  "version": "1.1.0",
+  "profile": "record-v1",
+  "producer": {
+    "name": "fortemi-react-record-store",
+    "version": "0.0.0-fixture",
+    "revision": "fixture-record-v1-v1.1-schema"
+  },
+  "format": "matric-shard",
+  "created_at": "2026-07-18T00:01:00Z",
+  "components": ["notes", "collections", "tags", "links"],
+  "counts": {
+    "notes": 2,
+    "collections": 1,
+    "tags": 1,
+    "templates": 0,
+    "links": 1,
+    "embedding_sets": 0,
+    "embedding_set_members": 0,
+    "embeddings": 0,
+    "embedding_configs": 0
+  },
+  "checksums": {
+    "notes.jsonl": "6e8f61e439111df04261a029605044b7d91f9d02f53f375a01ca8b6b69e8cbca",
+    "collections.json": "9d063ae4779b42e3471c42c5277661706e0b6eb395548d847ee5e449264156e0",
+    "tags.json": "efdb1a3a8d2af487e999e41b9130b4a527a67bb7947e7f2c8a65f85bde88a112",
+    "links.jsonl": "8490add2fc1836d146550abf83c197361b505065c910089427b4fdff633ff49b"
+  },
+  "min_reader_version": "1.1.0"
+}
