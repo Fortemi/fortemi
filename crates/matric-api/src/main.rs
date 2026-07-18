@@ -2621,8 +2621,9 @@ async fn main() -> anyhow::Result<()> {
             "Could not create file storage directory; attachment uploads will fail!"
         );
     }
-    // Validate storage works before accepting uploads (issue #150)
-    // and sweep stale `.bin.tmp` files from crashed prior writes (#631).
+    // Validate storage works before accepting uploads (issue #150), sweep
+    // stale `.bin.tmp` files from crashed prior writes (#631), and clean
+    // abandoned Knowledge Shard blob staging files (#1058).
     {
         let backend = FilesystemBackend::new(&file_storage_path);
         match backend.validate().await {
@@ -2646,6 +2647,18 @@ async fn main() -> anyhow::Result<()> {
                 count = swept,
                 base_path_len = file_storage_path_meta.path_len,
                 "file_storage: swept stale .bin.tmp files at startup"
+            );
+        }
+        // The 24-hour threshold protects staging files owned by another
+        // process sharing this storage root while bounding crash leftovers.
+        let swept = backend
+            .sweep_staged_shard_blobs(std::time::Duration::from_secs(24 * 60 * 60))
+            .await;
+        if swept > 0 {
+            info!(
+                count = swept,
+                base_path_len = file_storage_path_meta.path_len,
+                "file_storage: swept stale Knowledge Shard blob staging files at startup"
             );
         }
     }

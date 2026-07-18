@@ -122,3 +122,10 @@ attachment projections or resolve sidecar entries. The optional sidecar section
 above is the cross-edition format contract for a future self-contained export
 and import mode; its presence in this document is not a claim that the server
 already implements byte round-tripping.
+
+The server filesystem backend has an internal streaming stage, verify,
+promote, and discard primitive for future shard sidecar restoration. Staged
+bytes remain outside the final blob namespace until promotion, and stale shard
+stages are swept at startup. The shard import/export routes do not yet use that
+primitive; server-generated shards and `core-v1` therefore remain
+reference-only.

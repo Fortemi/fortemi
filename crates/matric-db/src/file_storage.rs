@@ -30,9 +30,14 @@ use matric_core::{
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::path::{Path, PathBuf};
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, warn};
 use uuid::Uuid;
+
+const SHARD_BLOB_STAGING_ROOT: &str = "staging/shard-import";
+const SHARD_BLOB_STAGING_SUFFIX: &str = ".blob.stage";
+const SHARD_BLOB_STAGING_TEMP_SUFFIX: &str = ".blob.stage.tmp";
+const FILE_COPY_BUFFER_BYTES: usize = 64 * 1024;
 
 fn storage_path_len(path: &Path) -> usize {
     path.as_os_str().to_string_lossy().chars().count()
@@ -148,12 +153,461 @@ pub struct FilesystemBackend {
     base_path: PathBuf,
 }
 
+/// Verified attachment bytes held outside the final blob namespace.
+///
+/// The fields remain private so callers cannot substitute unverified paths or
+/// integrity metadata during promotion.
+#[derive(Clone, Eq, PartialEq)]
+pub struct StagedShardBlob {
+    blob_id: Uuid,
+    content_hash: blake3::Hash,
+    size_bytes: u64,
+}
+
+impl std::fmt::Debug for StagedShardBlob {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("StagedShardBlob")
+            .field("blob_id_present", &true)
+            .field("content_hash_present", &true)
+            .field("size_bytes", &self.size_bytes)
+            .finish()
+    }
+}
+
+impl StagedShardBlob {
+    /// Blob identifier to persist with the attachment blob record.
+    pub fn blob_id(&self) -> Uuid {
+        self.blob_id
+    }
+
+    /// Canonical database content hash (`blake3:<lowercase hex>`).
+    pub fn content_hash(&self) -> String {
+        format!("blake3:{}", self.content_hash.to_hex())
+    }
+
+    /// Verified byte length.
+    pub fn size_bytes(&self) -> u64 {
+        self.size_bytes
+    }
+
+    /// Final storage path to persist with the attachment blob record.
+    pub fn storage_path(&self) -> String {
+        generate_storage_path(&self.blob_id)
+    }
+}
+
+/// Result of promoting a verified staged shard blob.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum StagedShardBlobPromotion {
+    /// The staged file was atomically moved into the final blob namespace.
+    Promoted,
+    /// The exact verified bytes were already present at the final path.
+    AlreadyPromoted,
+}
+
 impl FilesystemBackend {
     /// Create a new filesystem backend with the given base directory.
     pub fn new(base_path: impl Into<PathBuf>) -> Self {
         Self {
             base_path: base_path.into(),
         }
+    }
+
+    fn staged_shard_blob_path(&self, blob_id: &Uuid) -> PathBuf {
+        self.base_path.join(SHARD_BLOB_STAGING_ROOT).join(format!(
+            "{}{SHARD_BLOB_STAGING_SUFFIX}",
+            blob_id.as_hyphenated()
+        ))
+    }
+
+    fn staged_shard_blob_temp_path(&self, blob_id: &Uuid) -> PathBuf {
+        let mut path = self.staged_shard_blob_path(blob_id);
+        let mut name = path
+            .file_name()
+            .map(|value| value.to_os_string())
+            .unwrap_or_default();
+        name.push(".tmp");
+        path.set_file_name(name);
+        path
+    }
+
+    async fn sync_directory_best_effort(directory: &Path, operation: &'static str) {
+        match fs::File::open(directory).await {
+            Ok(directory_file) => {
+                if let Err(error) = directory_file.sync_all().await {
+                    warn!(
+                        operation,
+                        directory_len = storage_path_len(directory),
+                        error_kind = storage_io_error_kind(&error),
+                        "file_storage: directory fsync failed"
+                    );
+                }
+            }
+            Err(error) => {
+                warn!(
+                    operation,
+                    directory_len = storage_path_len(directory),
+                    error_kind = storage_io_error_kind(&error),
+                    "file_storage: directory open failed for fsync"
+                );
+            }
+        }
+    }
+
+    async fn sync_parent_best_effort(path: &Path, operation: &'static str) {
+        if let Some(parent) = path.parent() {
+            Self::sync_directory_best_effort(parent, operation).await;
+        }
+    }
+
+    fn is_staged_shard_blob_file_name(name: &str) -> bool {
+        let id = name
+            .strip_suffix(SHARD_BLOB_STAGING_TEMP_SUFFIX)
+            .or_else(|| name.strip_suffix(SHARD_BLOB_STAGING_SUFFIX));
+        id.and_then(|value| Uuid::parse_str(value).ok()).is_some()
+    }
+
+    async fn unlink_promoted_stage(path: &Path) {
+        match fs::remove_file(path).await {
+            Ok(()) => Self::sync_parent_best_effort(path, "promote_staged_shard_blob").await,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                warn!(
+                    path_len = storage_path_len(path),
+                    error_kind = storage_io_error_kind(&error),
+                    "file_storage: promoted shard blob staging unlink failed"
+                );
+            }
+        }
+    }
+
+    fn parse_canonical_content_hash(content_hash: &str) -> Result<blake3::Hash> {
+        let Some(hex) = content_hash.strip_prefix("blake3:") else {
+            return Err(Error::InvalidInput(
+                "Staged shard blob content hash is not canonical".to_string(),
+            ));
+        };
+        if hex.len() != 64
+            || !hex
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(Error::InvalidInput(
+                "Staged shard blob content hash is not canonical".to_string(),
+            ));
+        }
+        blake3::Hash::from_hex(hex).map_err(|_| {
+            Error::InvalidInput("Staged shard blob content hash is not canonical".to_string())
+        })
+    }
+
+    async fn copy_and_verify<R>(
+        destination: &mut fs::File,
+        reader: &mut R,
+        expected_hash: blake3::Hash,
+        expected_size: u64,
+    ) -> Result<()>
+    where
+        R: AsyncRead + Unpin + ?Sized,
+    {
+        let mut buffer = vec![0_u8; FILE_COPY_BUFFER_BYTES];
+        let mut hasher = blake3::Hasher::new();
+        let mut size_bytes = 0_u64;
+
+        loop {
+            let read = reader.read(&mut buffer).await?;
+            if read == 0 {
+                break;
+            }
+            size_bytes = size_bytes.checked_add(read as u64).ok_or_else(|| {
+                Error::InvalidInput("Staged shard blob exceeds its declared size".to_string())
+            })?;
+            if size_bytes > expected_size {
+                return Err(Error::InvalidInput(
+                    "Staged shard blob exceeds its declared size".to_string(),
+                ));
+            }
+            hasher.update(&buffer[..read]);
+            destination.write_all(&buffer[..read]).await?;
+        }
+
+        if size_bytes != expected_size || hasher.finalize() != expected_hash {
+            return Err(Error::InvalidInput(
+                "Staged shard blob failed integrity verification".to_string(),
+            ));
+        }
+        destination.sync_all().await?;
+        Ok(())
+    }
+
+    async fn verify_file(
+        path: &Path,
+        expected_hash: blake3::Hash,
+        expected_size: u64,
+    ) -> Result<()> {
+        let mut file = fs::File::open(path).await?;
+        let metadata = file.metadata().await?;
+        if metadata.len() != expected_size {
+            return Err(Error::InvalidInput(
+                "Staged shard blob failed integrity verification".to_string(),
+            ));
+        }
+
+        let mut buffer = vec![0_u8; FILE_COPY_BUFFER_BYTES];
+        let mut hasher = blake3::Hasher::new();
+        loop {
+            let read = file.read(&mut buffer).await?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+        }
+        if hasher.finalize() != expected_hash {
+            return Err(Error::InvalidInput(
+                "Staged shard blob failed integrity verification".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Stream an attachment sidecar into an isolated staging namespace.
+    ///
+    /// The staged handle is returned only after the declared byte length and
+    /// canonical BLAKE3 hash have been verified and the file has been synced.
+    /// No path in the final `blobs/` namespace is created by this operation.
+    pub async fn stage_shard_blob<R>(
+        &self,
+        blob_id: Uuid,
+        content_hash: &str,
+        size_bytes: u64,
+        reader: &mut R,
+    ) -> Result<StagedShardBlob>
+    where
+        R: AsyncRead + Unpin + ?Sized,
+    {
+        let content_hash = Self::parse_canonical_content_hash(content_hash)?;
+        let staging_path = self.staged_shard_blob_path(&blob_id);
+        let temp_path = self.staged_shard_blob_temp_path(&blob_id);
+        let parent = staging_path.parent().ok_or_else(|| {
+            Error::Internal("Staged shard blob parent is unavailable".to_string())
+        })?;
+        fs::create_dir_all(parent).await?;
+
+        if fs::try_exists(&staging_path).await? || fs::try_exists(&temp_path).await? {
+            return Err(Error::InvalidInput(
+                "Staged shard blob identifier is already in use".to_string(),
+            ));
+        }
+
+        let mut file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temp_path)
+            .await?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Err(error) =
+                fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o600)).await
+            {
+                drop(file);
+                let _ = fs::remove_file(&temp_path).await;
+                return Err(error.into());
+            }
+        }
+        let copy_result = Self::copy_and_verify(&mut file, reader, content_hash, size_bytes).await;
+        drop(file);
+        if let Err(error) = copy_result {
+            if let Err(cleanup_error) = fs::remove_file(&temp_path).await {
+                if cleanup_error.kind() != std::io::ErrorKind::NotFound {
+                    warn!(
+                        path_len = storage_path_len(&temp_path),
+                        error_kind = storage_io_error_kind(&cleanup_error),
+                        "file_storage: failed to discard rejected staged shard blob"
+                    );
+                }
+            }
+            return Err(error);
+        }
+
+        if let Err(error) = fs::hard_link(&temp_path, &staging_path).await {
+            let _ = fs::remove_file(&temp_path).await;
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                return Err(Error::InvalidInput(
+                    "Staged shard blob identifier is already in use".to_string(),
+                ));
+            }
+            return Err(error.into());
+        }
+        Self::sync_parent_best_effort(&staging_path, "stage_shard_blob").await;
+        if let Err(error) = fs::remove_file(&temp_path).await {
+            warn!(
+                path_len = storage_path_len(&temp_path),
+                error_kind = storage_io_error_kind(&error),
+                "file_storage: staged shard blob temp unlink failed"
+            );
+        } else {
+            Self::sync_parent_best_effort(&temp_path, "stage_shard_blob").await;
+        }
+
+        Ok(StagedShardBlob {
+            blob_id,
+            content_hash,
+            size_bytes,
+        })
+    }
+
+    /// Atomically promote a verified staged sidecar into the final blob tree.
+    ///
+    /// Promotion re-verifies the staged bytes immediately before the rename.
+    /// Repeating promotion is safe when the exact bytes already exist.
+    pub async fn promote_staged_shard_blob(
+        &self,
+        staged: &StagedShardBlob,
+    ) -> Result<StagedShardBlobPromotion> {
+        let staging_path = self.staged_shard_blob_path(&staged.blob_id);
+        let final_path = self.full_path(&staged.storage_path());
+        let staging_exists = fs::try_exists(&staging_path).await?;
+        let final_exists = fs::try_exists(&final_path).await?;
+
+        if !staging_exists {
+            if final_exists {
+                Self::verify_file(&final_path, staged.content_hash, staged.size_bytes).await?;
+                return Ok(StagedShardBlobPromotion::AlreadyPromoted);
+            }
+            return Err(Error::NotFound(
+                "Staged shard blob is not available".to_string(),
+            ));
+        }
+
+        Self::verify_file(&staging_path, staged.content_hash, staged.size_bytes).await?;
+        if final_exists {
+            Self::verify_file(&final_path, staged.content_hash, staged.size_bytes).await?;
+            Self::unlink_promoted_stage(&staging_path).await;
+            return Ok(StagedShardBlobPromotion::AlreadyPromoted);
+        }
+
+        if let Some(parent) = final_path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&staging_path, std::fs::Permissions::from_mode(0o644)).await?;
+        }
+        match fs::hard_link(&staging_path, &final_path).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                Self::verify_file(&final_path, staged.content_hash, staged.size_bytes).await?;
+                Self::unlink_promoted_stage(&staging_path).await;
+                return Ok(StagedShardBlobPromotion::AlreadyPromoted);
+            }
+            Err(error) => return Err(error.into()),
+        }
+        Self::sync_parent_best_effort(&final_path, "promote_staged_shard_blob").await;
+        Self::unlink_promoted_stage(&staging_path).await;
+        Ok(StagedShardBlobPromotion::Promoted)
+    }
+
+    /// Remove staged bytes without touching a promoted final blob.
+    ///
+    /// Discard is idempotent so transaction rollback and compensation paths
+    /// can invoke it unconditionally.
+    pub async fn discard_staged_shard_blob(&self, staged: &StagedShardBlob) -> Result<()> {
+        for path in [
+            self.staged_shard_blob_path(&staged.blob_id),
+            self.staged_shard_blob_temp_path(&staged.blob_id),
+        ] {
+            match fs::remove_file(&path).await {
+                Ok(()) => Self::sync_parent_best_effort(&path, "discard_staged_shard_blob").await,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
+    }
+
+    /// Sweep stale shard-import staging files left by interrupted imports.
+    ///
+    /// Finalized files under `blobs/` and other staging namespaces are never
+    /// traversed. Fresh files may belong to an active import and are retained.
+    pub async fn sweep_staged_shard_blobs(&self, older_than: std::time::Duration) -> usize {
+        let staging_root = self.base_path.join(SHARD_BLOB_STAGING_ROOT);
+        if !fs::try_exists(&staging_root).await.unwrap_or(false) {
+            return 0;
+        }
+        let cutoff = match std::time::SystemTime::now().checked_sub(older_than) {
+            Some(value) => value,
+            None => return 0,
+        };
+        let mut removed = 0_usize;
+        let mut entries = match fs::read_dir(&staging_root).await {
+            Ok(entries) => entries,
+            Err(error) => {
+                warn!(
+                    dir_len = storage_path_len(&staging_root),
+                    error_kind = storage_io_error_kind(&error),
+                    "file_storage: staged shard blob sweep read_dir failed"
+                );
+                return 0;
+            }
+        };
+
+        loop {
+            let entry = match entries.next_entry().await {
+                Ok(Some(entry)) => entry,
+                Ok(None) => break,
+                Err(error) => {
+                    warn!(
+                        dir_len = storage_path_len(&staging_root),
+                        error_kind = storage_io_error_kind(&error),
+                        "file_storage: staged shard blob sweep next_entry failed"
+                    );
+                    break;
+                }
+            };
+            let path = entry.path();
+            let file_type = match entry.file_type().await {
+                Ok(file_type) => file_type,
+                Err(_) => continue,
+            };
+            if !file_type.is_file() {
+                continue;
+            }
+            let is_staged_blob = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(Self::is_staged_shard_blob_file_name)
+                .unwrap_or(false);
+            if !is_staged_blob {
+                continue;
+            }
+            let modified = match entry
+                .metadata()
+                .await
+                .and_then(|metadata| metadata.modified())
+            {
+                Ok(modified) => modified,
+                Err(_) => continue,
+            };
+            if modified > cutoff {
+                continue;
+            }
+            if let Err(error) = fs::remove_file(&path).await {
+                warn!(
+                    path_len = storage_path_len(&path),
+                    error_kind = storage_io_error_kind(&error),
+                    "file_storage: staged shard blob sweep remove failed"
+                );
+                continue;
+            }
+            removed += 1;
+        }
+        if removed > 0 {
+            Self::sync_directory_best_effort(&staging_root, "sweep_staged_shard_blobs").await;
+        }
+        removed
     }
 
     /// Sweep stale `*.bin.tmp` files left behind by crashed atomic-writes.
@@ -365,26 +819,7 @@ impl StorageBackend for FilesystemBackend {
         // Best-effort: log a warning on failure but don't fail the write
         // (the file's contents are already fsynced; only durability of the
         // rename across crash is at stake).
-        if let Some(parent) = full_path.parent() {
-            match fs::File::open(parent).await {
-                Ok(dir_file) => {
-                    if let Err(e) = dir_file.sync_all().await {
-                        warn!(
-                            parent_len = storage_path_len(parent),
-                            error_kind = storage_io_error_kind(&e),
-                            "file_storage: parent dir fsync failed (rename may not survive crash)"
-                        );
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        parent_len = storage_path_len(parent),
-                        error_kind = storage_io_error_kind(&e),
-                        "file_storage: parent dir open failed for fsync"
-                    );
-                }
-            }
-        }
+        Self::sync_parent_best_effort(&full_path, "write").await;
 
         Ok(())
     }
@@ -1751,6 +2186,23 @@ mod sweep_tests {
     use super::*;
     use std::time::Duration;
 
+    async fn stage_bytes(
+        backend: &FilesystemBackend,
+        blob_id: Uuid,
+        data: &[u8],
+    ) -> StagedShardBlob {
+        let mut reader = data;
+        backend
+            .stage_shard_blob(
+                blob_id,
+                &compute_content_hash(data),
+                data.len() as u64,
+                &mut reader,
+            )
+            .await
+            .unwrap()
+    }
+
     #[test]
     fn file_storage_telemetry_helpers_report_lengths_and_classes() {
         let raw_path = Path::new("/srv/fortemi/private/user@example.com/token=sk-secret/blob.bin");
@@ -1816,6 +2268,206 @@ mod sweep_tests {
         assert!(
             !tmp_path.exists(),
             "no .bin.tmp orphan after successful write"
+        );
+    }
+
+    #[tokio::test]
+    async fn stage_shard_blob_verifies_without_publishing_final_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let blob_id = Uuid::now_v7();
+        let data = b"verified sidecar bytes";
+
+        let staged = stage_bytes(&backend, blob_id, data).await;
+        let staged_path = backend.staged_shard_blob_path(&blob_id);
+        let final_path = tmp.path().join(staged.storage_path());
+
+        assert_eq!(staged.blob_id(), blob_id);
+        assert_eq!(staged.content_hash(), compute_content_hash(data));
+        assert_eq!(staged.size_bytes(), data.len() as u64);
+        assert_eq!(tokio::fs::read(&staged_path).await.unwrap(), data);
+        assert!(!final_path.exists(), "staging must not publish final bytes");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                tokio::fs::metadata(&staged_path)
+                    .await
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+
+        let rendered = format!("{staged:?}");
+        assert!(rendered.contains("blob_id_present"));
+        assert!(rendered.contains("content_hash_present"));
+        assert!(!rendered.contains(&blob_id.to_string()));
+        assert!(!rendered.contains(&compute_content_hash(data)));
+
+        backend.discard_staged_shard_blob(&staged).await.unwrap();
+        backend.discard_staged_shard_blob(&staged).await.unwrap();
+        assert!(!staged_path.exists(), "discard is repeat-safe");
+        assert!(!final_path.exists(), "discard must not create a final blob");
+    }
+
+    #[tokio::test]
+    async fn stage_shard_blob_rejects_invalid_integrity_and_cleans_temp_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let blob_id = Uuid::now_v7();
+        let data = b"bounded bytes";
+        let mut reader = &data[..];
+
+        let result = backend
+            .stage_shard_blob(
+                blob_id,
+                &compute_content_hash(data),
+                data.len() as u64 + 1,
+                &mut reader,
+            )
+            .await;
+        assert!(matches!(result, Err(Error::InvalidInput(_))));
+        assert!(!backend.staged_shard_blob_path(&blob_id).exists());
+        assert!(!backend.staged_shard_blob_temp_path(&blob_id).exists());
+
+        let mut reader = &data[..];
+        let uppercase_hash = compute_content_hash(data).to_ascii_uppercase();
+        let result = backend
+            .stage_shard_blob(
+                Uuid::now_v7(),
+                &uppercase_hash,
+                data.len() as u64,
+                &mut reader,
+            )
+            .await;
+        assert!(matches!(result, Err(Error::InvalidInput(_))));
+    }
+
+    #[tokio::test]
+    async fn promote_staged_shard_blob_reverifies_and_is_repeat_safe() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let blob_id = Uuid::now_v7();
+        let data = b"promoted sidecar bytes";
+        let staged = stage_bytes(&backend, blob_id, data).await;
+        let staged_path = backend.staged_shard_blob_path(&blob_id);
+        let final_path = tmp.path().join(staged.storage_path());
+
+        assert_eq!(
+            backend.promote_staged_shard_blob(&staged).await.unwrap(),
+            StagedShardBlobPromotion::Promoted
+        );
+        assert!(!staged_path.exists());
+        assert_eq!(tokio::fs::read(&final_path).await.unwrap(), data);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                tokio::fs::metadata(&final_path)
+                    .await
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o644
+            );
+        }
+        assert_eq!(
+            backend.promote_staged_shard_blob(&staged).await.unwrap(),
+            StagedShardBlobPromotion::AlreadyPromoted
+        );
+
+        backend.discard_staged_shard_blob(&staged).await.unwrap();
+        assert_eq!(
+            tokio::fs::read(&final_path).await.unwrap(),
+            data,
+            "compensation must not remove promoted bytes"
+        );
+    }
+
+    #[tokio::test]
+    async fn promote_staged_shard_blob_rejects_tampered_bytes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let blob_id = Uuid::now_v7();
+        let staged = stage_bytes(&backend, blob_id, b"original").await;
+        let staged_path = backend.staged_shard_blob_path(&blob_id);
+        let final_path = tmp.path().join(staged.storage_path());
+
+        tokio::fs::write(&staged_path, b"tampered").await.unwrap();
+        let result = backend.promote_staged_shard_blob(&staged).await;
+
+        assert!(matches!(result, Err(Error::InvalidInput(_))));
+        assert!(staged_path.exists(), "rejected bytes remain compensatable");
+        assert!(!final_path.exists(), "tampered bytes must not be published");
+    }
+
+    #[tokio::test]
+    async fn promote_staged_shard_blob_never_overwrites_mismatched_final_bytes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let blob_id = Uuid::now_v7();
+        let staged = stage_bytes(&backend, blob_id, b"expected").await;
+        let staged_path = backend.staged_shard_blob_path(&blob_id);
+        let final_path = tmp.path().join(staged.storage_path());
+        tokio::fs::create_dir_all(final_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&final_path, b"conflict").await.unwrap();
+
+        let result = backend.promote_staged_shard_blob(&staged).await;
+
+        assert!(matches!(result, Err(Error::InvalidInput(_))));
+        assert_eq!(tokio::fs::read(&final_path).await.unwrap(), b"conflict");
+        assert!(staged_path.exists(), "rejected stage remains compensatable");
+    }
+
+    #[tokio::test]
+    async fn sweep_staged_shard_blobs_is_scoped_and_preserves_fresh_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let stale = stage_bytes(&backend, Uuid::now_v7(), b"stale").await;
+        let promoted = stage_bytes(&backend, Uuid::now_v7(), b"final").await;
+        backend.promote_staged_shard_blob(&promoted).await.unwrap();
+
+        let staging_root = tmp.path().join(SHARD_BLOB_STAGING_ROOT);
+        let stale_temp = staging_root.join(format!(
+            "{}{SHARD_BLOB_STAGING_TEMP_SUFFIX}",
+            Uuid::now_v7().as_hyphenated()
+        ));
+        let unrelated = staging_root.join("unrelated.part");
+        let invalid_identifier = staging_root.join("not-a-uuid.blob.stage");
+        tokio::fs::write(&stale_temp, b"partial").await.unwrap();
+        tokio::fs::write(&unrelated, b"unrelated").await.unwrap();
+        tokio::fs::write(&invalid_identifier, b"unrelated")
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let fresh = stage_bytes(&backend, Uuid::now_v7(), b"fresh").await;
+
+        let removed = backend
+            .sweep_staged_shard_blobs(Duration::from_millis(100))
+            .await;
+
+        assert_eq!(removed, 2, "stale verified and temp files are removed");
+        assert!(!backend.staged_shard_blob_path(&stale.blob_id()).exists());
+        assert!(!stale_temp.exists());
+        assert!(backend.staged_shard_blob_path(&fresh.blob_id()).exists());
+        assert!(
+            unrelated.exists(),
+            "unrelated staging formats are untouched"
+        );
+        assert!(
+            invalid_identifier.exists(),
+            "only UUID-derived staging names are swept"
+        );
+        assert!(
+            tmp.path().join(promoted.storage_path()).exists(),
+            "final blobs are outside the sweep namespace"
         );
     }
 

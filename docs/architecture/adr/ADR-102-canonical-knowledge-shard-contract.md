@@ -209,6 +209,15 @@ attachment bytes, richer profiles, migration history, and cross-repository
 conformance receipts. Those gaps remain tracked release blockers, not implicit
 `core-v1` or `full-v1` claims.
 
+The filesystem backend now provides a bounded-memory staging primitive for a
+future attachment-byte importer. It streams bytes into an isolated
+`staging/shard-import/` namespace, verifies the declared byte length and
+canonical BLAKE3 digest before returning a private promotion handle, rechecks
+integrity before atomically promoting the file into `blobs/`, and supports
+idempotent compensation plus startup cleanup of stale stages. Shard routes do
+not yet invoke this primitive, so this prerequisite does not change the
+reference-only `core-v1` behavior or satisfy the `full-v1` attachment gate.
+
 Until the release gates pass:
 
 - user documentation must label lossless/full-profile behavior as a target;

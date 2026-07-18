@@ -13,6 +13,12 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   publishes the global rate-limit middleware's schema-bearing RFC 9457 `429`
   response, and contract validation rejects missing statuses, media types, or
   `ProblemDetails` schema references.
+- **Attachment sidecar staging prerequisite (#1058):** the filesystem backend
+  can stream a declared attachment blob into an isolated shard-import staging
+  namespace, verify its canonical BLAKE3 digest and length, atomically promote
+  it, compensate idempotently, and sweep stale stages without traversing final
+  blobs. Shard routes remain reference-only until profile and repository
+  integration gates are delivered.
 
 ### Fixed
 

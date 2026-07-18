@@ -112,7 +112,7 @@ pub use embedding_sets::PgEmbeddingSetRepository;
 pub use embeddings::{utils as embedding_utils, PgEmbeddingRepository};
 pub use file_storage::{
     compute_content_hash, generate_storage_path, FileDownloadInfo, FileSource, FilesystemBackend,
-    PgFileStorageRepository, StorageBackend,
+    PgFileStorageRepository, StagedShardBlob, StagedShardBlobPromotion, StorageBackend,
 };
 pub use jobs::{get_extraction_stats, PgJobRepository};
 pub use links::{

@@ -47,7 +47,7 @@ thiserror.workspace = true
 anyhow.workspace = true
 
 # Async
-tokio = { workspace = true, features = ["fs"] }
+tokio = { workspace = true, features = ["fs", "io-util"] }
 async-trait.workspace = true
 
 # Logging

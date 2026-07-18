@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-18T03:00:57Z"
+  updated_at: "2026-07-18T03:19:19Z"
 records:
   - entity: "contracts/knowledge-shard/contract.json"
     record: "records/knowledge-shard-contract-1057.prov.yaml"
@@ -20,3 +20,9 @@ records:
     record: "records/matric-api-main-shard-atomic-apply-923.prov.yaml"
   - entity: "crates/matric-api/src/main.rs"
     record: "records/matric-api-main-shard-atomic-swap-923.prov.yaml"
+  - entity: "crates/matric-db/src/file_storage.rs"
+    record: "records/matric-db-file-storage-shard-staging-1058.prov.yaml"
+  - entity: "crates/matric-db/src/lib.rs"
+    record: "records/matric-db-lib-shard-staging-1058.prov.yaml"
+  - entity: "crates/matric-api/src/main.rs"
+    record: "records/matric-api-main-shard-staging-sweep-1058.prov.yaml"

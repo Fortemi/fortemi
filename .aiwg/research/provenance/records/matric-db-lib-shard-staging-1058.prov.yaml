@@ -1,0 +1,64 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T03:19:19Z"
+  description: "Provenance for Fortemi issue #1058 staged attachment API exports"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:b18b362b88ff4b6f23cb83dffe1952eb0ea88d7064035c9a4a5e826b7e8e5cf7"
+  type: code
+  created_at: "2026-07-18T03:19:19Z"
+  updated_at: "2026-07-18T03:19:19Z"
+  checksum: "sha256:b18b362b88ff4b6f23cb83dffe1952eb0ea88d7064035c9a4a5e826b7e8e5cf7"
+  size_bytes: 27690
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1058"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:shard-blob-staging-1058:002"
+  type: modification
+  started_at: "2026-07-18T03:09:31Z"
+  ended_at: "2026-07-18T03:19:19Z"
+  description: "Expose the verified staged shard blob handle and promotion result through the matric-db public API"
+  attributes:
+    verification:
+      - "cargo test -p matric-db --all-features --locked"
+      - "cargo clippy -p matric-db --all-targets --all-features -- -D warnings"
+      - "cargo check -p matric-api --bin matric-api --all-features --locked"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+  attributes:
+    delegated_roles:
+      - software-implementer
+      - test-engineer
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:b18b362b88ff4b6f23cb83dffe1952eb0ea88d7064035c9a4a5e826b7e8e5cf7"
+    activity: "urn:aiwg:activity:modification:shard-blob-staging-1058:002"
+    time: "2026-07-18T03:19:19Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:shard-blob-staging-1058:002"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1058"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:shard-blob-staging-1058:002"
+      entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:7516000e350b18ab06d55b7388a2f2917da7b37bb4ad0c716c68d97ac5e46d77"
+      role: implementation
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:b18b362b88ff4b6f23cb83dffe1952eb0ea88d7064035c9a4a5e826b7e8e5cf7"
+      source: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:5257dd740533e682afdd6e1475e052e2ac57800bd54542fb2f19f9155a0978c5"
+      derivation_type: extends
+      activity: "urn:aiwg:activity:modification:shard-blob-staging-1058:002"
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:b18b362b88ff4b6f23cb83dffe1952eb0ea88d7064035c9a4a5e826b7e8e5cf7"
+      source: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:7516000e350b18ab06d55b7388a2f2917da7b37bb4ad0c716c68d97ac5e46d77"
+      derivation_type: derives_from
+      activity: "urn:aiwg:activity:modification:shard-blob-staging-1058:002"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:shard-blob-staging-1058:002"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:b18b362b88ff4b6f23cb83dffe1952eb0ea88d7064035c9a4a5e826b7e8e5cf7"
+    agent: "urn:aiwg:agent:codex-gpt-5"
