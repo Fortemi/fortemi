@@ -25162,6 +25162,8 @@ struct ShardImportCounts {
     note_original_history: usize,
     note_revised_current: usize,
     note_revisions: usize,
+    provenance_edges: usize,
+    provenance_activities: usize,
     collections: usize,
     tags: usize,
     templates: usize,
@@ -29151,6 +29153,137 @@ async fn apply_shard_note_history_components_tx(
     Ok(())
 }
 
+async fn apply_shard_revision_provenance_components_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    selected_components: &std::collections::HashSet<String>,
+    opts: &ShardImportOptions,
+    imported: &mut ShardImportCounts,
+    skipped: &mut ShardImportCounts,
+) -> Result<(), ApiError> {
+    let should_import = |component: &str| selected_components.contains(component);
+    let replace = matches!(opts.on_conflict, ConflictStrategy::Replace);
+
+    if should_import("provenance_edges") {
+        if let Some(data) = files.get("provenance_edges.jsonl") {
+            let edges = shard_jsonl_records::<ShardProvenanceEdgeRecord>(
+                data,
+                "Knowledge shard provenance edges are invalid.",
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+            if opts.dry_run {
+                imported.provenance_edges += edges.len();
+            } else {
+                if replace {
+                    sqlx::query("DELETE FROM provenance_edge")
+                        .execute(&mut **tx)
+                        .await
+                        .map_err(|error| {
+                            shard_operation_failed("replace imported provenance edges", error)
+                        })?;
+                }
+                for edge in edges {
+                    let conflict = if replace {
+                        "ON CONFLICT (id) DO UPDATE SET
+                             revision_id = EXCLUDED.revision_id,
+                             source_note_id = EXCLUDED.source_note_id,
+                             source_url = EXCLUDED.source_url,
+                             relation = EXCLUDED.relation,
+                             created_at_utc = EXCLUDED.created_at_utc"
+                    } else {
+                        "ON CONFLICT (id) DO NOTHING"
+                    };
+                    let result = sqlx::query(&format!(
+                        "INSERT INTO provenance_edge
+                         (id, revision_id, source_note_id, source_url, relation, created_at_utc)
+                         VALUES ($1, $2, $3, $4, $5, $6)
+                         {conflict}"
+                    ))
+                    .bind(edge.id)
+                    .bind(edge.revision_id)
+                    .bind(edge.source_note_id)
+                    .bind(edge.source_url)
+                    .bind(edge.relation)
+                    .bind(edge.created_at_utc)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("apply provenance edge import", error)
+                    })?;
+                    if result.rows_affected() == 0 {
+                        skipped.provenance_edges += 1;
+                    } else {
+                        imported.provenance_edges += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if should_import("provenance_activities") {
+        if let Some(data) = files.get("provenance_activities.jsonl") {
+            let activities = shard_jsonl_records::<ShardProvenanceActivityRecord>(
+                data,
+                "Knowledge shard provenance activities are invalid.",
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+            if opts.dry_run {
+                imported.provenance_activities += activities.len();
+            } else {
+                if replace {
+                    sqlx::query("DELETE FROM provenance_activity")
+                        .execute(&mut **tx)
+                        .await
+                        .map_err(|error| {
+                            shard_operation_failed("replace imported provenance activities", error)
+                        })?;
+                }
+                for activity in activities {
+                    let conflict = if replace {
+                        "ON CONFLICT (id) DO UPDATE SET
+                             note_id = EXCLUDED.note_id,
+                             revision_id = EXCLUDED.revision_id,
+                             activity_type = EXCLUDED.activity_type,
+                             model_name = EXCLUDED.model_name,
+                             started_at = EXCLUDED.started_at,
+                             ended_at = EXCLUDED.ended_at,
+                             metadata = EXCLUDED.metadata"
+                    } else {
+                        "ON CONFLICT (id) DO NOTHING"
+                    };
+                    let result = sqlx::query(&format!(
+                        "INSERT INTO provenance_activity
+                         (id, note_id, revision_id, activity_type, model_name,
+                          started_at, ended_at, metadata)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                         {conflict}"
+                    ))
+                    .bind(activity.id)
+                    .bind(activity.note_id)
+                    .bind(activity.revision_id)
+                    .bind(activity.activity_type)
+                    .bind(activity.model_name)
+                    .bind(activity.started_at)
+                    .bind(activity.ended_at)
+                    .bind(activity.metadata)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("apply provenance activity import", error)
+                    })?;
+                    if result.rows_affected() == 0 {
+                        skipped.provenance_activities += 1;
+                    } else {
+                        imported.provenance_activities += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 async fn apply_shard_embedding_components_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     files: &std::collections::HashMap<String, Vec<u8>>,
@@ -29806,6 +29939,16 @@ async fn apply_validated_shard_components(
     }
 
     apply_shard_note_history_components_tx(
+        &mut tx,
+        files,
+        selected_components,
+        opts,
+        &mut imported,
+        &mut skipped,
+    )
+    .await?;
+
+    apply_shard_revision_provenance_components_tx(
         &mut tx,
         files,
         selected_components,
@@ -35072,6 +35215,8 @@ mod tests {
                 note_original_history: 1,
                 note_revised_current: 1,
                 note_revisions: 1,
+                provenance_edges: 1,
+                provenance_activities: 1,
                 collections: 1,
                 tags: 1,
                 templates: 1,
@@ -35138,6 +35283,8 @@ mod tests {
                 note_original_history: 1,
                 note_revised_current: 1,
                 note_revisions: 1,
+                provenance_edges: 1,
+                provenance_activities: 1,
                 collections: 1,
                 tags: 1,
                 templates: 1,
@@ -40546,7 +40693,7 @@ not-json
         ))
         .expect("contract receipt must be valid JSON");
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert_eq!(receipt["contractRevision"], "8");
+        assert_eq!(receipt["contractRevision"], "9");
         assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
@@ -40556,7 +40703,7 @@ not-json
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
         assert_eq!(
             receipt["profiles"]["full-v1"]["status"],
-            "revision-provenance-boundary-candidate"
+            "revision-provenance-apply-candidate"
         );
         assert_eq!(receipt["profiles"]["record-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["record-v1"]["status"], "supported");
@@ -42141,6 +42288,342 @@ not-json
         }
     }
 
+    async fn shard_revision_provenance_snapshot(
+        ctx: &matric_db::SchemaContext,
+    ) -> serde_json::Value {
+        ctx.query(|tx| {
+            Box::pin(async move {
+                sqlx::query_scalar::<_, serde_json::Value>(
+                    "SELECT jsonb_build_object(
+                       'edges', COALESCE((
+                         SELECT jsonb_agg(
+                           jsonb_build_object(
+                             'id', id,
+                             'revision_id', revision_id,
+                             'source_note_id', source_note_id,
+                             'source_url', source_url,
+                             'relation', relation,
+                             'created_at_utc', created_at_utc
+                           )
+                           ORDER BY id
+                         )
+                         FROM provenance_edge
+                       ), '[]'::jsonb),
+                       'activities', COALESCE((
+                         SELECT jsonb_agg(
+                           jsonb_build_object(
+                             'id', id,
+                             'note_id', note_id,
+                             'revision_id', revision_id,
+                             'activity_type', activity_type,
+                             'model_name', model_name,
+                             'started_at', started_at,
+                             'ended_at', ended_at,
+                             'metadata', metadata
+                           )
+                           ORDER BY id
+                         )
+                         FROM provenance_activity
+                       ), '[]'::jsonb)
+                     )",
+                )
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(matric_db::Error::Database)
+            })
+        })
+        .await
+        .expect("read revision provenance snapshot")
+    }
+
+    #[tokio::test]
+    async fn shard_revision_provenance_apply_is_atomic_and_repeatable() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let success_name = format!("sh-prov-ok-{}", Uuid::new_v4().simple());
+        let rollback_name = format!("sh-prov-rb-{}", Uuid::new_v4().simple());
+        let success = db
+            .archives
+            .create_archive_schema(&success_name, Some("Shard provenance apply success test"))
+            .await
+            .expect("create provenance success schema");
+        let rollback = db
+            .archives
+            .create_archive_schema(&rollback_name, Some("Shard provenance apply rollback test"))
+            .await
+            .expect("create provenance rollback schema");
+
+        let (files, note_ids, note_contents, _, current_revision_id) =
+            valid_shard_note_history_relationship_fixture();
+        let note_id = *note_ids.iter().next().unwrap();
+        let revision_notes =
+            validate_shard_note_history_relationships(&files, &note_ids, &note_contents).unwrap();
+        let (provenance_files, _, _, edge_id, _) =
+            valid_shard_revision_provenance_relationship_fixture();
+        validate_shard_revision_provenance_relationships(
+            &provenance_files,
+            &note_ids,
+            &revision_notes,
+        )
+        .unwrap();
+        let activity_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d012").unwrap();
+        let revision_components = [
+            "note_originals",
+            "note_original_history",
+            "note_revised_current",
+            "note_revisions",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<std::collections::HashSet<_>>();
+        let provenance_components = ["provenance_edges", "provenance_activities"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<std::collections::HashSet<_>>();
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+
+        for schema in [&success.schema_name, &rollback.schema_name] {
+            let ctx = db.for_schema(schema).unwrap();
+            let mut tx = ctx.begin_tx().await.expect("begin provenance note seed");
+            matric_db::PgNoteRepository::new(db.pool.clone())
+                .insert_with_id_tx(
+                    &mut tx,
+                    note_id,
+                    CreateNoteRequest {
+                        content: "seed original".to_string(),
+                        format: "markdown".to_string(),
+                        source: "knowledge-shard-test".to_string(),
+                        collection_id: None,
+                        tags: Some(Vec::new()),
+                        metadata: Some(serde_json::json!({})),
+                        document_type_id: None,
+                        title: Some("Provenance apply note".to_string()),
+                    },
+                )
+                .await
+                .expect("seed provenance note");
+            let mut imported = ShardImportCounts::default();
+            let mut skipped = ShardImportCounts::default();
+            apply_shard_note_history_components_tx(
+                &mut tx,
+                &files,
+                &revision_components,
+                &opts,
+                &mut imported,
+                &mut skipped,
+            )
+            .await
+            .expect("seed exact provenance revision boundary");
+            tx.commit().await.expect("commit provenance revision seed");
+        }
+
+        let rollback_ctx = db.for_schema(&rollback.schema_name).unwrap();
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin provenance rollback baseline");
+        sqlx::query(
+            "INSERT INTO provenance_edge
+             (id, revision_id, source_note_id, source_url, relation)
+             VALUES ($1, $2, $3, NULL, 'used')",
+        )
+        .bind(Uuid::now_v7())
+        .bind(current_revision_id)
+        .bind(note_id)
+        .execute(&mut *tx)
+        .await
+        .expect("seed baseline provenance edge");
+        sqlx::query(
+            "INSERT INTO provenance_activity
+             (id, note_id, revision_id, activity_type, model_name)
+             VALUES ($1, $2, $3, 'baseline', NULL)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(note_id)
+        .bind(current_revision_id)
+        .execute(&mut *tx)
+        .await
+        .expect("seed baseline provenance activity");
+        tx.commit()
+            .await
+            .expect("commit provenance rollback baseline");
+        let baseline = shard_revision_provenance_snapshot(&rollback_ctx).await;
+
+        let expected_timestamp = "2026-07-18T12:30:00+00:00";
+        let expected = serde_json::json!({
+            "edges": [{
+                "id": edge_id,
+                "revision_id": current_revision_id,
+                "source_note_id": note_id,
+                "source_url": null,
+                "relation": "wasDerivedFrom",
+                "created_at_utc": expected_timestamp
+            }],
+            "activities": [{
+                "id": activity_id,
+                "note_id": note_id,
+                "revision_id": current_revision_id,
+                "activity_type": "ai_revision",
+                "model_name": "test-model",
+                "started_at": "2026-07-18T12:29:00+00:00",
+                "ended_at": expected_timestamp,
+                "metadata": {"revision_mode": "full"}
+            }]
+        });
+        let success_ctx = db.for_schema(&success.schema_name).unwrap();
+        for expected_pass in 0..2 {
+            let mut tx = success_ctx
+                .begin_tx()
+                .await
+                .expect("begin provenance apply");
+            let mut imported = ShardImportCounts::default();
+            let mut skipped = ShardImportCounts::default();
+            apply_shard_revision_provenance_components_tx(
+                &mut tx,
+                &provenance_files,
+                &provenance_components,
+                &opts,
+                &mut imported,
+                &mut skipped,
+            )
+            .await
+            .expect("apply complete revision provenance boundary");
+            tx.commit()
+                .await
+                .expect("commit revision provenance boundary");
+            assert_eq!(imported.provenance_edges, 1, "pass {expected_pass}");
+            assert_eq!(imported.provenance_activities, 1, "pass {expected_pass}");
+            assert_eq!(skipped.provenance_edges, 0, "pass {expected_pass}");
+            assert_eq!(skipped.provenance_activities, 0, "pass {expected_pass}");
+            assert_eq!(
+                shard_revision_provenance_snapshot(&success_ctx).await,
+                expected,
+                "pass {expected_pass}"
+            );
+        }
+
+        let skip_opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Skip,
+            skip_embedding_regen: true,
+        };
+        let mut tx = success_ctx.begin_tx().await.expect("begin provenance skip");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        apply_shard_revision_provenance_components_tx(
+            &mut tx,
+            &provenance_files,
+            &provenance_components,
+            &skip_opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect("skip existing revision provenance boundary");
+        tx.commit().await.expect("commit provenance skip");
+        assert_eq!(imported.provenance_edges, 0);
+        assert_eq!(imported.provenance_activities, 0);
+        assert_eq!(skipped.provenance_edges, 1);
+        assert_eq!(skipped.provenance_activities, 1);
+        assert_eq!(
+            shard_revision_provenance_snapshot(&success_ctx).await,
+            expected
+        );
+
+        let dry_run_opts = ShardImportOptions {
+            include: None,
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin provenance dry run");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        apply_shard_revision_provenance_components_tx(
+            &mut tx,
+            &provenance_files,
+            &provenance_components,
+            &dry_run_opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect("dry-run complete revision provenance boundary");
+        tx.rollback().await.expect("roll back provenance dry run");
+        assert_eq!(imported.provenance_edges, 1);
+        assert_eq!(imported.provenance_activities, 1);
+        assert_eq!(skipped.provenance_edges, 0);
+        assert_eq!(skipped.provenance_activities, 0);
+        assert_eq!(
+            shard_revision_provenance_snapshot(&rollback_ctx).await,
+            baseline
+        );
+
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin failed provenance apply");
+        sqlx::query(
+            "CREATE FUNCTION reject_shard_provenance_activity()
+             RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN
+                 RAISE EXCEPTION 'injected provenance activity failure';
+             END;
+             $$",
+        )
+        .execute(&mut *tx)
+        .await
+        .expect("create provenance failure function");
+        sqlx::query(
+            "CREATE TRIGGER reject_shard_provenance_activity
+             BEFORE INSERT ON provenance_activity
+             FOR EACH ROW EXECUTE FUNCTION reject_shard_provenance_activity()",
+        )
+        .execute(&mut *tx)
+        .await
+        .expect("create provenance failure trigger");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        let error = apply_shard_revision_provenance_components_tx(
+            &mut tx,
+            &provenance_files,
+            &provenance_components,
+            &opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect_err("late provenance failure must abort the apply transaction");
+        assert!(matches!(error, ApiError::OperationFailed { .. }));
+        tx.rollback()
+            .await
+            .expect("roll back failed provenance apply");
+        assert_eq!(
+            shard_revision_provenance_snapshot(&rollback_ctx).await,
+            baseline
+        );
+
+        for archive_name in [success_name, rollback_name] {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .expect("drop isolated provenance test schema");
+        }
+    }
+
     fn valid_shard_embedding_relationship_fixture() -> (
         std::collections::HashMap<String, Vec<u8>>,
         std::collections::HashSet<Uuid>,
@@ -43064,6 +43547,8 @@ not-json
                 note_original_history: 0,
                 note_revised_current: 0,
                 note_revisions: 0,
+                provenance_edges: 0,
+                provenance_activities: 0,
                 collections: 2,
                 tags: 0,
                 templates: 1,
