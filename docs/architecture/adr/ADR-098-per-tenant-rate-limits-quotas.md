@@ -7,7 +7,12 @@
 
 ## July 2026 checkpoint rebaseline
 
-This ADR remains design-only at the July 2026 checkpoint. The quota/rate-limit design depends on ADR-092, and no `UsageMeter` or `QuotaPolicy` implementation was found in `crates/`. Track billing/quota construction through `Fortemi-Enterprise/billing#1`; keep Redis/image pinning under `Fortemi/fortemi#1021`.
+This ADR remains design-only at the July 2026 checkpoint. The quota/rate-limit design depends on ADR-092, and no `UsageMeter` or `QuotaPolicy` implementation was found in `crates/`.
+
+- **Decision status:** Proposed; design only and dependency-blocked.
+- **Implementation phase:** Per-tenant quota middleware after ADR-092 construction.
+- **Phase owner:** `Fortemi/fortemi#714`, with private billing integration in `Fortemi-Enterprise/billing#1`.
+- **Checkpoint decision date:** 2026-07-14.
 
 ## Context
 

@@ -9,7 +9,12 @@
 
 ## July 2026 checkpoint rebaseline
 
-This ADR is refreshed as a contract direction, not a production gate implementation. Core roles/scopes are documented and supporting authz/audit seams exist in part, but the production MCP gate is deferred to `Fortemi-Enterprise/mcp-gate#2` plus Fortemi backoffice/API discovery in `Fortemi/fortemi#1020`.
+This ADR is refreshed as a contract direction, not a production gate implementation. Core roles/scopes are documented and supporting authz/audit seams exist in part.
+
+- **Decision status:** Proposed contract direction; production implementation not started.
+- **Implementation phase:** Enterprise MCP authorization gate construction.
+- **Phase owner:** `Fortemi-Enterprise/mcp-gate#2`; closed `Fortemi/fortemi#718` is the migration receipt.
+- **Checkpoint decision date:** 2026-07-14.
 
 ## Revision history
 

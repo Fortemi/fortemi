@@ -8,7 +8,12 @@
 
 ## July 2026 checkpoint rebaseline
 
-This ADR remains design-only at the July 2026 checkpoint. `UsageMeter`, `QuotaPolicy`, `NoOpMeter`, and `UnlimitedQuota` were documented, but no implementation was found in `crates/`. Track the construction baseline through `Fortemi-Enterprise/billing#1` and capability/backoffice discovery through `Fortemi/fortemi#1020`.
+This ADR remains design-only at the July 2026 checkpoint. `UsageMeter`, `QuotaPolicy`, `NoOpMeter`, and `UnlimitedQuota` were documented, but no implementation was found in `crates/`.
+
+- **Decision status:** Proposed; design only.
+- **Implementation phase:** Core metering/quota contract construction.
+- **Phase owner:** `Fortemi/fortemi#713`, with private billing integration in `Fortemi-Enterprise/billing#1`.
+- **Checkpoint decision date:** 2026-07-14.
 
 ## Context
 

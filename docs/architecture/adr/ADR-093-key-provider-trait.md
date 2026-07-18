@@ -17,7 +17,12 @@
 
 ## July 2026 checkpoint rebaseline
 
-Accepted status means the KMS-required hosted target is accepted; it does not mean the KeyProvider implementation is complete. The July 2026 checkpoint found the target documented here and in `docs/architecture/cryptographic-decisions.md`, but no `KeyProvider` trait/provider implementation in `crates/`. Hosted multi-tenant secret storage remains blocked on `Fortemi/fortemi#1019` and `Fortemi-Enterprise/kms#2`.
+Accepted status means the KMS-required hosted target is accepted; it does not mean the KeyProvider implementation is complete. The July 2026 checkpoint found the target documented here and in `docs/architecture/cryptographic-decisions.md`, but no `KeyProvider` trait/provider implementation in `crates/`.
+
+- **Decision status:** Accepted target architecture; implementation incomplete.
+- **Implementation phase:** KeyProvider and AWS KMS hosted-launch construction.
+- **Phase owner:** `Fortemi/fortemi#734`; follow-on provider work remains separately tracked.
+- **Checkpoint decision date:** 2026-07-14.
 
 ## Context
 

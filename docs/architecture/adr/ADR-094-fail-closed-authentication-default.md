@@ -8,7 +8,12 @@
 
 ## July 2026 checkpoint rebaseline
 
-This ADR remains proposed for the default-auth inversion. The multi-tenant guard is partially implemented: `matric-api` rejects anonymous mode when `FORTEMI_MULTI_TENANT=true`. The general CE default change and explicit `I_UNDERSTAND_NO_AUTH` flow are still not complete and are tracked under `Fortemi/fortemi#1017` until split.
+This ADR remains proposed for the default-auth inversion. The multi-tenant guard is partially implemented: `matric-api` rejects anonymous mode when `FORTEMI_MULTI_TENANT=true`. The general CE default change and explicit `I_UNDERSTAND_NO_AUTH` flow are still not complete.
+
+- **Decision status:** Proposed; multi-tenant guard partially implemented.
+- **Implementation phase:** Default-auth inversion awaiting a dedicated construction split.
+- **Phase owner:** `Fortemi/fortemi#1017` until the construction issue is split.
+- **Checkpoint decision date:** 2026-07-14.
 
 ## Context
 

@@ -17,7 +17,12 @@
 
 ## July 2026 checkpoint rebaseline
 
-Accepted status means the target tenancy architecture is accepted; it does not mean the RLS implementation is complete. The July 2026 checkpoint found no complete migration/policy/test-gate evidence for every tenant-scoped table and no completed `TenantScopedConn` implementation in `crates/`. Hosted multi-tenant production remains blocked on `Fortemi/fortemi#1016`.
+Accepted status means the target tenancy architecture is accepted; it does not mean the RLS implementation is complete. The July 2026 checkpoint found no complete migration/policy/test-gate evidence for every tenant-scoped table and no completed `TenantScopedConn` implementation in `crates/`.
+
+- **Decision status:** Accepted target architecture; implementation incomplete.
+- **Implementation phase:** RLS construction and hosted launch gate.
+- **Phase owner:** `Fortemi/fortemi#733` and its #726-#729 child tracks.
+- **Checkpoint decision date:** 2026-07-14.
 
 ## Context
 

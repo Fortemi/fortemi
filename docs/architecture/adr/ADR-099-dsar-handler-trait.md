@@ -16,7 +16,12 @@ safe metadata without exposing raw secret values.
 
 ## July 2026 checkpoint rebaseline
 
-This ADR remains experimental design at the July 2026 checkpoint. Privacy scopes are documented, but no `DataSubjectRequestHandler` trait/default implementation was found in `crates/`. Keep ADR-099 under `Fortemi/fortemi#1017` until a dedicated privacy/DSAR construction issue is split.
+This ADR remains experimental design at the July 2026 checkpoint. Privacy scopes are documented, but no `DataSubjectRequestHandler` trait/default implementation was found in `crates/`.
+
+- **Decision status:** Proposed / Experimental; implementation not started.
+- **Implementation phase:** Privacy/legal coordination before construction.
+- **Phase owner:** `Fortemi/fortemi#719`.
+- **Checkpoint decision date:** 2026-07-14.
 
 ## Context
 

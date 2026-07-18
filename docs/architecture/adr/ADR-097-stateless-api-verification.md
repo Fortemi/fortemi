@@ -8,7 +8,12 @@
 
 ## July 2026 checkpoint rebaseline
 
-This ADR remains proposed. The July 2026 checkpoint did not run a full statelessness audit, so horizontal-scale readiness is not proven by this ADR alone. Keep this as a hosted-scale gate under `Fortemi/fortemi#1017` and external job/backend work under `Fortemi-Enterprise/job-backends#1`.
+This ADR remains proposed. The July 2026 checkpoint did not run a full statelessness audit, so horizontal-scale readiness is not proven by this ADR alone.
+
+- **Decision status:** Proposed; hosted-scale readiness unverified.
+- **Implementation phase:** Statelessness audit, readiness, shutdown, and CI guard construction.
+- **Phase owner:** `Fortemi/fortemi#717`, with external backend work in `Fortemi-Enterprise/job-backends#1`.
+- **Checkpoint decision date:** 2026-07-14.
 
 ## Context
 

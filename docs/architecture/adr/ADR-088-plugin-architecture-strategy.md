@@ -8,7 +8,12 @@
 
 ## July 2026 checkpoint rebaseline
 
-This ADR remains a target architecture for the CE/EE plugin model. At the July 2026 enterprise/backoffice checkpoint, existing trait and registry patterns were present, but `Plugin` lifecycle, `PLUGIN_ABI_VERSION`, a stable plugin API crate, protobuf wire contracts, EE crate skeletons, and private package distribution proof were not complete. Track construction through `Fortemi/fortemi#1017` and `Fortemi-Enterprise/distribution#1`.
+This ADR remains a target architecture for the CE/EE plugin model. At the July 2026 enterprise/backoffice checkpoint, existing trait and registry patterns were present, but `Plugin` lifecycle, `PLUGIN_ABI_VERSION`, a stable plugin API crate, protobuf wire contracts, EE crate skeletons, and private package distribution proof were not complete.
+
+- **Decision status:** Proposed; accepted for construction planning only.
+- **Implementation phase:** Construction not started for the shared plugin lifecycle.
+- **Phase owner:** `Fortemi/fortemi#712`, with distribution proof in `Fortemi-Enterprise/distribution#1`.
+- **Checkpoint decision date:** 2026-07-14.
 
 ## Context
 

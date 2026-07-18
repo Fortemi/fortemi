@@ -8,7 +8,12 @@
 
 ## July 2026 checkpoint rebaseline
 
-The core audit seam is partially implemented: `AuditEvent`, `AuditSink`, `TracingSink`, bounded buffering, and many metadata-only API audit producers exist. This ADR is not yet a compliance-ready hosted audit claim because mandatory hosted audit health, KMS lifecycle audit, tamper-evident retention, and private EE sinks remain gated by `Fortemi/fortemi#1019` and `Fortemi-Enterprise/audit-sinks#2`.
+The core audit seam is partially implemented: `AuditEvent`, `AuditSink`, `TracingSink`, bounded buffering, and many metadata-only API audit producers exist. This ADR is not yet a compliance-ready hosted audit claim because mandatory hosted audit health, KMS lifecycle audit, tamper-evident retention, and private EE sinks remain open.
+
+- **Decision status:** Proposed; core audit seam partially implemented.
+- **Implementation phase:** Core close-out and hosted sink construction.
+- **Phase owner:** `Fortemi/fortemi#711`, with private sinks in `Fortemi-Enterprise/audit-sinks#2`.
+- **Checkpoint decision date:** 2026-07-14.
 
 ## Context
 

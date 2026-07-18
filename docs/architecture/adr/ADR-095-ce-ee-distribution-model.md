@@ -8,7 +8,12 @@
 
 ## July 2026 checkpoint rebaseline
 
-This ADR remains proposed. The `Fortemi-Enterprise` organization and nine private repos are visible, but the repos are README-only at the checkpoint. The CE-in-EE grant and managed-service restriction text are not approved legal language. Track legal posture through `Fortemi/licensing#1` and distribution construction through `Fortemi-Enterprise/distribution#1`.
+This ADR remains proposed. The `Fortemi-Enterprise` organization and nine private repos are visible, but the repos are README-only at the checkpoint. The CE-in-EE grant and managed-service restriction text are not approved legal language.
+
+- **Decision status:** Proposed; repository topology started, distribution not launch-ready.
+- **Implementation phase:** Edition metadata, legal approval, and distribution construction.
+- **Phase owner:** `Fortemi/fortemi#715`, with legal posture in `Fortemi/licensing#1` and private distribution in `Fortemi-Enterprise/distribution#1`.
+- **Checkpoint decision date:** 2026-07-14.
 
 ## Context
 

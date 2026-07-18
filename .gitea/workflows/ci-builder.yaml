@@ -136,6 +136,11 @@ jobs:
           python3 scripts/ci/verify-checkout-contract.py
           python3 -m unittest tests/test_verify_checkout_contract.py
 
+      - name: Check ADR rebaseline governance contract
+        run: |
+          python3 scripts/ci/verify-adr-rebaseline.py
+          python3 -m unittest tests/test_verify_adr_rebaseline.py
+
       - name: Check sidecar publication policy
         run: python3 scripts/ci/verify-sidecar-publication.py
 

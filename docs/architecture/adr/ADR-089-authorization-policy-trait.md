@@ -8,7 +8,12 @@
 
 ## July 2026 checkpoint rebaseline
 
-The core authorization seam is partially implemented: `AuthorizationPolicy`, `AllowAllPolicy`, and `RoleBasedPolicy` exist in `matric-core`, and `matric-api` selects a policy at startup. This ADR is not yet an enterprise RBAC readiness claim because full route/tool coverage, backoffice discovery, and private EE RBAC implementations remain gated by `Fortemi/fortemi#1020` and `Fortemi-Enterprise/rbac#1`.
+The core authorization seam is partially implemented: `AuthorizationPolicy`, `AllowAllPolicy`, and `RoleBasedPolicy` exist in `matric-core`, and `matric-api` selects a policy at startup. This ADR is not yet an enterprise RBAC readiness claim because full route/tool coverage, backoffice discovery, and private EE RBAC implementations remain open.
+
+- **Decision status:** Proposed; core contract partially implemented.
+- **Implementation phase:** Core construction and route/tool coverage.
+- **Phase owner:** `Fortemi/fortemi#710`, with private policy implementations in `Fortemi-Enterprise/rbac#1`.
+- **Checkpoint decision date:** 2026-07-14.
 
 ## Context
 
