@@ -58,9 +58,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Build release binary
         run: |
@@ -164,15 +166,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          REPO_URL="https://token:${{ github.token }}@git.integrolabs.net/${{ github.repository }}.git"
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
+          REPO_URL="https://git.integrolabs.net/${{ github.repository }}.git"
           SHA="${GITHUB_SHA}"
           RUN_ID="${GITHUB_RUN_ID:-$$}"
           BUILD_DIR="/Volumes/build/fortemi/builds/sidecar-${RUN_ID}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           echo "=== macOS sidecar build on mutsu ==="
-          echo "Branch: ${BRANCH}"
           echo "SHA:    ${SHA}"
           echo "Dir:    ${BUILD_DIR}"
 
@@ -192,12 +192,14 @@ jobs:
           export TMPDIR="/Volumes/build/tmp"
           mkdir -p /Volumes/build/tmp
 
-          # Clean + clone — fresh checkout per run so concurrent builds
+          # Fresh exact-SHA checkout per run so concurrent builds
           # don't interfere
           mkdir -p "${BUILD_DIR}"
           cd "${BUILD_DIR}"
-          git clone --depth 1 --branch "${BRANCH}" "${REPO_URL}" .
-          git checkout "${SHA}"
+          git init -q .
+          git remote add origin "${REPO_URL}"
+          git fetch --quiet --no-tags --depth=1 origin "${SHA:?SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
           echo "rustc: \$(rustc --version)"
           echo "cargo: \$(cargo --version)"

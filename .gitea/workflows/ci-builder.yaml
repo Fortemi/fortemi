@@ -55,9 +55,14 @@ jobs:
     steps:
       - name: Checkout complete repository
         run: |
-          git clone https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
-          git fetch origin '+refs/tags/*:refs/tags/*'
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
+          git fetch origin \
+            '+refs/heads/main:refs/remotes/origin/main' \
+            '+refs/tags/*:refs/tags/*'
 
       - name: Fetch GitHub source token from vault
         env:
@@ -91,9 +96,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
         run: |
@@ -106,9 +113,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -121,6 +130,11 @@ jobs:
 
       - name: Check release job guards
         run: python3 scripts/ci/verify-release-job-guards.py
+
+      - name: Check immutable workflow checkout contract
+        run: |
+          python3 scripts/ci/verify-checkout-contract.py
+          python3 -m unittest tests/test_verify_checkout_contract.py
 
       - name: Check sidecar publication policy
         run: python3 scripts/ci/verify-sidecar-publication.py
@@ -152,9 +166,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Test fail-closed matrix verifier
         run: python3 -m unittest tests/test_verify_knowledge_shard_matrix.py
@@ -182,9 +198,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Install cargo-audit
         run: |
@@ -215,9 +233,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Install cargo-deny
         run: |
@@ -240,9 +260,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Verify mcp-server lockfile in sync
         working-directory: mcp-server
@@ -257,9 +279,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Run server-independent MCP tests
         working-directory: mcp-server
@@ -282,9 +306,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
         run: |
@@ -399,9 +425,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Build Docker image
         run: |
@@ -424,9 +452,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
         run: |
@@ -613,9 +643,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Verify GPU Access
         run: nvidia-smi
@@ -645,9 +677,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Fetch registry token from vault
         env:
@@ -730,9 +764,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Require complete Knowledge Shard claim matrix
         run: |
@@ -832,9 +868,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Extract changelog
         run: |
@@ -919,9 +957,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Fetch registry tokens from vault
         env:
@@ -970,9 +1010,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Fetch registry tokens from vault
         env:
@@ -1025,9 +1067,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Extract changelog
         run: |

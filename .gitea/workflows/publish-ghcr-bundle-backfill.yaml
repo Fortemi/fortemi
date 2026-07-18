@@ -37,8 +37,10 @@ jobs:
       - name: Checkout automation source
         run: |
           set -euo pipefail
-          git clone https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout "${GITHUB_SHA:-HEAD}"
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Fetch GHCR token from vault
         env:

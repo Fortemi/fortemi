@@ -41,9 +41,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
         run: |
@@ -58,9 +60,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
         run: |
@@ -139,9 +143,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
         run: |
@@ -235,9 +241,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
         run: |
@@ -365,9 +373,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
         run: |
@@ -447,9 +457,11 @@ jobs:
     steps:
       - name: Checkout
         run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
 
       # The fortemi-builder image ships the docker CLI but not the compose
       # plugin. Install it pinned by version + sha256 (supply-chain: no
