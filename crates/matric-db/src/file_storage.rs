@@ -528,6 +528,31 @@ impl FilesystemBackend {
         Ok(())
     }
 
+    /// Compensate a promotion when the surrounding database transaction fails.
+    ///
+    /// Only a `Promoted` receipt may remove final bytes. Exact preexisting
+    /// bytes reported as `AlreadyPromoted` are never touched. The final file is
+    /// re-verified before unlink so compensation cannot delete replaced or
+    /// otherwise mismatched content.
+    pub async fn compensate_staged_shard_blob_promotion(
+        &self,
+        staged: &StagedShardBlob,
+        promotion: StagedShardBlobPromotion,
+    ) -> Result<()> {
+        if promotion == StagedShardBlobPromotion::AlreadyPromoted {
+            return Ok(());
+        }
+
+        let final_path = self.full_path(&staged.storage_path());
+        if !fs::try_exists(&final_path).await? {
+            return Ok(());
+        }
+        Self::verify_file(&final_path, staged.content_hash, staged.size_bytes).await?;
+        fs::remove_file(&final_path).await?;
+        Self::sync_parent_best_effort(&final_path, "compensate_staged_shard_blob_promotion").await;
+        Ok(())
+    }
+
     /// Sweep stale shard-import staging files left by interrupted imports.
     ///
     /// Finalized files under `blobs/` and other staging namespaces are never
@@ -2423,6 +2448,60 @@ mod sweep_tests {
         assert!(matches!(result, Err(Error::InvalidInput(_))));
         assert_eq!(tokio::fs::read(&final_path).await.unwrap(), b"conflict");
         assert!(staged_path.exists(), "rejected stage remains compensatable");
+    }
+
+    #[tokio::test]
+    async fn compensate_staged_shard_blob_promotion_is_receipt_bound_and_repeat_safe() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let promoted = stage_bytes(&backend, Uuid::now_v7(), b"new final").await;
+        let promoted_path = tmp.path().join(promoted.storage_path());
+        let receipt = backend.promote_staged_shard_blob(&promoted).await.unwrap();
+        assert_eq!(receipt, StagedShardBlobPromotion::Promoted);
+
+        backend
+            .compensate_staged_shard_blob_promotion(&promoted, receipt)
+            .await
+            .unwrap();
+        backend
+            .compensate_staged_shard_blob_promotion(&promoted, receipt)
+            .await
+            .unwrap();
+        assert!(!promoted_path.exists());
+
+        let preexisting = stage_bytes(&backend, Uuid::now_v7(), b"existing final").await;
+        let preexisting_path = tmp.path().join(preexisting.storage_path());
+        let first_receipt = backend
+            .promote_staged_shard_blob(&preexisting)
+            .await
+            .unwrap();
+        assert_eq!(first_receipt, StagedShardBlobPromotion::Promoted);
+        let second_receipt = backend
+            .promote_staged_shard_blob(&preexisting)
+            .await
+            .unwrap();
+        assert_eq!(second_receipt, StagedShardBlobPromotion::AlreadyPromoted);
+
+        backend
+            .compensate_staged_shard_blob_promotion(&preexisting, second_receipt)
+            .await
+            .unwrap();
+        assert_eq!(
+            tokio::fs::read(&preexisting_path).await.unwrap(),
+            b"existing final"
+        );
+
+        tokio::fs::write(&preexisting_path, b"replaced bytes")
+            .await
+            .unwrap();
+        let result = backend
+            .compensate_staged_shard_blob_promotion(&preexisting, first_receipt)
+            .await;
+        assert!(matches!(result, Err(Error::InvalidInput(_))));
+        assert_eq!(
+            tokio::fs::read(&preexisting_path).await.unwrap(),
+            b"replaced bytes"
+        );
     }
 
     #[tokio::test]

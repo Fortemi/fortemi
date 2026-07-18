@@ -286,6 +286,14 @@ impl Database {
         self
     }
 
+    /// Return the configured filesystem backend without exposing its base path.
+    ///
+    /// Knowledge Shard import uses this to stage and promote verified sidecars
+    /// through the same storage root as ordinary attachment operations.
+    pub fn filesystem_storage_backend(&self) -> Option<FilesystemBackend> {
+        self.file_storage_path.as_ref().map(FilesystemBackend::new)
+    }
+
     /// Create a new Database instance by connecting to the given URL.
     pub async fn connect(url: &str) -> Result<Self> {
         let pool = create_pool(url).await?;

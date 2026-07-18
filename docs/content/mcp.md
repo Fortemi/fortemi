@@ -1109,7 +1109,11 @@ Backup, restore, knowledge shard export/import, and memory archive download oper
 
 > **Note:** Actions that generate a curl command (`export_shard`, `import_shard`, `download_archive`, `upload_archive`, `download_memory`) return a `curl_command` whose `Authorization` header is the placeholder `Authorization: Bearer <ACCESS_TOKEN>` (post-#987 output sanitization). The command is **not runnable verbatim** — you must replace the placeholder with a real access token before running it.
 
-> **Shard portability status (2026.7.1):** The portable shard contract reserves `blobs/<hash>` sidecars, but the current server export is reference-only. Attachment rows/bytes are not packaged by export and are not restored by import. Do not treat an exported shard as a self-contained attachment backup yet.
+> **Shard portability status:** REST shard export is reference-only by default
+> and supports verified attachment sidecars with `include_blobs=true`; import
+> restores present valid sidecars. The `manage_backups` tool does not yet expose
+> that opt-in, so its generated `export_shard` command remains reference-only
+> unless amended. This does not provide `full-v1` disaster-recovery coverage.
 
 ### `explore_graph`
 

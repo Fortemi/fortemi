@@ -113,21 +113,24 @@ If AIWG has only a local file path and extraction has not run yet, it should emi
 
 The server edition follows the data-source pattern for summary and extraction
 jobs: jobs read the stored attachment, extract text, and write derived
-text/metadata back to attachment records. JSON export and knowledge-shard note
-records expose attachment projections with metadata and extracted text only.
+text/metadata back to attachment records. JSON records remain byte-free.
 
-Current server shard export is reference-only: it does not write `blobs/`
-entries. Current server shard import restores attachment projection identities,
-display filenames, extraction state and text, and digest metadata as
-reference-only attachment records. References with the same digest share one
-blob metadata row, but no attachment content is synthesized or resolved from a
-sidecar. The optional sidecar section above is the cross-edition format contract
-for a future self-contained export and import mode; its presence in this
-document is not a claim that the server already implements byte round-tripping.
+REST shard export is reference-only by default. Call
+`GET /api/v1/backup/knowledge-shard?include_blobs=true` to add every available,
+verified database- or filesystem-backed attachment as one digest-deduplicated
+`blobs/<hex>` entry. Export fails closed if stored bytes do not match their
+declared digest or length, or if the bounded archive budget cannot carry them.
 
-The server filesystem backend has an internal streaming stage, verify,
-promote, and discard primitive for future shard sidecar restoration. Staged
-bytes remain outside the final blob namespace until promotion, and stale shard
-stages are swept at startup. The shard import/export routes do not yet use that
-primitive; server-generated shards and `core-v1` therefore remain
-reference-only.
+Shard import accepts both forms. Missing referenced entries restore
+reference-only attachment metadata. Present referenced entries must match the
+declared BLAKE3 digest and byte count before any database write. Verified bytes
+are staged outside the final blob namespace, associated with attachment rows in
+the schema transaction, and promoted only after all selected components apply.
+Repeated imports reuse an existing materialized digest. Late component or
+commit failures roll back database state and discard or compensate newly
+promoted bytes.
+
+The current HTTP implementation buffers the bounded compressed archive and its
+entries in memory. It uses streaming verification within the filesystem
+storage primitive, but it is not a streaming archive reader/writer and does not
+claim `full-v1` conformance, signature support, or complete disaster recovery.

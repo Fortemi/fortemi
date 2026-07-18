@@ -57,7 +57,7 @@ use matric_core::{
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_db::{
     Database, FileSource, FilesystemBackend, SkosCollectionRepository, SkosConceptRepository,
-    SkosConceptSchemeRepository,
+    SkosConceptSchemeRepository, StagedShardBlob, StagedShardBlobPromotion, StorageBackend,
 };
 use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
@@ -21858,9 +21858,11 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
 
 #[derive(Deserialize)]
 struct ShardExportQuery {
-    /// Components to include (comma-separated): notes,collections,tags,templates,links,embedding_sets,embeddings
-    /// Default: notes,collections,tags,templates,links,embedding_sets
+    /// Core-v1 components to include (comma-separated).
     include: Option<String>,
+    /// Include available content-addressed attachment byte sidecars.
+    #[serde(default)]
+    include_blobs: bool,
 }
 
 impl fmt::Debug for ShardExportQuery {
@@ -21870,6 +21872,7 @@ impl fmt::Debug for ShardExportQuery {
                 "include_len",
                 &self.include.as_deref().map(telemetry_text_len),
             )
+            .field("include_blobs", &self.include_blobs)
             .finish()
     }
 }
@@ -22131,6 +22134,7 @@ const SHARD_MAX_ENTRY_NAME_BYTES: usize = 255;
 const SHARD_MAX_RECORDS_PER_COMPONENT: usize = 250_000;
 const SHARD_MAX_RECORD_BYTES: usize = 4 * 1024 * 1024;
 const SHARD_REQUEST_OVERHEAD_BYTES: usize = 1024 * 1024;
+const SHARD_BLOB_ENTRY_PREFIX: &str = "blobs/";
 const CORE_V1_MANIFEST_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.0.0/core-v1/manifest.schema.json");
 const CORE_V1_NOTE_SCHEMA: &str =
@@ -22281,6 +22285,24 @@ fn shard_component_filename(component: &str) -> Option<&'static str> {
         "links" => Some("links.jsonl"),
         _ => None,
     }
+}
+
+fn shard_blob_entry_checksum(name: &str) -> Option<String> {
+    let digest = name.strip_prefix(SHARD_BLOB_ENTRY_PREFIX)?;
+    if digest.len() != 64
+        || !digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return None;
+    }
+    Some(format!("blake3:{digest}"))
+}
+
+fn shard_blob_entry_name(checksum: &str) -> Option<String> {
+    let digest = checksum.strip_prefix("blake3:")?;
+    shard_blob_entry_checksum(&format!("{SHARD_BLOB_ENTRY_PREFIX}{digest}"))?;
+    Some(format!("{SHARD_BLOB_ENTRY_PREFIX}{digest}"))
 }
 
 fn compile_shard_json_schema(schema_json: &str) -> Result<jsonschema::Validator, String> {
@@ -22514,7 +22536,7 @@ fn ordered_shard_collections(data: &[u8]) -> Result<Vec<ShardCollectionRecord>, 
 
 fn validate_shard_relationships(
     files: &std::collections::HashMap<String, Vec<u8>>,
-) -> Result<(), String> {
+) -> Result<std::collections::HashMap<String, (i64, String)>, String> {
     let collections = files
         .get("collections.json")
         .map(|data| ordered_shard_collections(data))
@@ -22648,7 +22670,32 @@ fn validate_shard_relationships(
         }
     }
 
-    Ok(())
+    Ok(attachment_digests)
+}
+
+fn validate_shard_sidecars<'a>(
+    files: &'a std::collections::HashMap<String, Vec<u8>>,
+    attachment_digests: &std::collections::HashMap<String, (i64, String)>,
+) -> Result<std::collections::HashMap<String, &'a [u8]>, String> {
+    let mut sidecars = std::collections::HashMap::new();
+    for (name, contents) in files {
+        let Some(checksum) = shard_blob_entry_checksum(name) else {
+            continue;
+        };
+        let Some((declared_bytes, _)) = attachment_digests.get(&checksum) else {
+            continue;
+        };
+        let declared_bytes = usize::try_from(*declared_bytes)
+            .map_err(|_| "Knowledge shard attachment size is invalid.".to_string())?;
+        if contents.len() != declared_bytes || matric_db::compute_content_hash(contents) != checksum
+        {
+            return Err(
+                "Knowledge shard attachment sidecar failed integrity validation.".to_string(),
+            );
+        }
+        sidecars.insert(checksum, contents.as_slice());
+    }
+    Ok(sidecars)
 }
 
 fn validate_shard_manifest_contract(manifest: &ShardManifest) -> Result<(), String> {
@@ -22752,7 +22799,7 @@ fn validate_shard_component_inventory(
     }
 
     for filename in files.keys().filter(|name| name.as_str() != "manifest.json") {
-        if !expected_files.contains(filename) {
+        if !expected_files.contains(filename) && shard_blob_entry_checksum(filename).is_none() {
             return Err("Knowledge shard contains an undeclared component file.".to_string());
         }
     }
@@ -22825,10 +22872,109 @@ fn selected_shard_import_components(
     Ok(requested)
 }
 
+async fn load_shard_blob_sidecars_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    note_ids: &[Uuid],
+    backend: Option<&FilesystemBackend>,
+    max_entries: usize,
+    max_bytes: usize,
+) -> Result<std::collections::BTreeMap<String, Vec<u8>>, ApiError> {
+    use sqlx::Row;
+
+    if note_ids.is_empty() {
+        return Ok(std::collections::BTreeMap::new());
+    }
+    let rows = sqlx::query(
+        "SELECT DISTINCT ON (ab.content_hash)
+                ab.id, ab.content_hash, ab.size_bytes, ab.storage_backend,
+                ab.storage_path
+         FROM attachment a
+         JOIN attachment_blob ab ON ab.id = a.blob_id
+         WHERE a.note_id = ANY($1)
+           AND ab.storage_backend IN ('database', 'filesystem')
+         ORDER BY ab.content_hash, a.id",
+    )
+    .bind(note_ids)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("load attachment sidecar inventory", error))?;
+    if rows.len() > max_entries {
+        return Err(shard_validation_failed(
+            "Knowledge shard attachment sidecars exceed the archive entry limit.",
+        ));
+    }
+
+    let mut total_bytes = 0usize;
+    let mut sidecars = std::collections::BTreeMap::new();
+    for row in rows {
+        let blob_id: Uuid = row.get("id");
+        let checksum: String = row.get("content_hash");
+        let entry_name = shard_blob_entry_name(&checksum).ok_or_else(|| {
+            shard_validation_failed("Stored attachment content hash is not canonical.")
+        })?;
+        let declared_bytes: i64 = row.get("size_bytes");
+        let declared_bytes = usize::try_from(declared_bytes)
+            .map_err(|_| shard_validation_failed("Stored attachment size is invalid."))?;
+        if declared_bytes > SHARD_MAX_ENTRY_BYTES {
+            return Err(shard_validation_failed(
+                "Knowledge shard attachment sidecar exceeds the entry size limit.",
+            ));
+        }
+        total_bytes = total_bytes.checked_add(declared_bytes).ok_or_else(|| {
+            shard_validation_failed("Knowledge shard exceeds the uncompressed size limit.")
+        })?;
+        if total_bytes > max_bytes {
+            return Err(shard_validation_failed(
+                "Knowledge shard exceeds the uncompressed size limit.",
+            ));
+        }
+
+        let storage_backend: String = row.get("storage_backend");
+        let bytes = if storage_backend == "database" {
+            sqlx::query_scalar::<_, Option<Vec<u8>>>(
+                "SELECT data FROM attachment_blob WHERE id = $1",
+            )
+            .bind(blob_id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(|error| shard_operation_failed("read database attachment sidecar", error))?
+            .ok_or_else(|| shard_validation_failed("Stored attachment bytes are unavailable."))?
+        } else {
+            let storage_path = row
+                .get::<Option<String>, _>("storage_path")
+                .ok_or_else(|| shard_validation_failed("Stored attachment path is unavailable."))?;
+            backend
+                .ok_or_else(|| {
+                    shard_validation_failed(
+                        "Knowledge shard attachment sidecars require configured filesystem storage.",
+                    )
+                })?
+                .read(&storage_path)
+                .await
+                .map_err(|error| shard_operation_failed("read attachment sidecar", error))?
+        };
+        if bytes.len() != declared_bytes || matric_db::compute_content_hash(&bytes) != checksum {
+            return Err(shard_validation_failed(
+                "Stored attachment bytes failed integrity validation.",
+            ));
+        }
+        sidecars.insert(entry_name, bytes);
+    }
+    Ok(sidecars)
+}
+
 /// Create a knowledge shard (portable tar.gz export) with selected components.
 /// Respects X-Fortemi-Memory header for archive-scoped exports (#421).
-#[utoipa::path(get, path = "/api/v1/backup/knowledge-shard", tag = "Backup",
-    responses((status = 200, description = "Success")))]
+#[utoipa::path(
+    get,
+    path = "/api/v1/backup/knowledge-shard",
+    tag = "Backup",
+    params(
+        ("include" = Option<String>, Query, description = "Comma-separated core-v1 components"),
+        ("include_blobs" = Option<bool>, Query, description = "Include verified content-addressed attachment byte sidecars"),
+    ),
+    responses((status = 200, description = "Success"))
+)]
 async fn knowledge_shard(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -22862,6 +23008,8 @@ async fn knowledge_shard(
 
     let mut counts = ShardCounts::default();
     let mut checksums: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let archive_limits = ShardArchiveLimits::for_compressed_limit(state.max_upload_size);
+    let mut exported_note_ids = Vec::new();
 
     // Schema-scoped transaction for the entire export
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
@@ -22872,9 +23020,22 @@ async fn knowledge_shard(
     {
         let encoder = GzEncoder::new(&mut shard_data, Compression::default());
         let mut tar = Builder::new(encoder);
+        let mut archive_bytes = 0usize;
 
         // Helper to add JSON file to shard
         let mut add_json_file = |name: &str, data: &[u8]| -> std::io::Result<()> {
+            archive_bytes = archive_bytes.checked_add(data.len()).ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "knowledge shard expanded size overflow",
+                )
+            })?;
+            if archive_bytes > archive_limits.max_uncompressed_bytes {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "knowledge shard expanded size limit",
+                ));
+            }
             // Calculate checksum
             let mut hasher = Sha256::new();
             hasher.update(data);
@@ -22913,6 +23074,7 @@ async fn knowledge_shard(
 
                 for note in &notes_response.notes {
                     if let Ok(full_note) = notes_repo.fetch_tx(&mut tx, note.id).await {
+                        exported_note_ids.push(note.id);
                         let note_tags = tags_repo
                             .get_for_note_tx(&mut tx, note.id)
                             .await
@@ -23148,6 +23310,39 @@ async fn knowledge_shard(
             add_json_file("embeddings.jsonl", &data)
                 .map_err(|e| shard_operation_failed("add embeddings to shard", e))?;
         }
+        // Moving this closure ends its mutable borrows before sidecar emission.
+        #[allow(clippy::drop_non_drop)]
+        drop(add_json_file);
+        if query.include_blobs {
+            let reserved_entries = components.len().saturating_add(1);
+            let max_blob_entries = archive_limits.max_entries.saturating_sub(reserved_entries);
+            let max_blob_bytes = archive_limits
+                .max_uncompressed_bytes
+                .saturating_sub(archive_bytes);
+            let filesystem_backend = state.db.filesystem_storage_backend();
+            let sidecars = load_shard_blob_sidecars_tx(
+                &mut tx,
+                &exported_note_ids,
+                filesystem_backend.as_ref(),
+                max_blob_entries,
+                max_blob_bytes,
+            )
+            .await?;
+            for (name, bytes) in sidecars {
+                archive_bytes = archive_bytes.checked_add(bytes.len()).ok_or_else(|| {
+                    shard_validation_failed("Knowledge shard exceeds the uncompressed size limit.")
+                })?;
+                let mut header = tar::Header::new_gnu();
+                header.set_size(bytes.len() as u64);
+                header.set_mode(0o644);
+                header.set_mtime(chrono::Utc::now().timestamp() as u64);
+                header.set_cksum();
+                tar.append_data(&mut header, name, bytes.as_slice())
+                    .map_err(|error| {
+                        shard_operation_failed("add attachment sidecar to shard", error)
+                    })?;
+            }
+        }
 
         // Create manifest (added last)
         let manifest = ShardManifest {
@@ -23169,6 +23364,18 @@ async fn knowledge_shard(
             migration_history: vec![],
         };
         let manifest_data = serde_json::to_vec_pretty(&manifest).unwrap_or_default();
+        archive_bytes = archive_bytes
+            .checked_add(manifest_data.len())
+            .ok_or_else(|| {
+                shard_validation_failed("Knowledge shard exceeds the uncompressed size limit.")
+            })?;
+        if manifest_data.len() > archive_limits.max_manifest_bytes
+            || archive_bytes > archive_limits.max_uncompressed_bytes
+        {
+            return Err(shard_validation_failed(
+                "Knowledge shard exceeds the uncompressed size limit.",
+            ));
+        }
 
         // Add manifest to shard
         let mut header = tar::Header::new_gnu();
@@ -23182,6 +23389,11 @@ async fn knowledge_shard(
         // Finalize tar
         tar.finish()
             .map_err(|e| shard_operation_failed("finalize shard archive", e))?;
+    }
+    if shard_data.len() > archive_limits.max_compressed_bytes {
+        return Err(shard_validation_failed(
+            "Knowledge shard exceeds the compressed size limit.",
+        ));
     }
 
     // Commit the read-only transaction
@@ -26713,15 +26925,121 @@ async fn swap_backup(
     }))
 }
 
+async fn discard_staged_shard_sidecars(
+    backend: &FilesystemBackend,
+    staged_blobs: &std::collections::HashMap<String, StagedShardBlob>,
+) {
+    for staged in staged_blobs.values() {
+        if let Err(error) = backend.discard_staged_shard_blob(staged).await {
+            warn!(
+                error_len = telemetry_text_len(&error.to_string()),
+                "knowledge_shard: failed to discard staged attachment sidecar"
+            );
+        }
+    }
+}
+
+async fn compensate_shard_sidecar_promotions(
+    backend: &FilesystemBackend,
+    promotions: &[(StagedShardBlob, StagedShardBlobPromotion)],
+) {
+    for (staged, promotion) in promotions.iter().rev() {
+        if let Err(error) = backend
+            .compensate_staged_shard_blob_promotion(staged, *promotion)
+            .await
+        {
+            error!(
+                error_len = telemetry_text_len(&error.to_string()),
+                "knowledge_shard: failed to compensate attachment sidecar promotion"
+            );
+        }
+    }
+}
+
+async fn stage_shard_sidecars(
+    state: &AppState,
+    schema: &str,
+    sidecars: &std::collections::HashMap<String, &[u8]>,
+) -> Result<std::collections::HashMap<String, StagedShardBlob>, ApiError> {
+    if sidecars.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let ctx = state.db.for_schema(schema)?;
+    let mut tx = ctx
+        .begin_tx()
+        .await
+        .map_err(|error| shard_operation_failed("begin sidecar staging lookup", error))?;
+    let mut staging_plans = Vec::new();
+    let mut checksums = sidecars.keys().cloned().collect::<Vec<_>>();
+    checksums.sort();
+    for checksum in checksums {
+        let existing = sqlx::query_as::<_, (Uuid, String)>(
+            "SELECT id, storage_backend
+             FROM attachment_blob
+             WHERE content_hash = $1",
+        )
+        .bind(&checksum)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|error| shard_operation_failed("check sidecar blob storage", error))?;
+        if existing
+            .as_ref()
+            .is_some_and(|(_, storage_backend)| storage_backend != "reference")
+        {
+            continue;
+        }
+        let blob_id = existing
+            .map(|(blob_id, _)| blob_id)
+            .unwrap_or_else(Uuid::now_v7);
+        staging_plans.push((checksum, blob_id));
+    }
+    tx.rollback()
+        .await
+        .map_err(|error| shard_operation_failed("finish sidecar staging lookup", error))?;
+
+    if staging_plans.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let backend = state.db.filesystem_storage_backend().ok_or_else(|| {
+        shard_validation_failed(
+            "Knowledge shard attachment sidecars require configured filesystem storage.",
+        )
+    })?;
+    let mut staged_blobs = std::collections::HashMap::new();
+    for (checksum, blob_id) in staging_plans {
+        let bytes = sidecars[&checksum];
+        let mut reader = bytes;
+        match backend
+            .stage_shard_blob(blob_id, &checksum, bytes.len() as u64, &mut reader)
+            .await
+        {
+            Ok(staged) => {
+                staged_blobs.insert(checksum, staged);
+            }
+            Err(error) => {
+                discard_staged_shard_sidecars(&backend, &staged_blobs).await;
+                return Err(shard_operation_failed(
+                    "stage verified attachment sidecar",
+                    error,
+                ));
+            }
+        }
+    }
+    Ok(staged_blobs)
+}
+
 async fn apply_shard_attachment_projections(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     note_id: Uuid,
     projections: &[ShardAttachmentProjection],
+    staged_blobs: &std::collections::HashMap<String, StagedShardBlob>,
+    used_staged_blobs: &mut std::collections::HashSet<String>,
 ) -> Result<(), ApiError> {
     for (display_order, projection) in projections.iter().enumerate() {
         let attachment = &projection.attachment;
-        let existing_blob = sqlx::query_as::<_, (Uuid, String, i64)>(
-            "SELECT id, content_type, size_bytes
+        let existing_blob = sqlx::query_as::<_, (Uuid, String, i64, String)>(
+            "SELECT id, content_type, size_bytes, storage_backend
              FROM attachment_blob
              WHERE content_hash = $1",
         )
@@ -26730,37 +27048,87 @@ async fn apply_shard_attachment_projections(
         .await
         .map_err(|error| shard_operation_failed("check attachment blob conflict", error))?;
 
-        let blob_id = if let Some((blob_id, content_type, size_bytes)) = existing_blob {
-            if content_type != attachment.mime || size_bytes != attachment.bytes {
-                return Err(shard_validation_failed(
-                    "Knowledge shard attachment conflicts with existing content metadata.",
-                ));
-            }
-            blob_id
-        } else {
-            let blob_id = Uuid::now_v7();
-            sqlx::query(
-                "INSERT INTO attachment_blob
+        let (blob_id, reference_only) =
+            if let Some((blob_id, content_type, size_bytes, storage_backend)) = existing_blob {
+                if content_type != attachment.mime || size_bytes != attachment.bytes {
+                    return Err(shard_validation_failed(
+                        "Knowledge shard attachment conflicts with existing content metadata.",
+                    ));
+                }
+                if storage_backend == "reference" {
+                    if let Some(staged) = staged_blobs.get(&attachment.checksum) {
+                        if staged.blob_id() != blob_id {
+                            return Err(shard_validation_failed(
+                                "Knowledge shard attachment storage changed during import.",
+                            ));
+                        }
+                        sqlx::query(
+                            "UPDATE attachment_blob
+                         SET storage_type = 'filesystem',
+                             storage_backend = 'filesystem',
+                             storage_path = $2,
+                             verification_status = 'verified'
+                         WHERE id = $1",
+                        )
+                        .bind(blob_id)
+                        .bind(staged.storage_path())
+                        .execute(&mut **tx)
+                        .await
+                        .map_err(|error| {
+                            shard_operation_failed("upgrade reference attachment blob", error)
+                        })?;
+                        used_staged_blobs.insert(attachment.checksum.clone());
+                    }
+                }
+                (
+                    blob_id,
+                    storage_backend == "reference"
+                        && !staged_blobs.contains_key(&attachment.checksum),
+                )
+            } else if let Some(staged) = staged_blobs.get(&attachment.checksum) {
+                let blob_id = staged.blob_id();
+                sqlx::query(
+                    "INSERT INTO attachment_blob
+                 (id, content_hash, content_type, size_bytes, storage_type,
+                  storage_backend, storage_path, verification_status)
+                 VALUES ($1, $2, $3, $4, 'filesystem', 'filesystem', $5, 'verified')",
+                )
+                .bind(blob_id)
+                .bind(&attachment.checksum)
+                .bind(&attachment.mime)
+                .bind(attachment.bytes)
+                .bind(staged.storage_path())
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| shard_operation_failed("insert staged attachment blob", error))?;
+                used_staged_blobs.insert(attachment.checksum.clone());
+                (blob_id, false)
+            } else {
+                let blob_id = Uuid::now_v7();
+                sqlx::query(
+                    "INSERT INTO attachment_blob
                  (id, content_hash, content_type, size_bytes, storage_type,
                   storage_backend, storage_path, verification_status)
                  VALUES ($1, $2, $3, $4, 'reference', 'reference', NULL, 'reference_only')",
-            )
-            .bind(blob_id)
-            .bind(&attachment.checksum)
-            .bind(&attachment.mime)
-            .bind(attachment.bytes)
-            .execute(&mut **tx)
-            .await
-            .map_err(|error| shard_operation_failed("insert reference attachment blob", error))?;
-            blob_id
-        };
+                )
+                .bind(blob_id)
+                .bind(&attachment.checksum)
+                .bind(&attachment.mime)
+                .bind(attachment.bytes)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("insert reference attachment blob", error)
+                })?;
+                (blob_id, true)
+            };
 
         let display_order = i32::try_from(display_order).map_err(|_| {
             shard_validation_failed("Knowledge shard contains too many note attachments.")
         })?;
         let extracted_metadata = serde_json::json!({
             "knowledge_shard": {
-                "reference_only": true,
+                "reference_only": reference_only,
                 "reason": projection.reason.as_deref(),
             }
         });
@@ -26792,6 +27160,7 @@ async fn apply_validated_shard_components(
     opts: &ShardImportOptions,
     schema: &str,
     wipe_before_apply: bool,
+    staged_blobs: &std::collections::HashMap<String, StagedShardBlob>,
 ) -> Result<(ShardImportCounts, ShardImportCounts, Vec<Uuid>), ApiError> {
     let ctx = state.db.for_schema(schema)?;
     let mut tx = ctx
@@ -26802,6 +27171,7 @@ async fn apply_validated_shard_components(
     let mut skipped = ShardImportCounts::default();
     let mut queued_note_ids = Vec::new();
     let mut reference_blob_cleanup_candidates = Vec::new();
+    let mut used_staged_blobs = std::collections::HashSet::new();
     let should_import = |component: &str| selected_components.contains(component);
 
     if wipe_before_apply && !opts.dry_run {
@@ -26992,7 +27362,14 @@ async fn apply_validated_shard_components(
                 .map_err(|error| {
                     shard_operation_failed("restore imported note timestamps", error)
                 })?;
-                apply_shard_attachment_projections(&mut tx, note_id, &note.attachments).await?;
+                apply_shard_attachment_projections(
+                    &mut tx,
+                    note_id,
+                    &note.attachments,
+                    staged_blobs,
+                    &mut used_staged_blobs,
+                )
+                .await?;
                 if !opts.skip_embedding_regen {
                     queued_note_ids.push(note_id);
                 }
@@ -27145,14 +27522,46 @@ async fn apply_validated_shard_components(
         .map_err(|error| shard_operation_failed("delete orphaned reference blobs", error))?;
     }
 
+    let mut promotions = Vec::new();
+    let storage_backend = if used_staged_blobs.is_empty() {
+        None
+    } else {
+        Some(state.db.filesystem_storage_backend().ok_or_else(|| {
+            shard_validation_failed(
+                "Knowledge shard attachment sidecars require configured filesystem storage.",
+            )
+        })?)
+    };
+    if let Some(backend) = storage_backend.as_ref() {
+        let mut used_checksums = used_staged_blobs.into_iter().collect::<Vec<_>>();
+        used_checksums.sort();
+        for checksum in used_checksums {
+            let staged = &staged_blobs[&checksum];
+            match backend.promote_staged_shard_blob(staged).await {
+                Ok(promotion) => promotions.push((staged.clone(), promotion)),
+                Err(error) => {
+                    let _ = tx.rollback().await;
+                    compensate_shard_sidecar_promotions(backend, &promotions).await;
+                    return Err(shard_operation_failed(
+                        "promote verified attachment sidecar",
+                        error,
+                    ));
+                }
+            }
+        }
+    }
+
     if opts.dry_run {
         tx.rollback()
             .await
             .map_err(|error| shard_operation_failed("roll back import dry-run", error))?;
     } else {
-        tx.commit()
-            .await
-            .map_err(|error| shard_operation_failed("commit import transaction", error))?;
+        if let Err(error) = tx.commit().await {
+            if let Some(backend) = storage_backend.as_ref() {
+                compensate_shard_sidecar_promotions(backend, &promotions).await;
+            }
+            return Err(shard_operation_failed("commit import transaction", error));
+        }
     }
 
     Ok((imported, skipped, queued_note_ids))
@@ -27211,7 +27620,9 @@ async fn knowledge_shard_import_internal_with_wipe(
         }
     }
     validate_shard_component_inventory(&manifest, &files).map_err(ApiError::BadRequest)?;
-    validate_shard_relationships(&files).map_err(ApiError::BadRequest)?;
+    let attachment_digests = validate_shard_relationships(&files).map_err(ApiError::BadRequest)?;
+    let sidecars =
+        validate_shard_sidecars(&files, &attachment_digests).map_err(ApiError::BadRequest)?;
 
     // Application release identity is informational and independent of schema negotiation.
     let current_version = env!("CARGO_PKG_VERSION");
@@ -27231,15 +27642,25 @@ async fn knowledge_shard_import_internal_with_wipe(
         warnings.push("Shard producer release metadata is absent.".to_string());
     }
 
-    let (imported, skipped, queued_note_ids) = apply_validated_shard_components(
+    let staged_blobs = if opts.dry_run || !selected_components.contains("notes") {
+        std::collections::HashMap::new()
+    } else {
+        stage_shard_sidecars(state, schema, &sidecars).await?
+    };
+    let apply_result = apply_validated_shard_components(
         state,
         &files,
         &selected_components,
         opts,
         schema,
         wipe_before_apply,
+        &staged_blobs,
     )
-    .await?;
+    .await;
+    if let Some(backend) = state.db.filesystem_storage_backend() {
+        discard_staged_shard_sidecars(&backend, &staged_blobs).await;
+    }
+    let (imported, skipped, queued_note_ids) = apply_result?;
 
     for note_id in queued_note_ids {
         queue_nlp_pipeline(
@@ -29450,6 +29871,8 @@ fn get_db_size_via_psql(expr: &str) -> Option<i64> {
 mod tests {
     use super::*;
     use tower::ServiceExt;
+
+    static SHARD_INTEGRATION_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     async fn cors_preflight(requested_headers: &str) -> axum::response::Response {
         Router::new()
@@ -32840,6 +33263,7 @@ mod tests {
         };
         let shard_export = ShardExportQuery {
             include: Some("notes,templates,/srv/fortemi/private".to_string()),
+            include_blobs: false,
         };
         let shard_upload = ShardUploadQuery {
             include: Some("links,embeddings,sk-live-should-not-appear".to_string()),
@@ -35294,6 +35718,23 @@ mod tests {
         archive.into_inner().unwrap().finish().unwrap()
     }
 
+    fn regular_file_count(root: &std::path::Path) -> usize {
+        let Ok(entries) = std::fs::read_dir(root) else {
+            return 0;
+        };
+        entries
+            .filter_map(Result::ok)
+            .map(|entry| {
+                let path = entry.path();
+                if path.is_dir() {
+                    regular_file_count(&path)
+                } else {
+                    usize::from(path.is_file())
+                }
+            })
+            .sum()
+    }
+
     #[test]
     fn shard_archive_reader_rejects_unsafe_duplicate_and_non_regular_entries() {
         let unsafe_path = test_shard_archive_with_raw_name(b"../evil");
@@ -35415,13 +35856,120 @@ mod tests {
     fn test_shard_export_query_defaults() {
         let query: ShardExportQuery = serde_json::from_str("{}").unwrap();
         assert!(query.include.is_none());
+        assert!(!query.include_blobs);
     }
 
     #[test]
     fn test_shard_export_query_with_components() {
-        let json = r#"{"include": "notes,links"}"#;
+        let json = r#"{"include": "notes,links", "include_blobs": true}"#;
         let query: ShardExportQuery = serde_json::from_str(json).unwrap();
         assert_eq!(query.include, Some("notes,links".to_string()));
+        assert!(query.include_blobs);
+    }
+
+    #[test]
+    fn shard_blob_entry_names_are_canonical_and_round_trip() {
+        let digest = "0123456789abcdef".repeat(4);
+        let checksum = format!("blake3:{digest}");
+        let entry = format!("blobs/{digest}");
+        assert_eq!(
+            shard_blob_entry_name(&checksum).as_deref(),
+            Some(entry.as_str())
+        );
+        assert_eq!(
+            shard_blob_entry_checksum(&entry).as_deref(),
+            Some(checksum.as_str())
+        );
+
+        for invalid in [
+            format!("blobs/{}", digest.to_uppercase()),
+            format!("blobs/{digest}/nested"),
+            format!("blobs/{digest}.bin"),
+            format!("blob/{digest}"),
+            format!("blobs/{}", &digest[..63]),
+        ] {
+            assert_eq!(shard_blob_entry_checksum(&invalid), None);
+        }
+        assert_eq!(shard_blob_entry_name(&format!("sha256:{digest}")), None);
+    }
+
+    #[test]
+    fn shard_sidecar_preflight_validates_referenced_bytes_and_ignores_orphans() {
+        let bytes = b"portable attachment bytes".to_vec();
+        let checksum = matric_db::compute_content_hash(&bytes);
+        let entry = shard_blob_entry_name(&checksum).unwrap();
+        let declarations = [(
+            checksum.clone(),
+            (bytes.len() as i64, "application/octet-stream".to_string()),
+        )]
+        .into_iter()
+        .collect::<std::collections::HashMap<_, _>>();
+
+        let missing = std::collections::HashMap::new();
+        assert!(validate_shard_sidecars(&missing, &declarations)
+            .unwrap()
+            .is_empty());
+
+        let files = [(entry.clone(), bytes.clone())]
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>();
+        let validated = validate_shard_sidecars(&files, &declarations).unwrap();
+        assert_eq!(validated[&checksum], bytes.as_slice());
+
+        let tampered = [(entry.clone(), b"tampered attachment bytes".to_vec())]
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(
+            validate_shard_sidecars(&tampered, &declarations).unwrap_err(),
+            "Knowledge shard attachment sidecar failed integrity validation."
+        );
+
+        let wrong_size_declarations = [(
+            checksum,
+            (
+                (bytes.len() + 1) as i64,
+                "application/octet-stream".to_string(),
+            ),
+        )]
+        .into_iter()
+        .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(
+            validate_shard_sidecars(&files, &wrong_size_declarations).unwrap_err(),
+            "Knowledge shard attachment sidecar failed integrity validation."
+        );
+
+        let orphan_bytes = b"unreferenced portable bytes".to_vec();
+        let orphan_entry =
+            shard_blob_entry_name(&matric_db::compute_content_hash(&orphan_bytes)).unwrap();
+        let orphan = [(orphan_entry, orphan_bytes)]
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>();
+        assert!(validate_shard_sidecars(&orphan, &declarations)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn shard_inventory_accepts_only_canonical_blob_sidecar_paths() {
+        let manifest = valid_core_shard_manifest();
+        let digest = "0123456789abcdef".repeat(4);
+        let mut canonical = valid_core_shard_files();
+        canonical.insert(format!("blobs/{digest}"), b"sidecar".to_vec());
+        validate_shard_component_inventory(&manifest, &canonical)
+            .expect("canonical blob sidecar path must be accepted");
+
+        for malformed in [
+            format!("blobs/{}", digest.to_uppercase()),
+            format!("blobs/{digest}.bin"),
+            format!("blobs/{digest}/nested"),
+        ] {
+            let mut files = valid_core_shard_files();
+            files.insert(malformed, b"sidecar".to_vec());
+            assert_eq!(
+                validate_shard_component_inventory(&manifest, &files).unwrap_err(),
+                "Knowledge shard contains an undeclared component file."
+            );
+        }
     }
 
     #[test]
@@ -35744,6 +36292,7 @@ mod tests {
 
     #[tokio::test]
     async fn shard_core_v1_server_export_clean_import_preserves_semantic_state() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
         let db = Database::connect(&database_url)
@@ -35778,7 +36327,10 @@ mod tests {
                 is_default: false,
                 name: Some(source_name.clone()),
             }),
-            Query(ShardExportQuery { include: None }),
+            Query(ShardExportQuery {
+                include: None,
+                include_blobs: false,
+            }),
         )
         .await
         .expect("export source archive")
@@ -36089,7 +36641,12 @@ mod tests {
                 &destination.schema_name,
             )
             .await
-            .expect("server-exported shard import must succeed");
+            .unwrap_or_else(|error| match error {
+                ApiError::OperationFailed { detail, .. } => {
+                    panic!("server-exported shard import failed at: {detail}")
+                }
+                other => panic!("server-exported shard import must succeed: {other:?}"),
+            });
             assert_eq!(result.status, "success");
             assert_eq!(result.imported.collections, 2);
             assert_eq!(result.imported.notes, 2);
@@ -36325,6 +36882,270 @@ mod tests {
             .drop_archive_schema(&source_name)
             .await
             .expect("drop isolated shard source");
+    }
+
+    #[tokio::test]
+    async fn shard_optional_sidecars_round_trip_and_fail_without_partial_storage() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let storage = tempfile::tempdir().expect("create isolated attachment storage");
+        let storage_root = storage.path().to_string_lossy().to_string();
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database")
+            .with_filesystem_storage(&storage_root, 0);
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+
+        let source_name = format!("shard-sidecar-source-{}", Uuid::new_v4().simple());
+        let source = db
+            .archives
+            .create_archive_schema(&source_name, Some("Knowledge Shard sidecar source test"))
+            .await
+            .expect("create isolated sidecar source");
+        knowledge_shard_import_internal(
+            &state,
+            &hierarchical_core_shard_bytes(),
+            &opts,
+            &source.schema_name,
+        )
+        .await
+        .expect("seed sidecar source");
+
+        let attachment_bytes = b"portable filesystem attachment bytes".to_vec();
+        let attachment_checksum = matric_db::compute_content_hash(&attachment_bytes);
+        let source_ctx = db.for_schema(&source.schema_name).unwrap();
+        let source_blob_id = source_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_scalar::<_, Uuid>("SELECT id FROM attachment_blob")
+                        .fetch_one(&mut **tx)
+                        .await
+                        .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("load seeded reference blob");
+        let source_storage_path = matric_db::generate_storage_path(&source_blob_id);
+        let backend = state.db.filesystem_storage_backend().unwrap();
+        backend
+            .write(&source_storage_path, &attachment_bytes)
+            .await
+            .expect("write source attachment bytes");
+        let checksum_for_update = attachment_checksum.clone();
+        let path_for_update = source_storage_path.clone();
+        let attachment_size = attachment_bytes.len() as i64;
+        source_ctx
+            .execute(move |tx| {
+                Box::pin(async move {
+                    sqlx::query(
+                        "UPDATE attachment_blob
+                         SET content_hash = $2,
+                             size_bytes = $3,
+                             storage_type = 'filesystem',
+                             storage_backend = 'filesystem',
+                             storage_path = $4,
+                             verification_status = 'verified'
+                         WHERE id = $1",
+                    )
+                    .bind(source_blob_id)
+                    .bind(checksum_for_update)
+                    .bind(attachment_size)
+                    .bind(path_for_update)
+                    .execute(&mut **tx)
+                    .await
+                    .map(|_| ())
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("materialize seeded source blob metadata");
+
+        let export = knowledge_shard(
+            State(state.clone()),
+            Extension(ArchiveContext {
+                schema: source.schema_name.clone(),
+                is_default: false,
+                name: Some(source_name.clone()),
+            }),
+            Query(ShardExportQuery {
+                include: None,
+                include_blobs: true,
+            }),
+        )
+        .await
+        .expect("export shard with sidecars")
+        .into_response();
+        assert_eq!(export.status(), StatusCode::OK);
+        let exported_bytes = axum::body::to_bytes(export.into_body(), usize::MAX)
+            .await
+            .expect("read sidecar export");
+        let exported_files =
+            read_shard_archive(&exported_bytes, ShardArchiveLimits::default()).unwrap();
+        let sidecar_name = shard_blob_entry_name(&attachment_checksum).unwrap();
+        assert_eq!(exported_files[&sidecar_name], attachment_bytes);
+
+        let tamper_name = format!("shard-sidecar-tamper-{}", Uuid::new_v4().simple());
+        let tamper = db
+            .archives
+            .create_archive_schema(&tamper_name, Some("Knowledge Shard tamper test"))
+            .await
+            .expect("create isolated tamper destination");
+        let tampered = replace_shard_entry(&exported_bytes, &sidecar_name, b"tampered bytes");
+        let files_before_tamper = regular_file_count(storage.path());
+        let error = knowledge_shard_import_internal(&state, &tampered, &opts, &tamper.schema_name)
+            .await
+            .expect_err("tampered sidecar must fail before apply");
+        assert!(matches!(
+            error,
+            ApiError::BadRequest(ref message)
+                if message == "Knowledge shard attachment sidecar failed integrity validation."
+        ));
+        let tamper_counts = db
+            .for_schema(&tamper.schema_name)
+            .unwrap()
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read tamper destination counts");
+        assert_eq!(tamper_counts, (0, 0, 0));
+        assert_eq!(regular_file_count(storage.path()), files_before_tamper);
+
+        let destination_name = format!("shard-sidecar-dest-{}", Uuid::new_v4().simple());
+        let destination = db
+            .archives
+            .create_archive_schema(
+                &destination_name,
+                Some("Knowledge Shard sidecar destination test"),
+            )
+            .await
+            .expect("create isolated sidecar destination");
+        for _ in 0..2 {
+            knowledge_shard_import_internal(
+                &state,
+                &exported_bytes,
+                &opts,
+                &destination.schema_name,
+            )
+            .await
+            .expect("verified sidecar import must be repeatable");
+        }
+        let destination_ctx = db.for_schema(&destination.schema_name).unwrap();
+        let imported_blob = destination_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (String, String, Option<String>, i32)>(
+                        "SELECT content_hash, storage_backend, storage_path, reference_count
+                         FROM attachment_blob",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read imported sidecar metadata");
+        assert_eq!(imported_blob.0, attachment_checksum);
+        assert_eq!(imported_blob.1, "filesystem");
+        assert_eq!(imported_blob.3, 2);
+        assert_eq!(
+            backend
+                .read(imported_blob.2.as_deref().expect("filesystem path"))
+                .await
+                .expect("read imported sidecar bytes"),
+            attachment_bytes
+        );
+        let files_after_success = regular_file_count(storage.path());
+        assert_eq!(files_after_success, files_before_tamper + 1);
+
+        let rollback_name = format!("shard-sidecar-rollback-{}", Uuid::new_v4().simple());
+        let rollback = db
+            .archives
+            .create_archive_schema(
+                &rollback_name,
+                Some("Knowledge Shard sidecar rollback test"),
+            )
+            .await
+            .expect("create isolated sidecar rollback destination");
+        let rollback_ctx = db.for_schema(&rollback.schema_name).unwrap();
+        rollback_ctx
+            .execute(|tx| {
+                Box::pin(async move {
+                    sqlx::query(
+                        "CREATE FUNCTION reject_sidecar_shard_link_insert()
+                         RETURNS trigger
+                         LANGUAGE plpgsql
+                         AS $$
+                         BEGIN
+                             RAISE EXCEPTION 'injected sidecar shard link failure';
+                         END;
+                         $$",
+                    )
+                    .execute(&mut **tx)
+                    .await?;
+                    sqlx::query(
+                        "CREATE TRIGGER reject_sidecar_shard_link_insert
+                         BEFORE INSERT ON link
+                         FOR EACH ROW EXECUTE FUNCTION reject_sidecar_shard_link_insert()",
+                    )
+                    .execute(&mut **tx)
+                    .await?;
+                    Ok(())
+                })
+            })
+            .await
+            .expect("install late sidecar failure injection");
+        let error =
+            knowledge_shard_import_internal(&state, &exported_bytes, &opts, &rollback.schema_name)
+                .await
+                .expect_err("late component failure must roll back sidecar import");
+        assert!(matches!(error, ApiError::OperationFailed { .. }));
+        let rollback_counts = rollback_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read rolled-back sidecar destination");
+        assert_eq!(rollback_counts, (0, 0, 0));
+        assert_eq!(regular_file_count(storage.path()), files_after_success);
+        assert_eq!(
+            regular_file_count(&storage.path().join("staging/shard-import")),
+            0
+        );
+
+        for archive_name in [rollback_name, destination_name, tamper_name, source_name] {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .expect("drop isolated sidecar test schema");
+        }
     }
 
     #[test]

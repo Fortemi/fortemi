@@ -58,7 +58,13 @@ Some non-streaming administration remains available in full MCP mode even when i
 
 ## Known Portability Limitation
 
-The portable knowledge-shard contract reserves `blobs/<hash>` sidecars. Current server export is still reference-only for attachments, and import does not restore attachment rows or bytes. `manage_backups` accurately returns transfer commands but does not make the current shard artifact self-contained.
+The REST export route is reference-only by default and supports verified
+attachment sidecars through `include_blobs=true`. Shard import restores present
+valid sidecars and preserves missing ones as references. `manage_backups`
+currently exposes component selection but not the REST sidecar opt-in, so its
+generated `export_shard` command remains reference-only unless the query is
+amended by the caller. This is `core-v1` portability, not `full-v1` disaster
+recovery.
 
 ## Verification
 

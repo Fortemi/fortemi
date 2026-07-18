@@ -1,0 +1,66 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T04:24:54Z"
+  description: "Provenance for Fortemi issue #1058 bounded Knowledge Shard sidecar route integration"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:b5d51dcd88f3ba1a68be1eb725394cb987e218c483692310cc73c289b7028e77"
+  type: code
+  created_at: "2026-07-18T04:24:54Z"
+  updated_at: "2026-07-18T04:24:54Z"
+  checksum: "sha256:b5d51dcd88f3ba1a68be1eb725394cb987e218c483692310cc73c289b7028e77"
+  size_bytes: 1776924
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1058"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-sidecar-routes-1058:001"
+  type: modification
+  started_at: "2026-07-18T03:55:00Z"
+  ended_at: "2026-07-18T04:24:54Z"
+  description: "Add opt-in bounded sidecar export, pre-write integrity validation, staged transactional import, deduplication, rollback compensation, and route-level round-trip proof"
+  attributes:
+    verification:
+      - "cargo test -p matric-api --locked -- --test-threads=1: passed"
+      - "cargo clippy -p matric-api --all-targets --locked -- -D warnings"
+      - "scripts/ci/openapi-contract.sh check"
+      - "npm run docs:contract"
+      - "npm run docs:build"
+      - "cargo fmt --all -- --check"
+      - "git diff --check"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+  attributes:
+    delegated_roles:
+      - security-engineer
+      - software-implementer
+      - test-engineer
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:b5d51dcd88f3ba1a68be1eb725394cb987e218c483692310cc73c289b7028e77"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-sidecar-routes-1058:001"
+    time: "2026-07-18T04:24:54Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-sidecar-routes-1058:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1058"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:b5d51dcd88f3ba1a68be1eb725394cb987e218c483692310cc73c289b7028e77"
+      source: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:acec151631e0543c47062c01eb9c2f5bf18339a0d26c96f09a7ff63a76f0cfb0"
+      derivation_type: extends
+      activity: "urn:aiwg:activity:modification:knowledge-shard-sidecar-routes-1058:001"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:b5d51dcd88f3ba1a68be1eb725394cb987e218c483692310cc73c289b7028e77"
+      source: "urn:gitea:issue:Fortemi/fortemi:1058"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:knowledge-shard-sidecar-routes-1058:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-sidecar-routes-1058:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:b5d51dcd88f3ba1a68be1eb725394cb987e218c483692310cc73c289b7028e77"
+    agent: "urn:aiwg:agent:codex-gpt-5"

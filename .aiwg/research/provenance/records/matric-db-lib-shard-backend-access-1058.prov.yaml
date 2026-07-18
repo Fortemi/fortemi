@@ -1,0 +1,52 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T04:24:54Z"
+  description: "Provenance for Fortemi issue #1058 scoped filesystem backend reconstruction"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:b98e67b191dc8474175e87d4210c9b9ab6a0e7a88d311af1daefc342c7701a1a"
+  type: code
+  created_at: "2026-07-18T04:24:54Z"
+  updated_at: "2026-07-18T04:24:54Z"
+  checksum: "sha256:b98e67b191dc8474175e87d4210c9b9ab6a0e7a88d311af1daefc342c7701a1a"
+  size_bytes: 28083
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1058"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:shard-backend-access-1058:001"
+  type: modification
+  started_at: "2026-07-18T03:55:00Z"
+  ended_at: "2026-07-18T04:24:54Z"
+  description: "Expose configured filesystem storage as a reconstructed backend without exposing its base path"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:b98e67b191dc8474175e87d4210c9b9ab6a0e7a88d311af1daefc342c7701a1a"
+    activity: "urn:aiwg:activity:modification:shard-backend-access-1058:001"
+    time: "2026-07-18T04:24:54Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:shard-backend-access-1058:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1058"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:b98e67b191dc8474175e87d4210c9b9ab6a0e7a88d311af1daefc342c7701a1a"
+      source: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:b18b362b88ff4b6f23cb83dffe1952eb0ea88d7064035c9a4a5e826b7e8e5cf7"
+      derivation_type: extends
+      activity: "urn:aiwg:activity:modification:shard-backend-access-1058:001"
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:b98e67b191dc8474175e87d4210c9b9ab6a0e7a88d311af1daefc342c7701a1a"
+      source: "urn:gitea:issue:Fortemi/fortemi:1058"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:shard-backend-access-1058:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:shard-backend-access-1058:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:b98e67b191dc8474175e87d4210c9b9ab6a0e7a88d311af1daefc342c7701a1a"
+    agent: "urn:aiwg:agent:codex-gpt-5"

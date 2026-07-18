@@ -1,0 +1,51 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T04:24:54Z"
+  description: "Provenance for the Fortemi issue #1058 sidecar route evidence matrix"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md:sha256:9ffdb9c1c885930dfe0f5f643b6204ec77ccab16b2b5d0321a7c9a93b5f8a35a"
+  type: documentation
+  created_at: "2026-07-18T04:24:54Z"
+  updated_at: "2026-07-18T04:24:54Z"
+  checksum: "sha256:9ffdb9c1c885930dfe0f5f643b6204ec77ccab16b2b5d0321a7c9a93b5f8a35a"
+  size_bytes: 5823
+  attributes:
+    issue: "Fortemi/fortemi#1058"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:binary-attachment-sidecar-test-plan-1058:001"
+  type: modification
+  started_at: "2026-07-18T03:55:00Z"
+  ended_at: "2026-07-18T04:24:54Z"
+  description: "Record canonical-name, integrity, missing-sidecar, repeated-import, byte restoration, and rollback evidence while retaining streaming and full-v1 gaps"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md:sha256:9ffdb9c1c885930dfe0f5f643b6204ec77ccab16b2b5d0321a7c9a93b5f8a35a"
+    activity: "urn:aiwg:activity:modification:binary-attachment-sidecar-test-plan-1058:001"
+    time: "2026-07-18T04:24:54Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:binary-attachment-sidecar-test-plan-1058:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1058"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md:sha256:9ffdb9c1c885930dfe0f5f643b6204ec77ccab16b2b5d0321a7c9a93b5f8a35a"
+      source: "urn:aiwg:artifact:.aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md:sha256:4988eb73b743d1e682d39e472eda1f8b1077cb3dcb736d113c97e35623f1827e"
+      derivation_type: extends
+      activity: "urn:aiwg:activity:modification:binary-attachment-sidecar-test-plan-1058:001"
+    - entity: "urn:aiwg:artifact:.aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md:sha256:9ffdb9c1c885930dfe0f5f643b6204ec77ccab16b2b5d0321a7c9a93b5f8a35a"
+      source: "urn:gitea:issue:Fortemi/fortemi:1058"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:binary-attachment-sidecar-test-plan-1058:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:binary-attachment-sidecar-test-plan-1058:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: test_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md:sha256:9ffdb9c1c885930dfe0f5f643b6204ec77ccab16b2b5d0321a7c9a93b5f8a35a"
+    agent: "urn:aiwg:agent:codex-gpt-5"

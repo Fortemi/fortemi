@@ -17,8 +17,13 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   can stream a declared attachment blob into an isolated shard-import staging
   namespace, verify its canonical BLAKE3 digest and length, atomically promote
   it, compensate idempotently, and sweep stale stages without traversing final
-  blobs. Shard routes remain reference-only until profile and repository
-  integration gates are delivered.
+  blobs. `core-v1` REST exports can now opt into verified, digest-deduplicated
+  `blobs/<digest>` entries with `include_blobs=true`; import validates referenced
+  sidecars before writes, stages them outside the final namespace, restores
+  filesystem-backed blobs inside the shard transaction, and cleans up on
+  repeated imports and late component failures. Missing sidecars remain valid
+  reference-only attachments. This bounded-buffered route slice does not claim
+  streaming archive processing or `full-v1` conformance.
 
 ### Fixed
 
@@ -104,10 +109,9 @@ credentials, and ratifies the portable binary-attachment shard contract.
 - **Reference-only compatibility:** shards without sidecar entries remain valid,
   unknown or unreferenced sidecar entries are ignored, and JSON projection
   records never inline raw bytes.
-- **Current implementation boundary:** current server shard export remains
-  reference-only and server import does not restore attachment records or
-  bytes. Self-contained server export/import is follow-up implementation work,
-  not a feature claimed by this release.
+- **2026.7.1 implementation boundary:** that release's server shard export
+  remained reference-only and did not restore attachment records or bytes.
+  Self-contained server export/import was not a feature of that release.
 - **Backup guidance and contract evidence:** reconciled the backup guide,
   architecture record, test plan, sample payloads, and documentation manifest
   with the current server behavior.

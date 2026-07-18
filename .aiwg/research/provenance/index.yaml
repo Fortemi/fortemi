@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-18T03:19:19Z"
+  updated_at: "2026-07-18T04:24:54Z"
 records:
   - entity: "contracts/knowledge-shard/contract.json"
     record: "records/knowledge-shard-contract-1057.prov.yaml"
@@ -32,3 +32,13 @@ records:
     record: "records/binary-attachment-projection-contract-shard-reference-import-1057.prov.yaml"
   - entity: ".aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md"
     record: "records/binary-attachment-projection-test-plan-shard-reference-import-1057.prov.yaml"
+  - entity: "crates/matric-api/src/main.rs"
+    record: "records/matric-api-main-shard-sidecar-routes-1058.prov.yaml"
+  - entity: "crates/matric-db/src/file_storage.rs"
+    record: "records/matric-db-file-storage-shard-promotion-compensation-1058.prov.yaml"
+  - entity: "crates/matric-db/src/lib.rs"
+    record: "records/matric-db-lib-shard-backend-access-1058.prov.yaml"
+  - entity: ".aiwg/architecture/binary-attachment-projection-contract-2026-07.md"
+    record: "records/binary-attachment-projection-contract-shard-sidecar-routes-1058.prov.yaml"
+  - entity: ".aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md"
+    record: "records/binary-attachment-projection-test-plan-shard-sidecar-routes-1058.prov.yaml"

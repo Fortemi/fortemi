@@ -5,7 +5,8 @@
 Accepted Fortemi-side format contract for `Fortemi/fortemi#1013` and
 `Fortemi/fortemi#1046`; required before downstream editions can treat binary
 projection or portable-sidecar parity as release-ready. Server-side sidecar
-export/import remains follow-up implementation work.
+export/import now has a bounded opt-in `core-v1` route slice; streaming archive
+processing and `full-v1` conformance remain follow-up work.
 
 ## Context
 
@@ -48,11 +49,13 @@ byte-free. Missing matching entries are valid reference-only attachments, and
 readers ignore unknown or unreferenced `blobs/` entries. Large entries may be
 streamed, with the key derived from the digest of the complete content.
 
-The current server emits reference-only shards and restores bounded attachment
-projection records during shard import. It retains attachment identity,
-extraction state and text, and digest metadata without synthesizing attachment
-content. This decision fixes the interoperable format; reference restoration
-does not claim that server byte round-tripping is implemented.
+The current server emits reference-only shards by default. REST callers may set
+`include_blobs=true` to package available verified database- or
+filesystem-backed content once per digest. Import restores present valid
+sidecars and retains attachment identity, extraction state and text, and digest
+metadata; missing entries remain reference-only. The route buffers the bounded
+archive and therefore does not claim streaming archive processing or
+`full-v1` conformance.
 
 Each projection record also carries stable extraction classification fields:
 
@@ -89,9 +92,11 @@ Each projection record also carries stable extraction classification fields:
 3. Add tests for extracted text, extraction-pending binary, large binary, unsupported MIME, and extractor-failure records.
 4. Wire React/browser parity against the same fixture or documented response sample.
 5. Passing Fortemi CI receipts are attached through PR #1023 / Actions runs 4094 and 4096 on commit `f12a2df9`, merged to `main` as `79600fc2`; coordinate `Fortemi/fortemi-react#227` release verification under the 2026-07-07 takeover-owned React checkpoint boundary.
-6. Add a separately tracked server self-contained shard mode with streamed blob
-   export, bounded import, digest verification, deduplication, and round-trip
-   tests before claiming server sidecar support.
+6. Deliver the bounded opt-in server sidecar route with digest verification,
+   deduplication, transaction-aware storage promotion, and round-trip tests.
+7. Add streaming archive processing, crash recovery beyond bounded
+   compensation, and the remaining `full-v1` gates before claiming full
+   conformance.
 
 ## Closure Criteria
 
@@ -103,6 +108,8 @@ Each projection record also carries stable extraction classification fields:
 - PR #1047 / merge `0db7c34c` ratifies the optional sidecar format, exact
   checksum encoding, and display-filename semantics; it does not provide server
   sidecar export/import proof.
+- Fortemi issue #1058 provides bounded server export/import proof for the
+  opt-in `core-v1` sidecar slice. It does not provide `full-v1` conformance.
 
 ## References
 

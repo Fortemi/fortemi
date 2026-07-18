@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Canonical `core-v1` schemas, bounded archive and relationship preflight, and identity-preserving structured import; full conformance remains pending the release gates in this ADR
+**Implementation status:** Canonical `core-v1` schemas, bounded archive and relationship preflight, identity-preserving structured import, and opt-in verified attachment sidecars; full conformance remains pending the release gates in this ADR
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -25,8 +25,10 @@ This ADR records the required target contract. The server currently emits
 profile, schema version, minimum reader, inventory, checksum, and count
 preflight. It also validates collection/note/template/link relationships,
 exports complete collection hierarchies, and preserves collection and template
-identities and timestamps during import. This does not constitute full profile
-conformance or atomic round-trip evidence.
+identities and timestamps during import. Its REST route can optionally export
+and restore verified attachment bytes as digest-addressed sidecars, while
+missing entries remain reference-only. The route still buffers bounded
+archives and does not constitute `full-v1` profile conformance.
 
 The normative schema root for the delivered `1.0.0` / `core-v1` contract is
 `contracts/knowledge-shard/1.0.0/core-v1/`. The machine-readable receipt at
@@ -209,18 +211,18 @@ validated shard within the same transaction. A late apply failure therefore
 restores the pre-swap state.
 
 Known gaps remain in complete tombstone and absent/null semantic preservation,
-attachment bytes and sidecar route integration, richer profiles, migration
-history, and cross-repository conformance receipts. Those gaps remain tracked
-release blockers, not implicit `core-v1` or `full-v1` claims.
+richer profiles, migration history, streaming archive processing, and
+cross-repository conformance receipts. Those gaps remain tracked release
+blockers, not implicit `core-v1` or `full-v1` claims.
 
-The filesystem backend now provides a bounded-memory staging primitive for a
-future attachment-byte importer. It streams bytes into an isolated
-`staging/shard-import/` namespace, verifies the declared byte length and
-canonical BLAKE3 digest before returning a private promotion handle, rechecks
-integrity before atomically promoting the file into `blobs/`, and supports
-idempotent compensation plus startup cleanup of stale stages. Shard routes do
-not yet invoke this primitive, so this prerequisite does not change the
-reference-only `core-v1` behavior or satisfy the `full-v1` attachment gate.
+The filesystem backend provides a bounded-memory staging primitive that streams
+bytes into an isolated `staging/shard-import/` namespace, verifies the declared
+byte length and canonical BLAKE3 digest, rechecks integrity before atomic
+promotion into `blobs/`, and supports receipt-bound compensation plus startup
+cleanup of stale stages. The bounded HTTP route now invokes this primitive for
+present referenced sidecars and exports available verified bytes when
+`include_blobs=true`. This satisfies only the opt-in `core-v1` attachment-byte
+slice, not the `full-v1` attachment gate.
 
 Until the release gates pass:
 

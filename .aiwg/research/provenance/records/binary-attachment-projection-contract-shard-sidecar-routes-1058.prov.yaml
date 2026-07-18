@@ -1,0 +1,51 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T04:24:54Z"
+  description: "Provenance for the bounded server sidecar implementation boundary in the binary attachment projection contract"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/architecture/binary-attachment-projection-contract-2026-07.md:sha256:ebd8f7e2e1c34e8932ef0b4b6803ae486da509385882d67f2a757b777a2f005c"
+  type: documentation
+  created_at: "2026-07-18T04:24:54Z"
+  updated_at: "2026-07-18T04:24:54Z"
+  checksum: "sha256:ebd8f7e2e1c34e8932ef0b4b6803ae486da509385882d67f2a757b777a2f005c"
+  size_bytes: 7754
+  attributes:
+    issue: "Fortemi/fortemi#1058"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:binary-attachment-sidecar-contract-1058:001"
+  type: modification
+  started_at: "2026-07-18T03:55:00Z"
+  ended_at: "2026-07-18T04:24:54Z"
+  description: "Record opt-in core-v1 sidecar export and import without claiming streaming archive or full-v1 conformance"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/architecture/binary-attachment-projection-contract-2026-07.md:sha256:ebd8f7e2e1c34e8932ef0b4b6803ae486da509385882d67f2a757b777a2f005c"
+    activity: "urn:aiwg:activity:modification:binary-attachment-sidecar-contract-1058:001"
+    time: "2026-07-18T04:24:54Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:binary-attachment-sidecar-contract-1058:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1058"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/architecture/binary-attachment-projection-contract-2026-07.md:sha256:ebd8f7e2e1c34e8932ef0b4b6803ae486da509385882d67f2a757b777a2f005c"
+      source: "urn:aiwg:artifact:.aiwg/architecture/binary-attachment-projection-contract-2026-07.md:sha256:65fc8bbb0d3a8ba21f3655113980255c3cbf1b09640f033bce38deb27a6212ec"
+      derivation_type: extends
+      activity: "urn:aiwg:activity:modification:binary-attachment-sidecar-contract-1058:001"
+    - entity: "urn:aiwg:artifact:.aiwg/architecture/binary-attachment-projection-contract-2026-07.md:sha256:ebd8f7e2e1c34e8932ef0b4b6803ae486da509385882d67f2a757b777a2f005c"
+      source: "urn:gitea:issue:Fortemi/fortemi:1058"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:binary-attachment-sidecar-contract-1058:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:binary-attachment-sidecar-contract-1058:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: documentation_synthesizer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/architecture/binary-attachment-projection-contract-2026-07.md:sha256:ebd8f7e2e1c34e8932ef0b4b6803ae486da509385882d67f2a757b777a2f005c"
+    agent: "urn:aiwg:agent:codex-gpt-5"

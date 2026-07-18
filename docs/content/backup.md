@@ -9,7 +9,7 @@ Fortémi provides multiple backup options:
 | Method | Use Case | Format | Includes |
 |--------|----------|--------|----------|
 | **JSON Export** | App-level backup | JSON | Notes, collections, tags, templates |
-| **Knowledge Shard** | Portable semantic-data backup | .shard | `core-v1`: notes, collections, tags, templates, links, checksums |
+| **Knowledge Shard** | Portable semantic-data backup | .shard | `core-v1`: notes, collections, tags, templates, links, attachment references; optional stored attachment bytes |
 | **Knowledge Archive** | Backup + metadata bundle | .archive | Backup file + metadata.json |
 | **Database Snapshot** | Full database backup | pg_dump | Complete database with embeddings |
 | **Shell script** | Automated scheduled backups | pg_dump | Full database with compression |
@@ -27,7 +27,7 @@ See [Encryption Guide](#/security-encryption) for cryptographic details and [Sha
 ### Choosing a Backup Method
 
 - **JSON Export** (`/api/v1/backup/export`): Quick export of note content. Best for migration to other systems.
-- **Knowledge Shard** (`/api/v1/backup/knowledge-shard`): Portable semantic-data backup with links and attachment references. Current server shards do not carry or restore attachment bytes.
+- **Knowledge Shard** (`/api/v1/backup/knowledge-shard`): Portable semantic-data backup with links and attachment references. Exports are reference-only by default; `include_blobs=true` adds verified stored attachment bytes, and import restores valid referenced sidecars.
 - **Knowledge Archive** (`/api/v1/backup/knowledge-archive`): Bundles any backup with its metadata sidecar. Best for transferring backups between systems.
 
 ## Shard Versioning
@@ -76,6 +76,9 @@ curl http://localhost:3000/api/v1/backup/knowledge-shard -o backup.shard
 
 # Create shard with specific components
 curl "http://localhost:3000/api/v1/backup/knowledge-shard?include=notes,links" -o backup.shard
+
+# Opt into a self-contained core-v1 shard for available stored attachments
+curl "http://localhost:3000/api/v1/backup/knowledge-shard?include_blobs=true" -o backup-with-blobs.shard
 
 # Trigger database backup
 curl -X POST http://localhost:3000/api/v1/backup/trigger
@@ -385,11 +388,11 @@ templates.json          # Note templates
 links.jsonl             # Semantic links between notes
 ```
 
-Current server-generated shards are reference-only for binary attachments:
-attachment metadata may appear in note records, and import restores that
-metadata as digest-deduplicated reference attachment records. The archive does
-not include `blobs/` sidecar entries, and import does not restore or synthesize
-attachment bytes. The optional self-contained sidecar format is defined in
+Server-generated shards are reference-only for binary attachments by default:
+attachment metadata appears in note records and import restores it as
+digest-deduplicated reference records. With `include_blobs=true`, export adds
+available verified bytes at `blobs/<digest>` and import materializes present
+valid referenced sidecars. The format and remaining limits are defined in
 [Binary Attachment Projection](#/core-systems-binary-attachment-projection).
 
 **Import safety limits:**
@@ -403,8 +406,10 @@ attachment bytes. The optional self-contained sidecar format is defined in
   duplicate names and all non-regular tar entry types are rejected.
 - Component records: 250,000 records per component and 4 MiB per record.
 
-Multipart upload reads the file incrementally up to the compressed limit.
-Base64 and on-disk swap inputs are bounded before decode or allocation.
+Multipart upload reads the request file incrementally up to the compressed
+limit. The current shard archive reader then buffers bounded entries for
+validation and apply; this is not streaming archive processing. Base64 and
+on-disk swap inputs are bounded before decode or allocation.
 Dry-run and real import use the same structure, checksum, schema, count, and
 relationship preflight before normal writes. Ordinary import applies all
 selected database components in one schema-scoped transaction: any database

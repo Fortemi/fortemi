@@ -1,0 +1,56 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T04:24:54Z"
+  description: "Provenance for Fortemi issue #1058 receipt-bound shard blob promotion compensation"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:843dbba55eee7b05399c90fc2fb54262b2b266a6906bfe2f712e85342151d5b3"
+  type: code
+  created_at: "2026-07-18T04:24:54Z"
+  updated_at: "2026-07-18T04:24:54Z"
+  checksum: "sha256:843dbba55eee7b05399c90fc2fb54262b2b266a6906bfe2f712e85342151d5b3"
+  size_bytes: 97161
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1058"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:shard-promotion-compensation-1058:001"
+  type: modification
+  started_at: "2026-07-18T03:55:00Z"
+  ended_at: "2026-07-18T04:24:54Z"
+  description: "Compensate only newly promoted exact shard bytes while preserving preexisting or replaced final content"
+  attributes:
+    verification:
+      - "cargo test -p matric-db --lib --locked: 301 passed"
+      - "cargo clippy -p matric-api --all-targets --locked -- -D warnings"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:843dbba55eee7b05399c90fc2fb54262b2b266a6906bfe2f712e85342151d5b3"
+    activity: "urn:aiwg:activity:modification:shard-promotion-compensation-1058:001"
+    time: "2026-07-18T04:24:54Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:shard-promotion-compensation-1058:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1058"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:843dbba55eee7b05399c90fc2fb54262b2b266a6906bfe2f712e85342151d5b3"
+      source: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:7516000e350b18ab06d55b7388a2f2917da7b37bb4ad0c716c68d97ac5e46d77"
+      derivation_type: extends
+      activity: "urn:aiwg:activity:modification:shard-promotion-compensation-1058:001"
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:843dbba55eee7b05399c90fc2fb54262b2b266a6906bfe2f712e85342151d5b3"
+      source: "urn:gitea:issue:Fortemi/fortemi:1058"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:shard-promotion-compensation-1058:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:shard-promotion-compensation-1058:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:843dbba55eee7b05399c90fc2fb54262b2b266a6906bfe2f712e85342151d5b3"
+    agent: "urn:aiwg:agent:codex-gpt-5"

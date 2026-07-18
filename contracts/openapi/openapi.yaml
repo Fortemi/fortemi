@@ -915,6 +915,19 @@ paths:
         Create a knowledge shard (portable tar.gz export) with selected components.
         Respects X-Fortemi-Memory header for archive-scoped exports (#421).
       operationId: knowledge_shard
+      parameters:
+      - name: include
+        in: query
+        description: Comma-separated core-v1 components
+        required: false
+        schema:
+          type: string
+      - name: include_blobs
+        in: query
+        description: Include verified content-addressed attachment byte sidecars
+        required: false
+        schema:
+          type: boolean
       responses:
         '200':
           description: Success

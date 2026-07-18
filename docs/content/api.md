@@ -2456,20 +2456,25 @@ Returns status of the most recent backup operation.
 
 ### Knowledge Shards (Portable Exports)
 
-Knowledge shards are application-level exports that include notes, concepts, and metadata but exclude embeddings.
+Knowledge shards are bounded application-level `core-v1` exports. They include
+notes, collections, tags, templates, links, and attachment projections while
+excluding embeddings.
 
 #### Export Knowledge Shard
 
 ```http
-GET /api/v1/backup/knowledge-shard?format=json
+GET /api/v1/backup/knowledge-shard?include=notes,links&include_blobs=true
 ```
 
 **Query Parameters:**
 
 | Param | Type | Description |
 |-------|------|-------------|
-| format | string | Export format: `json` or `yaml` |
-| include_deleted | bool | Include soft-deleted notes |
+| include | string | Comma-separated `core-v1` components: `notes`, `collections`, `tags`, `templates`, `links` |
+| include_blobs | bool | Opt in to verified `blobs/<digest>` entries for available stored attachments; defaults to `false` |
+
+Imports accept present valid sidecars automatically. A referenced attachment
+without a sidecar remains a valid reference-only attachment.
 
 #### Import Knowledge Shard (Multipart Upload)
 
