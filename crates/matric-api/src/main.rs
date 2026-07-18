@@ -23443,6 +23443,7 @@ fn validate_shard_relationships(
     let revision_notes =
         validate_shard_note_history_relationships(files, &note_ids, &note_contents)?;
     validate_shard_revision_provenance_relationships(files, &note_ids, &revision_notes)?;
+    validate_shard_spatial_provenance_relationships(files)?;
     validate_shard_embedding_relationships(files, &note_ids)?;
 
     Ok(attachment_digests)
@@ -23655,6 +23656,91 @@ fn validate_shard_revision_provenance_relationships(
                 return Err(
                     "Knowledge shard provenance activity revision relationship is invalid."
                         .to_string(),
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn shard_spatial_ewkb_is_canonical(value: &str) -> bool {
+    !value.is_empty()
+        && value.len().is_multiple_of(2)
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn validate_shard_spatial_provenance_relationships(
+    files: &std::collections::HashMap<String, Vec<u8>>,
+) -> Result<(), String> {
+    let mut named_location_ids = std::collections::HashSet::new();
+    let mut named_location_slugs = std::collections::HashSet::new();
+    if let Some(data) = files.get("named_locations.jsonl") {
+        for value in parse_shard_component_records("named_locations", data)? {
+            let location = serde_json::from_value::<ShardNamedLocationRecord>(value)
+                .map_err(|_| "Knowledge shard named locations are invalid.".to_string())?;
+            if !named_location_ids.insert(location.id) {
+                return Err("Knowledge shard named location identities must be unique.".to_string());
+            }
+            if !named_location_slugs.insert(location.slug) {
+                return Err("Knowledge shard named location slugs must be unique.".to_string());
+            }
+            if location
+                .point_ewkb_hex
+                .as_deref()
+                .is_some_and(|value| !shard_spatial_ewkb_is_canonical(value))
+                || location
+                    .boundary_ewkb_hex
+                    .as_deref()
+                    .is_some_and(|value| !shard_spatial_ewkb_is_canonical(value))
+                || (location.point_ewkb_hex.is_none() && location.boundary_ewkb_hex.is_none())
+            {
+                return Err("Knowledge shard named location geometry is invalid.".to_string());
+            }
+        }
+    }
+
+    let mut location_ids = std::collections::HashSet::new();
+    if let Some(data) = files.get("provenance_locations.jsonl") {
+        for value in parse_shard_component_records("provenance_locations", data)? {
+            let location = serde_json::from_value::<ShardProvenanceLocationRecord>(value)
+                .map_err(|_| "Knowledge shard provenance locations are invalid.".to_string())?;
+            if !location_ids.insert(location.id) {
+                return Err(
+                    "Knowledge shard provenance location identities must be unique.".to_string(),
+                );
+            }
+            if !shard_spatial_ewkb_is_canonical(&location.point_ewkb_hex) {
+                return Err("Knowledge shard provenance location geometry is invalid.".to_string());
+            }
+            if location
+                .named_location_id
+                .is_some_and(|id| !named_location_ids.contains(&id))
+            {
+                return Err(
+                    "Knowledge shard provenance location references an unknown named location."
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    let mut device_ids = std::collections::HashSet::new();
+    let mut device_keys = std::collections::HashSet::new();
+    if let Some(data) = files.get("provenance_devices.jsonl") {
+        for value in parse_shard_component_records("provenance_devices", data)? {
+            let device = serde_json::from_value::<ShardProvenanceDeviceRecord>(value)
+                .map_err(|_| "Knowledge shard provenance devices are invalid.".to_string())?;
+            if !device_ids.insert(device.id) {
+                return Err(
+                    "Knowledge shard provenance device identities must be unique.".to_string(),
+                );
+            }
+            if !device_keys.insert((device.device_make, device.device_model, device.owner_id)) {
+                return Err(
+                    "Knowledge shard provenance device coordinates must be unique.".to_string(),
                 );
             }
         }
@@ -41782,6 +41868,149 @@ not-json
         assert!(device_json["has_gps"].is_null());
         assert!(device_json["sensor_metadata"].is_null());
         assert!(device_json["owner_id"].is_null());
+    }
+
+    fn valid_shard_spatial_provenance_relationship_fixture(
+    ) -> (std::collections::HashMap<String, Vec<u8>>, Uuid, Uuid, Uuid) {
+        let named_location_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d031").unwrap();
+        let location_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d032").unwrap();
+        let device_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d033").unwrap();
+        let timestamp = chrono::DateTime::parse_from_rfc3339("2026-07-18T13:45:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let point_ewkb_hex = "0101000020e6100000000000000000f03f0000000000000040";
+        let named_location = ShardNamedLocationRecord {
+            id: named_location_id,
+            name: "Fixture place".to_string(),
+            slug: "fixture-place".to_string(),
+            display_name: None,
+            location_type: "poi".to_string(),
+            point_ewkb_hex: Some(point_ewkb_hex.to_string()),
+            boundary_ewkb_hex: None,
+            radius_m: None,
+            address_line: None,
+            locality: None,
+            admin_area: None,
+            country: None,
+            country_code: None,
+            postal_code: None,
+            timezone: Some("UTC".to_string()),
+            altitude_m: None,
+            owner_id: None,
+            is_private: Some(true),
+            metadata: Some(serde_json::json!({})),
+            created_at: timestamp,
+            updated_at: timestamp,
+        };
+        let location = ShardProvenanceLocationRecord {
+            id: location_id,
+            point_ewkb_hex: point_ewkb_hex.to_string(),
+            horizontal_accuracy_m: Some(3.0),
+            altitude_m: None,
+            vertical_accuracy_m: None,
+            heading_degrees: None,
+            speed_mps: None,
+            named_location_id: Some(named_location_id),
+            source: "gps_exif".to_string(),
+            confidence: "high".to_string(),
+            created_at: timestamp,
+        };
+        let device = ShardProvenanceDeviceRecord {
+            id: device_id,
+            device_make: Some("Fortemi".to_string()),
+            device_model: Some("Fixture".to_string()),
+            device_os: None,
+            device_os_version: None,
+            software: None,
+            software_version: None,
+            has_gps: Some(true),
+            has_accelerometer: None,
+            sensor_metadata: Some(serde_json::json!({})),
+            owner_id: None,
+            device_name: None,
+            created_at: timestamp,
+        };
+        let files = [
+            (
+                "named_locations.jsonl".to_string(),
+                serialize_shard_export_jsonl(&[named_location], "serialize named location fixture")
+                    .unwrap(),
+            ),
+            (
+                "provenance_locations.jsonl".to_string(),
+                serialize_shard_export_jsonl(&[location], "serialize location fixture").unwrap(),
+            ),
+            (
+                "provenance_devices.jsonl".to_string(),
+                serialize_shard_export_jsonl(&[device], "serialize device fixture").unwrap(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        (files, named_location_id, location_id, device_id)
+    }
+
+    #[test]
+    fn shard_spatial_provenance_preflight_accepts_complete_registries() {
+        let (files, _, _, _) = valid_shard_spatial_provenance_relationship_fixture();
+        validate_shard_spatial_provenance_relationships(&files).unwrap();
+    }
+
+    #[test]
+    fn shard_spatial_provenance_preflight_rejects_duplicates_unknown_refs_and_bad_geometry() {
+        let (files, _, _, _) = valid_shard_spatial_provenance_relationship_fixture();
+
+        let mut duplicate_slug = files.clone();
+        let mut second: serde_json::Value =
+            serde_json::from_slice(&duplicate_slug["named_locations.jsonl"]).unwrap();
+        second["id"] = serde_json::json!(Uuid::now_v7());
+        duplicate_slug
+            .get_mut("named_locations.jsonl")
+            .unwrap()
+            .extend_from_slice(format!("\n{}", serde_json::to_string(&second).unwrap()).as_bytes());
+        assert_eq!(
+            validate_shard_spatial_provenance_relationships(&duplicate_slug).unwrap_err(),
+            "Knowledge shard named location slugs must be unique."
+        );
+
+        let mut unknown_named_location = files.clone();
+        let mut location: serde_json::Value =
+            serde_json::from_slice(&unknown_named_location["provenance_locations.jsonl"]).unwrap();
+        location["named_location_id"] = serde_json::json!(Uuid::now_v7());
+        unknown_named_location.insert(
+            "provenance_locations.jsonl".to_string(),
+            serde_json::to_vec(&location).unwrap(),
+        );
+        assert_eq!(
+            validate_shard_spatial_provenance_relationships(&unknown_named_location).unwrap_err(),
+            "Knowledge shard provenance location references an unknown named location."
+        );
+
+        let mut invalid_geometry = files.clone();
+        let mut location: serde_json::Value =
+            serde_json::from_slice(&invalid_geometry["provenance_locations.jsonl"]).unwrap();
+        location["point_ewkb_hex"] = serde_json::json!("ABC");
+        invalid_geometry.insert(
+            "provenance_locations.jsonl".to_string(),
+            serde_json::to_vec(&location).unwrap(),
+        );
+        assert_eq!(
+            validate_shard_spatial_provenance_relationships(&invalid_geometry).unwrap_err(),
+            "Knowledge shard provenance location geometry is invalid."
+        );
+
+        let mut duplicate_device = files.clone();
+        let mut second: serde_json::Value =
+            serde_json::from_slice(&duplicate_device["provenance_devices.jsonl"]).unwrap();
+        second["id"] = serde_json::json!(Uuid::now_v7());
+        duplicate_device
+            .get_mut("provenance_devices.jsonl")
+            .unwrap()
+            .extend_from_slice(format!("\n{}", serde_json::to_string(&second).unwrap()).as_bytes());
+        assert_eq!(
+            validate_shard_spatial_provenance_relationships(&duplicate_device).unwrap_err(),
+            "Knowledge shard provenance device coordinates must be unique."
+        );
     }
 
     fn valid_shard_note_history_relationship_fixture() -> (
