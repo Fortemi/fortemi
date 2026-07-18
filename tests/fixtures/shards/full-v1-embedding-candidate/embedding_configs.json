@@ -4,7 +4,7 @@
     "name": "Research config",
     "description": null,
     "model": "test-model",
-    "dimension": 3,
+    "dimension": 768,
     "chunk_size": 512,
     "chunk_overlap": 64,
     "hnsw_m": null,

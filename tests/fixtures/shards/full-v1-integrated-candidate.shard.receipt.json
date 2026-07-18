@@ -1,11 +1,11 @@
 {
   "profile": "full-v1",
-  "status": "signed-integrated-candidate",
+  "status": "signed-integrated-route-fixture",
   "archive": "tests/fixtures/shards/full-v1-integrated-candidate.shard",
-  "archiveSha256": "c347d6628a37dda35a6fd164fc15ddcdaeed7901ef09fd0ee478b301bf2021cc",
-  "manifestSha256": "b22add185f3c6131c1b297a24443c2fdc3e12ca9026768af6c0c36abb6b9339a",
+  "archiveSha256": "b6110221bc6c5a5ad5596f565c49141eaa3b58a17111c4f525d2310ed3fcd7ae",
+  "manifestSha256": "3b7f63211249e12e20d8a99bc724db03e4ab4e370f761695d9a391820b6caed1",
   "signatureEntry": "signature.json",
-  "signatureEnvelopeSha256": "b3ae84605a65de46f1e3cd5154a7b8bd8d42db4255224256f5bcaa3c5d5480f0",
+  "signatureEnvelopeSha256": "bdb97b34dc594e571a7f2ffc051fb80751852e2e2218a494170ab4e44a394181",
   "signatureAlgorithm": "ed25519",
   "signerKeyId": "fortemi-fixture-1",
   "signerPublicKey": "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
@@ -26,7 +26,6 @@
   ],
   "conformanceClaim": false,
   "remainingGates": [
-    "supported full-v1 export and import routes",
     "cross-repository producer and consumer receipts"
   ]
 }

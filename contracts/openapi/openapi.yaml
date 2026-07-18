@@ -916,9 +916,15 @@ paths:
         Respects X-Fortemi-Memory header for archive-scoped exports (#421).
       operationId: knowledge_shard
       parameters:
+      - name: profile
+        in: query
+        description: Conformance profile; defaults to core-v1
+        required: false
+        schema:
+          type: string
       - name: include
         in: query
-        description: Comma-separated core-v1 components
+        description: Comma-separated profile components
         required: false
         schema:
           type: string

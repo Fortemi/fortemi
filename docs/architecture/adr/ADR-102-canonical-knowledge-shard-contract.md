@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, a reproducible signed integrated candidate `full-v1` archive with complete-inventory, semantic/revision, mandatory-byte, and publisher-authentication proof, digest-pinned rich component boundaries with transactional apply paths, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, signed-import verification, and disk-backed streaming preflight for opt-in verified attachment sidecars; `full-v1` conformance remains pending supported route round trip and cross-repository gates
+**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, a supported complete-inventory `full-v1` server route with semantic/revision/mandatory-byte convergence and signed-fixture publisher-authentication proof, digest-pinned rich component boundaries with transactional apply paths, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, signed-import verification, and disk-backed streaming preflight for verified attachment sidecars; final cross-repository `full-v1` producer and consumer receipts remain pending
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -31,7 +31,7 @@ missing entries remain reference-only. Import reads sidecar payloads in bounded
 chunks into isolated preflight files instead of retaining them in the
 in-memory component map. Any supplied sidecar that lacks a matching attachment
 projection is rejected as an orphan. Missing sidecars remain explicit
-reference-only attachments for `core-v1` and `record-v1`; the reserved
+reference-only attachments for `core-v1` and `record-v1`; the supported
 `full-v1` policy requires bytes for every declared attachment digest. Export
 streams filesystem sidecars through integrity verification into a
 request-scoped disk-backed archive, validates the completed compressed artifact
@@ -48,9 +48,8 @@ also visit JSONL notes and links one record at a time, retaining only identity
 and attachment-declaration sets needed for cross-record validation.
 Schema/count preflight also validates and discards JSON-array component records
 one at a time. Typed JSON-array relationship/apply data, historical migration,
-and preflight raw buffers remain bounded-buffered, and export is not
-single-pass live emission, so the route does not constitute fully streaming or
-`full-v1` profile conformance.
+and preflight raw buffers remain bounded-buffered. Export completes and
+validates a bounded disk-backed artifact before streaming it to the client.
 
 Current-version bytes complete checksum, schema/count, relationship, and
 sidecar validation once before the explicit no-op migration result. Historical
@@ -78,7 +77,8 @@ archive while preserving IDs, bodies, the empty revision, relationships,
 attachment reference, and tombstone instant. The durable receipt lives beside
 the integration fixture.
 
-Contract revision 17 publishes a reproducible signed integrated candidate archive
+Contract revision 18 supports the complete server `full-v1` route and
+publishes a reproducible signed integrated fixture
 that requires all 33 `full-v1` components, all 34 count fields, all 33
 component checksums, and one mandatory content-addressed attachment sidecar
 shared by two references. It unifies candidate embedding, note-revision,
@@ -107,13 +107,21 @@ Ed25519 fixture signature authenticate the exact manifest SHA-256 and sorted
 BLAKE3 sidecar inventory through the production import verifier. The
 deterministic fixture key is public compatibility-test material and is never a
 production trust anchor.
-Dormant embedding, revision, provenance, SKOS, graph, and community apply paths
-run inside the existing schema-scoped import transaction. Their database tests
+The `profile=full-v1` export selector always emits the exact complete component
+set and forces attachment sidecars on. A database-backed route test imports the
+signed fixture, exports it from an isolated schema, imports the live artifact
+twice into a clean schema, and compares all component bytes, manifest counts,
+checksums, and blob bytes after re-export. Persisted embeddings are constrained
+to the server's 768-dimensional storage boundary. Replace mode reconciles
+provisioned embedding-set name/slug conflicts and restores source tag
+timestamps so clean-server and repeated imports converge.
+Embedding, revision, provenance, SKOS, graph, and community apply paths run
+inside the existing schema-scoped import transaction. Their database tests
 prove exact source-field restoration, repeated replace convergence, skip and
-dry-run accounting, and rollback after a late injected failure. Supported route
-round trip, the cross-repository matrix, and profile support remain pending;
-runtime validation accepts the candidate manifest shape and then fails closed
-at the unsupported-profile gate.
+dry-run accounting, and rollback after a late injected failure. Runtime
+validation accepts only the complete `full-v1` manifest and rejects partial
+profile selections. The final cross-repository matrix remains pending under
+#1059.
 
 ## Decision
 

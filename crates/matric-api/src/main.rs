@@ -21870,7 +21870,9 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
 
 #[derive(Deserialize)]
 struct ShardExportQuery {
-    /// Core-v1 components to include (comma-separated).
+    /// Conformance profile to export.
+    profile: Option<String>,
+    /// Profile components to include (comma-separated).
     include: Option<String>,
     /// Include available content-addressed attachment byte sidecars.
     #[serde(default)]
@@ -21880,6 +21882,10 @@ struct ShardExportQuery {
 impl fmt::Debug for ShardExportQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ShardExportQuery")
+            .field(
+                "profile_len",
+                &self.profile.as_deref().map(telemetry_text_len),
+            )
             .field(
                 "include_len",
                 &self.include.as_deref().map(telemetry_text_len),
@@ -21994,7 +22000,7 @@ impl std::fmt::Debug for ShardManifest {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(default)]
 struct ShardCounts {
     notes: usize,
@@ -22684,6 +22690,77 @@ fn serialize_shard_export_jsonl<T: Serialize>(
 
 const SHARD_IMPORT_COMPONENTS: &[&str] = &["notes", "collections", "tags", "templates", "links"];
 const RECORD_V1_IMPORT_COMPONENTS: &[&str] = &["notes", "collections", "tags", "links"];
+const FULL_V1_IMPORT_COMPONENTS: &[&str] = &[
+    "notes",
+    "collections",
+    "tags",
+    "templates",
+    "links",
+    "note_originals",
+    "note_original_history",
+    "note_revised_current",
+    "note_revisions",
+    "embedding_configs",
+    "embedding_sets",
+    "embedding_set_members",
+    "embeddings",
+    "provenance_edges",
+    "provenance_activities",
+    "named_locations",
+    "provenance_locations",
+    "provenance_devices",
+    "provenance_records",
+    "skos_schemes",
+    "skos_concepts",
+    "skos_labels",
+    "skos_notes",
+    "skos_relations",
+    "skos_mapping_relations",
+    "skos_scheme_memberships",
+    "note_skos_tags",
+    "skos_collections",
+    "skos_collection_members",
+    "graph_sources",
+    "graph_edges",
+    "communities",
+    "community_assignments",
+];
+const FULL_V1_COUNT_FIELDS: &[&str] = &[
+    "notes",
+    "collections",
+    "tags",
+    "templates",
+    "links",
+    "note_originals",
+    "note_original_history",
+    "note_revised_current",
+    "note_revisions",
+    "embedding_configs",
+    "embedding_sets",
+    "embedding_set_members",
+    "embeddings",
+    "provenance_edges",
+    "provenance_activities",
+    "named_locations",
+    "provenance_locations",
+    "provenance_devices",
+    "provenance_records",
+    "skos_schemes",
+    "skos_concepts",
+    "skos_labels",
+    "skos_notes",
+    "skos_relations",
+    "skos_mapping_relations",
+    "skos_scheme_memberships",
+    "note_skos_tags",
+    "skos_collections",
+    "skos_collection_members",
+    "graph_sources",
+    "graph_edges",
+    "community_sets",
+    "communities",
+    "community_assignments",
+];
 const DEFAULT_SHARD_PROFILE: &str = "core-v1";
 const REGISTERED_SHARD_PROFILES: &[&str] = &["core-v1", "full-v1", "record-v1"];
 const DEFAULT_SHARD_EXPORT_COMPONENTS: &str = "notes,collections,tags,templates,links";
@@ -22697,6 +22774,30 @@ const SHARD_MAX_RECORDS_PER_COMPONENT: usize = 250_000;
 const SHARD_MAX_RECORD_BYTES: usize = 4 * 1024 * 1024;
 const SHARD_REQUEST_OVERHEAD_BYTES: usize = 1024 * 1024;
 const SHARD_BLOB_ENTRY_PREFIX: &str = "blobs/";
+
+fn shard_profile_components(profile: &str) -> Option<&'static [&'static str]> {
+    match profile {
+        DEFAULT_SHARD_PROFILE => Some(SHARD_IMPORT_COMPONENTS),
+        "record-v1" => Some(RECORD_V1_IMPORT_COMPONENTS),
+        "full-v1" => Some(FULL_V1_IMPORT_COMPONENTS),
+        _ => None,
+    }
+}
+
+fn serialize_shard_manifest(manifest: &ShardManifest) -> Result<Vec<u8>, serde_json::Error> {
+    let mut value = serde_json::to_value(manifest)?;
+    if manifest.profile.as_deref() == Some("full-v1") {
+        let counts = value["counts"]
+            .as_object_mut()
+            .expect("serialized shard counts must be an object");
+        for field in FULL_V1_COUNT_FIELDS {
+            counts
+                .entry((*field).to_string())
+                .or_insert(serde_json::Value::from(0));
+        }
+    }
+    serde_json::to_vec_pretty(&value)
+}
 const LEGACY_CORE_V1_MANIFEST_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.0.0/core-v1/manifest.schema.json");
 const LEGACY_CORE_V1_NOTE_SCHEMA: &str =
@@ -25138,15 +25239,9 @@ fn validate_shard_manifest_contract(manifest: &ShardManifest) -> Result<(), Stri
     if !REGISTERED_SHARD_PROFILES.contains(&profile) {
         return Err("Unknown knowledge shard profile.".to_string());
     }
-    let profile_components = match profile {
-        DEFAULT_SHARD_PROFILE => SHARD_IMPORT_COMPONENTS,
-        "record-v1" => RECORD_V1_IMPORT_COMPONENTS,
-        _ => {
-            return Err(
-                "Knowledge shard profile is not supported by this server release.".to_string(),
-            );
-        }
-    };
+    let profile_components = shard_profile_components(profile).ok_or_else(|| {
+        "Knowledge shard profile is not supported by this server release.".to_string()
+    })?;
 
     let current = Version::parse(CURRENT_SHARD_VERSION)
         .map_err(|_| "Current shard schema version is invalid.".to_string())?;
@@ -25190,7 +25285,7 @@ fn validate_shard_manifest_contract(manifest: &ShardManifest) -> Result<(), Stri
     }
     let mut unique = std::collections::HashSet::new();
     for component in &manifest.components {
-        if !unique.insert(component) {
+        if !unique.insert(component.as_str()) {
             return Err("Knowledge shard components must be unique.".to_string());
         }
         if !profile_components.contains(&component.as_str()) {
@@ -25199,6 +25294,17 @@ fn validate_shard_manifest_contract(manifest: &ShardManifest) -> Result<(), Stri
                     .to_string(),
             );
         }
+    }
+    if profile == "full-v1"
+        && (unique.len() != FULL_V1_IMPORT_COMPONENTS.len()
+            || FULL_V1_IMPORT_COMPONENTS
+                .iter()
+                .any(|component| !unique.contains(component)))
+    {
+        return Err(
+            "Knowledge shard full-v1 profile requires the complete component inventory."
+                .to_string(),
+        );
     }
 
     Ok(())
@@ -25317,6 +25423,13 @@ fn selected_shard_import_components(
         .iter()
         .cloned()
         .collect::<std::collections::HashSet<_>>();
+    let profile_components = shard_profile_components(
+        manifest
+            .profile
+            .as_deref()
+            .expect("validated shard profile"),
+    )
+    .expect("validated shard profile components");
     let requested = match include {
         None => declared.clone(),
         Some(value) => {
@@ -25330,7 +25443,7 @@ fn selected_shard_import_components(
             } else {
                 let mut selected = std::collections::HashSet::new();
                 for component in values {
-                    if !SHARD_IMPORT_COMPONENTS.contains(&component) {
+                    if !profile_components.contains(&component) {
                         return Err(format!(
                             "Unsupported requested shard component: {component}."
                         ));
@@ -25583,7 +25696,8 @@ async fn load_shard_blob_export_inventory_tx(
     path = "/api/v1/backup/knowledge-shard",
     tag = "Backup",
     params(
-        ("include" = Option<String>, Query, description = "Comma-separated core-v1 components"),
+        ("profile" = Option<String>, Query, description = "Conformance profile; defaults to core-v1"),
+        ("include" = Option<String>, Query, description = "Comma-separated profile components"),
         ("include_blobs" = Option<bool>, Query, description = "Include verified content-addressed attachment byte sidecars"),
     ),
     responses((status = 200, description = "Success"))
@@ -25600,10 +25714,22 @@ async fn knowledge_shard(
 
     use tar::Builder;
 
-    // Parse included components
-    let include_str = query
-        .include
-        .unwrap_or_else(|| DEFAULT_SHARD_EXPORT_COMPONENTS.to_string());
+    let profile = query.profile.as_deref().unwrap_or(DEFAULT_SHARD_PROFILE);
+    let profile_components = shard_profile_components(profile).ok_or_else(|| {
+        shard_validation_failed("Knowledge shard export profile is not supported.")
+    })?;
+    if profile == "record-v1" {
+        return Err(shard_validation_failed(
+            "Knowledge shard record-v1 is an import compatibility profile.",
+        ));
+    }
+    let include_str = query.include.unwrap_or_else(|| {
+        if profile == "full-v1" {
+            FULL_V1_IMPORT_COMPONENTS.join(",")
+        } else {
+            DEFAULT_SHARD_EXPORT_COMPONENTS.to_string()
+        }
+    });
     let components: Vec<&str> = include_str.split(',').map(|s| s.trim()).collect();
     let unique_components = components
         .iter()
@@ -25613,12 +25739,14 @@ async fn knowledge_shard(
         || unique_components.len() != components.len()
         || components
             .iter()
-            .any(|component| !SHARD_IMPORT_COMPONENTS.contains(component))
+            .any(|component| !profile_components.contains(component))
+        || (profile == "full-v1" && unique_components.len() != FULL_V1_IMPORT_COMPONENTS.len())
     {
         return Err(shard_validation_failed(
-            "Knowledge shard export components must be supported by core-v1.",
+            "Knowledge shard export components do not satisfy the selected profile.",
         ));
     }
+    let include_blobs = query.include_blobs || profile == "full-v1";
 
     let mut counts = ShardCounts::default();
     let mut checksums: std::collections::HashMap<String, String> = std::collections::HashMap::new();
@@ -27029,7 +27157,7 @@ async fn knowledge_shard(
         // Moving this closure ends its mutable borrows before sidecar emission.
         #[allow(clippy::drop_non_drop)]
         drop(add_json_file);
-        if query.include_blobs {
+        if include_blobs {
             let reserved_entries = components.len().saturating_add(1);
             let max_blob_entries = archive_limits.max_entries.saturating_sub(reserved_entries);
             let max_blob_bytes = archive_limits
@@ -27124,7 +27252,7 @@ async fn knowledge_shard(
         // Create manifest (added last)
         let manifest = ShardManifest {
             version: matric_core::shard::CURRENT_SHARD_VERSION.to_string(),
-            profile: Some(DEFAULT_SHARD_PROFILE.to_string()),
+            profile: Some(profile.to_string()),
             producer: Some(ShardProducer {
                 name: "fortemi".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
@@ -27140,7 +27268,8 @@ async fn knowledge_shard(
             migrated_from: None,
             migration_history: vec![],
         };
-        let manifest_data = serde_json::to_vec_pretty(&manifest).unwrap_or_default();
+        let manifest_data = serialize_shard_manifest(&manifest)
+            .map_err(|error| shard_operation_failed("serialize shard manifest", error))?;
         archive_bytes = archive_bytes
             .checked_add(manifest_data.len())
             .ok_or_else(|| {
@@ -33036,6 +33165,21 @@ async fn apply_shard_embedding_components_tx(
                     imported.embedding_sets += 1;
                     continue;
                 }
+                if replace {
+                    sqlx::query(
+                        "DELETE FROM embedding_set
+                         WHERE id <> $1
+                           AND (name = $2 OR slug = $3)",
+                    )
+                    .bind(set.id)
+                    .bind(&set.name)
+                    .bind(&set.slug)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("replace conflicting embedding set", error)
+                    })?;
+                }
                 let result = if replace {
                     sqlx::query(
                         "INSERT INTO embedding_set (
@@ -33688,11 +33832,17 @@ async fn apply_validated_shard_components(
                 .map_err(|_| shard_validation_failed("Knowledge shard tags are invalid."))?;
             for tag in tags {
                 if !opts.dry_run {
-                    sqlx::query(
+                    let conflict = if matches!(opts.on_conflict, ConflictStrategy::Replace) {
+                        "ON CONFLICT (name) DO UPDATE SET
+                             created_at_utc = EXCLUDED.created_at_utc"
+                    } else {
+                        "ON CONFLICT (name) DO NOTHING"
+                    };
+                    sqlx::query(&format!(
                         "INSERT INTO tag (name, created_at_utc)
                          VALUES ($1, $2)
-                         ON CONFLICT (name) DO NOTHING",
-                    )
+                         {conflict}"
+                    ))
                     .bind(tag.name)
                     .bind(tag.created_at)
                     .execute(&mut *tx)
@@ -39714,6 +39864,7 @@ mod tests {
             track: Some("revision /home/operator/private.md".to_string()),
         };
         let shard_export = ShardExportQuery {
+            profile: None,
             include: Some("notes,templates,/srv/fortemi/private".to_string()),
             include_blobs: false,
         };
@@ -43280,6 +43431,7 @@ not-json
                 name: Some(source_name.clone()),
             }),
             Query(ShardExportQuery {
+                profile: None,
                 include: None,
                 include_blobs: false,
             }),
@@ -43977,7 +44129,7 @@ not-json
         let error =
             knowledge_shard_import_internal(&state, &rejected, &opts, &destination.schema_name)
                 .await
-                .expect_err("reserved profile must fail before mutation");
+                .expect_err("incomplete full-v1 profile must fail before mutation");
         assert!(matches!(error, ApiError::BadRequest(_)));
         assert_eq!(read_counts().await, (0, 0, 0, 0, 0, 0));
 
@@ -44030,6 +44182,7 @@ not-json
                 name: Some(destination_name.clone()),
             }),
             Query(ShardExportQuery {
+                profile: None,
                 include: None,
                 include_blobs: false,
             }),
@@ -44149,6 +44302,7 @@ not-json
                 name: Some(source_name.clone()),
             }),
             Query(ShardExportQuery {
+                profile: None,
                 include: None,
                 include_blobs: true,
             }),
@@ -44352,6 +44506,7 @@ not-json
                 name: Some(destination_name.clone()),
             }),
             Query(ShardExportQuery {
+                profile: None,
                 include: None,
                 include_blobs: true,
             }),
@@ -44462,6 +44617,138 @@ not-json
         }
     }
 
+    #[tokio::test]
+    async fn shard_full_v1_route_round_trip_preserves_every_component_and_required_blob() {
+        async fn export_full_v1(state: &AppState, schema: &str, name: &str) -> Vec<u8> {
+            let response = knowledge_shard(
+                State(state.clone()),
+                Extension(ArchiveContext {
+                    schema: schema.to_string(),
+                    is_default: false,
+                    name: Some(name.to_string()),
+                }),
+                Query(ShardExportQuery {
+                    profile: Some("full-v1".to_string()),
+                    include: None,
+                    include_blobs: false,
+                }),
+            )
+            .await
+            .expect("full-v1 export must succeed")
+            .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+            axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("read full-v1 export")
+                .to_vec()
+        }
+
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let storage = tempfile::tempdir().expect("create isolated full-v1 storage");
+        let storage_root = storage.path().to_string_lossy().to_string();
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database")
+            .with_filesystem_storage(&storage_root, 0);
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let source_name = format!("full-v1-source-{}", Uuid::new_v4().simple());
+        let source = db
+            .archives
+            .create_archive_schema(&source_name, Some("full-v1 route source"))
+            .await
+            .expect("create full-v1 source schema");
+        let destination_name = format!("full-v1-destination-{}", Uuid::new_v4().simple());
+        let destination = db
+            .archives
+            .create_archive_schema(&destination_name, Some("full-v1 route destination"))
+            .await
+            .expect("create full-v1 destination schema");
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+
+        let candidate =
+            include_bytes!("../../../tests/fixtures/shards/full-v1-integrated-candidate.shard");
+        let source_import =
+            knowledge_shard_import_internal(&state, candidate, &opts, &source.schema_name)
+                .await
+                .unwrap_or_else(|error| match error {
+                    ApiError::OperationFailed { detail, .. } => {
+                        panic!("signed integrated candidate import failed: {detail}")
+                    }
+                    other => panic!("signed integrated candidate import failed: {other:?}"),
+                });
+        assert_eq!(
+            source_import
+                .manifest
+                .as_ref()
+                .and_then(|manifest| manifest.profile.as_deref()),
+            Some("full-v1")
+        );
+
+        let exported = export_full_v1(&state, &source.schema_name, &source_name).await;
+        let exported_files = read_shard_archive(&exported, ShardArchiveLimits::default()).unwrap();
+        let exported_manifest_value: serde_json::Value =
+            serde_json::from_slice(&exported_files["manifest.json"]).unwrap();
+        assert_eq!(exported_manifest_value["profile"], "full-v1");
+        assert_eq!(
+            exported_manifest_value["counts"]
+                .as_object()
+                .expect("full-v1 counts object")
+                .len(),
+            FULL_V1_COUNT_FIELDS.len()
+        );
+        let exported_manifest =
+            parse_and_validate_shard_manifest(&exported_files["manifest.json"]).unwrap();
+        validate_shard_manifest_contract(&exported_manifest).unwrap();
+        validate_shard_component_inventory(&exported_manifest, &exported_files).unwrap();
+        let exported_attachments = validate_shard_relationships(&exported_files).unwrap();
+        let exported_sidecars =
+            validate_shard_sidecars(&exported_files, &exported_attachments, "full-v1").unwrap();
+        assert_eq!(exported_sidecars.len(), 1);
+
+        for _ in 0..2 {
+            knowledge_shard_import_internal(&state, &exported, &opts, &destination.schema_name)
+                .await
+                .unwrap_or_else(|error| match error {
+                    ApiError::OperationFailed { detail, .. } => {
+                        panic!("full-v1 route import failed: {detail}")
+                    }
+                    other => panic!("full-v1 route import failed: {other:?}"),
+                });
+        }
+        let reexported = export_full_v1(&state, &destination.schema_name, &destination_name).await;
+        let reexported_files =
+            read_shard_archive(&reexported, ShardArchiveLimits::default()).unwrap();
+        let reexported_manifest =
+            parse_and_validate_shard_manifest(&reexported_files["manifest.json"]).unwrap();
+        assert_eq!(reexported_manifest.counts, exported_manifest.counts);
+        assert_eq!(reexported_manifest.checksums, exported_manifest.checksums);
+        for component in &exported_manifest.components {
+            let filename = shard_component_filename(component).unwrap();
+            assert_eq!(
+                reexported_files[filename], exported_files[filename],
+                "full-v1 component changed across route round trip: {component}"
+            );
+        }
+        for (checksum, bytes) in exported_sidecars {
+            let filename = shard_blob_entry_name(&checksum).unwrap();
+            assert_eq!(reexported_files[&filename], bytes);
+        }
+
+        for archive_name in [destination_name, source_name] {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .expect("drop isolated full-v1 route schema");
+        }
+    }
+
     #[test]
     fn canonical_core_v1_schema_receipt_matches_stable_files() {
         use sha2::Digest;
@@ -44471,18 +44758,15 @@ not-json
         ))
         .expect("contract receipt must be valid JSON");
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert_eq!(receipt["contractRevision"], "17");
+        assert_eq!(receipt["contractRevision"], "18");
         assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
             "contracts/knowledge-shard/1.1.0/core-v1"
         );
         assert_eq!(receipt["profiles"]["core-v1"]["supported"], true);
-        assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
-        assert_eq!(
-            receipt["profiles"]["full-v1"]["status"],
-            "signed-integrated-archive-candidate"
-        );
+        assert_eq!(receipt["profiles"]["full-v1"]["supported"], true);
+        assert_eq!(receipt["profiles"]["full-v1"]["status"], "supported");
         assert_eq!(receipt["profiles"]["record-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["record-v1"]["status"], "supported");
         assert_eq!(
@@ -45079,6 +45363,22 @@ not-json
             .unwrap_err(),
             "Knowledge shard component does not match canonical full-v1 candidate schema."
         );
+
+        let mut embedding: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../tests/fixtures/shards/full-v1-embedding-candidate/embeddings.jsonl"
+        ))
+        .unwrap();
+        embedding["vector"] = serde_json::json!([0.25, -0.5, 1.0]);
+        assert_eq!(
+            validate_shard_component_schema_for_profile(
+                matric_core::shard::CURRENT_SHARD_VERSION,
+                "full-v1",
+                "embeddings",
+                &serde_json::to_vec(&embedding).unwrap(),
+            )
+            .unwrap_err(),
+            "Knowledge shard component does not match canonical full-v1 candidate schema."
+        );
     }
 
     #[test]
@@ -45093,10 +45393,8 @@ not-json
         assert_eq!(manifest.checksums.len(), 33);
         assert_eq!(manifest.counts.community_sets, 1);
         assert_eq!(manifest.counts.communities, 1);
-        assert_eq!(
-            validate_shard_manifest_contract(&manifest).unwrap_err(),
-            "Knowledge shard profile is not supported by this server release."
-        );
+        validate_shard_manifest_contract(&manifest)
+            .expect("complete full-v1 manifest must be supported");
         assert_eq!(
             validate_shard_component_schema_for_profile(
                 "1.1.0",
@@ -45161,7 +45459,7 @@ not-json
         assert_eq!(public_key, "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw");
         assert_eq!(
             signature,
-            "7kqCbEl-AUivd37tEyMXNphrIe5lJgHbGSpG8-5zn_4ft8WA4Cl8gHObkg4Suy_KRZQLkL1Ga_Ys-oS4AtE4Bg"
+            "U36qQohGi5OnZZkWvmSWYQqDYXnwX8ceML_hAaTOOjGfZZBE65SzJtwh95AkYNh1qJtFpJxBxn2aNXaiG6nCDQ"
         );
     }
 
@@ -45202,10 +45500,8 @@ not-json
         assert_eq!(manifest.profile.as_deref(), Some("full-v1"));
         assert_eq!(manifest.components.len(), 33);
         assert_eq!(manifest.checksums.len(), 33);
-        assert_eq!(
-            validate_shard_manifest_contract(&manifest).unwrap_err(),
-            "Knowledge shard profile is not supported by this server release."
-        );
+        validate_shard_manifest_contract(&manifest)
+            .expect("integrated full-v1 candidate must be supported");
         validate_shard_component_inventory(&manifest, &files)
             .expect("integrated candidate component inventory must validate");
         for (filename, expected) in &manifest.checksums {
@@ -45396,7 +45692,7 @@ not-json
     }
 
     #[test]
-    fn shard_contract_rejects_missing_unknown_and_unsupported_profiles() {
+    fn shard_contract_rejects_missing_unknown_and_incomplete_profiles() {
         let mut manifest = valid_core_shard_manifest();
         manifest.profile = None;
         assert_eq!(
@@ -45413,7 +45709,7 @@ not-json
         manifest.profile = Some("full-v1".to_string());
         assert_eq!(
             validate_shard_manifest_contract(&manifest).unwrap_err(),
-            "Knowledge shard profile is not supported by this server release."
+            "Knowledge shard full-v1 profile requires the complete component inventory."
         );
 
         let record_manifest = parse_and_validate_shard_manifest(include_bytes!(

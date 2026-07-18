@@ -17,8 +17,8 @@ blob_checksum="blake3:$blob_digest"
 blob_bytes="Fortemi full-v1 attachment fixture"
 fixture_key_id="fortemi-fixture-1"
 fixture_public_key="6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
-fixture_signature="7kqCbEl-AUivd37tEyMXNphrIe5lJgHbGSpG8-5zn_4ft8WA4Cl8gHObkg4Suy_KRZQLkL1Ga_Ys-oS4AtE4Bg"
-signed_manifest_sha256="b22add185f3c6131c1b297a24443c2fdc3e12ca9026768af6c0c36abb6b9339a"
+fixture_signature="U36qQohGi5OnZZkWvmSWYQqDYXnwX8ceML_hAaTOOjGfZZBE65SzJtwh95AkYNh1qJtFpJxBxn2aNXaiG6nCDQ"
+signed_manifest_sha256="3b7f63211249e12e20d8a99bc724db03e4ab4e370f761695d9a391820b6caed1"
 
 mkdir -p "$stage/blobs"
 printf '%s\n' "$blob_bytes" >"$stage/blobs/$blob_digest"
@@ -154,7 +154,8 @@ mv "$stage/manifest.next.json" "$stage/manifest.json"
 
 manifest_sha256="$(sha256sum "$stage/manifest.json" | awk '{print $1}')"
 if [[ "$manifest_sha256" != "$signed_manifest_sha256" ]]; then
-  printf 'manifest digest changed; fixture signature must be regenerated\n' >&2
+  printf 'manifest digest changed (%s); fixture signature must be regenerated\n' \
+    "$manifest_sha256" >&2
   exit 1
 fi
 jq -n \
@@ -198,7 +199,7 @@ jq -n \
   --argjson blob_bytes "$blob_size" \
   '{
     profile: "full-v1",
-    status: "signed-integrated-candidate",
+    status: "signed-integrated-route-fixture",
     archive: $archive,
     archiveSha256: $archive_sha256,
     manifestSha256: $manifest_sha256,
@@ -224,7 +225,6 @@ jq -n \
     ],
     conformanceClaim: false,
     remainingGates: [
-      "supported full-v1 export and import routes",
       "cross-repository producer and consumer receipts"
     ]
   }' >"$receipt"

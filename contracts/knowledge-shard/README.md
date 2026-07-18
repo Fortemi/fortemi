@@ -6,14 +6,17 @@ stable schema paths, exact file digests, golden corpus, and demonstrated
 limitations.
 
 The current contract revision supports Knowledge Shard schema `1.1.0` under
-`core-v1` and `record-v1`:
+`core-v1`, `record-v1`, and `full-v1`:
 
 - `core-v1`: notes, collections, tags, templates, links, and attachment
   projections.
 - `record-v1`: notes, collections, tags, note-to-note links, and
   attachment projections.
+- `full-v1`: the complete 33-component inventory and mandatory attachment
+  bytes.
 
-Revision 17 publishes a reproducible signed integrated `full-v1` candidate archive
+Revision 18 supports the complete `full-v1` server route and publishes a
+reproducible signed integrated fixture
 with the complete 33-component inventory, 34 count fields, 33 component
 checksums, and one mandatory content-addressed attachment sidecar shared by
 two references. The archive unifies the digest-pinned embedding, note-revision,
@@ -22,6 +25,11 @@ identities. Its strict Ed25519 envelope authenticates the exact manifest bytes
 and sorted content-addressed blob inventory through the same verifier used by
 server import. The deterministic fixture key is public and test-only; operators
 must never add it to a production trust store.
+`GET /api/v1/backup/knowledge-shard?profile=full-v1` always includes every
+component and every referenced attachment byte. Database-backed tests import
+the signed fixture, export it through that route, import it twice into a clean
+schema, and prove exact component, checksum, attachment, and re-export
+convergence. Cross-repository producer and consumer receipts remain pending.
 The revision boundary covers current original state, original history, current
 revised snapshots, and revision chains. The provenance boundary adds the
 W3C-PROV edges and processing activities that reference those exact note and
@@ -37,9 +45,9 @@ with convergence, dry-run, conflict-accounting, and late-failure rollback
 tests. The integrated fixture passes bounded archive, complete inventory,
 checksum, relationship, revision-chain, mandatory-byte, deduplication, and
 archive read/write/read equality tests. The files and dormant paths are
-reviewable authority inputs, not a supported profile. There is no supported
-route round-trip claim yet, and runtime profile validation
-continues to reject `full-v1` after candidate manifest schema validation.
+reviewable authority inputs for the supported server profile. Runtime profile
+validation requires the exact full inventory and rejects partial `full-v1`
+exports before archive or database mutation.
 
 Each profile has its own manifest and record schemas under
 `contracts/knowledge-shard/1.1.0/<profile>/`. Fortemi import selects and
@@ -69,8 +77,8 @@ by the selected export. The pinned React producer/server consumer/React return
 receipt is stored at
 `tests/fixtures/shards/record-v1-fortemi-react-df4762a.shard.receipt.json`;
 the exact producer archive is a permanent integration fixture. `full-v1`
-remains unsupported beyond its candidate embedding, note-revision, provenance,
-SKOS, graph, and community boundaries and their transactional apply paths.
+supports those same transactional boundaries through its complete route;
+cross-repository conformance remains tracked separately.
 Complete absent-versus-null preservation
 still requires a schema-major or new profile identifier because `deleted_at`
 is optional during the 1.1 transition.
