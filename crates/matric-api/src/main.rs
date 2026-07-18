@@ -22912,37 +22912,61 @@ fn validate_shard_relationships(
 fn validate_shard_sidecars<'a>(
     files: &'a std::collections::HashMap<String, Vec<u8>>,
     attachment_digests: &std::collections::HashMap<String, (i64, String)>,
+    profile: &str,
 ) -> Result<std::collections::HashMap<String, &'a [u8]>, String> {
     let mut sidecars = std::collections::HashMap::new();
     for (name, contents) in files {
         let Some(checksum) = shard_blob_entry_checksum(name) else {
             continue;
         };
-        let Some((declared_bytes, _)) = attachment_digests.get(&checksum) else {
-            continue;
-        };
+        sidecars.insert(checksum, contents.as_slice());
+    }
+    validate_shard_sidecar_inventory(&sidecars, attachment_digests, profile)?;
+    for (checksum, contents) in &sidecars {
+        let (declared_bytes, _) = &attachment_digests[checksum];
         let declared_bytes = usize::try_from(*declared_bytes)
             .map_err(|_| "Knowledge shard attachment size is invalid.".to_string())?;
-        if contents.len() != declared_bytes || matric_db::compute_content_hash(contents) != checksum
+        if contents.len() != declared_bytes
+            || matric_db::compute_content_hash(contents) != *checksum
         {
             return Err(
                 "Knowledge shard attachment sidecar failed integrity validation.".to_string(),
             );
         }
-        sidecars.insert(checksum, contents.as_slice());
     }
     Ok(sidecars)
+}
+
+fn validate_shard_sidecar_inventory<T>(
+    sidecars: &std::collections::HashMap<String, T>,
+    attachment_digests: &std::collections::HashMap<String, (i64, String)>,
+    profile: &str,
+) -> Result<(), String> {
+    if sidecars
+        .keys()
+        .any(|checksum| !attachment_digests.contains_key(checksum))
+    {
+        return Err("Knowledge shard contains an orphan attachment sidecar.".to_string());
+    }
+    if profile == "full-v1"
+        && attachment_digests
+            .keys()
+            .any(|checksum| !sidecars.contains_key(checksum))
+    {
+        return Err("Knowledge shard full-v1 attachment sidecar bytes are missing.".to_string());
+    }
+    Ok(())
 }
 
 fn validate_streamed_shard_sidecars<'a>(
     sidecars: &'a std::collections::HashMap<String, StreamedShardSidecar>,
     attachment_digests: &std::collections::HashMap<String, (i64, String)>,
+    profile: &str,
 ) -> Result<std::collections::HashMap<String, &'a StreamedShardSidecar>, String> {
+    validate_shard_sidecar_inventory(sidecars, attachment_digests, profile)?;
     let mut validated = std::collections::HashMap::new();
     for (checksum, sidecar) in sidecars {
-        let Some((declared_bytes, _)) = attachment_digests.get(checksum) else {
-            continue;
-        };
+        let (declared_bytes, _) = &attachment_digests[checksum];
         let declared_bytes = u64::try_from(*declared_bytes)
             .map_err(|_| "Knowledge shard attachment size is invalid.".to_string())?;
         if sidecar.size_bytes != declared_bytes {
@@ -28154,8 +28178,15 @@ async fn knowledge_shard_import_internal_with_wipe(
         .map_err(ApiError::BadRequest)?;
     let source_attachment_digests =
         validate_shard_relationships(&source_files).map_err(ApiError::BadRequest)?;
-    validate_streamed_shard_sidecars(&source_sidecars, &source_attachment_digests)
-        .map_err(ApiError::BadRequest)?;
+    validate_streamed_shard_sidecars(
+        &source_sidecars,
+        &source_attachment_digests,
+        source_manifest
+            .profile
+            .as_deref()
+            .expect("validated shard profile"),
+    )
+    .map_err(ApiError::BadRequest)?;
 
     let migrated = migrate_shard_archive_to_current(source_manifest, source_files)
         .map_err(ApiError::BadRequest)?;
@@ -28177,8 +28208,15 @@ async fn knowledge_shard_import_internal_with_wipe(
     }
     validate_shard_component_inventory(&manifest, &files).map_err(ApiError::BadRequest)?;
     let attachment_digests = validate_shard_relationships(&files).map_err(ApiError::BadRequest)?;
-    let sidecars = validate_streamed_shard_sidecars(&source_sidecars, &attachment_digests)
-        .map_err(ApiError::BadRequest)?;
+    let sidecars = validate_streamed_shard_sidecars(
+        &source_sidecars,
+        &attachment_digests,
+        manifest
+            .profile
+            .as_deref()
+            .expect("validated shard profile"),
+    )
+    .map_err(ApiError::BadRequest)?;
 
     // Application release identity is informational and independent of schema negotiation.
     let current_version = env!("CARGO_PKG_VERSION");
@@ -36287,6 +36325,34 @@ mod tests {
         archive.into_inner().unwrap().finish().unwrap()
     }
 
+    fn append_shard_entry(shard: &[u8], name: &str, contents: &[u8]) -> Vec<u8> {
+        use std::io::Read;
+
+        let decoder = flate2::read::GzDecoder::new(shard);
+        let mut source = tar::Archive::new(decoder);
+        let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut archive = tar::Builder::new(encoder);
+        for entry in source.entries().unwrap() {
+            let mut entry = entry.unwrap();
+            let entry_name = entry.path().unwrap().to_string_lossy().to_string();
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).unwrap();
+            let mut header = tar::Header::new_gnu();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            archive
+                .append_data(&mut header, entry_name, bytes.as_slice())
+                .unwrap();
+        }
+        let mut header = tar::Header::new_gnu();
+        header.set_size(contents.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        archive.append_data(&mut header, name, contents).unwrap();
+        archive.into_inner().unwrap().finish().unwrap()
+    }
+
     fn regular_file_count(root: &std::path::Path) -> usize {
         let Ok(entries) = std::fs::read_dir(root) else {
             return 0;
@@ -36432,17 +36498,24 @@ mod tests {
         .into_iter()
         .collect::<std::collections::HashMap<_, _>>();
         assert_eq!(
-            validate_streamed_shard_sidecars(&parsed.sidecars, &declarations)
-                .expect("validate streamed sidecar")
-                .len(),
+            validate_streamed_shard_sidecars(
+                &parsed.sidecars,
+                &declarations,
+                DEFAULT_SHARD_PROFILE,
+            )
+            .expect("validate streamed sidecar")
+            .len(),
             1
         );
-        assert!(validate_streamed_shard_sidecars(
-            &parsed.sidecars,
-            &std::collections::HashMap::new()
-        )
-        .expect("ignore optional core-v1 orphan")
-        .is_empty());
+        assert_eq!(
+            validate_streamed_shard_sidecars(
+                &parsed.sidecars,
+                &std::collections::HashMap::new(),
+                DEFAULT_SHARD_PROFILE,
+            )
+            .unwrap_err(),
+            "Knowledge shard contains an orphan attachment sidecar."
+        );
 
         let wrong_size = [(
             checksum,
@@ -36454,7 +36527,8 @@ mod tests {
         .into_iter()
         .collect::<std::collections::HashMap<_, _>>();
         assert_eq!(
-            validate_streamed_shard_sidecars(&parsed.sidecars, &wrong_size).unwrap_err(),
+            validate_streamed_shard_sidecars(&parsed.sidecars, &wrong_size, DEFAULT_SHARD_PROFILE,)
+                .unwrap_err(),
             "Knowledge shard attachment sidecar failed integrity validation."
         );
 
@@ -36614,7 +36688,7 @@ mod tests {
     }
 
     #[test]
-    fn shard_sidecar_preflight_validates_referenced_bytes_and_ignores_orphans() {
+    fn shard_sidecar_preflight_enforces_profile_inventory_and_integrity() {
         let bytes = b"portable attachment bytes".to_vec();
         let checksum = matric_db::compute_content_hash(&bytes);
         let entry = shard_blob_entry_name(&checksum).unwrap();
@@ -36626,21 +36700,28 @@ mod tests {
         .collect::<std::collections::HashMap<_, _>>();
 
         let missing = std::collections::HashMap::new();
-        assert!(validate_shard_sidecars(&missing, &declarations)
-            .unwrap()
-            .is_empty());
+        assert!(
+            validate_shard_sidecars(&missing, &declarations, DEFAULT_SHARD_PROFILE)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            validate_shard_sidecars(&missing, &declarations, "full-v1").unwrap_err(),
+            "Knowledge shard full-v1 attachment sidecar bytes are missing."
+        );
 
         let files = [(entry.clone(), bytes.clone())]
             .into_iter()
             .collect::<std::collections::HashMap<_, _>>();
-        let validated = validate_shard_sidecars(&files, &declarations).unwrap();
+        let validated =
+            validate_shard_sidecars(&files, &declarations, DEFAULT_SHARD_PROFILE).unwrap();
         assert_eq!(validated[&checksum], bytes.as_slice());
 
         let tampered = [(entry.clone(), b"tampered attachment bytes".to_vec())]
             .into_iter()
             .collect::<std::collections::HashMap<_, _>>();
         assert_eq!(
-            validate_shard_sidecars(&tampered, &declarations).unwrap_err(),
+            validate_shard_sidecars(&tampered, &declarations, DEFAULT_SHARD_PROFILE).unwrap_err(),
             "Knowledge shard attachment sidecar failed integrity validation."
         );
 
@@ -36654,7 +36735,8 @@ mod tests {
         .into_iter()
         .collect::<std::collections::HashMap<_, _>>();
         assert_eq!(
-            validate_shard_sidecars(&files, &wrong_size_declarations).unwrap_err(),
+            validate_shard_sidecars(&files, &wrong_size_declarations, DEFAULT_SHARD_PROFILE)
+                .unwrap_err(),
             "Knowledge shard attachment sidecar failed integrity validation."
         );
 
@@ -36664,9 +36746,10 @@ mod tests {
         let orphan = [(orphan_entry, orphan_bytes)]
             .into_iter()
             .collect::<std::collections::HashMap<_, _>>();
-        assert!(validate_shard_sidecars(&orphan, &declarations)
-            .unwrap()
-            .is_empty());
+        assert_eq!(
+            validate_shard_sidecars(&orphan, &declarations, DEFAULT_SHARD_PROFILE).unwrap_err(),
+            "Knowledge shard contains an orphan attachment sidecar."
+        );
     }
 
     #[test]
@@ -38105,6 +38188,39 @@ mod tests {
             .await
             .expect("read tamper destination counts");
         assert_eq!(tamper_counts, (0, 0, 0));
+        assert_eq!(regular_file_count(storage.path()), files_before_tamper);
+
+        let orphan_bytes = b"unreferenced sidecar bytes";
+        let orphan_name =
+            shard_blob_entry_name(&matric_db::compute_content_hash(orphan_bytes)).unwrap();
+        let orphaned = append_shard_entry(&exported_bytes, &orphan_name, orphan_bytes);
+        let error = knowledge_shard_import_internal(&state, &orphaned, &opts, &tamper.schema_name)
+            .await
+            .expect_err("orphan sidecar must fail before apply");
+        assert!(matches!(
+            error,
+            ApiError::BadRequest(ref message)
+                if message == "Knowledge shard contains an orphan attachment sidecar."
+        ));
+        let orphan_counts = db
+            .for_schema(&tamper.schema_name)
+            .unwrap()
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read orphan destination counts");
+        assert_eq!(orphan_counts, (0, 0, 0));
         assert_eq!(regular_file_count(storage.path()), files_before_tamper);
 
         let destination_name = format!("shard-sidecar-dest-{}", Uuid::new_v4().simple());
