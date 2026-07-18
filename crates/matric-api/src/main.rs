@@ -27733,13 +27733,11 @@ async fn apply_validated_shard_components(
         tx.rollback()
             .await
             .map_err(|error| shard_operation_failed("roll back import dry-run", error))?;
-    } else {
-        if let Err(error) = tx.commit().await {
-            if let Some(backend) = storage_backend.as_ref() {
-                compensate_shard_sidecar_promotions(backend, &promotions).await;
-            }
-            return Err(shard_operation_failed("commit import transaction", error));
+    } else if let Err(error) = tx.commit().await {
+        if let Some(backend) = storage_backend.as_ref() {
+            compensate_shard_sidecar_promotions(backend, &promotions).await;
         }
+        return Err(shard_operation_failed("commit import transaction", error));
     }
 
     Ok((imported, skipped, queued_note_ids))
