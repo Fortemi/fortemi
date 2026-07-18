@@ -22369,7 +22369,7 @@ struct ShardSkosConceptRecord {
     broader_count: i32,
     narrower_count: i32,
     related_count: i32,
-    antipatterns: Vec<String>,
+    antipatterns: Option<Vec<String>>,
     antipattern_checked_at: Option<chrono::DateTime<chrono::Utc>>,
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
@@ -23703,6 +23703,7 @@ fn validate_shard_relationships(
         &spatial_ids,
     )?;
     validate_shard_embedding_relationships(files, &note_ids)?;
+    validate_shard_skos_relationships(files, &note_ids)?;
 
     Ok(attachment_digests)
 }
@@ -24306,6 +24307,338 @@ fn validate_shard_embedding_relationships(
     Ok(())
 }
 
+fn validate_shard_skos_relationships(
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    note_ids: &std::collections::HashSet<Uuid>,
+) -> Result<(), String> {
+    let schemes = files
+        .get("skos_schemes.json")
+        .map(|data| {
+            parse_shard_component_records("skos_schemes", data)?
+                .into_iter()
+                .map(|value| {
+                    serde_json::from_value::<ShardSkosSchemeRecord>(value)
+                        .map_err(|_| "Knowledge shard SKOS schemes are invalid.".to_string())
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let mut scheme_ids = std::collections::HashSet::new();
+    let mut scheme_notations = std::collections::HashSet::new();
+    let mut scheme_uris = std::collections::HashSet::new();
+    for scheme in &schemes {
+        if !scheme_ids.insert(scheme.id)
+            || !scheme_notations.insert(scheme.notation.as_str())
+            || scheme
+                .uri
+                .as_deref()
+                .is_some_and(|uri| !scheme_uris.insert(uri))
+        {
+            return Err("Knowledge shard SKOS scheme identities must be unique.".to_string());
+        }
+        if scheme.embedding.as_ref().is_some_and(|embedding| {
+            embedding.is_empty() || embedding.iter().any(|value| !value.is_finite())
+        }) {
+            return Err("Knowledge shard SKOS scheme embedding is invalid.".to_string());
+        }
+    }
+
+    let concepts = files
+        .get("skos_concepts.json")
+        .map(|data| {
+            parse_shard_component_records("skos_concepts", data)?
+                .into_iter()
+                .map(|value| {
+                    serde_json::from_value::<ShardSkosConceptRecord>(value)
+                        .map_err(|_| "Knowledge shard SKOS concepts are invalid.".to_string())
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let mut concept_ids = std::collections::HashSet::new();
+    let mut concept_uris = std::collections::HashSet::new();
+    let mut concept_notations = std::collections::HashSet::new();
+    for concept in &concepts {
+        if !concept_ids.insert(concept.id)
+            || concept
+                .uri
+                .as_deref()
+                .is_some_and(|uri| !concept_uris.insert(uri))
+            || concept.notation.as_deref().is_some_and(|notation| {
+                !concept_notations.insert((concept.primary_scheme_id, notation))
+            })
+        {
+            return Err("Knowledge shard SKOS concept identities must be unique.".to_string());
+        }
+        if !scheme_ids.contains(&concept.primary_scheme_id) {
+            return Err("Knowledge shard SKOS concept references an unknown scheme.".to_string());
+        }
+        if !matches!(
+            concept.status.as_str(),
+            "candidate" | "approved" | "deprecated" | "obsolete"
+        ) || concept.facet_type.as_deref().is_some_and(|facet| {
+            !matches!(
+                facet,
+                "personality" | "matter" | "energy" | "space" | "time"
+            )
+        }) || concept.antipatterns.as_ref().is_some_and(|antipatterns| {
+            antipatterns.iter().any(|value| {
+                !matches!(
+                    value.as_str(),
+                    "orphan"
+                        | "over_tagged"
+                        | "under_used"
+                        | "too_broad"
+                        | "too_deep"
+                        | "polyhierarchy_excess"
+                        | "missing_labels"
+                        | "circular_hierarchy"
+                )
+            })
+        }) {
+            return Err("Knowledge shard SKOS concept enum value is invalid.".to_string());
+        }
+        if concept.depth < 0
+            || concept.depth > 5
+            || concept.broader_count < 0
+            || concept.broader_count > 3
+            || concept.narrower_count < 0
+            || concept.related_count < 0
+            || concept.note_count < 0
+        {
+            return Err("Knowledge shard SKOS concept counter is invalid.".to_string());
+        }
+        if concept.embedding.as_ref().is_some_and(|embedding| {
+            embedding.is_empty() || embedding.iter().any(|value| !value.is_finite())
+        }) {
+            return Err("Knowledge shard SKOS concept embedding is invalid.".to_string());
+        }
+    }
+    for concept in &concepts {
+        if concept
+            .replaced_by_id
+            .is_some_and(|id| id == concept.id || !concept_ids.contains(&id))
+        {
+            return Err(
+                "Knowledge shard SKOS concept replacement reference is invalid.".to_string(),
+            );
+        }
+    }
+
+    let mut label_ids = std::collections::HashSet::new();
+    let mut label_coordinates = std::collections::HashSet::new();
+    let mut preferred_labels = std::collections::HashSet::new();
+    if let Some(data) = files.get("skos_labels.jsonl") {
+        for value in parse_shard_component_records("skos_labels", data)? {
+            let label = serde_json::from_value::<ShardSkosLabelRecord>(value)
+                .map_err(|_| "Knowledge shard SKOS labels are invalid.".to_string())?;
+            if !label_ids.insert(label.id)
+                || !label_coordinates.insert((
+                    label.concept_id,
+                    label.label_type.clone(),
+                    label.language.clone(),
+                    label.value.clone(),
+                ))
+            {
+                return Err("Knowledge shard SKOS label identities must be unique.".to_string());
+            }
+            if !concept_ids.contains(&label.concept_id) {
+                return Err("Knowledge shard SKOS label references an unknown concept.".to_string());
+            }
+            if !matches!(
+                label.label_type.as_str(),
+                "pref_label" | "alt_label" | "hidden_label"
+            ) {
+                return Err("Knowledge shard SKOS label type is invalid.".to_string());
+            }
+            if label.label_type == "pref_label"
+                && !preferred_labels.insert((label.concept_id, label.language))
+            {
+                return Err(
+                    "Knowledge shard SKOS preferred labels must be unique by language.".to_string(),
+                );
+            }
+        }
+    }
+
+    let mut concept_note_ids = std::collections::HashSet::new();
+    if let Some(data) = files.get("skos_notes.jsonl") {
+        for value in parse_shard_component_records("skos_notes", data)? {
+            let note = serde_json::from_value::<ShardSkosNoteRecord>(value)
+                .map_err(|_| "Knowledge shard SKOS notes are invalid.".to_string())?;
+            if !concept_note_ids.insert(note.id) {
+                return Err("Knowledge shard SKOS note identities must be unique.".to_string());
+            }
+            if !concept_ids.contains(&note.concept_id) {
+                return Err("Knowledge shard SKOS note references an unknown concept.".to_string());
+            }
+            if !matches!(
+                note.note_type.as_str(),
+                "definition"
+                    | "scope_note"
+                    | "example"
+                    | "history_note"
+                    | "editorial_note"
+                    | "change_note"
+                    | "note"
+            ) {
+                return Err("Knowledge shard SKOS note type is invalid.".to_string());
+            }
+        }
+    }
+
+    let mut relation_ids = std::collections::HashSet::new();
+    let mut relation_coordinates = std::collections::HashSet::new();
+    if let Some(data) = files.get("skos_relations.jsonl") {
+        for value in parse_shard_component_records("skos_relations", data)? {
+            let relation = serde_json::from_value::<ShardSkosRelationRecord>(value)
+                .map_err(|_| "Knowledge shard SKOS relations are invalid.".to_string())?;
+            if !relation_ids.insert(relation.id)
+                || !relation_coordinates.insert((
+                    relation.subject_id,
+                    relation.object_id,
+                    relation.relation_type.clone(),
+                ))
+            {
+                return Err("Knowledge shard SKOS relation identities must be unique.".to_string());
+            }
+            if relation.subject_id == relation.object_id
+                || !concept_ids.contains(&relation.subject_id)
+                || !concept_ids.contains(&relation.object_id)
+            {
+                return Err(
+                    "Knowledge shard SKOS relation concept reference is invalid.".to_string(),
+                );
+            }
+            if !matches!(
+                relation.relation_type.as_str(),
+                "broader" | "narrower" | "related"
+            ) {
+                return Err("Knowledge shard SKOS relation type is invalid.".to_string());
+            }
+        }
+    }
+
+    let mut mapping_ids = std::collections::HashSet::new();
+    let mut mapping_coordinates = std::collections::HashSet::new();
+    if let Some(data) = files.get("skos_mapping_relations.jsonl") {
+        for value in parse_shard_component_records("skos_mapping_relations", data)? {
+            let mapping = serde_json::from_value::<ShardSkosMappingRelationRecord>(value)
+                .map_err(|_| "Knowledge shard SKOS mapping relations are invalid.".to_string())?;
+            if !mapping_ids.insert(mapping.id)
+                || !mapping_coordinates.insert((
+                    mapping.concept_id,
+                    mapping.target_uri.clone(),
+                    mapping.relation_type.clone(),
+                ))
+            {
+                return Err("Knowledge shard SKOS mapping identities must be unique.".to_string());
+            }
+            if !concept_ids.contains(&mapping.concept_id) {
+                return Err(
+                    "Knowledge shard SKOS mapping references an unknown concept.".to_string(),
+                );
+            }
+            if !matches!(
+                mapping.relation_type.as_str(),
+                "exact_match" | "close_match" | "broad_match" | "narrow_match" | "related_match"
+            ) {
+                return Err("Knowledge shard SKOS mapping type is invalid.".to_string());
+            }
+        }
+    }
+
+    let mut scheme_memberships = std::collections::HashSet::new();
+    if let Some(data) = files.get("skos_scheme_memberships.jsonl") {
+        for value in parse_shard_component_records("skos_scheme_memberships", data)? {
+            let membership = serde_json::from_value::<ShardSkosSchemeMembershipRecord>(value)
+                .map_err(|_| "Knowledge shard SKOS scheme memberships are invalid.".to_string())?;
+            if !scheme_memberships.insert((membership.concept_id, membership.scheme_id)) {
+                return Err("Knowledge shard SKOS scheme memberships must be unique.".to_string());
+            }
+            if !concept_ids.contains(&membership.concept_id)
+                || !scheme_ids.contains(&membership.scheme_id)
+            {
+                return Err(
+                    "Knowledge shard SKOS scheme membership reference is invalid.".to_string(),
+                );
+            }
+        }
+    }
+
+    let mut note_tags = std::collections::HashSet::new();
+    if let Some(data) = files.get("note_skos_tags.jsonl") {
+        for value in parse_shard_component_records("note_skos_tags", data)? {
+            let tag = serde_json::from_value::<ShardNoteSkosTagRecord>(value)
+                .map_err(|_| "Knowledge shard note SKOS tags are invalid.".to_string())?;
+            if !note_tags.insert((tag.note_id, tag.concept_id)) {
+                return Err("Knowledge shard note SKOS tags must be unique.".to_string());
+            }
+            if !note_ids.contains(&tag.note_id) || !concept_ids.contains(&tag.concept_id) {
+                return Err("Knowledge shard note SKOS tag reference is invalid.".to_string());
+            }
+        }
+    }
+
+    let collections = files
+        .get("skos_collections.json")
+        .map(|data| {
+            parse_shard_component_records("skos_collections", data)?
+                .into_iter()
+                .map(|value| {
+                    serde_json::from_value::<ShardSkosCollectionRecord>(value)
+                        .map_err(|_| "Knowledge shard SKOS collections are invalid.".to_string())
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let mut collection_ids = std::collections::HashSet::new();
+    let mut collection_uris = std::collections::HashSet::new();
+    for collection in &collections {
+        if !collection_ids.insert(collection.id)
+            || collection
+                .uri
+                .as_deref()
+                .is_some_and(|uri| !collection_uris.insert(uri))
+        {
+            return Err("Knowledge shard SKOS collection identities must be unique.".to_string());
+        }
+        if collection
+            .scheme_id
+            .is_some_and(|scheme_id| !scheme_ids.contains(&scheme_id))
+        {
+            return Err(
+                "Knowledge shard SKOS collection references an unknown scheme.".to_string(),
+            );
+        }
+    }
+
+    let mut collection_members = std::collections::HashSet::new();
+    if let Some(data) = files.get("skos_collection_members.jsonl") {
+        for value in parse_shard_component_records("skos_collection_members", data)? {
+            let member = serde_json::from_value::<ShardSkosCollectionMemberRecord>(value)
+                .map_err(|_| "Knowledge shard SKOS collection members are invalid.".to_string())?;
+            if !collection_members.insert((member.collection_id, member.concept_id)) {
+                return Err(
+                    "Knowledge shard SKOS collection memberships must be unique.".to_string(),
+                );
+            }
+            if !collection_ids.contains(&member.collection_id)
+                || !concept_ids.contains(&member.concept_id)
+            {
+                return Err(
+                    "Knowledge shard SKOS collection member reference is invalid.".to_string(),
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 fn validate_shard_sidecars<'a>(
     files: &'a std::collections::HashMap<String, Vec<u8>>,
@@ -24522,6 +24855,16 @@ fn validate_shard_component_inventory(
             "provenance_locations" => manifest.counts.provenance_locations,
             "provenance_devices" => manifest.counts.provenance_devices,
             "provenance_records" => manifest.counts.provenance_records,
+            "skos_schemes" => manifest.counts.skos_schemes,
+            "skos_concepts" => manifest.counts.skos_concepts,
+            "skos_labels" => manifest.counts.skos_labels,
+            "skos_notes" => manifest.counts.skos_notes,
+            "skos_relations" => manifest.counts.skos_relations,
+            "skos_mapping_relations" => manifest.counts.skos_mapping_relations,
+            "skos_scheme_memberships" => manifest.counts.skos_scheme_memberships,
+            "note_skos_tags" => manifest.counts.note_skos_tags,
+            "skos_collections" => manifest.counts.skos_collections,
+            "skos_collection_members" => manifest.counts.skos_collection_members,
             "collections" => manifest.counts.collections,
             "tags" => manifest.counts.tags,
             "templates" => manifest.counts.templates,
@@ -26368,6 +26711,16 @@ struct ShardImportCounts {
     provenance_locations: usize,
     provenance_devices: usize,
     provenance_records: usize,
+    skos_schemes: usize,
+    skos_concepts: usize,
+    skos_labels: usize,
+    skos_notes: usize,
+    skos_relations: usize,
+    skos_mapping_relations: usize,
+    skos_scheme_memberships: usize,
+    note_skos_tags: usize,
+    skos_collections: usize,
+    skos_collection_members: usize,
     collections: usize,
     tags: usize,
     templates: usize,
@@ -30905,6 +31258,734 @@ async fn apply_shard_spatial_provenance_components_tx(
     Ok(())
 }
 
+async fn apply_shard_skos_components_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    selected_components: &std::collections::HashSet<String>,
+    opts: &ShardImportOptions,
+    imported: &mut ShardImportCounts,
+    skipped: &mut ShardImportCounts,
+) -> Result<(), ApiError> {
+    let should_import = |component: &str| selected_components.contains(component);
+    let replace = matches!(opts.on_conflict, ConflictStrategy::Replace);
+
+    if replace && !opts.dry_run {
+        for (component, statement, context) in [
+            (
+                "skos_collection_members",
+                "DELETE FROM skos_collection_member",
+                "replace imported SKOS collection members",
+            ),
+            (
+                "note_skos_tags",
+                "DELETE FROM note_skos_concept",
+                "replace imported note SKOS tags",
+            ),
+            (
+                "skos_scheme_memberships",
+                "DELETE FROM skos_concept_in_scheme",
+                "replace imported SKOS scheme memberships",
+            ),
+            (
+                "skos_mapping_relations",
+                "DELETE FROM skos_mapping_relation_edge",
+                "replace imported SKOS mapping relations",
+            ),
+            (
+                "skos_relations",
+                "DELETE FROM skos_semantic_relation_edge",
+                "replace imported SKOS relations",
+            ),
+            (
+                "skos_labels",
+                "DELETE FROM skos_concept_label",
+                "replace imported SKOS labels",
+            ),
+            (
+                "skos_notes",
+                "DELETE FROM skos_concept_note",
+                "replace imported SKOS notes",
+            ),
+            (
+                "skos_collections",
+                "DELETE FROM skos_collection",
+                "replace imported SKOS collections",
+            ),
+            (
+                "skos_concepts",
+                "DELETE FROM skos_concept",
+                "replace imported SKOS concepts",
+            ),
+            (
+                "skos_schemes",
+                "DELETE FROM skos_concept_scheme",
+                "replace imported SKOS schemes",
+            ),
+        ] {
+            if should_import(component) {
+                sqlx::query(statement)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| shard_operation_failed(context, error))?;
+            }
+        }
+    }
+
+    if should_import("skos_schemes") {
+        if let Some(data) = files.get("skos_schemes.json") {
+            let schemes =
+                serde_json::from_slice::<Vec<ShardSkosSchemeRecord>>(data).map_err(|_| {
+                    shard_validation_failed("Knowledge shard SKOS schemes are invalid.")
+                })?;
+            for scheme in schemes {
+                if opts.dry_run {
+                    imported.skos_schemes += 1;
+                    continue;
+                }
+                let conflict = if replace {
+                    "ON CONFLICT (id) DO UPDATE SET
+                         uri = EXCLUDED.uri,
+                         notation = EXCLUDED.notation,
+                         title = EXCLUDED.title,
+                         description = EXCLUDED.description,
+                         creator = EXCLUDED.creator,
+                         publisher = EXCLUDED.publisher,
+                         rights = EXCLUDED.rights,
+                         version = EXCLUDED.version,
+                         is_active = EXCLUDED.is_active,
+                         is_system = EXCLUDED.is_system,
+                         created_at = EXCLUDED.created_at,
+                         updated_at = EXCLUDED.updated_at,
+                         issued_at = EXCLUDED.issued_at,
+                         modified_at = EXCLUDED.modified_at,
+                         embedding = EXCLUDED.embedding,
+                         embedding_model = EXCLUDED.embedding_model,
+                         embedded_at = EXCLUDED.embedded_at"
+                } else {
+                    "ON CONFLICT DO NOTHING"
+                };
+                let embedding = scheme.embedding.map(pgvector::Vector::from);
+                let result = sqlx::query(&format!(
+                    "INSERT INTO skos_concept_scheme (
+                         id, uri, notation, title, description, creator, publisher, rights,
+                         version, is_active, is_system, created_at, updated_at, issued_at,
+                         modified_at, embedding, embedding_model, embedded_at
+                     ) VALUES (
+                         $1, $2, $3, $4, $5, $6, $7, $8, $9,
+                         $10, $11, $12, $13, $14, $15, $16, $17, $18
+                     )
+                     {conflict}"
+                ))
+                .bind(scheme.id)
+                .bind(scheme.uri)
+                .bind(scheme.notation)
+                .bind(scheme.title)
+                .bind(scheme.description)
+                .bind(scheme.creator)
+                .bind(scheme.publisher)
+                .bind(scheme.rights)
+                .bind(scheme.version)
+                .bind(scheme.is_active)
+                .bind(scheme.is_system)
+                .bind(scheme.created_at)
+                .bind(scheme.updated_at)
+                .bind(scheme.issued_at)
+                .bind(scheme.modified_at)
+                .bind(embedding)
+                .bind(scheme.embedding_model)
+                .bind(scheme.embedded_at)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| shard_operation_failed("apply SKOS scheme import", error))?;
+                if result.rows_affected() == 0 {
+                    skipped.skos_schemes += 1;
+                } else {
+                    imported.skos_schemes += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("skos_concepts") {
+        if let Some(data) = files.get("skos_concepts.json") {
+            let concepts =
+                serde_json::from_slice::<Vec<ShardSkosConceptRecord>>(data).map_err(|_| {
+                    shard_validation_failed("Knowledge shard SKOS concepts are invalid.")
+                })?;
+            if opts.dry_run {
+                imported.skos_concepts += concepts.len();
+            } else {
+                for concept in &concepts {
+                    let conflict = if replace {
+                        "ON CONFLICT (id) DO UPDATE SET
+                             primary_scheme_id = EXCLUDED.primary_scheme_id,
+                             uri = EXCLUDED.uri,
+                             notation = EXCLUDED.notation,
+                             facet_type = EXCLUDED.facet_type,
+                             facet_source = EXCLUDED.facet_source,
+                             facet_domain = EXCLUDED.facet_domain,
+                             facet_scope = EXCLUDED.facet_scope,
+                             status = EXCLUDED.status,
+                             promoted_at = EXCLUDED.promoted_at,
+                             deprecated_at = EXCLUDED.deprecated_at,
+                             deprecation_reason = EXCLUDED.deprecation_reason,
+                             replaced_by_id = NULL,
+                             note_count = EXCLUDED.note_count,
+                             first_used_at = EXCLUDED.first_used_at,
+                             last_used_at = EXCLUDED.last_used_at,
+                             depth = EXCLUDED.depth,
+                             broader_count = EXCLUDED.broader_count,
+                             narrower_count = EXCLUDED.narrower_count,
+                             related_count = EXCLUDED.related_count,
+                             antipatterns = EXCLUDED.antipatterns,
+                             antipattern_checked_at = EXCLUDED.antipattern_checked_at,
+                             created_at = EXCLUDED.created_at,
+                             updated_at = EXCLUDED.updated_at,
+                             embedding = EXCLUDED.embedding,
+                             embedding_model = EXCLUDED.embedding_model,
+                             embedded_at = EXCLUDED.embedded_at"
+                    } else {
+                        "ON CONFLICT DO NOTHING"
+                    };
+                    let embedding = concept
+                        .embedding
+                        .as_ref()
+                        .map(|values| pgvector::Vector::from(values.clone()));
+                    let result = sqlx::query(&format!(
+                        "INSERT INTO skos_concept (
+                             id, primary_scheme_id, uri, notation, facet_type, facet_source,
+                             facet_domain, facet_scope, status, promoted_at, deprecated_at,
+                             deprecation_reason, replaced_by_id, note_count, first_used_at,
+                             last_used_at, depth, broader_count, narrower_count, related_count,
+                             antipatterns, antipattern_checked_at, created_at, updated_at,
+                             embedding, embedding_model, embedded_at
+                         ) VALUES (
+                             $1, $2, $3, $4, $5::pmest_facet, $6, $7, $8,
+                             $9::tag_status, $10, $11, $12, NULL, $13, $14, $15,
+                             $16, $17, $18, $19,
+                             CASE WHEN $20::text[] IS NULL THEN NULL ELSE ARRAY(
+                                 SELECT item::tag_antipattern
+                                 FROM unnest($20::text[]) AS item
+                             ) END,
+                             $21, $22, $23, $24, $25, $26
+                         )
+                         {conflict}"
+                    ))
+                    .bind(concept.id)
+                    .bind(concept.primary_scheme_id)
+                    .bind(&concept.uri)
+                    .bind(&concept.notation)
+                    .bind(&concept.facet_type)
+                    .bind(&concept.facet_source)
+                    .bind(&concept.facet_domain)
+                    .bind(&concept.facet_scope)
+                    .bind(&concept.status)
+                    .bind(concept.promoted_at)
+                    .bind(concept.deprecated_at)
+                    .bind(&concept.deprecation_reason)
+                    .bind(concept.note_count)
+                    .bind(concept.first_used_at)
+                    .bind(concept.last_used_at)
+                    .bind(concept.depth)
+                    .bind(concept.broader_count)
+                    .bind(concept.narrower_count)
+                    .bind(concept.related_count)
+                    .bind(&concept.antipatterns)
+                    .bind(concept.antipattern_checked_at)
+                    .bind(concept.created_at)
+                    .bind(concept.updated_at)
+                    .bind(embedding)
+                    .bind(&concept.embedding_model)
+                    .bind(concept.embedded_at)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| shard_operation_failed("apply SKOS concept import", error))?;
+                    if result.rows_affected() == 0 {
+                        skipped.skos_concepts += 1;
+                    } else {
+                        imported.skos_concepts += 1;
+                    }
+                }
+                for concept in &concepts {
+                    if concept.replaced_by_id.is_some() {
+                        sqlx::query("UPDATE skos_concept SET replaced_by_id = $2 WHERE id = $1")
+                            .bind(concept.id)
+                            .bind(concept.replaced_by_id)
+                            .execute(&mut **tx)
+                            .await
+                            .map_err(|error| {
+                                shard_operation_failed(
+                                    "restore SKOS concept replacement reference",
+                                    error,
+                                )
+                            })?;
+                    }
+                }
+            }
+        }
+    }
+
+    if should_import("skos_labels") {
+        if let Some(data) = files.get("skos_labels.jsonl") {
+            let labels = shard_jsonl_records::<ShardSkosLabelRecord>(
+                data,
+                "Knowledge shard SKOS labels are invalid.",
+            )?;
+            for label in labels {
+                let label = label?;
+                if opts.dry_run {
+                    imported.skos_labels += 1;
+                    continue;
+                }
+                let conflict = if replace {
+                    "ON CONFLICT (id) DO UPDATE SET
+                         concept_id = EXCLUDED.concept_id,
+                         label_type = EXCLUDED.label_type,
+                         value = EXCLUDED.value,
+                         language = EXCLUDED.language,
+                         created_at = EXCLUDED.created_at"
+                } else {
+                    "ON CONFLICT DO NOTHING"
+                };
+                let result = sqlx::query(&format!(
+                    "INSERT INTO skos_concept_label
+                     (id, concept_id, label_type, value, language, created_at)
+                     VALUES ($1, $2, $3::skos_label_type, $4, $5, $6)
+                     {conflict}"
+                ))
+                .bind(label.id)
+                .bind(label.concept_id)
+                .bind(label.label_type)
+                .bind(label.value)
+                .bind(label.language)
+                .bind(label.created_at)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| shard_operation_failed("apply SKOS label import", error))?;
+                if result.rows_affected() == 0 {
+                    skipped.skos_labels += 1;
+                } else {
+                    imported.skos_labels += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("skos_notes") {
+        if let Some(data) = files.get("skos_notes.jsonl") {
+            let notes = shard_jsonl_records::<ShardSkosNoteRecord>(
+                data,
+                "Knowledge shard SKOS notes are invalid.",
+            )?;
+            for note in notes {
+                let note = note?;
+                if opts.dry_run {
+                    imported.skos_notes += 1;
+                    continue;
+                }
+                let conflict = if replace {
+                    "ON CONFLICT (id) DO UPDATE SET
+                         concept_id = EXCLUDED.concept_id,
+                         note_type = EXCLUDED.note_type,
+                         value = EXCLUDED.value,
+                         language = EXCLUDED.language,
+                         author = EXCLUDED.author,
+                         source = EXCLUDED.source,
+                         created_at = EXCLUDED.created_at,
+                         updated_at = EXCLUDED.updated_at"
+                } else {
+                    "ON CONFLICT DO NOTHING"
+                };
+                let result = sqlx::query(&format!(
+                    "INSERT INTO skos_concept_note (
+                         id, concept_id, note_type, value, language,
+                         author, source, created_at, updated_at
+                     ) VALUES (
+                         $1, $2, $3::skos_note_type, $4, $5, $6, $7, $8, $9
+                     )
+                     {conflict}"
+                ))
+                .bind(note.id)
+                .bind(note.concept_id)
+                .bind(note.note_type)
+                .bind(note.value)
+                .bind(note.language)
+                .bind(note.author)
+                .bind(note.source)
+                .bind(note.created_at)
+                .bind(note.updated_at)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| shard_operation_failed("apply SKOS note import", error))?;
+                if result.rows_affected() == 0 {
+                    skipped.skos_notes += 1;
+                } else {
+                    imported.skos_notes += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("skos_relations") {
+        if let Some(data) = files.get("skos_relations.jsonl") {
+            let mut relations = shard_jsonl_records::<ShardSkosRelationRecord>(
+                data,
+                "Knowledge shard SKOS relations are invalid.",
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+            // Seed inferred reciprocal rows before explicit source rows so the
+            // database trigger cannot replace portable relation identities.
+            relations.sort_by_key(|relation| !relation.is_inferred);
+            for relation in relations {
+                if opts.dry_run {
+                    imported.skos_relations += 1;
+                    continue;
+                }
+                let conflict = if replace {
+                    "ON CONFLICT (id) DO UPDATE SET
+                         subject_id = EXCLUDED.subject_id,
+                         object_id = EXCLUDED.object_id,
+                         relation_type = EXCLUDED.relation_type,
+                         inference_score = EXCLUDED.inference_score,
+                         is_inferred = EXCLUDED.is_inferred,
+                         is_validated = EXCLUDED.is_validated,
+                         created_at = EXCLUDED.created_at,
+                         created_by = EXCLUDED.created_by"
+                } else {
+                    "ON CONFLICT DO NOTHING"
+                };
+                let result = sqlx::query(&format!(
+                    "INSERT INTO skos_semantic_relation_edge (
+                         id, subject_id, object_id, relation_type, inference_score,
+                         is_inferred, is_validated, created_at, created_by
+                     ) VALUES (
+                         $1, $2, $3, $4::skos_semantic_relation, $5, $6, $7, $8, $9
+                     )
+                     {conflict}"
+                ))
+                .bind(relation.id)
+                .bind(relation.subject_id)
+                .bind(relation.object_id)
+                .bind(relation.relation_type)
+                .bind(relation.inference_score)
+                .bind(relation.is_inferred)
+                .bind(relation.is_validated)
+                .bind(relation.created_at)
+                .bind(relation.created_by)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| shard_operation_failed("apply SKOS relation import", error))?;
+                if result.rows_affected() == 0 {
+                    skipped.skos_relations += 1;
+                } else {
+                    imported.skos_relations += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("skos_mapping_relations") {
+        if let Some(data) = files.get("skos_mapping_relations.jsonl") {
+            let mappings = shard_jsonl_records::<ShardSkosMappingRelationRecord>(
+                data,
+                "Knowledge shard SKOS mapping relations are invalid.",
+            )?;
+            for mapping in mappings {
+                let mapping = mapping?;
+                if opts.dry_run {
+                    imported.skos_mapping_relations += 1;
+                    continue;
+                }
+                let conflict = if replace {
+                    "ON CONFLICT (id) DO UPDATE SET
+                         concept_id = EXCLUDED.concept_id,
+                         target_uri = EXCLUDED.target_uri,
+                         target_scheme_uri = EXCLUDED.target_scheme_uri,
+                         target_label = EXCLUDED.target_label,
+                         relation_type = EXCLUDED.relation_type,
+                         confidence = EXCLUDED.confidence,
+                         is_validated = EXCLUDED.is_validated,
+                         created_at = EXCLUDED.created_at,
+                         validated_at = EXCLUDED.validated_at,
+                         validated_by = EXCLUDED.validated_by"
+                } else {
+                    "ON CONFLICT DO NOTHING"
+                };
+                let result = sqlx::query(&format!(
+                    "INSERT INTO skos_mapping_relation_edge (
+                         id, concept_id, target_uri, target_scheme_uri, target_label,
+                         relation_type, confidence, is_validated, created_at,
+                         validated_at, validated_by
+                     ) VALUES (
+                         $1, $2, $3, $4, $5, $6::skos_mapping_relation,
+                         $7, $8, $9, $10, $11
+                     )
+                     {conflict}"
+                ))
+                .bind(mapping.id)
+                .bind(mapping.concept_id)
+                .bind(mapping.target_uri)
+                .bind(mapping.target_scheme_uri)
+                .bind(mapping.target_label)
+                .bind(mapping.relation_type)
+                .bind(mapping.confidence)
+                .bind(mapping.is_validated)
+                .bind(mapping.created_at)
+                .bind(mapping.validated_at)
+                .bind(mapping.validated_by)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("apply SKOS mapping relation import", error)
+                })?;
+                if result.rows_affected() == 0 {
+                    skipped.skos_mapping_relations += 1;
+                } else {
+                    imported.skos_mapping_relations += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("skos_scheme_memberships") {
+        if let Some(data) = files.get("skos_scheme_memberships.jsonl") {
+            let memberships = shard_jsonl_records::<ShardSkosSchemeMembershipRecord>(
+                data,
+                "Knowledge shard SKOS scheme memberships are invalid.",
+            )?;
+            for membership in memberships {
+                let membership = membership?;
+                if opts.dry_run {
+                    imported.skos_scheme_memberships += 1;
+                    continue;
+                }
+                let conflict = if replace {
+                    "ON CONFLICT (concept_id, scheme_id) DO UPDATE SET
+                         is_top_concept = EXCLUDED.is_top_concept,
+                         added_at = EXCLUDED.added_at"
+                } else {
+                    "ON CONFLICT (concept_id, scheme_id) DO NOTHING"
+                };
+                let result = sqlx::query(&format!(
+                    "INSERT INTO skos_concept_in_scheme
+                     (concept_id, scheme_id, is_top_concept, added_at)
+                     VALUES ($1, $2, $3, $4)
+                     {conflict}"
+                ))
+                .bind(membership.concept_id)
+                .bind(membership.scheme_id)
+                .bind(membership.is_top_concept)
+                .bind(membership.added_at)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("apply SKOS scheme membership import", error)
+                })?;
+                if result.rows_affected() == 0 {
+                    skipped.skos_scheme_memberships += 1;
+                } else {
+                    imported.skos_scheme_memberships += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("note_skos_tags") {
+        if let Some(data) = files.get("note_skos_tags.jsonl") {
+            let tags = shard_jsonl_records::<ShardNoteSkosTagRecord>(
+                data,
+                "Knowledge shard note SKOS tags are invalid.",
+            )?;
+            for tag in tags {
+                let tag = tag?;
+                if opts.dry_run {
+                    imported.note_skos_tags += 1;
+                    continue;
+                }
+                let conflict = if replace {
+                    "ON CONFLICT (note_id, concept_id) DO UPDATE SET
+                         source = EXCLUDED.source,
+                         confidence = EXCLUDED.confidence,
+                         relevance_score = EXCLUDED.relevance_score,
+                         is_primary = EXCLUDED.is_primary,
+                         created_at = EXCLUDED.created_at,
+                         created_by = EXCLUDED.created_by"
+                } else {
+                    "ON CONFLICT (note_id, concept_id) DO NOTHING"
+                };
+                let result = sqlx::query(&format!(
+                    "INSERT INTO note_skos_concept (
+                         note_id, concept_id, source, confidence, relevance_score,
+                         is_primary, created_at, created_by
+                     ) VALUES (
+                         $1, $2, $3, $4, $5, $6, $7, $8
+                     )
+                     {conflict}"
+                ))
+                .bind(tag.note_id)
+                .bind(tag.concept_id)
+                .bind(tag.source)
+                .bind(tag.confidence)
+                .bind(tag.relevance_score)
+                .bind(tag.is_primary)
+                .bind(tag.created_at)
+                .bind(tag.created_by)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| shard_operation_failed("apply note SKOS tag import", error))?;
+                if result.rows_affected() == 0 {
+                    skipped.note_skos_tags += 1;
+                } else {
+                    imported.note_skos_tags += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("skos_collections") {
+        if let Some(data) = files.get("skos_collections.json") {
+            let collections = serde_json::from_slice::<Vec<ShardSkosCollectionRecord>>(data)
+                .map_err(|_| {
+                    shard_validation_failed("Knowledge shard SKOS collections are invalid.")
+                })?;
+            for collection in collections {
+                if opts.dry_run {
+                    imported.skos_collections += 1;
+                    continue;
+                }
+                let conflict = if replace {
+                    "ON CONFLICT (id) DO UPDATE SET
+                         uri = EXCLUDED.uri,
+                         pref_label = EXCLUDED.pref_label,
+                         definition = EXCLUDED.definition,
+                         is_ordered = EXCLUDED.is_ordered,
+                         scheme_id = EXCLUDED.scheme_id,
+                         created_at = EXCLUDED.created_at,
+                         updated_at = EXCLUDED.updated_at"
+                } else {
+                    "ON CONFLICT DO NOTHING"
+                };
+                let result = sqlx::query(&format!(
+                    "INSERT INTO skos_collection (
+                         id, uri, pref_label, definition, is_ordered, scheme_id,
+                         created_at, updated_at
+                     ) VALUES (
+                         $1, $2, $3, $4, $5, $6, $7, $8
+                     )
+                     {conflict}"
+                ))
+                .bind(collection.id)
+                .bind(collection.uri)
+                .bind(collection.pref_label)
+                .bind(collection.definition)
+                .bind(collection.is_ordered)
+                .bind(collection.scheme_id)
+                .bind(collection.created_at)
+                .bind(collection.updated_at)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| shard_operation_failed("apply SKOS collection import", error))?;
+                if result.rows_affected() == 0 {
+                    skipped.skos_collections += 1;
+                } else {
+                    imported.skos_collections += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("skos_collection_members") {
+        if let Some(data) = files.get("skos_collection_members.jsonl") {
+            let members = shard_jsonl_records::<ShardSkosCollectionMemberRecord>(
+                data,
+                "Knowledge shard SKOS collection members are invalid.",
+            )?;
+            for member in members {
+                let member = member?;
+                if opts.dry_run {
+                    imported.skos_collection_members += 1;
+                    continue;
+                }
+                let conflict = if replace {
+                    "ON CONFLICT (collection_id, concept_id) DO UPDATE SET
+                         position = EXCLUDED.position,
+                         added_at = EXCLUDED.added_at"
+                } else {
+                    "ON CONFLICT (collection_id, concept_id) DO NOTHING"
+                };
+                let result = sqlx::query(&format!(
+                    "INSERT INTO skos_collection_member
+                     (collection_id, concept_id, position, added_at)
+                     VALUES ($1, $2, $3, $4)
+                     {conflict}"
+                ))
+                .bind(member.collection_id)
+                .bind(member.concept_id)
+                .bind(member.position)
+                .bind(member.added_at)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("apply SKOS collection member import", error)
+                })?;
+                if result.rows_affected() == 0 {
+                    skipped.skos_collection_members += 1;
+                } else {
+                    imported.skos_collection_members += 1;
+                }
+            }
+        }
+    }
+
+    // Relationship and note-tag triggers update denormalized counters.
+    // Restore the source concept snapshot after dependent rows are complete.
+    if should_import("skos_concepts") && !opts.dry_run {
+        if let Some(data) = files.get("skos_concepts.json") {
+            let concepts =
+                serde_json::from_slice::<Vec<ShardSkosConceptRecord>>(data).map_err(|_| {
+                    shard_validation_failed("Knowledge shard SKOS concepts are invalid.")
+                })?;
+            for concept in concepts {
+                sqlx::query(
+                    "UPDATE skos_concept
+                     SET note_count = $2,
+                         first_used_at = $3,
+                         last_used_at = $4,
+                         depth = $5,
+                         broader_count = $6,
+                         narrower_count = $7,
+                         related_count = $8,
+                         antipatterns = CASE WHEN $9::text[] IS NULL THEN NULL ELSE ARRAY(
+                             SELECT item::tag_antipattern
+                             FROM unnest($9::text[]) AS item
+                         ) END,
+                         antipattern_checked_at = $10,
+                         created_at = $11,
+                         updated_at = $12
+                     WHERE id = $1",
+                )
+                .bind(concept.id)
+                .bind(concept.note_count)
+                .bind(concept.first_used_at)
+                .bind(concept.last_used_at)
+                .bind(concept.depth)
+                .bind(concept.broader_count)
+                .bind(concept.narrower_count)
+                .bind(concept.related_count)
+                .bind(concept.antipatterns)
+                .bind(concept.antipattern_checked_at)
+                .bind(concept.created_at)
+                .bind(concept.updated_at)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| shard_operation_failed("restore SKOS concept snapshot", error))?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 async fn apply_shard_embedding_components_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     files: &std::collections::HashMap<String, Vec<u8>>,
@@ -31325,6 +32406,56 @@ async fn apply_validated_shard_components(
     if policy.wipe_before_apply && !opts.dry_run {
         for (component, statement, context) in [
             (
+                "skos_collection_members",
+                "DELETE FROM skos_collection_member",
+                "wipe SKOS collection members before knowledge shard import",
+            ),
+            (
+                "note_skos_tags",
+                "DELETE FROM note_skos_concept",
+                "wipe note SKOS tags before knowledge shard import",
+            ),
+            (
+                "skos_scheme_memberships",
+                "DELETE FROM skos_concept_in_scheme",
+                "wipe SKOS scheme memberships before knowledge shard import",
+            ),
+            (
+                "skos_mapping_relations",
+                "DELETE FROM skos_mapping_relation_edge",
+                "wipe SKOS mapping relations before knowledge shard import",
+            ),
+            (
+                "skos_relations",
+                "DELETE FROM skos_semantic_relation_edge",
+                "wipe SKOS relations before knowledge shard import",
+            ),
+            (
+                "skos_labels",
+                "DELETE FROM skos_concept_label",
+                "wipe SKOS labels before knowledge shard import",
+            ),
+            (
+                "skos_notes",
+                "DELETE FROM skos_concept_note",
+                "wipe SKOS notes before knowledge shard import",
+            ),
+            (
+                "skos_collections",
+                "DELETE FROM skos_collection",
+                "wipe SKOS collections before knowledge shard import",
+            ),
+            (
+                "skos_concepts",
+                "DELETE FROM skos_concept",
+                "wipe SKOS concepts before knowledge shard import",
+            ),
+            (
+                "skos_schemes",
+                "DELETE FROM skos_concept_scheme",
+                "wipe SKOS schemes before knowledge shard import",
+            ),
+            (
                 "embeddings",
                 "DELETE FROM embedding",
                 "wipe embeddings before knowledge shard import",
@@ -31590,6 +32721,16 @@ async fn apply_validated_shard_components(
     .await?;
 
     apply_shard_unified_provenance_components_tx(
+        &mut tx,
+        files,
+        selected_components,
+        opts,
+        &mut imported,
+        &mut skipped,
+    )
+    .await?;
+
+    apply_shard_skos_components_tx(
         &mut tx,
         files,
         selected_components,
@@ -36862,6 +38003,16 @@ mod tests {
                 provenance_locations: 1,
                 provenance_devices: 1,
                 provenance_records: 1,
+                skos_schemes: 1,
+                skos_concepts: 1,
+                skos_labels: 1,
+                skos_notes: 1,
+                skos_relations: 1,
+                skos_mapping_relations: 1,
+                skos_scheme_memberships: 1,
+                note_skos_tags: 1,
+                skos_collections: 1,
+                skos_collection_members: 1,
                 collections: 1,
                 tags: 1,
                 templates: 1,
@@ -36934,6 +38085,16 @@ mod tests {
                 provenance_locations: 1,
                 provenance_devices: 1,
                 provenance_records: 1,
+                skos_schemes: 1,
+                skos_concepts: 1,
+                skos_labels: 1,
+                skos_notes: 1,
+                skos_relations: 1,
+                skos_mapping_relations: 1,
+                skos_scheme_memberships: 1,
+                note_skos_tags: 1,
+                skos_collections: 1,
+                skos_collection_members: 1,
                 collections: 1,
                 tags: 1,
                 templates: 1,
@@ -46452,6 +47613,527 @@ not-json
         assert!(value.get("note_originals").is_none());
     }
 
+    fn valid_shard_skos_relationship_fixture() -> (
+        std::collections::HashMap<String, Vec<u8>>,
+        std::collections::HashSet<Uuid>,
+    ) {
+        let scheme_id = "018f5d2d-bc00-7cc8-8ad2-f147d6a2e701";
+        let concept_id = "018f5d2d-bc00-7cc8-8ad2-f147d6a2e702";
+        let replacement_id = "018f5d2d-bc00-7cc8-8ad2-f147d6a2e703";
+        let note_id = "018f5d2d-bc00-7cc8-8ad2-f147d6a2e704";
+        let collection_id = "018f5d2d-bc00-7cc8-8ad2-f147d6a2e705";
+        let timestamp = "2026-07-18T14:00:00Z";
+        let jsonl = |records: Vec<serde_json::Value>| {
+            records
+                .into_iter()
+                .map(|record| serde_json::to_string(&record).unwrap())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .into_bytes()
+        };
+        let files = std::collections::HashMap::from([
+            (
+                "skos_schemes.json".to_string(),
+                serde_json::to_vec(&serde_json::json!([{
+                    "id": scheme_id,
+                    "uri": "https://example.test/schemes/portable",
+                    "notation": "portable",
+                    "title": "Portable knowledge",
+                    "description": "Lossless SKOS shard fixture",
+                    "creator": "fixture-author",
+                    "publisher": null,
+                    "rights": "CC0",
+                    "version": null,
+                    "is_active": true,
+                    "is_system": false,
+                    "created_at": timestamp,
+                    "updated_at": timestamp,
+                    "issued_at": null,
+                    "modified_at": timestamp,
+                    "embedding": null,
+                    "embedding_model": null,
+                    "embedded_at": null
+                }]))
+                .unwrap(),
+            ),
+            (
+                "skos_concepts.json".to_string(),
+                serde_json::to_vec(&serde_json::json!([
+                    {
+                        "id": concept_id,
+                        "primary_scheme_id": scheme_id,
+                        "uri": "https://example.test/concepts/source",
+                        "notation": "source",
+                        "facet_type": "personality",
+                        "facet_source": "operator",
+                        "facet_domain": "knowledge-management",
+                        "facet_scope": "portable shard data",
+                        "status": "deprecated",
+                        "promoted_at": "2026-07-17T14:00:00Z",
+                        "deprecated_at": timestamp,
+                        "deprecation_reason": "Superseded by canonical concept",
+                        "replaced_by_id": replacement_id,
+                        "note_count": 7,
+                        "first_used_at": "2026-07-16T14:00:00Z",
+                        "last_used_at": timestamp,
+                        "depth": 2,
+                        "broader_count": 1,
+                        "narrower_count": 3,
+                        "related_count": 2,
+                        "antipatterns": ["under_used"],
+                        "antipattern_checked_at": timestamp,
+                        "created_at": "2026-07-15T14:00:00Z",
+                        "updated_at": timestamp,
+                        "embedding": null,
+                        "embedding_model": null,
+                        "embedded_at": null
+                    },
+                    {
+                        "id": replacement_id,
+                        "primary_scheme_id": scheme_id,
+                        "uri": null,
+                        "notation": "canonical",
+                        "facet_type": null,
+                        "facet_source": null,
+                        "facet_domain": null,
+                        "facet_scope": null,
+                        "status": "approved",
+                        "promoted_at": timestamp,
+                        "deprecated_at": null,
+                        "deprecation_reason": null,
+                        "replaced_by_id": null,
+                        "note_count": 0,
+                        "first_used_at": null,
+                        "last_used_at": null,
+                        "depth": 1,
+                        "broader_count": 0,
+                        "narrower_count": 0,
+                        "related_count": 1,
+                        "antipatterns": null,
+                        "antipattern_checked_at": null,
+                        "created_at": timestamp,
+                        "updated_at": timestamp,
+                        "embedding": null,
+                        "embedding_model": null,
+                        "embedded_at": null
+                    }
+                ]))
+                .unwrap(),
+            ),
+            (
+                "skos_labels.jsonl".to_string(),
+                jsonl(vec![
+                    serde_json::json!({
+                        "id": "018f5d2d-bc00-7cc8-8ad2-f147d6a2e706",
+                        "concept_id": concept_id,
+                        "label_type": "pref_label",
+                        "value": "Source concept",
+                        "language": "en",
+                        "created_at": timestamp
+                    }),
+                    serde_json::json!({
+                        "id": "018f5d2d-bc00-7cc8-8ad2-f147d6a2e707",
+                        "concept_id": replacement_id,
+                        "label_type": "pref_label",
+                        "value": "Canonical concept",
+                        "language": "en",
+                        "created_at": timestamp
+                    }),
+                ]),
+            ),
+            (
+                "skos_notes.jsonl".to_string(),
+                jsonl(vec![serde_json::json!({
+                    "id": "018f5d2d-bc00-7cc8-8ad2-f147d6a2e708",
+                    "concept_id": concept_id,
+                    "note_type": "definition",
+                    "value": "A portable source concept.",
+                    "language": "en",
+                    "author": "fixture-author",
+                    "source": null,
+                    "created_at": timestamp,
+                    "updated_at": timestamp
+                })]),
+            ),
+            (
+                "skos_relations.jsonl".to_string(),
+                jsonl(vec![
+                    serde_json::json!({
+                        "id": "018f5d2d-bc00-7cc8-8ad2-f147d6a2e709",
+                        "subject_id": replacement_id,
+                        "object_id": concept_id,
+                        "relation_type": "related",
+                        "inference_score": null,
+                        "is_inferred": false,
+                        "is_validated": true,
+                        "created_at": timestamp,
+                        "created_by": "fixture-operator"
+                    }),
+                    serde_json::json!({
+                        "id": "018f5d2d-bc00-7cc8-8ad2-f147d6a2e70b",
+                        "subject_id": concept_id,
+                        "object_id": replacement_id,
+                        "relation_type": "related",
+                        "inference_score": 0.875,
+                        "is_inferred": true,
+                        "is_validated": false,
+                        "created_at": timestamp,
+                        "created_by": "fixture-agent"
+                    }),
+                ]),
+            ),
+            (
+                "skos_mapping_relations.jsonl".to_string(),
+                jsonl(vec![serde_json::json!({
+                    "id": "018f5d2d-bc00-7cc8-8ad2-f147d6a2e70a",
+                    "concept_id": replacement_id,
+                    "target_uri": "https://external.test/concept/42",
+                    "target_scheme_uri": "https://external.test/scheme",
+                    "target_label": "External concept",
+                    "relation_type": "exact_match",
+                    "confidence": 0.95,
+                    "is_validated": true,
+                    "created_at": timestamp,
+                    "validated_at": timestamp,
+                    "validated_by": "fixture-reviewer"
+                })]),
+            ),
+            (
+                "skos_scheme_memberships.jsonl".to_string(),
+                jsonl(vec![
+                    serde_json::json!({
+                        "concept_id": concept_id,
+                        "scheme_id": scheme_id,
+                        "is_top_concept": false,
+                        "added_at": timestamp
+                    }),
+                    serde_json::json!({
+                        "concept_id": replacement_id,
+                        "scheme_id": scheme_id,
+                        "is_top_concept": true,
+                        "added_at": timestamp
+                    }),
+                ]),
+            ),
+            (
+                "note_skos_tags.jsonl".to_string(),
+                jsonl(vec![serde_json::json!({
+                    "note_id": note_id,
+                    "concept_id": concept_id,
+                    "source": "import",
+                    "confidence": 0.75,
+                    "relevance_score": null,
+                    "is_primary": true,
+                    "created_at": timestamp,
+                    "created_by": null
+                })]),
+            ),
+            (
+                "skos_collections.json".to_string(),
+                serde_json::to_vec(&serde_json::json!([{
+                    "id": collection_id,
+                    "uri": "https://example.test/collections/ordered",
+                    "pref_label": "Ordered portable concepts",
+                    "definition": null,
+                    "is_ordered": true,
+                    "scheme_id": scheme_id,
+                    "created_at": timestamp,
+                    "updated_at": timestamp
+                }]))
+                .unwrap(),
+            ),
+            (
+                "skos_collection_members.jsonl".to_string(),
+                jsonl(vec![
+                    serde_json::json!({
+                        "collection_id": collection_id,
+                        "concept_id": replacement_id,
+                        "position": 1,
+                        "added_at": timestamp
+                    }),
+                    serde_json::json!({
+                        "collection_id": collection_id,
+                        "concept_id": concept_id,
+                        "position": 2,
+                        "added_at": timestamp
+                    }),
+                ]),
+            ),
+        ]);
+        let note_ids = [Uuid::parse_str(note_id).unwrap()].into_iter().collect();
+        (files, note_ids)
+    }
+
+    #[test]
+    fn shard_skos_preflight_accepts_complete_boundary_and_rejects_bad_references() {
+        let (files, note_ids) = valid_shard_skos_relationship_fixture();
+        validate_shard_skos_relationships(&files, &note_ids).unwrap();
+
+        let mut invalid = files.clone();
+        let mut relations =
+            parse_shard_component_records("skos_relations", &invalid["skos_relations.jsonl"])
+                .unwrap();
+        relations[0]["object_id"] = serde_json::json!("018f5d2d-bc00-7cc8-8ad2-f147d6a2efff");
+        invalid.insert(
+            "skos_relations.jsonl".to_string(),
+            relations
+                .into_iter()
+                .map(|relation| serde_json::to_string(&relation).unwrap())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .into_bytes(),
+        );
+        assert_eq!(
+            validate_shard_skos_relationships(&invalid, &note_ids).unwrap_err(),
+            "Knowledge shard SKOS relation concept reference is invalid."
+        );
+    }
+
+    async fn shard_skos_snapshot(ctx: &matric_db::SchemaContext) -> serde_json::Value {
+        ctx.query(|tx| {
+            Box::pin(async move {
+                sqlx::query_scalar::<_, serde_json::Value>(
+                    "SELECT jsonb_build_object(
+                       'schemes', COALESCE((
+                         SELECT jsonb_agg(
+                           (to_jsonb(s) - 'embedding') ORDER BY s.notation, s.id
+                         )
+                         FROM skos_concept_scheme s
+                       ), '[]'::jsonb),
+                       'concepts', COALESCE((
+                         SELECT jsonb_agg(
+                           (to_jsonb(c) - 'embedding') ORDER BY c.id
+                         )
+                         FROM skos_concept c
+                       ), '[]'::jsonb),
+                       'labels', COALESCE((
+                         SELECT jsonb_agg(
+                           (to_jsonb(l) - 'tsv') ORDER BY l.id
+                         )
+                         FROM skos_concept_label l
+                       ), '[]'::jsonb),
+                       'notes', COALESCE((
+                         SELECT jsonb_agg(to_jsonb(n) ORDER BY n.id)
+                         FROM skos_concept_note n
+                       ), '[]'::jsonb),
+                       'relations', COALESCE((
+                         SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id)
+                         FROM skos_semantic_relation_edge r
+                       ), '[]'::jsonb),
+                       'mappings', COALESCE((
+                         SELECT jsonb_agg(to_jsonb(m) ORDER BY m.id)
+                         FROM skos_mapping_relation_edge m
+                       ), '[]'::jsonb),
+                       'scheme_memberships', COALESCE((
+                         SELECT jsonb_agg(
+                           to_jsonb(sm) ORDER BY sm.concept_id, sm.scheme_id
+                         )
+                         FROM skos_concept_in_scheme sm
+                       ), '[]'::jsonb),
+                       'note_tags', COALESCE((
+                         SELECT jsonb_agg(
+                           to_jsonb(nt) ORDER BY nt.note_id, nt.concept_id
+                         )
+                         FROM note_skos_concept nt
+                       ), '[]'::jsonb),
+                       'collections', COALESCE((
+                         SELECT jsonb_agg(to_jsonb(sc) ORDER BY sc.id)
+                         FROM skos_collection sc
+                       ), '[]'::jsonb),
+                       'collection_members', COALESCE((
+                         SELECT jsonb_agg(
+                           to_jsonb(cm) ORDER BY cm.collection_id, cm.position, cm.concept_id
+                         )
+                         FROM skos_collection_member cm
+                       ), '[]'::jsonb)
+                     )",
+                )
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(matric_db::Error::Database)
+            })
+        })
+        .await
+        .expect("read SKOS shard snapshot")
+    }
+
+    #[tokio::test]
+    async fn shard_skos_apply_is_atomic_and_repeatable() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let success_name = format!("sh-skos-ok-{}", Uuid::new_v4().simple());
+        let rollback_name = format!("sh-skos-rb-{}", Uuid::new_v4().simple());
+        let success = db
+            .archives
+            .create_archive_schema(&success_name, Some("Shard SKOS apply success"))
+            .await
+            .expect("create SKOS success schema");
+        let rollback = db
+            .archives
+            .create_archive_schema(&rollback_name, Some("Shard SKOS apply rollback"))
+            .await
+            .expect("create SKOS rollback schema");
+
+        let (files, note_ids) = valid_shard_skos_relationship_fixture();
+        validate_shard_skos_relationships(&files, &note_ids).unwrap();
+        let note_id = *note_ids.iter().next().unwrap();
+        for schema in [&success.schema_name, &rollback.schema_name] {
+            let ctx = db.for_schema(schema).unwrap();
+            let mut tx = ctx.begin_tx().await.expect("begin SKOS note seed");
+            matric_db::PgNoteRepository::new(db.pool.clone())
+                .insert_with_id_tx(
+                    &mut tx,
+                    note_id,
+                    CreateNoteRequest {
+                        content: "SKOS shard note".to_string(),
+                        format: "markdown".to_string(),
+                        source: "knowledge-shard-test".to_string(),
+                        collection_id: None,
+                        tags: Some(Vec::new()),
+                        metadata: Some(serde_json::json!({})),
+                        document_type_id: None,
+                        title: Some("SKOS apply note".to_string()),
+                    },
+                )
+                .await
+                .expect("seed SKOS note");
+            tx.commit().await.expect("commit SKOS note seed");
+        }
+
+        let components = [
+            "skos_schemes",
+            "skos_concepts",
+            "skos_labels",
+            "skos_notes",
+            "skos_relations",
+            "skos_mapping_relations",
+            "skos_scheme_memberships",
+            "note_skos_tags",
+            "skos_collections",
+            "skos_collection_members",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<std::collections::HashSet<_>>();
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let success_ctx = db.for_schema(&success.schema_name).unwrap();
+        let mut expected = None;
+        for pass in 0..2 {
+            let mut tx = success_ctx.begin_tx().await.expect("begin SKOS apply");
+            let mut imported = ShardImportCounts::default();
+            let mut skipped = ShardImportCounts::default();
+            apply_shard_skos_components_tx(
+                &mut tx,
+                &files,
+                &components,
+                &opts,
+                &mut imported,
+                &mut skipped,
+            )
+            .await
+            .expect("apply complete SKOS boundary");
+            tx.commit().await.expect("commit SKOS boundary");
+
+            assert_eq!(imported.skos_schemes, 1, "pass {pass}");
+            assert_eq!(imported.skos_concepts, 2, "pass {pass}");
+            assert_eq!(imported.skos_labels, 2, "pass {pass}");
+            assert_eq!(imported.skos_notes, 1, "pass {pass}");
+            assert_eq!(imported.skos_relations, 2, "pass {pass}");
+            assert_eq!(imported.skos_mapping_relations, 1, "pass {pass}");
+            assert_eq!(imported.skos_scheme_memberships, 2, "pass {pass}");
+            assert_eq!(imported.note_skos_tags, 1, "pass {pass}");
+            assert_eq!(imported.skos_collections, 1, "pass {pass}");
+            assert_eq!(imported.skos_collection_members, 2, "pass {pass}");
+            assert_eq!(skipped.skos_schemes, 0, "pass {pass}");
+            assert_eq!(skipped.skos_relations, 0, "pass {pass}");
+
+            let snapshot = shard_skos_snapshot(&success_ctx).await;
+            assert_eq!(snapshot["schemes"].as_array().unwrap().len(), 1);
+            assert_eq!(snapshot["concepts"].as_array().unwrap().len(), 2);
+            assert_eq!(snapshot["relations"].as_array().unwrap().len(), 2);
+            assert_eq!(snapshot["collection_members"].as_array().unwrap().len(), 2);
+            assert_eq!(snapshot["schemes"][0]["version"], serde_json::Value::Null);
+            assert_eq!(
+                snapshot["concepts"][0]["replaced_by_id"],
+                serde_json::json!("018f5d2d-bc00-7cc8-8ad2-f147d6a2e703")
+            );
+            assert_eq!(
+                snapshot["concepts"][0]["antipatterns"],
+                serde_json::json!(["under_used"])
+            );
+            assert_eq!(
+                snapshot["concepts"][1]["antipatterns"],
+                serde_json::Value::Null
+            );
+            assert_eq!(
+                snapshot["note_tags"][0]["relevance_score"],
+                serde_json::Value::Null
+            );
+            if let Some(expected) = &expected {
+                assert_eq!(&snapshot, expected, "pass {pass}");
+            } else {
+                expected = Some(snapshot);
+            }
+        }
+
+        let rollback_ctx = db.for_schema(&rollback.schema_name).unwrap();
+        let baseline = shard_skos_snapshot(&rollback_ctx).await;
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin failed SKOS apply");
+        sqlx::query(
+            "CREATE FUNCTION reject_shard_skos_collection_member()
+             RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN
+                 RAISE EXCEPTION 'injected SKOS collection member failure';
+             END;
+             $$",
+        )
+        .execute(&mut *tx)
+        .await
+        .expect("create SKOS failure function");
+        sqlx::query(
+            "CREATE TRIGGER reject_shard_skos_collection_member
+             BEFORE INSERT ON skos_collection_member
+             FOR EACH ROW EXECUTE FUNCTION reject_shard_skos_collection_member()",
+        )
+        .execute(&mut *tx)
+        .await
+        .expect("create SKOS failure trigger");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        let error = apply_shard_skos_components_tx(
+            &mut tx,
+            &files,
+            &components,
+            &opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect_err("late SKOS failure must abort the apply transaction");
+        assert!(matches!(error, ApiError::OperationFailed { .. }));
+        tx.rollback().await.expect("roll back failed SKOS apply");
+        assert_eq!(shard_skos_snapshot(&rollback_ctx).await, baseline);
+
+        for archive_name in [success_name, rollback_name] {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .expect("drop isolated SKOS test schema");
+        }
+    }
+
     #[test]
     fn test_shard_manifest_serialization() {
         let manifest = ShardManifest {
@@ -46817,6 +48499,16 @@ not-json
                 provenance_locations: 0,
                 provenance_devices: 0,
                 provenance_records: 0,
+                skos_schemes: 0,
+                skos_concepts: 0,
+                skos_labels: 0,
+                skos_notes: 0,
+                skos_relations: 0,
+                skos_mapping_relations: 0,
+                skos_scheme_memberships: 0,
+                note_skos_tags: 0,
+                skos_collections: 0,
+                skos_collection_members: 0,
                 collections: 2,
                 tags: 0,
                 templates: 1,
