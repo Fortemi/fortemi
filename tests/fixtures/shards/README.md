@@ -120,8 +120,9 @@ preserves exact PostgreSQL timestamp-range shape, temporal confidence, device,
 location and activity links, extraction metadata, AI context, and user
 correction state. Runtime schema and relationship preflight reject missing
 targets, duplicate note coordinates, invalid range shapes and enums, and
-unknown cross-boundary references. Transactional apply is not part of this
-corpus.
+unknown cross-boundary references. A database test uses this corpus to prove
+transactional replace convergence, skip and dry-run accounting, exact range
+restoration, and rollback after a late injected failure.
 
 ### schema-invalid/
 

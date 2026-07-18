@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractRevision": "11",
+  "contractRevision": "12",
   "authority": {
     "repository": "Fortemi/fortemi",
     "producerCommit": "Use the immutable Git commit containing this receipt."
@@ -18,7 +18,7 @@
     },
     "full-v1": {
       "supported": false,
-      "status": "unified-provenance-boundary-candidate",
+      "status": "unified-provenance-apply-candidate",
       "candidateComponentSchemaRoot": "contracts/knowledge-shard/1.1.0/full-v1",
       "candidateComponents": [
         "embedding_configs",
@@ -48,7 +48,7 @@
       "candidateUnifiedProvenanceCorpusSha256": "0c2794a4e795208992c12e81bbc2fca2061cf07b0473d7bdfd8e2a317168dba1",
       "remainingReleaseGates": [
         "canonical full-v1 manifest, complete component inventory, and end-to-end revision round-trip receipt",
-        "spatial provenance registry and unified provenance apply, plus SKOS, graph, community, and signature schemas and apply paths",
+        "spatial provenance registry apply, plus SKOS, graph, community, and signature schemas and apply paths",
         "attachment byte sidecar conformance",
         "cross-repository producer and consumer receipts"
       ]
@@ -124,7 +124,7 @@
     "schema 1.0.0 note records migrate missing deleted_at to the documented null active-state default",
     "core-v1 attachment records are metadata/reference projections by default; optional verified sidecars do not establish full-v1 conformance",
     "record-v1 covers only notes, collections, tags, note-to-note links, and attachment projections; producers must report every omitted or lossy source concept",
-    "full-v1 has digest-pinned candidate embedding, note-revision, revision-linked provenance, spatial provenance registry, and unified provenance boundaries; transactional apply paths cover the first three boundaries only, and the profile has no canonical manifest and is not supported by this release",
+    "full-v1 has digest-pinned candidate embedding, note-revision, revision-linked provenance, spatial provenance registry, and unified provenance boundaries; transactional apply paths cover every listed boundary except the spatial registry, and the profile has no canonical manifest and is not supported by this release",
     "complete absent-versus-null preservation requires a later schema-major or new profile identifier"
   ]
 }

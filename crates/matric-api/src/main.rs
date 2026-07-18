@@ -25803,6 +25803,7 @@ struct ShardImportCounts {
     note_revisions: usize,
     provenance_edges: usize,
     provenance_activities: usize,
+    provenance_records: usize,
     collections: usize,
     tags: usize,
     templates: usize,
@@ -29923,6 +29924,164 @@ async fn apply_shard_revision_provenance_components_tx(
     Ok(())
 }
 
+async fn apply_shard_unified_provenance_components_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    selected_components: &std::collections::HashSet<String>,
+    opts: &ShardImportOptions,
+    imported: &mut ShardImportCounts,
+    skipped: &mut ShardImportCounts,
+) -> Result<(), ApiError> {
+    if !selected_components.contains("provenance_records") {
+        return Ok(());
+    }
+    let Some(data) = files.get("provenance_records.jsonl") else {
+        return Ok(());
+    };
+    let records = shard_jsonl_records::<ShardUnifiedProvenanceRecord>(
+        data,
+        "Knowledge shard unified provenance records are invalid.",
+    )?
+    .collect::<Result<Vec<_>, _>>()?;
+    if opts.dry_run {
+        imported.provenance_records += records.len();
+        return Ok(());
+    }
+
+    let replace = matches!(opts.on_conflict, ConflictStrategy::Replace);
+    if replace {
+        sqlx::query("DELETE FROM provenance")
+            .execute(&mut **tx)
+            .await
+            .map_err(|error| {
+                shard_operation_failed("replace imported unified provenance", error)
+            })?;
+    }
+
+    for record in records {
+        let capture_time = record
+            .capture_time
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|_| {
+                shard_validation_failed(
+                    "Knowledge shard unified provenance capture time is invalid.",
+                )
+            })?;
+        let original_capture_time = record
+            .original_capture_time
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|_| {
+                shard_validation_failed(
+                    "Knowledge shard original unified provenance capture time is invalid.",
+                )
+            })?;
+        let conflict = if replace {
+            "ON CONFLICT (id) DO UPDATE SET
+                 attachment_id = EXCLUDED.attachment_id,
+                 note_id = EXCLUDED.note_id,
+                 capture_time = EXCLUDED.capture_time,
+                 capture_timezone = EXCLUDED.capture_timezone,
+                 capture_duration_seconds = EXCLUDED.capture_duration_seconds,
+                 time_source = EXCLUDED.time_source,
+                 time_confidence = EXCLUDED.time_confidence,
+                 location_id = EXCLUDED.location_id,
+                 device_id = EXCLUDED.device_id,
+                 activity_id = EXCLUDED.activity_id,
+                 event_type = EXCLUDED.event_type,
+                 event_title = EXCLUDED.event_title,
+                 event_description = EXCLUDED.event_description,
+                 raw_metadata = EXCLUDED.raw_metadata,
+                 ai_context = EXCLUDED.ai_context,
+                 ai_processed_at = EXCLUDED.ai_processed_at,
+                 ai_model = EXCLUDED.ai_model,
+                 user_corrected = EXCLUDED.user_corrected,
+                 original_capture_time = EXCLUDED.original_capture_time,
+                 original_location_id = EXCLUDED.original_location_id,
+                 correction_note = EXCLUDED.correction_note,
+                 created_at = EXCLUDED.created_at"
+        } else {
+            "ON CONFLICT DO NOTHING"
+        };
+        let result = sqlx::query(&format!(
+            "INSERT INTO provenance (
+                 id, attachment_id, note_id, capture_time, capture_timezone,
+                 capture_duration_seconds, time_source, time_confidence,
+                 location_id, device_id, activity_id, event_type, event_title,
+                 event_description, raw_metadata, ai_context, ai_processed_at,
+                 ai_model, user_corrected, original_capture_time,
+                 original_location_id, correction_note, created_at
+             ) VALUES (
+                 $1, $2, $3,
+                 CASE
+                   WHEN $4::jsonb IS NULL THEN NULL
+                   WHEN ($4->>'empty')::boolean THEN 'empty'::tstzrange
+                   ELSE tstzrange(
+                     CASE WHEN ($4->>'lower_infinite')::boolean
+                       THEN NULL ELSE ($4->>'lower')::timestamptz END,
+                     CASE WHEN ($4->>'upper_infinite')::boolean
+                       THEN NULL ELSE ($4->>'upper')::timestamptz END,
+                     (CASE WHEN ($4->>'lower_inclusive')::boolean THEN '[' ELSE '(' END)
+                       || (CASE WHEN ($4->>'upper_inclusive')::boolean THEN ']' ELSE ')' END)
+                   )
+                 END,
+                 $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+                 $17, $18, $19,
+                 CASE
+                   WHEN $20::jsonb IS NULL THEN NULL
+                   WHEN ($20->>'empty')::boolean THEN 'empty'::tstzrange
+                   ELSE tstzrange(
+                     CASE WHEN ($20->>'lower_infinite')::boolean
+                       THEN NULL ELSE ($20->>'lower')::timestamptz END,
+                     CASE WHEN ($20->>'upper_infinite')::boolean
+                       THEN NULL ELSE ($20->>'upper')::timestamptz END,
+                     (CASE WHEN ($20->>'lower_inclusive')::boolean THEN '[' ELSE '(' END)
+                       || (CASE WHEN ($20->>'upper_inclusive')::boolean THEN ']' ELSE ')' END)
+                   )
+                 END,
+                 $21, $22, $23
+             )
+             {conflict}"
+        ))
+        .bind(record.id)
+        .bind(record.attachment_id)
+        .bind(record.note_id)
+        .bind(capture_time)
+        .bind(record.capture_timezone)
+        .bind(record.capture_duration_seconds)
+        .bind(record.time_source)
+        .bind(record.time_confidence)
+        .bind(record.location_id)
+        .bind(record.device_id)
+        .bind(record.activity_id)
+        .bind(record.event_type)
+        .bind(record.event_title)
+        .bind(record.event_description)
+        .bind(record.raw_metadata)
+        .bind(record.ai_context)
+        .bind(record.ai_processed_at)
+        .bind(record.ai_model)
+        .bind(record.user_corrected)
+        .bind(original_capture_time)
+        .bind(record.original_location_id)
+        .bind(record.correction_note)
+        .bind(record.created_at)
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| shard_operation_failed("apply unified provenance import", error))?;
+        if result.rows_affected() == 0 {
+            skipped.provenance_records += 1;
+        } else {
+            imported.provenance_records += 1;
+        }
+    }
+
+    Ok(())
+}
+
 async fn apply_shard_embedding_components_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     files: &std::collections::HashMap<String, Vec<u8>>,
@@ -30588,6 +30747,16 @@ async fn apply_validated_shard_components(
     .await?;
 
     apply_shard_revision_provenance_components_tx(
+        &mut tx,
+        files,
+        selected_components,
+        opts,
+        &mut imported,
+        &mut skipped,
+    )
+    .await?;
+
+    apply_shard_unified_provenance_components_tx(
         &mut tx,
         files,
         selected_components,
@@ -35856,6 +36025,7 @@ mod tests {
                 note_revisions: 1,
                 provenance_edges: 1,
                 provenance_activities: 1,
+                provenance_records: 1,
                 collections: 1,
                 tags: 1,
                 templates: 1,
@@ -35924,6 +36094,7 @@ mod tests {
                 note_revisions: 1,
                 provenance_edges: 1,
                 provenance_activities: 1,
+                provenance_records: 1,
                 collections: 1,
                 tags: 1,
                 templates: 1,
@@ -41332,7 +41503,7 @@ not-json
         ))
         .expect("contract receipt must be valid JSON");
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert_eq!(receipt["contractRevision"], "11");
+        assert_eq!(receipt["contractRevision"], "12");
         assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
@@ -41342,7 +41513,7 @@ not-json
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
         assert_eq!(
             receipt["profiles"]["full-v1"]["status"],
-            "unified-provenance-boundary-candidate"
+            "unified-provenance-apply-candidate"
         );
         assert_eq!(receipt["profiles"]["record-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["record-v1"]["status"], "supported");
@@ -44043,6 +44214,378 @@ not-json
         }
     }
 
+    async fn shard_unified_provenance_snapshot(
+        ctx: &matric_db::SchemaContext,
+    ) -> serde_json::Value {
+        ctx.query(|tx| {
+            Box::pin(async move {
+                sqlx::query_scalar::<_, serde_json::Value>(
+                    "SELECT COALESCE(jsonb_agg(
+                       jsonb_build_object(
+                         'id', id,
+                         'attachment_id', attachment_id,
+                         'note_id', note_id,
+                         'capture_time', CASE WHEN capture_time IS NULL THEN NULL ELSE
+                           jsonb_build_object(
+                             'empty', isempty(capture_time),
+                             'lower', lower(capture_time),
+                             'lower_inclusive', lower_inc(capture_time),
+                             'lower_infinite', lower_inf(capture_time),
+                             'upper', upper(capture_time),
+                             'upper_inclusive', upper_inc(capture_time),
+                             'upper_infinite', upper_inf(capture_time)
+                           ) END,
+                         'capture_timezone', capture_timezone,
+                         'capture_duration_seconds', capture_duration_seconds,
+                         'time_source', time_source,
+                         'time_confidence', time_confidence,
+                         'location_id', location_id,
+                         'device_id', device_id,
+                         'activity_id', activity_id,
+                         'event_type', event_type,
+                         'event_title', event_title,
+                         'event_description', event_description,
+                         'raw_metadata', raw_metadata,
+                         'ai_context', ai_context,
+                         'ai_processed_at', ai_processed_at,
+                         'ai_model', ai_model,
+                         'user_corrected', user_corrected,
+                         'original_capture_time',
+                           CASE WHEN original_capture_time IS NULL THEN NULL ELSE
+                             jsonb_build_object(
+                               'empty', isempty(original_capture_time),
+                               'lower', lower(original_capture_time),
+                               'lower_inclusive', lower_inc(original_capture_time),
+                               'lower_infinite', lower_inf(original_capture_time),
+                               'upper', upper(original_capture_time),
+                               'upper_inclusive', upper_inc(original_capture_time),
+                               'upper_infinite', upper_inf(original_capture_time)
+                             ) END,
+                         'original_location_id', original_location_id,
+                         'correction_note', correction_note,
+                         'created_at', created_at
+                       )
+                       ORDER BY id
+                     ), '[]'::jsonb)
+                     FROM provenance",
+                )
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(matric_db::Error::Database)
+            })
+        })
+        .await
+        .expect("read unified provenance snapshot")
+    }
+
+    #[tokio::test]
+    async fn shard_unified_provenance_apply_is_atomic_and_repeatable() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let success_name = format!("sh-unified-ok-{}", Uuid::new_v4().simple());
+        let rollback_name = format!("sh-unified-rb-{}", Uuid::new_v4().simple());
+        let success = db
+            .archives
+            .create_archive_schema(
+                &success_name,
+                Some("Shard unified provenance apply success"),
+            )
+            .await
+            .expect("create unified provenance success schema");
+        let rollback = db
+            .archives
+            .create_archive_schema(
+                &rollback_name,
+                Some("Shard unified provenance apply rollback"),
+            )
+            .await
+            .expect("create unified provenance rollback schema");
+
+        let note_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648e001").unwrap();
+        let location_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d032").unwrap();
+        let device_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d033").unwrap();
+        let activity_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d012").unwrap();
+        let provenance_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d041").unwrap();
+        let files = std::collections::HashMap::from([(
+            "provenance_records.jsonl".to_string(),
+            include_bytes!(
+                "../../../tests/fixtures/shards/full-v1-unified-provenance-candidate/provenance_records.jsonl"
+            )
+            .to_vec(),
+        )]);
+        let components = ["provenance_records"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<std::collections::HashSet<_>>();
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+
+        for schema in [&success.schema_name, &rollback.schema_name] {
+            let ctx = db.for_schema(schema).unwrap();
+            let mut tx = ctx.begin_tx().await.expect("begin unified dependency seed");
+            matric_db::PgNoteRepository::new(db.pool.clone())
+                .insert_with_id_tx(
+                    &mut tx,
+                    note_id,
+                    CreateNoteRequest {
+                        content: "unified provenance seed".to_string(),
+                        format: "markdown".to_string(),
+                        source: "knowledge-shard-test".to_string(),
+                        collection_id: None,
+                        tags: Some(Vec::new()),
+                        metadata: Some(serde_json::json!({})),
+                        document_type_id: None,
+                        title: Some("Unified provenance apply note".to_string()),
+                    },
+                )
+                .await
+                .expect("seed unified provenance note");
+            sqlx::query(
+                "INSERT INTO prov_location (id, point, source, confidence)
+                 VALUES (
+                   $1,
+                   ST_SetSRID(ST_MakePoint(1, 2), 4326)::geography,
+                   'gps_exif',
+                   'high'
+                 )",
+            )
+            .bind(location_id)
+            .execute(&mut *tx)
+            .await
+            .expect("seed unified provenance location");
+            sqlx::query(
+                "INSERT INTO prov_agent_device (id, device_make, device_model)
+                 VALUES ($1, 'Fortemi', 'Fixture')",
+            )
+            .bind(device_id)
+            .execute(&mut *tx)
+            .await
+            .expect("seed unified provenance device");
+            sqlx::query(
+                "INSERT INTO provenance_activity
+                 (id, note_id, activity_type, started_at)
+                 VALUES ($1, $2, 'recording', '2026-07-18T12:29:00Z')",
+            )
+            .bind(activity_id)
+            .bind(note_id)
+            .execute(&mut *tx)
+            .await
+            .expect("seed unified provenance activity");
+            tx.commit().await.expect("commit unified dependency seed");
+        }
+
+        let rollback_ctx = db.for_schema(&rollback.schema_name).unwrap();
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin unified provenance baseline");
+        sqlx::query(
+            "INSERT INTO provenance (id, note_id, event_type, created_at)
+             VALUES ($1, $2, 'created', '2026-07-18T12:00:00Z')",
+        )
+        .bind(Uuid::now_v7())
+        .bind(note_id)
+        .execute(&mut *tx)
+        .await
+        .expect("seed unified provenance baseline");
+        tx.commit()
+            .await
+            .expect("commit unified provenance baseline");
+        let baseline = shard_unified_provenance_snapshot(&rollback_ctx).await;
+
+        let expected = serde_json::json!([{
+            "id": provenance_id,
+            "attachment_id": null,
+            "note_id": note_id,
+            "capture_time": {
+                "empty": false,
+                "lower": "2026-07-18T13:00:00+00:00",
+                "lower_inclusive": true,
+                "lower_infinite": false,
+                "upper": "2026-07-18T13:30:00+00:00",
+                "upper_inclusive": false,
+                "upper_infinite": false
+            },
+            "capture_timezone": "UTC",
+            "capture_duration_seconds": 1800,
+            "time_source": "device_clock",
+            "time_confidence": "exact",
+            "location_id": location_id,
+            "device_id": device_id,
+            "activity_id": activity_id,
+            "event_type": "recording",
+            "event_title": "Candidate recording",
+            "event_description": null,
+            "raw_metadata": {"source": "candidate"},
+            "ai_context": null,
+            "ai_processed_at": null,
+            "ai_model": null,
+            "user_corrected": true,
+            "original_capture_time": {
+                "empty": true,
+                "lower": null,
+                "lower_inclusive": false,
+                "lower_infinite": false,
+                "upper": null,
+                "upper_inclusive": false,
+                "upper_infinite": false
+            },
+            "original_location_id": location_id,
+            "correction_note": "Corrected from source metadata",
+            "created_at": "2026-07-18T14:00:00+00:00"
+        }]);
+        let success_ctx = db.for_schema(&success.schema_name).unwrap();
+        for expected_pass in 0..2 {
+            let mut tx = success_ctx
+                .begin_tx()
+                .await
+                .expect("begin unified provenance apply");
+            let mut imported = ShardImportCounts::default();
+            let mut skipped = ShardImportCounts::default();
+            apply_shard_unified_provenance_components_tx(
+                &mut tx,
+                &files,
+                &components,
+                &opts,
+                &mut imported,
+                &mut skipped,
+            )
+            .await
+            .expect("apply complete unified provenance boundary");
+            tx.commit()
+                .await
+                .expect("commit unified provenance boundary");
+            assert_eq!(imported.provenance_records, 1, "pass {expected_pass}");
+            assert_eq!(skipped.provenance_records, 0, "pass {expected_pass}");
+            assert_eq!(
+                shard_unified_provenance_snapshot(&success_ctx).await,
+                expected,
+                "pass {expected_pass}"
+            );
+        }
+
+        let skip_opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Skip,
+            skip_embedding_regen: true,
+        };
+        let mut tx = success_ctx
+            .begin_tx()
+            .await
+            .expect("begin unified provenance skip");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        apply_shard_unified_provenance_components_tx(
+            &mut tx,
+            &files,
+            &components,
+            &skip_opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect("skip existing unified provenance boundary");
+        tx.commit().await.expect("commit unified provenance skip");
+        assert_eq!(imported.provenance_records, 0);
+        assert_eq!(skipped.provenance_records, 1);
+        assert_eq!(
+            shard_unified_provenance_snapshot(&success_ctx).await,
+            expected
+        );
+
+        let dry_run_opts = ShardImportOptions {
+            include: None,
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin unified provenance dry run");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        apply_shard_unified_provenance_components_tx(
+            &mut tx,
+            &files,
+            &components,
+            &dry_run_opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect("dry-run complete unified provenance boundary");
+        tx.rollback()
+            .await
+            .expect("roll back unified provenance dry run");
+        assert_eq!(imported.provenance_records, 1);
+        assert_eq!(skipped.provenance_records, 0);
+        assert_eq!(
+            shard_unified_provenance_snapshot(&rollback_ctx).await,
+            baseline
+        );
+
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin failed unified provenance apply");
+        sqlx::query(
+            "CREATE FUNCTION reject_shard_unified_provenance()
+             RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN
+                 RAISE EXCEPTION 'injected unified provenance failure';
+             END;
+             $$",
+        )
+        .execute(&mut *tx)
+        .await
+        .expect("create unified provenance failure function");
+        sqlx::query(
+            "CREATE TRIGGER reject_shard_unified_provenance
+             BEFORE INSERT ON provenance
+             FOR EACH ROW EXECUTE FUNCTION reject_shard_unified_provenance()",
+        )
+        .execute(&mut *tx)
+        .await
+        .expect("create unified provenance failure trigger");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        let error = apply_shard_unified_provenance_components_tx(
+            &mut tx,
+            &files,
+            &components,
+            &opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect_err("late unified provenance failure must abort the apply transaction");
+        assert!(matches!(error, ApiError::OperationFailed { .. }));
+        tx.rollback()
+            .await
+            .expect("roll back failed unified provenance apply");
+        assert_eq!(
+            shard_unified_provenance_snapshot(&rollback_ctx).await,
+            baseline
+        );
+
+        for archive_name in [success_name, rollback_name] {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .expect("drop isolated unified provenance test schema");
+        }
+    }
+
     fn valid_shard_embedding_relationship_fixture() -> (
         std::collections::HashMap<String, Vec<u8>>,
         std::collections::HashSet<Uuid>,
@@ -44986,6 +45529,7 @@ not-json
                 note_revisions: 0,
                 provenance_edges: 0,
                 provenance_activities: 0,
+                provenance_records: 0,
                 collections: 2,
                 tags: 0,
                 templates: 1,
