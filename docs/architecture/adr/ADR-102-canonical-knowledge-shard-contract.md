@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, and opt-in verified attachment sidecars; `full-v1` conformance remains pending the release gates in this ADR
+**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, and disk-backed streaming preflight for opt-in verified attachment sidecars; `full-v1` conformance remains pending the release gates in this ADR
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -27,8 +27,11 @@ preflight. It also validates collection/note/template/link relationships,
 exports complete collection hierarchies, and preserves collection and template
 identities and timestamps during import. Its REST route can optionally export
 and restore verified attachment bytes as digest-addressed sidecars, while
-missing entries remain reference-only. The route still buffers bounded
-archives and does not constitute `full-v1` profile conformance.
+missing entries remain reference-only. Import reads sidecar payloads in bounded
+chunks into isolated preflight files instead of retaining them in the
+in-memory component map. Compressed request bodies, structured component files,
+and export archives remain bounded-buffered, so the route does not constitute
+end-to-end streaming or `full-v1` profile conformance.
 
 The current normative schema root for `1.1.0` / `core-v1` is
 `contracts/knowledge-shard/1.1.0/core-v1/`. The immutable `1.0.0` authority
@@ -235,7 +238,8 @@ then validates the migrated current representation before writes.
 
 Known gaps remain in complete absent-versus-null semantic preservation across
 all accepted current records, `full-v1`, current-minus-two historical migration
-coverage, and streaming archive processing. `record-v1` does not imply
+coverage, and end-to-end streaming archive processing across request ingress
+and export emission. `record-v1` does not imply
 preservation of templates, embeddings,
 SKOS, provenance, graph/community data, URL-only links, signature guarantees,
 or attachment bytes. Making tombstone-field presence mandatory requires a
@@ -246,10 +250,13 @@ The filesystem backend provides a bounded-memory staging primitive that streams
 bytes into an isolated `staging/shard-import/` namespace, verifies the declared
 byte length and canonical BLAKE3 digest, rechecks integrity before atomic
 promotion into `blobs/`, and supports receipt-bound compensation plus startup
-cleanup of stale stages. The bounded HTTP route now invokes this primitive for
-present referenced sidecars and exports available verified bytes when
+cleanup of stale stages. Archive preflight now streams canonical sidecar tar
+entries through a 64 KiB copy-and-hash buffer into request-scoped temporary
+files. After the complete manifest, inventory, component, relationship, length,
+and digest preflight succeeds, the HTTP route streams referenced files through
+the storage staging primitive. It exports available verified bytes when
 `include_blobs=true`. This satisfies only the opt-in `core-v1` attachment-byte
-slice, not the `full-v1` attachment gate.
+import prerequisite, not end-to-end streaming or the `full-v1` attachment gate.
 
 Until the release gates pass:
 

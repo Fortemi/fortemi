@@ -22227,6 +22227,7 @@ fn validate_shard_entry_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
 fn read_shard_archive(
     shard_bytes: &[u8],
     limits: ShardArchiveLimits,
@@ -22299,6 +22300,144 @@ fn read_shard_archive(
     }
 
     Ok(files)
+}
+
+#[derive(Debug)]
+struct StreamedShardSidecar {
+    path: std::path::PathBuf,
+    size_bytes: u64,
+}
+
+#[derive(Debug)]
+struct StreamedShardArchive {
+    files: std::collections::HashMap<String, Vec<u8>>,
+    sidecars: std::collections::HashMap<String, StreamedShardSidecar>,
+}
+
+fn read_shard_archive_streaming_sidecars(
+    shard_bytes: &[u8],
+    limits: ShardArchiveLimits,
+    sidecar_directory: &std::path::Path,
+) -> Result<StreamedShardArchive, String> {
+    use flate2::read::GzDecoder;
+    use std::io::{Read, Write};
+    use tar::Archive;
+
+    if shard_bytes.len() > limits.max_compressed_bytes {
+        return Err("Knowledge shard exceeds the compressed size limit.".to_string());
+    }
+
+    let decoder = GzDecoder::new(shard_bytes);
+    let mut tar_reader = Archive::new(decoder);
+    let mut files = std::collections::HashMap::new();
+    let mut sidecars = std::collections::HashMap::new();
+    let mut entry_names = std::collections::HashSet::new();
+    let mut total_uncompressed_bytes = 0usize;
+    let mut entry_count = 0usize;
+
+    for entry in tar_reader
+        .entries()
+        .map_err(|_| "Invalid knowledge shard archive.".to_string())?
+        .raw(true)
+    {
+        entry_count = entry_count
+            .checked_add(1)
+            .ok_or_else(|| "Knowledge shard exceeds the archive entry limit.".to_string())?;
+        if entry_count > limits.max_entries {
+            return Err("Knowledge shard exceeds the archive entry limit.".to_string());
+        }
+
+        let mut entry = entry.map_err(|_| "Invalid knowledge shard entry.".to_string())?;
+        if !entry.header().entry_type().is_file() {
+            return Err("Knowledge shard contains a non-regular archive entry.".to_string());
+        }
+
+        let path_bytes = entry.path_bytes();
+        let name = std::str::from_utf8(path_bytes.as_ref())
+            .map_err(|_| "Knowledge shard contains an unsafe archive entry path.".to_string())?
+            .to_string();
+        validate_shard_entry_name(&name)?;
+        if !entry_names.insert(name.clone()) {
+            return Err("Knowledge shard contains a duplicate archive entry.".to_string());
+        }
+
+        let declared_size = usize::try_from(entry.size())
+            .map_err(|_| "Knowledge shard entry exceeds the size limit.".to_string())?;
+        let entry_limit = if name == "manifest.json" {
+            limits.max_manifest_bytes
+        } else {
+            limits.max_entry_bytes
+        };
+        if declared_size > entry_limit {
+            return Err("Knowledge shard entry exceeds the size limit.".to_string());
+        }
+        total_uncompressed_bytes = total_uncompressed_bytes
+            .checked_add(declared_size)
+            .ok_or_else(|| "Knowledge shard exceeds the uncompressed size limit.".to_string())?;
+        if total_uncompressed_bytes > limits.max_uncompressed_bytes {
+            return Err("Knowledge shard exceeds the uncompressed size limit.".to_string());
+        }
+
+        let Some(checksum) = shard_blob_entry_checksum(&name) else {
+            let mut contents = Vec::with_capacity(declared_size);
+            entry
+                .read_to_end(&mut contents)
+                .map_err(|_| "Invalid knowledge shard entry contents.".to_string())?;
+            if contents.len() != declared_size {
+                return Err("Invalid knowledge shard entry contents.".to_string());
+            }
+            files.insert(name, contents);
+            continue;
+        };
+
+        let digest = checksum
+            .strip_prefix("blake3:")
+            .expect("canonical shard sidecar checksum");
+        let path = sidecar_directory.join(digest);
+        let mut destination = std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&path)
+            .map_err(|_| "Knowledge shard sidecar staging is unavailable.".to_string())?;
+        let mut hasher = blake3::Hasher::new();
+        let mut copied = 0usize;
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            let read = entry
+                .read(&mut buffer)
+                .map_err(|_| "Invalid knowledge shard entry contents.".to_string())?;
+            if read == 0 {
+                break;
+            }
+            copied = copied
+                .checked_add(read)
+                .ok_or_else(|| "Knowledge shard entry exceeds the size limit.".to_string())?;
+            if copied > declared_size {
+                return Err("Invalid knowledge shard entry contents.".to_string());
+            }
+            hasher.update(&buffer[..read]);
+            destination
+                .write_all(&buffer[..read])
+                .map_err(|_| "Knowledge shard sidecar staging is unavailable.".to_string())?;
+        }
+        if copied != declared_size || format!("blake3:{}", hasher.finalize().to_hex()) != checksum {
+            return Err(
+                "Knowledge shard attachment sidecar failed integrity validation.".to_string(),
+            );
+        }
+        destination
+            .sync_all()
+            .map_err(|_| "Knowledge shard sidecar staging is unavailable.".to_string())?;
+        sidecars.insert(
+            checksum,
+            StreamedShardSidecar {
+                path,
+                size_bytes: declared_size as u64,
+            },
+        );
+    }
+
+    Ok(StreamedShardArchive { files, sidecars })
 }
 
 fn shard_component_filename(component: &str) -> Option<&'static str> {
@@ -22769,6 +22908,7 @@ fn validate_shard_relationships(
     Ok(attachment_digests)
 }
 
+#[cfg(test)]
 fn validate_shard_sidecars<'a>(
     files: &'a std::collections::HashMap<String, Vec<u8>>,
     attachment_digests: &std::collections::HashMap<String, (i64, String)>,
@@ -22792,6 +22932,27 @@ fn validate_shard_sidecars<'a>(
         sidecars.insert(checksum, contents.as_slice());
     }
     Ok(sidecars)
+}
+
+fn validate_streamed_shard_sidecars<'a>(
+    sidecars: &'a std::collections::HashMap<String, StreamedShardSidecar>,
+    attachment_digests: &std::collections::HashMap<String, (i64, String)>,
+) -> Result<std::collections::HashMap<String, &'a StreamedShardSidecar>, String> {
+    let mut validated = std::collections::HashMap::new();
+    for (checksum, sidecar) in sidecars {
+        let Some((declared_bytes, _)) = attachment_digests.get(checksum) else {
+            continue;
+        };
+        let declared_bytes = u64::try_from(*declared_bytes)
+            .map_err(|_| "Knowledge shard attachment size is invalid.".to_string())?;
+        if sidecar.size_bytes != declared_bytes {
+            return Err(
+                "Knowledge shard attachment sidecar failed integrity validation.".to_string(),
+            );
+        }
+        validated.insert(checksum.clone(), sidecar);
+    }
+    Ok(validated)
 }
 
 fn validate_shard_manifest_contract(manifest: &ShardManifest) -> Result<(), String> {
@@ -27189,10 +27350,10 @@ async fn compensate_shard_sidecar_promotions(
     }
 }
 
-async fn stage_shard_sidecars(
+async fn stage_streamed_shard_sidecars(
     state: &AppState,
     schema: &str,
-    sidecars: &std::collections::HashMap<String, &[u8]>,
+    sidecars: &std::collections::HashMap<String, &StreamedShardSidecar>,
 ) -> Result<std::collections::HashMap<String, StagedShardBlob>, ApiError> {
     if sidecars.is_empty() {
         return Ok(std::collections::HashMap::new());
@@ -27241,10 +27402,12 @@ async fn stage_shard_sidecars(
     })?;
     let mut staged_blobs = std::collections::HashMap::new();
     for (checksum, blob_id) in staging_plans {
-        let bytes = sidecars[&checksum];
-        let mut reader = bytes;
+        let sidecar = sidecars[&checksum];
+        let mut reader = tokio::fs::File::open(&sidecar.path)
+            .await
+            .map_err(|error| shard_operation_failed("open verified attachment sidecar", error))?;
         match backend
-            .stage_shard_blob(blob_id, &checksum, bytes.len() as u64, &mut reader)
+            .stage_shard_blob(blob_id, &checksum, sidecar.size_bytes, &mut reader)
             .await
         {
             Ok(staged) => {
@@ -27830,11 +27993,16 @@ async fn knowledge_shard_import_internal_with_wipe(
         None
     };
 
-    let source_files = read_shard_archive(
+    let sidecar_directory = tempfile::tempdir()
+        .map_err(|error| shard_operation_failed("prepare shard sidecar preflight", error))?;
+    let source_archive = read_shard_archive_streaming_sidecars(
         shard_bytes,
         ShardArchiveLimits::for_compressed_limit(state.max_upload_size),
+        sidecar_directory.path(),
     )
     .map_err(ApiError::BadRequest)?;
+    let source_files = source_archive.files;
+    let source_sidecars = source_archive.sidecars;
 
     let mut warnings: Vec<String> = Vec::new();
     let manifest_data = source_files
@@ -27859,7 +28027,7 @@ async fn knowledge_shard_import_internal_with_wipe(
         .map_err(ApiError::BadRequest)?;
     let source_attachment_digests =
         validate_shard_relationships(&source_files).map_err(ApiError::BadRequest)?;
-    validate_shard_sidecars(&source_files, &source_attachment_digests)
+    validate_streamed_shard_sidecars(&source_sidecars, &source_attachment_digests)
         .map_err(ApiError::BadRequest)?;
 
     let migrated = migrate_shard_archive_to_current(source_manifest, source_files)
@@ -27882,8 +28050,8 @@ async fn knowledge_shard_import_internal_with_wipe(
     }
     validate_shard_component_inventory(&manifest, &files).map_err(ApiError::BadRequest)?;
     let attachment_digests = validate_shard_relationships(&files).map_err(ApiError::BadRequest)?;
-    let sidecars =
-        validate_shard_sidecars(&files, &attachment_digests).map_err(ApiError::BadRequest)?;
+    let sidecars = validate_streamed_shard_sidecars(&source_sidecars, &attachment_digests)
+        .map_err(ApiError::BadRequest)?;
 
     // Application release identity is informational and independent of schema negotiation.
     let current_version = env!("CARGO_PKG_VERSION");
@@ -27906,7 +28074,7 @@ async fn knowledge_shard_import_internal_with_wipe(
     let staged_blobs = if opts.dry_run || !selected_components.contains("notes") {
         std::collections::HashMap::new()
     } else {
-        stage_shard_sidecars(state, schema, &sidecars).await?
+        stage_streamed_shard_sidecars(state, schema, &sidecars).await?
     };
     let apply_result = apply_validated_shard_components(
         state,
@@ -36091,6 +36259,131 @@ mod tests {
         assert_eq!(
             read_shard_archive(&manifest, limits).unwrap_err(),
             "Knowledge shard entry exceeds the size limit."
+        );
+    }
+
+    #[test]
+    fn shard_streaming_reader_spools_verified_sidecars_without_buffering_them() {
+        let sidecar_bytes = vec![0x5a; 512 * 1024 + 17];
+        let checksum = matric_db::compute_content_hash(&sidecar_bytes);
+        let sidecar_name = shard_blob_entry_name(&checksum).unwrap();
+        let manifest = b"{}";
+        let archive = test_shard_archive(&[
+            ("manifest.json", manifest, tar::EntryType::Regular),
+            (
+                sidecar_name.as_str(),
+                sidecar_bytes.as_slice(),
+                tar::EntryType::Regular,
+            ),
+        ]);
+        let staging = tempfile::tempdir().expect("create sidecar preflight directory");
+
+        let parsed = read_shard_archive_streaming_sidecars(
+            &archive,
+            ShardArchiveLimits::default(),
+            staging.path(),
+        )
+        .expect("stream sidecar archive");
+
+        assert_eq!(parsed.files.len(), 1);
+        assert_eq!(parsed.files["manifest.json"], manifest);
+        assert!(!parsed.files.contains_key(&sidecar_name));
+        let sidecar = &parsed.sidecars[&checksum];
+        assert_eq!(sidecar.size_bytes, sidecar_bytes.len() as u64);
+        assert_eq!(
+            std::fs::read(&sidecar.path).expect("read spooled sidecar"),
+            sidecar_bytes
+        );
+
+        let declarations = [(
+            checksum.clone(),
+            (
+                sidecar_bytes.len() as i64,
+                "application/octet-stream".to_string(),
+            ),
+        )]
+        .into_iter()
+        .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(
+            validate_streamed_shard_sidecars(&parsed.sidecars, &declarations)
+                .expect("validate streamed sidecar")
+                .len(),
+            1
+        );
+        assert!(validate_streamed_shard_sidecars(
+            &parsed.sidecars,
+            &std::collections::HashMap::new()
+        )
+        .expect("ignore optional core-v1 orphan")
+        .is_empty());
+
+        let wrong_size = [(
+            checksum,
+            (
+                sidecar_bytes.len() as i64 + 1,
+                "application/octet-stream".to_string(),
+            ),
+        )]
+        .into_iter()
+        .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(
+            validate_streamed_shard_sidecars(&parsed.sidecars, &wrong_size).unwrap_err(),
+            "Knowledge shard attachment sidecar failed integrity validation."
+        );
+
+        let limits = ShardArchiveLimits {
+            max_entry_bytes: sidecar_bytes.len() - 1,
+            ..ShardArchiveLimits::default()
+        };
+        assert_eq!(
+            read_shard_archive_streaming_sidecars(&archive, limits, staging.path()).unwrap_err(),
+            "Knowledge shard entry exceeds the size limit."
+        );
+    }
+
+    #[test]
+    fn shard_streaming_reader_rejects_sidecar_digest_mismatch() {
+        let checksum = matric_db::compute_content_hash(b"expected attachment bytes");
+        let sidecar_name = shard_blob_entry_name(&checksum).unwrap();
+        let archive = test_shard_archive(&[(
+            sidecar_name.as_str(),
+            b"tampered attachment bytes",
+            tar::EntryType::Regular,
+        )]);
+        let staging = tempfile::tempdir().expect("create sidecar preflight directory");
+
+        assert_eq!(
+            read_shard_archive_streaming_sidecars(
+                &archive,
+                ShardArchiveLimits::default(),
+                staging.path(),
+            )
+            .unwrap_err(),
+            "Knowledge shard attachment sidecar failed integrity validation."
+        );
+
+        let duplicate = test_shard_archive(&[
+            (
+                sidecar_name.as_str(),
+                b"expected attachment bytes",
+                tar::EntryType::Regular,
+            ),
+            (
+                sidecar_name.as_str(),
+                b"expected attachment bytes",
+                tar::EntryType::Regular,
+            ),
+        ]);
+        let duplicate_staging =
+            tempfile::tempdir().expect("create duplicate sidecar preflight directory");
+        assert_eq!(
+            read_shard_archive_streaming_sidecars(
+                &duplicate,
+                ShardArchiveLimits::default(),
+                duplicate_staging.path(),
+            )
+            .unwrap_err(),
+            "Knowledge shard contains a duplicate archive entry."
         );
     }
 
