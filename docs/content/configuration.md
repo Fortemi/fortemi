@@ -116,20 +116,25 @@ RATE_LIMIT_PERIOD_SECS=60
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `RUST_LOG` | String | `info` | Log level and filtering for Rust components (uses env_logger syntax) |
-| `LOG_FORMAT` | String | `pretty` | Log output format: `pretty`, `json`, or `compact` |
+| `RUST_LOG` | String | `info` | `tracing` filter directives; debug/trace require explicit operator opt-in |
+| `LOG_FORMAT` | String | `text` | Log output format: exactly `text` or `json`; invalid values fail startup |
 | `LOG_FILE` | String | None | Path to log file (logs to stdout if not set) |
-| `LOG_ANSI` | Boolean | `true` | Enable ANSI color codes in logs |
+| `LOG_ANSI` | Boolean | auto | Optional strict `true`/`false` or `1`/`0` override for text logs; file text logs default to no ANSI |
 
 **Common Configurations:**
 
-**Production (default):**
+**Hosted/production JSON profile:**
 ```bash
 RUST_LOG=info
 LOG_FORMAT=json
 LOG_FILE=/var/log/matric/api.log
 LOG_ANSI=false
 ```
+
+Debug and trace filters are a protected diagnostic mode, not a hosted
+operational default. Enable them explicitly, keep the interval time-bound, and
+apply the sink/access/redaction controls in the
+`docs/architecture/hosted-telemetry-classification.md` contract (#974).
 
 **API debugging:**
 ```bash

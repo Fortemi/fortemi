@@ -1869,8 +1869,32 @@ struct RateLimitConfig {
     period_secs: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LogFormat {
+    Text,
+    Json,
+}
+
+impl LogFormat {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Json => "json",
+        }
+    }
+}
+
+#[derive(Debug)]
+struct LoggingConfig {
+    format: LogFormat,
+    file: Option<String>,
+    ansi: Option<bool>,
+    env_filter: tracing_subscriber::EnvFilter,
+}
+
 const MAX_RATE_LIMIT_REQUESTS: u32 = 1_000_000;
 const MAX_RATE_LIMIT_PERIOD_SECS: u64 = 86_400;
+const DEFAULT_RUST_LOG: &str = "info";
 
 fn strict_bool_value(name: &str, value: Option<&str>, default: bool) -> anyhow::Result<bool> {
     match value {
@@ -1881,6 +1905,35 @@ fn strict_bool_value(name: &str, value: Option<&str>, default: bool) -> anyhow::
         ),
         None => Ok(default),
     }
+}
+
+fn parse_logging_config() -> anyhow::Result<LoggingConfig> {
+    parse_logging_config_with_env(|name| std::env::var(name).ok())
+}
+
+fn parse_logging_config_with_env<F>(env: F) -> anyhow::Result<LoggingConfig>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let format = match env("LOG_FORMAT").as_deref().unwrap_or("text") {
+        "text" => LogFormat::Text,
+        "json" => LogFormat::Json,
+        _ => anyhow::bail!("LOG_FORMAT has an invalid value. Expected one of: text, json."),
+    };
+    let ansi = match env("LOG_ANSI") {
+        Some(value) => Some(strict_bool_value("LOG_ANSI", Some(&value), false)?),
+        None => None,
+    };
+    let filter_value = env("RUST_LOG").unwrap_or_else(|| DEFAULT_RUST_LOG.to_string());
+    let env_filter = tracing_subscriber::EnvFilter::try_new(filter_value)
+        .map_err(|_| anyhow::anyhow!("RUST_LOG contains invalid filter directives."))?;
+
+    Ok(LoggingConfig {
+        format,
+        file: env("LOG_FILE").filter(|value| !value.is_empty()),
+        ansi,
+        env_filter,
+    })
 }
 
 fn parse_startup_security_config() -> anyhow::Result<StartupSecurityConfig> {
@@ -2423,20 +2476,12 @@ async fn main() -> anyhow::Result<()> {
     //   LOG_FORMAT  - "json" or "text" (default: "text")
     //   LOG_FILE    - path to log file (optional, enables file logging)
     //   LOG_ANSI    - "true"/"false" override ANSI colors (auto-detected by default)
-    //   RUST_LOG    - standard env filter (default: "matric_api=debug,tower_http=debug")
-    let log_format = std::env::var("LOG_FORMAT").unwrap_or_else(|_| "text".to_string());
-    let log_file = std::env::var("LOG_FILE").ok();
-    let log_ansi = std::env::var("LOG_ANSI")
-        .ok()
-        .map(|v| v == "true" || v == "1");
-
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "matric_api=debug,tower_http=debug".into());
-
-    let registry = tracing_subscriber::registry().with(env_filter);
+    //   RUST_LOG    - standard tracing filter (default: "info")
+    let logging = parse_logging_config()?;
+    let registry = tracing_subscriber::registry().with(logging.env_filter);
 
     // Optionally create a file appender with daily rotation
-    let _file_guard = if let Some(ref path) = log_file {
+    let _file_guard = if let Some(ref path) = logging.file {
         let file_dir = std::path::Path::new(path)
             .parent()
             .unwrap_or(std::path::Path::new("."));
@@ -2447,7 +2492,7 @@ async fn main() -> anyhow::Result<()> {
         let file_appender = tracing_appender::rolling::daily(file_dir, file_name);
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
-        if log_format == "json" {
+        if logging.format == LogFormat::Json {
             registry
                 .with(
                     tracing_subscriber::fmt::layer()
@@ -2457,7 +2502,7 @@ async fn main() -> anyhow::Result<()> {
                 .init();
         } else {
             let mut layer = tracing_subscriber::fmt::layer().with_writer(non_blocking);
-            if let Some(ansi) = log_ansi {
+            if let Some(ansi) = logging.ansi {
                 layer = layer.with_ansi(ansi);
             } else {
                 layer = layer.with_ansi(false); // no ANSI in files
@@ -2467,13 +2512,13 @@ async fn main() -> anyhow::Result<()> {
         Some(guard)
     } else {
         // Console-only output
-        if log_format == "json" {
+        if logging.format == LogFormat::Json {
             registry
                 .with(tracing_subscriber::fmt::layer().json())
                 .init();
         } else {
             let mut layer = tracing_subscriber::fmt::layer();
-            if let Some(ansi) = log_ansi {
+            if let Some(ansi) = logging.ansi {
                 layer = layer.with_ansi(ansi);
             }
             registry.with(layer).init();
@@ -2482,17 +2527,23 @@ async fn main() -> anyhow::Result<()> {
     };
 
     info!(
-        log_format_class = startup_log_format_class(&log_format),
-        log_format_len = telemetry_text_len(&log_format),
-        log_file = log_file.as_deref().unwrap_or("(stdout)"),
+        log_format_class = startup_log_format_class(logging.format.as_str()),
+        log_format_len = telemetry_text_len(logging.format.as_str()),
+        log_sink = if logging.file.is_some() {
+            "file"
+        } else {
+            "stdout"
+        },
+        log_file_path_len = logging.file.as_deref().map(telemetry_text_len).unwrap_or(0),
+        log_ansi_override = logging.ansi.is_some(),
         "Logging initialized"
     );
     let git_sha = std::env::var("MATRIC_GIT_SHA").unwrap_or_else(|_| "unknown".to_string());
     let build_date = std::env::var("MATRIC_BUILD_DATE").unwrap_or_else(|_| "unknown".to_string());
     if let Err(err) = TracingSink
         .emit(process_startup_audit_event(
-            &log_format,
-            log_file.is_some(),
+            logging.format.as_str(),
+            logging.file.is_some(),
             &git_sha,
             &build_date,
         ))
@@ -51026,6 +51077,74 @@ not-json
         assert!(strict_bool_value("MATRIC_TEST_STRICT_BOOL", Some("true"), false).unwrap());
         assert!(!strict_bool_value("MATRIC_TEST_STRICT_BOOL", Some("0"), true).unwrap());
         assert!(strict_bool_value("MATRIC_TEST_STRICT_BOOL", None, true).unwrap());
+    }
+
+    #[test]
+    fn logging_config_defaults_to_hosted_safe_info_text() {
+        let config =
+            parse_logging_config_with_env(|_| None).expect("default logging config must parse");
+
+        assert_eq!(config.format, LogFormat::Text);
+        assert_eq!(config.file, None);
+        assert_eq!(config.ansi, None);
+        assert_eq!(config.env_filter.to_string(), DEFAULT_RUST_LOG);
+        assert!(!config.env_filter.to_string().contains("debug"));
+        assert!(!config.env_filter.to_string().contains("trace"));
+    }
+
+    #[test]
+    fn logging_config_accepts_explicit_diagnostic_filter() {
+        let config = parse_logging_config_with_env(|name| match name {
+            "RUST_LOG" => Some("matric_api=debug,tower_http=trace,info".to_string()),
+            "LOG_FORMAT" => Some("json".to_string()),
+            "LOG_FILE" => Some("/var/log/fortemi/api.log".to_string()),
+            "LOG_ANSI" => Some("false".to_string()),
+            _ => None,
+        })
+        .expect("explicit logging config must parse");
+
+        assert_eq!(config.format, LogFormat::Json);
+        assert_eq!(config.file.as_deref(), Some("/var/log/fortemi/api.log"));
+        assert_eq!(config.ansi, Some(false));
+        let filter = config.env_filter.to_string();
+        assert!(filter.contains("matric_api=debug"));
+        assert!(filter.contains("tower_http=trace"));
+    }
+
+    #[test]
+    fn logging_config_rejects_unsupported_format() {
+        let err = parse_logging_config_with_env(|name| {
+            (name == "LOG_FORMAT").then(|| "pretty".to_string())
+        })
+        .expect_err("unsupported LOG_FORMAT must fail startup parsing");
+
+        assert!(err.to_string().contains("LOG_FORMAT"));
+        assert!(err.to_string().contains("text, json"));
+        assert!(!err.to_string().contains("pretty"));
+    }
+
+    #[test]
+    fn logging_config_rejects_invalid_ansi_value() {
+        let err = parse_logging_config_with_env(|name| {
+            (name == "LOG_ANSI").then(|| "sometimes".to_string())
+        })
+        .expect_err("invalid LOG_ANSI must fail startup parsing");
+
+        assert!(err.to_string().contains("LOG_ANSI"));
+        assert!(err.to_string().contains("Expected one of"));
+    }
+
+    #[test]
+    fn logging_config_rejects_invalid_filter_without_echoing_it() {
+        let invalid_filter = "matric_api==secret-shaped-invalid-filter";
+        let err = parse_logging_config_with_env(|name| {
+            (name == "RUST_LOG").then(|| invalid_filter.to_string())
+        })
+        .expect_err("invalid RUST_LOG must fail startup parsing");
+
+        assert!(err.to_string().contains("RUST_LOG"));
+        assert!(!err.to_string().contains(invalid_filter));
+        assert!(!err.to_string().contains("secret-shaped"));
     }
 
     #[test]

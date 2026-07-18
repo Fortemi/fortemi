@@ -538,10 +538,16 @@ All environment variables are optional unless marked as required. The API reads 
 
 | Variable | Default | Description | Example |
 |----------|---------|-------------|---------|
-| `RUST_LOG` | `matric_api=debug,tower_http=debug` | Tracing filter directives | `info` or `matric_api=trace` |
+| `RUST_LOG` | `info` | Tracing filter directives; debug/trace are explicit protected diagnostic modes | `info` or `matric_api=debug,info` |
 | `LOG_FORMAT` | `text` | Log output format (`text` or `json`) | `json` |
 | `LOG_FILE` | (none) | Path to log file (enables file logging) | `/var/log/matric/api.log` |
-| `LOG_ANSI` | (auto-detected) | Force ANSI colors in logs (`true` or `false`) | `false` |
+| `LOG_ANSI` | (auto-detected; off for files) | Strict optional ANSI override (`true`/`false` or `1`/`0`) for text logs | `false` |
+
+Invalid `LOG_FORMAT`, `LOG_ANSI`, or `RUST_LOG` values fail startup. When
+debug/trace is explicitly enabled, use the protected diagnostic sink and
+redaction controls defined by the
+`docs/architecture/hosted-telemetry-classification.md` contract (#974); do not
+treat verbose output as an ordinary hosted default.
 
 #### OAuth / MCP
 

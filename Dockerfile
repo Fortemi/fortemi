@@ -114,6 +114,7 @@ ENV RUST_LOG=info
 # =============================================================================
 # Logging
 # =============================================================================
+# Runtime defaults: RUST_LOG=info, LOG_FORMAT=text; LOG_FORMAT accepts text|json.
 # ENV LOG_FORMAT=json
 # ENV LOG_FILE=/var/log/matric/api.log
 # ENV LOG_ANSI=false
