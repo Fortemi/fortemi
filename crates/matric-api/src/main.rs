@@ -22115,6 +22115,89 @@ struct ShardLinkRecord {
     metadata: serde_json::Value,
 }
 
+#[derive(Serialize, Deserialize)]
+struct ShardEmbeddingSetRecord {
+    id: Uuid,
+    name: String,
+    slug: String,
+    description: Option<String>,
+    purpose: Option<String>,
+    usage_hints: Option<String>,
+    keywords: Option<Vec<String>>,
+    set_type: String,
+    mode: String,
+    criteria: Option<serde_json::Value>,
+    embedding_config_id: Option<Uuid>,
+    truncate_dim: Option<i32>,
+    auto_embed_rules: Option<serde_json::Value>,
+    index_status: String,
+    index_type: Option<String>,
+    last_indexed_at: Option<chrono::DateTime<chrono::Utc>>,
+    document_count: Option<i32>,
+    embedding_count: Option<i32>,
+    embeddings_current: Option<bool>,
+    index_size_bytes: Option<i64>,
+    is_system: Option<bool>,
+    is_active: Option<bool>,
+    auto_refresh: Option<bool>,
+    refresh_interval: Option<String>,
+    last_refresh_at: Option<chrono::DateTime<chrono::Utc>>,
+    agent_metadata: Option<serde_json::Value>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+    created_by: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardEmbeddingConfigRecord {
+    id: Uuid,
+    name: String,
+    description: Option<String>,
+    model: String,
+    dimension: i32,
+    chunk_size: i32,
+    chunk_overlap: i32,
+    hnsw_m: Option<i32>,
+    hnsw_ef_construction: Option<i32>,
+    ivfflat_lists: Option<i32>,
+    is_default: Option<bool>,
+    supports_mrl: Option<bool>,
+    matryoshka_dims: Option<Vec<i32>>,
+    default_truncate_dim: Option<i32>,
+    provider: Option<String>,
+    provider_config: Option<serde_json::Value>,
+    content_types: Option<Vec<String>>,
+    strengths: Option<Vec<String>>,
+    limitations: Option<Vec<String>>,
+    recommended_for: Option<Vec<String>>,
+    benchmark_scores: Option<serde_json::Value>,
+    is_available: Option<bool>,
+    document_composition: serde_json::Value,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardEmbeddingSetMemberRecord {
+    embedding_set_id: Uuid,
+    note_id: Uuid,
+    membership_type: Option<String>,
+    added_at: Option<chrono::DateTime<chrono::Utc>>,
+    added_by: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardEmbeddingRecord {
+    id: Uuid,
+    note_id: Option<Uuid>,
+    embedding_set_id: Option<Uuid>,
+    chunk_index: i32,
+    text: String,
+    vector: Option<Vec<f32>>,
+    model: String,
+    created_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 fn shard_jsonl_records<'a, T>(
     data: &'a [u8],
     invalid_message: &'static str,
@@ -22145,6 +22228,16 @@ fn shard_validation_failed(message: &'static str) -> ApiError {
 
 fn invalid_base64_payload(message: &'static str) -> ApiError {
     ApiError::BadRequest(message.to_string())
+}
+
+fn validate_shard_export_record_count(record_count: usize) -> Result<(), ApiError> {
+    if record_count > SHARD_MAX_RECORDS_PER_COMPONENT {
+        Err(shard_validation_failed(
+            "Knowledge shard component exceeds the record count limit.",
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 const SHARD_IMPORT_COMPONENTS: &[&str] = &["notes", "collections", "tags", "templates", "links"];
@@ -23836,95 +23929,191 @@ async fn knowledge_shard(
 
         // Export embedding sets
         if components.contains(&"embedding_sets") {
-            let sets_repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
-            // Export set definitions
-            let sets = sets_repo.list_tx(&mut tx).await.unwrap_or_default();
-            counts.embedding_sets = sets.len();
-            let sets_json: Vec<serde_json::Value> = sets
-                .iter()
-                .map(|s| {
-                    serde_json::json!({
-                        "id": s.id,
-                        "name": s.name,
-                        "slug": s.slug,
-                        "description": s.description,
-                        "purpose": s.purpose,
-                        "document_count": s.document_count,
-                        "embedding_count": s.embedding_count,
-                        "is_system": s.is_system,
-                        "keywords": s.keywords,
-                        "model": s.model,
-                        "dimension": s.dimension,
-                    })
+            let set_rows = sqlx::query(
+                r#"
+                SELECT
+                    id, name, slug, description, purpose, usage_hints, keywords,
+                    set_type::text AS set_type, mode::text AS mode, criteria,
+                    embedding_config_id, truncate_dim, auto_embed_rules,
+                    index_status::text AS index_status, index_type, last_indexed_at,
+                    document_count, embedding_count, embeddings_current, index_size_bytes,
+                    is_system, is_active, auto_refresh, refresh_interval::text AS refresh_interval,
+                    last_refresh_at, agent_metadata, created_at, updated_at, created_by
+                FROM embedding_set
+                ORDER BY id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read embedding sets", error))?;
+            validate_shard_export_record_count(set_rows.len())?;
+            let sets = set_rows
+                .into_iter()
+                .map(|row| ShardEmbeddingSetRecord {
+                    id: row.get("id"),
+                    name: row.get("name"),
+                    slug: row.get("slug"),
+                    description: row.get("description"),
+                    purpose: row.get("purpose"),
+                    usage_hints: row.get("usage_hints"),
+                    keywords: row.get("keywords"),
+                    set_type: row.get("set_type"),
+                    mode: row.get("mode"),
+                    criteria: row.get("criteria"),
+                    embedding_config_id: row.get("embedding_config_id"),
+                    truncate_dim: row.get("truncate_dim"),
+                    auto_embed_rules: row.get("auto_embed_rules"),
+                    index_status: row.get("index_status"),
+                    index_type: row.get("index_type"),
+                    last_indexed_at: row.get("last_indexed_at"),
+                    document_count: row.get("document_count"),
+                    embedding_count: row.get("embedding_count"),
+                    embeddings_current: row.get("embeddings_current"),
+                    index_size_bytes: row.get("index_size_bytes"),
+                    is_system: row.get("is_system"),
+                    is_active: row.get("is_active"),
+                    auto_refresh: row.get("auto_refresh"),
+                    refresh_interval: row.get("refresh_interval"),
+                    last_refresh_at: row.get("last_refresh_at"),
+                    agent_metadata: row.get("agent_metadata"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                    created_by: row.get("created_by"),
                 })
-                .collect();
-            let data = serde_json::to_vec_pretty(&sets_json).unwrap_or_default();
+                .collect::<Vec<_>>();
+            counts.embedding_sets = sets.len();
+            let data = serde_json::to_vec_pretty(&sets)
+                .map_err(|error| shard_operation_failed("serialize embedding sets", error))?;
             add_json_file("embedding_sets.json", &data)
                 .map_err(|e| shard_operation_failed("add embedding sets to shard", e))?;
 
             // Export set members
-            let members = sets_repo
-                .list_all_members_tx(&mut tx, 100000, 0)
-                .await
-                .unwrap_or_default();
+            let member_rows = sqlx::query(
+                r#"
+                SELECT embedding_set_id, note_id, membership_type, added_at, added_by
+                FROM embedding_set_member
+                ORDER BY embedding_set_id, note_id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read embedding set members", error))?;
+            validate_shard_export_record_count(member_rows.len())?;
+            let members = member_rows
+                .into_iter()
+                .map(|row| ShardEmbeddingSetMemberRecord {
+                    embedding_set_id: row.get("embedding_set_id"),
+                    note_id: row.get("note_id"),
+                    membership_type: row.get("membership_type"),
+                    added_at: row.get("added_at"),
+                    added_by: row.get("added_by"),
+                })
+                .collect::<Vec<_>>();
             counts.embedding_set_members = members.len();
             let mut members_jsonl = Vec::new();
             for m in &members {
-                let member_obj = serde_json::json!({
-                    "embedding_set_id": m.embedding_set_id,
-                    "note_id": m.note_id,
-                    "membership_type": m.membership_type,
-                    "added_at": m.added_at,
-                    "added_by": m.added_by,
-                });
-                members_jsonl.push(serde_json::to_string(&member_obj).unwrap_or_default());
+                members_jsonl.push(serde_json::to_string(m).map_err(|error| {
+                    shard_operation_failed("serialize embedding set member", error)
+                })?);
             }
             let data = members_jsonl.join("\n").into_bytes();
             add_json_file("embedding_set_members.jsonl", &data)
                 .map_err(|e| shard_operation_failed("add embedding set members to shard", e))?;
 
             // Export embedding configs
-            let configs = sets_repo.list_configs_tx(&mut tx).await.unwrap_or_default();
-            counts.embedding_configs = configs.len();
-            let configs_json: Vec<serde_json::Value> = configs
-                .iter()
-                .map(|c| {
-                    serde_json::json!({
-                        "id": c.id,
-                        "name": c.name,
-                        "description": c.description,
-                        "model": c.model,
-                        "dimension": c.dimension,
-                        "chunk_size": c.chunk_size,
-                        "chunk_overlap": c.chunk_overlap,
-                        "is_default": c.is_default,
-                    })
+            let config_rows = sqlx::query(
+                r#"
+                SELECT
+                    id, name, description, model, dimension, chunk_size, chunk_overlap,
+                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default,
+                    supports_mrl, matryoshka_dims, default_truncate_dim,
+                    provider::text AS provider, provider_config, content_types,
+                    strengths, limitations, recommended_for, benchmark_scores,
+                    is_available, document_composition, created_at, updated_at
+                FROM embedding_config
+                ORDER BY id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read embedding configs", error))?;
+            validate_shard_export_record_count(config_rows.len())?;
+            let configs = config_rows
+                .into_iter()
+                .map(|row| ShardEmbeddingConfigRecord {
+                    id: row.get("id"),
+                    name: row.get("name"),
+                    description: row.get("description"),
+                    model: row.get("model"),
+                    dimension: row.get("dimension"),
+                    chunk_size: row.get("chunk_size"),
+                    chunk_overlap: row.get("chunk_overlap"),
+                    hnsw_m: row.get("hnsw_m"),
+                    hnsw_ef_construction: row.get("hnsw_ef_construction"),
+                    ivfflat_lists: row.get("ivfflat_lists"),
+                    is_default: row.get("is_default"),
+                    supports_mrl: row.get("supports_mrl"),
+                    matryoshka_dims: row.get("matryoshka_dims"),
+                    default_truncate_dim: row.get("default_truncate_dim"),
+                    provider: row.get("provider"),
+                    provider_config: row.get("provider_config"),
+                    content_types: row.get("content_types"),
+                    strengths: row.get("strengths"),
+                    limitations: row.get("limitations"),
+                    recommended_for: row.get("recommended_for"),
+                    benchmark_scores: row.get("benchmark_scores"),
+                    is_available: row.get("is_available"),
+                    document_composition: row.get("document_composition"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
                 })
-                .collect();
-            let data = serde_json::to_vec_pretty(&configs_json).unwrap_or_default();
+                .collect::<Vec<_>>();
+            counts.embedding_configs = configs.len();
+            let data = serde_json::to_vec_pretty(&configs)
+                .map_err(|error| shard_operation_failed("serialize embedding configs", error))?;
             add_json_file("embedding_configs.json", &data)
                 .map_err(|e| shard_operation_failed("add embedding configs to shard", e))?;
         }
 
         // Export embeddings (optional, can be large)
         if components.contains(&"embeddings") {
-            let emb_repo = matric_db::PgEmbeddingRepository::new(state.db.pool.clone());
-            let embeddings = emb_repo
-                .list_all_tx(&mut tx, 100000, 0)
-                .await
-                .unwrap_or_default();
-            counts.embeddings = embeddings.len();
+            let rows = sqlx::query(
+                r#"
+                SELECT id, note_id, embedding_set_id, chunk_index, text, vector, model, created_at
+                FROM embedding
+                ORDER BY note_id, embedding_set_id, chunk_index
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read embeddings", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            counts.embeddings = rows.len();
             let mut embeddings_jsonl = Vec::new();
-            for emb in &embeddings {
-                let emb_obj = serde_json::json!({
-                    "id": emb.id,
-                    "note_id": emb.note_id,
-                    "chunk_index": emb.chunk_index,
-                    "text": emb.text,
-                    "vector": emb.vector.as_slice(),
-                    "model": emb.model,
-                });
-                embeddings_jsonl.push(serde_json::to_string(&emb_obj).unwrap_or_default());
+            for row in rows {
+                let vector = row.get::<Option<pgvector::Vector>, _>("vector");
+                let record = ShardEmbeddingRecord {
+                    id: row.get("id"),
+                    note_id: row.get("note_id"),
+                    embedding_set_id: row.get("embedding_set_id"),
+                    chunk_index: row.get("chunk_index"),
+                    text: row.get("text"),
+                    vector: vector.map(|value| value.as_slice().to_vec()),
+                    model: row.get("model"),
+                    created_at: row.get("created_at"),
+                };
+                embeddings_jsonl.push(
+                    serde_json::to_string(&record)
+                        .map_err(|error| shard_operation_failed("serialize embedding", error))?,
+                );
             }
             let data = embeddings_jsonl.join("\n").into_bytes();
             add_json_file("embeddings.jsonl", &data)
@@ -39224,6 +39413,135 @@ not-json
         assert_eq!(
             validate_shard_component_inventory(&manifest, &files).unwrap_err(),
             "Knowledge shard component count validation failed."
+        );
+    }
+
+    #[test]
+    fn shard_embedding_records_preserve_persisted_identity_and_nulls() {
+        let set_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648f001").unwrap();
+        let config_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648f002").unwrap();
+        let note_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648f003").unwrap();
+        let embedding_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648f004").unwrap();
+        let timestamp = "2026-07-18T09:30:00Z";
+
+        let set = serde_json::from_value::<ShardEmbeddingSetRecord>(serde_json::json!({
+            "id": set_id,
+            "name": "Research",
+            "slug": "research",
+            "description": null,
+            "purpose": null,
+            "usage_hints": null,
+            "keywords": null,
+            "set_type": "full",
+            "mode": "manual",
+            "criteria": null,
+            "embedding_config_id": config_id,
+            "truncate_dim": null,
+            "auto_embed_rules": null,
+            "index_status": "ready",
+            "index_type": null,
+            "last_indexed_at": null,
+            "document_count": null,
+            "embedding_count": null,
+            "embeddings_current": null,
+            "index_size_bytes": null,
+            "is_system": null,
+            "is_active": null,
+            "auto_refresh": null,
+            "refresh_interval": null,
+            "last_refresh_at": null,
+            "agent_metadata": null,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+            "created_by": null
+        }))
+        .unwrap();
+        let set_json = serde_json::to_value(set).unwrap();
+        assert_eq!(set_json["id"], set_id.to_string());
+        assert_eq!(set_json["embedding_config_id"], config_id.to_string());
+        assert!(set_json["keywords"].is_null());
+        assert!(set_json["refresh_interval"].is_null());
+        assert!(set_json["is_active"].is_null());
+
+        let config = serde_json::from_value::<ShardEmbeddingConfigRecord>(serde_json::json!({
+            "id": config_id,
+            "name": "Research config",
+            "description": null,
+            "model": "test-model",
+            "dimension": 3,
+            "chunk_size": 512,
+            "chunk_overlap": 64,
+            "hnsw_m": null,
+            "hnsw_ef_construction": null,
+            "ivfflat_lists": null,
+            "is_default": null,
+            "supports_mrl": null,
+            "matryoshka_dims": null,
+            "default_truncate_dim": null,
+            "provider": null,
+            "provider_config": null,
+            "content_types": null,
+            "strengths": null,
+            "limitations": null,
+            "recommended_for": null,
+            "benchmark_scores": null,
+            "is_available": null,
+            "document_composition": {},
+            "created_at": timestamp,
+            "updated_at": timestamp
+        }))
+        .unwrap();
+        let config_json = serde_json::to_value(config).unwrap();
+        assert_eq!(config_json["id"], config_id.to_string());
+        assert!(config_json["provider"].is_null());
+        assert!(config_json["supports_mrl"].is_null());
+
+        let member = serde_json::from_value::<ShardEmbeddingSetMemberRecord>(serde_json::json!({
+            "embedding_set_id": set_id,
+            "note_id": note_id,
+            "membership_type": null,
+            "added_at": null,
+            "added_by": null
+        }))
+        .unwrap();
+        let member_json = serde_json::to_value(member).unwrap();
+        assert_eq!(member_json["embedding_set_id"], set_id.to_string());
+        assert_eq!(member_json["note_id"], note_id.to_string());
+        assert!(member_json["membership_type"].is_null());
+
+        let embedding = serde_json::from_value::<ShardEmbeddingRecord>(serde_json::json!({
+            "id": embedding_id,
+            "note_id": note_id,
+            "embedding_set_id": set_id,
+            "chunk_index": 0,
+            "text": "bounded test text",
+            "vector": [0.25, -0.5, 1.0],
+            "model": "test-model",
+            "created_at": timestamp
+        }))
+        .unwrap();
+        let embedding_json = serde_json::to_value(embedding).unwrap();
+        assert_eq!(embedding_json["id"], embedding_id.to_string());
+        assert_eq!(embedding_json["note_id"], note_id.to_string());
+        assert_eq!(embedding_json["embedding_set_id"], set_id.to_string());
+        assert_eq!(embedding_json["created_at"], timestamp);
+        assert_eq!(
+            embedding_json["vector"],
+            serde_json::json!([0.25, -0.5, 1.0])
+        );
+    }
+
+    #[test]
+    fn shard_embedding_export_record_limit_fails_instead_of_truncating() {
+        validate_shard_export_record_count(SHARD_MAX_RECORDS_PER_COMPONENT).unwrap();
+        let error =
+            validate_shard_export_record_count(SHARD_MAX_RECORDS_PER_COMPONENT + 1).unwrap_err();
+        let ApiError::BadRequest(message) = error else {
+            panic!("record overflow must be a validation error");
+        };
+        assert_eq!(
+            message,
+            "Knowledge shard component exceeds the record count limit."
         );
     }
 
