@@ -89,8 +89,18 @@ archive and must not be used to claim profile support.
 Digest-pinned candidate records for current original state, original-content
 history, the current revised snapshot, and the note revision chain. Runtime
 schema and relationship preflight use this corpus to reject duplicate,
-cross-note, or out-of-order revision references before any future apply path.
-The corpus is not a `full-v1` manifest or conformance claim.
+cross-note, or out-of-order revision references. Database tests separately
+prove transactional revision apply, convergence, and rollback. The corpus is
+not a `full-v1` manifest or conformance claim.
+
+### full-v1-provenance-candidate/
+
+Digest-pinned candidate records for revision-linked W3C-PROV edges and
+processing activities. Runtime schema and relationship preflight require edge
+and activity identities to be unique and require referenced note/revision
+identities to exist in the note-revision boundary. Spatial locations, devices,
+named places, unified attachment/note provenance, and apply behavior are not
+part of this corpus.
 
 ### schema-invalid/
 

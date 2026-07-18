@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.1.0/full-v1/provenance-edge.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 candidate provenance edge record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "revision_id",
+    "source_note_id",
+    "source_url",
+    "relation",
+    "created_at_utc"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "revision_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "source_note_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "source_url": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "relation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at_utc": {
+      "$ref": "#/$defs/dateTime"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nullableUuid": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}
