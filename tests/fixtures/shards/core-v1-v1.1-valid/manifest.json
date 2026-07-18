@@ -1,0 +1,31 @@
+{
+  "version": "1.1.0",
+  "profile": "core-v1",
+  "producer": {
+    "name": "fortemi",
+    "version": "2026.7.1",
+    "revision": "fixture-core-v1-v1.1-schema"
+  },
+  "format": "matric-shard",
+  "created_at": "2026-07-17T12:03:00Z",
+  "components": ["notes", "collections", "tags", "templates", "links"],
+  "counts": {
+    "notes": 1,
+    "collections": 1,
+    "tags": 1,
+    "templates": 1,
+    "links": 1,
+    "embedding_sets": 0,
+    "embedding_set_members": 0,
+    "embeddings": 0,
+    "embedding_configs": 0
+  },
+  "checksums": {
+    "notes.jsonl": "bb20b7e173b1de22644d6175e4287f39cf1e3f9a67995009359988805b809b2f",
+    "collections.json": "463e593c963de97a4f676374da0dafd38d38433cbdecddf3b58632263dac5e43",
+    "tags.json": "36b794bb9dda00a6ac09653c0a68dab306b20cdc716eaf8fc25d85ccf7e28e42",
+    "templates.json": "7d364d22cdfca298817620b81bffdbd716977535922e887c6b0bbc5bb1c11291",
+    "links.jsonl": "1962da6f5ac3f43e54b7711ee91dc8867109bec9a0f89f95893bed2016b63125"
+  },
+  "min_reader_version": "1.1.0"
+}

@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
-  "contractRevision": "1",
+  "contractRevision": "2",
   "authority": {
     "repository": "Fortemi/fortemi",
     "producerCommit": "Use the immutable Git commit containing this receipt."
   },
   "knowledgeShard": {
     "format": "matric-shard",
-    "schemaVersion": "1.0.0",
-    "minimumReaderVersion": "1.0.0"
+    "schemaVersion": "1.1.0",
+    "minimumReaderVersion": "1.1.0"
   },
   "profiles": {
     "core-v1": {
       "supported": true,
-      "schemaRoot": "contracts/knowledge-shard/1.0.0/core-v1",
+      "schemaRoot": "contracts/knowledge-shard/1.1.0/core-v1",
       "components": ["notes", "collections", "tags", "templates", "links"]
     },
     "full-v1": {
@@ -27,24 +27,34 @@
   },
   "schemaBundle": {
     "aggregateAlgorithm": "sha256(raw file bytes concatenated in lexicographic path order)",
-    "sha256": "2520ba0b3a8a020f5c540e88fd31233c7ddbe0d343d1e6a884ed689c8e1d3710",
+    "sha256": "272df54aac6abf90d3d2005c2cf7cf938e3e6e140d4d15d67f2732d9b5108230",
     "files": {
-      "contracts/knowledge-shard/1.0.0/core-v1/collection.schema.json": "af4bd6b0acaf79d7f750c24ee3eb049efaff154f31bd2c17dd10b2b5aa949af4",
-      "contracts/knowledge-shard/1.0.0/core-v1/link.schema.json": "dc9d610944c515d96012f4c4151ac7d2e001d72b2eb134c26a8fcf02a81cfd64",
-      "contracts/knowledge-shard/1.0.0/core-v1/manifest.schema.json": "65a6cf021d2fb3f167aab54253f54e1ea9f649f37bbc5944449a9cc456e4ee47",
-      "contracts/knowledge-shard/1.0.0/core-v1/note.schema.json": "e89728c7d722956b32ebc35cda70190398758bb00d6d7832bdc3da3d36d3db3f",
-      "contracts/knowledge-shard/1.0.0/core-v1/tag.schema.json": "18e59bc020ca2f4304dd6bd9dc5d2e8fd082b677d745f4f1b742ff0ccf9af01d",
-      "contracts/knowledge-shard/1.0.0/core-v1/template.schema.json": "5504829dcf4053d573b359b355885757ab053553b9be39a0930b02fb235dde59"
+      "contracts/knowledge-shard/1.1.0/core-v1/collection.schema.json": "4708374341b2ca1c9f51290c140281deaefd33aaad0cf5051d17b53eb23f3cf6",
+      "contracts/knowledge-shard/1.1.0/core-v1/link.schema.json": "c907ca29ab9233af2e8f45d0a39beeeb3c1bdf2219f947ac353689af6c1c848f",
+      "contracts/knowledge-shard/1.1.0/core-v1/manifest.schema.json": "b1946ade68d9ee0abd6f1ba083853f754d538bd8e07d03508b1b6a0793fa939d",
+      "contracts/knowledge-shard/1.1.0/core-v1/note.schema.json": "1494dda5ab3184ff0c302d91d103b10dfba4872c48dec7e2eaaf83d18f62d487",
+      "contracts/knowledge-shard/1.1.0/core-v1/tag.schema.json": "79f4a6a7a996600a0ddb44a6194e2744196c47af8d72c04b8d78a2f42899b92a",
+      "contracts/knowledge-shard/1.1.0/core-v1/template.schema.json": "fdd4f9a6d2c9e34652e67652424bd81d479bdd16772a0375dbf12bc4b181db17"
     }
   },
   "goldenCorpus": {
-    "root": "tests/fixtures/shards/core-v1-valid",
+    "root": "tests/fixtures/shards/core-v1-v1.1-valid",
     "aggregateAlgorithm": "sha256(raw file bytes concatenated in lexicographic path order)",
-    "sha256": "7e8c529b7f5ac404d27302499c74470e137b03d27fce54111acf8989b1147ae1"
+    "sha256": "7b19ec48e1d5dbf73e7664d7853fafa86227fc042f85c02ada6bbf75941de164"
+  },
+  "historicalReleases": {
+    "1.0.0/core-v1": {
+      "schemaRoot": "contracts/knowledge-shard/1.0.0/core-v1",
+      "migrationTo": "1.1.0",
+      "schemaBundleSha256": "2520ba0b3a8a020f5c540e88fd31233c7ddbe0d343d1e6a884ed689c8e1d3710",
+      "goldenCorpusRoot": "tests/fixtures/shards/core-v1-valid",
+      "goldenCorpusSha256": "7e8c529b7f5ac404d27302499c74470e137b03d27fce54111acf8989b1147ae1"
+    }
   },
   "limitations": [
-    "core-v1 attachment records are metadata/reference projections; attachment bytes are not included",
+    "schema 1.0.0 note records migrate missing deleted_at to the documented null active-state default",
+    "core-v1 attachment records are metadata/reference projections by default; optional verified sidecars do not establish full-v1 conformance",
     "full-v1 and record-v1 are reserved and are not supported by this release",
-    "this receipt does not establish atomic clean-database semantic roundtrip conformance"
+    "complete absent-versus-null preservation requires a later schema-major or new profile identifier"
   ]
 }

@@ -42,12 +42,20 @@ Canonical next-major `core-v1` manifest for incompatibility testing.
 
 ### core-v1-valid/
 
-Canonical non-empty `core-v1` golden corpus for the schemas under
+Immutable schema `1.0.0` `core-v1` golden corpus under
 `contracts/knowledge-shard/1.0.0/core-v1/`. It includes one record for every
-currently supported component and a manifest with exact component checksums.
+supported component and a manifest with exact component checksums. It remains
+the source fixture for the registered migration.
 
 The corpus demonstrates schema/profile/component validation only. Attachment
 entries are metadata/reference projections and do not include bytes.
+
+### core-v1-v1.1-valid/
+
+Current schema `1.1.0` `core-v1` golden corpus under
+`contracts/knowledge-shard/1.1.0/core-v1/`. Its note record carries explicit
+`deleted_at: null`; live database tests separately cover a non-null tombstone
+timestamp and repeated import convergence.
 
 ### schema-invalid/
 

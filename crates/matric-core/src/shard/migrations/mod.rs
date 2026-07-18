@@ -4,13 +4,11 @@
 //! Migrations are registered with the MigrationRegistry and applied
 //! automatically during import.
 
-// Future migrations will be added here:
-// pub mod v1_0_to_v1_1;
-// pub mod v1_1_to_v2_0;
+mod v1_0_to_v1_1;
+
+pub use v1_0_to_v1_1::V1_0ToV1_1;
 
 /// Get all registered migrations
 pub fn all_migrations() -> Vec<Box<dyn super::ShardMigration>> {
-    vec![
-        // Migrations will be added as schema evolves
-    ]
+    vec![Box::new(V1_0ToV1_1)]
 }

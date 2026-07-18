@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Current shard format version.
-pub const CURRENT_SHARD_VERSION: &str = "1.0.0";
+pub const CURRENT_SHARD_VERSION: &str = "1.1.0";
 
 /// Semantic version for shard format compatibility checking.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -205,7 +205,7 @@ mod tests {
     fn test_current_version_is_valid() {
         let current = Version::parse(CURRENT_SHARD_VERSION).unwrap();
         assert_eq!(current.major, 1);
-        assert_eq!(current.minor, 0);
+        assert_eq!(current.minor, 1);
         assert_eq!(current.patch, 0);
     }
 }

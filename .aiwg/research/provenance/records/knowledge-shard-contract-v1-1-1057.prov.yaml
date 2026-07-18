@@ -1,0 +1,63 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T04:56:02Z"
+  description: "Provenance for Fortemi issue #1057 Knowledge Shard schema 1.1.0 receipt"
+entity:
+  id: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:71361756949732e51b512c1078c93003a88544d67a4f90448ade36399bc80471"
+  type: contract
+  created_at: "2026-07-18T04:56:02Z"
+  updated_at: "2026-07-18T04:56:02Z"
+  checksum: "sha256:71361756949732e51b512c1078c93003a88544d67a4f90448ade36399bc80471"
+  size_bytes: 2832
+  attributes:
+    format: json
+    issue: "Fortemi/fortemi#1057"
+    contract_version: "1.1.0"
+    profile: "core-v1"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-tombstones-1057:007"
+  type: modification
+  started_at: "2026-07-18T04:35:00Z"
+  ended_at: "2026-07-18T04:56:02Z"
+  description: "Publish current schema 1.1.0 and golden corpus digests while retaining immutable 1.0.0 authority hashes and the registered migration target"
+  attributes:
+    verification:
+      - "canonical_core_v1_schema_receipt_matches_stable_files"
+      - "canonical_core_v1_schemas_compile_and_validate_golden_corpus"
+      - "canonical_core_v1_schemas_reject_negative_fixtures"
+      - "jq validation for receipt, schemas, and current corpus"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:71361756949732e51b512c1078c93003a88544d67a4f90448ade36399bc80471"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-tombstones-1057:007"
+    time: "2026-07-18T04:56:02Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-tombstones-1057:007"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1057"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-tombstones-1057:007"
+      entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:7f1089f178a2a7c853ef5bcc4facaa181c623a70c8ea22b199a3fec6f1d9dd6d"
+      role: architecture
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:71361756949732e51b512c1078c93003a88544d67a4f90448ade36399bc80471"
+      source: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:c6a64ce71bb5368b4fafbe4ec405e95760c3acb0f75d87a7203a9dd5c9642de7"
+      derivation_type: extends
+      activity: "urn:aiwg:activity:modification:knowledge-shard-tombstones-1057:007"
+    - entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:71361756949732e51b512c1078c93003a88544d67a4f90448ade36399bc80471"
+      source: "urn:gitea:issue:Fortemi/fortemi:1057"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:knowledge-shard-tombstones-1057:007"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-tombstones-1057:007"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:71361756949732e51b512c1078c93003a88544d67a4f90448ade36399bc80471"
+    agent: "urn:aiwg:agent:codex-gpt-5"

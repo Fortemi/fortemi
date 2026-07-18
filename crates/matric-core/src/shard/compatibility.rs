@@ -139,31 +139,26 @@ mod tests {
     }
 
     #[test]
-    fn test_older_patch_requires_migration() {
-        // Assuming CURRENT_SHARD_VERSION is 1.0.0
-        let result = check_shard_compatibility("1.0.0");
-        assert_eq!(result, CompatibilityResult::Compatible);
-
-        // If current were 1.0.1, then 1.0.0 would require migration
-        // But we can't change CURRENT_SHARD_VERSION in tests, so we test the logic differently
-    }
-
-    #[test]
     fn test_older_minor_requires_migration() {
-        // This test assumes current is 1.0.0, so we can't test older minor
-        // But the logic is: if shard < current, requires migration
-        // We'll test with a hypothetical scenario
+        let result = check_shard_compatibility("1.0.0");
+        assert_eq!(
+            result,
+            CompatibilityResult::RequiresMigration {
+                from: "1.0.0".to_string(),
+                to: CURRENT_SHARD_VERSION.to_string(),
+            }
+        );
     }
 
     #[test]
     fn test_newer_minor_forward_compatible() {
-        let result = check_shard_compatibility("1.1.0");
+        let result = check_shard_compatibility("1.2.0");
         match result {
             CompatibilityResult::NewerMinor {
                 shard_version,
                 warnings,
             } => {
-                assert_eq!(shard_version, "1.1.0");
+                assert_eq!(shard_version, "1.2.0");
                 assert!(!warnings.is_empty());
             }
             _ => panic!("Expected NewerMinor, got {:?}", result),
@@ -266,9 +261,9 @@ mod tests {
 
     #[test]
     fn test_migration_required_scenario() {
-        // Test with a version that's definitely older
-        // Since CURRENT_SHARD_VERSION is 1.0.0, we can't go lower in same major
-        // This is a limitation of testing against a constant
-        // In real usage, when current version advances, this will work
+        assert!(matches!(
+            check_shard_compatibility("1.0.0"),
+            CompatibilityResult::RequiresMigration { .. }
+        ));
     }
 }

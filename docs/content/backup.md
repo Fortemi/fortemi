@@ -36,7 +36,7 @@ Knowledge shards use **semantic versioning** (MAJOR.MINOR.PATCH) to ensure compa
 
 ### Current Version
 
-- **Shard format version**: `1.0.0`
+- **Shard format version**: `1.1.0`
 - **Default profile**: `core-v1`
 - **Defined in**: `crates/matric-core/src/shard/version.rs`
 
@@ -46,18 +46,20 @@ When importing a shard, Fortémi automatically checks version compatibility:
 
 | Scenario | Behavior |
 |----------|----------|
-| Same schema version (`1.0.0`) | Import after profile and archive preflight |
-| Older schema version | Import only when the migration registry has a complete path |
+| Same schema version (`1.1.0`) | Import after profile and archive preflight |
+| Schema `1.0.0` | Validate source bytes, migrate notes to `1.1.0`, validate again, then import |
 | Newer minor or patch | Reject until this reader explicitly supports it |
 | Different major | Reject as incompatible |
-| Minimum reader newer than `1.0.0` | Reject before mutation |
+| Minimum reader newer than `1.1.0` | Reject before mutation |
 
 ### Migration Support
 
-The current contract is `1.0.0`; no historical migration path is registered.
-Older shards are accepted only after a tested migration path is added.
-Application release versions belong in `producer.version` and do not
-participate in schema compatibility.
+The current contract is `1.1.0`. The registered `1.0.0 -> 1.1.0` migration
+maps the legacy absence of `deleted_at` to explicit JSON `null`, the documented
+active-note default. Current exports contain active and soft-deleted notes and
+emit either `deleted_at: null` or the exact tombstone timestamp. Application
+release versions belong in `producer.version` and do not participate in schema
+compatibility.
 
 For detailed information about versioning, compatibility, and troubleshooting, see the [Shard Migration Guide](#/core-systems-shard-migration).
 

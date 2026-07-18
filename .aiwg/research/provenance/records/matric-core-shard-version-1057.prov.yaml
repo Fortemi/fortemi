@@ -1,0 +1,56 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T04:56:02Z"
+  description: "Provenance for Fortemi issue #1057 current Knowledge Shard schema version"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-core/src/shard/version.rs:sha256:a7b7ebdf6a92bcd61fa24f769738486c135a3ce4d58fcbab05b1d4ff3ea67abb"
+  type: code
+  created_at: "2026-07-18T04:56:02Z"
+  updated_at: "2026-07-18T04:56:02Z"
+  checksum: "sha256:a7b7ebdf6a92bcd61fa24f769738486c135a3ce4d58fcbab05b1d4ff3ea67abb"
+  size_bytes: 6424
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1057"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-tombstones-1057:002"
+  type: modification
+  started_at: "2026-07-18T04:35:00Z"
+  ended_at: "2026-07-18T04:56:02Z"
+  description: "Advance the current Knowledge Shard schema version from 1.0.0 to 1.1.0"
+  attributes:
+    verification:
+      - "cargo test -p matric-core --lib --locked: 605 passed"
+      - "cargo clippy -p matric-api -p matric-core --all-targets --locked -- -D warnings"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-core/src/shard/version.rs:sha256:a7b7ebdf6a92bcd61fa24f769738486c135a3ce4d58fcbab05b1d4ff3ea67abb"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-tombstones-1057:002"
+    time: "2026-07-18T04:56:02Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-tombstones-1057:002"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1057"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-core/src/shard/version.rs:sha256:a7b7ebdf6a92bcd61fa24f769738486c135a3ce4d58fcbab05b1d4ff3ea67abb"
+      source: "urn:aiwg:artifact:crates/matric-core/src/shard/version.rs:sha256:3b562bb626a472f2ec4d7470a760f0a978026cd1436fa2580233cbd33d9f8698"
+      derivation_type: extends
+      activity: "urn:aiwg:activity:modification:knowledge-shard-tombstones-1057:002"
+    - entity: "urn:aiwg:artifact:crates/matric-core/src/shard/version.rs:sha256:a7b7ebdf6a92bcd61fa24f769738486c135a3ce4d58fcbab05b1d4ff3ea67abb"
+      source: "urn:gitea:issue:Fortemi/fortemi:1057"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:knowledge-shard-tombstones-1057:002"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-tombstones-1057:002"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-core/src/shard/version.rs:sha256:a7b7ebdf6a92bcd61fa24f769738486c135a3ce4d58fcbab05b1d4ff3ea67abb"
+    agent: "urn:aiwg:agent:codex-gpt-5"

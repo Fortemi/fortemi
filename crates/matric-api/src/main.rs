@@ -22032,6 +22032,8 @@ struct ShardNoteRecord {
     collection_id: Option<Uuid>,
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
+    #[serde(default)]
+    deleted_at: Option<chrono::DateTime<chrono::Utc>>,
     tags: Vec<String>,
     attachments: Vec<ShardAttachmentProjection>,
 }
@@ -22135,18 +22137,30 @@ const SHARD_MAX_RECORDS_PER_COMPONENT: usize = 250_000;
 const SHARD_MAX_RECORD_BYTES: usize = 4 * 1024 * 1024;
 const SHARD_REQUEST_OVERHEAD_BYTES: usize = 1024 * 1024;
 const SHARD_BLOB_ENTRY_PREFIX: &str = "blobs/";
-const CORE_V1_MANIFEST_SCHEMA: &str =
+const LEGACY_CORE_V1_MANIFEST_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.0.0/core-v1/manifest.schema.json");
-const CORE_V1_NOTE_SCHEMA: &str =
+const LEGACY_CORE_V1_NOTE_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.0.0/core-v1/note.schema.json");
-const CORE_V1_COLLECTION_SCHEMA: &str =
+const LEGACY_CORE_V1_COLLECTION_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.0.0/core-v1/collection.schema.json");
-const CORE_V1_TAG_SCHEMA: &str =
+const LEGACY_CORE_V1_TAG_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.0.0/core-v1/tag.schema.json");
-const CORE_V1_TEMPLATE_SCHEMA: &str =
+const LEGACY_CORE_V1_TEMPLATE_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.0.0/core-v1/template.schema.json");
-const CORE_V1_LINK_SCHEMA: &str =
+const LEGACY_CORE_V1_LINK_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.0.0/core-v1/link.schema.json");
+const CORE_V1_MANIFEST_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/core-v1/manifest.schema.json");
+const CORE_V1_NOTE_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/core-v1/note.schema.json");
+const CORE_V1_COLLECTION_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/core-v1/collection.schema.json");
+const CORE_V1_TAG_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/core-v1/tag.schema.json");
+const CORE_V1_TEMPLATE_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/core-v1/template.schema.json");
+const CORE_V1_LINK_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/core-v1/link.schema.json");
 
 #[derive(Clone, Copy)]
 struct ShardArchiveLimits {
@@ -22322,6 +22336,18 @@ fn validate_shard_json_schema(
 ) -> Result<(), String> {
     use std::sync::LazyLock;
 
+    static LEGACY_MANIFEST: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(LEGACY_CORE_V1_MANIFEST_SCHEMA));
+    static LEGACY_NOTE: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(LEGACY_CORE_V1_NOTE_SCHEMA));
+    static LEGACY_COLLECTION: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(LEGACY_CORE_V1_COLLECTION_SCHEMA));
+    static LEGACY_TAG: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(LEGACY_CORE_V1_TAG_SCHEMA));
+    static LEGACY_TEMPLATE: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(LEGACY_CORE_V1_TEMPLATE_SCHEMA));
+    static LEGACY_LINK: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(LEGACY_CORE_V1_LINK_SCHEMA));
     static MANIFEST: LazyLock<Result<jsonschema::Validator, String>> =
         LazyLock::new(|| compile_shard_json_schema(CORE_V1_MANIFEST_SCHEMA));
     static NOTE: LazyLock<Result<jsonschema::Validator, String>> =
@@ -22336,6 +22362,12 @@ fn validate_shard_json_schema(
         LazyLock::new(|| compile_shard_json_schema(CORE_V1_LINK_SCHEMA));
 
     let validator = match schema_json {
+        LEGACY_CORE_V1_MANIFEST_SCHEMA => &*LEGACY_MANIFEST,
+        LEGACY_CORE_V1_NOTE_SCHEMA => &*LEGACY_NOTE,
+        LEGACY_CORE_V1_COLLECTION_SCHEMA => &*LEGACY_COLLECTION,
+        LEGACY_CORE_V1_TAG_SCHEMA => &*LEGACY_TAG,
+        LEGACY_CORE_V1_TEMPLATE_SCHEMA => &*LEGACY_TEMPLATE,
+        LEGACY_CORE_V1_LINK_SCHEMA => &*LEGACY_LINK,
         CORE_V1_MANIFEST_SCHEMA => &*MANIFEST,
         CORE_V1_NOTE_SCHEMA => &*NOTE,
         CORE_V1_COLLECTION_SCHEMA => &*COLLECTION,
@@ -22353,24 +22385,43 @@ fn validate_shard_json_schema(
     }
 }
 
+fn shard_manifest_schema(version: &str) -> &'static str {
+    match version {
+        "1.1.0" => CORE_V1_MANIFEST_SCHEMA,
+        _ => LEGACY_CORE_V1_MANIFEST_SCHEMA,
+    }
+}
+
 fn parse_and_validate_shard_manifest(data: &[u8]) -> Result<ShardManifest, String> {
     let value = serde_json::from_slice::<serde_json::Value>(data)
         .map_err(|_| "Invalid knowledge shard manifest.".to_string())?;
+    let version = value
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "Knowledge shard schema version is required.".to_string())?;
+    matric_core::shard::Version::parse(version)
+        .map_err(|_| "Knowledge shard schema version must be strict SemVer.".to_string())?;
+    let schema = shard_manifest_schema(version);
     validate_shard_json_schema(
         &value,
-        CORE_V1_MANIFEST_SCHEMA,
+        schema,
         "Knowledge shard manifest does not match canonical core-v1 schema.",
     )?;
     serde_json::from_value(value).map_err(|_| "Invalid knowledge shard manifest.".to_string())
 }
 
-fn shard_component_schema(component: &str) -> Option<&'static str> {
-    match component {
-        "notes" => Some(CORE_V1_NOTE_SCHEMA),
-        "collections" => Some(CORE_V1_COLLECTION_SCHEMA),
-        "tags" => Some(CORE_V1_TAG_SCHEMA),
-        "templates" => Some(CORE_V1_TEMPLATE_SCHEMA),
-        "links" => Some(CORE_V1_LINK_SCHEMA),
+fn shard_component_schema(version: &str, component: &str) -> Option<&'static str> {
+    match (version, component) {
+        ("1.0.0", "notes") => Some(LEGACY_CORE_V1_NOTE_SCHEMA),
+        ("1.0.0", "collections") => Some(LEGACY_CORE_V1_COLLECTION_SCHEMA),
+        ("1.0.0", "tags") => Some(LEGACY_CORE_V1_TAG_SCHEMA),
+        ("1.0.0", "templates") => Some(LEGACY_CORE_V1_TEMPLATE_SCHEMA),
+        ("1.0.0", "links") => Some(LEGACY_CORE_V1_LINK_SCHEMA),
+        ("1.1.0", "notes") => Some(CORE_V1_NOTE_SCHEMA),
+        ("1.1.0", "collections") => Some(CORE_V1_COLLECTION_SCHEMA),
+        ("1.1.0", "tags") => Some(CORE_V1_TAG_SCHEMA),
+        ("1.1.0", "templates") => Some(CORE_V1_TEMPLATE_SCHEMA),
+        ("1.1.0", "links") => Some(CORE_V1_LINK_SCHEMA),
         _ => None,
     }
 }
@@ -22484,8 +22535,12 @@ fn parse_shard_component_records_with_limits(
     }
 }
 
-fn validate_shard_component_schema(component: &str, data: &[u8]) -> Result<usize, String> {
-    let schema = shard_component_schema(component)
+fn validate_shard_component_schema(
+    version: &str,
+    component: &str,
+    data: &[u8],
+) -> Result<usize, String> {
+    let schema = shard_component_schema(version, component)
         .ok_or_else(|| "Unsupported knowledge shard component.".to_string())?;
     let records = parse_shard_component_records(component, data)?;
     for record in &records {
@@ -22815,7 +22870,7 @@ fn validate_shard_component_inventory(
         let data = files
             .get(filename)
             .ok_or_else(|| "Knowledge shard declared component file is missing.".to_string())?;
-        let actual_count = validate_shard_component_schema(component, data)?;
+        let actual_count = validate_shard_component_schema(&manifest.version, component, data)?;
         let expected_count = match component.as_str() {
             "notes" => manifest.counts.notes,
             "collections" => manifest.counts.collections,
@@ -22870,6 +22925,117 @@ fn selected_shard_import_components(
         }
     };
     Ok(requested)
+}
+
+struct MigratedShardArchive {
+    manifest: ShardManifest,
+    files: std::collections::HashMap<String, Vec<u8>>,
+    warnings: Vec<String>,
+}
+
+fn serialize_shard_component_records(
+    component: &str,
+    records: &[serde_json::Value],
+) -> Result<Vec<u8>, String> {
+    match component {
+        "notes" | "links" => {
+            let lines = records
+                .iter()
+                .map(serde_json::to_string)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| "Knowledge shard migration serialization failed.".to_string())?;
+            Ok(lines.join("\n").into_bytes())
+        }
+        "collections" | "tags" | "templates" => serde_json::to_vec(records)
+            .map_err(|_| "Knowledge shard migration serialization failed.".to_string()),
+        _ => Err("Unsupported knowledge shard component.".to_string()),
+    }
+}
+
+fn migrate_shard_archive_to_current(
+    mut manifest: ShardManifest,
+    mut files: std::collections::HashMap<String, Vec<u8>>,
+) -> Result<MigratedShardArchive, String> {
+    use matric_core::shard::{migrations, MigrationRegistry, CURRENT_SHARD_VERSION};
+    use sha2::{Digest, Sha256};
+
+    if manifest.version == CURRENT_SHARD_VERSION {
+        return Ok(MigratedShardArchive {
+            manifest,
+            files,
+            warnings: Vec::new(),
+        });
+    }
+
+    let source_version = manifest.version.clone();
+    let mut registry = MigrationRegistry::new();
+    for migration in migrations::all_migrations() {
+        registry.register(migration);
+    }
+    let path = registry
+        .find_path(&source_version, CURRENT_SHARD_VERSION)
+        .ok_or_else(|| "No migration path exists for this shard schema version.".to_string())?;
+    if path.is_empty() {
+        return Err("Knowledge shard migration path is invalid.".to_string());
+    }
+
+    let mut defaulted_tombstones = 0usize;
+    if let Some(notes_data) = files.get("notes.jsonl") {
+        let records = parse_shard_component_records("notes", notes_data)?;
+        let migrated = records
+            .into_iter()
+            .map(|record| {
+                let result = registry
+                    .migrate(record, &source_version, CURRENT_SHARD_VERSION)
+                    .map_err(|_| "Knowledge shard record migration failed.".to_string())?;
+                defaulted_tombstones += result
+                    .warnings
+                    .iter()
+                    .filter(|warning| {
+                        matches!(
+                            warning,
+                            matric_core::shard::MigrationWarning::DefaultApplied { field, .. }
+                                if field == "deleted_at"
+                        )
+                    })
+                    .count();
+                Ok(result.data)
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let migrated_data = serialize_shard_component_records("notes", &migrated)?;
+        manifest.checksums.insert(
+            "notes.jsonl".to_string(),
+            hex::encode(Sha256::digest(&migrated_data)),
+        );
+        files.insert("notes.jsonl".to_string(), migrated_data);
+    }
+
+    manifest.version = CURRENT_SHARD_VERSION.to_string();
+    manifest.min_reader_version = Some(CURRENT_SHARD_VERSION.to_string());
+    if manifest.migrated_from.is_none() {
+        manifest.migrated_from = Some(source_version.clone());
+    }
+    manifest.migration_history.push(MigrationHistoryEntry {
+        from_version: source_version.clone(),
+        to_version: CURRENT_SHARD_VERSION.to_string(),
+        migrated_at: chrono::Utc::now(),
+        migrated_by: format!("fortemi/{}", env!("CARGO_PKG_VERSION")),
+        changes: vec![
+            "defaulted legacy note deleted_at absence to explicit null active state".to_string(),
+        ],
+    });
+    let manifest_data = serde_json::to_vec_pretty(&manifest)
+        .map_err(|_| "Knowledge shard migration serialization failed.".to_string())?;
+    files.insert("manifest.json".to_string(), manifest_data);
+
+    Ok(MigratedShardArchive {
+        manifest,
+        files,
+        warnings: vec![format!(
+            "Migrated Knowledge Shard schema {source_version} to {CURRENT_SHARD_VERSION}; \
+             defaulted deleted_at to null for {defaulted_tombstones} legacy note records."
+        )],
+    })
 }
 
 async fn load_shard_blob_sidecars_tx(
@@ -22983,6 +23149,7 @@ async fn knowledge_shard(
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use sha2::{Digest, Sha256};
+    use sqlx::Row;
 
     use tar::Builder;
 
@@ -23052,59 +23219,69 @@ async fn knowledge_shard(
             Ok(())
         };
 
-        // Export notes (paginated to handle archives larger than the DB list limit)
+        // Export notes, including tombstones, in bounded database pages.
         if components.contains(&"notes") {
-            let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
             let tags_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
             let mut notes_json = Vec::new();
             let page_size = 100;
             let mut offset = 0;
 
             loop {
-                let list_req = ListNotesRequest {
-                    limit: Some(page_size),
-                    offset: Some(offset),
-                    ..Default::default()
-                };
-                let notes_response = notes_repo.list_tx(&mut tx, list_req).await?;
+                let rows = sqlx::query(
+                    "SELECT n.id, n.title, no.content AS original_content,
+                            COALESCE(nrc.content, '') AS revised_content,
+                            n.metadata, n.format, n.source, n.starred, n.archived,
+                            n.collection_id, n.created_at_utc, n.updated_at_utc,
+                            n.deleted_at
+                     FROM note n
+                     JOIN note_original no ON no.note_id = n.id
+                     LEFT JOIN note_revised_current nrc ON nrc.note_id = n.id
+                     ORDER BY n.created_at_utc DESC, n.id
+                     LIMIT $1 OFFSET $2",
+                )
+                .bind(page_size)
+                .bind(offset)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|error| shard_operation_failed("load note export page", error))?;
 
-                if notes_response.notes.is_empty() {
+                if rows.is_empty() {
                     break;
                 }
 
-                for note in &notes_response.notes {
-                    if let Ok(full_note) = notes_repo.fetch_tx(&mut tx, note.id).await {
-                        exported_note_ids.push(note.id);
-                        let note_tags = tags_repo
-                            .get_for_note_tx(&mut tx, note.id)
-                            .await
-                            .unwrap_or_default();
-                        let attachments = binary_attachment_export_projections_tx(&mut tx, note.id)
-                            .await
-                            .map_err(|e| {
-                                shard_operation_failed("load attachment export projections", e)
-                            })?;
-                        let note_obj = serde_json::json!({
-                            "id": full_note.note.id,
-                            "title": full_note.note.title,
-                            "original_content": full_note.original.content,
-                            "revised_content": full_note.revised.content,
-                            "metadata": full_note.note.metadata,
-                            "format": full_note.note.format,
-                            "source": full_note.note.source,
-                            "starred": full_note.note.starred,
-                            "archived": full_note.note.archived,
-                            "collection_id": full_note.note.collection_id,
-                            "created_at": full_note.note.created_at_utc,
-                            "updated_at": full_note.note.updated_at_utc,
-                            "tags": note_tags,
-                            "attachments": attachments,
-                        });
-                        notes_json.push(serde_json::to_string(&note_obj).unwrap_or_default());
-                    }
+                for row in &rows {
+                    let note_id: Uuid = row.get("id");
+                    exported_note_ids.push(note_id);
+                    let note_tags = tags_repo
+                        .get_for_note_tx(&mut tx, note_id)
+                        .await
+                        .unwrap_or_default();
+                    let attachments = binary_attachment_export_projections_tx(&mut tx, note_id)
+                        .await
+                        .map_err(|e| {
+                            shard_operation_failed("load attachment export projections", e)
+                        })?;
+                    let note_obj = serde_json::json!({
+                        "id": note_id,
+                        "title": row.get::<Option<String>, _>("title"),
+                        "original_content": row.get::<String, _>("original_content"),
+                        "revised_content": row.get::<String, _>("revised_content"),
+                        "metadata": row.get::<serde_json::Value, _>("metadata"),
+                        "format": row.get::<String, _>("format"),
+                        "source": row.get::<String, _>("source"),
+                        "starred": row.get::<Option<bool>, _>("starred").unwrap_or(false),
+                        "archived": row.get::<Option<bool>, _>("archived").unwrap_or(false),
+                        "collection_id": row.get::<Option<Uuid>, _>("collection_id"),
+                        "created_at": row.get::<chrono::DateTime<chrono::Utc>, _>("created_at_utc"),
+                        "updated_at": row.get::<chrono::DateTime<chrono::Utc>, _>("updated_at_utc"),
+                        "deleted_at": row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("deleted_at"),
+                        "tags": note_tags,
+                        "attachments": attachments,
+                    });
+                    notes_json.push(serde_json::to_string(&note_obj).unwrap_or_default());
                 }
 
-                if (notes_response.notes.len() as i64) < page_size {
+                if (rows.len() as i64) < page_size {
                     break;
                 }
                 offset += page_size;
@@ -27351,12 +27528,13 @@ async fn apply_validated_shard_components(
                 }
                 sqlx::query(
                     "UPDATE note
-                     SET created_at_utc = $2, updated_at_utc = $3
+                     SET created_at_utc = $2, updated_at_utc = $3, deleted_at = $4
                      WHERE id = $1",
                 )
                 .bind(note_id)
                 .bind(note.created_at)
                 .bind(note.updated_at)
+                .bind(note.deleted_at)
                 .execute(&mut *tx)
                 .await
                 .map_err(|error| {
@@ -27370,7 +27548,7 @@ async fn apply_validated_shard_components(
                     &mut used_staged_blobs,
                 )
                 .await?;
-                if !opts.skip_embedding_regen {
+                if !opts.skip_embedding_regen && note.deleted_at.is_none() {
                     queued_note_ids.push(note_id);
                 }
                 imported.notes += 1;
@@ -27593,21 +27771,45 @@ async fn knowledge_shard_import_internal_with_wipe(
         None
     };
 
-    let files = read_shard_archive(
+    let source_files = read_shard_archive(
         shard_bytes,
         ShardArchiveLimits::for_compressed_limit(state.max_upload_size),
     )
     .map_err(ApiError::BadRequest)?;
 
     let mut warnings: Vec<String> = Vec::new();
-    let manifest_data = files
+    let manifest_data = source_files
         .get("manifest.json")
         .ok_or_else(|| shard_validation_failed("Knowledge shard manifest is required."))?;
-    let manifest = parse_and_validate_shard_manifest(manifest_data)
+    let source_manifest = parse_and_validate_shard_manifest(manifest_data)
         .map_err(|error| ApiError::BadRequest(error.to_string()))?;
-    let selected_components = selected_shard_import_components(&manifest, opts.include.as_deref())
+    validate_shard_manifest_contract(&source_manifest).map_err(ApiError::BadRequest)?;
+
+    for (filename, expected) in &source_manifest.checksums {
+        let contents = source_files.get(filename).ok_or_else(|| {
+            shard_validation_failed("Shard component declared by checksum is missing.")
+        })?;
+        let actual = hex::encode(Sha256::digest(contents));
+        if &actual != expected {
+            return Err(shard_validation_failed(
+                "Knowledge shard checksum validation failed.",
+            ));
+        }
+    }
+    validate_shard_component_inventory(&source_manifest, &source_files)
+        .map_err(ApiError::BadRequest)?;
+    let source_attachment_digests =
+        validate_shard_relationships(&source_files).map_err(ApiError::BadRequest)?;
+    validate_shard_sidecars(&source_files, &source_attachment_digests)
         .map_err(ApiError::BadRequest)?;
 
+    let migrated = migrate_shard_archive_to_current(source_manifest, source_files)
+        .map_err(ApiError::BadRequest)?;
+    warnings.extend(migrated.warnings);
+    let manifest = migrated.manifest;
+    let files = migrated.files;
+    let selected_components = selected_shard_import_components(&manifest, opts.include.as_deref())
+        .map_err(ApiError::BadRequest)?;
     for (filename, expected) in &manifest.checksums {
         let contents = files.get(filename).ok_or_else(|| {
             shard_validation_failed("Shard component declared by checksum is missing.")
@@ -35993,7 +36195,7 @@ mod tests {
     #[test]
     fn shard_canonical_manifest_fixtures_cover_current_and_next_major() {
         let current = parse_and_validate_shard_manifest(include_bytes!(
-            "../../../tests/fixtures/shards/v1.0.0-minimal.json"
+            "../../../tests/fixtures/shards/core-v1-v1.1-valid/manifest.json"
         ))
         .expect("current manifest fixture must match canonical schema");
         validate_shard_manifest_contract(&current)
@@ -36012,6 +36214,12 @@ mod tests {
     #[test]
     fn canonical_core_v1_schemas_compile_and_validate_golden_corpus() {
         for schema_json in [
+            LEGACY_CORE_V1_MANIFEST_SCHEMA,
+            LEGACY_CORE_V1_NOTE_SCHEMA,
+            LEGACY_CORE_V1_COLLECTION_SCHEMA,
+            LEGACY_CORE_V1_TAG_SCHEMA,
+            LEGACY_CORE_V1_TEMPLATE_SCHEMA,
+            LEGACY_CORE_V1_LINK_SCHEMA,
             CORE_V1_MANIFEST_SCHEMA,
             CORE_V1_NOTE_SCHEMA,
             CORE_V1_COLLECTION_SCHEMA,
@@ -36025,7 +36233,7 @@ mod tests {
         }
 
         let manifest_data =
-            include_bytes!("../../../tests/fixtures/shards/core-v1-valid/manifest.json");
+            include_bytes!("../../../tests/fixtures/shards/core-v1-v1.1-valid/manifest.json");
         let manifest = parse_and_validate_shard_manifest(manifest_data)
             .expect("golden manifest must match canonical schema");
         validate_shard_manifest_contract(&manifest)
@@ -36038,25 +36246,30 @@ mod tests {
             ),
             (
                 "notes.jsonl".to_string(),
-                include_bytes!("../../../tests/fixtures/shards/core-v1-valid/notes.jsonl").to_vec(),
-            ),
-            (
-                "collections.json".to_string(),
-                include_bytes!("../../../tests/fixtures/shards/core-v1-valid/collections.json")
+                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.1-valid/notes.jsonl")
                     .to_vec(),
             ),
             (
+                "collections.json".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/core-v1-v1.1-valid/collections.json"
+                )
+                .to_vec(),
+            ),
+            (
                 "tags.json".to_string(),
-                include_bytes!("../../../tests/fixtures/shards/core-v1-valid/tags.json").to_vec(),
+                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.1-valid/tags.json")
+                    .to_vec(),
             ),
             (
                 "templates.json".to_string(),
-                include_bytes!("../../../tests/fixtures/shards/core-v1-valid/templates.json")
+                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.1-valid/templates.json")
                     .to_vec(),
             ),
             (
                 "links.jsonl".to_string(),
-                include_bytes!("../../../tests/fixtures/shards/core-v1-valid/links.jsonl").to_vec(),
+                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.1-valid/links.jsonl")
+                    .to_vec(),
             ),
         ]
         .into_iter()
@@ -36311,7 +36524,7 @@ mod tests {
             on_conflict: ConflictStrategy::Replace,
             skip_embedding_regen: true,
         };
-        knowledge_shard_import_internal(
+        let seeded = knowledge_shard_import_internal(
             &state,
             &hierarchical_core_shard_bytes(),
             &opts,
@@ -36319,6 +36532,46 @@ mod tests {
         )
         .await
         .expect("seed isolated shard source");
+        let seeded_manifest = seeded.manifest.expect("migration returns current manifest");
+        assert_eq!(
+            seeded_manifest.version,
+            matric_core::shard::CURRENT_SHARD_VERSION
+        );
+        assert_eq!(seeded_manifest.migrated_from.as_deref(), Some("1.0.0"));
+        assert_eq!(seeded_manifest.migration_history.len(), 1);
+        assert_eq!(seeded_manifest.migration_history[0].from_version, "1.0.0");
+        assert_eq!(
+            seeded_manifest.migration_history[0].to_version,
+            matric_core::shard::CURRENT_SHARD_VERSION
+        );
+        assert!(seeded
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("defaulted deleted_at to null for 2")));
+
+        let deleted_note_id = Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e778").unwrap();
+        let deleted_at = chrono::DateTime::parse_from_rfc3339("2026-07-17T12:30:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let source_ctx = db.for_schema(&source.schema_name).unwrap();
+        source_ctx
+            .execute(move |tx| {
+                Box::pin(async move {
+                    sqlx::query(
+                        "UPDATE note
+                         SET deleted_at = $2, updated_at_utc = $2
+                         WHERE id = $1",
+                    )
+                    .bind(deleted_note_id)
+                    .bind(deleted_at)
+                    .execute(&mut **tx)
+                    .await
+                    .map(|_| ())
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("mark source note as a tombstone");
 
         let export = knowledge_shard(
             State(state.clone()),
@@ -36339,6 +36592,24 @@ mod tests {
         let exported_bytes = axum::body::to_bytes(export.into_body(), usize::MAX)
             .await
             .expect("read server export");
+        let exported_files =
+            read_shard_archive(&exported_bytes, ShardArchiveLimits::default()).unwrap();
+        let exported_manifest =
+            parse_and_validate_shard_manifest(&exported_files["manifest.json"]).unwrap();
+        assert_eq!(
+            exported_manifest.version,
+            matric_core::shard::CURRENT_SHARD_VERSION
+        );
+        let exported_notes =
+            parse_shard_component_records("notes", &exported_files["notes.jsonl"]).unwrap();
+        assert_eq!(exported_notes.len(), 2);
+        assert!(exported_notes
+            .iter()
+            .any(|note| note["deleted_at"].is_null()));
+        assert!(exported_notes.iter().any(|note| {
+            note["id"] == "018f2d2d-bc00-7cc8-8ad2-f147d6a2e778"
+                && note["deleted_at"] == "2026-07-17T12:30:00Z"
+        }));
 
         let destination_name = format!("shard-destination-{}", Uuid::new_v4().simple());
         let destination = db
@@ -36749,6 +37020,13 @@ mod tests {
                     .fetch_one(&mut **tx)
                     .await
                     .map_err(matric_db::Error::Database)?;
+                    let tombstones =
+                        sqlx::query_as::<_, (Uuid, Option<chrono::DateTime<chrono::Utc>>)>(
+                            "SELECT id, deleted_at FROM note ORDER BY id",
+                        )
+                        .fetch_all(&mut **tx)
+                        .await
+                        .map_err(matric_db::Error::Database)?;
                     let counts = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
                         "SELECT
                            (SELECT COUNT(*) FROM collection),
@@ -36761,7 +37039,16 @@ mod tests {
                     .fetch_one(&mut **tx)
                     .await
                     .map_err(matric_db::Error::Database)?;
-                    Ok((child, note, template, link, attachments, blob, counts))
+                    Ok((
+                        child,
+                        note,
+                        template,
+                        link,
+                        attachments,
+                        blob,
+                        tombstones,
+                        counts,
+                    ))
                 })
             })
             .await
@@ -36872,7 +37159,21 @@ mod tests {
                 2,
             )
         );
-        assert_eq!(snapshot.6, (2, 2, 1, 1, 2, 1));
+        assert_eq!(snapshot.6.len(), 2);
+        assert!(snapshot.6.iter().any(|(id, value)| {
+            *id == Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a").unwrap()
+                && value.is_none()
+        }));
+        assert!(snapshot.6.iter().any(|(id, value)| {
+            *id == Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e778").unwrap()
+                && *value
+                    == Some(
+                        chrono::DateTime::parse_from_rfc3339("2026-07-17T12:30:00Z")
+                            .unwrap()
+                            .with_timezone(&chrono::Utc),
+                    )
+        }));
+        assert_eq!(snapshot.7, (2, 2, 1, 1, 2, 1));
 
         db.archives
             .drop_archive_schema(&destination_name)
@@ -37156,8 +37457,12 @@ mod tests {
             "../../../contracts/knowledge-shard/contract.json"
         ))
         .expect("contract receipt must be valid JSON");
-        assert_eq!(receipt["contractRevision"], "1");
-        assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.0.0");
+        assert_eq!(receipt["contractRevision"], "2");
+        assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
+        assert_eq!(
+            receipt["profiles"]["core-v1"]["schemaRoot"],
+            "contracts/knowledge-shard/1.1.0/core-v1"
+        );
         assert_eq!(receipt["profiles"]["core-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
         assert_eq!(receipt["profiles"]["record-v1"]["supported"], false);
@@ -37188,12 +37493,12 @@ mod tests {
 
         let mut fixture_bundle = sha2::Sha256::new();
         for relative in [
-            "tests/fixtures/shards/core-v1-valid/collections.json",
-            "tests/fixtures/shards/core-v1-valid/links.jsonl",
-            "tests/fixtures/shards/core-v1-valid/manifest.json",
-            "tests/fixtures/shards/core-v1-valid/notes.jsonl",
-            "tests/fixtures/shards/core-v1-valid/tags.json",
-            "tests/fixtures/shards/core-v1-valid/templates.json",
+            "tests/fixtures/shards/core-v1-v1.1-valid/collections.json",
+            "tests/fixtures/shards/core-v1-v1.1-valid/links.jsonl",
+            "tests/fixtures/shards/core-v1-v1.1-valid/manifest.json",
+            "tests/fixtures/shards/core-v1-v1.1-valid/notes.jsonl",
+            "tests/fixtures/shards/core-v1-v1.1-valid/tags.json",
+            "tests/fixtures/shards/core-v1-v1.1-valid/templates.json",
         ] {
             fixture_bundle.update(
                 std::fs::read(workspace_root.join(relative))
@@ -37205,6 +37510,49 @@ mod tests {
             receipt["goldenCorpus"]["sha256"]
                 .as_str()
                 .expect("fixture bundle digest must be a string")
+        );
+
+        let historical = &receipt["historicalReleases"]["1.0.0/core-v1"];
+        let mut historical_schema_bundle = sha2::Sha256::new();
+        for relative in [
+            "contracts/knowledge-shard/1.0.0/core-v1/collection.schema.json",
+            "contracts/knowledge-shard/1.0.0/core-v1/link.schema.json",
+            "contracts/knowledge-shard/1.0.0/core-v1/manifest.schema.json",
+            "contracts/knowledge-shard/1.0.0/core-v1/note.schema.json",
+            "contracts/knowledge-shard/1.0.0/core-v1/tag.schema.json",
+            "contracts/knowledge-shard/1.0.0/core-v1/template.schema.json",
+        ] {
+            historical_schema_bundle.update(
+                std::fs::read(workspace_root.join(relative))
+                    .expect("historical schema receipt path must exist"),
+            );
+        }
+        assert_eq!(
+            hex::encode(historical_schema_bundle.finalize()),
+            historical["schemaBundleSha256"]
+                .as_str()
+                .expect("historical schema digest must be a string")
+        );
+
+        let mut historical_fixture_bundle = sha2::Sha256::new();
+        for relative in [
+            "tests/fixtures/shards/core-v1-valid/collections.json",
+            "tests/fixtures/shards/core-v1-valid/links.jsonl",
+            "tests/fixtures/shards/core-v1-valid/manifest.json",
+            "tests/fixtures/shards/core-v1-valid/notes.jsonl",
+            "tests/fixtures/shards/core-v1-valid/tags.json",
+            "tests/fixtures/shards/core-v1-valid/templates.json",
+        ] {
+            historical_fixture_bundle.update(
+                std::fs::read(workspace_root.join(relative))
+                    .expect("historical corpus receipt path must exist"),
+            );
+        }
+        assert_eq!(
+            hex::encode(historical_fixture_bundle.finalize()),
+            historical["goldenCorpusSha256"]
+                .as_str()
+                .expect("historical corpus digest must be a string")
         );
     }
 
@@ -37220,6 +37568,7 @@ mod tests {
         );
 
         let note_error = validate_shard_component_schema(
+            matric_core::shard::CURRENT_SHARD_VERSION,
             "notes",
             include_bytes!("../../../tests/fixtures/shards/schema-invalid/note-missing-id.json"),
         )
@@ -37230,6 +37579,7 @@ mod tests {
         );
 
         let link_error = validate_shard_component_schema(
+            matric_core::shard::CURRENT_SHARD_VERSION,
             "links",
             include_bytes!(
                 "../../../tests/fixtures/shards/schema-invalid/link-ambiguous-target.json"
@@ -37242,12 +37592,21 @@ mod tests {
         );
 
         let valid_note: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../tests/fixtures/shards/core-v1-valid/notes.jsonl"
+            "../../../tests/fixtures/shards/core-v1-v1.1-valid/notes.jsonl"
         ))
         .expect("golden note must parse");
+        let mut tombstone_note = valid_note.clone();
+        tombstone_note["deleted_at"] = serde_json::json!("2026-07-18T00:00:00Z");
+        validate_shard_json_schema(
+            &tombstone_note,
+            CORE_V1_NOTE_SCHEMA,
+            "Knowledge shard component does not match canonical core-v1 schema.",
+        )
+        .expect("canonical tombstone timestamp must validate");
         for (field, value) in [
             ("id", serde_json::json!("not-a-uuid")),
             ("created_at", serde_json::json!("not-a-timestamp")),
+            ("deleted_at", serde_json::json!("not-a-timestamp")),
         ] {
             let mut invalid = valid_note.clone();
             invalid[field] = value;
@@ -37287,7 +37646,7 @@ mod tests {
         );
 
         let valid_manifest: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../tests/fixtures/shards/core-v1-valid/manifest.json"
+            "../../../tests/fixtures/shards/core-v1-v1.1-valid/manifest.json"
         ))
         .expect("golden manifest must parse");
         for (pointer, value) in [
@@ -37350,6 +37709,16 @@ mod tests {
             validate_shard_manifest_contract(&manifest).unwrap_err(),
             "Knowledge shard schema version is incompatible."
         );
+
+        manifest.version = "1.0.1".to_string();
+        assert_eq!(
+            validate_shard_manifest_contract(&manifest).unwrap_err(),
+            "No migration path exists for this shard schema version."
+        );
+
+        manifest.version = "1.0.0".to_string();
+        validate_shard_manifest_contract(&manifest)
+            .expect("registered legacy schema version must have a migration path");
     }
 
     #[test]

@@ -3,9 +3,10 @@
 ## Canonical Contract
 
 Fortemi owns the normative Knowledge Shard schemas. The current supported
-contract is schema `1.0.0`, profile `core-v1`, under
-`contracts/knowledge-shard/1.0.0/core-v1/`. Exact file digests and the golden
-corpus receipt are recorded in `contracts/knowledge-shard/contract.json`.
+contract is schema `1.1.0`, profile `core-v1`, under
+`contracts/knowledge-shard/1.1.0/core-v1/`. The immutable `1.0.0` schemas,
+current and historical file digests, golden corpora, and migration target are
+recorded in `contracts/knowledge-shard/contract.json`.
 
 Consumers must pin an immutable Fortemi commit and verify the receipt before
 using vendored copies. The current schemas cover the manifest plus note,
@@ -15,8 +16,10 @@ reserved and unsupported.
 Schema validation is necessary but not a full recovery claim. The current
 `core-v1` REST route is reference-only by default and can opt into verified
 attachment sidecars with `include_blobs=true`; import restores present valid
-sidecars and preserves missing entries as references. This bounded slice does
-not prove historical migration, signature, streaming, or `full-v1` conformance.
+sidecars and preserves missing entries as references. Schema `1.1.0` also
+preserves active and soft-deleted notes through explicit `deleted_at` values.
+This bounded slice does not prove current-minus-two migration, signature,
+streaming, or `full-v1` conformance.
 
 This guide explains how Fortémi handles versioned knowledge shards, including compatibility checking, automatic migration, and troubleshooting.
 
@@ -63,7 +66,7 @@ Fortémi uses **semantic versioning** for knowledge shards to ensure safe import
 The current shard format version is defined in `crates/matric-core/src/shard/version.rs`:
 
 ```rust
-pub const CURRENT_SHARD_VERSION: &str = "1.0.0";
+pub const CURRENT_SHARD_VERSION: &str = "1.1.0";
 ```
 
 ## Compatibility Matrix
@@ -72,42 +75,41 @@ When you import a knowledge shard, Fortémi checks version compatibility and tak
 
 | Scenario | Shard Version | Current Version | Behavior | Example |
 |----------|---------------|-----------------|----------|---------|
-| **Same version** | 1.0.0 | 1.0.0 | Import directly | No changes needed |
-| **Older minor** | 1.0.0 | 1.1.0 | Import directly | Ignore unknown fields from newer version |
-| **Newer minor** | 1.1.0 | 1.0.0 | Import with warning | Some features may not be available |
-| **Older major** | 1.x.x | 2.0.0 | Auto-migrate via registry | Apply migration 1.x.x → 2.0.0 |
-| **Newer major** | 2.0.0 | 1.0.0 | Fail with guidance | Upgrade Fortémi to v2.0.0+ |
+| **Same version** | 1.1.0 | 1.1.0 | Import directly | No changes needed |
+| **Registered older version** | 1.0.0 | 1.1.0 | Validate, migrate, revalidate, import | `deleted_at` absence defaults to `null` |
+| **Unregistered older version** | 1.0.1 | 1.1.0 | Reject before writes | No exact migration path |
+| **Newer minor** | 1.2.0 | 1.1.0 | Reject before writes | Explicit reader support required |
+| **Newer major** | 2.0.0 | 1.1.0 | Reject before writes | Upgrade Fortémi |
 
 ### Compatibility Rules
 
 #### 1. Same Version (Compatible)
 ```
-Shard: 1.0.0, Current: 1.0.0
+Shard: 1.1.0, Current: 1.1.0
 ✓ Import directly
 ✓ All features available
 ✓ No warnings
 ```
 
-#### 2. Older Minor Version (Compatible)
+#### 2. Registered Older Version
 ```
 Shard: 1.0.0, Current: 1.1.0
-✓ Import directly
-✓ New fields in current version use defaults
-✓ No migration needed
+✓ Validate original checksums and schema
+✓ Migrate missing deleted_at to explicit null
+✓ Recompute the migrated component receipt
+✓ Validate the 1.1.0 representation before writes
 ```
 
-#### 3. Newer Minor Version (Forward-Compatible)
+#### 3. Newer Minor Version
 ```
-Shard: 1.1.0, Current: 1.0.0
-⚠ Import with warnings
-⚠ Unknown fields are preserved but may be ignored
-⚠ Some features may not be available
+Shard: 1.2.0, Current: 1.1.0
+✗ Import fails before writes
+✗ Explicit schema and migration support is required
 ```
 
-**Warning message:**
+**Error message:**
 ```
-Shard was created with a newer version (1.1.0) than current (1.0.0)
-Some features may not be available or may be ignored
+Knowledge shard schema version is newer than this reader.
 ```
 
 #### 4. Older Major Version (Requires Migration)
@@ -120,7 +122,7 @@ Shard: 1.2.0, Current: 2.0.0
 
 #### 5. Newer Major Version (Incompatible)
 ```
-Shard: 2.0.0, Current: 1.0.0
+Shard: 2.0.0, Current: 1.1.0
 ✗ Import fails
 ✗ Upgrade required
 ```
@@ -145,19 +147,19 @@ When a shard requires migration, Fortémi uses a **migration registry** to autom
 
 ### Migration Example
 
-Importing a v1.0.0 shard into a v1.2.0 system:
+Importing a v1.0.0 shard into the current v1.1.0 system:
 
 ```
 Shard version: 1.0.0
-Current version: 1.2.0
+Current version: 1.1.0
 
 Migration path found:
-  1.0.0 → 1.1.0 (Add embedding_sets support)
-  1.1.0 → 1.2.0 (Add document_types)
+  1.0.0 → 1.1.0 (Add optional note deleted_at)
 
 Applying migrations...
-  ✓ Migration 1.0.0 → 1.1.0 completed (0 warnings)
-  ✓ Migration 1.1.0 → 1.2.0 completed (0 warnings)
+  ✓ Original archive checksums and 1.0.0 schemas validated
+  ✓ Missing deleted_at values defaulted to null
+  ✓ Migrated checksums and 1.1.0 schemas validated
 
 Import successful!
 ```
@@ -169,7 +171,7 @@ Migrations may emit warnings for non-fatal issues:
 | Warning Type | Description | Example |
 |--------------|-------------|---------|
 | `FieldRemoved` | Field no longer exists in new version | `old_checksum_algorithm` removed (5 occurrences) |
-| `DefaultApplied` | Missing field filled with default value | `document_type` defaulted to "generic" |
+| `DefaultApplied` | Missing field filled with default value | `deleted_at` defaulted to `null` |
 | `UnknownFieldIgnored` | Field from newer version ignored | `future_feature` not recognized |
 | `DataTruncated` | Data shortened to fit new constraints | `description` truncated to 255 chars |
 
@@ -180,17 +182,11 @@ The migration registry uses **breadth-first search** to find the shortest path:
 ```
 Available migrations:
   1.0.0 → 1.1.0
-  1.1.0 → 1.2.0
-  1.2.0 → 2.0.0
 
-Finding path from 1.0.0 to 2.0.0:
+Finding path from 1.0.0 to 1.1.0:
   BFS queue: [(1.0.0, [])]
   Visit 1.0.0 → neighbors: [1.1.0]
-  BFS queue: [(1.1.0, [1.0.0→1.1.0])]
-  Visit 1.1.0 → neighbors: [1.2.0]
-  BFS queue: [(1.2.0, [1.0.0→1.1.0, 1.1.0→1.2.0])]
-  Visit 1.2.0 → neighbors: [2.0.0]
-  Found target! Path: [1.0.0→1.1.0, 1.1.0→1.2.0, 1.2.0→2.0.0]
+  Found target! Path: [1.0.0→1.1.0]
 ```
 
 ### Circular Migration Prevention
@@ -234,27 +230,22 @@ git checkout v2.0.0
 cargo build --release
 ```
 
-### "Migration warnings during import"
+### "Migration default reported during import"
 
-**Problem:** Some features in the shard aren't supported by your version.
+**Meaning:** A schema `1.0.0` shard did not have a tombstone field.
 
 ```
-Warning: Shard was created with a newer version (1.1.0) than current (1.0.0)
-Some features may not be available or may be ignored
+Migrated Knowledge Shard schema 1.0.0 to 1.1.0;
+defaulted deleted_at to null for N legacy note records.
 ```
 
 **Impact:**
-- Data is preserved where possible
-- Unknown fields are stored but may not be used
-- Future import to newer version will restore full functionality
+- Original bytes and checksums were validated before migration.
+- Legacy records become active notes because schema 1.0.0 could not represent tombstones.
+- The response manifest records `migrated_from` and `migration_history`.
 
-**Solution:** No action required if you don't need the newer features. Otherwise:
-
-```bash
-# Upgrade to match shard version
-git checkout v1.1.0
-cargo build --release
-```
+**Solution:** No action is required. Retain the original archive as the
+immutable source receipt.
 
 ### "No migration path found"
 
@@ -370,7 +361,7 @@ pub fn create_registry() -> MigrationRegistry {
     let mut registry = MigrationRegistry::new();
 
     // Register all migrations
-    registry.register(Box::new(v1_0_to_v1_1::MigrateV1_0ToV1_1));
+    registry.register(Box::new(V1_0ToV1_1));
 
     registry
 }
@@ -388,17 +379,15 @@ pub const CURRENT_SHARD_VERSION: &str = "1.1.0";  // Updated
 ```rust
 #[test]
 fn test_migrate_1_0_to_1_1() {
-    let migration = MigrateV1_0ToV1_1;
+    let migration = V1_0ToV1_1;
 
     let v1_0_data = json!({
-        "version": "1.0.0",
-        "notes": [{"id": 1}]
+        "id": "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a"
     });
 
     let result = migration.migrate(v1_0_data).unwrap();
 
-    assert_eq!(result.data["version"], "1.1.0");
-    assert!(result.data["embedding_sets"].is_array());
+    assert!(result.data["deleted_at"].is_null());
     assert_eq!(result.warnings.len(), 1);
 }
 ```
@@ -484,7 +473,8 @@ For detailed architecture decisions, see:
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0.0 | 2026-01-01 | Initial shard format release |
+| 1.1.0 | 2026-07-18 | Optional note tombstones and registered 1.0.0 migration |
 
 ---
 
-**Last updated:** 2026-02-01
+**Last updated:** 2026-07-18

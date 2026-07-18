@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Canonical `core-v1` schemas, bounded archive and relationship preflight, identity-preserving structured import, and opt-in verified attachment sidecars; full conformance remains pending the release gates in this ADR
+**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, and opt-in verified attachment sidecars; full conformance remains pending the release gates in this ADR
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -30,10 +30,12 @@ and restore verified attachment bytes as digest-addressed sidecars, while
 missing entries remain reference-only. The route still buffers bounded
 archives and does not constitute `full-v1` profile conformance.
 
-The normative schema root for the delivered `1.0.0` / `core-v1` contract is
-`contracts/knowledge-shard/1.0.0/core-v1/`. The machine-readable receipt at
-`contracts/knowledge-shard/contract.json` records exact schema digests, the
-golden corpus, supported and reserved profiles, and current limitations.
+The current normative schema root for `1.1.0` / `core-v1` is
+`contracts/knowledge-shard/1.1.0/core-v1/`. The immutable `1.0.0` authority
+remains at `contracts/knowledge-shard/1.0.0/core-v1/`. The machine-readable
+receipt at `contracts/knowledge-shard/contract.json` records exact current and
+historical digests, golden corpora, supported and reserved profiles, and
+current limitations.
 
 ## Decision
 
@@ -210,9 +212,19 @@ mutation, then deletes the existing core-v1 entity families and applies the
 validated shard within the same transaction. A late apply failure therefore
 restores the pre-swap state.
 
-Known gaps remain in complete tombstone and absent/null semantic preservation,
-richer profiles, migration history, streaming archive processing, and
-cross-repository conformance receipts. Those gaps remain tracked release
+Schema `1.1.0` adds an optional `deleted_at` note field. Current exports include
+soft-deleted notes and always emit either explicit JSON `null` or the exact
+deletion timestamp. Import restores that value in the same transaction as the
+note. The registered `1.0.0 -> 1.1.0` migration validates source bytes and
+records first, maps the legacy field absence to the documented `null`
+active-state default, rebinds the component checksum and migration metadata,
+then validates the migrated current representation before writes.
+
+Known gaps remain in complete absent-versus-null semantic preservation across
+all accepted current records, richer profiles, current-minus-two historical
+migration coverage, streaming archive processing, and cross-repository
+conformance receipts. Making tombstone-field presence mandatory requires a
+schema-major or new profile identifier. Those gaps remain tracked release
 blockers, not implicit `core-v1` or `full-v1` claims.
 
 The filesystem backend provides a bounded-memory staging primitive that streams

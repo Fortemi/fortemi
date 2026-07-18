@@ -1,0 +1,13 @@
+[
+  {
+    "id": "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77d",
+    "name": "Fixture template",
+    "description": null,
+    "content": "# Fixture",
+    "format": "markdown",
+    "default_tags": ["schema-fixture"],
+    "collection_id": "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77b",
+    "created_at": "2026-07-17T11:40:00Z",
+    "updated_at": "2026-07-17T11:41:00Z"
+  }
+]
