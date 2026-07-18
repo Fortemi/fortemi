@@ -21997,6 +21997,10 @@ impl std::fmt::Debug for ShardManifest {
 #[serde(default)]
 struct ShardCounts {
     notes: usize,
+    note_originals: usize,
+    note_original_history: usize,
+    note_revised_current: usize,
+    note_revisions: usize,
     collections: usize,
     tags: usize,
     templates: usize,
@@ -22113,6 +22117,55 @@ struct ShardLinkRecord {
     score: f32,
     created_at: chrono::DateTime<chrono::Utc>,
     metadata: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardNoteOriginalRecord {
+    id: Option<Uuid>,
+    note_id: Uuid,
+    content: String,
+    hash: String,
+    user_created_at: Option<chrono::DateTime<chrono::Utc>>,
+    user_last_edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    version_number: i32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardNoteOriginalHistoryRecord {
+    id: Uuid,
+    note_id: Uuid,
+    version_number: i32,
+    content: String,
+    hash: String,
+    created_at_utc: chrono::DateTime<chrono::Utc>,
+    created_by: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardNoteRevisedCurrentRecord {
+    note_id: Uuid,
+    content: String,
+    last_revision_id: Option<Uuid>,
+    ai_metadata: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ShardNoteRevisionRecord {
+    id: Uuid,
+    note_id: Uuid,
+    parent_revision_id: Option<Uuid>,
+    revision_number: i32,
+    content: String,
+    #[serde(rename = "type")]
+    revision_type: String,
+    summary: Option<String>,
+    rationale: Option<String>,
+    created_at_utc: chrono::DateTime<chrono::Utc>,
+    ai_generated_at: Option<chrono::DateTime<chrono::Utc>>,
+    user_last_edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    is_user_edited: bool,
+    generation_count: i32,
+    model: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -22238,6 +22291,18 @@ fn validate_shard_export_record_count(record_count: usize) -> Result<(), ApiErro
     } else {
         Ok(())
     }
+}
+
+fn serialize_shard_export_jsonl<T: Serialize>(
+    records: &[T],
+    context: &'static str,
+) -> Result<Vec<u8>, ApiError> {
+    records
+        .iter()
+        .map(serde_json::to_string)
+        .collect::<Result<Vec<_>, _>>()
+        .map(|lines| lines.join("\n").into_bytes())
+        .map_err(|error| shard_operation_failed(context, error))
 }
 
 const SHARD_IMPORT_COMPONENTS: &[&str] = &["notes", "collections", "tags", "templates", "links"];
@@ -22632,6 +22697,10 @@ fn read_shard_archive_streaming_sidecars(
 fn shard_component_filename(component: &str) -> Option<&'static str> {
     match component {
         "notes" => Some("notes.jsonl"),
+        "note_originals" => Some("note_originals.jsonl"),
+        "note_original_history" => Some("note_original_history.jsonl"),
+        "note_revised_current" => Some("note_revised_current.jsonl"),
+        "note_revisions" => Some("note_revisions.jsonl"),
         "collections" => Some("collections.json"),
         "tags" => Some("tags.json"),
         "templates" => Some("templates.json"),
@@ -22943,7 +23012,14 @@ fn parse_shard_component_records_with_limits(
     max_record_bytes: usize,
 ) -> Result<Vec<serde_json::Value>, String> {
     match component {
-        "notes" | "links" | "embedding_set_members" | "embeddings" => {
+        "notes"
+        | "note_originals"
+        | "note_original_history"
+        | "note_revised_current"
+        | "note_revisions"
+        | "links"
+        | "embedding_set_members"
+        | "embeddings" => {
             let mut records = Vec::new();
             visit_shard_jsonl_values_with_limits(data, max_records, max_record_bytes, |record| {
                 records.push(record);
@@ -22984,7 +23060,14 @@ fn validate_shard_component_schema_for_profile(
     };
     if matches!(
         component,
-        "notes" | "links" | "embedding_set_members" | "embeddings"
+        "notes"
+            | "note_originals"
+            | "note_original_history"
+            | "note_revised_current"
+            | "note_revisions"
+            | "links"
+            | "embedding_set_members"
+            | "embeddings"
     ) {
         return visit_shard_jsonl_values_with_limits(
             data,
@@ -23194,9 +23277,142 @@ fn validate_shard_relationships(
         )?;
     }
 
+    validate_shard_note_history_relationships(files, &note_ids)?;
     validate_shard_embedding_relationships(files, &note_ids)?;
 
     Ok(attachment_digests)
+}
+
+fn validate_shard_note_history_relationships(
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    note_ids: &std::collections::HashSet<Uuid>,
+) -> Result<(), String> {
+    let mut original_note_ids = std::collections::HashSet::new();
+    let mut current_original_versions = std::collections::HashMap::new();
+    if let Some(data) = files.get("note_originals.jsonl") {
+        for value in parse_shard_component_records("note_originals", data)? {
+            let original = serde_json::from_value::<ShardNoteOriginalRecord>(value)
+                .map_err(|_| "Knowledge shard note originals are invalid.".to_string())?;
+            if !note_ids.contains(&original.note_id) {
+                return Err("Knowledge shard note original references an unknown note.".to_string());
+            }
+            if !original_note_ids.insert(original.note_id) {
+                return Err("Knowledge shard note original identities must be unique.".to_string());
+            }
+            if original.version_number < 1 {
+                return Err("Knowledge shard note original version number is invalid.".to_string());
+            }
+            current_original_versions.insert(original.note_id, original.version_number);
+        }
+    }
+
+    let mut original_history_ids = std::collections::HashSet::new();
+    let mut original_history_versions = std::collections::HashSet::new();
+    if let Some(data) = files.get("note_original_history.jsonl") {
+        for value in parse_shard_component_records("note_original_history", data)? {
+            let history = serde_json::from_value::<ShardNoteOriginalHistoryRecord>(value)
+                .map_err(|_| "Knowledge shard note original history is invalid.".to_string())?;
+            if !note_ids.contains(&history.note_id) {
+                return Err(
+                    "Knowledge shard note original history references an unknown note.".to_string(),
+                );
+            }
+            if !original_history_ids.insert(history.id)
+                || !original_history_versions.insert((history.note_id, history.version_number))
+            {
+                return Err(
+                    "Knowledge shard note original history identities must be unique.".to_string(),
+                );
+            }
+            if history.version_number < 1
+                || current_original_versions
+                    .get(&history.note_id)
+                    .is_some_and(|current| history.version_number >= *current)
+            {
+                return Err(
+                    "Knowledge shard note original history version ordering is invalid."
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    let mut revision_ids = std::collections::HashSet::new();
+    let mut revision_coordinates = std::collections::HashSet::new();
+    let mut revisions = Vec::new();
+    if let Some(data) = files.get("note_revisions.jsonl") {
+        for value in parse_shard_component_records("note_revisions", data)? {
+            let revision = serde_json::from_value::<ShardNoteRevisionRecord>(value)
+                .map_err(|_| "Knowledge shard note revisions are invalid.".to_string())?;
+            if !note_ids.contains(&revision.note_id) {
+                return Err("Knowledge shard note revision references an unknown note.".to_string());
+            }
+            if !revision_ids.insert(revision.id)
+                || !revision_coordinates.insert((revision.note_id, revision.revision_number))
+            {
+                return Err("Knowledge shard note revision identities must be unique.".to_string());
+            }
+            if revision.revision_number < 1 || revision.generation_count < 1 {
+                return Err("Knowledge shard note revision counters are invalid.".to_string());
+            }
+            revisions.push(revision);
+        }
+    }
+    let revision_notes = revisions
+        .iter()
+        .map(|revision| (revision.id, revision.note_id))
+        .collect::<std::collections::HashMap<_, _>>();
+    let revision_numbers = revisions
+        .iter()
+        .map(|revision| (revision.id, revision.revision_number))
+        .collect::<std::collections::HashMap<_, _>>();
+    for revision in &revisions {
+        if let Some(parent_id) = revision.parent_revision_id {
+            if parent_id == revision.id
+                || revision_notes.get(&parent_id) != Some(&revision.note_id)
+                || revision_numbers
+                    .get(&parent_id)
+                    .is_none_or(|parent_number| *parent_number >= revision.revision_number)
+            {
+                return Err(
+                    "Knowledge shard note revision parent relationship is invalid.".to_string(),
+                );
+            }
+        }
+    }
+
+    let mut revised_note_ids = std::collections::HashSet::new();
+    if let Some(data) = files.get("note_revised_current.jsonl") {
+        for value in parse_shard_component_records("note_revised_current", data)? {
+            let current = serde_json::from_value::<ShardNoteRevisedCurrentRecord>(value)
+                .map_err(|_| "Knowledge shard current note revisions are invalid.".to_string())?;
+            if !note_ids.contains(&current.note_id) {
+                return Err(
+                    "Knowledge shard current note revision references an unknown note.".to_string(),
+                );
+            }
+            if !revised_note_ids.insert(current.note_id) {
+                return Err(
+                    "Knowledge shard current note revision identities must be unique.".to_string(),
+                );
+            }
+            if let Some(revision_id) = current.last_revision_id {
+                let revision = revisions
+                    .iter()
+                    .find(|revision| revision.id == revision_id)
+                    .filter(|revision| {
+                        revision.note_id == current.note_id && revision.content == current.content
+                    });
+                if revision.is_none() {
+                    return Err(
+                        "Knowledge shard current note revision reference is invalid.".to_string(),
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_shard_embedding_relationships(
@@ -23534,6 +23750,10 @@ fn validate_shard_component_inventory(
         )?;
         let expected_count = match component.as_str() {
             "notes" => manifest.counts.notes,
+            "note_originals" => manifest.counts.note_originals,
+            "note_original_history" => manifest.counts.note_original_history,
+            "note_revised_current" => manifest.counts.note_revised_current,
+            "note_revisions" => manifest.counts.note_revisions,
             "collections" => manifest.counts.collections,
             "tags" => manifest.counts.tags,
             "templates" => manifest.counts.templates,
@@ -23987,6 +24207,143 @@ async fn knowledge_shard(
             let notes_data = notes_json.join("\n").into_bytes();
             add_json_file("notes.jsonl", &notes_data)
                 .map_err(|e| shard_operation_failed("add notes to shard", e))?;
+        }
+
+        if components.contains(&"note_originals") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, note_id, content, hash, user_created_at, user_last_edited_at,
+                       version_number
+                FROM note_original
+                ORDER BY note_id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read note originals", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardNoteOriginalRecord {
+                    id: row.get("id"),
+                    note_id: row.get("note_id"),
+                    content: row.get("content"),
+                    hash: row.get("hash"),
+                    user_created_at: row.get("user_created_at"),
+                    user_last_edited_at: row.get("user_last_edited_at"),
+                    version_number: row.get("version_number"),
+                })
+                .collect::<Vec<_>>();
+            counts.note_originals = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize note originals")?;
+            add_json_file("note_originals.jsonl", &data)
+                .map_err(|error| shard_operation_failed("add note originals to shard", error))?;
+        }
+
+        if components.contains(&"note_original_history") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, note_id, version_number, content, hash, created_at_utc, created_by
+                FROM note_original_history
+                ORDER BY note_id, version_number, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read note original history", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardNoteOriginalHistoryRecord {
+                    id: row.get("id"),
+                    note_id: row.get("note_id"),
+                    version_number: row.get("version_number"),
+                    content: row.get("content"),
+                    hash: row.get("hash"),
+                    created_at_utc: row.get("created_at_utc"),
+                    created_by: row.get("created_by"),
+                })
+                .collect::<Vec<_>>();
+            counts.note_original_history = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize note original history")?;
+            add_json_file("note_original_history.jsonl", &data).map_err(|error| {
+                shard_operation_failed("add note original history to shard", error)
+            })?;
+        }
+
+        if components.contains(&"note_revisions") {
+            let rows = sqlx::query(
+                r#"
+                SELECT id, note_id, parent_revision_id, revision_number, content,
+                       type, summary, rationale, created_at_utc, ai_generated_at,
+                       user_last_edited_at, is_user_edited, generation_count, model
+                FROM note_revision
+                ORDER BY note_id, revision_number, id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read note revisions", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardNoteRevisionRecord {
+                    id: row.get("id"),
+                    note_id: row.get("note_id"),
+                    parent_revision_id: row.get("parent_revision_id"),
+                    revision_number: row.get("revision_number"),
+                    content: row.get("content"),
+                    revision_type: row.get("type"),
+                    summary: row.get("summary"),
+                    rationale: row.get("rationale"),
+                    created_at_utc: row.get("created_at_utc"),
+                    ai_generated_at: row.get("ai_generated_at"),
+                    user_last_edited_at: row.get("user_last_edited_at"),
+                    is_user_edited: row.get("is_user_edited"),
+                    generation_count: row.get("generation_count"),
+                    model: row.get("model"),
+                })
+                .collect::<Vec<_>>();
+            counts.note_revisions = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize note revisions")?;
+            add_json_file("note_revisions.jsonl", &data)
+                .map_err(|error| shard_operation_failed("add note revisions to shard", error))?;
+        }
+
+        if components.contains(&"note_revised_current") {
+            let rows = sqlx::query(
+                r#"
+                SELECT note_id, content, last_revision_id, ai_metadata
+                FROM note_revised_current
+                ORDER BY note_id
+                LIMIT $1
+                "#,
+            )
+            .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read current note revisions", error))?;
+            validate_shard_export_record_count(rows.len())?;
+            let records = rows
+                .into_iter()
+                .map(|row| ShardNoteRevisedCurrentRecord {
+                    note_id: row.get("note_id"),
+                    content: row.get("content"),
+                    last_revision_id: row.get("last_revision_id"),
+                    ai_metadata: row.get("ai_metadata"),
+                })
+                .collect::<Vec<_>>();
+            counts.note_revised_current = records.len();
+            let data = serialize_shard_export_jsonl(&records, "serialize current note revisions")?;
+            add_json_file("note_revised_current.jsonl", &data).map_err(|error| {
+                shard_operation_failed("add current note revisions to shard", error)
+            })?;
         }
 
         // Export collections
@@ -40256,6 +40613,197 @@ not-json
         );
     }
 
+    fn valid_shard_note_history_relationship_fixture() -> (
+        std::collections::HashMap<String, Vec<u8>>,
+        std::collections::HashSet<Uuid>,
+        Uuid,
+        Uuid,
+    ) {
+        let note_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648e001").unwrap();
+        let first_revision_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648e002").unwrap();
+        let current_revision_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648e003").unwrap();
+        let timestamp = "2026-07-18T12:00:00Z";
+        let original = serde_json::json!({
+            "id": null,
+            "note_id": note_id,
+            "content": "current original",
+            "hash": "blake3:current",
+            "user_created_at": null,
+            "user_last_edited_at": timestamp,
+            "version_number": 3
+        });
+        let original_history = [
+            serde_json::json!({
+                "id": "018f4c11-9f14-7d33-8a21-1c80f648e004",
+                "note_id": note_id,
+                "version_number": 1,
+                "content": "first original",
+                "hash": "blake3:first",
+                "created_at_utc": timestamp,
+                "created_by": "user"
+            }),
+            serde_json::json!({
+                "id": "018f4c11-9f14-7d33-8a21-1c80f648e005",
+                "note_id": note_id,
+                "version_number": 2,
+                "content": "second original",
+                "hash": "blake3:second",
+                "created_at_utc": timestamp,
+                "created_by": "restore"
+            }),
+        ];
+        let revisions = [
+            serde_json::json!({
+                "id": first_revision_id,
+                "note_id": note_id,
+                "parent_revision_id": null,
+                "revision_number": 1,
+                "content": "first revision",
+                "type": "ai_enhancement",
+                "summary": null,
+                "rationale": null,
+                "created_at_utc": timestamp,
+                "ai_generated_at": null,
+                "user_last_edited_at": null,
+                "is_user_edited": false,
+                "generation_count": 1,
+                "model": null
+            }),
+            serde_json::json!({
+                "id": current_revision_id,
+                "note_id": note_id,
+                "parent_revision_id": first_revision_id,
+                "revision_number": 2,
+                "content": "current revision",
+                "type": "user_edit",
+                "summary": "Current",
+                "rationale": null,
+                "created_at_utc": timestamp,
+                "ai_generated_at": timestamp,
+                "user_last_edited_at": timestamp,
+                "is_user_edited": true,
+                "generation_count": 2,
+                "model": "test-model"
+            }),
+        ];
+        let current = serde_json::json!({
+            "note_id": note_id,
+            "content": "current revision",
+            "last_revision_id": current_revision_id,
+            "ai_metadata": null
+        });
+        let jsonl = |records: &[serde_json::Value]| {
+            records
+                .iter()
+                .map(serde_json::to_string)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+                .join("\n")
+                .into_bytes()
+        };
+        (
+            std::collections::HashMap::from([
+                (
+                    "note_originals.jsonl".to_string(),
+                    serde_json::to_vec(&original).unwrap(),
+                ),
+                (
+                    "note_original_history.jsonl".to_string(),
+                    jsonl(&original_history),
+                ),
+                ("note_revisions.jsonl".to_string(), jsonl(&revisions)),
+                (
+                    "note_revised_current.jsonl".to_string(),
+                    serde_json::to_vec(&current).unwrap(),
+                ),
+            ]),
+            std::collections::HashSet::from([note_id]),
+            first_revision_id,
+            current_revision_id,
+        )
+    }
+
+    #[test]
+    fn shard_note_history_preflight_accepts_complete_boundary() {
+        let (files, note_ids, ..) = valid_shard_note_history_relationship_fixture();
+        validate_shard_note_history_relationships(&files, &note_ids).unwrap();
+    }
+
+    #[test]
+    fn shard_note_history_preflight_rejects_invalid_version_and_parent_order() {
+        let (files, note_ids, first_revision_id, ..) =
+            valid_shard_note_history_relationship_fixture();
+
+        let mut invalid_history = files.clone();
+        let mut history = parse_shard_component_records(
+            "note_original_history",
+            &invalid_history["note_original_history.jsonl"],
+        )
+        .unwrap();
+        history[1]["version_number"] = serde_json::json!(3);
+        invalid_history.insert(
+            "note_original_history.jsonl".to_string(),
+            serialize_shard_export_jsonl(&history, "serialize test history").unwrap(),
+        );
+        assert_eq!(
+            validate_shard_note_history_relationships(&invalid_history, &note_ids).unwrap_err(),
+            "Knowledge shard note original history version ordering is invalid."
+        );
+
+        let mut invalid_parent = files;
+        let mut revisions = parse_shard_component_records(
+            "note_revisions",
+            &invalid_parent["note_revisions.jsonl"],
+        )
+        .unwrap();
+        revisions[0]["parent_revision_id"] = serde_json::json!(first_revision_id);
+        invalid_parent.insert(
+            "note_revisions.jsonl".to_string(),
+            serialize_shard_export_jsonl(&revisions, "serialize test revisions").unwrap(),
+        );
+        assert_eq!(
+            validate_shard_note_history_relationships(&invalid_parent, &note_ids).unwrap_err(),
+            "Knowledge shard note revision parent relationship is invalid."
+        );
+    }
+
+    #[test]
+    fn shard_note_history_preflight_rejects_duplicate_and_mismatched_current_revision() {
+        let (files, note_ids, ..) = valid_shard_note_history_relationship_fixture();
+
+        let mut duplicate = files.clone();
+        let mut revisions =
+            parse_shard_component_records("note_revisions", &duplicate["note_revisions.jsonl"])
+                .unwrap();
+        let mut duplicate_coordinate = revisions[1].clone();
+        duplicate_coordinate["id"] = serde_json::json!(Uuid::now_v7());
+        revisions.push(duplicate_coordinate);
+        duplicate.insert(
+            "note_revisions.jsonl".to_string(),
+            serialize_shard_export_jsonl(&revisions, "serialize duplicate revisions").unwrap(),
+        );
+        assert_eq!(
+            validate_shard_note_history_relationships(&duplicate, &note_ids).unwrap_err(),
+            "Knowledge shard note revision identities must be unique."
+        );
+
+        let mut mismatched_current = files;
+        let mut current = parse_shard_component_records(
+            "note_revised_current",
+            &mismatched_current["note_revised_current.jsonl"],
+        )
+        .unwrap();
+        current[0]["content"] = serde_json::json!("drifted current content");
+        mismatched_current.insert(
+            "note_revised_current.jsonl".to_string(),
+            serialize_shard_export_jsonl(&current, "serialize test current revision").unwrap(),
+        );
+        assert_eq!(
+            validate_shard_note_history_relationships(&mismatched_current, &note_ids).unwrap_err(),
+            "Knowledge shard current note revision reference is invalid."
+        );
+    }
+
     fn valid_shard_embedding_relationship_fixture() -> (
         std::collections::HashMap<String, Vec<u8>>,
         std::collections::HashSet<Uuid>,
@@ -40859,6 +41407,10 @@ not-json
             components: vec!["notes".to_string(), "links".to_string()],
             counts: ShardCounts {
                 notes: 100,
+                note_originals: 0,
+                note_original_history: 0,
+                note_revised_current: 0,
+                note_revisions: 0,
                 collections: 5,
                 tags: 20,
                 templates: 3,
@@ -40906,6 +41458,10 @@ not-json
             ],
             counts: ShardCounts {
                 notes: 7,
+                note_originals: 0,
+                note_original_history: 0,
+                note_revised_current: 0,
+                note_revisions: 0,
                 collections: 1,
                 tags: 2,
                 templates: 1,
