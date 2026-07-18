@@ -13,7 +13,7 @@ The current contract revision supports Knowledge Shard schema `1.1.0` under
 - `record-v1`: notes, collections, tags, note-to-note links, and
   attachment projections.
 
-Revision 12 publishes digest-pinned candidate schemas and fixtures for the
+Revision 13 publishes digest-pinned candidate schemas and fixtures for the
 `full-v1` embedding, note-revision, revision-linked provenance, and spatial
 provenance registry boundaries, plus unified note/attachment provenance.
 The revision boundary covers current original state, original history, current
@@ -23,8 +23,7 @@ revision identities. The spatial registry boundary adds named places, exact
 PostGIS location observations, and device agents. The unified boundary adds
 temporal ranges, spatial/device/activity references, extraction context, and
 user-correction state for note and attachment targets. All five boundaries
-have bounded relationship validation. Embeddings, revisions, revision-linked
-provenance, and unified provenance also have transactional apply paths with
+have bounded relationship validation and transactional apply paths with
 convergence, dry-run, conflict-accounting, and late-failure rollback tests.
 These files and dormant paths are reviewable
 authority inputs, not a supported profile. There is no canonical `full-v1`
@@ -61,7 +60,7 @@ receipt is stored at
 the exact producer archive is a permanent integration fixture. `full-v1`
 remains unsupported beyond its candidate embedding, note-revision,
 revision-linked provenance, spatial provenance registry, and unified provenance
-boundaries; only the spatial registry lacks a transactional apply path.
+boundaries and their transactional apply paths.
 Complete absent-versus-null preservation
 still requires a schema-major or new profile identifier because `deleted_at`
 is optional during the 1.1 transition.

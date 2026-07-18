@@ -25803,6 +25803,9 @@ struct ShardImportCounts {
     note_revisions: usize,
     provenance_edges: usize,
     provenance_activities: usize,
+    named_locations: usize,
+    provenance_locations: usize,
+    provenance_devices: usize,
     provenance_records: usize,
     collections: usize,
     tags: usize,
@@ -30082,6 +30085,265 @@ async fn apply_shard_unified_provenance_components_tx(
     Ok(())
 }
 
+async fn apply_shard_spatial_provenance_components_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    selected_components: &std::collections::HashSet<String>,
+    opts: &ShardImportOptions,
+    imported: &mut ShardImportCounts,
+    skipped: &mut ShardImportCounts,
+) -> Result<(), ApiError> {
+    let should_import = |component: &str| selected_components.contains(component);
+    let replace = matches!(opts.on_conflict, ConflictStrategy::Replace);
+
+    if replace && !opts.dry_run {
+        for (component, statement, context) in [
+            (
+                "provenance_locations",
+                "DELETE FROM prov_location",
+                "replace imported provenance locations",
+            ),
+            (
+                "named_locations",
+                "DELETE FROM named_location",
+                "replace imported named locations",
+            ),
+            (
+                "provenance_devices",
+                "DELETE FROM prov_agent_device",
+                "replace imported provenance devices",
+            ),
+        ] {
+            if should_import(component) {
+                sqlx::query(statement)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| shard_operation_failed(context, error))?;
+            }
+        }
+    }
+
+    if should_import("named_locations") {
+        if let Some(data) = files.get("named_locations.jsonl") {
+            let records = shard_jsonl_records::<ShardNamedLocationRecord>(
+                data,
+                "Knowledge shard named locations are invalid.",
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+            if opts.dry_run {
+                imported.named_locations += records.len();
+            } else {
+                for record in records {
+                    let conflict = if replace {
+                        "ON CONFLICT (id) DO UPDATE SET
+                             name = EXCLUDED.name,
+                             slug = EXCLUDED.slug,
+                             display_name = EXCLUDED.display_name,
+                             location_type = EXCLUDED.location_type,
+                             point = EXCLUDED.point,
+                             boundary = EXCLUDED.boundary,
+                             radius_m = EXCLUDED.radius_m,
+                             address_line = EXCLUDED.address_line,
+                             locality = EXCLUDED.locality,
+                             admin_area = EXCLUDED.admin_area,
+                             country = EXCLUDED.country,
+                             country_code = EXCLUDED.country_code,
+                             postal_code = EXCLUDED.postal_code,
+                             timezone = EXCLUDED.timezone,
+                             altitude_m = EXCLUDED.altitude_m,
+                             owner_id = EXCLUDED.owner_id,
+                             is_private = EXCLUDED.is_private,
+                             metadata = EXCLUDED.metadata,
+                             created_at = EXCLUDED.created_at,
+                             updated_at = EXCLUDED.updated_at"
+                    } else {
+                        "ON CONFLICT DO NOTHING"
+                    };
+                    let result = sqlx::query(&format!(
+                        "INSERT INTO named_location (
+                             id, name, slug, display_name, location_type, point, boundary,
+                             radius_m, address_line, locality, admin_area, country,
+                             country_code, postal_code, timezone, altitude_m, owner_id,
+                             is_private, metadata, created_at, updated_at
+                         ) VALUES (
+                             $1, $2, $3, $4, $5,
+                             CASE WHEN $6::text IS NULL THEN NULL
+                               ELSE ST_GeogFromWKB(decode($6, 'hex')) END,
+                             CASE WHEN $7::text IS NULL THEN NULL
+                               ELSE ST_GeogFromWKB(decode($7, 'hex')) END,
+                             $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                             $18, $19, $20, $21
+                         )
+                         {conflict}"
+                    ))
+                    .bind(record.id)
+                    .bind(record.name)
+                    .bind(record.slug)
+                    .bind(record.display_name)
+                    .bind(record.location_type)
+                    .bind(record.point_ewkb_hex)
+                    .bind(record.boundary_ewkb_hex)
+                    .bind(record.radius_m)
+                    .bind(record.address_line)
+                    .bind(record.locality)
+                    .bind(record.admin_area)
+                    .bind(record.country)
+                    .bind(record.country_code)
+                    .bind(record.postal_code)
+                    .bind(record.timezone)
+                    .bind(record.altitude_m)
+                    .bind(record.owner_id)
+                    .bind(record.is_private)
+                    .bind(record.metadata)
+                    .bind(record.created_at)
+                    .bind(record.updated_at)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("apply named location import", error)
+                    })?;
+                    if result.rows_affected() == 0 {
+                        skipped.named_locations += 1;
+                    } else {
+                        imported.named_locations += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if should_import("provenance_locations") {
+        if let Some(data) = files.get("provenance_locations.jsonl") {
+            let records = shard_jsonl_records::<ShardProvenanceLocationRecord>(
+                data,
+                "Knowledge shard provenance locations are invalid.",
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+            if opts.dry_run {
+                imported.provenance_locations += records.len();
+            } else {
+                for record in records {
+                    let conflict = if replace {
+                        "ON CONFLICT (id) DO UPDATE SET
+                             point = EXCLUDED.point,
+                             horizontal_accuracy_m = EXCLUDED.horizontal_accuracy_m,
+                             altitude_m = EXCLUDED.altitude_m,
+                             vertical_accuracy_m = EXCLUDED.vertical_accuracy_m,
+                             heading_degrees = EXCLUDED.heading_degrees,
+                             speed_mps = EXCLUDED.speed_mps,
+                             named_location_id = EXCLUDED.named_location_id,
+                             source = EXCLUDED.source,
+                             confidence = EXCLUDED.confidence,
+                             created_at = EXCLUDED.created_at"
+                    } else {
+                        "ON CONFLICT (id) DO NOTHING"
+                    };
+                    let result = sqlx::query(&format!(
+                        "INSERT INTO prov_location (
+                             id, point, horizontal_accuracy_m, altitude_m,
+                             vertical_accuracy_m, heading_degrees, speed_mps,
+                             named_location_id, source, confidence, created_at
+                         ) VALUES (
+                             $1, ST_GeogFromWKB(decode($2, 'hex')), $3, $4, $5,
+                             $6, $7, $8, $9, $10, $11
+                         )
+                         {conflict}"
+                    ))
+                    .bind(record.id)
+                    .bind(record.point_ewkb_hex)
+                    .bind(record.horizontal_accuracy_m)
+                    .bind(record.altitude_m)
+                    .bind(record.vertical_accuracy_m)
+                    .bind(record.heading_degrees)
+                    .bind(record.speed_mps)
+                    .bind(record.named_location_id)
+                    .bind(record.source)
+                    .bind(record.confidence)
+                    .bind(record.created_at)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("apply provenance location import", error)
+                    })?;
+                    if result.rows_affected() == 0 {
+                        skipped.provenance_locations += 1;
+                    } else {
+                        imported.provenance_locations += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if should_import("provenance_devices") {
+        if let Some(data) = files.get("provenance_devices.jsonl") {
+            let records = shard_jsonl_records::<ShardProvenanceDeviceRecord>(
+                data,
+                "Knowledge shard provenance devices are invalid.",
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+            if opts.dry_run {
+                imported.provenance_devices += records.len();
+            } else {
+                for record in records {
+                    let conflict = if replace {
+                        "ON CONFLICT (id) DO UPDATE SET
+                             device_make = EXCLUDED.device_make,
+                             device_model = EXCLUDED.device_model,
+                             device_os = EXCLUDED.device_os,
+                             device_os_version = EXCLUDED.device_os_version,
+                             software = EXCLUDED.software,
+                             software_version = EXCLUDED.software_version,
+                             has_gps = EXCLUDED.has_gps,
+                             has_accelerometer = EXCLUDED.has_accelerometer,
+                             sensor_metadata = EXCLUDED.sensor_metadata,
+                             owner_id = EXCLUDED.owner_id,
+                             device_name = EXCLUDED.device_name,
+                             created_at = EXCLUDED.created_at"
+                    } else {
+                        "ON CONFLICT DO NOTHING"
+                    };
+                    let result = sqlx::query(&format!(
+                        "INSERT INTO prov_agent_device (
+                             id, device_make, device_model, device_os, device_os_version,
+                             software, software_version, has_gps, has_accelerometer,
+                             sensor_metadata, owner_id, device_name, created_at
+                         ) VALUES (
+                             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+                         )
+                         {conflict}"
+                    ))
+                    .bind(record.id)
+                    .bind(record.device_make)
+                    .bind(record.device_model)
+                    .bind(record.device_os)
+                    .bind(record.device_os_version)
+                    .bind(record.software)
+                    .bind(record.software_version)
+                    .bind(record.has_gps)
+                    .bind(record.has_accelerometer)
+                    .bind(record.sensor_metadata)
+                    .bind(record.owner_id)
+                    .bind(record.device_name)
+                    .bind(record.created_at)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("apply provenance device import", error)
+                    })?;
+                    if result.rows_affected() == 0 {
+                        skipped.provenance_devices += 1;
+                    } else {
+                        imported.provenance_devices += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 async fn apply_shard_embedding_components_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     files: &std::collections::HashMap<String, Vec<u8>>,
@@ -30747,6 +31009,16 @@ async fn apply_validated_shard_components(
     .await?;
 
     apply_shard_revision_provenance_components_tx(
+        &mut tx,
+        files,
+        selected_components,
+        opts,
+        &mut imported,
+        &mut skipped,
+    )
+    .await?;
+
+    apply_shard_spatial_provenance_components_tx(
         &mut tx,
         files,
         selected_components,
@@ -36025,6 +36297,9 @@ mod tests {
                 note_revisions: 1,
                 provenance_edges: 1,
                 provenance_activities: 1,
+                named_locations: 1,
+                provenance_locations: 1,
+                provenance_devices: 1,
                 provenance_records: 1,
                 collections: 1,
                 tags: 1,
@@ -36094,6 +36369,9 @@ mod tests {
                 note_revisions: 1,
                 provenance_edges: 1,
                 provenance_activities: 1,
+                named_locations: 1,
+                provenance_locations: 1,
+                provenance_devices: 1,
                 provenance_records: 1,
                 collections: 1,
                 tags: 1,
@@ -41503,7 +41781,7 @@ not-json
         ))
         .expect("contract receipt must be valid JSON");
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert_eq!(receipt["contractRevision"], "12");
+        assert_eq!(receipt["contractRevision"], "13");
         assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
@@ -41513,7 +41791,7 @@ not-json
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
         assert_eq!(
             receipt["profiles"]["full-v1"]["status"],
-            "unified-provenance-apply-candidate"
+            "provenance-apply-candidate"
         );
         assert_eq!(receipt["profiles"]["record-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["record-v1"]["status"], "supported");
@@ -44214,6 +44492,344 @@ not-json
         }
     }
 
+    async fn shard_spatial_provenance_snapshot(
+        ctx: &matric_db::SchemaContext,
+    ) -> serde_json::Value {
+        ctx.query(|tx| {
+            Box::pin(async move {
+                sqlx::query_scalar::<_, serde_json::Value>(
+                    "SELECT jsonb_build_object(
+                       'named_locations', COALESCE((
+                         SELECT jsonb_agg(to_jsonb(projected) ORDER BY slug, id)
+                         FROM (
+                           SELECT id, name, slug, display_name, location_type,
+                                  CASE WHEN point IS NULL THEN NULL
+                                    ELSE encode(ST_AsEWKB(point::geometry), 'hex') END
+                                    AS point_ewkb_hex,
+                                  CASE WHEN boundary IS NULL THEN NULL
+                                    ELSE encode(ST_AsEWKB(boundary::geometry), 'hex') END
+                                    AS boundary_ewkb_hex,
+                                  radius_m, address_line, locality, admin_area, country,
+                                  country_code, postal_code, timezone, altitude_m, owner_id,
+                                  is_private, metadata, created_at, updated_at
+                           FROM named_location
+                         ) projected
+                       ), '[]'::jsonb),
+                       'provenance_locations', COALESCE((
+                         SELECT jsonb_agg(to_jsonb(projected) ORDER BY created_at, id)
+                         FROM (
+                           SELECT id, encode(ST_AsEWKB(point::geometry), 'hex')
+                                    AS point_ewkb_hex,
+                                  horizontal_accuracy_m, altitude_m, vertical_accuracy_m,
+                                  heading_degrees, speed_mps, named_location_id, source,
+                                  confidence, created_at
+                           FROM prov_location
+                         ) projected
+                       ), '[]'::jsonb),
+                       'provenance_devices', COALESCE((
+                         SELECT jsonb_agg(to_jsonb(projected) ORDER BY created_at, id)
+                         FROM (
+                           SELECT id, device_make, device_model, device_os,
+                                  device_os_version, software, software_version, has_gps,
+                                  has_accelerometer, sensor_metadata, owner_id, device_name,
+                                  created_at
+                           FROM prov_agent_device
+                         ) projected
+                       ), '[]'::jsonb)
+                     )",
+                )
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(matric_db::Error::Database)
+            })
+        })
+        .await
+        .expect("read spatial provenance snapshot")
+    }
+
+    #[tokio::test]
+    async fn shard_spatial_provenance_apply_is_atomic_and_repeatable() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let success_name = format!("sh-spatial-ok-{}", Uuid::new_v4().simple());
+        let rollback_name = format!("sh-spatial-rb-{}", Uuid::new_v4().simple());
+        let success = db
+            .archives
+            .create_archive_schema(
+                &success_name,
+                Some("Shard spatial provenance apply success"),
+            )
+            .await
+            .expect("create spatial provenance success schema");
+        let rollback = db
+            .archives
+            .create_archive_schema(
+                &rollback_name,
+                Some("Shard spatial provenance apply rollback"),
+            )
+            .await
+            .expect("create spatial provenance rollback schema");
+
+        let files = std::collections::HashMap::from([
+            (
+                "named_locations.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-spatial-provenance-candidate/named_locations.jsonl"
+                )
+                .to_vec(),
+            ),
+            (
+                "provenance_locations.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-spatial-provenance-candidate/provenance_locations.jsonl"
+                )
+                .to_vec(),
+            ),
+            (
+                "provenance_devices.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-spatial-provenance-candidate/provenance_devices.jsonl"
+                )
+                .to_vec(),
+            ),
+        ]);
+        let components = [
+            "named_locations",
+            "provenance_locations",
+            "provenance_devices",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<std::collections::HashSet<_>>();
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+
+        let rollback_ctx = db.for_schema(&rollback.schema_name).unwrap();
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin spatial provenance baseline");
+        let baseline_named_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO named_location
+             (id, name, slug, location_type, point)
+             VALUES (
+               $1, 'Baseline', 'baseline', 'poi',
+               ST_SetSRID(ST_MakePoint(3, 4), 4326)::geography
+             )",
+        )
+        .bind(baseline_named_id)
+        .execute(&mut *tx)
+        .await
+        .expect("seed baseline named location");
+        sqlx::query(
+            "INSERT INTO prov_location
+             (id, point, named_location_id, source, confidence)
+             VALUES (
+               $1,
+               ST_SetSRID(ST_MakePoint(3, 4), 4326)::geography,
+               $2,
+               'user_manual',
+               'medium'
+             )",
+        )
+        .bind(Uuid::now_v7())
+        .bind(baseline_named_id)
+        .execute(&mut *tx)
+        .await
+        .expect("seed baseline provenance location");
+        sqlx::query(
+            "INSERT INTO prov_agent_device (id, device_make, device_model)
+             VALUES ($1, 'Baseline', 'Device')",
+        )
+        .bind(Uuid::now_v7())
+        .execute(&mut *tx)
+        .await
+        .expect("seed baseline provenance device");
+        tx.commit()
+            .await
+            .expect("commit spatial provenance baseline");
+        let baseline = shard_spatial_provenance_snapshot(&rollback_ctx).await;
+
+        let mut named_location: serde_json::Value =
+            serde_json::from_slice(&files["named_locations.jsonl"]).unwrap();
+        named_location["radius_m"] = serde_json::json!(25);
+        named_location["created_at"] = serde_json::json!("2026-07-18T13:45:00+00:00");
+        named_location["updated_at"] = serde_json::json!("2026-07-18T13:45:00+00:00");
+        let mut location: serde_json::Value =
+            serde_json::from_slice(&files["provenance_locations.jsonl"]).unwrap();
+        location["horizontal_accuracy_m"] = serde_json::json!(3);
+        location["created_at"] = serde_json::json!("2026-07-18T13:45:00+00:00");
+        let mut device: serde_json::Value =
+            serde_json::from_slice(&files["provenance_devices.jsonl"]).unwrap();
+        device["created_at"] = serde_json::json!("2026-07-18T13:45:00+00:00");
+        let expected = serde_json::json!({
+            "named_locations": [named_location],
+            "provenance_locations": [location],
+            "provenance_devices": [device]
+        });
+
+        let success_ctx = db.for_schema(&success.schema_name).unwrap();
+        for expected_pass in 0..2 {
+            let mut tx = success_ctx
+                .begin_tx()
+                .await
+                .expect("begin spatial provenance apply");
+            let mut imported = ShardImportCounts::default();
+            let mut skipped = ShardImportCounts::default();
+            apply_shard_spatial_provenance_components_tx(
+                &mut tx,
+                &files,
+                &components,
+                &opts,
+                &mut imported,
+                &mut skipped,
+            )
+            .await
+            .expect("apply complete spatial provenance boundary");
+            tx.commit()
+                .await
+                .expect("commit spatial provenance boundary");
+            assert_eq!(imported.named_locations, 1, "pass {expected_pass}");
+            assert_eq!(imported.provenance_locations, 1, "pass {expected_pass}");
+            assert_eq!(imported.provenance_devices, 1, "pass {expected_pass}");
+            assert_eq!(skipped.named_locations, 0, "pass {expected_pass}");
+            assert_eq!(skipped.provenance_locations, 0, "pass {expected_pass}");
+            assert_eq!(skipped.provenance_devices, 0, "pass {expected_pass}");
+            assert_eq!(
+                shard_spatial_provenance_snapshot(&success_ctx).await,
+                expected,
+                "pass {expected_pass}"
+            );
+        }
+
+        let skip_opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Skip,
+            skip_embedding_regen: true,
+        };
+        let mut tx = success_ctx
+            .begin_tx()
+            .await
+            .expect("begin spatial provenance skip");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        apply_shard_spatial_provenance_components_tx(
+            &mut tx,
+            &files,
+            &components,
+            &skip_opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect("skip existing spatial provenance boundary");
+        tx.commit().await.expect("commit spatial provenance skip");
+        assert_eq!(imported.named_locations, 0);
+        assert_eq!(imported.provenance_locations, 0);
+        assert_eq!(imported.provenance_devices, 0);
+        assert_eq!(skipped.named_locations, 1);
+        assert_eq!(skipped.provenance_locations, 1);
+        assert_eq!(skipped.provenance_devices, 1);
+        assert_eq!(
+            shard_spatial_provenance_snapshot(&success_ctx).await,
+            expected
+        );
+
+        let dry_run_opts = ShardImportOptions {
+            include: None,
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin spatial provenance dry run");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        apply_shard_spatial_provenance_components_tx(
+            &mut tx,
+            &files,
+            &components,
+            &dry_run_opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect("dry-run complete spatial provenance boundary");
+        tx.rollback()
+            .await
+            .expect("roll back spatial provenance dry run");
+        assert_eq!(imported.named_locations, 1);
+        assert_eq!(imported.provenance_locations, 1);
+        assert_eq!(imported.provenance_devices, 1);
+        assert_eq!(
+            shard_spatial_provenance_snapshot(&rollback_ctx).await,
+            baseline
+        );
+
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin failed spatial provenance apply");
+        sqlx::query(
+            "CREATE FUNCTION reject_shard_provenance_device()
+             RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN
+                 RAISE EXCEPTION 'injected provenance device failure';
+             END;
+             $$",
+        )
+        .execute(&mut *tx)
+        .await
+        .expect("create provenance device failure function");
+        sqlx::query(
+            "CREATE TRIGGER reject_shard_provenance_device
+             BEFORE INSERT ON prov_agent_device
+             FOR EACH ROW EXECUTE FUNCTION reject_shard_provenance_device()",
+        )
+        .execute(&mut *tx)
+        .await
+        .expect("create provenance device failure trigger");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        let error = apply_shard_spatial_provenance_components_tx(
+            &mut tx,
+            &files,
+            &components,
+            &opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect_err("late spatial provenance failure must abort the apply transaction");
+        assert!(matches!(error, ApiError::OperationFailed { .. }));
+        tx.rollback()
+            .await
+            .expect("roll back failed spatial provenance apply");
+        assert_eq!(
+            shard_spatial_provenance_snapshot(&rollback_ctx).await,
+            baseline
+        );
+
+        for archive_name in [success_name, rollback_name] {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .expect("drop isolated spatial provenance test schema");
+        }
+    }
+
     async fn shard_unified_provenance_snapshot(
         ctx: &matric_db::SchemaContext,
     ) -> serde_json::Value {
@@ -45529,6 +46145,9 @@ not-json
                 note_revisions: 0,
                 provenance_edges: 0,
                 provenance_activities: 0,
+                named_locations: 0,
+                provenance_locations: 0,
+                provenance_devices: 0,
                 provenance_records: 0,
                 collections: 2,
                 tags: 0,

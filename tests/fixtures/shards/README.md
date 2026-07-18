@@ -109,8 +109,9 @@ observations, and device agents. Geometry is encoded as lowercase,
 SRID-bearing EWKB hex so point and boundary coordinates survive without
 decimal projection loss. Runtime schema and relationship preflight reject
 duplicate registry coordinates, invalid geometry encodings, and unknown named
-location references. Spatial registry apply behavior is not part of this
-corpus.
+location references. A database test uses this corpus to prove transactional
+replace convergence, skip and dry-run accounting, exact EWKB restoration, and
+rollback after a late injected failure.
 
 ### full-v1-unified-provenance-candidate/
 
