@@ -22335,8 +22335,9 @@ struct StreamedShardArchive {
     sidecars: std::collections::HashMap<String, StreamedShardSidecar>,
 }
 
-fn read_shard_archive_streaming_sidecars(
-    shard_bytes: &[u8],
+fn read_shard_archive_streaming_sidecars_from_reader<R: std::io::Read>(
+    shard_reader: R,
+    compressed_bytes: usize,
     limits: ShardArchiveLimits,
     sidecar_directory: &std::path::Path,
 ) -> Result<StreamedShardArchive, String> {
@@ -22344,11 +22345,11 @@ fn read_shard_archive_streaming_sidecars(
     use std::io::{Read, Write};
     use tar::Archive;
 
-    if shard_bytes.len() > limits.max_compressed_bytes {
+    if compressed_bytes > limits.max_compressed_bytes {
         return Err("Knowledge shard exceeds the compressed size limit.".to_string());
     }
 
-    let decoder = GzDecoder::new(shard_bytes);
+    let decoder = GzDecoder::new(shard_reader);
     let mut tar_reader = Archive::new(decoder);
     let mut files = std::collections::HashMap::new();
     let mut sidecars = std::collections::HashMap::new();
@@ -22459,6 +22460,20 @@ fn read_shard_archive_streaming_sidecars(
     }
 
     Ok(StreamedShardArchive { files, sidecars })
+}
+
+#[cfg(test)]
+fn read_shard_archive_streaming_sidecars(
+    shard_bytes: &[u8],
+    limits: ShardArchiveLimits,
+    sidecar_directory: &std::path::Path,
+) -> Result<StreamedShardArchive, String> {
+    read_shard_archive_streaming_sidecars_from_reader(
+        shard_bytes,
+        shard_bytes.len(),
+        limits,
+        sidecar_directory,
+    )
 }
 
 fn shard_component_filename(component: &str) -> Option<&'static str> {
@@ -24137,8 +24152,9 @@ async fn knowledge_shard_import_upload(
     Query(query): Query<ShardUploadQuery>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Read the uploaded shard file
-    let mut shard_bytes: Option<Vec<u8>> = None;
+    use tokio::io::AsyncWriteExt;
+
+    let mut shard_upload: Option<(tempfile::NamedTempFile, usize)> = None;
     let max_compressed_bytes = state.max_upload_size.min(SHARD_MAX_COMPRESSED_BYTES);
 
     while let Some(field) = multipart
@@ -24148,30 +24164,47 @@ async fn knowledge_shard_import_upload(
     {
         if field.name() == Some("file") || field.name() == Some("shard") {
             let mut field = field;
-            let mut uploaded = Vec::new();
+            let shard_file = tempfile::NamedTempFile::new()
+                .map_err(|error| shard_operation_failed("prepare shard upload", error))?;
+            let writer = shard_file
+                .reopen()
+                .map_err(|error| shard_operation_failed("open shard upload", error))?;
+            let mut uploaded = tokio::fs::File::from_std(writer);
+            let mut uploaded_bytes = 0usize;
             while let Some(chunk) = field
                 .chunk()
                 .await
                 .map_err(|_| ApiError::BadRequest("Invalid uploaded shard data.".to_string()))?
             {
-                let next_len = uploaded.len().checked_add(chunk.len()).ok_or_else(|| {
+                uploaded_bytes = uploaded_bytes.checked_add(chunk.len()).ok_or_else(|| {
                     shard_validation_failed("Knowledge shard exceeds the compressed size limit.")
                 })?;
-                if next_len > max_compressed_bytes {
+                if uploaded_bytes > max_compressed_bytes {
                     return Err(shard_validation_failed(
                         "Knowledge shard exceeds the compressed size limit.",
                     ));
                 }
-                uploaded.extend_from_slice(&chunk);
+                uploaded
+                    .write_all(&chunk)
+                    .await
+                    .map_err(|error| shard_operation_failed("write shard upload", error))?;
             }
-            shard_bytes = Some(uploaded);
+            uploaded
+                .flush()
+                .await
+                .map_err(|error| shard_operation_failed("flush shard upload", error))?;
+            drop(uploaded);
+            shard_upload = Some((shard_file, uploaded_bytes));
             break;
         }
     }
 
-    let shard_bytes = shard_bytes.ok_or_else(|| {
+    let (shard_file, compressed_bytes) = shard_upload.ok_or_else(|| {
         ApiError::BadRequest("No file uploaded. Use field name 'file' or 'shard'.".to_string())
     })?;
+    let shard_reader = shard_file
+        .reopen()
+        .map_err(|error| shard_operation_failed("read shard upload", error))?;
 
     let opts = ShardImportOptions {
         include: query.include,
@@ -24180,8 +24213,15 @@ async fn knowledge_shard_import_upload(
         skip_embedding_regen: query.skip_embedding_regen,
     };
 
-    let result =
-        knowledge_shard_import_internal(&state, &shard_bytes, &opts, &archive_ctx.schema).await?;
+    let result = knowledge_shard_import_internal_from_reader_with_wipe(
+        &state,
+        shard_reader,
+        compressed_bytes,
+        &opts,
+        &archive_ctx.schema,
+        false,
+    )
+    .await?;
     Ok(Json(result))
 }
 
@@ -27402,7 +27442,6 @@ async fn swap_backup(
     Json(req): Json<SwapBackupRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     use std::fs::File;
-    use std::io::Read;
 
     let dry_run = req.dry_run.unwrap_or(false);
     let wipe_before_apply = swap_wipes_existing_data(req.strategy.as_deref())?;
@@ -27428,8 +27467,10 @@ async fn swap_backup(
         ));
     }
 
-    // Bound the on-disk read before allocating the restore payload.
-    let file_size = std::fs::metadata(&path)
+    // Bound the on-disk source before passing it to archive preflight.
+    let file = File::open(&path).map_err(|e| shard_operation_failed("open shard file", e))?;
+    let file_size = file
+        .metadata()
         .map_err(|e| shard_operation_failed("read shard file metadata", e))?
         .len();
     let max_compressed_bytes = state.max_upload_size.min(SHARD_MAX_COMPRESSED_BYTES);
@@ -27438,16 +27479,9 @@ async fn swap_backup(
             "Knowledge shard exceeds the compressed size limit.",
         ));
     }
-    let file = File::open(&path).map_err(|e| shard_operation_failed("open shard file", e))?;
-    let mut shard_data = Vec::with_capacity(file_size as usize);
-    file.take((max_compressed_bytes + 1) as u64)
-        .read_to_end(&mut shard_data)
-        .map_err(|e| shard_operation_failed("read shard file", e))?;
-    if shard_data.len() > max_compressed_bytes {
-        return Err(shard_validation_failed(
-            "Knowledge shard exceeds the compressed size limit.",
-        ));
-    }
+    let compressed_bytes = usize::try_from(file_size).map_err(|_| {
+        shard_validation_failed("Knowledge shard exceeds the compressed size limit.")
+    })?;
 
     // Import from shard
     let opts = ShardImportOptions {
@@ -27458,9 +27492,10 @@ async fn swap_backup(
     };
 
     // Call the shard import logic with archive schema
-    let result = knowledge_shard_import_internal_with_wipe(
+    let result = knowledge_shard_import_internal_from_reader_with_wipe(
         &state,
-        &shard_data,
+        file,
+        compressed_bytes,
         &opts,
         &archive_ctx.schema,
         wipe_before_apply,
@@ -28158,6 +28193,28 @@ async fn knowledge_shard_import_internal_with_wipe(
     schema: &str,
     wipe_before_apply: bool,
 ) -> Result<ShardImportResponse, ApiError> {
+    knowledge_shard_import_internal_from_reader_with_wipe(
+        state,
+        std::io::Cursor::new(shard_bytes),
+        shard_bytes.len(),
+        opts,
+        schema,
+        wipe_before_apply,
+    )
+    .await
+}
+
+async fn knowledge_shard_import_internal_from_reader_with_wipe<R>(
+    state: &AppState,
+    shard_reader: R,
+    compressed_bytes: usize,
+    opts: &ShardImportOptions,
+    schema: &str,
+    wipe_before_apply: bool,
+) -> Result<ShardImportResponse, ApiError>
+where
+    R: std::io::Read + Send,
+{
     use sha2::{Digest, Sha256};
 
     let schema_for_jobs = if schema != "public" {
@@ -28168,8 +28225,9 @@ async fn knowledge_shard_import_internal_with_wipe(
 
     let sidecar_directory = tempfile::tempdir()
         .map_err(|error| shard_operation_failed("prepare shard sidecar preflight", error))?;
-    let source_archive = read_shard_archive_streaming_sidecars(
-        shard_bytes,
+    let source_archive = read_shard_archive_streaming_sidecars_from_reader(
+        shard_reader,
+        compressed_bytes,
         ShardArchiveLimits::for_compressed_limit(state.max_upload_size),
         sidecar_directory.path(),
     )
@@ -36505,9 +36563,26 @@ mod tests {
             ),
         ]);
         let staging = tempfile::tempdir().expect("create sidecar preflight directory");
+        let archive_file = tempfile::NamedTempFile::new().expect("create compressed shard file");
+        std::fs::write(archive_file.path(), &archive).expect("write compressed shard file");
+        let compressed_limit = ShardArchiveLimits {
+            max_compressed_bytes: archive.len() - 1,
+            ..ShardArchiveLimits::default()
+        };
+        assert_eq!(
+            read_shard_archive_streaming_sidecars_from_reader(
+                std::fs::File::open(archive_file.path()).expect("open limited shard file"),
+                archive.len(),
+                compressed_limit,
+                staging.path(),
+            )
+            .unwrap_err(),
+            "Knowledge shard exceeds the compressed size limit."
+        );
 
-        let parsed = read_shard_archive_streaming_sidecars(
-            &archive,
+        let parsed = read_shard_archive_streaming_sidecars_from_reader(
+            std::fs::File::open(archive_file.path()).expect("open compressed shard file"),
+            archive.len(),
             ShardArchiveLimits::default(),
             staging.path(),
         )
@@ -38269,12 +38344,19 @@ mod tests {
             )
             .await
             .expect("create isolated sidecar destination");
+        let compressed_import =
+            tempfile::NamedTempFile::new().expect("create file-backed shard import");
+        std::fs::write(compressed_import.path(), &exported_bytes)
+            .expect("write file-backed shard import");
         for _ in 0..2 {
-            knowledge_shard_import_internal(
+            knowledge_shard_import_internal_from_reader_with_wipe(
                 &state,
-                &exported_bytes,
+                std::fs::File::open(compressed_import.path())
+                    .expect("open file-backed shard import"),
+                exported_bytes.len(),
                 &opts,
                 &destination.schema_name,
+                false,
             )
             .await
             .expect("verified sidecar import must be repeatable");
