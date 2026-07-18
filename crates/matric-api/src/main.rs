@@ -22734,22 +22734,31 @@ where
     Ok(record_count)
 }
 
-fn parse_shard_component_records_with_limits(
-    component: &str,
+const SHARD_RECORD_COUNT_LIMIT_MARKER: &str = "__fortemi_shard_record_count_limit__";
+const SHARD_RECORD_SIZE_LIMIT_MARKER: &str = "__fortemi_shard_record_size_limit__";
+const SHARD_RECORD_VISITOR_FAILURE_MARKER: &str = "__fortemi_shard_record_visitor_failure__";
+
+fn visit_shard_json_array_values_with_limits<F>(
     data: &[u8],
     max_records: usize,
     max_record_bytes: usize,
-) -> Result<Vec<serde_json::Value>, String> {
-    const RECORD_COUNT_LIMIT_MARKER: &str = "__fortemi_shard_record_count_limit__";
-    const RECORD_SIZE_LIMIT_MARKER: &str = "__fortemi_shard_record_size_limit__";
-
-    struct BoundedJsonArrayVisitor {
+    visitor_failure: &'static str,
+    mut visit: F,
+) -> Result<usize, String>
+where
+    F: FnMut(serde_json::Value) -> Result<(), String>,
+{
+    struct BoundedJsonArrayVisitor<'a, F> {
         max_records: usize,
         max_record_bytes: usize,
+        visit: &'a mut F,
     }
 
-    impl<'de> serde::de::Visitor<'de> for BoundedJsonArrayVisitor {
-        type Value = Vec<serde_json::Value>;
+    impl<'de, F> serde::de::Visitor<'de> for BoundedJsonArrayVisitor<'_, F>
+    where
+        F: FnMut(serde_json::Value) -> Result<(), String>,
+    {
+        type Value = usize;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             formatter.write_str("a bounded JSON array")
@@ -22759,23 +22768,58 @@ fn parse_shard_component_records_with_limits(
         where
             A: serde::de::SeqAccess<'de>,
         {
-            let mut records = Vec::new();
+            let mut record_count = 0usize;
             while let Some(record) = sequence.next_element::<serde_json::Value>()? {
-                if records.len() >= self.max_records {
-                    return Err(serde::de::Error::custom(RECORD_COUNT_LIMIT_MARKER));
+                if record_count >= self.max_records {
+                    return Err(serde::de::Error::custom(SHARD_RECORD_COUNT_LIMIT_MARKER));
                 }
                 let encoded_len = serde_json::to_vec(&record)
                     .map_err(serde::de::Error::custom)?
                     .len();
                 if encoded_len > self.max_record_bytes {
-                    return Err(serde::de::Error::custom(RECORD_SIZE_LIMIT_MARKER));
+                    return Err(serde::de::Error::custom(SHARD_RECORD_SIZE_LIMIT_MARKER));
                 }
-                records.push(record);
+                (self.visit)(record)
+                    .map_err(|_| serde::de::Error::custom(SHARD_RECORD_VISITOR_FAILURE_MARKER))?;
+                record_count += 1;
             }
-            Ok(records)
+            Ok(record_count)
         }
     }
 
+    let mut deserializer = serde_json::Deserializer::from_slice(data);
+    let record_count = serde::de::Deserializer::deserialize_seq(
+        &mut deserializer,
+        BoundedJsonArrayVisitor {
+            max_records,
+            max_record_bytes,
+            visit: &mut visit,
+        },
+    )
+    .map_err(|error| {
+        let error = error.to_string();
+        if error.contains(SHARD_RECORD_COUNT_LIMIT_MARKER) {
+            "Knowledge shard component exceeds the record count limit.".to_string()
+        } else if error.contains(SHARD_RECORD_SIZE_LIMIT_MARKER) {
+            "Knowledge shard component record exceeds the size limit.".to_string()
+        } else if error.contains(SHARD_RECORD_VISITOR_FAILURE_MARKER) {
+            visitor_failure.to_string()
+        } else {
+            "Knowledge shard component contains invalid JSON.".to_string()
+        }
+    })?;
+    deserializer
+        .end()
+        .map_err(|_| "Knowledge shard component contains invalid JSON.".to_string())?;
+    Ok(record_count)
+}
+
+fn parse_shard_component_records_with_limits(
+    component: &str,
+    data: &[u8],
+    max_records: usize,
+    max_record_bytes: usize,
+) -> Result<Vec<serde_json::Value>, String> {
     match component {
         "notes" | "links" => {
             let mut records = Vec::new();
@@ -22786,27 +22830,17 @@ fn parse_shard_component_records_with_limits(
             Ok(records)
         }
         "collections" | "tags" | "templates" => {
-            let mut deserializer = serde_json::Deserializer::from_slice(data);
-            let records = serde::de::Deserializer::deserialize_seq(
-                &mut deserializer,
-                BoundedJsonArrayVisitor {
-                    max_records,
-                    max_record_bytes,
+            let mut records = Vec::new();
+            visit_shard_json_array_values_with_limits(
+                data,
+                max_records,
+                max_record_bytes,
+                "Knowledge shard component visitor failed.",
+                |record| {
+                    records.push(record);
+                    Ok(())
                 },
-            )
-            .map_err(|error| {
-                let error = error.to_string();
-                if error.contains(RECORD_COUNT_LIMIT_MARKER) {
-                    "Knowledge shard component exceeds the record count limit.".to_string()
-                } else if error.contains(RECORD_SIZE_LIMIT_MARKER) {
-                    "Knowledge shard component record exceeds the size limit.".to_string()
-                } else {
-                    "Knowledge shard component contains invalid JSON.".to_string()
-                }
-            })?;
-            deserializer
-                .end()
-                .map_err(|_| "Knowledge shard component contains invalid JSON.".to_string())?;
+            )?;
             Ok(records)
         }
         _ => Err("Unsupported knowledge shard component.".to_string()),
@@ -22835,15 +22869,19 @@ fn validate_shard_component_schema_for_profile(
             },
         );
     }
-    let records = parse_shard_component_records(component, data)?;
-    for record in &records {
-        validate_shard_json_schema(
-            record,
-            schema,
-            "Knowledge shard component does not match canonical core-v1 schema.",
-        )?;
-    }
-    Ok(records.len())
+    visit_shard_json_array_values_with_limits(
+        data,
+        SHARD_MAX_RECORDS_PER_COMPONENT,
+        SHARD_MAX_RECORD_BYTES,
+        "Knowledge shard component does not match canonical core-v1 schema.",
+        |record| {
+            validate_shard_json_schema(
+                &record,
+                schema,
+                "Knowledge shard component does not match canonical core-v1 schema.",
+            )
+        },
+    )
 }
 
 fn ordered_shard_collections(data: &[u8]) -> Result<Vec<ShardCollectionRecord>, String> {
@@ -36907,6 +36945,10 @@ not-json
             .unwrap_err(),
             "Knowledge shard component record exceeds the size limit."
         );
+        assert_eq!(
+            parse_shard_component_records_with_limits("tags", b"[] trailing", 2, 16).unwrap_err(),
+            "Knowledge shard component contains invalid JSON."
+        );
     }
 
     #[test]
@@ -36920,6 +36962,25 @@ not-json
 
         assert_eq!(visited, 1);
         assert_eq!(error, "stop after first record");
+    }
+
+    #[test]
+    fn shard_json_array_value_visitor_processes_records_before_later_elements() {
+        let mut visited = 0usize;
+        let error = visit_shard_json_array_values_with_limits(
+            br#"[{"id":1},not-json]"#,
+            2,
+            32,
+            "Knowledge shard test visitor failed.",
+            |_| {
+                visited += 1;
+                Err("untrusted visitor detail".to_string())
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(visited, 1);
+        assert_eq!(error, "Knowledge shard test visitor failed.");
     }
 
     #[test]

@@ -45,10 +45,12 @@ Structured component files remain bounded-buffered, but transactional apply
 deserializes JSONL notes and links one record at a time instead of retaining a
 second component-sized typed vector. Schema/count and relationship preflight
 also visit JSONL notes and links one record at a time, retaining only identity
-and attachment-declaration sets needed for cross-record validation. JSON-array
-components, historical migration, and preflight raw buffers remain
-bounded-buffered, and export is not single-pass live emission, so the route
-does not constitute fully streaming or `full-v1` profile conformance.
+and attachment-declaration sets needed for cross-record validation.
+Schema/count preflight also validates and discards JSON-array component records
+one at a time. Typed JSON-array relationship/apply data, historical migration,
+and preflight raw buffers remain bounded-buffered, and export is not
+single-pass live emission, so the route does not constitute fully streaming or
+`full-v1` profile conformance.
 
 The current normative schema root for `1.1.0` / `core-v1` is
 `contracts/knowledge-shard/1.1.0/core-v1/`. The immutable `1.0.0` authority
