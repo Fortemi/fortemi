@@ -23355,7 +23355,9 @@ fn validate_shard_relationships(
         )?;
     }
 
-    validate_shard_note_history_relationships(files, &note_ids, &note_contents)?;
+    let revision_notes =
+        validate_shard_note_history_relationships(files, &note_ids, &note_contents)?;
+    validate_shard_revision_provenance_relationships(files, &note_ids, &revision_notes)?;
     validate_shard_embedding_relationships(files, &note_ids)?;
 
     Ok(attachment_digests)
@@ -23365,7 +23367,7 @@ fn validate_shard_note_history_relationships(
     files: &std::collections::HashMap<String, Vec<u8>>,
     note_ids: &std::collections::HashSet<Uuid>,
     note_contents: &std::collections::HashMap<Uuid, (String, String)>,
-) -> Result<(), String> {
+) -> Result<std::collections::HashMap<Uuid, Uuid>, String> {
     let mut original_note_ids = std::collections::HashSet::new();
     let mut current_original_versions = std::collections::HashMap::new();
     if let Some(data) = files.get("note_originals.jsonl") {
@@ -23505,6 +23507,70 @@ fn validate_shard_note_history_relationships(
                         "Knowledge shard current note revision reference is invalid.".to_string(),
                     );
                 }
+            }
+        }
+    }
+
+    Ok(revision_notes)
+}
+
+fn validate_shard_revision_provenance_relationships(
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    note_ids: &std::collections::HashSet<Uuid>,
+    revision_notes: &std::collections::HashMap<Uuid, Uuid>,
+) -> Result<(), String> {
+    let mut edge_ids = std::collections::HashSet::new();
+    if let Some(data) = files.get("provenance_edges.jsonl") {
+        for value in parse_shard_component_records("provenance_edges", data)? {
+            let edge = serde_json::from_value::<ShardProvenanceEdgeRecord>(value)
+                .map_err(|_| "Knowledge shard provenance edges are invalid.".to_string())?;
+            if !edge_ids.insert(edge.id) {
+                return Err(
+                    "Knowledge shard provenance edge identities must be unique.".to_string()
+                );
+            }
+            if edge
+                .revision_id
+                .is_some_and(|revision_id| !revision_notes.contains_key(&revision_id))
+            {
+                return Err(
+                    "Knowledge shard provenance edge references an unknown revision.".to_string(),
+                );
+            }
+            if edge
+                .source_note_id
+                .is_some_and(|note_id| !note_ids.contains(&note_id))
+            {
+                return Err(
+                    "Knowledge shard provenance edge references an unknown source note."
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    let mut activity_ids = std::collections::HashSet::new();
+    if let Some(data) = files.get("provenance_activities.jsonl") {
+        for value in parse_shard_component_records("provenance_activities", data)? {
+            let activity = serde_json::from_value::<ShardProvenanceActivityRecord>(value)
+                .map_err(|_| "Knowledge shard provenance activities are invalid.".to_string())?;
+            if !activity_ids.insert(activity.id) {
+                return Err(
+                    "Knowledge shard provenance activity identities must be unique.".to_string(),
+                );
+            }
+            if !note_ids.contains(&activity.note_id) {
+                return Err(
+                    "Knowledge shard provenance activity references an unknown note.".to_string(),
+                );
+            }
+            if activity.revision_id.is_some_and(|revision_id| {
+                revision_notes.get(&revision_id) != Some(&activity.note_id)
+            }) {
+                return Err(
+                    "Knowledge shard provenance activity revision relationship is invalid."
+                        .to_string(),
+                );
             }
         }
     }
@@ -41416,6 +41482,205 @@ not-json
             )
             .unwrap_err(),
             "Knowledge shard current note revision reference is invalid."
+        );
+    }
+
+    fn valid_shard_revision_provenance_relationship_fixture() -> (
+        std::collections::HashMap<String, Vec<u8>>,
+        std::collections::HashSet<Uuid>,
+        std::collections::HashMap<Uuid, Uuid>,
+        Uuid,
+        Uuid,
+    ) {
+        let (mut files, note_ids, note_contents, _, current_revision_id) =
+            valid_shard_note_history_relationship_fixture();
+        let note_id = *note_ids.iter().next().unwrap();
+        let revision_notes =
+            validate_shard_note_history_relationships(&files, &note_ids, &note_contents).unwrap();
+        let edge_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d011").unwrap();
+        let edge = serde_json::json!({
+            "id": edge_id,
+            "revision_id": current_revision_id,
+            "source_note_id": note_id,
+            "source_url": null,
+            "relation": "wasDerivedFrom",
+            "created_at_utc": "2026-07-18T12:30:00Z"
+        });
+        let activity = serde_json::json!({
+            "id": "018f4c11-9f14-7d33-8a21-1c80f648d012",
+            "note_id": note_id,
+            "revision_id": current_revision_id,
+            "activity_type": "ai_revision",
+            "model_name": "test-model",
+            "started_at": "2026-07-18T12:29:00Z",
+            "ended_at": "2026-07-18T12:30:00Z",
+            "metadata": {"revision_mode": "full"}
+        });
+        files.insert(
+            "provenance_edges.jsonl".to_string(),
+            serde_json::to_vec(&edge).unwrap(),
+        );
+        files.insert(
+            "provenance_activities.jsonl".to_string(),
+            serde_json::to_vec(&activity).unwrap(),
+        );
+        (
+            files,
+            note_ids,
+            revision_notes,
+            edge_id,
+            current_revision_id,
+        )
+    }
+
+    #[test]
+    fn shard_revision_provenance_preflight_accepts_complete_boundary() {
+        let (files, note_ids, revision_notes, ..) =
+            valid_shard_revision_provenance_relationship_fixture();
+        validate_shard_revision_provenance_relationships(&files, &note_ids, &revision_notes)
+            .unwrap();
+    }
+
+    #[test]
+    fn shard_revision_provenance_preflight_rejects_duplicate_and_unknown_edges() {
+        let (files, note_ids, revision_notes, edge_id, ..) =
+            valid_shard_revision_provenance_relationship_fixture();
+
+        let mut duplicate = files.clone();
+        let mut edges =
+            parse_shard_component_records("provenance_edges", &duplicate["provenance_edges.jsonl"])
+                .unwrap();
+        let mut duplicate_edge = edges[0].clone();
+        duplicate_edge["relation"] = serde_json::json!("used");
+        edges.push(duplicate_edge);
+        duplicate.insert(
+            "provenance_edges.jsonl".to_string(),
+            serialize_shard_export_jsonl(&edges, "serialize duplicate provenance edges").unwrap(),
+        );
+        assert_eq!(
+            validate_shard_revision_provenance_relationships(
+                &duplicate,
+                &note_ids,
+                &revision_notes
+            )
+            .unwrap_err(),
+            "Knowledge shard provenance edge identities must be unique."
+        );
+
+        let mut unknown_revision = files.clone();
+        let mut edges = parse_shard_component_records(
+            "provenance_edges",
+            &unknown_revision["provenance_edges.jsonl"],
+        )
+        .unwrap();
+        edges[0]["id"] = serde_json::json!(edge_id);
+        edges[0]["revision_id"] = serde_json::json!(Uuid::now_v7());
+        unknown_revision.insert(
+            "provenance_edges.jsonl".to_string(),
+            serialize_shard_export_jsonl(&edges, "serialize unknown revision edge").unwrap(),
+        );
+        assert_eq!(
+            validate_shard_revision_provenance_relationships(
+                &unknown_revision,
+                &note_ids,
+                &revision_notes
+            )
+            .unwrap_err(),
+            "Knowledge shard provenance edge references an unknown revision."
+        );
+
+        let mut unknown_source = files;
+        let mut edges = parse_shard_component_records(
+            "provenance_edges",
+            &unknown_source["provenance_edges.jsonl"],
+        )
+        .unwrap();
+        edges[0]["source_note_id"] = serde_json::json!(Uuid::now_v7());
+        unknown_source.insert(
+            "provenance_edges.jsonl".to_string(),
+            serialize_shard_export_jsonl(&edges, "serialize unknown provenance source").unwrap(),
+        );
+        assert_eq!(
+            validate_shard_revision_provenance_relationships(
+                &unknown_source,
+                &note_ids,
+                &revision_notes
+            )
+            .unwrap_err(),
+            "Knowledge shard provenance edge references an unknown source note."
+        );
+    }
+
+    #[test]
+    fn shard_revision_provenance_preflight_rejects_invalid_activity_relationships() {
+        let (files, note_ids, revision_notes, ..) =
+            valid_shard_revision_provenance_relationship_fixture();
+
+        let mut duplicate = files.clone();
+        let mut activities = parse_shard_component_records(
+            "provenance_activities",
+            &duplicate["provenance_activities.jsonl"],
+        )
+        .unwrap();
+        activities.push(activities[0].clone());
+        duplicate.insert(
+            "provenance_activities.jsonl".to_string(),
+            serialize_shard_export_jsonl(&activities, "serialize duplicate activities").unwrap(),
+        );
+        assert_eq!(
+            validate_shard_revision_provenance_relationships(
+                &duplicate,
+                &note_ids,
+                &revision_notes
+            )
+            .unwrap_err(),
+            "Knowledge shard provenance activity identities must be unique."
+        );
+
+        let mut unknown_note = files.clone();
+        let mut activities = parse_shard_component_records(
+            "provenance_activities",
+            &unknown_note["provenance_activities.jsonl"],
+        )
+        .unwrap();
+        activities[0]["note_id"] = serde_json::json!(Uuid::now_v7());
+        activities[0]["revision_id"] = serde_json::Value::Null;
+        unknown_note.insert(
+            "provenance_activities.jsonl".to_string(),
+            serialize_shard_export_jsonl(&activities, "serialize unknown activity note").unwrap(),
+        );
+        assert_eq!(
+            validate_shard_revision_provenance_relationships(
+                &unknown_note,
+                &note_ids,
+                &revision_notes
+            )
+            .unwrap_err(),
+            "Knowledge shard provenance activity references an unknown note."
+        );
+
+        let mut mismatched_revision = files;
+        let mut activities = parse_shard_component_records(
+            "provenance_activities",
+            &mismatched_revision["provenance_activities.jsonl"],
+        )
+        .unwrap();
+        let other_note_id = Uuid::now_v7();
+        activities[0]["note_id"] = serde_json::json!(other_note_id);
+        mismatched_revision.insert(
+            "provenance_activities.jsonl".to_string(),
+            serialize_shard_export_jsonl(&activities, "serialize mismatched activity").unwrap(),
+        );
+        let mut expanded_note_ids = note_ids;
+        expanded_note_ids.insert(other_note_id);
+        assert_eq!(
+            validate_shard_revision_provenance_relationships(
+                &mismatched_revision,
+                &expanded_note_ids,
+                &revision_notes
+            )
+            .unwrap_err(),
+            "Knowledge shard provenance activity revision relationship is invalid."
         );
     }
 
