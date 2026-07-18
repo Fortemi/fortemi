@@ -22764,6 +22764,38 @@ const FULL_V1_PROVENANCE_DEVICE_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/provenance-device.schema.json");
 const FULL_V1_PROVENANCE_RECORD_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/provenance-record.schema.json");
+const FULL_V1_SKOS_SCHEME_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/skos-scheme.schema.json");
+const FULL_V1_SKOS_CONCEPT_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/skos-concept.schema.json");
+const FULL_V1_SKOS_LABEL_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/skos-label.schema.json");
+const FULL_V1_SKOS_NOTE_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/skos-note.schema.json");
+const FULL_V1_SKOS_RELATION_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/skos-relation.schema.json");
+const FULL_V1_SKOS_MAPPING_RELATION_SCHEMA: &str = include_str!(
+    "../../../contracts/knowledge-shard/1.1.0/full-v1/skos-mapping-relation.schema.json"
+);
+const FULL_V1_SKOS_SCHEME_MEMBERSHIP_SCHEMA: &str = include_str!(
+    "../../../contracts/knowledge-shard/1.1.0/full-v1/skos-scheme-membership.schema.json"
+);
+const FULL_V1_NOTE_SKOS_TAG_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/note-skos-tag.schema.json");
+const FULL_V1_SKOS_COLLECTION_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/skos-collection.schema.json");
+const FULL_V1_SKOS_COLLECTION_MEMBER_SCHEMA: &str = include_str!(
+    "../../../contracts/knowledge-shard/1.1.0/full-v1/skos-collection-member.schema.json"
+);
+const FULL_V1_GRAPH_SOURCE_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/graph-source.schema.json");
+const FULL_V1_GRAPH_EDGE_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/graph-edge.schema.json");
+const FULL_V1_COMMUNITY_SET_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/community-set.schema.json");
+const FULL_V1_COMMUNITY_ASSIGNMENT_SCHEMA: &str = include_str!(
+    "../../../contracts/knowledge-shard/1.1.0/full-v1/community-assignment.schema.json"
+);
 
 #[derive(Clone, Copy)]
 struct ShardArchiveLimits {
@@ -23231,6 +23263,34 @@ fn validate_shard_json_schema(
         LazyLock::new(|| compile_shard_json_schema(FULL_V1_PROVENANCE_DEVICE_SCHEMA));
     static FULL_PROVENANCE_RECORD: LazyLock<Result<jsonschema::Validator, String>> =
         LazyLock::new(|| compile_shard_json_schema(FULL_V1_PROVENANCE_RECORD_SCHEMA));
+    static FULL_SKOS_SCHEME: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_SKOS_SCHEME_SCHEMA));
+    static FULL_SKOS_CONCEPT: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_SKOS_CONCEPT_SCHEMA));
+    static FULL_SKOS_LABEL: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_SKOS_LABEL_SCHEMA));
+    static FULL_SKOS_NOTE: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_SKOS_NOTE_SCHEMA));
+    static FULL_SKOS_RELATION: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_SKOS_RELATION_SCHEMA));
+    static FULL_SKOS_MAPPING_RELATION: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_SKOS_MAPPING_RELATION_SCHEMA));
+    static FULL_SKOS_SCHEME_MEMBERSHIP: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_SKOS_SCHEME_MEMBERSHIP_SCHEMA));
+    static FULL_NOTE_SKOS_TAG: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_NOTE_SKOS_TAG_SCHEMA));
+    static FULL_SKOS_COLLECTION: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_SKOS_COLLECTION_SCHEMA));
+    static FULL_SKOS_COLLECTION_MEMBER: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_SKOS_COLLECTION_MEMBER_SCHEMA));
+    static FULL_GRAPH_SOURCE: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_GRAPH_SOURCE_SCHEMA));
+    static FULL_GRAPH_EDGE: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_GRAPH_EDGE_SCHEMA));
+    static FULL_COMMUNITY_SET: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_COMMUNITY_SET_SCHEMA));
+    static FULL_COMMUNITY_ASSIGNMENT: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_COMMUNITY_ASSIGNMENT_SCHEMA));
 
     let validator = match schema_json {
         LEGACY_CORE_V1_MANIFEST_SCHEMA => &*LEGACY_MANIFEST,
@@ -23264,6 +23324,20 @@ fn validate_shard_json_schema(
         FULL_V1_PROVENANCE_LOCATION_SCHEMA => &*FULL_PROVENANCE_LOCATION,
         FULL_V1_PROVENANCE_DEVICE_SCHEMA => &*FULL_PROVENANCE_DEVICE,
         FULL_V1_PROVENANCE_RECORD_SCHEMA => &*FULL_PROVENANCE_RECORD,
+        FULL_V1_SKOS_SCHEME_SCHEMA => &*FULL_SKOS_SCHEME,
+        FULL_V1_SKOS_CONCEPT_SCHEMA => &*FULL_SKOS_CONCEPT,
+        FULL_V1_SKOS_LABEL_SCHEMA => &*FULL_SKOS_LABEL,
+        FULL_V1_SKOS_NOTE_SCHEMA => &*FULL_SKOS_NOTE,
+        FULL_V1_SKOS_RELATION_SCHEMA => &*FULL_SKOS_RELATION,
+        FULL_V1_SKOS_MAPPING_RELATION_SCHEMA => &*FULL_SKOS_MAPPING_RELATION,
+        FULL_V1_SKOS_SCHEME_MEMBERSHIP_SCHEMA => &*FULL_SKOS_SCHEME_MEMBERSHIP,
+        FULL_V1_NOTE_SKOS_TAG_SCHEMA => &*FULL_NOTE_SKOS_TAG,
+        FULL_V1_SKOS_COLLECTION_SCHEMA => &*FULL_SKOS_COLLECTION,
+        FULL_V1_SKOS_COLLECTION_MEMBER_SCHEMA => &*FULL_SKOS_COLLECTION_MEMBER,
+        FULL_V1_GRAPH_SOURCE_SCHEMA => &*FULL_GRAPH_SOURCE,
+        FULL_V1_GRAPH_EDGE_SCHEMA => &*FULL_GRAPH_EDGE,
+        FULL_V1_COMMUNITY_SET_SCHEMA => &*FULL_COMMUNITY_SET,
+        FULL_V1_COMMUNITY_ASSIGNMENT_SCHEMA => &*FULL_COMMUNITY_ASSIGNMENT,
         _ => return Err("Unknown canonical knowledge shard schema.".to_string()),
     }
     .as_ref()
@@ -23340,6 +23414,26 @@ fn shard_component_schema(version: &str, profile: &str, component: &str) -> Opti
         ("1.1.0", "full-v1", "provenance_locations") => Some(FULL_V1_PROVENANCE_LOCATION_SCHEMA),
         ("1.1.0", "full-v1", "provenance_devices") => Some(FULL_V1_PROVENANCE_DEVICE_SCHEMA),
         ("1.1.0", "full-v1", "provenance_records") => Some(FULL_V1_PROVENANCE_RECORD_SCHEMA),
+        ("1.1.0", "full-v1", "skos_schemes") => Some(FULL_V1_SKOS_SCHEME_SCHEMA),
+        ("1.1.0", "full-v1", "skos_concepts") => Some(FULL_V1_SKOS_CONCEPT_SCHEMA),
+        ("1.1.0", "full-v1", "skos_labels") => Some(FULL_V1_SKOS_LABEL_SCHEMA),
+        ("1.1.0", "full-v1", "skos_notes") => Some(FULL_V1_SKOS_NOTE_SCHEMA),
+        ("1.1.0", "full-v1", "skos_relations") => Some(FULL_V1_SKOS_RELATION_SCHEMA),
+        ("1.1.0", "full-v1", "skos_mapping_relations") => {
+            Some(FULL_V1_SKOS_MAPPING_RELATION_SCHEMA)
+        }
+        ("1.1.0", "full-v1", "skos_scheme_memberships") => {
+            Some(FULL_V1_SKOS_SCHEME_MEMBERSHIP_SCHEMA)
+        }
+        ("1.1.0", "full-v1", "note_skos_tags") => Some(FULL_V1_NOTE_SKOS_TAG_SCHEMA),
+        ("1.1.0", "full-v1", "skos_collections") => Some(FULL_V1_SKOS_COLLECTION_SCHEMA),
+        ("1.1.0", "full-v1", "skos_collection_members") => {
+            Some(FULL_V1_SKOS_COLLECTION_MEMBER_SCHEMA)
+        }
+        ("1.1.0", "full-v1", "graph_sources") => Some(FULL_V1_GRAPH_SOURCE_SCHEMA),
+        ("1.1.0", "full-v1", "graph_edges") => Some(FULL_V1_GRAPH_EDGE_SCHEMA),
+        ("1.1.0", "full-v1", "communities") => Some(FULL_V1_COMMUNITY_SET_SCHEMA),
+        ("1.1.0", "full-v1", "community_assignments") => Some(FULL_V1_COMMUNITY_ASSIGNMENT_SCHEMA),
         _ => None,
     }
 }
@@ -23549,6 +23643,15 @@ fn validate_shard_component_schema_for_profile(
             | "provenance_locations"
             | "provenance_devices"
             | "provenance_records"
+            | "skos_labels"
+            | "skos_notes"
+            | "skos_relations"
+            | "skos_mapping_relations"
+            | "skos_scheme_memberships"
+            | "note_skos_tags"
+            | "skos_collection_members"
+            | "graph_edges"
+            | "community_assignments"
             | "links"
             | "embedding_set_members"
             | "embeddings"
@@ -44356,7 +44459,7 @@ not-json
         ))
         .expect("contract receipt must be valid JSON");
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert_eq!(receipt["contractRevision"], "13");
+        assert_eq!(receipt["contractRevision"], "14");
         assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
@@ -44366,7 +44469,7 @@ not-json
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
         assert_eq!(
             receipt["profiles"]["full-v1"]["status"],
-            "provenance-apply-candidate"
+            "rich-schema-apply-candidate"
         );
         assert_eq!(receipt["profiles"]["record-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["record-v1"]["status"], "supported");
@@ -44541,6 +44644,50 @@ not-json
             receipt["profiles"]["full-v1"]["candidateUnifiedProvenanceCorpusSha256"]
                 .as_str()
                 .expect("full-v1 unified provenance candidate fixture digest must be a string")
+        );
+
+        let mut full_v1_skos_fixture_bundle = sha2::Sha256::new();
+        for relative in [
+            "tests/fixtures/shards/full-v1-skos-candidate/note_skos_tags.jsonl",
+            "tests/fixtures/shards/full-v1-skos-candidate/skos_collection_members.jsonl",
+            "tests/fixtures/shards/full-v1-skos-candidate/skos_collections.json",
+            "tests/fixtures/shards/full-v1-skos-candidate/skos_concepts.json",
+            "tests/fixtures/shards/full-v1-skos-candidate/skos_labels.jsonl",
+            "tests/fixtures/shards/full-v1-skos-candidate/skos_mapping_relations.jsonl",
+            "tests/fixtures/shards/full-v1-skos-candidate/skos_notes.jsonl",
+            "tests/fixtures/shards/full-v1-skos-candidate/skos_relations.jsonl",
+            "tests/fixtures/shards/full-v1-skos-candidate/skos_scheme_memberships.jsonl",
+            "tests/fixtures/shards/full-v1-skos-candidate/skos_schemes.json",
+        ] {
+            full_v1_skos_fixture_bundle.update(
+                std::fs::read(workspace_root.join(relative))
+                    .expect("full-v1 SKOS candidate corpus receipt path must exist"),
+            );
+        }
+        assert_eq!(
+            hex::encode(full_v1_skos_fixture_bundle.finalize()),
+            receipt["profiles"]["full-v1"]["candidateSkosCorpusSha256"]
+                .as_str()
+                .expect("full-v1 SKOS candidate fixture digest must be a string")
+        );
+
+        let mut full_v1_graph_fixture_bundle = sha2::Sha256::new();
+        for relative in [
+            "tests/fixtures/shards/full-v1-graph-candidate/communities.json",
+            "tests/fixtures/shards/full-v1-graph-candidate/community_assignments.jsonl",
+            "tests/fixtures/shards/full-v1-graph-candidate/graph_edges.jsonl",
+            "tests/fixtures/shards/full-v1-graph-candidate/graph_sources.json",
+        ] {
+            full_v1_graph_fixture_bundle.update(
+                std::fs::read(workspace_root.join(relative))
+                    .expect("full-v1 graph candidate corpus receipt path must exist"),
+            );
+        }
+        assert_eq!(
+            hex::encode(full_v1_graph_fixture_bundle.finalize()),
+            receipt["profiles"]["full-v1"]["candidateGraphCorpusSha256"]
+                .as_str()
+                .expect("full-v1 graph candidate fixture digest must be a string")
         );
 
         let historical = &receipt["historicalReleases"]["1.0.0/core-v1"];
@@ -48395,6 +48542,314 @@ not-json
                 .unwrap_err(),
             "Knowledge shard component exceeds the record count limit."
         );
+    }
+
+    #[test]
+    fn full_v1_skos_and_graph_candidate_corpora_match_canonical_schemas() {
+        let skos_components = [
+            (
+                "skos_schemes",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_schemes.json"
+                )
+                .as_slice(),
+                1,
+            ),
+            (
+                "skos_concepts",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_concepts.json"
+                )
+                .as_slice(),
+                2,
+            ),
+            (
+                "skos_labels",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_labels.jsonl"
+                )
+                .as_slice(),
+                2,
+            ),
+            (
+                "skos_notes",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_notes.jsonl"
+                )
+                .as_slice(),
+                1,
+            ),
+            (
+                "skos_relations",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_relations.jsonl"
+                )
+                .as_slice(),
+                1,
+            ),
+            (
+                "skos_mapping_relations",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_mapping_relations.jsonl"
+                )
+                .as_slice(),
+                1,
+            ),
+            (
+                "skos_scheme_memberships",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_scheme_memberships.jsonl"
+                )
+                .as_slice(),
+                2,
+            ),
+            (
+                "note_skos_tags",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/note_skos_tags.jsonl"
+                )
+                .as_slice(),
+                1,
+            ),
+            (
+                "skos_collections",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_collections.json"
+                )
+                .as_slice(),
+                1,
+            ),
+            (
+                "skos_collection_members",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_collection_members.jsonl"
+                )
+                .as_slice(),
+                1,
+            ),
+        ];
+        for (component, data, expected_count) in skos_components {
+            assert_eq!(
+                validate_shard_component_schema_for_profile("1.1.0", "full-v1", component, data)
+                    .unwrap(),
+                expected_count,
+                "{component}"
+            );
+        }
+
+        let graph_components = [
+            (
+                "graph_sources",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-graph-candidate/graph_sources.json"
+                )
+                .as_slice(),
+                1,
+            ),
+            (
+                "graph_edges",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-graph-candidate/graph_edges.jsonl"
+                )
+                .as_slice(),
+                1,
+            ),
+            (
+                "communities",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-graph-candidate/communities.json"
+                )
+                .as_slice(),
+                1,
+            ),
+            (
+                "community_assignments",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-graph-candidate/community_assignments.jsonl"
+                )
+                .as_slice(),
+                2,
+            ),
+        ];
+        for (component, data, expected_count) in graph_components {
+            assert_eq!(
+                validate_shard_component_schema_for_profile("1.1.0", "full-v1", component, data)
+                    .unwrap(),
+                expected_count,
+                "{component}"
+            );
+        }
+    }
+
+    #[test]
+    fn full_v1_rich_candidate_schemas_reject_shape_and_enum_drift() {
+        let mut concept: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_concepts.json"
+        ))
+        .unwrap();
+        concept[0]["status"] = serde_json::json!("unreviewed");
+        let concept = serde_json::to_vec(&concept).unwrap();
+        assert_eq!(
+            validate_shard_component_schema_for_profile(
+                "1.1.0",
+                "full-v1",
+                "skos_concepts",
+                &concept,
+            )
+            .unwrap_err(),
+            "Knowledge shard component does not match canonical full-v1 candidate schema."
+        );
+
+        let mut schemes: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_schemes.json"
+        ))
+        .unwrap();
+        schemes[0]["embedding"] = serde_json::json!([0.25, -0.5]);
+        let schemes = serde_json::to_vec(&schemes).unwrap();
+        assert_eq!(
+            validate_shard_component_schema_for_profile(
+                "1.1.0",
+                "full-v1",
+                "skos_schemes",
+                &schemes,
+            )
+            .unwrap_err(),
+            "Knowledge shard component does not match canonical full-v1 candidate schema."
+        );
+
+        let mut sources: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../tests/fixtures/shards/full-v1-graph-candidate/graph_sources.json"
+        ))
+        .unwrap();
+        sources[0]["undeclared"] = serde_json::json!(true);
+        let sources = serde_json::to_vec(&sources).unwrap();
+        assert_eq!(
+            validate_shard_component_schema_for_profile(
+                "1.1.0",
+                "full-v1",
+                "graph_sources",
+                &sources,
+            )
+            .unwrap_err(),
+            "Knowledge shard component does not match canonical full-v1 candidate schema."
+        );
+    }
+
+    #[test]
+    fn full_v1_rich_candidate_corpora_pass_relationship_preflight() {
+        let skos_files = std::collections::HashMap::from([
+            (
+                "skos_schemes.json".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_schemes.json"
+                )
+                .to_vec(),
+            ),
+            (
+                "skos_concepts.json".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_concepts.json"
+                )
+                .to_vec(),
+            ),
+            (
+                "skos_labels.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_labels.jsonl"
+                )
+                .to_vec(),
+            ),
+            (
+                "skos_notes.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_notes.jsonl"
+                )
+                .to_vec(),
+            ),
+            (
+                "skos_relations.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_relations.jsonl"
+                )
+                .to_vec(),
+            ),
+            (
+                "skos_mapping_relations.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_mapping_relations.jsonl"
+                )
+                .to_vec(),
+            ),
+            (
+                "skos_scheme_memberships.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_scheme_memberships.jsonl"
+                )
+                .to_vec(),
+            ),
+            (
+                "note_skos_tags.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/note_skos_tags.jsonl"
+                )
+                .to_vec(),
+            ),
+            (
+                "skos_collections.json".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_collections.json"
+                )
+                .to_vec(),
+            ),
+            (
+                "skos_collection_members.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-skos-candidate/skos_collection_members.jsonl"
+                )
+                .to_vec(),
+            ),
+        ]);
+        let note_ids = [
+            "018f7d2d-bc00-7cc8-8ad2-f147d6a2e709",
+            "018f7d2d-bc00-7cc8-8ad2-f147d6a2e711",
+        ]
+        .into_iter()
+        .map(|id| Uuid::parse_str(id).unwrap())
+        .collect::<std::collections::HashSet<_>>();
+        validate_shard_skos_relationships(&skos_files, &note_ids).unwrap();
+
+        let graph_files = std::collections::HashMap::from([
+            (
+                "graph_sources.json".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-graph-candidate/graph_sources.json"
+                )
+                .to_vec(),
+            ),
+            (
+                "graph_edges.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-graph-candidate/graph_edges.jsonl"
+                )
+                .to_vec(),
+            ),
+            (
+                "communities.json".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-graph-candidate/communities.json"
+                )
+                .to_vec(),
+            ),
+            (
+                "community_assignments.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-graph-candidate/community_assignments.jsonl"
+                )
+                .to_vec(),
+            ),
+        ]);
+        validate_shard_graph_relationships(&graph_files, &note_ids).unwrap();
+        validate_shard_community_count(&graph_files["communities.json"], 1).unwrap();
     }
 
     #[test]

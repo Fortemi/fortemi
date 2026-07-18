@@ -13,21 +13,24 @@ The current contract revision supports Knowledge Shard schema `1.1.0` under
 - `record-v1`: notes, collections, tags, note-to-note links, and
   attachment projections.
 
-Revision 13 publishes digest-pinned candidate schemas and fixtures for the
-`full-v1` embedding, note-revision, revision-linked provenance, and spatial
-provenance registry boundaries, plus unified note/attachment provenance.
+Revision 14 publishes digest-pinned candidate schemas and fixtures for the
+`full-v1` embedding, note-revision, provenance, SKOS, graph, and community
+boundaries.
 The revision boundary covers current original state, original history, current
 revised snapshots, and revision chains. The provenance boundary adds the
 W3C-PROV edges and processing activities that reference those exact note and
 revision identities. The spatial registry boundary adds named places, exact
 PostGIS location observations, and device agents. The unified boundary adds
 temporal ranges, spatial/device/activity references, extraction context, and
-user-correction state for note and attachment targets. All five boundaries
-have bounded relationship validation and transactional apply paths with
-convergence, dry-run, conflict-accounting, and late-failure rollback tests.
-These files and dormant paths are reviewable
-authority inputs, not a supported profile. There is no canonical `full-v1`
-manifest or end-to-end revision round-trip claim yet, and runtime manifest
+user-correction state for note and attachment targets. The SKOS boundary adds
+schemes, concepts, labels, notes, semantic and mapping relations, memberships,
+note tags, and ordered collections. The graph boundary adds source lineage,
+weighted note edges, nested communities, and assignments. These boundaries
+have bounded schema and relationship validation plus transactional apply paths
+with convergence, dry-run, conflict-accounting, and late-failure rollback
+tests. The files and dormant paths are reviewable authority inputs, not a
+supported profile. There is no canonical `full-v1` manifest, signed export, or
+mandatory-byte end-to-end round-trip claim yet, and runtime manifest
 validation continues to reject `full-v1`.
 
 Each profile has its own manifest and record schemas under
@@ -58,9 +61,8 @@ by the selected export. The pinned React producer/server consumer/React return
 receipt is stored at
 `tests/fixtures/shards/record-v1-fortemi-react-df4762a.shard.receipt.json`;
 the exact producer archive is a permanent integration fixture. `full-v1`
-remains unsupported beyond its candidate embedding, note-revision,
-revision-linked provenance, spatial provenance registry, and unified provenance
-boundaries and their transactional apply paths.
+remains unsupported beyond its candidate embedding, note-revision, provenance,
+SKOS, graph, and community boundaries and their transactional apply paths.
 Complete absent-versus-null preservation
 still requires a schema-major or new profile identifier because `deleted_at`
 is optional during the 1.1 transition.

@@ -125,6 +125,22 @@ unknown cross-boundary references. A database test uses this corpus to prove
 transactional replace convergence, skip and dry-run accounting, exact range
 restoration, and rollback after a late injected failure.
 
+### full-v1-skos-candidate/
+
+Digest-pinned candidate records for SKOS schemes, concepts, labels, notes,
+semantic and mapping relations, scheme memberships, note tags, and ordered
+collections. Runtime preflight compiles the authority-owned schemas, validates
+each bounded record, and verifies all cross-record identities before writes.
+The corpus is not a `full-v1` manifest or conformance claim.
+
+### full-v1-graph-candidate/
+
+Digest-pinned candidate records for graph-source lineage, weighted note edges,
+nested community sets, and note assignments. Runtime preflight compiles the
+authority-owned schemas and verifies source, note, community, rank, confidence,
+and metadata constraints before writes. The corpus is not a `full-v1` manifest
+or conformance claim.
+
 ### schema-invalid/
 
 Focused negative schema fixtures:

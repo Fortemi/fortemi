@@ -1,0 +1,29 @@
+[
+  {
+    "id": "community-set-portable",
+    "graph_source_id": "graph-source-portable",
+    "name": "Portable communities",
+    "source_type": "precomputed",
+    "algorithm": "louvain",
+    "parameters": { "resolution": 1.0 },
+    "input_hash": "sha256:community-input",
+    "freshness": {
+      "status": "fresh",
+      "checked_at": "2026-07-18T16:00:00Z"
+    },
+    "communities": [
+      {
+        "id": "community-a",
+        "label": "Alpha",
+        "rank": 0,
+        "size": 2,
+        "confidence": 0.95,
+        "representative_note_ids": [
+          "018f7d2d-bc00-7cc8-8ad2-f147d6a2e709"
+        ],
+        "metadata": { "color": "red" }
+      }
+    ],
+    "created_at": "2026-07-18T16:00:00Z"
+  }
+]

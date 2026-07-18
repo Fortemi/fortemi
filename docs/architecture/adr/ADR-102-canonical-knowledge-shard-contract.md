@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, digest-pinned candidate `full-v1` embedding, note-revision, revision-linked provenance, spatial provenance registry, and unified provenance boundaries with transactional apply paths, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, and disk-backed streaming preflight for opt-in verified attachment sidecars; `full-v1` conformance remains pending the release gates in this ADR
+**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, digest-pinned candidate `full-v1` embedding, note-revision, provenance, SKOS, graph, and community boundaries with transactional apply paths, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, signed-import verification, and disk-backed streaming preflight for opt-in verified attachment sidecars; `full-v1` conformance remains pending its canonical manifest, signed export, mandatory-byte round trip, and cross-repository gates
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -78,27 +78,30 @@ archive while preserving IDs, bodies, the empty revision, relationships,
 attachment reference, and tombstone instant. The durable receipt lives beside
 the integration fixture.
 
-Contract revision 13 publishes candidate embedding, note-revision,
-revision-linked provenance, spatial provenance registry, and unified
-provenance boundaries under `contracts/knowledge-shard/1.1.0/full-v1/`, with
-separately digest-pinned corpora. The revision boundary covers current original
-state, original history, the current revised snapshot, and the complete
-revision chain. The provenance boundary preserves W3C-PROV edges and processing
-activities that reference those exact note and revision identities. The
-spatial registry boundary preserves named places, exact SRID-bearing PostGIS
-geometry, location observations, and device agents. The unified boundary
-preserves note/attachment targets, exact timestamp-range shape, registry
-references, extraction context, AI context, and user corrections. These
-component schemas are compiled by the server and exercised by bounded schema
-and relationship preflight tests.
-Dormant embedding, revision, revision-linked provenance, spatial registry, and
-unified provenance apply paths run inside the existing schema-scoped import
-transaction. Their database tests prove exact source-field restoration,
-repeated replace convergence, skip and dry-run accounting, and rollback after
-a late injected failure. The canonical `full-v1` manifest, complete component
-inventory, end-to-end revision round-trip receipt, remaining component
-families, and profile support remain pending; manifest validation continues to
-fail closed for `full-v1`.
+Contract revision 14 publishes candidate embedding, note-revision, provenance,
+SKOS, graph, and community boundaries under
+`contracts/knowledge-shard/1.1.0/full-v1/`, with separately digest-pinned
+corpora. The revision boundary covers current original state, original history,
+the current revised snapshot, and the complete revision chain. The provenance
+boundary preserves W3C-PROV edges and processing activities that reference
+those exact note and revision identities. The spatial registry boundary
+preserves named places, exact SRID-bearing PostGIS geometry, location
+observations, and device agents. The unified boundary preserves note/attachment
+targets, exact timestamp-range shape, registry references, extraction context,
+AI context, and user corrections. The SKOS boundary preserves schemes,
+concepts, labels, notes, semantic and mapping relations, memberships, note
+tags, and ordered collections. The graph boundary preserves source lineage,
+weighted note edges, nested communities, and assignments. These component
+schemas are compiled by the server and exercised by bounded schema,
+relationship, candidate-corpus, and negative-drift tests.
+Dormant embedding, revision, provenance, SKOS, graph, and community apply paths
+run inside the existing schema-scoped import transaction. Their database tests
+prove exact source-field restoration, repeated replace convergence, skip and
+dry-run accounting, and rollback after a late injected failure. The canonical
+`full-v1` manifest, complete component inventory, signed export,
+mandatory-byte end-to-end round-trip receipt, cross-repository matrix, and
+profile support remain pending; manifest validation continues to fail closed
+for `full-v1`.
 
 ## Decision
 

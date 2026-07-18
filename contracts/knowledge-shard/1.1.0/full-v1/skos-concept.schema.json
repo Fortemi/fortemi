@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.1.0/full-v1/skos-concept.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 SKOS concept",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id", "primary_scheme_id", "uri", "notation", "facet_type", "facet_source",
+    "facet_domain", "facet_scope", "status", "promoted_at", "deprecated_at",
+    "deprecation_reason", "replaced_by_id", "note_count", "first_used_at",
+    "last_used_at", "depth", "broader_count", "narrower_count", "related_count",
+    "antipatterns", "antipattern_checked_at", "created_at", "updated_at",
+    "embedding", "embedding_model", "embedded_at"
+  ],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "primary_scheme_id": { "type": "string", "format": "uuid" },
+    "uri": { "type": ["string", "null"], "format": "uri" },
+    "notation": { "type": ["string", "null"], "minLength": 1 },
+    "facet_type": {
+      "type": ["string", "null"],
+      "enum": ["personality", "matter", "energy", "space", "time", null]
+    },
+    "facet_source": { "type": ["string", "null"] },
+    "facet_domain": { "type": ["string", "null"] },
+    "facet_scope": { "type": ["string", "null"] },
+    "status": { "enum": ["candidate", "approved", "deprecated", "obsolete"] },
+    "promoted_at": { "type": ["string", "null"], "format": "date-time" },
+    "deprecated_at": { "type": ["string", "null"], "format": "date-time" },
+    "deprecation_reason": { "type": ["string", "null"] },
+    "replaced_by_id": { "type": ["string", "null"], "format": "uuid" },
+    "note_count": { "type": "integer", "minimum": 0 },
+    "first_used_at": { "type": ["string", "null"], "format": "date-time" },
+    "last_used_at": { "type": ["string", "null"], "format": "date-time" },
+    "depth": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "broader_count": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "narrower_count": { "type": "integer", "minimum": 0 },
+    "related_count": { "type": "integer", "minimum": 0 },
+    "antipatterns": {
+      "type": ["array", "null"],
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "orphan", "over_tagged", "under_used", "too_broad", "too_deep",
+          "polyhierarchy_excess", "missing_labels", "circular_hierarchy"
+        ]
+      }
+    },
+    "antipattern_checked_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "embedding": {
+      "type": ["array", "null"],
+      "minItems": 768,
+      "maxItems": 768,
+      "items": { "type": "number" }
+    },
+    "embedding_model": { "type": ["string", "null"], "minLength": 1 },
+    "embedded_at": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

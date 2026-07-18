@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.1.0/full-v1/skos-mapping-relation.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 SKOS mapping relation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id", "concept_id", "target_uri", "target_scheme_uri", "target_label",
+    "relation_type", "confidence", "is_validated", "created_at", "validated_at",
+    "validated_by"
+  ],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "concept_id": { "type": "string", "format": "uuid" },
+    "target_uri": { "type": "string", "format": "uri" },
+    "target_scheme_uri": { "type": ["string", "null"], "format": "uri" },
+    "target_label": { "type": ["string", "null"] },
+    "relation_type": {
+      "enum": [
+        "exact_match", "close_match", "broad_match", "narrow_match", "related_match"
+      ]
+    },
+    "confidence": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "is_validated": { "type": "boolean" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "validated_at": { "type": ["string", "null"], "format": "date-time" },
+    "validated_by": { "type": ["string", "null"] }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.1.0/full-v1/note-skos-tag.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 note SKOS tag",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "note_id", "concept_id", "source", "confidence", "relevance_score",
+    "is_primary", "created_at", "created_by"
+  ],
+  "properties": {
+    "note_id": { "type": "string", "format": "uuid" },
+    "concept_id": { "type": "string", "format": "uuid" },
+    "source": { "type": "string", "minLength": 1 },
+    "confidence": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "relevance_score": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "is_primary": { "type": "boolean" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": { "type": ["string", "null"] }
+  }
+}

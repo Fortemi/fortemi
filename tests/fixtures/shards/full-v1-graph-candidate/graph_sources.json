@@ -1,0 +1,22 @@
+[
+  {
+    "id": "graph-source-portable",
+    "name": "Portable similarity graph",
+    "kind": "similarity",
+    "source_table": "embedding",
+    "embedding_set_id": null,
+    "virtual_set_id": "filter:portable",
+    "model": "fixture-model",
+    "dimension": 768,
+    "truncate_dimension": 64,
+    "metric": "cosine",
+    "algorithm": "hnsw",
+    "parameters": { "threshold": 0.7 },
+    "input_hash": "sha256:graph-input",
+    "freshness": {
+      "status": "fresh",
+      "checked_at": "2026-07-18T16:00:00Z"
+    },
+    "created_at": "2026-07-18T16:00:00Z"
+  }
+]

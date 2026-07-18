@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.1.0/full-v1/skos-label.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 SKOS label",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "concept_id", "label_type", "value", "language", "created_at"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "concept_id": { "type": "string", "format": "uuid" },
+    "label_type": { "enum": ["pref_label", "alt_label", "hidden_label"] },
+    "value": { "type": "string", "minLength": 1 },
+    "language": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

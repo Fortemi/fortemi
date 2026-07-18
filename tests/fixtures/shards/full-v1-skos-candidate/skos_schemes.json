@@ -1,0 +1,22 @@
+[
+  {
+    "id": "018f7d2d-bc00-7cc8-8ad2-f147d6a2e701",
+    "uri": "https://fixtures.fortemi.dev/schemes/portable",
+    "notation": "portable",
+    "title": "Portable knowledge",
+    "description": "Canonical full-v1 SKOS candidate",
+    "creator": "fortemi",
+    "publisher": null,
+    "rights": "CC0",
+    "version": "1",
+    "is_active": true,
+    "is_system": false,
+    "created_at": "2026-07-18T16:00:00Z",
+    "updated_at": "2026-07-18T16:00:00Z",
+    "issued_at": "2026-07-18T16:00:00Z",
+    "modified_at": null,
+    "embedding": null,
+    "embedding_model": null,
+    "embedded_at": null
+  }
+]

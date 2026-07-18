@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.1.0/full-v1/skos-collection-member.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 SKOS collection member",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["collection_id", "concept_id", "position", "added_at"],
+  "properties": {
+    "collection_id": { "type": "string", "format": "uuid" },
+    "concept_id": { "type": "string", "format": "uuid" },
+    "position": { "type": ["integer", "null"], "minimum": 0 },
+    "added_at": { "type": "string", "format": "date-time" }
+  }
+}
