@@ -226,6 +226,11 @@ stable-ID conflict handling for repeated imports. Reference-only attachment
 projections retain attachment IDs, display filenames, extraction state and
 text, canonical digest metadata, and shared-blob deduplication; attachment IDs
 and conflicting declarations are rejected during relationship preflight.
+Shard imports retain the canonical extraction status and reason in validated
+attachment metadata so subsequent exports preserve the exact projection state
+after referenced bytes are promoted from reference-only to filesystem storage;
+ordinary attachments without shard metadata continue to use deterministic
+status, text, media-type, and size derivation.
 Ordinary import applies all selected database components in one schema-scoped
 transaction; a late database failure rolls back collections, notes, tags,
 templates, links, attachments, and reference blobs together, and post-import

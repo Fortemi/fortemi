@@ -20577,18 +20577,32 @@ fn binary_attachment_projection_state(
     }
 }
 
-fn knowledge_shard_attachment_projection_reason(
+fn preserved_knowledge_shard_attachment_projection_state(
     metadata: Option<&serde_json::Value>,
-) -> Option<&'static str> {
-    match metadata?.get("knowledge_shard")?.get("reason")?.as_str()? {
-        "extraction_pending" => Some("extraction_pending"),
-        "large_binary" => Some("large_binary"),
-        "unsupported_mime" => Some("unsupported_mime"),
-        "no_extracted_text" => Some("no_extracted_text"),
-        "extractor_failed" => Some("extractor_failed"),
-        "quarantined" => Some("quarantined"),
-        _ => None,
-    }
+) -> Option<(&'static str, Option<&'static str>)> {
+    let state = metadata?.get("knowledge_shard")?;
+    let status = match state.get("extraction_status")?.as_str()? {
+        "extracted" => "extracted",
+        "pending" => "pending",
+        "failed" => "failed",
+        "blocked" => "blocked",
+        "deferred" => "deferred",
+        _ => return None,
+    };
+    let reason = match state.get("reason")? {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(value) => match value.as_str() {
+            "extraction_pending" => Some("extraction_pending"),
+            "large_binary" => Some("large_binary"),
+            "unsupported_mime" => Some("unsupported_mime"),
+            "no_extracted_text" => Some("no_extracted_text"),
+            "extractor_failed" => Some("extractor_failed"),
+            "quarantined" => Some("quarantined"),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    Some((status, reason))
 }
 
 async fn binary_attachment_export_projections_tx(
@@ -20600,7 +20614,7 @@ async fn binary_attachment_export_projections_tx(
     let rows = sqlx::query(
         r#"SELECT a.id, a.filename, a.status::text AS status, a.extracted_text,
                   a.extracted_metadata, ab.content_type, ab.content_hash,
-                  ab.size_bytes, ab.storage_backend
+                  ab.size_bytes
            FROM attachment a
            JOIN attachment_blob ab ON a.blob_id = ab.id
            WHERE a.note_id = $1
@@ -20618,18 +20632,15 @@ async fn binary_attachment_export_projections_tx(
             let extracted_metadata: Option<serde_json::Value> = row.get("extracted_metadata");
             let mime: String = row.get("content_type");
             let bytes: i64 = row.get("size_bytes");
-            let storage_backend: String = row.get("storage_backend");
-            let (extraction_status, reason) = binary_attachment_projection_state(
+            let derived_state = binary_attachment_projection_state(
                 &status,
                 extracted_text.as_deref(),
                 &mime,
                 bytes,
             );
-            let reason = if storage_backend == "reference" {
-                knowledge_shard_attachment_projection_reason(extracted_metadata.as_ref()).or(reason)
-            } else {
-                reason
-            };
+            let (extraction_status, reason) =
+                preserved_knowledge_shard_attachment_projection_state(extracted_metadata.as_ref())
+                    .unwrap_or(derived_state);
 
             BinaryAttachmentExportProjection {
                 extracted_text,
@@ -22055,6 +22066,16 @@ impl ShardAttachmentExtractionStatus {
             Self::Pending => "queued",
             Self::Failed => "failed",
             Self::Blocked => "quarantined",
+        }
+    }
+
+    fn contract_status(&self) -> &'static str {
+        match self {
+            Self::Extracted => "extracted",
+            Self::Pending => "pending",
+            Self::Failed => "failed",
+            Self::Blocked => "blocked",
+            Self::Deferred => "deferred",
         }
     }
 }
@@ -27676,6 +27697,7 @@ async fn apply_shard_attachment_projections(
         let extracted_metadata = serde_json::json!({
             "knowledge_shard": {
                 "reference_only": reference_only,
+                "extraction_status": projection.extraction_status.contract_status(),
                 "reason": projection.reason.as_deref(),
             }
         });
@@ -35894,26 +35916,39 @@ mod tests {
     }
 
     #[test]
-    fn knowledge_shard_attachment_reason_reuses_only_contract_classes() {
+    fn knowledge_shard_attachment_state_reuses_only_contract_classes() {
         let known = serde_json::json!({
             "knowledge_shard": {
                 "reference_only": true,
+                "extraction_status": "deferred",
                 "reason": "no_extracted_text"
             }
         });
         assert_eq!(
-            knowledge_shard_attachment_projection_reason(Some(&known)),
-            Some("no_extracted_text")
+            preserved_knowledge_shard_attachment_projection_state(Some(&known)),
+            Some(("deferred", Some("no_extracted_text")))
         );
 
         let unsafe_diagnostic = serde_json::json!({
             "knowledge_shard": {
                 "reference_only": true,
+                "extraction_status": "deferred",
                 "reason": "postgres://user:secret@db.internal"
             }
         });
         assert_eq!(
-            knowledge_shard_attachment_projection_reason(Some(&unsafe_diagnostic)),
+            preserved_knowledge_shard_attachment_projection_state(Some(&unsafe_diagnostic)),
+            None
+        );
+        let unknown_status = serde_json::json!({
+            "knowledge_shard": {
+                "reference_only": true,
+                "extraction_status": "database_internal_state",
+                "reason": null
+            }
+        });
+        assert_eq!(
+            preserved_knowledge_shard_attachment_projection_state(Some(&unknown_status)),
             None
         );
     }
@@ -36192,8 +36227,8 @@ mod tests {
         linked_note["attachments"][0]["attachment"]["path"] =
             serde_json::json!("linked-fixture.bin");
         linked_note["attachments"][0]["extracted_text"] = serde_json::Value::Null;
-        linked_note["attachments"][0]["extraction_status"] = serde_json::json!("failed");
-        linked_note["attachments"][0]["reason"] = serde_json::json!("extractor_failed");
+        linked_note["attachments"][0]["extraction_status"] = serde_json::json!("deferred");
+        linked_note["attachments"][0]["reason"] = serde_json::json!("no_extracted_text");
         let notes =
             format!("{}\n{}", serde_json::to_string(&note).unwrap(), linked_note).into_bytes();
 
@@ -37807,6 +37842,7 @@ mod tests {
                 serde_json::json!({
                     "knowledge_shard": {
                         "reference_only": true,
+                        "extraction_status": "extracted",
                         "reason": null
                     }
                 }),
@@ -37818,12 +37854,13 @@ mod tests {
                 Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e780").unwrap(),
                 Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e778").unwrap(),
                 "linked-fixture.bin".to_string(),
-                "failed".to_string(),
+                "completed".to_string(),
                 None,
                 serde_json::json!({
                     "knowledge_shard": {
                         "reference_only": true,
-                        "reason": "extractor_failed"
+                        "extraction_status": "deferred",
+                        "reason": "no_extracted_text"
                     }
                 }),
             )
@@ -38246,8 +38283,9 @@ mod tests {
         let imported_blob = destination_ctx
             .query(|tx| {
                 Box::pin(async move {
-                    sqlx::query_as::<_, (String, String, Option<String>, i32)>(
-                        "SELECT content_hash, storage_backend, storage_path, reference_count
+                    sqlx::query_as::<_, (String, String, i64, String, Option<String>, i32)>(
+                        "SELECT content_hash, content_type, size_bytes, storage_backend,
+                                storage_path, reference_count
                          FROM attachment_blob",
                     )
                     .fetch_one(&mut **tx)
@@ -38258,17 +38296,108 @@ mod tests {
             .await
             .expect("read imported sidecar metadata");
         assert_eq!(imported_blob.0, attachment_checksum);
-        assert_eq!(imported_blob.1, "filesystem");
-        assert_eq!(imported_blob.3, 2);
+        assert_eq!(imported_blob.1, "application/octet-stream");
+        assert_eq!(imported_blob.2, attachment_bytes.len() as i64);
+        assert_eq!(imported_blob.3, "filesystem");
+        assert_eq!(imported_blob.5, 2);
         assert_eq!(
             backend
-                .read(imported_blob.2.as_deref().expect("filesystem path"))
+                .read(imported_blob.4.as_deref().expect("filesystem path"))
                 .await
                 .expect("read imported sidecar bytes"),
             attachment_bytes
         );
+        let imported_attachments = destination_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (String, String, Option<String>, serde_json::Value)>(
+                        "SELECT filename, status::text, extracted_text, extracted_metadata
+                         FROM attachment
+                         ORDER BY filename",
+                    )
+                    .fetch_all(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read imported sidecar attachment semantics");
+        assert_eq!(
+            imported_attachments,
+            vec![
+                (
+                    "fixture.bin".to_string(),
+                    "completed".to_string(),
+                    Some("Fixture attachment text".to_string()),
+                    serde_json::json!({
+                        "knowledge_shard": {
+                            "reference_only": false,
+                            "extraction_status": "extracted",
+                            "reason": null
+                        }
+                    }),
+                ),
+                (
+                    "linked-fixture.bin".to_string(),
+                    "completed".to_string(),
+                    None,
+                    serde_json::json!({
+                        "knowledge_shard": {
+                            "reference_only": false,
+                            "extraction_status": "deferred",
+                            "reason": "no_extracted_text"
+                        }
+                    }),
+                ),
+            ]
+        );
         let files_after_success = regular_file_count(storage.path());
         assert_eq!(files_after_success, files_before_tamper + 1);
+
+        let reexport = knowledge_shard(
+            State(state.clone()),
+            Extension(ArchiveContext {
+                schema: destination.schema_name.clone(),
+                is_default: false,
+                name: Some(destination_name.clone()),
+            }),
+            Query(ShardExportQuery {
+                include: None,
+                include_blobs: true,
+            }),
+        )
+        .await
+        .expect("re-export imported sidecar destination")
+        .into_response();
+        assert_eq!(reexport.status(), StatusCode::OK);
+        let reexported_bytes = axum::body::to_bytes(reexport.into_body(), usize::MAX)
+            .await
+            .expect("read sidecar destination re-export");
+        let reexported_files =
+            read_shard_archive(&reexported_bytes, ShardArchiveLimits::default()).unwrap();
+        assert_eq!(
+            reexported_files
+                .keys()
+                .filter(|name| shard_blob_entry_checksum(name).is_some())
+                .count(),
+            1
+        );
+        assert_eq!(reexported_files[&sidecar_name], attachment_bytes);
+        let reexported_notes =
+            parse_shard_component_records("notes", &reexported_files["notes.jsonl"]).unwrap();
+        let linked_projection = reexported_notes
+            .iter()
+            .flat_map(|note| {
+                note["attachments"]
+                    .as_array()
+                    .expect("re-exported attachments")
+            })
+            .find(|projection| {
+                projection["attachment"]["path"].as_str() == Some("linked-fixture.bin")
+            })
+            .expect("re-exported linked attachment projection");
+        assert_eq!(linked_projection["extraction_status"], "deferred");
+        assert_eq!(linked_projection["reason"], "no_extracted_text");
 
         let rollback_name = format!("shard-sidecar-rollback-{}", Uuid::new_v4().simple());
         let rollback = db
