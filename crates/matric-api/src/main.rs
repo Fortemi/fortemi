@@ -23205,6 +23205,7 @@ fn validate_shard_embedding_relationships(
 ) -> Result<(), String> {
     let mut config_ids = std::collections::HashSet::new();
     let mut config_names = std::collections::HashSet::new();
+    let mut config_dimensions = std::collections::HashMap::new();
     if let Some(data) = files.get("embedding_configs.json") {
         for value in parse_shard_component_records("embedding_configs", data)? {
             let config = serde_json::from_value::<ShardEmbeddingConfigRecord>(value)
@@ -23217,12 +23218,14 @@ fn validate_shard_embedding_relationships(
             if !config_names.insert(config.name) {
                 return Err("Knowledge shard embedding config names must be unique.".to_string());
             }
+            config_dimensions.insert(config.id, config.dimension);
         }
     }
 
     let mut set_ids = std::collections::HashSet::new();
     let mut set_names = std::collections::HashSet::new();
     let mut set_slugs = std::collections::HashSet::new();
+    let mut set_dimensions = std::collections::HashMap::new();
     if let Some(data) = files.get("embedding_sets.json") {
         for value in parse_shard_component_records("embedding_sets", data)? {
             let set = serde_json::from_value::<ShardEmbeddingSetRecord>(value)
@@ -23243,6 +23246,12 @@ fn validate_shard_embedding_relationships(
                 return Err(
                     "Knowledge shard embedding set references an unknown config.".to_string(),
                 );
+            }
+            if let Some(config_id) = set.embedding_config_id {
+                let effective_dimension = set
+                    .truncate_dim
+                    .unwrap_or_else(|| config_dimensions[&config_id]);
+                set_dimensions.insert(set.id, effective_dimension);
             }
         }
     }
@@ -23295,6 +23304,18 @@ fn validate_shard_embedding_relationships(
                 return Err(
                     "Knowledge shard embedding references an unknown embedding set.".to_string(),
                 );
+            }
+            if let (Some(set_id), Some(vector)) =
+                (embedding.embedding_set_id, embedding.vector.as_ref())
+            {
+                if set_dimensions
+                    .get(&set_id)
+                    .is_some_and(|dimension| usize::try_from(*dimension).ok() != Some(vector.len()))
+                {
+                    return Err(
+                        "Knowledge shard embedding vector dimension is inconsistent.".to_string(),
+                    );
+                }
             }
             if embedding.vector.as_ref().is_some_and(|vector| {
                 vector.is_empty() || vector.iter().any(|value| !value.is_finite())
@@ -24540,6 +24561,7 @@ struct ShardImportCounts {
     tags: usize,
     templates: usize,
     links: usize,
+    embedding_configs: usize,
     embedding_sets: usize,
     embedding_set_members: usize,
     embeddings: usize,
@@ -28247,6 +28269,397 @@ async fn apply_shard_attachment_projections(
     Ok(())
 }
 
+async fn apply_shard_embedding_components_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    selected_components: &std::collections::HashSet<String>,
+    opts: &ShardImportOptions,
+    imported: &mut ShardImportCounts,
+    skipped: &mut ShardImportCounts,
+) -> Result<(), ApiError> {
+    let should_import = |component: &str| selected_components.contains(component);
+    let replace = matches!(opts.on_conflict, ConflictStrategy::Replace);
+
+    if should_import("embedding_configs") {
+        if let Some(data) = files.get("embedding_configs.json") {
+            for config in
+                serde_json::from_slice::<Vec<ShardEmbeddingConfigRecord>>(data).map_err(|_| {
+                    shard_validation_failed("Knowledge shard embedding configs are invalid.")
+                })?
+            {
+                if opts.dry_run {
+                    imported.embedding_configs += 1;
+                    continue;
+                }
+                let result = if replace {
+                    sqlx::query(
+                        "INSERT INTO embedding_config (
+                             id, name, description, model, dimension, chunk_size, chunk_overlap,
+                             hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default,
+                             supports_mrl, matryoshka_dims, default_truncate_dim,
+                             provider, provider_config, content_types, strengths, limitations,
+                             recommended_for, benchmark_scores, is_available,
+                             document_composition, created_at, updated_at
+                         ) VALUES (
+                             $1, $2, $3, $4, $5, $6, $7,
+                             $8, $9, $10, $11,
+                             $12, $13, $14,
+                             $15::embedding_provider, $16, $17, $18, $19,
+                             $20, $21, $22,
+                             $23, $24, $25
+                         )
+                         ON CONFLICT (id) DO UPDATE SET
+                             name = EXCLUDED.name,
+                             description = EXCLUDED.description,
+                             model = EXCLUDED.model,
+                             dimension = EXCLUDED.dimension,
+                             chunk_size = EXCLUDED.chunk_size,
+                             chunk_overlap = EXCLUDED.chunk_overlap,
+                             hnsw_m = EXCLUDED.hnsw_m,
+                             hnsw_ef_construction = EXCLUDED.hnsw_ef_construction,
+                             ivfflat_lists = EXCLUDED.ivfflat_lists,
+                             is_default = EXCLUDED.is_default,
+                             supports_mrl = EXCLUDED.supports_mrl,
+                             matryoshka_dims = EXCLUDED.matryoshka_dims,
+                             default_truncate_dim = EXCLUDED.default_truncate_dim,
+                             provider = EXCLUDED.provider,
+                             provider_config = EXCLUDED.provider_config,
+                             content_types = EXCLUDED.content_types,
+                             strengths = EXCLUDED.strengths,
+                             limitations = EXCLUDED.limitations,
+                             recommended_for = EXCLUDED.recommended_for,
+                             benchmark_scores = EXCLUDED.benchmark_scores,
+                             is_available = EXCLUDED.is_available,
+                             document_composition = EXCLUDED.document_composition,
+                             created_at = EXCLUDED.created_at,
+                             updated_at = EXCLUDED.updated_at",
+                    )
+                } else {
+                    sqlx::query(
+                        "INSERT INTO embedding_config (
+                             id, name, description, model, dimension, chunk_size, chunk_overlap,
+                             hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default,
+                             supports_mrl, matryoshka_dims, default_truncate_dim,
+                             provider, provider_config, content_types, strengths, limitations,
+                             recommended_for, benchmark_scores, is_available,
+                             document_composition, created_at, updated_at
+                         ) VALUES (
+                             $1, $2, $3, $4, $5, $6, $7,
+                             $8, $9, $10, $11,
+                             $12, $13, $14,
+                             $15::embedding_provider, $16, $17, $18, $19,
+                             $20, $21, $22,
+                             $23, $24, $25
+                         )
+                         ON CONFLICT (id) DO NOTHING",
+                    )
+                }
+                .bind(config.id)
+                .bind(config.name)
+                .bind(config.description)
+                .bind(config.model)
+                .bind(config.dimension)
+                .bind(config.chunk_size)
+                .bind(config.chunk_overlap)
+                .bind(config.hnsw_m)
+                .bind(config.hnsw_ef_construction)
+                .bind(config.ivfflat_lists)
+                .bind(config.is_default)
+                .bind(config.supports_mrl)
+                .bind(config.matryoshka_dims)
+                .bind(config.default_truncate_dim)
+                .bind(config.provider)
+                .bind(config.provider_config)
+                .bind(config.content_types)
+                .bind(config.strengths)
+                .bind(config.limitations)
+                .bind(config.recommended_for)
+                .bind(config.benchmark_scores)
+                .bind(config.is_available)
+                .bind(config.document_composition)
+                .bind(config.created_at)
+                .bind(config.updated_at)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| shard_operation_failed("apply embedding config import", error))?;
+                if result.rows_affected() == 0 {
+                    skipped.embedding_configs += 1;
+                } else {
+                    imported.embedding_configs += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("embedding_sets") {
+        if let Some(data) = files.get("embedding_sets.json") {
+            for set in
+                serde_json::from_slice::<Vec<ShardEmbeddingSetRecord>>(data).map_err(|_| {
+                    shard_validation_failed("Knowledge shard embedding sets are invalid.")
+                })?
+            {
+                if opts.dry_run {
+                    imported.embedding_sets += 1;
+                    continue;
+                }
+                let result = if replace {
+                    sqlx::query(
+                        "INSERT INTO embedding_set (
+                             id, name, slug, description, purpose, usage_hints, keywords,
+                             set_type, mode, criteria, embedding_config_id, truncate_dim,
+                             auto_embed_rules, index_status, index_type, last_indexed_at,
+                             document_count, embedding_count, embeddings_current, index_size_bytes,
+                             is_system, is_active, auto_refresh, refresh_interval, last_refresh_at,
+                             agent_metadata, created_at, updated_at, created_by
+                         ) VALUES (
+                             $1, $2, $3, $4, $5, $6, $7,
+                             $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
+                             $13, $14::embedding_index_status, $15, $16,
+                             $17, $18, $19, $20,
+                             $21, $22, $23, $24::interval, $25,
+                             $26, $27, $28, $29
+                         )
+                         ON CONFLICT (id) DO UPDATE SET
+                             name = EXCLUDED.name,
+                             slug = EXCLUDED.slug,
+                             description = EXCLUDED.description,
+                             purpose = EXCLUDED.purpose,
+                             usage_hints = EXCLUDED.usage_hints,
+                             keywords = EXCLUDED.keywords,
+                             set_type = EXCLUDED.set_type,
+                             mode = EXCLUDED.mode,
+                             criteria = EXCLUDED.criteria,
+                             embedding_config_id = EXCLUDED.embedding_config_id,
+                             truncate_dim = EXCLUDED.truncate_dim,
+                             auto_embed_rules = EXCLUDED.auto_embed_rules,
+                             index_status = EXCLUDED.index_status,
+                             index_type = EXCLUDED.index_type,
+                             last_indexed_at = EXCLUDED.last_indexed_at,
+                             document_count = EXCLUDED.document_count,
+                             embedding_count = EXCLUDED.embedding_count,
+                             embeddings_current = EXCLUDED.embeddings_current,
+                             index_size_bytes = EXCLUDED.index_size_bytes,
+                             is_system = EXCLUDED.is_system,
+                             is_active = EXCLUDED.is_active,
+                             auto_refresh = EXCLUDED.auto_refresh,
+                             refresh_interval = EXCLUDED.refresh_interval,
+                             last_refresh_at = EXCLUDED.last_refresh_at,
+                             agent_metadata = EXCLUDED.agent_metadata,
+                             created_at = EXCLUDED.created_at,
+                             updated_at = EXCLUDED.updated_at,
+                             created_by = EXCLUDED.created_by",
+                    )
+                } else {
+                    sqlx::query(
+                        "INSERT INTO embedding_set (
+                             id, name, slug, description, purpose, usage_hints, keywords,
+                             set_type, mode, criteria, embedding_config_id, truncate_dim,
+                             auto_embed_rules, index_status, index_type, last_indexed_at,
+                             document_count, embedding_count, embeddings_current, index_size_bytes,
+                             is_system, is_active, auto_refresh, refresh_interval, last_refresh_at,
+                             agent_metadata, created_at, updated_at, created_by
+                         ) VALUES (
+                             $1, $2, $3, $4, $5, $6, $7,
+                             $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
+                             $13, $14::embedding_index_status, $15, $16,
+                             $17, $18, $19, $20,
+                             $21, $22, $23, $24::interval, $25,
+                             $26, $27, $28, $29
+                         )
+                         ON CONFLICT (id) DO NOTHING",
+                    )
+                }
+                .bind(set.id)
+                .bind(set.name)
+                .bind(set.slug)
+                .bind(set.description)
+                .bind(set.purpose)
+                .bind(set.usage_hints)
+                .bind(set.keywords)
+                .bind(set.set_type)
+                .bind(set.mode)
+                .bind(set.criteria)
+                .bind(set.embedding_config_id)
+                .bind(set.truncate_dim)
+                .bind(set.auto_embed_rules)
+                .bind(set.index_status)
+                .bind(set.index_type)
+                .bind(set.last_indexed_at)
+                .bind(set.document_count)
+                .bind(set.embedding_count)
+                .bind(set.embeddings_current)
+                .bind(set.index_size_bytes)
+                .bind(set.is_system)
+                .bind(set.is_active)
+                .bind(set.auto_refresh)
+                .bind(set.refresh_interval)
+                .bind(set.last_refresh_at)
+                .bind(set.agent_metadata)
+                .bind(set.created_at)
+                .bind(set.updated_at)
+                .bind(set.created_by)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| shard_operation_failed("apply embedding set import", error))?;
+                if result.rows_affected() == 0 {
+                    skipped.embedding_sets += 1;
+                } else {
+                    imported.embedding_sets += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("embedding_set_members") {
+        if let Some(data) = files.get("embedding_set_members.jsonl") {
+            let members = shard_jsonl_records::<ShardEmbeddingSetMemberRecord>(
+                data,
+                "Knowledge shard embedding set members are invalid.",
+            )?;
+            for member in members {
+                let member = member?;
+                if opts.dry_run {
+                    imported.embedding_set_members += 1;
+                    continue;
+                }
+                let result = if replace {
+                    sqlx::query(
+                        "INSERT INTO embedding_set_member
+                         (embedding_set_id, note_id, membership_type, added_at, added_by)
+                         VALUES ($1, $2, $3, $4, $5)
+                         ON CONFLICT (embedding_set_id, note_id) DO UPDATE SET
+                             membership_type = EXCLUDED.membership_type,
+                             added_at = EXCLUDED.added_at,
+                             added_by = EXCLUDED.added_by",
+                    )
+                } else {
+                    sqlx::query(
+                        "INSERT INTO embedding_set_member
+                         (embedding_set_id, note_id, membership_type, added_at, added_by)
+                         VALUES ($1, $2, $3, $4, $5)
+                         ON CONFLICT (embedding_set_id, note_id) DO NOTHING",
+                    )
+                }
+                .bind(member.embedding_set_id)
+                .bind(member.note_id)
+                .bind(member.membership_type)
+                .bind(member.added_at)
+                .bind(member.added_by)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("apply embedding set member import", error)
+                })?;
+                if result.rows_affected() == 0 {
+                    skipped.embedding_set_members += 1;
+                } else {
+                    imported.embedding_set_members += 1;
+                }
+            }
+        }
+    }
+
+    if should_import("embeddings") {
+        if let Some(data) = files.get("embeddings.jsonl") {
+            let embeddings = shard_jsonl_records::<ShardEmbeddingRecord>(
+                data,
+                "Knowledge shard embeddings are invalid.",
+            )?;
+            for embedding in embeddings {
+                let embedding = embedding?;
+                if opts.dry_run {
+                    imported.embeddings += 1;
+                    continue;
+                }
+                if replace {
+                    sqlx::query(
+                        "DELETE FROM embedding
+                         WHERE id = $1
+                            OR (
+                                $2::uuid IS NOT NULL
+                                AND $3::uuid IS NOT NULL
+                                AND note_id = $2
+                                AND embedding_set_id = $3
+                                AND chunk_index = $4
+                            )",
+                    )
+                    .bind(embedding.id)
+                    .bind(embedding.note_id)
+                    .bind(embedding.embedding_set_id)
+                    .bind(embedding.chunk_index)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| shard_operation_failed("replace imported embedding", error))?;
+                }
+                let vector = embedding.vector.map(pgvector::Vector::from);
+                let result = sqlx::query(
+                    "INSERT INTO embedding
+                     (id, note_id, embedding_set_id, chunk_index, text, vector, model, created_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                     ON CONFLICT DO NOTHING",
+                )
+                .bind(embedding.id)
+                .bind(embedding.note_id)
+                .bind(embedding.embedding_set_id)
+                .bind(embedding.chunk_index)
+                .bind(embedding.text)
+                .bind(vector)
+                .bind(embedding.model)
+                .bind(embedding.created_at)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| shard_operation_failed("apply embedding import", error))?;
+                if result.rows_affected() == 0 {
+                    skipped.embeddings += 1;
+                } else {
+                    imported.embeddings += 1;
+                }
+            }
+        }
+    }
+
+    // Member and embedding triggers recompute set statistics during apply.
+    // Restore the source snapshot after dependent rows are complete.
+    if should_import("embedding_sets") && !opts.dry_run {
+        if let Some(data) = files.get("embedding_sets.json") {
+            for set in
+                serde_json::from_slice::<Vec<ShardEmbeddingSetRecord>>(data).map_err(|_| {
+                    shard_validation_failed("Knowledge shard embedding sets are invalid.")
+                })?
+            {
+                sqlx::query(
+                    "UPDATE embedding_set
+                     SET index_status = $2::embedding_index_status,
+                         last_indexed_at = $3,
+                         document_count = $4,
+                         embedding_count = $5,
+                         embeddings_current = $6,
+                         index_size_bytes = $7,
+                         last_refresh_at = $8,
+                         updated_at = $9
+                     WHERE id = $1",
+                )
+                .bind(set.id)
+                .bind(set.index_status)
+                .bind(set.last_indexed_at)
+                .bind(set.document_count)
+                .bind(set.embedding_count)
+                .bind(set.embeddings_current)
+                .bind(set.index_size_bytes)
+                .bind(set.last_refresh_at)
+                .bind(set.updated_at)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("restore embedding set snapshot state", error)
+                })?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 struct ValidatedShardApplyPolicy {
     wipe_before_apply: bool,
     preserve_empty_revisions: bool,
@@ -28274,6 +28687,35 @@ async fn apply_validated_shard_components(
     let should_import = |component: &str| selected_components.contains(component);
 
     if policy.wipe_before_apply && !opts.dry_run {
+        for (component, statement, context) in [
+            (
+                "embeddings",
+                "DELETE FROM embedding",
+                "wipe embeddings before knowledge shard import",
+            ),
+            (
+                "embedding_set_members",
+                "DELETE FROM embedding_set_member",
+                "wipe embedding set members before knowledge shard import",
+            ),
+            (
+                "embedding_sets",
+                "DELETE FROM embedding_set",
+                "wipe embedding sets before knowledge shard import",
+            ),
+            (
+                "embedding_configs",
+                "DELETE FROM embedding_config",
+                "wipe embedding configs before knowledge shard import",
+            ),
+        ] {
+            if should_import(component) {
+                sqlx::query(statement)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|error| shard_operation_failed(context, error))?;
+            }
+        }
         reference_blob_cleanup_candidates = sqlx::query_scalar::<_, Uuid>(
             "SELECT id FROM attachment_blob WHERE storage_backend = 'reference'",
         )
@@ -28480,6 +28922,16 @@ async fn apply_validated_shard_components(
             }
         }
     }
+
+    apply_shard_embedding_components_tx(
+        &mut tx,
+        files,
+        selected_components,
+        opts,
+        &mut imported,
+        &mut skipped,
+    )
+    .await?;
 
     if should_import("tags") {
         if let Some(data) = files.get("tags.json") {
@@ -33728,6 +34180,7 @@ mod tests {
                 tags: 1,
                 templates: 1,
                 links: 1,
+                embedding_configs: 1,
                 embedding_sets: 1,
                 embedding_set_members: 1,
                 embeddings: 1,
@@ -33789,6 +34242,7 @@ mod tests {
                 tags: 1,
                 templates: 1,
                 links: 1,
+                embedding_configs: 1,
                 embedding_sets: 1,
                 embedding_set_members: 1,
                 embeddings: 1,
@@ -40004,6 +40458,377 @@ not-json
     }
 
     #[test]
+    fn shard_embedding_relationship_preflight_rejects_inconsistent_vector_dimension() {
+        let (mut files, note_ids, ..) = valid_shard_embedding_relationship_fixture();
+        let mut embedding =
+            serde_json::from_slice::<serde_json::Value>(&files["embeddings.jsonl"]).unwrap();
+        embedding["vector"] = serde_json::json!([0.25, -0.5]);
+        files.insert(
+            "embeddings.jsonl".to_string(),
+            serde_json::to_vec(&embedding).unwrap(),
+        );
+
+        assert_eq!(
+            validate_shard_embedding_relationships(&files, &note_ids).unwrap_err(),
+            "Knowledge shard embedding vector dimension is inconsistent."
+        );
+
+        let mut sets =
+            serde_json::from_slice::<serde_json::Value>(&files["embedding_sets.json"]).unwrap();
+        sets[0]["truncate_dim"] = serde_json::json!(2);
+        files.insert(
+            "embedding_sets.json".to_string(),
+            serde_json::to_vec(&sets).unwrap(),
+        );
+        validate_shard_embedding_relationships(&files, &note_ids)
+            .expect("set truncation dimension must define the persisted vector width");
+    }
+
+    #[tokio::test]
+    async fn shard_embedding_apply_is_atomic_and_repeatable() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let success_name = format!("sh-emb-ok-{}", Uuid::new_v4().simple());
+        let rollback_name = format!("sh-emb-rb-{}", Uuid::new_v4().simple());
+        let success = db
+            .archives
+            .create_archive_schema(&success_name, Some("Shard embedding apply success test"))
+            .await
+            .expect("create embedding success schema");
+        let rollback = db
+            .archives
+            .create_archive_schema(&rollback_name, Some("Shard embedding apply rollback test"))
+            .await
+            .expect("create embedding rollback schema");
+
+        let (mut files, note_ids, config_id, set_id, embedding_id) =
+            valid_shard_embedding_relationship_fixture();
+        let note_id = *note_ids.iter().next().unwrap();
+        let mut configs =
+            serde_json::from_slice::<serde_json::Value>(&files["embedding_configs.json"]).unwrap();
+        configs[0]["dimension"] = serde_json::json!(768);
+        files.insert(
+            "embedding_configs.json".to_string(),
+            serde_json::to_vec(&configs).unwrap(),
+        );
+        let mut embedding =
+            serde_json::from_slice::<serde_json::Value>(&files["embeddings.jsonl"]).unwrap();
+        embedding["vector"] = serde_json::json!(vec![0.25_f32; 768]);
+        files.insert(
+            "embeddings.jsonl".to_string(),
+            serde_json::to_vec(&embedding).unwrap(),
+        );
+        validate_shard_embedding_relationships(&files, &note_ids).unwrap();
+
+        let selected_components = [
+            "embedding_configs",
+            "embedding_sets",
+            "embedding_set_members",
+            "embeddings",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<std::collections::HashSet<_>>();
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+
+        for schema in [&success.schema_name, &rollback.schema_name] {
+            let ctx = db.for_schema(schema).unwrap();
+            let mut tx = ctx.begin_tx().await.expect("begin note seed");
+            matric_db::PgNoteRepository::new(db.pool.clone())
+                .insert_with_id_tx(
+                    &mut tx,
+                    note_id,
+                    CreateNoteRequest {
+                        content: "embedding apply note".to_string(),
+                        format: "markdown".to_string(),
+                        source: "knowledge-shard-test".to_string(),
+                        collection_id: None,
+                        tags: Some(Vec::new()),
+                        metadata: Some(serde_json::json!({})),
+                        document_type_id: None,
+                        title: Some("Embedding apply note".to_string()),
+                    },
+                )
+                .await
+                .expect("seed embedding note");
+            tx.commit().await.expect("commit embedding note seed");
+        }
+
+        for expected_pass in 0..2 {
+            let ctx = db.for_schema(&success.schema_name).unwrap();
+            let mut tx = ctx.begin_tx().await.expect("begin embedding apply");
+            let mut imported = ShardImportCounts::default();
+            let mut skipped = ShardImportCounts::default();
+            apply_shard_embedding_components_tx(
+                &mut tx,
+                &files,
+                &selected_components,
+                &opts,
+                &mut imported,
+                &mut skipped,
+            )
+            .await
+            .expect("apply complete embedding boundary");
+            tx.commit().await.expect("commit embedding boundary");
+            assert_eq!(imported.embedding_configs, 1, "pass {expected_pass}");
+            assert_eq!(imported.embedding_sets, 1, "pass {expected_pass}");
+            assert_eq!(imported.embedding_set_members, 1, "pass {expected_pass}");
+            assert_eq!(imported.embeddings, 1, "pass {expected_pass}");
+            assert_eq!(skipped.embedding_configs, 0, "pass {expected_pass}");
+            assert_eq!(skipped.embedding_sets, 0, "pass {expected_pass}");
+            assert_eq!(skipped.embedding_set_members, 0, "pass {expected_pass}");
+            assert_eq!(skipped.embeddings, 0, "pass {expected_pass}");
+        }
+
+        let skip_opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Skip,
+            skip_embedding_regen: true,
+        };
+        let success_ctx = db.for_schema(&success.schema_name).unwrap();
+        let mut tx = success_ctx.begin_tx().await.expect("begin embedding skip");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        apply_shard_embedding_components_tx(
+            &mut tx,
+            &files,
+            &selected_components,
+            &skip_opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect("skip existing embedding boundary");
+        tx.commit().await.expect("commit embedding skip");
+        assert_eq!(imported.embedding_configs, 0);
+        assert_eq!(imported.embedding_sets, 0);
+        assert_eq!(imported.embedding_set_members, 0);
+        assert_eq!(imported.embeddings, 0);
+        assert_eq!(skipped.embedding_configs, 1);
+        assert_eq!(skipped.embedding_sets, 1);
+        assert_eq!(skipped.embedding_set_members, 1);
+        assert_eq!(skipped.embeddings, 1);
+
+        let restored = success_ctx
+            .query(move |tx| {
+                Box::pin(async move {
+                    let config = sqlx::query_as::<
+                        _,
+                        (
+                            Option<String>,
+                            Option<bool>,
+                            i32,
+                            chrono::DateTime<chrono::Utc>,
+                            chrono::DateTime<chrono::Utc>,
+                        ),
+                    >(
+                        "SELECT provider::text, is_default, dimension, created_at, updated_at
+                         FROM embedding_config WHERE id = $1",
+                    )
+                    .bind(config_id)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)?;
+                    let set = sqlx::query_as::<
+                        _,
+                        (
+                            Option<String>,
+                            Option<bool>,
+                            Option<String>,
+                            chrono::DateTime<chrono::Utc>,
+                            chrono::DateTime<chrono::Utc>,
+                        ),
+                    >(
+                        "SELECT refresh_interval::text, is_active, created_by,
+                                created_at, updated_at
+                         FROM embedding_set WHERE id = $1",
+                    )
+                    .bind(set_id)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)?;
+                    let member = sqlx::query_as::<
+                        _,
+                        (
+                            Option<String>,
+                            Option<String>,
+                            Option<chrono::DateTime<chrono::Utc>>,
+                        ),
+                    >(
+                        "SELECT membership_type, added_by, added_at
+                         FROM embedding_set_member
+                         WHERE embedding_set_id = $1 AND note_id = $2",
+                    )
+                    .bind(set_id)
+                    .bind(note_id)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)?;
+                    let embedding = sqlx::query_as::<
+                        _,
+                        (Uuid, i32, String, Option<chrono::DateTime<chrono::Utc>>),
+                    >(
+                        "SELECT id, vector_dims(vector), model, created_at
+                         FROM embedding WHERE id = $1",
+                    )
+                    .bind(embedding_id)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)?;
+                    Ok::<_, matric_db::Error>((config, set, member, embedding))
+                })
+            })
+            .await
+            .expect("read restored embedding boundary");
+        let source_timestamp = chrono::DateTime::parse_from_rfc3339("2026-07-18T09:30:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        assert_eq!(
+            restored.0,
+            (None, None, 768, source_timestamp, source_timestamp)
+        );
+        assert_eq!(
+            restored.1,
+            (None, None, None, source_timestamp, source_timestamp)
+        );
+        assert_eq!(restored.2, (None, None, None));
+        assert_eq!(
+            restored.3,
+            (
+                embedding_id,
+                768,
+                "test-model".to_string(),
+                Some(source_timestamp)
+            )
+        );
+
+        let rollback_ctx = db.for_schema(&rollback.schema_name).unwrap();
+        let baseline = rollback_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM embedding_config),
+                           (SELECT COUNT(*) FROM embedding_set),
+                           (SELECT COUNT(*) FROM embedding_set_member),
+                           (SELECT COUNT(*) FROM embedding)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read embedding rollback baseline");
+        let dry_run_opts = ShardImportOptions {
+            include: None,
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin embedding dry run");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        apply_shard_embedding_components_tx(
+            &mut tx,
+            &files,
+            &selected_components,
+            &dry_run_opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect("dry-run complete embedding boundary");
+        tx.rollback().await.expect("roll back embedding dry run");
+        assert_eq!(imported.embedding_configs, 1);
+        assert_eq!(imported.embedding_sets, 1);
+        assert_eq!(imported.embedding_set_members, 1);
+        assert_eq!(imported.embeddings, 1);
+        assert_eq!(skipped.embedding_configs, 0);
+        assert_eq!(skipped.embedding_sets, 0);
+        assert_eq!(skipped.embedding_set_members, 0);
+        assert_eq!(skipped.embeddings, 0);
+
+        let mut tx = rollback_ctx
+            .begin_tx()
+            .await
+            .expect("begin failed embedding apply");
+        sqlx::query(
+            "CREATE FUNCTION reject_shard_embedding_insert()
+             RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN
+                 RAISE EXCEPTION 'injected shard embedding failure';
+             END;
+             $$",
+        )
+        .execute(&mut *tx)
+        .await
+        .expect("create embedding failure function");
+        sqlx::query(
+            "CREATE TRIGGER reject_shard_embedding_insert
+             BEFORE INSERT ON embedding
+             FOR EACH ROW EXECUTE FUNCTION reject_shard_embedding_insert()",
+        )
+        .execute(&mut *tx)
+        .await
+        .expect("create embedding failure trigger");
+        let mut imported = ShardImportCounts::default();
+        let mut skipped = ShardImportCounts::default();
+        let error = apply_shard_embedding_components_tx(
+            &mut tx,
+            &files,
+            &selected_components,
+            &opts,
+            &mut imported,
+            &mut skipped,
+        )
+        .await
+        .expect_err("late embedding failure must abort the apply transaction");
+        assert!(matches!(error, ApiError::OperationFailed { .. }));
+        tx.rollback()
+            .await
+            .expect("roll back failed embedding apply");
+        let after_failure = rollback_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM embedding_config),
+                           (SELECT COUNT(*) FROM embedding_set),
+                           (SELECT COUNT(*) FROM embedding_set_member),
+                           (SELECT COUNT(*) FROM embedding)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read embedding state after rollback");
+        assert_eq!(after_failure, baseline);
+
+        for archive_name in [success_name, rollback_name] {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .expect("drop isolated embedding test schema");
+        }
+    }
+
+    #[test]
     fn shard_embedding_component_parsing_is_bounded() {
         let data = serde_json::to_vec(&serde_json::json!([{}, {}])).unwrap();
         assert_eq!(
@@ -40337,6 +41162,7 @@ not-json
                 tags: 0,
                 templates: 1,
                 links: 5,
+                embedding_configs: 0,
                 embedding_sets: 0,
                 embedding_set_members: 0,
                 embeddings: 0,
