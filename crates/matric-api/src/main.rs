@@ -23504,8 +23504,16 @@ fn validate_shard_relationships(
 
     let revision_notes =
         validate_shard_note_history_relationships(files, &note_ids, &note_contents)?;
-    validate_shard_revision_provenance_relationships(files, &note_ids, &revision_notes)?;
-    validate_shard_spatial_provenance_relationships(files)?;
+    let activity_ids =
+        validate_shard_revision_provenance_relationships(files, &note_ids, &revision_notes)?;
+    let spatial_ids = validate_shard_spatial_provenance_relationships(files)?;
+    validate_shard_unified_provenance_relationships(
+        files,
+        &note_ids,
+        &attachment_ids,
+        &activity_ids,
+        &spatial_ids,
+    )?;
     validate_shard_embedding_relationships(files, &note_ids)?;
 
     Ok(attachment_digests)
@@ -23666,7 +23674,7 @@ fn validate_shard_revision_provenance_relationships(
     files: &std::collections::HashMap<String, Vec<u8>>,
     note_ids: &std::collections::HashSet<Uuid>,
     revision_notes: &std::collections::HashMap<Uuid, Uuid>,
-) -> Result<(), String> {
+) -> Result<std::collections::HashSet<Uuid>, String> {
     let mut edge_ids = std::collections::HashSet::new();
     if let Some(data) = files.get("provenance_edges.jsonl") {
         for value in parse_shard_component_records("provenance_edges", data)? {
@@ -23723,7 +23731,7 @@ fn validate_shard_revision_provenance_relationships(
         }
     }
 
-    Ok(())
+    Ok(activity_ids)
 }
 
 fn shard_spatial_ewkb_is_canonical(value: &str) -> bool {
@@ -23734,9 +23742,15 @@ fn shard_spatial_ewkb_is_canonical(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+#[derive(Debug)]
+struct ShardSpatialProvenanceIds {
+    locations: std::collections::HashSet<Uuid>,
+    devices: std::collections::HashSet<Uuid>,
+}
+
 fn validate_shard_spatial_provenance_relationships(
     files: &std::collections::HashMap<String, Vec<u8>>,
-) -> Result<(), String> {
+) -> Result<ShardSpatialProvenanceIds, String> {
     let mut named_location_ids = std::collections::HashSet::new();
     let mut named_location_slugs = std::collections::HashSet::new();
     if let Some(data) = files.get("named_locations.jsonl") {
@@ -23805,6 +23819,170 @@ fn validate_shard_spatial_provenance_relationships(
                     "Knowledge shard provenance device coordinates must be unique.".to_string(),
                 );
             }
+        }
+    }
+
+    Ok(ShardSpatialProvenanceIds {
+        locations: location_ids,
+        devices: device_ids,
+    })
+}
+
+fn shard_timestamp_range_is_valid(range: &ShardTimestampRange) -> bool {
+    if range.empty {
+        return range.lower.is_none()
+            && !range.lower_inclusive
+            && !range.lower_infinite
+            && range.upper.is_none()
+            && !range.upper_inclusive
+            && !range.upper_infinite;
+    }
+
+    let lower_is_valid = if range.lower_infinite {
+        range.lower.is_none() && !range.lower_inclusive
+    } else {
+        range.lower.is_some()
+    };
+    let upper_is_valid = if range.upper_infinite {
+        range.upper.is_none() && !range.upper_inclusive
+    } else {
+        range.upper.is_some()
+    };
+    if !lower_is_valid || !upper_is_valid {
+        return false;
+    }
+
+    match (range.lower, range.upper) {
+        (Some(lower), Some(upper)) => {
+            lower < upper || (lower == upper && range.lower_inclusive && range.upper_inclusive)
+        }
+        _ => true,
+    }
+}
+
+fn validate_shard_unified_provenance_relationships(
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    note_ids: &std::collections::HashSet<Uuid>,
+    attachment_ids: &std::collections::HashSet<Uuid>,
+    activity_ids: &std::collections::HashSet<Uuid>,
+    spatial_ids: &ShardSpatialProvenanceIds,
+) -> Result<(), String> {
+    let Some(data) = files.get("provenance_records.jsonl") else {
+        return Ok(());
+    };
+
+    let mut provenance_ids = std::collections::HashSet::new();
+    let mut provenance_note_ids = std::collections::HashSet::new();
+    for value in parse_shard_component_records("provenance_records", data)? {
+        let record = serde_json::from_value::<ShardUnifiedProvenanceRecord>(value)
+            .map_err(|_| "Knowledge shard unified provenance records are invalid.".to_string())?;
+        if !provenance_ids.insert(record.id) {
+            return Err(
+                "Knowledge shard unified provenance identities must be unique.".to_string(),
+            );
+        }
+        if record.attachment_id.is_none() && record.note_id.is_none() {
+            return Err("Knowledge shard unified provenance target is required.".to_string());
+        }
+        if record
+            .note_id
+            .is_some_and(|note_id| !note_ids.contains(&note_id))
+        {
+            return Err(
+                "Knowledge shard unified provenance references an unknown note.".to_string(),
+            );
+        }
+        if record
+            .note_id
+            .is_some_and(|note_id| !provenance_note_ids.insert(note_id))
+        {
+            return Err(
+                "Knowledge shard unified provenance note targets must be unique.".to_string(),
+            );
+        }
+        if record
+            .attachment_id
+            .is_some_and(|attachment_id| !attachment_ids.contains(&attachment_id))
+        {
+            return Err(
+                "Knowledge shard unified provenance references an unknown attachment.".to_string(),
+            );
+        }
+        if record
+            .location_id
+            .is_some_and(|location_id| !spatial_ids.locations.contains(&location_id))
+            || record
+                .original_location_id
+                .is_some_and(|location_id| !spatial_ids.locations.contains(&location_id))
+        {
+            return Err(
+                "Knowledge shard unified provenance references an unknown location.".to_string(),
+            );
+        }
+        if record
+            .device_id
+            .is_some_and(|device_id| !spatial_ids.devices.contains(&device_id))
+        {
+            return Err(
+                "Knowledge shard unified provenance references an unknown device.".to_string(),
+            );
+        }
+        if record
+            .activity_id
+            .is_some_and(|activity_id| !activity_ids.contains(&activity_id))
+        {
+            return Err(
+                "Knowledge shard unified provenance references an unknown activity.".to_string(),
+            );
+        }
+        if record
+            .capture_time
+            .as_ref()
+            .is_some_and(|range| !shard_timestamp_range_is_valid(range))
+            || record
+                .original_capture_time
+                .as_ref()
+                .is_some_and(|range| !shard_timestamp_range_is_valid(range))
+        {
+            return Err(
+                "Knowledge shard unified provenance timestamp range is invalid.".to_string(),
+            );
+        }
+        if record.time_source.as_deref().is_some_and(|value| {
+            !matches!(
+                value,
+                "exif"
+                    | "file_mtime"
+                    | "user_manual"
+                    | "ai_estimated"
+                    | "gps"
+                    | "network"
+                    | "manual"
+                    | "file_metadata"
+                    | "device_clock"
+            )
+        }) || record.time_confidence.as_deref().is_some_and(|value| {
+            !matches!(
+                value,
+                "high" | "medium" | "low" | "unknown" | "exact" | "approximate" | "estimated"
+            )
+        }) || record.event_type.as_deref().is_some_and(|value| {
+            !matches!(
+                value,
+                "photo"
+                    | "video"
+                    | "audio"
+                    | "scan"
+                    | "screenshot"
+                    | "recording"
+                    | "unknown"
+                    | "created"
+                    | "modified"
+                    | "accessed"
+                    | "shared"
+            )
+        }) {
+            return Err("Knowledge shard unified provenance enum value is invalid.".to_string());
         }
     }
 
@@ -42355,6 +42533,303 @@ not-json
             validate_shard_spatial_provenance_relationships(&duplicate_device).unwrap_err(),
             "Knowledge shard provenance device coordinates must be unique."
         );
+    }
+
+    fn valid_shard_unified_provenance_relationship_fixture() -> (
+        std::collections::HashMap<String, Vec<u8>>,
+        std::collections::HashSet<Uuid>,
+        std::collections::HashSet<Uuid>,
+        std::collections::HashSet<Uuid>,
+        ShardSpatialProvenanceIds,
+        Uuid,
+    ) {
+        let (mut files, _, location_id, device_id) =
+            valid_shard_spatial_provenance_relationship_fixture();
+        let note_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d051").unwrap();
+        let attachment_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d052").unwrap();
+        let activity_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d053").unwrap();
+        let provenance_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f648d054").unwrap();
+        let record = serde_json::json!({
+            "id": provenance_id,
+            "attachment_id": attachment_id,
+            "note_id": note_id,
+            "capture_time": {
+                "empty": false,
+                "lower": "2026-07-18T13:00:00Z",
+                "lower_inclusive": true,
+                "lower_infinite": false,
+                "upper": "2026-07-18T13:30:00Z",
+                "upper_inclusive": false,
+                "upper_infinite": false
+            },
+            "capture_timezone": "UTC",
+            "capture_duration_seconds": 1800.0,
+            "time_source": "device_clock",
+            "time_confidence": "exact",
+            "location_id": location_id,
+            "device_id": device_id,
+            "activity_id": activity_id,
+            "event_type": "recording",
+            "event_title": "Fixture recording",
+            "event_description": null,
+            "raw_metadata": {},
+            "ai_context": null,
+            "ai_processed_at": null,
+            "ai_model": null,
+            "user_corrected": true,
+            "original_capture_time": {
+                "empty": false,
+                "lower": null,
+                "lower_inclusive": false,
+                "lower_infinite": true,
+                "upper": "2026-07-18T13:30:00Z",
+                "upper_inclusive": true,
+                "upper_infinite": false
+            },
+            "original_location_id": location_id,
+            "correction_note": "Corrected from metadata",
+            "created_at": "2026-07-18T14:00:00Z"
+        });
+        files.insert(
+            "provenance_records.jsonl".to_string(),
+            serde_json::to_vec(&record).unwrap(),
+        );
+        (
+            files,
+            std::collections::HashSet::from([note_id]),
+            std::collections::HashSet::from([attachment_id]),
+            std::collections::HashSet::from([activity_id]),
+            ShardSpatialProvenanceIds {
+                locations: std::collections::HashSet::from([location_id]),
+                devices: std::collections::HashSet::from([device_id]),
+            },
+            provenance_id,
+        )
+    }
+
+    #[test]
+    fn shard_unified_provenance_preflight_accepts_complete_boundary() {
+        let (files, note_ids, attachment_ids, activity_ids, spatial_ids, _) =
+            valid_shard_unified_provenance_relationship_fixture();
+        validate_shard_unified_provenance_relationships(
+            &files,
+            &note_ids,
+            &attachment_ids,
+            &activity_ids,
+            &spatial_ids,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn shard_unified_provenance_preflight_rejects_invalid_targets_and_duplicates() {
+        let (files, note_ids, attachment_ids, activity_ids, spatial_ids, provenance_id) =
+            valid_shard_unified_provenance_relationship_fixture();
+
+        let mut duplicate_identity = files.clone();
+        let record = duplicate_identity["provenance_records.jsonl"].clone();
+        duplicate_identity
+            .get_mut("provenance_records.jsonl")
+            .unwrap()
+            .extend_from_slice(&[b'\n']);
+        duplicate_identity
+            .get_mut("provenance_records.jsonl")
+            .unwrap()
+            .extend_from_slice(&record);
+        assert_eq!(
+            validate_shard_unified_provenance_relationships(
+                &duplicate_identity,
+                &note_ids,
+                &attachment_ids,
+                &activity_ids,
+                &spatial_ids,
+            )
+            .unwrap_err(),
+            "Knowledge shard unified provenance identities must be unique."
+        );
+
+        let mut missing_target = files.clone();
+        let mut record: serde_json::Value =
+            serde_json::from_slice(&missing_target["provenance_records.jsonl"]).unwrap();
+        record["attachment_id"] = serde_json::Value::Null;
+        record["note_id"] = serde_json::Value::Null;
+        missing_target.insert(
+            "provenance_records.jsonl".to_string(),
+            serde_json::to_vec(&record).unwrap(),
+        );
+        assert_eq!(
+            validate_shard_unified_provenance_relationships(
+                &missing_target,
+                &note_ids,
+                &attachment_ids,
+                &activity_ids,
+                &spatial_ids,
+            )
+            .unwrap_err(),
+            "Knowledge shard unified provenance target is required."
+        );
+
+        let mut duplicate_note = files;
+        let mut record: serde_json::Value =
+            serde_json::from_slice(&duplicate_note["provenance_records.jsonl"]).unwrap();
+        record["id"] = serde_json::json!(Uuid::now_v7());
+        duplicate_note
+            .get_mut("provenance_records.jsonl")
+            .unwrap()
+            .extend_from_slice(format!("\n{}", serde_json::to_string(&record).unwrap()).as_bytes());
+        assert_ne!(record["id"], serde_json::json!(provenance_id));
+        assert_eq!(
+            validate_shard_unified_provenance_relationships(
+                &duplicate_note,
+                &note_ids,
+                &attachment_ids,
+                &activity_ids,
+                &spatial_ids,
+            )
+            .unwrap_err(),
+            "Knowledge shard unified provenance note targets must be unique."
+        );
+    }
+
+    #[test]
+    fn shard_unified_provenance_preflight_rejects_unknown_references() {
+        let (files, note_ids, attachment_ids, activity_ids, spatial_ids, _) =
+            valid_shard_unified_provenance_relationship_fixture();
+        for (field, expected) in [
+            (
+                "note_id",
+                "Knowledge shard unified provenance references an unknown note.",
+            ),
+            (
+                "attachment_id",
+                "Knowledge shard unified provenance references an unknown attachment.",
+            ),
+            (
+                "location_id",
+                "Knowledge shard unified provenance references an unknown location.",
+            ),
+            (
+                "original_location_id",
+                "Knowledge shard unified provenance references an unknown location.",
+            ),
+            (
+                "device_id",
+                "Knowledge shard unified provenance references an unknown device.",
+            ),
+            (
+                "activity_id",
+                "Knowledge shard unified provenance references an unknown activity.",
+            ),
+        ] {
+            let mut invalid = files.clone();
+            let mut record: serde_json::Value =
+                serde_json::from_slice(&invalid["provenance_records.jsonl"]).unwrap();
+            record[field] = serde_json::json!(Uuid::now_v7());
+            invalid.insert(
+                "provenance_records.jsonl".to_string(),
+                serde_json::to_vec(&record).unwrap(),
+            );
+            assert_eq!(
+                validate_shard_unified_provenance_relationships(
+                    &invalid,
+                    &note_ids,
+                    &attachment_ids,
+                    &activity_ids,
+                    &spatial_ids,
+                )
+                .unwrap_err(),
+                expected,
+                "field {field}"
+            );
+        }
+    }
+
+    #[test]
+    fn shard_unified_provenance_preflight_rejects_invalid_ranges_and_enums() {
+        let (files, note_ids, attachment_ids, activity_ids, spatial_ids, _) =
+            valid_shard_unified_provenance_relationship_fixture();
+        let invalid_ranges = [
+            serde_json::json!({
+                "empty": true,
+                "lower": "2026-07-18T13:00:00Z",
+                "lower_inclusive": false,
+                "lower_infinite": false,
+                "upper": null,
+                "upper_inclusive": false,
+                "upper_infinite": false
+            }),
+            serde_json::json!({
+                "empty": false,
+                "lower": null,
+                "lower_inclusive": true,
+                "lower_infinite": true,
+                "upper": null,
+                "upper_inclusive": false,
+                "upper_infinite": true
+            }),
+            serde_json::json!({
+                "empty": false,
+                "lower": "2026-07-18T13:30:00Z",
+                "lower_inclusive": true,
+                "lower_infinite": false,
+                "upper": "2026-07-18T13:00:00Z",
+                "upper_inclusive": true,
+                "upper_infinite": false
+            }),
+            serde_json::json!({
+                "empty": false,
+                "lower": "2026-07-18T13:00:00Z",
+                "lower_inclusive": true,
+                "lower_infinite": false,
+                "upper": "2026-07-18T13:00:00Z",
+                "upper_inclusive": false,
+                "upper_infinite": false
+            }),
+        ];
+        for range in invalid_ranges {
+            let mut invalid = files.clone();
+            let mut record: serde_json::Value =
+                serde_json::from_slice(&invalid["provenance_records.jsonl"]).unwrap();
+            record["capture_time"] = range;
+            invalid.insert(
+                "provenance_records.jsonl".to_string(),
+                serde_json::to_vec(&record).unwrap(),
+            );
+            assert_eq!(
+                validate_shard_unified_provenance_relationships(
+                    &invalid,
+                    &note_ids,
+                    &attachment_ids,
+                    &activity_ids,
+                    &spatial_ids,
+                )
+                .unwrap_err(),
+                "Knowledge shard unified provenance timestamp range is invalid."
+            );
+        }
+
+        for field in ["time_source", "time_confidence", "event_type"] {
+            let mut invalid = files.clone();
+            let mut record: serde_json::Value =
+                serde_json::from_slice(&invalid["provenance_records.jsonl"]).unwrap();
+            record[field] = serde_json::json!("not-a-database-enum");
+            invalid.insert(
+                "provenance_records.jsonl".to_string(),
+                serde_json::to_vec(&record).unwrap(),
+            );
+            assert_eq!(
+                validate_shard_unified_provenance_relationships(
+                    &invalid,
+                    &note_ids,
+                    &attachment_ids,
+                    &activity_ids,
+                    &spatial_ids,
+                )
+                .unwrap_err(),
+                "Knowledge shard unified provenance enum value is invalid.",
+                "field {field}"
+            );
+        }
     }
 
     fn valid_shard_note_history_relationship_fixture() -> (
