@@ -13,6 +13,12 @@ The current contract revision supports Knowledge Shard schema `1.1.0` under
 - `record-v1`: notes, collections, tags, note-to-note links, and
   attachment projections.
 
+Revision 5 also publishes digest-pinned candidate schemas and fixtures for the
+`full-v1` embedding boundary: embedding configs, sets, memberships, and vector
+records. These files are reviewable authority inputs, not a supported profile.
+There is no canonical `full-v1` manifest or import/apply claim yet, and runtime
+manifest validation continues to reject `full-v1`.
+
 Each profile has its own manifest and record schemas under
 `contracts/knowledge-shard/1.1.0/<profile>/`. Fortemi import selects and
 applies those schemas by version and profile before component inventory/count
@@ -41,6 +47,7 @@ by the selected export. The pinned React producer/server consumer/React return
 receipt is stored at
 `tests/fixtures/shards/record-v1-fortemi-react-df4762a.shard.receipt.json`;
 the exact producer archive is a permanent integration fixture. `full-v1`
-remains reserved and unsupported. Complete absent-versus-null preservation
+remains unsupported beyond its candidate embedding component boundary.
+Complete absent-versus-null preservation
 still requires a schema-major or new profile identifier because `deleted_at`
 is optional during the 1.1 transition.

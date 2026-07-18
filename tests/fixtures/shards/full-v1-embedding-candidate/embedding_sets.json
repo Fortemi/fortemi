@@ -1,0 +1,33 @@
+[
+  {
+    "id": "018f4c11-9f14-7d33-8a21-1c80f648f102",
+    "name": "Research",
+    "slug": "research",
+    "description": null,
+    "purpose": null,
+    "usage_hints": null,
+    "keywords": null,
+    "set_type": "full",
+    "mode": "manual",
+    "criteria": null,
+    "embedding_config_id": "018f4c11-9f14-7d33-8a21-1c80f648f101",
+    "truncate_dim": null,
+    "auto_embed_rules": null,
+    "index_status": "ready",
+    "index_type": null,
+    "last_indexed_at": null,
+    "document_count": null,
+    "embedding_count": null,
+    "embeddings_current": null,
+    "index_size_bytes": null,
+    "is_system": null,
+    "is_active": null,
+    "auto_refresh": null,
+    "refresh_interval": null,
+    "last_refresh_at": null,
+    "agent_metadata": null,
+    "created_at": "2026-07-18T09:30:00Z",
+    "updated_at": "2026-07-18T09:30:00Z",
+    "created_by": null
+  }
+]

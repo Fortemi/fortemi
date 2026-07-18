@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.1.0/full-v1/embedding-set.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 candidate embedding set record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "slug",
+    "description",
+    "purpose",
+    "usage_hints",
+    "keywords",
+    "set_type",
+    "mode",
+    "criteria",
+    "embedding_config_id",
+    "truncate_dim",
+    "auto_embed_rules",
+    "index_status",
+    "index_type",
+    "last_indexed_at",
+    "document_count",
+    "embedding_count",
+    "embeddings_current",
+    "index_size_bytes",
+    "is_system",
+    "is_active",
+    "auto_refresh",
+    "refresh_interval",
+    "last_refresh_at",
+    "agent_metadata",
+    "created_at",
+    "updated_at",
+    "created_by"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "slug": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "purpose": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "usage_hints": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "keywords": {
+      "$ref": "#/$defs/nullableStringArray"
+    },
+    "set_type": {
+      "enum": [
+        "filter",
+        "full"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "auto",
+        "manual",
+        "mixed"
+      ]
+    },
+    "criteria": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "embedding_config_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "truncate_dim": {
+      "$ref": "#/$defs/nullablePositiveInteger"
+    },
+    "auto_embed_rules": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "index_status": {
+      "enum": [
+        "empty",
+        "pending",
+        "building",
+        "ready",
+        "stale",
+        "disabled"
+      ]
+    },
+    "index_type": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "last_indexed_at": {
+      "$ref": "#/$defs/nullableDateTime"
+    },
+    "document_count": {
+      "$ref": "#/$defs/nullableNonNegativeInteger"
+    },
+    "embedding_count": {
+      "$ref": "#/$defs/nullableNonNegativeInteger"
+    },
+    "embeddings_current": {
+      "$ref": "#/$defs/nullableBoolean"
+    },
+    "index_size_bytes": {
+      "$ref": "#/$defs/nullableNonNegativeInteger"
+    },
+    "is_system": {
+      "$ref": "#/$defs/nullableBoolean"
+    },
+    "is_active": {
+      "$ref": "#/$defs/nullableBoolean"
+    },
+    "auto_refresh": {
+      "$ref": "#/$defs/nullableBoolean"
+    },
+    "refresh_interval": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "last_refresh_at": {
+      "$ref": "#/$defs/nullableDateTime"
+    },
+    "agent_metadata": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "created_at": {
+      "$ref": "#/$defs/dateTime"
+    },
+    "updated_at": {
+      "$ref": "#/$defs/dateTime"
+    },
+    "created_by": {
+      "$ref": "#/$defs/nullableString"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nullableUuid": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableDateTime": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/dateTime"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "nullableBoolean": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "nullableNonNegativeInteger": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "nullablePositiveInteger": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "nullableStringArray": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

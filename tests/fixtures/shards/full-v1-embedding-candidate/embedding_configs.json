@@ -1,0 +1,29 @@
+[
+  {
+    "id": "018f4c11-9f14-7d33-8a21-1c80f648f101",
+    "name": "Research config",
+    "description": null,
+    "model": "test-model",
+    "dimension": 3,
+    "chunk_size": 512,
+    "chunk_overlap": 64,
+    "hnsw_m": null,
+    "hnsw_ef_construction": null,
+    "ivfflat_lists": null,
+    "is_default": null,
+    "supports_mrl": null,
+    "matryoshka_dims": null,
+    "default_truncate_dim": null,
+    "provider": null,
+    "provider_config": null,
+    "content_types": null,
+    "strengths": null,
+    "limitations": null,
+    "recommended_for": null,
+    "benchmark_scores": null,
+    "is_available": null,
+    "document_composition": {},
+    "created_at": "2026-07-18T09:30:00Z",
+    "updated_at": "2026-07-18T09:30:00Z"
+  }
+]

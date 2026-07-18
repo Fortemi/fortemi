@@ -75,6 +75,15 @@ machine-readable loss report, Fortemi dry-run/rejection/repeated-import
 assertions, the server re-export, and React's validated return import. The
 database integration test consumes these bytes by default.
 
+### full-v1-embedding-candidate/
+
+Digest-pinned candidate records for embedding configs, embedding sets,
+memberships, and embeddings under
+`contracts/knowledge-shard/1.1.0/full-v1/`. The runtime validates each
+component schema and embedding relationship preflight against this boundary,
+but still rejects `full-v1` manifests. This directory is not a conformance
+archive and must not be used to claim profile support.
+
 ### schema-invalid/
 
 Focused negative schema fixtures:

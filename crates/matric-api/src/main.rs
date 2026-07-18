@@ -22289,6 +22289,15 @@ const RECORD_V1_TAG_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.1.0/record-v1/tag.schema.json");
 const RECORD_V1_LINK_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.1.0/record-v1/link.schema.json");
+const FULL_V1_EMBEDDING_CONFIG_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/embedding-config.schema.json");
+const FULL_V1_EMBEDDING_SET_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/embedding-set.schema.json");
+const FULL_V1_EMBEDDING_SET_MEMBER_SCHEMA: &str = include_str!(
+    "../../../contracts/knowledge-shard/1.1.0/full-v1/embedding-set-member.schema.json"
+);
+const FULL_V1_EMBEDDING_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/embedding.schema.json");
 
 #[derive(Clone, Copy)]
 struct ShardArchiveLimits {
@@ -22627,6 +22636,10 @@ fn shard_component_filename(component: &str) -> Option<&'static str> {
         "tags" => Some("tags.json"),
         "templates" => Some("templates.json"),
         "links" => Some("links.jsonl"),
+        "embedding_configs" => Some("embedding_configs.json"),
+        "embedding_sets" => Some("embedding_sets.json"),
+        "embedding_set_members" => Some("embedding_set_members.jsonl"),
+        "embeddings" => Some("embeddings.jsonl"),
         _ => None,
     }
 }
@@ -22700,6 +22713,14 @@ fn validate_shard_json_schema(
         LazyLock::new(|| compile_shard_json_schema(RECORD_V1_TAG_SCHEMA));
     static RECORD_LINK: LazyLock<Result<jsonschema::Validator, String>> =
         LazyLock::new(|| compile_shard_json_schema(RECORD_V1_LINK_SCHEMA));
+    static FULL_EMBEDDING_CONFIG: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_EMBEDDING_CONFIG_SCHEMA));
+    static FULL_EMBEDDING_SET: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_EMBEDDING_SET_SCHEMA));
+    static FULL_EMBEDDING_SET_MEMBER: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_EMBEDDING_SET_MEMBER_SCHEMA));
+    static FULL_EMBEDDING: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(FULL_V1_EMBEDDING_SCHEMA));
 
     let validator = match schema_json {
         LEGACY_CORE_V1_MANIFEST_SCHEMA => &*LEGACY_MANIFEST,
@@ -22719,6 +22740,10 @@ fn validate_shard_json_schema(
         RECORD_V1_COLLECTION_SCHEMA => &*RECORD_COLLECTION,
         RECORD_V1_TAG_SCHEMA => &*RECORD_TAG,
         RECORD_V1_LINK_SCHEMA => &*RECORD_LINK,
+        FULL_V1_EMBEDDING_CONFIG_SCHEMA => &*FULL_EMBEDDING_CONFIG,
+        FULL_V1_EMBEDDING_SET_SCHEMA => &*FULL_EMBEDDING_SET,
+        FULL_V1_EMBEDDING_SET_MEMBER_SCHEMA => &*FULL_EMBEDDING_SET_MEMBER,
+        FULL_V1_EMBEDDING_SCHEMA => &*FULL_EMBEDDING,
         _ => return Err("Unknown canonical knowledge shard schema.".to_string()),
     }
     .as_ref()
@@ -22781,6 +22806,10 @@ fn shard_component_schema(version: &str, profile: &str, component: &str) -> Opti
         ("1.1.0", "record-v1", "collections") => Some(RECORD_V1_COLLECTION_SCHEMA),
         ("1.1.0", "record-v1", "tags") => Some(RECORD_V1_TAG_SCHEMA),
         ("1.1.0", "record-v1", "links") => Some(RECORD_V1_LINK_SCHEMA),
+        ("1.1.0", "full-v1", "embedding_configs") => Some(FULL_V1_EMBEDDING_CONFIG_SCHEMA),
+        ("1.1.0", "full-v1", "embedding_sets") => Some(FULL_V1_EMBEDDING_SET_SCHEMA),
+        ("1.1.0", "full-v1", "embedding_set_members") => Some(FULL_V1_EMBEDDING_SET_MEMBER_SCHEMA),
+        ("1.1.0", "full-v1", "embeddings") => Some(FULL_V1_EMBEDDING_SCHEMA),
         _ => None,
     }
 }
@@ -22948,32 +22977,28 @@ fn validate_shard_component_schema_for_profile(
 ) -> Result<usize, String> {
     let schema = shard_component_schema(version, profile, component)
         .ok_or_else(|| "Unsupported knowledge shard component.".to_string())?;
-    if matches!(component, "notes" | "links") {
+    let schema_failure = if profile == "full-v1" {
+        "Knowledge shard component does not match canonical full-v1 candidate schema."
+    } else {
+        "Knowledge shard component does not match canonical core-v1 schema."
+    };
+    if matches!(
+        component,
+        "notes" | "links" | "embedding_set_members" | "embeddings"
+    ) {
         return visit_shard_jsonl_values_with_limits(
             data,
             SHARD_MAX_RECORDS_PER_COMPONENT,
             SHARD_MAX_RECORD_BYTES,
-            |record| {
-                validate_shard_json_schema(
-                    &record,
-                    schema,
-                    "Knowledge shard component does not match canonical core-v1 schema.",
-                )
-            },
+            |record| validate_shard_json_schema(&record, schema, schema_failure),
         );
     }
     visit_shard_json_array_values_with_limits(
         data,
         SHARD_MAX_RECORDS_PER_COMPONENT,
         SHARD_MAX_RECORD_BYTES,
-        "Knowledge shard component does not match canonical core-v1 schema.",
-        |record| {
-            validate_shard_json_schema(
-                &record,
-                schema,
-                "Knowledge shard component does not match canonical core-v1 schema.",
-            )
-        },
+        schema_failure,
+        |record| validate_shard_json_schema(&record, schema, schema_failure),
     )
 }
 
@@ -23492,6 +23517,10 @@ fn validate_shard_component_inventory(
             "tags" => manifest.counts.tags,
             "templates" => manifest.counts.templates,
             "links" => manifest.counts.links,
+            "embedding_sets" => manifest.counts.embedding_sets,
+            "embedding_set_members" => manifest.counts.embedding_set_members,
+            "embeddings" => manifest.counts.embeddings,
+            "embedding_configs" => manifest.counts.embedding_configs,
             _ => unreachable!(),
         };
         if actual_count != expected_count {
@@ -39163,7 +39192,7 @@ not-json
         ))
         .expect("contract receipt must be valid JSON");
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert_eq!(receipt["contractRevision"], "4");
+        assert_eq!(receipt["contractRevision"], "5");
         assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
@@ -39171,6 +39200,10 @@ not-json
         );
         assert_eq!(receipt["profiles"]["core-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
+        assert_eq!(
+            receipt["profiles"]["full-v1"]["status"],
+            "embedding-boundary-candidate"
+        );
         assert_eq!(receipt["profiles"]["record-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["record-v1"]["status"], "supported");
         assert_eq!(
@@ -39259,6 +39292,25 @@ not-json
                 .expect("record-v1 fixture digest must be a string")
         );
 
+        let mut full_v1_candidate_fixture_bundle = sha2::Sha256::new();
+        for relative in [
+            "tests/fixtures/shards/full-v1-embedding-candidate/embedding_configs.json",
+            "tests/fixtures/shards/full-v1-embedding-candidate/embedding_set_members.jsonl",
+            "tests/fixtures/shards/full-v1-embedding-candidate/embedding_sets.json",
+            "tests/fixtures/shards/full-v1-embedding-candidate/embeddings.jsonl",
+        ] {
+            full_v1_candidate_fixture_bundle.update(
+                std::fs::read(workspace_root.join(relative))
+                    .expect("full-v1 candidate corpus receipt path must exist"),
+            );
+        }
+        assert_eq!(
+            hex::encode(full_v1_candidate_fixture_bundle.finalize()),
+            receipt["profiles"]["full-v1"]["candidateGoldenCorpusSha256"]
+                .as_str()
+                .expect("full-v1 candidate fixture digest must be a string")
+        );
+
         let historical = &receipt["historicalReleases"]["1.0.0/core-v1"];
         let mut historical_schema_bundle = sha2::Sha256::new();
         for relative in [
@@ -39300,6 +39352,101 @@ not-json
             historical["goldenCorpusSha256"]
                 .as_str()
                 .expect("historical corpus digest must be a string")
+        );
+    }
+
+    #[test]
+    fn full_v1_candidate_embedding_schemas_validate_pinned_corpus() {
+        for (component, data) in [
+            (
+                "embedding_configs",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-embedding-candidate/embedding_configs.json"
+                )
+                .as_slice(),
+            ),
+            (
+                "embedding_sets",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-embedding-candidate/embedding_sets.json"
+                )
+                .as_slice(),
+            ),
+            (
+                "embedding_set_members",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-embedding-candidate/embedding_set_members.jsonl"
+                )
+                .as_slice(),
+            ),
+            (
+                "embeddings",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-embedding-candidate/embeddings.jsonl"
+                )
+                .as_slice(),
+            ),
+        ] {
+            assert_eq!(
+                validate_shard_component_schema_for_profile(
+                    matric_core::shard::CURRENT_SHARD_VERSION,
+                    "full-v1",
+                    component,
+                    data,
+                )
+                .unwrap(),
+                1,
+                "candidate component must validate: {component}"
+            );
+        }
+    }
+
+    #[test]
+    fn full_v1_candidate_embedding_schemas_cover_persisted_statuses_and_reject_invalid_records() {
+        let mut configs: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../tests/fixtures/shards/full-v1-embedding-candidate/embedding_configs.json"
+        ))
+        .unwrap();
+        configs[0]
+            .as_object_mut()
+            .expect("candidate config must be an object")
+            .remove("dimension");
+        assert_eq!(
+            validate_shard_component_schema_for_profile(
+                matric_core::shard::CURRENT_SHARD_VERSION,
+                "full-v1",
+                "embedding_configs",
+                &serde_json::to_vec(&configs).unwrap(),
+            )
+            .unwrap_err(),
+            "Knowledge shard component does not match canonical full-v1 candidate schema."
+        );
+
+        let mut sets: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../tests/fixtures/shards/full-v1-embedding-candidate/embedding_sets.json"
+        ))
+        .unwrap();
+        sets[0]["index_status"] = serde_json::json!("empty");
+        assert_eq!(
+            validate_shard_component_schema_for_profile(
+                matric_core::shard::CURRENT_SHARD_VERSION,
+                "full-v1",
+                "embedding_sets",
+                &serde_json::to_vec(&sets).unwrap(),
+            )
+            .unwrap(),
+            1
+        );
+        sets[0]["mode"] = serde_json::json!("future");
+        assert_eq!(
+            validate_shard_component_schema_for_profile(
+                matric_core::shard::CURRENT_SHARD_VERSION,
+                "full-v1",
+                "embedding_sets",
+                &serde_json::to_vec(&sets).unwrap(),
+            )
+            .unwrap_err(),
+            "Knowledge shard component does not match canonical full-v1 candidate schema."
         );
     }
 

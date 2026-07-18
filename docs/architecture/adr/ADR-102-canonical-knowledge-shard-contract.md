@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, and disk-backed streaming preflight for opt-in verified attachment sidecars; `full-v1` conformance remains pending the release gates in this ADR
+**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, digest-pinned candidate `full-v1` embedding component schemas and fixtures, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, and disk-backed streaming preflight for opt-in verified attachment sidecars; `full-v1` conformance remains pending the release gates in this ADR
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -77,6 +77,14 @@ re-exported the resulting state, and React validated and imported that return
 archive while preserving IDs, bodies, the empty revision, relationships,
 attachment reference, and tombstone instant. The durable receipt lives beside
 the integration fixture.
+
+Contract revision 5 also publishes the candidate embedding component boundary
+under `contracts/knowledge-shard/1.1.0/full-v1/`, with a digest-pinned corpus
+covering configs, sets, memberships, and vector records. These component
+schemas are compiled by the server and exercised by bounded schema and
+relationship preflight tests. They do not define a `full-v1` manifest, enable
+transactional embedding apply, or establish profile support; manifest
+validation remains fail-closed for `full-v1`.
 
 ## Decision
 
