@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 1,
+  "profile": "record-v1",
+  "producer": {
+    "repository": "Fortemi/fortemi-react",
+    "commit": "df4762ad0c470ebd8ee460b56ba71be09b4f1616"
+  },
+  "authorityCandidate": {
+    "repository": "Fortemi/fortemi",
+    "commit": "a49603aed802b392ab4688ac8dfc67bf83c046c2",
+    "contractRevision": "3"
+  },
+  "candidateExecutionOverride": {
+    "field": "profiles.record-v1.supported",
+    "from": false,
+    "to": true
+  },
+  "producerArchive": {
+    "path": "tests/fixtures/shards/record-v1-fortemi-react-df4762a.shard",
+    "sha256": "3c14a27d5d2cc213ae78e2c89dc524e81eac02cdb414735806c3ce7a3a3af601",
+    "componentSha256": {
+      "collections.json": "33ff72ec39eef0db985637df0faa30160f9e835d971d0397c8acb102ede80bd4",
+      "links.jsonl": "11ba05a4aaf9393517dd5e910b35ffdde3efd46da9f3957a71d0d6be4333b422",
+      "manifest.json": "9529ef0fc55abbfe8d2fee6ba3f9ee6db65322aa8289e9182c13020b77118377",
+      "notes.jsonl": "1537f4fd2d665e4194e0836b2a80e7671142e6764fc221951c2aa05280db572b",
+      "tags.json": "d877db8d0f5938b35eece870b1361009f28a66775e1d5decf405ffc7e91c1b4d"
+    },
+    "capabilityReport": {
+      "schema_version": "fortemi.shard.capability-report.v1",
+      "backend": "record-store",
+      "operation": "export",
+      "requested_profile": "record-v1",
+      "authority_status": "supported",
+      "backend_supported": true,
+      "portable": true,
+      "authority": {
+        "repository": "https://git.integrolabs.net/Fortemi/fortemi",
+        "commit": "a49603aed802b392ab4688ac8dfc67bf83c046c2",
+        "contract_sha256": "ee91b6d7ea1e248a11f233727cf51a1efa25c37fec8de955f86a38abe63f8523",
+        "contract_revision": "3",
+        "schema_version": "1.1.0",
+        "schema_bundle_sha256": "2963063ea7b332c0fdc7d00463f2775f05886d822a89b6422992206e8c111362"
+      },
+      "advertised_profiles": [
+        "record-v1"
+      ],
+      "supported_components": [
+        "notes",
+        "collections",
+        "tags",
+        "links"
+      ],
+      "declared_components": [
+        "notes",
+        "collections",
+        "tags",
+        "links"
+      ],
+      "unsupported_components": [],
+      "omitted_components": [],
+      "losses": [
+        {
+          "code": "null-revised-content-normalized",
+          "component": "notes",
+          "count": 1,
+          "message": "1 note(s) with null revised content were normalized to an empty string."
+        },
+        {
+          "code": "attachment-lifecycle-outside-profile",
+          "component": "notes",
+          "count": 1,
+          "message": "1 attachment projection(s) omit RecordStore lifecycle timestamps and byte sidecars."
+        },
+        {
+          "code": "link-confidence-defaulted",
+          "component": "links",
+          "count": 1,
+          "message": "1 link score(s) were set to 0 because RecordStore has no confidence field."
+        }
+      ]
+    }
+  },
+  "fortemiConsumer": {
+    "commit": "Use the immutable Fortemi commit containing this receipt.",
+    "assertions": {
+      "dryRunRowsAfter": {
+        "notes": 0,
+        "collections": 0,
+        "tags": 0,
+        "templates": 0,
+        "links": 0,
+        "attachments": 0
+      },
+      "reservedFullV1RowsAfter": {
+        "notes": 0,
+        "collections": 0,
+        "tags": 0,
+        "templates": 0,
+        "links": 0,
+        "attachments": 0
+      },
+      "repeatedReplaceImports": 2,
+      "convergedRows": {
+        "notes": 2,
+        "collections": 1,
+        "tags": 1,
+        "templates": 0,
+        "links": 1,
+        "attachments": 1
+      },
+      "tombstone": {
+        "id": "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77f",
+        "deletedAt": "2026-07-18T00:00:00Z"
+      }
+    }
+  },
+  "serverReexport": {
+    "profile": "core-v1",
+    "sha256": "35ef1b031e8036d44279be4f55c7c78ae84ef7ef0bc95982e1526ee560f14f7d",
+    "componentSha256": {
+      "collections.json": "7c1c2b87ea22a773bd8b0e599131721552b130f59f7958257cda704d59b6d9a2",
+      "links.jsonl": "d70b200fefbfc1045988f246f7cc7d47c44a4c89e5c0cfbf103ae9e9425346b2",
+      "manifest.json": "78c20a60aeecd8589a37b73ba6d723c4f3dd4e01f8d9fe3295aaa6f1d36965f9",
+      "notes.jsonl": "9f54f3c31ef1669257c52bfcae2dfffcda3ab1667b9985f8195488b1574e7eeb",
+      "tags.json": "a800d3953cf17d3c6c4538e1087591bcf978291a348a29cb610929a055ab9203",
+      "templates.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  },
+  "reactReturnConsumer": {
+    "validator": {
+      "valid": true,
+      "errors": []
+    },
+    "importProfile": "core-v1",
+    "importedCounts": {
+      "notes": 2,
+      "collections": 1,
+      "templates": 0,
+      "tags": 1,
+      "links": 1,
+      "embedding_sets": 0,
+      "embedding_configs": 0,
+      "embedding_set_members": 0,
+      "embeddings": 0,
+      "skos_schemes": 0,
+      "skos_concepts": 0,
+      "skos_relations": 0,
+      "note_skos_tags": 0,
+      "provenance_edges": 0,
+      "graph_sources": 0,
+      "graph_edges": 0,
+      "community_sets": 0,
+      "communities": 0,
+      "community_assignments": 0
+    },
+    "rows": {
+      "notes": 2,
+      "collections": 1,
+      "note_tags": 1,
+      "links": 1,
+      "attachments": 1
+    },
+    "state": [
+      {
+        "id": "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a",
+        "deleted_at": null,
+        "original_content": "Original active content from React",
+        "revised_content": "Revised active content from React"
+      },
+      {
+        "id": "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77f",
+        "deleted_at": "2026-07-18T00:00:00.000Z",
+        "original_content": "Original tombstone content from React",
+        "revised_content": ""
+      }
+    ]
+  },
+  "limitations": [
+    "This receipt proves record-v1 only; it does not claim full-v1 parity.",
+    "Attachment metadata/reference identity is covered; record-v1 does not declare attachment byte sidecars.",
+    "The candidate execution changed only profiles.record-v1.supported from false to true before the final authority revision was published."
+  ]
+}

@@ -9,6 +9,13 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Added
 
+- **Knowledge Shard `record-v1` profile (#1057):** contract revision 4 enables
+  the reduced RecordStore profile after an exact Fortemi React producer archive
+  passed schema/checksum/relationship preflight, zero-mutation dry-run and
+  reserved-profile rejection, two convergent replace imports, server re-export,
+  and React return import. The profile covers notes, collections, tags,
+  note-to-note links, and attachment projections with mandatory loss reporting;
+  `full-v1` remains reserved.
 - **OpenAPI response coverage (#1060):** every documented operation now
   publishes the global rate-limit middleware's schema-bearing RFC 9457 `429`
   response, and contract validation rejects missing statuses, media types, or
@@ -38,6 +45,9 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   restore stable attachment identities, filenames, extraction state and text,
   canonical digest metadata, and digest-deduplicated reference blobs inside the
   shard transaction. Attachment bytes remain outside the `core-v1` archive.
+- **Knowledge Shard empty revisions (#1057):** named-profile imports now
+  preserve an explicit empty revised body instead of treating it as a missing
+  revision; unprofiled legacy imports retain their previous behavior.
 
 ### Security
 

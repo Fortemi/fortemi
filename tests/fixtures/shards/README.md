@@ -66,6 +66,15 @@ collection, one tag, and one note-to-note link. Templates and all richer
 components are fixed at zero. Runtime tests prove dry-run zero mutation,
 reserved-profile rejection, clean import, and repeated replace convergence.
 
+### record-v1-fortemi-react-df4762a.shard
+
+Exact archive produced by Fortemi React commit
+`df4762ad0c470ebd8ee460b56ba71be09b4f1616` against the record-v1 authority
+candidate. The adjacent receipt pins the archive and component hashes, the
+machine-readable loss report, Fortemi dry-run/rejection/repeated-import
+assertions, the server re-export, and React's validated return import. The
+database integration test consumes these bytes by default.
+
 ### schema-invalid/
 
 Focused negative schema fixtures:

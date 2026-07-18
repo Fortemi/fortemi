@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned `record-v1` conformance candidate, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, and opt-in verified attachment sidecars; full conformance remains pending the release gates in this ADR
+**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, and opt-in verified attachment sidecars; `full-v1` conformance remains pending the release gates in this ADR
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -37,14 +37,18 @@ receipt at `contracts/knowledge-shard/contract.json` records exact current and
 historical digests, golden corpora, supported and reserved profiles, and
 current limitations.
 
-The current `record-v1` candidate root is
+The supported `record-v1` root is
 `contracts/knowledge-shard/1.1.0/record-v1/`. It is limited to notes,
 collections, tags, note-to-note links, and attachment projections. Producers
 must report every omitted or lossy source concept through their
-machine-readable capability/loss result. Fortemi accepts the candidate through
-the same bounded validation and atomic apply path used for `core-v1`, but the
-profile remains non-advertised until the pinned React producer/server consumer
-receipt passes.
+machine-readable capability/loss result. The exact React producer artifact at
+commit `df4762ad0c470ebd8ee460b56ba71be09b4f1616` passed the same bounded
+validation and atomic apply path used for `core-v1`: dry-run and reserved
+profile rejection wrote zero rows, two replace imports converged, Fortemi
+re-exported the resulting state, and React validated and imported that return
+archive while preserving IDs, bodies, the empty revision, relationships,
+attachment reference, and tombstone instant. The durable receipt lives beside
+the integration fixture.
 
 ## Decision
 
@@ -231,8 +235,8 @@ then validates the migrated current representation before writes.
 
 Known gaps remain in complete absent-versus-null semantic preservation across
 all accepted current records, `full-v1`, current-minus-two historical migration
-coverage, streaming archive processing, and cross-repository conformance
-receipts. `record-v1` does not imply preservation of templates, embeddings,
+coverage, and streaming archive processing. `record-v1` does not imply
+preservation of templates, embeddings,
 SKOS, provenance, graph/community data, URL-only links, signature guarantees,
 or attachment bytes. Making tombstone-field presence mandatory requires a
 schema-major or new profile identifier. Those gaps remain tracked release

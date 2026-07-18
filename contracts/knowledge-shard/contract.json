@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractRevision": "3",
+  "contractRevision": "4",
   "authority": {
     "repository": "Fortemi/fortemi",
     "producerCommit": "Use the immutable Git commit containing this receipt."
@@ -21,9 +21,8 @@
       "status": "reserved"
     },
     "record-v1": {
-      "supported": false,
-      "status": "candidate",
-      "serverImportCandidate": true,
+      "supported": true,
+      "status": "supported",
       "schemaRoot": "contracts/knowledge-shard/1.1.0/record-v1",
       "components": [
         "notes",
@@ -33,7 +32,14 @@
       ],
       "requiresLossReport": true,
       "goldenCorpusRoot": "tests/fixtures/shards/record-v1-v1.1-valid",
-      "goldenCorpusSha256": "76ad7cdeba3c5935ca39a32044609b0cc826862145910f8450b0d2b5fc128a19"
+      "goldenCorpusSha256": "76ad7cdeba3c5935ca39a32044609b0cc826862145910f8450b0d2b5fc128a19",
+      "conformanceReceipt": {
+        "producerRepository": "Fortemi/fortemi-react",
+        "producerCommit": "df4762ad0c470ebd8ee460b56ba71be09b4f1616",
+        "archivePath": "tests/fixtures/shards/record-v1-fortemi-react-df4762a.shard",
+        "archiveSha256": "3c14a27d5d2cc213ae78e2c89dc524e81eac02cdb414735806c3ce7a3a3af601",
+        "receiptPath": "tests/fixtures/shards/record-v1-fortemi-react-df4762a.shard.receipt.json"
+      }
     }
   },
   "schemaBundle": {

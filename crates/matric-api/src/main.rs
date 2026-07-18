@@ -27386,14 +27386,19 @@ async fn apply_shard_attachment_projections(
     Ok(())
 }
 
+struct ValidatedShardApplyPolicy {
+    wipe_before_apply: bool,
+    preserve_empty_revisions: bool,
+}
+
 async fn apply_validated_shard_components(
     state: &AppState,
     files: &std::collections::HashMap<String, Vec<u8>>,
     selected_components: &std::collections::HashSet<String>,
     opts: &ShardImportOptions,
     schema: &str,
-    wipe_before_apply: bool,
     staged_blobs: &std::collections::HashMap<String, StagedShardBlob>,
+    policy: ValidatedShardApplyPolicy,
 ) -> Result<(ShardImportCounts, ShardImportCounts, Vec<Uuid>), ApiError> {
     let ctx = state.db.for_schema(schema)?;
     let mut tx = ctx
@@ -27407,7 +27412,7 @@ async fn apply_validated_shard_components(
     let mut used_staged_blobs = std::collections::HashSet::new();
     let should_import = |component: &str| selected_components.contains(component);
 
-    if wipe_before_apply && !opts.dry_run {
+    if policy.wipe_before_apply && !opts.dry_run {
         reference_blob_cleanup_candidates = sqlx::query_scalar::<_, Uuid>(
             "SELECT id FROM attachment_blob WHERE storage_backend = 'reference'",
         )
@@ -27569,7 +27574,7 @@ async fn apply_validated_shard_components(
                     .map_err(|error| {
                         shard_operation_failed("restore imported note status", error)
                     })?;
-                if !note.revised_content.is_empty() {
+                if policy.preserve_empty_revisions || !note.revised_content.is_empty() {
                     notes_repo
                         .update_revised_tx(
                             &mut tx,
@@ -27909,8 +27914,11 @@ async fn knowledge_shard_import_internal_with_wipe(
         &selected_components,
         opts,
         schema,
-        wipe_before_apply,
         &staged_blobs,
+        ValidatedShardApplyPolicy {
+            wipe_before_apply,
+            preserve_empty_revisions: manifest.profile.is_some(),
+        },
     )
     .await;
     if let Some(backend) = state.db.filesystem_storage_backend() {
@@ -35930,35 +35938,13 @@ mod tests {
     }
 
     fn record_v1_shard_bytes() -> Vec<u8> {
-        test_shard_archive(&[
-            (
-                "notes.jsonl",
-                include_bytes!("../../../tests/fixtures/shards/record-v1-v1.1-valid/notes.jsonl"),
-                tar::EntryType::Regular,
-            ),
-            (
-                "collections.json",
-                include_bytes!(
-                    "../../../tests/fixtures/shards/record-v1-v1.1-valid/collections.json"
-                ),
-                tar::EntryType::Regular,
-            ),
-            (
-                "tags.json",
-                include_bytes!("../../../tests/fixtures/shards/record-v1-v1.1-valid/tags.json"),
-                tar::EntryType::Regular,
-            ),
-            (
-                "links.jsonl",
-                include_bytes!("../../../tests/fixtures/shards/record-v1-v1.1-valid/links.jsonl"),
-                tar::EntryType::Regular,
-            ),
-            (
-                "manifest.json",
-                include_bytes!("../../../tests/fixtures/shards/record-v1-v1.1-valid/manifest.json"),
-                tar::EntryType::Regular,
-            ),
-        ])
+        if let Ok(path) = std::env::var("FORTEMI_RECORD_V1_CROSS_REPO_SHARD") {
+            return std::fs::read(&path).unwrap_or_else(|error| {
+                panic!("read record-v1 cross-repository shard {path}: {error}")
+            });
+        }
+        include_bytes!("../../../tests/fixtures/shards/record-v1-fortemi-react-df4762a.shard")
+            .to_vec()
     }
 
     fn test_shard_archive_with_raw_name(name: &[u8]) -> Vec<u8> {
@@ -37488,6 +37474,36 @@ mod tests {
             )
         );
 
+        let reexport = knowledge_shard(
+            State(state.clone()),
+            Extension(ArchiveContext {
+                schema: destination.schema_name.clone(),
+                is_default: false,
+                name: Some(destination_name.clone()),
+            }),
+            Query(ShardExportQuery {
+                include: None,
+                include_blobs: false,
+            }),
+        )
+        .await
+        .expect("re-export imported record-v1 destination")
+        .into_response();
+        assert_eq!(reexport.status(), StatusCode::OK);
+        let reexported_bytes = axum::body::to_bytes(reexport.into_body(), usize::MAX)
+            .await
+            .expect("read record-v1 destination re-export");
+        let reexported_files =
+            read_shard_archive(&reexported_bytes, ShardArchiveLimits::default()).unwrap();
+        let reexported_manifest =
+            parse_and_validate_shard_manifest(&reexported_files["manifest.json"]).unwrap();
+        assert_eq!(reexported_manifest.profile.as_deref(), Some("core-v1"));
+        if let Ok(path) = std::env::var("FORTEMI_RECORD_V1_CROSS_REPO_REEXPORT") {
+            std::fs::write(&path, &reexported_bytes).unwrap_or_else(|error| {
+                panic!("write record-v1 cross-repository re-export {path}: {error}")
+            });
+        }
+
         db.archives
             .drop_archive_schema(&destination_name)
             .await
@@ -37766,7 +37782,8 @@ mod tests {
             "../../../contracts/knowledge-shard/contract.json"
         ))
         .expect("contract receipt must be valid JSON");
-        assert_eq!(receipt["contractRevision"], "3");
+        let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        assert_eq!(receipt["contractRevision"], "4");
         assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
@@ -37774,18 +37791,30 @@ mod tests {
         );
         assert_eq!(receipt["profiles"]["core-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
-        assert_eq!(receipt["profiles"]["record-v1"]["supported"], false);
-        assert_eq!(receipt["profiles"]["record-v1"]["status"], "candidate");
-        assert_eq!(
-            receipt["profiles"]["record-v1"]["serverImportCandidate"],
-            true
-        );
+        assert_eq!(receipt["profiles"]["record-v1"]["supported"], true);
+        assert_eq!(receipt["profiles"]["record-v1"]["status"], "supported");
         assert_eq!(
             receipt["profiles"]["record-v1"]["schemaRoot"],
             "contracts/knowledge-shard/1.1.0/record-v1"
         );
-
-        let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        assert_eq!(
+            receipt["profiles"]["record-v1"]["conformanceReceipt"]["producerCommit"],
+            "df4762ad0c470ebd8ee460b56ba71be09b4f1616"
+        );
+        let conformance_archive = workspace_root.join(
+            receipt["profiles"]["record-v1"]["conformanceReceipt"]["archivePath"]
+                .as_str()
+                .expect("record-v1 conformance archive path must be a string"),
+        );
+        assert_eq!(
+            hex::encode(sha2::Sha256::digest(
+                std::fs::read(conformance_archive)
+                    .expect("record-v1 conformance archive must exist")
+            )),
+            receipt["profiles"]["record-v1"]["conformanceReceipt"]["archiveSha256"]
+                .as_str()
+                .expect("record-v1 conformance archive digest must be a string")
+        );
         let schema_files = receipt["schemaBundle"]["files"]
             .as_object()
             .expect("schema receipt must list files")
