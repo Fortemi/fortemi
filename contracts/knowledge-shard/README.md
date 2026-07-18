@@ -13,12 +13,15 @@ The current contract revision supports Knowledge Shard schema `1.1.0` under
 - `record-v1`: notes, collections, tags, note-to-note links, and
   attachment projections.
 
-Revision 16 publishes a reproducible integrated `full-v1` candidate archive
+Revision 17 publishes a reproducible signed integrated `full-v1` candidate archive
 with the complete 33-component inventory, 34 count fields, 33 component
 checksums, and one mandatory content-addressed attachment sidecar shared by
 two references. The archive unifies the digest-pinned embedding, note-revision,
 provenance, SKOS, graph, and community boundaries onto coherent note
-identities.
+identities. Its strict Ed25519 envelope authenticates the exact manifest bytes
+and sorted content-addressed blob inventory through the same verifier used by
+server import. The deterministic fixture key is public and test-only; operators
+must never add it to a production trust store.
 The revision boundary covers current original state, original history, current
 revised snapshots, and revision chains. The provenance boundary adds the
 W3C-PROV edges and processing activities that reference those exact note and
@@ -34,8 +37,8 @@ with convergence, dry-run, conflict-accounting, and late-failure rollback
 tests. The integrated fixture passes bounded archive, complete inventory,
 checksum, relationship, revision-chain, mandatory-byte, deduplication, and
 archive read/write/read equality tests. The files and dormant paths are
-reviewable authority inputs, not a supported profile. There is no signed
-export or supported route round-trip claim yet, and runtime profile validation
+reviewable authority inputs, not a supported profile. There is no supported
+route round-trip claim yet, and runtime profile validation
 continues to reject `full-v1` after candidate manifest schema validation.
 
 Each profile has its own manifest and record schemas under

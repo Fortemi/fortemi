@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractRevision": "16",
+  "contractRevision": "17",
   "authority": {
     "repository": "Fortemi/fortemi",
     "producerCommit": "Use the immutable Git commit containing this receipt."
@@ -18,7 +18,7 @@
     },
     "full-v1": {
       "supported": false,
-      "status": "integrated-archive-candidate",
+      "status": "signed-integrated-archive-candidate",
       "candidateComponentSchemaRoot": "contracts/knowledge-shard/1.1.0/full-v1",
       "candidateComponents": [
         "notes",
@@ -59,12 +59,16 @@
       "candidateManifestSchemaSha256": "3bc34056745a710e959676fc498f16f385a36a98bb1e3d9c59f3e5f9dd95e423",
       "candidateManifestFixture": "tests/fixtures/shards/full-v1-manifest-candidate/manifest.json",
       "candidateManifestFixtureSha256": "c1211e44af9f5d5dfaed9e52e9f868ffc8149fab60aa68fcc087be64165b4ae9",
+      "candidateSignatureSchema": "contracts/knowledge-shard/1.1.0/full-v1/signature.schema.json",
+      "candidateSignatureSchemaSha256": "31f3034d789df165914284344b61e3415d5366c095bfd30ef5ac85e3d2b89532",
       "candidateIntegratedArchive": "tests/fixtures/shards/full-v1-integrated-candidate.shard",
-      "candidateIntegratedArchiveSha256": "4bc447f01bf78fca7f9e2dd1b6391aa3052000e1d12c26c04939273f0ce8c5d6",
+      "candidateIntegratedArchiveSha256": "c347d6628a37dda35a6fd164fc15ddcdaeed7901ef09fd0ee478b301bf2021cc",
       "candidateIntegratedArchiveReceipt": "tests/fixtures/shards/full-v1-integrated-candidate.shard.receipt.json",
-      "candidateIntegratedArchiveReceiptSha256": "c41ba3d640ae44747ca5b22818da8e2af0c01afb95dc3932f69e198f6baa231b",
+      "candidateIntegratedArchiveReceiptSha256": "ce884775f9294e9884f2eed9d908de0226f4237e11312d43e2e51997a6243814",
       "candidateIntegratedArchiveGenerator": "scripts/generate-full-v1-candidate-shard.sh",
-      "candidateIntegratedArchiveGeneratorSha256": "a3aa4fcb5643de5e9aa01e113c5745418dbf7429f877c0445aefdbcea80c2bc5",
+      "candidateIntegratedArchiveGeneratorSha256": "9e4054849999f79eb77bb8adddbbe8ab6c74f24bab489e7a3ee28cc8a3203519",
+      "candidateSignatureEnvelopeSha256": "b3ae84605a65de46f1e3cd5154a7b8bd8d42db4255224256f5bcaa3c5d5480f0",
+      "candidateSignatureTrust": "deterministic public test fixture; never trust this key in production",
       "candidateGoldenCorpusRoot": "tests/fixtures/shards/full-v1-embedding-candidate",
       "candidateGoldenCorpusSha256": "9745279f0dca478712b9248ef86137be6d75e7d627a9cfd69652204f231b383d",
       "candidateRevisionCorpusRoot": "tests/fixtures/shards/full-v1-revision-candidate",
@@ -80,7 +84,6 @@
       "candidateGraphCorpusRoot": "tests/fixtures/shards/full-v1-graph-candidate",
       "candidateGraphCorpusSha256": "35bae18cb763f28929b1877d32a23317b472b5fa3bd3d5744fc0bea6c460f7b5",
       "remainingReleaseGates": [
-        "canonical signature envelope schema and signed export",
         "supported full-v1 export and import route round-trip",
         "cross-repository producer and consumer receipts"
       ]
@@ -109,7 +112,7 @@
   },
   "schemaBundle": {
     "aggregateAlgorithm": "sha256(raw file bytes concatenated in lexicographic path order)",
-    "sha256": "bee7abcc6207c76af3a56dcbb9034be3f529ab78cf5c59be44f43ebe589ee211",
+    "sha256": "1c8c1a46b3b04ae26a09a3de1028f492d339306dfb9136cf7fc92bada6c1c359",
     "files": {
       "contracts/knowledge-shard/1.1.0/core-v1/collection.schema.json": "4708374341b2ca1c9f51290c140281deaefd33aaad0cf5051d17b53eb23f3cf6",
       "contracts/knowledge-shard/1.1.0/core-v1/link.schema.json": "c907ca29ab9233af2e8f45d0a39beeeb3c1bdf2219f947ac353689af6c1c848f",
@@ -146,6 +149,7 @@
       "contracts/knowledge-shard/1.1.0/full-v1/skos-relation.schema.json": "c476c082da6be5550afd9f7277a2bb68b9b20a51a4cd97e4d10b246aa0b08f71",
       "contracts/knowledge-shard/1.1.0/full-v1/skos-scheme-membership.schema.json": "68b8b69cd7d92bc08b58c9597c21831ea2b01ce15731928865337346b34c1c69",
       "contracts/knowledge-shard/1.1.0/full-v1/skos-scheme.schema.json": "61fd27dd2eed109a63a69cf5a1ef98475ec6af03d6afd52d2ac54a94fe45a9de",
+      "contracts/knowledge-shard/1.1.0/full-v1/signature.schema.json": "31f3034d789df165914284344b61e3415d5366c095bfd30ef5ac85e3d2b89532",
       "contracts/knowledge-shard/1.1.0/record-v1/collection.schema.json": "61bc4d717b097b3e6c77b716a9adaa71acbca9228b66f0d4b7d83a060476680d",
       "contracts/knowledge-shard/1.1.0/record-v1/link.schema.json": "3fe3b6632412c23319f8a4385c937066fbf2ba90af7f8170eaa57a951f4d65c5",
       "contracts/knowledge-shard/1.1.0/record-v1/manifest.schema.json": "42cd8b8c3d30014b819076fa4ab4e462d18171511985f428d8fa99947466ee03",
@@ -171,7 +175,7 @@
     "schema 1.0.0 note records migrate missing deleted_at to the documented null active-state default",
     "core-v1 attachment records are metadata/reference projections by default; optional verified sidecars do not establish full-v1 conformance",
     "record-v1 covers only notes, collections, tags, note-to-note links, and attachment projections; producers must report every omitted or lossy source concept",
-    "full-v1 has a reproducible integrated candidate archive with strict complete-inventory validation, semantic and revision round-trip proof, and mandatory deduplicated attachment bytes; the profile has no signed export or supported route round trip and is not supported by this release",
+    "full-v1 has a reproducible signed integrated candidate archive with strict complete-inventory validation, semantic and revision round-trip proof, and mandatory deduplicated attachment bytes; the profile has no supported route round trip and is not supported by this release",
     "complete absent-versus-null preservation requires a later schema-major or new profile identifier"
   ]
 }

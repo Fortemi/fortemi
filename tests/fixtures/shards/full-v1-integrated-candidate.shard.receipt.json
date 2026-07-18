@@ -1,9 +1,15 @@
 {
   "profile": "full-v1",
-  "status": "integrated-candidate",
+  "status": "signed-integrated-candidate",
   "archive": "tests/fixtures/shards/full-v1-integrated-candidate.shard",
-  "archiveSha256": "4bc447f01bf78fca7f9e2dd1b6391aa3052000e1d12c26c04939273f0ce8c5d6",
+  "archiveSha256": "c347d6628a37dda35a6fd164fc15ddcdaeed7901ef09fd0ee478b301bf2021cc",
   "manifestSha256": "b22add185f3c6131c1b297a24443c2fdc3e12ca9026768af6c0c36abb6b9339a",
+  "signatureEntry": "signature.json",
+  "signatureEnvelopeSha256": "b3ae84605a65de46f1e3cd5154a7b8bd8d42db4255224256f5bcaa3c5d5480f0",
+  "signatureAlgorithm": "ed25519",
+  "signerKeyId": "fortemi-fixture-1",
+  "signerPublicKey": "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+  "signerTrust": "deterministic public test fixture; never trust this key in production",
   "componentCount": 33,
   "componentChecksumCount": 33,
   "noteCount": 2,
@@ -12,6 +18,7 @@
   "blobChecksum": "blake3:1098b345e8aacd29e640d3bf724368680c1bfd401b5a9105cb2dc924740c27ad",
   "blobBytes": 35,
   "semanticAssertions": [
+    "the canonical Ed25519 signature authenticates the exact manifest and blob inventory",
     "all component schemas and cross-component relationships validate",
     "original and revised current content match the note projection",
     "revision parent chain and current revision identity are preserved",
@@ -19,7 +26,6 @@
   ],
   "conformanceClaim": false,
   "remainingGates": [
-    "canonical signature envelope and signed export",
     "supported full-v1 export and import routes",
     "cross-repository producer and consumer receipts"
   ]

@@ -44471,7 +44471,7 @@ not-json
         ))
         .expect("contract receipt must be valid JSON");
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert_eq!(receipt["contractRevision"], "16");
+        assert_eq!(receipt["contractRevision"], "17");
         assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
@@ -44481,7 +44481,7 @@ not-json
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], false);
         assert_eq!(
             receipt["profiles"]["full-v1"]["status"],
-            "integrated-archive-candidate"
+            "signed-integrated-archive-candidate"
         );
         assert_eq!(receipt["profiles"]["record-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["record-v1"]["status"], "supported");
@@ -45149,6 +45149,23 @@ not-json
     }
 
     #[test]
+    fn full_v1_integrated_candidate_signature_values_are_stable() {
+        let archive =
+            include_bytes!("../../../tests/fixtures/shards/full-v1-integrated-candidate.shard");
+        let files = read_shard_archive(archive, ShardArchiveLimits::default()).unwrap();
+        let blob_digest = "1098b345e8aacd29e640d3bf724368680c1bfd401b5a9105cb2dc924740c27ad";
+        let (_, public_key, signature) = shard_signature::create_test_signature_envelope(
+            &files["manifest.json"],
+            &[blob_digest],
+        );
+        assert_eq!(public_key, "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw");
+        assert_eq!(
+            signature,
+            "7kqCbEl-AUivd37tEyMXNphrIe5lJgHbGSpG8-5zn_4ft8WA4Cl8gHObkg4Suy_KRZQLkL1Ga_Ys-oS4AtE4Bg"
+        );
+    }
+
+    #[test]
     fn full_v1_integrated_candidate_archive_round_trips_semantics_and_required_bytes() {
         use sha2::Digest;
 
@@ -45203,6 +45220,29 @@ not-json
             .expect("integrated candidate relationships must be coherent");
         let sidecars = validate_shard_sidecars(&files, &attachment_digests, "full-v1")
             .expect("integrated candidate must contain every required attachment byte");
+        let trust_store = shard_signature::parse_trust_store(Some(
+            &serde_json::json!([{
+                "key_id": receipt["signerKeyId"],
+                "public_key": receipt["signerPublicKey"],
+            }])
+            .to_string(),
+        ))
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            shard_signature::verify_shard_signature(
+                &files,
+                attachment_digests.keys(),
+                &trust_store,
+            ),
+            shard_signature::ShardSignatureVerdict::Valid
+        );
+        assert_eq!(
+            hex::encode(sha2::Sha256::digest(
+                &files[shard_signature::SIGNATURE_ENTRY]
+            )),
+            receipt["signatureEnvelopeSha256"].as_str().unwrap()
+        );
         assert_eq!(attachment_digests.len(), 1);
         assert_eq!(sidecars.len(), 1);
         let attachment_reference_count =

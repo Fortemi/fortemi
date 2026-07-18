@@ -6,6 +6,8 @@ use sha2::{Digest, Sha256};
 
 pub const SIGNATURE_ENTRY: &str = "signature.json";
 pub const MAX_SIGNATURE_ENVELOPE_BYTES: usize = 64 * 1024;
+pub const SIGNATURE_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/signature.schema.json");
 const SIGNING_ENVELOPE_VERSION: &str = "1";
 const SIGNING_ALGORITHM: &str = "ed25519";
 const MAX_TRUST_STORE_BYTES: usize = 64 * 1024;
@@ -21,6 +23,7 @@ pub enum ShardSignaturePolicy {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ShardSigner {
     key_id: String,
     algorithm: String,
@@ -28,6 +31,7 @@ struct ShardSigner {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ShardSignatureEnvelope {
     format_version: String,
     signer: ShardSigner,
@@ -162,6 +166,69 @@ fn canonical_payload_bytes(envelope: &ShardSignatureEnvelope) -> Result<Vec<u8>,
     .map_err(|_| ())
 }
 
+fn parse_signature_envelope(data: &[u8]) -> Result<ShardSignatureEnvelope, ()> {
+    use std::sync::LazyLock;
+
+    static VALIDATOR: LazyLock<Result<jsonschema::Validator, ()>> = LazyLock::new(|| {
+        let schema = serde_json::from_str::<serde_json::Value>(SIGNATURE_SCHEMA).map_err(|_| ())?;
+        jsonschema::options()
+            .with_draft(jsonschema::Draft::Draft202012)
+            .build(&schema)
+            .map_err(|_| ())
+    });
+    let value = serde_json::from_slice::<serde_json::Value>(data).map_err(|_| ())?;
+    let validator = VALIDATOR.as_ref().map_err(|_| ())?;
+    if !validator.is_valid(&value) {
+        return Err(());
+    }
+    serde_json::from_value(value).map_err(|_| ())
+}
+
+#[cfg(test)]
+pub(super) fn create_test_signature_envelope(
+    manifest: &[u8],
+    blob_digests: &[&str],
+) -> (Vec<u8>, String, String) {
+    use ring::signature::KeyPair;
+
+    let key_pair = ring::signature::Ed25519KeyPair::from_seed_unchecked(&[7_u8; 32]).unwrap();
+    let public_key =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key_pair.public_key().as_ref());
+    let manifest_digest = hex::encode(Sha256::digest(manifest));
+    let mut sorted_digests = blob_digests.to_vec();
+    sorted_digests.sort_unstable();
+    let canonical = serde_json::to_vec(&CanonicalPayload {
+        blob_digests: sorted_digests,
+        format_version: SIGNING_ENVELOPE_VERSION,
+        manifest_digest: &manifest_digest,
+        signer: CanonicalSigner {
+            algorithm: SIGNING_ALGORITHM,
+            key_id: "fortemi-fixture-1",
+            public_key: &public_key,
+        },
+    })
+    .unwrap();
+    let signed_digest = hex::encode(Sha256::digest(canonical));
+    let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(key_pair.sign(signed_digest.as_bytes()).as_ref());
+    let envelope = serde_json::json!({
+        "format_version": SIGNING_ENVELOPE_VERSION,
+        "signer": {
+            "key_id": "fortemi-fixture-1",
+            "algorithm": SIGNING_ALGORITHM,
+            "public_key": public_key,
+        },
+        "manifest_digest": manifest_digest,
+        "blob_digests": blob_digests,
+        "signature": signature,
+    });
+    (
+        serde_json::to_vec_pretty(&envelope).unwrap(),
+        public_key,
+        signature,
+    )
+}
+
 pub fn verify_shard_signature<'a>(
     files: &HashMap<String, Vec<u8>>,
     sidecar_checksums: impl Iterator<Item = &'a String>,
@@ -173,7 +240,7 @@ pub fn verify_shard_signature<'a>(
     if signature_bytes.len() > MAX_SIGNATURE_ENVELOPE_BYTES {
         return ShardSignatureVerdict::Malformed;
     }
-    let Ok(envelope) = serde_json::from_slice::<ShardSignatureEnvelope>(signature_bytes) else {
+    let Ok(envelope) = parse_signature_envelope(signature_bytes) else {
         return ShardSignatureVerdict::Malformed;
     };
     if envelope.format_version != SIGNING_ENVELOPE_VERSION
@@ -349,6 +416,54 @@ mod tests {
         .unwrap()
         .unwrap();
         (files, sidecars, trust_store)
+    }
+
+    #[test]
+    fn integrated_candidate_signature_values_are_stable() {
+        let manifest = br#"{"candidate":"manifest"}"#;
+        let digest = "1098b345e8aacd29e640d3bf724368680c1bfd401b5a9105cb2dc924740c27ad";
+        let (envelope, public_key, signature) = create_test_signature_envelope(manifest, &[digest]);
+        parse_signature_envelope(&envelope).unwrap();
+        assert_eq!(public_key, "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw");
+        assert_eq!(
+            signature,
+            "6pbNpeneu73cxa5VTRXMwB4iA7jxVtfoHispHwWS5ToqkJcin4q2QLBlbx3kQK30zCW0jPOyQYF-u_9KTA7KCA"
+        );
+    }
+
+    #[test]
+    fn strict_signature_schema_rejects_unknown_fields_and_digest_drift() {
+        let digest = "a".repeat(64);
+        let (files, sidecars, trust_store) = signed_fixture(br#"{"version":"1.1.0"}"#, &[&digest]);
+        let envelope: serde_json::Value = serde_json::from_slice(&files[SIGNATURE_ENTRY]).unwrap();
+
+        for invalid in [
+            {
+                let mut value = envelope.clone();
+                value["undeclared"] = serde_json::json!(true);
+                value
+            },
+            {
+                let mut value = envelope.clone();
+                value["manifest_digest"] = serde_json::json!("A".repeat(64));
+                value
+            },
+            {
+                let mut value = envelope.clone();
+                value["blob_digests"] = serde_json::json!([digest.clone(), digest]);
+                value
+            },
+        ] {
+            let mut invalid_files = files.clone();
+            invalid_files.insert(
+                SIGNATURE_ENTRY.to_string(),
+                serde_json::to_vec(&invalid).unwrap(),
+            );
+            assert_eq!(
+                verify_shard_signature(&invalid_files, sidecars.iter(), &trust_store),
+                ShardSignatureVerdict::Malformed
+            );
+        }
     }
 
     #[test]

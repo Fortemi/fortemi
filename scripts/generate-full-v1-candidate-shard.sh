@@ -15,6 +15,10 @@ second_attachment_id="018f2d2d-bc00-7cc8-8ad2-f147d6a2e780"
 blob_digest="1098b345e8aacd29e640d3bf724368680c1bfd401b5a9105cb2dc924740c27ad"
 blob_checksum="blake3:$blob_digest"
 blob_bytes="Fortemi full-v1 attachment fixture"
+fixture_key_id="fortemi-fixture-1"
+fixture_public_key="6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+fixture_signature="7kqCbEl-AUivd37tEyMXNphrIe5lJgHbGSpG8-5zn_4ft8WA4Cl8gHObkg4Suy_KRZQLkL1Ga_Ys-oS4AtE4Bg"
+signed_manifest_sha256="b22add185f3c6131c1b297a24443c2fdc3e12ca9026768af6c0c36abb6b9339a"
 
 mkdir -p "$stage/blobs"
 printf '%s\n' "$blob_bytes" >"$stage/blobs/$blob_digest"
@@ -148,6 +152,30 @@ jq --argjson checksums "$checksums" '.checksums = $checksums' \
   "$stage/manifest.json" >"$stage/manifest.next.json"
 mv "$stage/manifest.next.json" "$stage/manifest.json"
 
+manifest_sha256="$(sha256sum "$stage/manifest.json" | awk '{print $1}')"
+if [[ "$manifest_sha256" != "$signed_manifest_sha256" ]]; then
+  printf 'manifest digest changed; fixture signature must be regenerated\n' >&2
+  exit 1
+fi
+jq -n \
+  --arg key_id "$fixture_key_id" \
+  --arg public_key "$fixture_public_key" \
+  --arg manifest_digest "$manifest_sha256" \
+  --arg blob_digest "$blob_digest" \
+  --arg signature "$fixture_signature" \
+  '{
+    format_version: "1",
+    signer: {
+      key_id: $key_id,
+      algorithm: "ed25519",
+      public_key: $public_key
+    },
+    manifest_digest: $manifest_digest,
+    blob_digests: [$blob_digest],
+    signature: $signature
+  }' >"$stage/signature.json"
+signature_sha256="$(sha256sum "$stage/signature.json" | awk '{print $1}')"
+
 mkdir -p "$(dirname "$output")"
 (
   cd "$stage"
@@ -159,19 +187,27 @@ mkdir -p "$(dirname "$output")"
 ) | gzip -n -9 >"$output"
 
 archive_sha256="$(sha256sum "$output" | awk '{print $1}')"
-manifest_sha256="$(sha256sum "$stage/manifest.json" | awk '{print $1}')"
 jq -n \
   --arg archive "$(realpath --relative-to="$repo_root" "$output")" \
   --arg archive_sha256 "$archive_sha256" \
   --arg manifest_sha256 "$manifest_sha256" \
+  --arg signature_sha256 "$signature_sha256" \
+  --arg signer_key_id "$fixture_key_id" \
+  --arg signer_public_key "$fixture_public_key" \
   --arg blob_checksum "$blob_checksum" \
   --argjson blob_bytes "$blob_size" \
   '{
     profile: "full-v1",
-    status: "integrated-candidate",
+    status: "signed-integrated-candidate",
     archive: $archive,
     archiveSha256: $archive_sha256,
     manifestSha256: $manifest_sha256,
+    signatureEntry: "signature.json",
+    signatureEnvelopeSha256: $signature_sha256,
+    signatureAlgorithm: "ed25519",
+    signerKeyId: $signer_key_id,
+    signerPublicKey: $signer_public_key,
+    signerTrust: "deterministic public test fixture; never trust this key in production",
     componentCount: 33,
     componentChecksumCount: 33,
     noteCount: 2,
@@ -180,6 +216,7 @@ jq -n \
     blobChecksum: $blob_checksum,
     blobBytes: $blob_bytes,
     semanticAssertions: [
+      "the canonical Ed25519 signature authenticates the exact manifest and blob inventory",
       "all component schemas and cross-component relationships validate",
       "original and revised current content match the note projection",
       "revision parent chain and current revision identity are preserved",
@@ -187,7 +224,6 @@ jq -n \
     ],
     conformanceClaim: false,
     remainingGates: [
-      "canonical signature envelope and signed export",
       "supported full-v1 export and import routes",
       "cross-repository producer and consumer receipts"
     ]
