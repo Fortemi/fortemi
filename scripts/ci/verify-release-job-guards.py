@@ -28,6 +28,7 @@ REQUIRED_PUBLISH_NEEDS = {
     "deny",
     "mcp-lockfile-sync",
     "mcp-server-tests",
+    "knowledge-shard-matrix",
 }
 REQUIRED_RELEASE_NEEDS = {
     "publish-release",
@@ -132,6 +133,10 @@ def main() -> int:
                 if missing:
                     failures.append(
                         f"{path}:{job_name} publish job is missing required release gates: {', '.join(missing)}"
+                    )
+                if job_name == "publish-release" and "--require-complete" not in block:
+                    failures.append(
+                        f"{path}:{job_name} is missing the complete Knowledge Shard claim gate"
                     )
 
             if job_name in RELEASE_JOBS:

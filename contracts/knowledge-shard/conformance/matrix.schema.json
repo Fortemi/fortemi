@@ -1,0 +1,304 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.io/schemas/knowledge-shard-conformance-matrix.v1.json",
+  "title": "Fortemi Knowledge Shard conformance matrix",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "matrixId",
+    "authority",
+    "claimPolicy",
+    "coverageRequirements",
+    "participants",
+    "cells"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "matrixId": {
+      "const": "fortemi.knowledge-shard.conformance-matrix.v1"
+    },
+    "authority": {
+      "$ref": "#/$defs/authority"
+    },
+    "claimPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "blockedClaims"],
+      "properties": {
+        "mode": {
+          "const": "all-required-cells-passed"
+        },
+        "blockedClaims": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 4,
+          "items": {
+            "enum": ["compatibility", "portability", "backup", "parity"]
+          }
+        }
+      }
+    },
+    "coverageRequirements": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]+$"
+      }
+    },
+    "participants": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "$ref": "#/$defs/participant"
+      }
+    },
+    "cells": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/cell"
+      }
+    }
+  },
+  "$defs": {
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "profile": {
+      "enum": ["core-v1", "record-v1", "full-v1"]
+    },
+    "profileState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "state"],
+      "properties": {
+        "profile": {
+          "$ref": "#/$defs/profile"
+        },
+        "state": {
+          "enum": ["advertised", "required-pending"]
+        }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "commit",
+        "contractPath",
+        "contractSha256",
+        "contractRevision",
+        "schemaVersion",
+        "schemaBundleSha256"
+      ],
+      "properties": {
+        "repository": {
+          "const": "Fortemi/fortemi"
+        },
+        "commit": {
+          "$ref": "#/$defs/commit"
+        },
+        "contractPath": {
+          "const": "contracts/knowledge-shard/contract.json"
+        },
+        "contractSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "contractRevision": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "schemaVersion": {
+          "type": "string"
+        },
+        "schemaBundleSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "repository",
+        "commit",
+        "producerProfiles",
+        "consumerProfiles",
+        "trackingIssues",
+        "immutableInputs"
+      ],
+      "properties": {
+        "id": {
+          "enum": ["fortemi", "pglite", "recordstore", "aiwg"]
+        },
+        "repository": {
+          "type": "string",
+          "pattern": "^https://git\\.integrolabs\\.net/"
+        },
+        "commit": {
+          "$ref": "#/$defs/commit"
+        },
+        "package": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["name", "version", "published"],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "published": {
+              "type": "boolean"
+            }
+          }
+        },
+        "producerProfiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/profileState"
+          }
+        },
+        "consumerProfiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/profileState"
+          }
+        },
+        "trackingIssues": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "immutableInputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "sha256"],
+      "properties": {
+        "kind": {
+          "enum": ["local-file", "git-file"]
+        },
+        "repository": {
+          "type": "string",
+          "pattern": "^https://git\\.integrolabs\\.net/"
+        },
+        "commit": {
+          "$ref": "#/$defs/commit"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^[^/].+"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "expect": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "producer",
+        "consumer",
+        "profile",
+        "status",
+        "coverage",
+        "evidence",
+        "trackingIssues",
+        "blockingReason"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "producer": {
+          "enum": ["fortemi", "pglite", "recordstore", "aiwg"]
+        },
+        "consumer": {
+          "enum": ["fortemi", "pglite", "recordstore", "aiwg"]
+        },
+        "profile": {
+          "$ref": "#/$defs/profile"
+        },
+        "status": {
+          "enum": ["passed", "pending", "failed"]
+        },
+        "coverage": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "assertions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cleanDestination": {
+              "const": true
+            },
+            "semanticReexport": {
+              "const": true
+            },
+            "zeroMutationOnFailure": {
+              "const": true
+            },
+            "versionMatrix": {
+              "const": true
+            }
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "trackingIssues": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "blockingReason": {
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}

@@ -146,6 +146,33 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  knowledge-shard-matrix:
+    name: Knowledge Shard Conformance Matrix
+    runs-on: matric-builder
+    steps:
+      - name: Checkout
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
+          git clone --depth 1 --branch "${BRANCH}" https://git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Test fail-closed matrix verifier
+        run: python3 -m unittest tests/test_verify_knowledge_shard_matrix.py
+
+      - name: Verify immutable matrix inputs
+        run: |
+          python3 scripts/ci/verify-knowledge-shard-matrix.py \
+            --verify-remotes \
+            --output knowledge-shard-matrix-results.json
+
+      - name: Upload per-cell matrix result
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
+        with:
+          name: knowledge-shard-matrix
+          path: |
+            contracts/knowledge-shard/conformance/matrix.json
+            knowledge-shard-matrix-results.json
+
   audit:
     name: Security Audit (deps)
     runs-on: matric-builder
@@ -608,7 +635,7 @@ jobs:
   publish-dev:
     name: Publish Dev Image
     runs-on: matric-builder
-    needs: [test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests]
+    needs: [test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
     # Belt-and-suspenders gating to exclude tag pushes. The branch-equality
     # check should be sufficient — `refs/tags/vX.Y.Z` is not equal to
     # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
@@ -698,7 +725,7 @@ jobs:
   publish-release:
     name: Publish Release Image
     runs-on: matric-builder
-    needs: [test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests]
+    needs: [test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
@@ -706,6 +733,13 @@ jobs:
           BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
           git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Require complete Knowledge Shard claim matrix
+        run: |
+          python3 scripts/ci/verify-knowledge-shard-matrix.py \
+            --verify-remotes \
+            --require-complete \
+            --output knowledge-shard-matrix-release-result.json
 
       - name: Fetch registry token from vault
         env:
@@ -875,7 +909,7 @@ jobs:
     runs-on: matric-builder
     # Promote the exact internal artifacts after their gated publication
     # instead of compiling the same source again for a second registry.
-    needs: [publish-dev, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests]
+    needs: [publish-dev, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
     # Belt-and-suspenders gating to exclude tag pushes. The branch-equality
     # check should be sufficient — `refs/tags/vX.Y.Z` is not equal to
     # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
@@ -931,7 +965,7 @@ jobs:
     name: Publish to GitHub (ghcr.io)
     runs-on: matric-builder
     # The internal release artifacts are the source of truth for GHCR.
-    needs: [publish-release, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests]
+    needs: [publish-release, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
