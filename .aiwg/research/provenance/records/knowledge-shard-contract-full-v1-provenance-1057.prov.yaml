@@ -1,0 +1,65 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T13:47:00Z"
+  description: "Provenance for Fortemi issue #1057 full-v1 revision and provenance candidate contract"
+entity:
+  id: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:1879f70bd8130a7dac6e286b50dfe6415c132e83942c1175a8db02794bf2d657"
+  type: contract
+  created_at: "2026-07-18T13:47:00Z"
+  updated_at: "2026-07-18T13:47:00Z"
+  checksum: "sha256:1879f70bd8130a7dac6e286b50dfe6415c132e83942c1175a8db02794bf2d657"
+  size_bytes: 8645
+  attributes:
+    format: json
+    issue: "Fortemi/fortemi#1057"
+    contract_version: "1.1.0"
+    profile: "full-v1"
+    profile_status: candidate
+    supported: false
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-contract-1057:001"
+  type: modification
+  started_at: "2026-07-18T12:12:16Z"
+  ended_at: "2026-07-18T13:47:00Z"
+  description: "Publish schema receipts and golden fixture digests for revision, spatial provenance, and unified provenance candidate families without registering full-v1 as supported"
+  attributes:
+    verification:
+      - "candidate schema hashes match contracts/knowledge-shard/contract.json"
+      - "candidate golden corpus hashes match contracts/knowledge-shard/contract.json"
+      - "cargo test -p matric-api --bin matric-api --locked -- --test-threads=1: 825 passed"
+      - "JSON schemas and golden JSONL fixtures parsed successfully"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:1879f70bd8130a7dac6e286b50dfe6415c132e83942c1175a8db02794bf2d657"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-contract-1057:001"
+    time: "2026-07-18T13:47:00Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-contract-1057:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1057"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-contract-1057:001"
+      entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:476b4a78fcb9270aca9fcb6df6f4a489fb13896ec008f0006dc313074edc9eec"
+      role: architecture
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:1879f70bd8130a7dac6e286b50dfe6415c132e83942c1175a8db02794bf2d657"
+      source: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:fc5b5bbcb1e2d57ff2171f1559a1b2ba03192ea9ed0fdc0e100e3e909c81f5bc"
+      derivation_type: extends
+      activity: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-contract-1057:001"
+    - entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:1879f70bd8130a7dac6e286b50dfe6415c132e83942c1175a8db02794bf2d657"
+      source: "urn:gitea:issue:Fortemi/fortemi:1057"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-contract-1057:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-contract-1057:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:1879f70bd8130a7dac6e286b50dfe6415c132e83942c1175a8db02794bf2d657"
+    agent: "urn:aiwg:agent:codex-gpt-5"

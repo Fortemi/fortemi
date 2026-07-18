@@ -1,0 +1,72 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-18T13:47:00Z"
+  description: "Provenance for Fortemi issue #1057 full-v1 revision and provenance candidate runtime"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:c7042b9d5dad1cc99e3ef67625a2c4c3f7b936475d2f86f0a2399c3ed147e987"
+  type: code
+  created_at: "2026-07-18T13:47:00Z"
+  updated_at: "2026-07-18T13:47:00Z"
+  checksum: "sha256:c7042b9d5dad1cc99e3ef67625a2c4c3f7b936475d2f86f0a2399c3ed147e987"
+  size_bytes: 2128643
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1057"
+    profile: "full-v1"
+    profile_status: candidate
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-1057:001"
+  type: modification
+  started_at: "2026-07-18T12:12:16Z"
+  ended_at: "2026-07-18T13:47:00Z"
+  description: "Preserve, preflight, and atomically restore note revision history plus spatial and unified provenance records while keeping full-v1 rejected as an unsupported candidate"
+  attributes:
+    verification:
+      - "cargo test -p matric-api --bin matric-api --locked -- --test-threads=1: 825 passed"
+      - "cargo clippy -p matric-api --bin matric-api --locked -- -D warnings"
+      - "cargo fmt --all -- --check"
+      - "JSON schemas and golden JSONL fixtures parsed successfully"
+      - "git diff --check"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+  attributes:
+    delegated_roles:
+      - api-designer
+      - software-implementer
+      - test-engineer
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:c7042b9d5dad1cc99e3ef67625a2c4c3f7b936475d2f86f0a2399c3ed147e987"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-1057:001"
+    time: "2026-07-18T13:47:00Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-1057:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1057"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-1057:001"
+      entity: "urn:aiwg:artifact:contracts/knowledge-shard/contract.json:sha256:1879f70bd8130a7dac6e286b50dfe6415c132e83942c1175a8db02794bf2d657"
+      role: canonical_contract
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-1057:001"
+      entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:476b4a78fcb9270aca9fcb6df6f4a489fb13896ec008f0006dc313074edc9eec"
+      role: architecture
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:c7042b9d5dad1cc99e3ef67625a2c4c3f7b936475d2f86f0a2399c3ed147e987"
+      source: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:4d50146d57b91df3e1067a30081fff3a57929e22478137685ba7db041dcbc52c"
+      derivation_type: extends
+      activity: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-1057:001"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:c7042b9d5dad1cc99e3ef67625a2c4c3f7b936475d2f86f0a2399c3ed147e987"
+      source: "urn:gitea:issue:Fortemi/fortemi:1057"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-1057:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-full-v1-provenance-1057:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:c7042b9d5dad1cc99e3ef67625a2c4c3f7b936475d2f86f0a2399c3ed147e987"
+    agent: "urn:aiwg:agent:codex-gpt-5"

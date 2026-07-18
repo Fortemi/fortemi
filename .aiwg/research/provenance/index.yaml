@@ -1,7 +1,11 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-18T04:56:02Z"
+  updated_at: "2026-07-18T13:47:00Z"
 records:
+  - entity: "contracts/knowledge-shard/contract.json"
+    record: "records/knowledge-shard-contract-full-v1-provenance-1057.prov.yaml"
+  - entity: "crates/matric-api/src/main.rs"
+    record: "records/matric-api-main-full-v1-provenance-1057.prov.yaml"
   - entity: "contracts/knowledge-shard/contract.json"
     record: "records/knowledge-shard-contract-1057.prov.yaml"
   - entity: "crates/matric-api/src/main.rs"
