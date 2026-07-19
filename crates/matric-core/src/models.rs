@@ -6289,7 +6289,9 @@ mod tests {
 
     #[test]
     fn memory_provenance_debug_redacts_location_device_event_and_metadata() {
-        let now = Utc::now();
+        let now = DateTime::parse_from_rfc3339("2000-01-01T00:00:00Z")
+            .expect("fixed provenance timestamp must parse")
+            .with_timezone(&Utc);
         let extracted = ExtractedProvenance {
             capture_time: Some(now),
             original_timezone: Some("Private/Timezone".to_string()),
