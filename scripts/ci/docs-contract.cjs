@@ -247,7 +247,16 @@ function scan(root, profilePolicy = PROFILE_POLICY, enforceContracts = true) {
     lines.forEach((line, index) => {
       for (const rule of RULES) {
         if (rule.appliesTo && !rule.appliesTo(relativePath)) continue;
-        if (!rule.detect(line)) continue;
+        if (
+          !rule.detect(line, {
+            relativePath,
+            lineNumber: index + 1,
+            lines,
+            content,
+          })
+        ) {
+          continue;
+        }
         findings.push({
           rule: rule.id,
           pack: rule.pack,
