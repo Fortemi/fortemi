@@ -8,13 +8,17 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use tracing::{debug, info, instrument, warn};
 
 use matric_core::{
     AttachmentStatus, CreateFileProvenanceRequest, CreateProvDeviceRequest,
     CreateProvLocationRequest, CreateSemanticRelationRequest, DocumentTypeRepository,
     EmbeddingBackend, EmbeddingRepository, GenerationBackend, JobRepository, JobType,
-    LinkRepository, NoteRepository, ProvRelation, RevisionMode, SkosSemanticRelation,
+    LinkRepository, MeteringError, NoteRepository, ProvRelation, RevisionMode,
+    SkosSemanticRelation, UsageAttributes, UsageClass, UsageCorrelation, UsageDimension,
+    UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome, UsageProducer, UsageQuantity,
+    UsageSource, UsageSubject,
 };
 use matric_db::{
     Chunker, ChunkerConfig, Database, SchemaContext, SemanticChunker, SkosRelationRepository,
@@ -2384,12 +2388,129 @@ Output the revised note in clean markdown format. Do not add any labels, markers
 pub struct EmbeddingHandler {
     db: Database,
     backend: Arc<dyn EmbeddingBackend>,
+    usage_meter: Arc<dyn UsageMeter>,
 }
 
 impl EmbeddingHandler {
-    pub fn new(db: Database, backend: Arc<dyn EmbeddingBackend>) -> Self {
-        Self { db, backend }
+    pub fn new(
+        db: Database,
+        backend: Arc<dyn EmbeddingBackend>,
+        usage_meter: Arc<dyn UsageMeter>,
+    ) -> Self {
+        Self {
+            db,
+            backend,
+            usage_meter,
+        }
     }
+}
+
+struct EmbeddingUsageContext {
+    meter: Arc<dyn UsageMeter>,
+    subject: UsageSubject,
+    job_id: uuid::Uuid,
+    attempt: i32,
+    event_time: DateTime<Utc>,
+    recorded_at: DateTime<Utc>,
+}
+
+impl EmbeddingUsageContext {
+    fn new(
+        meter: Arc<dyn UsageMeter>,
+        ctx: &JobContext,
+        archive: &str,
+    ) -> Result<Self, MeteringError> {
+        Ok(Self {
+            meter,
+            subject: UsageSubject::unknown().with_archive(archive)?,
+            job_id: ctx.job.id,
+            attempt: ctx.job.retry_count,
+            event_time: ctx.job.started_at.unwrap_or(ctx.job.created_at),
+            recorded_at: Utc::now(),
+        })
+    }
+
+    async fn record(&self, vector_count: Option<usize>, outcome: UsageOutcome) {
+        let events = [
+            embedding_usage_event(
+                self,
+                UsageDimension::EmbeddingVectors,
+                "vectors",
+                vector_count,
+                outcome,
+            ),
+            embedding_usage_event(
+                self,
+                UsageDimension::EmbeddingTokens,
+                "tokens",
+                None,
+                outcome,
+            ),
+        ];
+
+        for event in events {
+            match event {
+                Ok(event) => {
+                    if let Err(error) = self.meter.record(&event).await {
+                        warn!(
+                            error_len = diagnostic_len(&error),
+                            "Best-effort embedding usage recording failed"
+                        );
+                    }
+                }
+                Err(error) => {
+                    warn!(
+                        error_len = diagnostic_len(&error),
+                        "Embedding usage event construction failed"
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn embedding_usage_event(
+    context: &EmbeddingUsageContext,
+    dimension: UsageDimension,
+    suffix: &str,
+    measured_count: Option<usize>,
+    outcome: UsageOutcome,
+) -> Result<UsageEvent, MeteringError> {
+    let (measurement, source) = match measured_count {
+        Some(count) => (
+            UsageMeasurement::Measured(UsageQuantity::whole(
+                u64::try_from(count).map_err(|_| MeteringError::InvalidQuantity)?,
+                dimension.unit(),
+            )?),
+            UsageSource::LocalMeasured,
+        ),
+        None => (
+            UsageMeasurement::Unavailable {
+                unit: dimension.unit(),
+            },
+            UsageSource::Unavailable,
+        ),
+    };
+    let identity_name = format!("attempt:{}:embedding:{suffix}", context.attempt);
+    let event_id = uuid::Uuid::new_v5(&context.job_id, identity_name.as_bytes());
+
+    UsageEvent::new(
+        format!(
+            "job:{}:attempt:{}:embedding:{suffix}:actual",
+            context.job_id, context.attempt
+        ),
+        context.event_time,
+        context.subject.clone(),
+        dimension,
+        measurement,
+        UsageClass::BillableActual,
+        UsageProducer::Jobs,
+        source,
+        outcome,
+    )?
+    .with_identity(event_id, context.recorded_at)
+    .with_correlation(UsageCorrelation::default().with_job_id(context.job_id))?
+    .with_attrs(UsageAttributes::default())
 }
 
 #[async_trait]
@@ -2602,10 +2723,26 @@ impl JobHandler for EmbeddingHandler {
 
         ctx.report_progress(50, Some("Generating embeddings..."));
 
+        let usage = EmbeddingUsageContext::new(self.usage_meter.clone(), &ctx, schema)
+            .inspect_err(|error| {
+                warn!(
+                    error_len = diagnostic_len(error),
+                    "Embedding usage context construction failed"
+                );
+            })
+            .ok();
         let vectors = match self.backend.embed_texts(&chunks).await {
             Ok(v) => v,
-            Err(e) => return embedding_job_failure(e, "generate_embeddings"),
+            Err(e) => {
+                if let Some(usage) = &usage {
+                    usage
+                        .record(None, UsageOutcome::FailedAfterPartialUsage)
+                        .await;
+                }
+                return embedding_job_failure(e, "generate_embeddings");
+            }
         };
+        let vector_count = vectors.len();
 
         let expected_dim = embed_config
             .as_ref()
@@ -2626,6 +2763,11 @@ impl JobHandler for EmbeddingHandler {
                     .count(),
                 "Embedding dimension mismatch before storage"
             );
+            if let Some(usage) = &usage {
+                usage
+                    .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
+                    .await;
+            }
             return JobResult::Failed(format!(
                 "Embedding dimension mismatch before storage: configured dimension is {expected_dim}, \
                  but provider returned {actual_dim} dimensions for chunk {index}. \
@@ -2646,7 +2788,14 @@ impl JobHandler for EmbeddingHandler {
 
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return embedding_job_failure(e, "store_begin_tx"),
+            Err(e) => {
+                if let Some(usage) = &usage {
+                    usage
+                        .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
+                        .await;
+                }
+                return embedding_job_failure(e, "store_begin_tx");
+            }
         };
         let store_result = if let Some(set_id) = embedding_set_id {
             // Delete existing embeddings for this specific set
@@ -2658,6 +2807,11 @@ impl JobHandler for EmbeddingHandler {
                     .await
                     .map_err(matric_core::Error::Database)
             {
+                if let Some(usage) = &usage {
+                    usage
+                        .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
+                        .await;
+                }
                 return embedding_job_failure(e, "delete_existing_embeddings");
             }
             if !chunk_vectors.is_empty() {
@@ -2679,6 +2833,14 @@ impl JobHandler for EmbeddingHandler {
                     .await
                     .map_err(matric_core::Error::Database)
                     {
+                        if let Some(usage) = &usage {
+                            usage
+                                .record(
+                                    Some(vector_count),
+                                    UsageOutcome::FailedAfterPartialUsage,
+                                )
+                                .await;
+                        }
                         return embedding_job_failure(e, "insert_embedding");
                     }
                 }
@@ -2691,10 +2853,20 @@ impl JobHandler for EmbeddingHandler {
                 .await
         };
         if let Err(e) = tx.commit().await.map_err(matric_core::Error::Database) {
+            if let Some(usage) = &usage {
+                usage
+                    .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
+                    .await;
+            }
             return embedding_job_failure(e, "commit_embeddings");
         }
 
         if let Err(e) = store_result {
+            if let Some(usage) = &usage {
+                usage
+                    .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
+                    .await;
+            }
             return embedding_job_failure(e, "store_embeddings");
         }
 
@@ -2732,6 +2904,11 @@ impl JobHandler for EmbeddingHandler {
             "Embeddings generated"
         );
 
+        if let Some(usage) = &usage {
+            usage
+                .record(Some(vector_count), UsageOutcome::Completed)
+                .await;
+        }
         JobResult::Success(Some(serde_json::json!({
             "chunks": chunk_count
         })))
@@ -7827,6 +8004,84 @@ impl JobHandler for GraphMaintenanceHandler {
 mod tests {
     use super::*;
     use matric_db::embeddings::utils::chunk_text;
+
+    #[tokio::test]
+    async fn embedding_usage_records_exact_vectors_unavailable_tokens_and_replay() {
+        let meter = matric_core::InMemoryMeter::default();
+        let job_id = uuid::Uuid::now_v7();
+        let event_time = Utc::now();
+        let context = EmbeddingUsageContext {
+            meter: Arc::new(meter.clone()),
+            subject: UsageSubject::unknown()
+                .with_archive("resolved-archive")
+                .unwrap(),
+            job_id,
+            attempt: 2,
+            event_time,
+            recorded_at: event_time,
+        };
+
+        context
+            .record(Some(3), UsageOutcome::FailedAfterPartialUsage)
+            .await;
+        context
+            .record(Some(3), UsageOutcome::FailedAfterPartialUsage)
+            .await;
+        let events = meter.events().await;
+
+        assert_eq!(events.len(), 2, "same attempt must not double count");
+        let vectors = events
+            .iter()
+            .find(|event| event.dimension == UsageDimension::EmbeddingVectors)
+            .unwrap();
+        assert_eq!(
+            vectors.measurement.quantity().unwrap().value().to_string(),
+            "3"
+        );
+        assert_eq!(vectors.source, UsageSource::LocalMeasured);
+        assert_eq!(vectors.class, UsageClass::BillableActual);
+        assert_eq!(vectors.producer, UsageProducer::Jobs);
+        assert_eq!(vectors.outcome, UsageOutcome::FailedAfterPartialUsage);
+        assert_eq!(vectors.subject.archive_id(), Some("resolved-archive"));
+        assert_eq!(vectors.correlation.job_id(), Some(job_id));
+        assert!(vectors.attrs.is_empty());
+
+        let tokens = events
+            .iter()
+            .find(|event| event.dimension == UsageDimension::EmbeddingTokens)
+            .unwrap();
+        assert!(tokens.measurement.quantity().is_none());
+        assert_eq!(tokens.source, UsageSource::Unavailable);
+        assert_eq!(tokens.correlation.job_id(), Some(job_id));
+        assert!(tokens.attrs.is_empty());
+
+        let retry_context = EmbeddingUsageContext {
+            attempt: 3,
+            ..context
+        };
+        let retry_vectors = embedding_usage_event(
+            &retry_context,
+            UsageDimension::EmbeddingVectors,
+            "vectors",
+            Some(3),
+            UsageOutcome::Completed,
+        )
+        .unwrap();
+        assert_ne!(vectors.event_id, retry_vectors.event_id);
+        assert_ne!(vectors.idempotency_key, retry_vectors.idempotency_key);
+
+        let encoded = serde_json::to_string(&events).unwrap();
+        for forbidden in [
+            "private note content",
+            "sk-secret",
+            "https://user:pass@provider.internal",
+            "private-model-name",
+        ] {
+            assert!(!encoded.contains(forbidden));
+        }
+        let debug = format!("{vectors:?}");
+        assert!(!debug.contains("resolved-archive"));
+    }
 
     #[test]
     fn job_telemetry_lengths_cover_private_content_like_values() {

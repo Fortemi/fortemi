@@ -52,7 +52,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 reqwest = { version = "0.12", features = ["json", "multipart"] }
 
 # Utilities
-uuid = { version = "1", features = ["v4", "v7", "serde"] }
+uuid = { version = "1", features = ["v4", "v5", "v7", "serde"] }
 chrono = { version = "0.4", features = ["clock", "serde"] }
 bigdecimal = { version = "0.4", features = ["serde", "string-only"] }
 sha2 = "0.10"

@@ -3068,7 +3068,11 @@ async fn main() -> anyhow::Result<()> {
         match provider_registry.resolve_default_embedding_boxed() {
             Ok(backend) => {
                 worker
-                    .register_handler(EmbeddingHandler::new(db.clone(), Arc::from(backend)))
+                    .register_handler(EmbeddingHandler::new(
+                        db.clone(),
+                        Arc::from(backend),
+                        usage_meter.clone(),
+                    ))
                     .await;
             }
             Err(error) => {
