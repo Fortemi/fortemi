@@ -437,9 +437,32 @@ If an external provider is unavailable:
 
 - [ ] Database-backed provider configuration
 - [ ] Per-provider timeout/retry policies
-- [ ] Provider cost tracking (token usage × price per model)
+- [ ] Provider usage normalization and cost tracking through ADR-092/#713/#877
 - [ ] Automatic provider failover
 - [ ] Vision/transcription provider routing (not just generation)
+
+#### Provider usage contract
+
+Provider metering is not implemented by this ADR today. Phase 3 must emit the
+shared ADR-092 usage event rather than add provider-local billing counters.
+
+The adapter contract preserves input/prompt, output/completion, total, cached
+input, reasoning output, audio input/output, embedding token/vector, and
+versioned provider-specific numeric buckets when reported. It also records
+provider, endpoint/protocol, model slug, provider request id, cache state,
+completion/partial status, and `usage_source`.
+
+A bounded, scrubbed `raw_usage` object may retain the provider's usage-only
+payload for reconciliation. Prompts, completions, credentials, headers,
+customer identifiers, and signed URLs are forbidden. If usage is estimated,
+the record includes tokenizer/model family, `estimator_version`, phase, and
+method so estimates cannot be mistaken for provider-reported units.
+
+Cost is a versioned projection, not a field trusted from arbitrary provider
+responses. Pricing keys include provider, model, endpoint, currency, and
+effective interval. `unknown_price` remains distinct from a configured local
+or free `$0` policy. Streaming emits final or partial actual usage through the
+same idempotent ledger contract so disconnect/retry cannot double count.
 
 ## References
 

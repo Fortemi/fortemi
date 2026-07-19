@@ -218,6 +218,30 @@ curl -X POST http://localhost:3000/api/v1/jobs \
 
 List all available models and provider health: `GET /api/v1/models`
 
+## Usage and Cost Accounting
+
+Fortemi does not currently expose a durable provider-usage or billing ledger.
+That target is owned by the shared `UsageMeter` contract (#713/ADR-092) and the
+bridge specialization (#877); provider adapters must not create a separate
+accounting source.
+
+The planned normalized record preserves input/prompt, output/completion, total,
+cached input, reasoning output, audio input/output, embedding token/vector, and
+versioned provider-specific numeric buckets when available. It also preserves
+provider, endpoint/protocol, model slug, cache state, partial/final status, and
+`usage_source`.
+
+When a provider omits usage, estimates remain explicitly estimated and include
+the tokenizer/model family, `estimator_version`, phase, and method. A bounded
+scrubbed `raw_usage` object may retain only the provider's usage fields; it
+never contains prompts, completions, credentials, headers, customer
+identifiers, or signed URLs.
+
+Pricing is versioned by provider, model, endpoint, currency, and effective
+interval. `unknown_price` is not `$0`. Zero cost is valid only for a configured
+local/free policy. These are target semantics, not claims about current API
+responses or billing.
+
 ## Troubleshooting
 
 | Symptom | Fix |

@@ -3,7 +3,7 @@
 **Status:** Proposed
 **Date:** 2026-05-20
 **Deciders:** roctinam, product/billing review TBD
-**Related:** ADR-088 (plugin strategy), ADR-090 (tenancy), ADR-098 (per-tenant rate limits)
+**Related:** ADR-088 (plugin strategy), ADR-090 (tenancy), ADR-098 (per-tenant rate limits), #713, #714, #877
 **Related docs:** `.aiwg/security/multi-tenant-threat-model.md` §8
 
 ## July 2026 checkpoint rebaseline
@@ -47,9 +47,9 @@ pub trait UsageMeter: Send + Sync {
     /// (typically queues to an internal buffer; aggregator flushes async).
     async fn record(&self, event: &UsageEvent) -> Result<(), MeteringError>;
 
-    /// Query current-window consumption for a tenant + dimension.
-    async fn current(&self, tenant: &TenantId, dim: &UsageDimension, window: TimeWindow)
-        -> Result<u64, MeteringError>;
+    /// Query current-window consumption for a resolved subject + dimension.
+    async fn current(&self, subject: &UsageSubject, dim: &UsageDimension, window: TimeWindow)
+        -> Result<UsageQuantity, MeteringError>;
 
     /// Flush in-flight events. Called at shutdown.
     async fn flush(&self, grace: Duration) -> Result<(), MeteringError>;
@@ -57,21 +57,97 @@ pub trait UsageMeter: Send + Sync {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageEvent {
-    pub tenant_id: TenantId,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    /// Globally unique immutable event identity.
+    pub event_id: Uuid,
+    /// Stable logical-operation key reused by producer retries.
+    pub idempotency_key: String,
+    /// When the measured operation occurred.
+    pub event_time: chrono::DateTime<chrono::Utc>,
+    /// When Fortemi accepted the event into its ledger.
+    pub recorded_at: chrono::DateTime<chrono::Utc>,
+    pub subject: UsageSubject,
     pub dimension: UsageDimension,
-    pub quantity: u64,
-    pub attrs: HashMap<String, serde_json::Value>,
+    pub quantity: UsageQuantity,
+    pub class: UsageClass,
+    pub producer: UsageProducer,
+    pub source: UsageSource,
+    pub correlation: UsageCorrelation,
+    pub attrs: UsageAttributes,
+}
+
+pub struct UsageSubject {
+    pub tenant_id: Option<TenantId>,
+    pub principal_id: Option<String>,
+    pub client_id: Option<String>,
+    pub archive_id: Option<String>,
+    pub anonymous_key: Option<String>,
+}
+
+pub struct UsageQuantity {
+    /// Canonical base-10 representation; never a binary floating-point value.
+    pub value: String,
+    pub unit: UsageUnit,
+}
+
+pub enum UsageUnit {
+    Count,
+    Token,
+    Byte,
+    Millisecond,
+    Second,
+    Vector,
+    CurrencyMinorUnit { currency: String },
+    Custom(String),
+}
+
+pub enum UsageProducer {
+    Api,
+    Jobs,
+    Bridge,
+    Mcp,
+    Realtime,
+    Inference,
+}
+
+pub struct UsageCorrelation {
+    pub request_id: Option<String>,
+    pub job_id: Option<Uuid>,
+    pub bridge_session_id: Option<String>,
+    pub mcp_call_id: Option<String>,
+    pub provider_call_id: Option<String>,
+}
+
+pub enum UsageClass {
+    BillableActual,
+    NonBillableEstimate,
+    NonBillableAdmission,
+    NonBillableSaturation,
+    Reversal,
+}
+
+pub enum UsageSource {
+    ProviderReported,
+    LocalMeasured,
+    Estimated,
+    Cache,
+    Admission,
 }
 
 pub enum UsageDimension {
     ApiRequest,                   // count
     TokensInput { model: String },
     TokensOutput { model: String },
+    TokensCachedInput { model: String },
+    TokensReasoningOutput { model: String },
+    TokensAudioInput { model: String },
+    TokensAudioOutput { model: String },
     StorageBytes,
     EmbeddingsCount,
+    EmbeddingVectors,
     JobsEnqueued { job_kind: String },
     MediaProcessedSeconds { kind: MediaKind },
+    BridgeProviderCall { capability: String },
+    McpToolCall { class: String },
     Custom(String),
 }
 
@@ -85,26 +161,128 @@ pub enum TimeWindow {
 }
 ```
 
+`UsageAttributes` is not an arbitrary JSON bag. It is a bounded, versioned,
+allowlisted map of non-secret scalar fields. The core contract rejects unknown
+or oversized attributes before persistence. Provider-specific usage can be
+attached only through the scrubbed structure described below.
+
+`UsageQuantity.value` is a canonical base-10 string paired with an explicit
+unit. Producers never send binary floating-point quantities, and consumers
+must reject a dimension/unit mismatch rather than convert it implicitly.
+`UsageProducer` values are stable and low-cardinality. Tenant, model, route,
+principal, provider request, and operation identifiers never become producer
+names.
+
 ### Trait: `QuotaPolicy`
 
 ```rust
 #[async_trait]
 pub trait QuotaPolicy: Send + Sync {
-    /// Check whether a tenant has budget remaining for a given dimension+quantity.
+    /// Check whether a resolved subject has budget for a dimension+quantity.
     /// MUST be fast (<5ms in-process); MAY use stale data within a configured drift window.
-    async fn check(&self, tenant: &TenantId, dim: &UsageDimension, quantity: u64)
+    async fn check(
+        &self,
+        subject: &UsageSubject,
+        dim: &UsageDimension,
+        quantity: &UsageQuantity,
+    )
         -> Result<QuotaDecision, QuotaError>;
+
+    /// Atomically reserve estimated capacity before a costly operation.
+    async fn reserve(&self, request: &QuotaReservationRequest)
+        -> Result<QuotaReservation, QuotaError>;
+
+    /// Reconcile a reservation with actual measured usage.
+    async fn finalize(&self, reservation: &QuotaReservation, actual: &UsageQuantity)
+        -> Result<QuotaDecision, QuotaError>;
+
+    /// Release unused capacity after denial, cancellation, or failure.
+    async fn release(&self, reservation: &QuotaReservation)
+        -> Result<(), QuotaError>;
+}
+
+pub struct QuotaReservationRequest {
+    pub reservation_id: Uuid,
+    pub idempotency_key: String,
+    pub subject: UsageSubject,
+    pub dimension: UsageDimension,
+    pub estimated: UsageQuantity,
+    pub expires_at: DateTime<Utc>,
+}
+
+pub struct QuotaReservation {
+    pub reservation_id: Uuid,
+    pub policy_id: String,
+    pub reserved: UsageQuantity,
+    pub expires_at: DateTime<Utc>,
 }
 
 pub enum QuotaDecision {
-    /// Within budget. Soft consumption count attached for caller telemetry.
-    Allow { remaining: Option<u64> },
-    /// Over hard cap. Caller MUST reject the request.
-    Hard,
-    /// Over soft cap. Caller MAY proceed but with reduced QoS (queue priority, lower rate-limit ceiling).
-    Soft { remaining: Option<u64> },
+    Allow {
+        remaining: Option<UsageQuantity>,
+        policy_id: String,
+        reset_at: Option<DateTime<Utc>>,
+    },
+    Hard {
+        policy_id: String,
+        retry_after: Option<Duration>,
+        reset_at: Option<DateTime<Utc>>,
+    },
+    Soft {
+        remaining: Option<UsageQuantity>,
+        policy_id: String,
+        reset_at: Option<DateTime<Utc>>,
+    },
 }
 ```
+
+### Event identity, ordering, and duplicate handling
+
+Fortemi's usage ledger is the source of truth. External billing and metering
+systems are downstream projections, never the only durable copy.
+
+- `event_id` identifies one immutable ledger event.
+- `idempotency_key` identifies the logical operation and event phase. Producer
+  retries and sink replays reuse it; a different actual, partial, or reversal
+  event receives a different phase-qualified key.
+- The ledger enforces uniqueness for both identities. An identical duplicate
+  is acknowledged without changing aggregates. A conflicting duplicate is a
+  data-integrity error and is quarantined rather than overwritten.
+- `event_time` records when usage occurred. `recorded_at` records when Fortemi
+  durably accepted it. Billing windows use `event_time`; replay, lateness, and
+  incident analysis use both.
+- Delivery to sinks is at-least-once. Per-sink delivery state records attempts,
+  acknowledgements, `exported_at`, and replay position so an outage cannot
+  silently lose or duplicate billable usage.
+- Source correlation fields are opaque identifiers only. They must not contain
+  bearer tokens, prompts, filenames, URLs with credentials, or customer text.
+
+### Failure, partial-operation, and billability semantics
+
+| Outcome | Event behavior |
+|---|---|
+| Admission/preflight estimate | `NonBillableEstimate`; never billed as actual usage |
+| Accepted request with no measured consumption yet | Optional `NonBillableAdmission` event |
+| Completed provider/local operation | One or more `BillableActual` events using measured or provider-reported units |
+| Cached response | `Cache` source with explicit cache policy; never silently charged as a provider call |
+| Denied before execution | Non-billable denial/admission telemetry; no billable usage |
+| Provider failure before consumption | Non-billable failure unless the provider reports chargeable units |
+| Partial or interrupted stream | Billable actual units observed so far, marked partial; finalization reuses the same operation correlation and cannot double count |
+| Successful retry/resume | New attempt correlation, but idempotency rules prevent replaying already-recorded units |
+| Compensated operation | Append a `Reversal`; never mutate or delete the original ledger event |
+| Unknown measurement | Preserve an explicit unavailable/unknown source state; never coerce it to zero |
+
+Streaming dimensions define whether each event is a delta or cumulative
+snapshot. A final cumulative event subtracts already-recorded partial units, or
+replaces a non-billable estimate; it never re-adds prior deltas.
+
+Quota admission checks and billable recording are separate. A pre-call estimate
+may reserve capacity, but only post-call actuals or an explicit provider charge
+become billable. Hosted quota checks fail closed once #714 enables enforcement.
+CE `NoOpMeter` and `UnlimitedQuota` remain fail-open defaults. If durable
+recording fails after a successful proxied response, Fortemi does not rewrite
+that response as a failure; it emits restricted audit/telemetry and retains a
+replayable outbox entry.
 
 ### Default impls (CE)
 
@@ -115,17 +293,49 @@ pub struct UnlimitedQuota;  // Always Allow
 #[async_trait]
 impl UsageMeter for NoOpMeter {
     async fn record(&self, _e: &UsageEvent) -> Result<(), MeteringError> { Ok(()) }
-    async fn current(&self, _: &TenantId, _: &UsageDimension, _: TimeWindow)
-        -> Result<u64, MeteringError> { Ok(0) }
+    async fn current(&self, _: &UsageSubject, dim: &UsageDimension, _: TimeWindow)
+        -> Result<UsageQuantity, MeteringError>
+    {
+        Ok(UsageQuantity::zero_for(dim))
+    }
     async fn flush(&self, _: Duration) -> Result<(), MeteringError> { Ok(()) }
 }
 
 #[async_trait]
 impl QuotaPolicy for UnlimitedQuota {
-    async fn check(&self, _: &TenantId, _: &UsageDimension, _: u64)
+    async fn check(&self, _: &UsageSubject, _: &UsageDimension, _: &UsageQuantity)
         -> Result<QuotaDecision, QuotaError>
     {
-        Ok(QuotaDecision::Allow { remaining: None })
+        Ok(QuotaDecision::Allow {
+            remaining: None,
+            policy_id: "unlimited".to_string(),
+            reset_at: None,
+        })
+    }
+
+    async fn reserve(&self, request: &QuotaReservationRequest)
+        -> Result<QuotaReservation, QuotaError>
+    {
+        Ok(QuotaReservation {
+            reservation_id: request.reservation_id,
+            policy_id: "unlimited".to_string(),
+            reserved: request.estimated.clone(),
+            expires_at: request.expires_at,
+        })
+    }
+
+    async fn finalize(&self, _: &QuotaReservation, _: &UsageQuantity)
+        -> Result<QuotaDecision, QuotaError>
+    {
+        Ok(QuotaDecision::Allow {
+            remaining: None,
+            policy_id: "unlimited".to_string(),
+            reset_at: None,
+        })
+    }
+
+    async fn release(&self, _: &QuotaReservation) -> Result<(), QuotaError> {
+        Ok(())
     }
 }
 ```
@@ -140,29 +350,98 @@ impl QuotaPolicy for UnlimitedQuota {
 | Storage write | `StorageBytes` | `StorageBytes` (cumulative) |
 | Job dispatcher | `JobsEnqueued` | `JobsEnqueued` (queue depth) |
 | Media extraction | `MediaProcessedSeconds` | `MediaProcessedSeconds` |
+| Bridge/provider call | Normalized provider usage buckets and call outcome | Capability/provider budget |
+| MCP dispatch | `McpToolCall` by tool class | MCP tool-class quota |
 
-### EE plugins
+### Provider usage preservation
 
-- `fortemi-enterprise-billing-stripe` — `UsageMeter` flushes events to Stripe Metering API
-- `fortemi-enterprise-billing-openmeter` — Self-hosted OpenMeter integration
+Provider adapters normalize usage without flattening away source detail. The
+normalized record supports:
+
+- input/prompt, output/completion, and total tokens;
+- cached input tokens and cache state;
+- reasoning output tokens, including non-visible reasoning units;
+- audio input/output tokens or seconds;
+- embedding tokens and vector counts;
+- other provider-specific numeric buckets in a versioned allowlist.
+
+Every record also carries provider, endpoint/protocol, model slug, provider
+request id, usage source, completion/partial state, and the adapter schema
+version. `raw_usage` may preserve a size-bounded scrubbed provider usage object
+for future reconciliation. It must exclude prompts, completions, credentials,
+headers, signed URLs, customer identifiers, and other unapproved response
+fields.
+
+When the provider omits usage, estimation metadata records the tokenizer/model
+family, `estimator_version`, estimation phase, and method (preflight tokenizer,
+request payload, streaming chunks, or posthoc approximation). Provider-reported
+and estimated quantities remain distinguishable in reports and sinks.
+
+Pricing is a separate versioned projection keyed by provider, model, endpoint,
+currency, and effective interval. `unknown_price` is explicit and queryable.
+Only a configured local/free policy may convert usage to a `$0` cost; missing
+catalog data never silently becomes free usage.
+
+### EE plugins and downstream sinks
+
+- `fortemi-enterprise-billing-stripe` — projects ledger events to Stripe
+  Billing Meters and Meter Events (v1 or API v2/Meter Event Streams as
+  throughput requires)
+- `fortemi-enterprise-billing-openmeter` — maps stable Fortemi event identity,
+  producer/source, subject, and data to CloudEvents-compatible OpenMeter usage
+  events
 - `fortemi-enterprise-billing-warehouse` — Direct insert into customer's data warehouse (BigQuery, Snowflake)
 - `fortemi-enterprise-quota-static` — Static per-plan quotas from configuration
 - `fortemi-enterprise-quota-dynamic` — Quotas served from a control-plane API
+
+Stripe legacy usage records are migration context only. New integrations use
+Billing Meters/Meter Events and retain Fortemi event identity, recorded time,
+delivery state, `exported_at`, and replay history locally. Sink aggregation
+(sum/count/max, billing period, grace period) does not redefine the immutable
+raw event.
 
 A typical EE deployment composes one `UsageMeter` + one `QuotaPolicy`. CE deployments may install either independently (e.g., metering for observability without billing; quotas without metering for free-tier protection).
 
 ### Quota check vs record relationship
 
-For idempotent operations, the pattern is:
-1. `check(tenant, dim, estimated_quantity)` → if `Hard`, reject
-2. Proceed with operation
-3. `record(actual_event)` after operation
+`check` is a read-only advisory operation. Any path that can spend a limited
+budget uses the atomic lifecycle below, including idempotent paths that may run
+concurrently:
 
-For non-idempotent or pre-paid operations:
-1. Reserve quota (atomic check+record) — implementations MAY expose `try_reserve` for this
-2. On success, proceed; on failure, release if necessary
+1. `reserve` an estimate with a stable reservation identity and expiry.
+2. Proceed only after the reservation succeeds.
+3. `finalize` exactly once with actual measured usage. This reconciles unused
+   capacity or atomically attempts to acquire any excess.
+4. `release` on denial, cancellation, or failure before finalization. Expired
+   reservations are also released by policy.
+5. `record` the separate immutable actual ledger event; reservation state is
+   never treated as billable usage.
 
-The split is to keep the hot-path fast (check is read-mostly) while allowing accurate billing (record reflects actual).
+Hosted hard-cap policies fail closed when an atomic reservation cannot be
+established. `UnlimitedQuota` implements the same lifecycle as a no-op. This
+prevents concurrent requests from all passing stale read-only checks and
+overspending one budget while keeping recorded billing based on actual usage.
+
+### Privacy and retention
+
+- Subject identifiers use internal opaque IDs or keyed pseudonyms. Email
+  addresses, display names, IP addresses, and raw external account IDs are not
+  general-purpose usage attributes.
+- Attribute keys and value types are allowlisted by event schema. Values are
+  length-bounded and sanitized before ledger or sink delivery.
+- Prompts, completions, note bodies, filenames, authorization headers, API
+  keys, cookies, provider request headers, and credential-bearing URLs are
+  forbidden in both `attrs` and `raw_usage`.
+- Provider call IDs are restricted correlation data. They are pseudonymized or
+  omitted in external sinks and are not sink grouping dimensions by default.
+- Provider/model slugs and error details use the same telemetry classification
+  and redaction rules as security-sensitive audit data. Stable reason codes
+  replace raw provider error messages.
+- Ledger, raw provider sidecar, delivery-attempt, and aggregate retention are
+  separate policies. A billing retention need does not authorize indefinite
+  retention of raw provider payloads.
+- Usage events and security audit events may share correlation IDs but remain
+  separate stores and purposes. Audit logs are not the billing ledger.
 
 ## Consequences
 
@@ -177,7 +456,8 @@ The split is to keep the hot-path fast (check is read-mostly) while allowing acc
 - (-) Per-request quota check adds latency (target <2ms with in-memory cache; degrades to ~10ms for cold cache hit)
 - (-) Two traits = two plugins to maintain — but they often pair naturally
 - (-) Pre-call token estimation is imprecise (model tokenization varies); reconcile via `record` post-call
-- (-) Records flushed asynchronously can lose data on crash; mitigated by EE plugins writing to durable queue first
+- (-) Durable hosted recording requires a Fortemi-owned ledger/outbox before
+  asynchronous sink delivery; direct best-effort sink calls are insufficient
 
 ### Neutral
 - (~) Aggregation windows (per-hour vs per-month) are sink-defined; core just records events with timestamps
@@ -199,12 +479,28 @@ The split is to keep the hot-path fast (check is read-mostly) while allowing acc
 
 **Testing:**
 - Property test: total recorded usage = sum of operations in a fuzz scenario
+- Duplicate/replay test: repeated event/idempotency identities do not change totals
+- Conflict test: a reused identity with different content is quarantined
+- Partial/reversal test: interrupted streams and compensation cannot double count
+- Quantity test: canonical decimal precision and dimension/unit compatibility
+  are enforced without binary floating-point conversion
+- Reservation test: concurrent reserve/finalize/release, expiry, retry, and
+  actual-over-estimate paths cannot overspend or leak capacity
+- Privacy test: forbidden attributes and unsanitized raw provider usage are rejected
+- Pricing test: unknown price remains distinct from configured local `$0`
 - Load test: 10k req/s with metering enabled adds <5% latency
 
 ## References
 
 - ADR-088, ADR-090 — Plugin model, tenancy
 - ADR-098 — Per-tenant rate limits and quotas (uses this trait)
+- `Fortemi/fortemi#713` — contract and CE defaults
+- `Fortemi/fortemi#714` — hosted enforcement
+- `Fortemi/fortemi#877` — bridge/provider usage specialization
 - `.aiwg/security/multi-tenant-threat-model.md` §8
-- OpenMeter docs (cloud-events aligned metering schema reference)
-- Stripe Metering API (one of the target EE backends)
+- [OpenMeter usage events](https://openmeter.io/docs/metering/events/usage-events)
+- [Stripe Billing Meters](https://docs.stripe.com/api/billing/meter)
+- [Stripe Meter Events v1](https://docs.stripe.com/api/billing/meter-event)
+- [Stripe Meter Events API v2](https://docs.stripe.com/api/v2/meter-events)
+- [Stripe Meter Event Streams](https://docs.stripe.com/api/v2/meter-event-streams)
+- [Stripe legacy usage-record migration](https://docs.stripe.com/billing/subscriptions/usage-based-legacy/migration-guide)
