@@ -1605,9 +1605,10 @@ If you cannot resolve the issue with this guide:
 docker compose -f docker-compose.bundle.yml logs -f
 ```
 
-**Interactive API documentation:**
-- OpenAPI UI: `http://localhost:3000/docs`
-- OpenAPI spec: `http://localhost:3000/openapi.yaml`
+**API documentation:**
+- Consumer reference: `https://docs.fortemi.com/server/#/developers-api`
+- Operator UI: `http://localhost:3000/api/v1/operator/docs` (admin bearer required; request execution disabled)
+- Operator OpenAPI spec: `http://localhost:3000/api/v1/operator/openapi.yaml` (admin bearer required)
 
 **Report issues:**
 - Repository issues: `https://github.com/fortemi/fortemi/issues`

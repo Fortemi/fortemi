@@ -21,7 +21,6 @@ pub enum PolicyClass {
     AdminOperator,
     TenantObject,
     SystemHealth,
-    Docs,
     OAuth,
     RealtimeTransport,
 }
@@ -36,7 +35,6 @@ pub enum DocsExposureClass {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CacheHeaderClass {
-    PublicStatic,
     PublicProbe,
     PrivateUserData,
     NoStore,
@@ -87,12 +85,16 @@ struct ResourceIdCandidate {
     value: String,
 }
 
-use CacheHeaderClass::*;
+use CacheHeaderClass::{NoStore, PrivateUserData, PublicProbe};
 use DocsExposureClass::{Authenticated, Hidden, Operator, Public as DocsPublic};
 use PolicyClass::{
-    AdminOperator, AuthenticatedRead, AuthenticatedWrite, Docs, OAuth, Public,
-    PublicWithInlineProof, RealtimeTransport, SystemHealth, TenantObject,
+    AdminOperator, AuthenticatedRead, AuthenticatedWrite, OAuth, Public, PublicWithInlineProof,
+    RealtimeTransport, SystemHealth, TenantObject,
 };
+
+pub const OPERATOR_DOCS_PATH: &str = "/api/v1/operator/docs";
+pub const OPERATOR_OPENAPI_PATH: &str = "/api/v1/operator/openapi.yaml";
+pub const OPERATOR_ASYNCAPI_PATH: &str = "/api/v1/operator/asyncapi.yaml";
 
 pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
     r(
@@ -1426,11 +1428,25 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         NoStore,
     ),
     r(
-        "/asyncapi.yaml",
-        Docs,
+        OPERATOR_ASYNCAPI_PATH,
+        AdminOperator,
         "docs_schema",
-        DocsPublic,
-        PublicStatic,
+        Operator,
+        NoStore,
+    ),
+    r(
+        OPERATOR_DOCS_PATH,
+        AdminOperator,
+        "docs_schema",
+        Operator,
+        NoStore,
+    ),
+    r(
+        OPERATOR_OPENAPI_PATH,
+        AdminOperator,
+        "docs_schema",
+        Operator,
+        NoStore,
     ),
     r("/health", Public, "health_probe", DocsPublic, PublicProbe),
     r(
@@ -1451,13 +1467,6 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
     r("/oauth/register", OAuth, "oauth_flow", DocsPublic, NoStore),
     r("/oauth/revoke", OAuth, "oauth_flow", DocsPublic, NoStore),
     r("/oauth/token", OAuth, "oauth_flow", DocsPublic, NoStore),
-    r(
-        "/openapi.yaml",
-        Docs,
-        "docs_schema",
-        DocsPublic,
-        PublicStatic,
-    ),
     r("/recording.wav", Public, "test_fixture", Hidden, NoStore),
     r(
         "/api/v1/problem-contract-test",
@@ -1492,22 +1501,36 @@ const fn r(
 }
 
 pub fn route_policy_for_path(path: &str) -> Option<&'static RoutePolicy> {
+    if path == OPERATOR_DOCS_PATH
+        || path
+            .strip_prefix(OPERATOR_DOCS_PATH)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+    {
+        return ROUTE_POLICY_INVENTORY
+            .iter()
+            .find(|route| route.path == OPERATOR_DOCS_PATH);
+    }
     ROUTE_POLICY_INVENTORY
         .iter()
         .find(|route| route_template_matches(route.path, path))
 }
 
+pub fn is_operator_docs_route(path: &str) -> bool {
+    route_policy_for_path(path).is_some_and(|policy| {
+        policy.action_family == "docs_schema"
+            && policy.docs == DocsExposureClass::Operator
+            && policy.cache == CacheHeaderClass::NoStore
+    })
+}
+
 pub fn is_public_without_bearer(path: &str) -> bool {
-    path.starts_with("/docs")
-        || path.starts_with("/swagger-ui")
-        || path.starts_with("/api-docs")
-        || route_policy_for_path(path).is_some_and(|policy| {
-            matches!(
-                policy.class,
-                Public | Docs | OAuth | RealtimeTransport | SystemHealth
-            ) || (policy.class == PublicWithInlineProof
-                && policy.action_family == "realtime_provider_callback")
-        })
+    route_policy_for_path(path).is_some_and(|policy| {
+        matches!(
+            policy.class,
+            Public | OAuth | RealtimeTransport | SystemHealth
+        ) || (policy.class == PublicWithInlineProof
+            && policy.action_family == "realtime_provider_callback")
+    })
 }
 
 pub fn authorization_input_for_request(
@@ -1640,7 +1663,7 @@ fn scope_family_for_policy_class(policy_class: PolicyClass) -> ScopeFamily {
 
 fn required_scopes_for_policy_class(policy_class: PolicyClass, method: &Method) -> Vec<String> {
     match policy_class {
-        Public | PublicWithInlineProof | Docs | OAuth => vec![],
+        Public | PublicWithInlineProof | OAuth => vec![],
         RealtimeTransport => vec!["mcp".to_string()],
         AdminOperator => vec!["admin".to_string()],
         SystemHealth | AuthenticatedRead => vec!["read".to_string()],
@@ -1821,6 +1844,31 @@ mod tests {
         assert!(is_public_without_bearer("/api/v1/realtime/twilio/CA123"));
         assert!(is_public_without_bearer("/api/v1/health/streaming"));
         assert!(is_public_without_bearer("/api/v1/system/compatibility"));
+    }
+
+    #[test]
+    fn generated_docs_are_operator_only_and_no_store() {
+        for path in [
+            OPERATOR_DOCS_PATH,
+            "/api/v1/operator/docs/swagger-ui.css",
+            OPERATOR_OPENAPI_PATH,
+            OPERATOR_ASYNCAPI_PATH,
+        ] {
+            assert!(!is_public_without_bearer(path));
+            assert!(is_operator_docs_route(path));
+            let input = authorization_input_for_request(&Method::GET, path, None)
+                .expect("operator docs route must have policy input");
+            assert_eq!(input.policy.class, AdminOperator);
+            assert_eq!(input.policy.docs, Operator);
+            assert_eq!(input.policy.cache, NoStore);
+            assert_eq!(input.action.scope_family, ScopeFamily::Admin);
+            assert_eq!(input.action.required_scopes, vec!["admin"]);
+        }
+
+        for legacy_path in ["/docs", "/openapi.yaml", "/asyncapi.yaml"] {
+            assert!(!is_public_without_bearer(legacy_path));
+            assert!(route_policy_for_path(legacy_path).is_none());
+        }
     }
 
     #[test]
@@ -2086,6 +2134,20 @@ mod tests {
             };
             let path = &remaining[..second_quote];
             routes.insert(path);
+            remaining = &remaining[second_quote + 1..];
+        }
+
+        let mut remaining = source;
+        while let Some(swagger_pos) = remaining.find("SwaggerUi::new(") {
+            remaining = &remaining[swagger_pos + "SwaggerUi::new(".len()..];
+            let Some(first_quote) = remaining.find('"') else {
+                continue;
+            };
+            remaining = &remaining[first_quote + 1..];
+            let Some(second_quote) = remaining.find('"') else {
+                continue;
+            };
+            routes.insert(&remaining[..second_quote]);
             remaining = &remaining[second_quote + 1..];
         }
 

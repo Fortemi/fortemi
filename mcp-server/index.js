@@ -26,6 +26,7 @@ import {
   sanitizeMcpOutput,
   sanitizeMcpText,
 } from "./lib/output-sanitizer.js";
+import { buildProtectedResourceMetadata } from "./lib/resource-metadata.js";
 // execSync removed — all PKE operations now use HTTP API instead of CLI binary
 import * as DEFAULTS from "./constants/defaults.js";
 
@@ -6006,13 +6007,11 @@ if (MCP_TRANSPORT === "http") {
   // "mcp" scope is listed first — it grants read+write access for MCP operations.
   // Clients SHOULD request "mcp" scope to enable full read/write functionality.
   app.get("/.well-known/oauth-protected-resource", (req, res) => {
-    res.json({
+    res.json(buildProtectedResourceMetadata({
       resource: MCP_BASE_URL,
-      authorization_servers: [process.env.ISSUER_URL || API_BASE],
-      bearer_methods_supported: ["header"],
-      scopes_supported: ["mcp"],
-      resource_documentation: `${PUBLIC_URL}/docs`,
-    });
+      authorizationServer: process.env.ISSUER_URL || API_BASE,
+      resourceDocumentation: process.env.MCP_RESOURCE_DOCUMENTATION_URL,
+    }));
   });
 
   // Validate MCP OAuth credentials on startup

@@ -343,7 +343,7 @@ HTTP REST API server using Axum framework.
 - Webhook dispatcher with HMAC-SHA256 signing (`/api/v1/webhooks`)
 - Worker event bridge: translates job worker events into ServerEvents on the EventBus
 - OpenAPI 3.1 specification
-- Swagger UI at `/docs`
+- Operator-only Swagger UI at `/api/v1/operator/docs` with request execution disabled
 - CORS support
 - Request tracing
 

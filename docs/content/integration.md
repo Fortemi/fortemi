@@ -63,7 +63,7 @@ Fortemi provides three integration paths:
 
 | Path | Best For | Documentation |
 |------|----------|---------------|
-| **REST API** | Direct HTTP integration | [Interactive API docs](/docs) · [OpenAPI spec](/openapi.yaml) |
+| **REST API** | Direct HTTP integration | [Curated API reference](#/developers-api) |
 | **MCP Server** | AI agent integration (Claude, etc.) | [MCP Guide](#/developers-mcp) |
 | **Rust Crate** (future) | Embedded Rust integration | Coming soon |
 
@@ -88,7 +88,10 @@ curl -X POST http://localhost:3000/api/v1/notes \
 curl "http://localhost:3000/api/v1/search?q=my+note"
 ```
 
-For complete API reference with all endpoints, request/response schemas, and examples, see the interactive documentation at `/docs`.
+For supported consumer endpoints, request/response schemas, and examples, see
+the [curated API reference](#/developers-api). Administrators can fetch the
+full generated schema from `/api/v1/operator/openapi.yaml` with an
+admin-scoped bearer token.
 
 ### Strict Tag Filtering
 
@@ -210,5 +213,5 @@ For encryption details, see the [Encryption Guide](#/security-encryption).
 ## Support
 
 - **Issues**: https://github.com/fortemi/fortemi/issues
-- **API Docs**: http://localhost:3000/docs
-- **OpenAPI Spec**: http://localhost:3000/openapi.yaml
+- **Consumer API Reference**: https://docs.fortemi.com/server/#/developers-api
+- **Operator OpenAPI Spec**: http://localhost:3000/api/v1/operator/openapi.yaml (admin bearer required)

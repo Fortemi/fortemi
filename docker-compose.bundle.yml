@@ -350,6 +350,7 @@ services:
       - MCP_BASE_URL=${MCP_BASE_URL:-${ISSUER_URL:-https://localhost:3000}/mcp}
       # Internal API URL for MCP→API calls (avoids nginx hairpin)
       - FORTEMI_URL=${FORTEMI_URL:-http://localhost:3000}
+      - MCP_RESOURCE_DOCUMENTATION_URL=${MCP_RESOURCE_DOCUMENTATION_URL:-https://docs.fortemi.com/server/#/developers-mcp}
       # MCP OAuth client credentials - register via POST /oauth/register
       - MCP_CLIENT_ID=${MCP_CLIENT_ID}
       - MCP_CLIENT_SECRET=${MCP_CLIENT_SECRET}

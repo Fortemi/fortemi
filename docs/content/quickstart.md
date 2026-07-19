@@ -272,10 +272,12 @@ On failure:
 ### Verify endpoints
 
 ```bash
-# API docs (Swagger UI)
-curl -sf http://localhost:3000/docs > /dev/null \
-  && echo "OK: API docs available at http://localhost:3000/docs" \
-  || echo "FAIL: API docs not reachable"
+# Operator OpenAPI inventory (requires an admin-scoped bearer token)
+curl -sf \
+  -H "Authorization: Bearer ${FORTEMI_ADMIN_TOKEN}" \
+  http://localhost:3000/api/v1/operator/openapi.yaml > /dev/null \
+  && echo "OK: operator API inventory is reachable" \
+  || echo "FAIL: operator API inventory is not authorized or reachable"
 
 # MCP endpoint
 curl -sf http://localhost:3001/ > /dev/null 2>&1; echo "MCP server on port 3001"
@@ -603,7 +605,7 @@ In Claude Code, the `fortemi` MCP tools (e.g., `capture_knowledge`, `search`, `m
 | Feature | Check Command | Expected Result |
 |---------|--------------|-----------------|
 | API health | `curl -sf http://localhost:3000/health` | `"status":"healthy"` |
-| API docs | `curl -sf http://localhost:3000/docs -o /dev/null -w '%{http_code}'` | `200` |
+| Operator API inventory | `curl -sf -H "Authorization: Bearer ${FORTEMI_ADMIN_TOKEN}" http://localhost:3000/api/v1/operator/openapi.yaml -o /dev/null -w '%{http_code}'` | `200` for an admin token |
 | MCP server | `curl -sf http://localhost:3001/ -o /dev/null -w '%{http_code}'` | `200` or connection accepted |
 | Full-text search | `curl -sf 'http://localhost:3000/api/v1/search?q=test'` | JSON response with `results` array |
 | Ollama connectivity | `curl -sf http://localhost:11434/api/tags` | JSON with model list |

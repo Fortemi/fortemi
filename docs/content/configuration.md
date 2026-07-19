@@ -411,6 +411,7 @@ The MCP (Model Context Protocol) server provides Claude/AI integration.
 | `MCP_BASE_PATH` | String | `/mcp` | URL path prefix for the MCP server (when transport=http) |
 | `MATRIC_API_URL` | String | `http://localhost:3000` | API server URL for the MCP server to connect to. Alias: `FORTEMI_URL`. |
 | `FORTEMI_URL` | String | `http://localhost:3000` | Alias for `MATRIC_API_URL`. Used in Docker bundle deployments. |
+| `MCP_RESOURCE_DOCUMENTATION_URL` | URL | `https://docs.fortemi.com/server/#/developers-mcp` | Public curated MCP guide advertised through protected-resource metadata. HTTP(S) only; embedded credentials are rejected. |
 | `FORTEMI_API_KEY` | String | None | API key for the MCP server to authenticate with the Fortemi API (when `REQUIRE_AUTH=true`). |
 
 **Example (Docker Bundle):**

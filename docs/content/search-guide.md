@@ -215,8 +215,8 @@ This balances recall and latency based on your collection size.
 
 For complete search API documentation including all parameters, request/response schemas, and examples, see:
 
-- **Interactive docs**: [Swagger UI](/docs)
-- **OpenAPI spec**: [openapi.yaml](/openapi.yaml)
+- **Consumer API reference**: [API Reference](#/developers-api)
+- **Operator OpenAPI spec**: `/api/v1/operator/openapi.yaml` (admin bearer required)
 - **Configuration**: [Configuration Reference](#/operations-configuration)
 
 ## Multilingual Search

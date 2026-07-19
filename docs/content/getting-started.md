@@ -53,7 +53,10 @@ You should see:
 }
 ```
 
-The interactive API documentation is available at http://localhost:3000/docs. This Swagger UI lets you explore all API endpoints and test them directly in your browser.
+Use the [curated API reference](#/developers-api) for supported consumer
+endpoints. The full generated schema is restricted to administrators at
+`http://localhost:3000/api/v1/operator/openapi.yaml`. The operator Swagger UI
+is also protected and does not execute requests.
 
 ## Step 2: Create Your First Notes
 
@@ -472,7 +475,10 @@ See the [Multi-Memory Guide](./multi-memory.md) for comprehensive documentation 
 
 ### Explore the API
 
-The full API reference is available at http://localhost:3000/docs. Key endpoints to explore:
+The [consumer API reference](#/developers-api) documents supported endpoints.
+Administrators can inspect the full generated inventory at
+`http://localhost:3000/api/v1/operator/openapi.yaml` with an admin-scoped
+bearer token. Key endpoints include:
 
 - `POST /api/v1/notes` - Create notes with optional file attachments
 - `GET /api/v1/search` - Hybrid search with tag filtering

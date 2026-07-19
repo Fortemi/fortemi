@@ -4,7 +4,27 @@ Fortémi provides a RESTful API for AI-enhanced note management with semantic se
 
 **Base URL**: `http://localhost:3000`
 
-**OpenAPI Spec**: [openapi.yaml](../../crates/matric-api/src/openapi.yaml)
+This page is the curated consumer API reference published for hosted and
+self-hosted users. Fortemi does not publish an unauthenticated generated
+OpenAPI or AsyncAPI document.
+
+Operators can fetch the full generated inventory with an admin-scoped bearer
+token:
+
+```bash
+curl -fsS \
+  -H "Authorization: Bearer ${FORTEMI_ADMIN_TOKEN}" \
+  http://localhost:3000/api/v1/operator/openapi.yaml
+```
+
+The equivalent AsyncAPI document is available at
+`/api/v1/operator/asyncapi.yaml`. An operator-only Swagger UI is mounted at
+`/api/v1/operator/docs`; it requires the same authorization and has
+`try_it_out` disabled. Direct browser access therefore requires an
+authenticated operator gateway that supplies the bearer credential.
+
+The repository source artifact remains available for development review at
+[openapi.yaml](../../crates/matric-api/src/openapi.yaml).
 
 **Error Contract**: [RFC 9457 Problem Details](#/developers-api-errors)
 

@@ -383,7 +383,7 @@ curl http://localhost:3001/.well-known/oauth-protected-resource
   "authorization_servers": ["http://localhost:3000"],
   "scopes_supported": ["mcp"],
   "bearer_methods_supported": ["header"],
-  "resource_documentation": "http://localhost:3000/docs"
+  "resource_documentation": "https://docs.fortemi.com/server/#/developers-mcp"
 }
 ```
 
@@ -401,6 +401,7 @@ curl http://localhost:3001/.well-known/oauth-protected-resource
 | `MCP_PORT` | `3001` | No | MCP server listening port inside container. |
 | `MCP_BASE_URL` | `${ISSUER_URL}/mcp` | No | External MCP URL. Claude Code uses this for OAuth discovery. |
 | `FORTEMI_URL` | `http://localhost:3000` | No | Internal API URL for MCP→API calls. Avoids nginx hairpin routing. |
+| `MCP_RESOURCE_DOCUMENTATION_URL` | Fortemi MCP guide | No | Public curated MCP documentation URL advertised in protected-resource metadata. Must use HTTP(S) and must not contain credentials. |
 
 ### ISSUER_URL Configuration
 

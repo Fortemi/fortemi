@@ -383,5 +383,6 @@ The `clustering:` prefix on SKOS concept labels in embeddings, combined with TF-
 For questions or issues:
 
 - GitHub Issues: https://github.com/integromat/Fortémi/issues
-- Documentation: http://localhost:3000/docs
+- Consumer documentation: https://docs.fortemi.com/server/
+- Operator OpenAPI inventory: http://localhost:3000/api/v1/operator/openapi.yaml (admin bearer required)
 - MCP Troubleshooting: [mcp-troubleshooting.md](./mcp-troubleshooting.md)

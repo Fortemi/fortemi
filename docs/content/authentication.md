@@ -1029,8 +1029,9 @@ if __name__ == "__main__":
 
 ## Additional Resources
 
-- **API Reference:** `/docs` (Swagger UI)
-- **OpenAPI Spec:** `/openapi.yaml`
+- **Consumer API Reference:** [API Reference](#/developers-api)
+- **Operator Swagger UI:** `/api/v1/operator/docs` (admin bearer required; request execution disabled)
+- **Operator OpenAPI Spec:** `/api/v1/operator/openapi.yaml` (admin bearer required)
 - **OAuth2 RFC 6749:** https://datatracker.ietf.org/doc/html/rfc6749
 - **PKCE RFC 7636:** https://datatracker.ietf.org/doc/html/rfc7636
 - **Token Introspection RFC 7662:** https://datatracker.ietf.org/doc/html/rfc7662

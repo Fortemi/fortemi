@@ -808,4 +808,4 @@ query.required_schemes = vec![format!("scheme://{}", tenant_id)];
 
 ---
 
-For detailed configuration, see [Configuration Reference](#/operations-configuration). For deployment patterns, see [Use Cases](#/getting-started-use-cases). For API documentation, visit `/docs` on your running instance.
+For detailed configuration, see [Configuration Reference](#/operations-configuration). For deployment patterns, see [Use Cases](#/getting-started-use-cases). For consumer API documentation, see the [API Reference](#/developers-api). The full generated schema is available only to administrators at `/api/v1/operator/openapi.yaml`.

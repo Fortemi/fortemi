@@ -1624,7 +1624,7 @@ fn validate_generated_openapi(yaml: &str) -> Result<(), String> {
                     policy.path
                 ));
             }
-        } else if !matches!(policy.path, "/openapi.yaml" | "/asyncapi.yaml") && !documented {
+        } else if policy.action_family != "docs_schema" && !documented {
             return Err(format!(
                 "Exposed route is missing from OpenAPI: {}.",
                 policy.path
@@ -3498,17 +3498,17 @@ async fn main() -> anyhow::Result<()> {
         .route("/health/live", get(health_check_live))
         .route("/api/v1/health/streaming", get(streaming_health_check))
         .route("/api/v1/system/compatibility", get(system_compatibility))
-        // OpenAPI / Swagger UI
+        // Operator-only generated API inventory (#965).
         .merge(
-            SwaggerUi::new("/docs").config(
-                Config::new(["/openapi.yaml"])
-                    .try_it_out_enabled(true)
+            SwaggerUi::new("/api/v1/operator/docs").config(
+                Config::new(["/api/v1/operator/openapi.yaml"])
+                    .try_it_out_enabled(false)
                     .filter(true)
                     .display_request_duration(true),
             ),
         )
-        .route("/openapi.yaml", get(openapi_yaml))
-        .route("/asyncapi.yaml", get(asyncapi_yaml))
+        .route("/api/v1/operator/openapi.yaml", get(openapi_yaml))
+        .route("/api/v1/operator/asyncapi.yaml", get(asyncapi_yaml))
         // Notes CRUD
         .route("/api/v1/notes", get(list_notes).post(create_note))
         .route("/api/v1/notes/bulk", post(bulk_create_notes))
@@ -7120,11 +7120,14 @@ async fn cache_control_middleware(
     } else if path.starts_with("/health") || path.starts_with("/api/v1/health") {
         // Health checks — always fresh
         "no-cache, max-age=0"
+    } else if route_policy::is_operator_docs_route(&path) {
+        // Authenticated operator inventory must never enter a shared cache.
+        "no-store"
     } else if path.starts_with("/api/v1/") {
         // All other API GETs — allow private caching with revalidation
         "private, no-cache"
     } else {
-        // Static assets (docs, openapi.yaml)
+        // Public static assets.
         "public, max-age=3600"
     };
 
@@ -7329,8 +7332,7 @@ fn security_header_class(path: &str, response: &axum::response::Response) -> Sec
     if path == "/health" || path.starts_with("/api/v1/health") {
         return SecurityHeaderClass::PublicProbe;
     }
-    if path.starts_with("/docs")
-        || path.starts_with("/swagger")
+    if route_policy::is_operator_docs_route(path)
         || path.starts_with("/oauth")
         || path.ends_with(".html")
     {
@@ -7373,7 +7375,7 @@ fn is_download_or_media_response(path: &str, response: &axum::response::Response
 /// anonymous access is allowed.
 ///
 /// Behavior:
-/// - Public routes: bypass all auth (health, oauth, docs, SSE/WS)
+/// - Public routes: bypass all auth (health, OAuth protocol, callbacks, SSE/WS)
 /// - Bearer token present + valid: inject Auth with principal scope for policy evaluation
 /// - Bearer token present + invalid: always reject with 401
 /// - No token + REQUIRE_AUTH=true: reject with 401
@@ -7386,6 +7388,7 @@ async fn auth_middleware(
 ) -> axum::response::Response {
     let path = request.uri().path().to_string();
     let method = request.method().clone();
+    let requires_bearer = route_requires_bearer(state.require_auth, &path);
 
     // Public routes and CORS preflights bypass all auth.
     if is_auth_exempt(&method, &path) {
@@ -7463,7 +7466,7 @@ async fn auth_middleware(
         }
         None => {
             // No token provided
-            if state.require_auth {
+            if requires_bearer {
                 problem_response(
                     StatusCode::UNAUTHORIZED,
                     ProblemType::Unauthorized,
@@ -7507,10 +7510,22 @@ async fn authorize_middleware(
     let input =
         normalize_route_policy_input_for_authorization(&state, input, archive_ctx.as_ref()).await;
 
-    match authorize_policy_input(state.authorization_policy.as_ref(), &auth, &input).await {
+    let decision = if route_policy::is_operator_docs_route(input.policy.path) {
+        // Generated API inventory is operator-only even when personal mode uses
+        // AllowAllPolicy for the rest of the application.
+        authorize_policy_input(&RoleBasedPolicy, &auth, &input).await
+    } else {
+        authorize_policy_input(state.authorization_policy.as_ref(), &auth, &input).await
+    };
+
+    match decision {
         Ok(()) => next.run(request).await,
         Err(response) => response,
     }
+}
+
+fn route_requires_bearer(require_auth: bool, path: &str) -> bool {
+    require_auth || route_policy::is_operator_docs_route(path)
 }
 
 async fn normalize_route_policy_input_for_authorization(
@@ -9840,8 +9855,8 @@ fn build_compatibility_response_from_inputs(
         }),
         backoffice: build_backoffice_compatibility(),
         links: CompatibilityLinks {
-            openapi: "/openapi.yaml",
-            asyncapi: "/asyncapi.yaml",
+            openapi: route_policy::OPERATOR_OPENAPI_PATH,
+            asyncapi: route_policy::OPERATOR_ASYNCAPI_PATH,
             health: "/health",
             streaming_health: "/api/v1/health/streaming",
         },
@@ -40317,7 +40332,7 @@ mod tests {
         )
             .into_response();
 
-        apply_security_headers("/docs", &mut response);
+        apply_security_headers(route_policy::OPERATOR_DOCS_PATH, &mut response);
         let headers = response.headers();
 
         assert_eq!(headers["x-content-type-options"], "nosniff");
@@ -41896,6 +41911,44 @@ mod tests {
         assert_eq!(problem["detail"], "Authorization denied.");
         assert!(problem.get("error").is_none());
         assert!(!problem.to_string().contains("tenant:secret"));
+    }
+
+    #[tokio::test]
+    async fn operator_docs_require_admin_even_in_personal_mode() {
+        for path in [
+            route_policy::OPERATOR_DOCS_PATH,
+            "/api/v1/operator/docs/swagger-ui.css",
+            route_policy::OPERATOR_OPENAPI_PATH,
+            route_policy::OPERATOR_ASYNCAPI_PATH,
+        ] {
+            assert!(route_requires_bearer(false, path));
+
+            let input = route_policy::authorization_input_for_request(&Method::GET, path, None)
+                .expect("operator documentation route must have policy input");
+            let read_auth = Auth {
+                principal: AuthPrincipal::ApiKey {
+                    key_id: Uuid::new_v4(),
+                    scope: "read".to_string(),
+                },
+            };
+            let response = authorize_policy_input(&RoleBasedPolicy, &read_auth, &input)
+                .await
+                .expect_err("non-admin bearer must not read generated API inventory");
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+            let admin_auth = Auth {
+                principal: AuthPrincipal::ApiKey {
+                    key_id: Uuid::new_v4(),
+                    scope: "admin".to_string(),
+                },
+            };
+            authorize_policy_input(&RoleBasedPolicy, &admin_auth, &input)
+                .await
+                .expect("admin bearer should read generated API inventory");
+        }
+
+        assert!(!route_requires_bearer(false, "/api/v1/notes"));
+        assert!(route_requires_bearer(true, "/api/v1/notes"));
     }
 
     #[test]
@@ -55385,8 +55438,20 @@ not-json
         assert!(is_auth_exempt(&Method::GET, "/api/v1/health/streaming"));
         assert!(is_auth_exempt(&Method::GET, "/api/v1/health/knowledge"));
         assert!(is_auth_exempt(&Method::OPTIONS, "/api/v1/notes"));
-        assert!(is_auth_exempt(&Method::GET, "/openapi.yaml"));
-        assert!(is_auth_exempt(&Method::GET, "/docs"));
+        assert!(!is_auth_exempt(&Method::GET, "/openapi.yaml"));
+        assert!(!is_auth_exempt(&Method::GET, "/docs"));
+        assert!(!is_auth_exempt(
+            &Method::GET,
+            route_policy::OPERATOR_OPENAPI_PATH
+        ));
+        assert!(!is_auth_exempt(
+            &Method::GET,
+            route_policy::OPERATOR_ASYNCAPI_PATH
+        ));
+        assert!(!is_auth_exempt(
+            &Method::GET,
+            route_policy::OPERATOR_DOCS_PATH
+        ));
         assert!(is_auth_exempt(&Method::GET, "/oauth/token"));
         assert!(!is_auth_exempt(&Method::GET, "/api/v1/notes"));
         assert!(!is_auth_exempt(&Method::POST, "/api/v1/notes"));
