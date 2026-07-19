@@ -18,7 +18,7 @@ use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use matric_core::{Attachment, JobType};
+use matric_core::{Attachment, JobType, UsageMeter, UsageOutcome};
 use matric_db::Database;
 use matric_inference::transcription::{
     TranscriptionBackend, TranscriptionResult, TranscriptionSegment,
@@ -29,6 +29,7 @@ use crate::audio_transcription_handler::{
     store_transcript_and_captions,
 };
 use crate::handler::{JobContext, JobHandler, JobResult};
+use crate::media_usage::MediaUsageContext;
 
 fn audio_chunk_error_reason_code(error: &str) -> &'static str {
     let text = error.to_ascii_lowercase();
@@ -63,11 +64,20 @@ fn audio_chunk_text_len(text: &str) -> usize {
 pub struct AudioChunkTranscriptionHandler {
     db: Database,
     transcription: Arc<dyn TranscriptionBackend>,
+    usage_meter: Arc<dyn UsageMeter>,
 }
 
 impl AudioChunkTranscriptionHandler {
-    pub fn new(db: Database, transcription: Arc<dyn TranscriptionBackend>) -> Self {
-        Self { db, transcription }
+    pub fn new(
+        db: Database,
+        transcription: Arc<dyn TranscriptionBackend>,
+        usage_meter: Arc<dyn UsageMeter>,
+    ) -> Self {
+        Self {
+            db,
+            transcription,
+            usage_meter,
+        }
     }
 }
 
@@ -129,6 +139,14 @@ impl JobHandler for AudioChunkTranscriptionHandler {
             Ok(sc) => sc,
             Err(e) => return e,
         };
+        let usage = MediaUsageContext::new(self.usage_meter.clone(), &ctx, schema)
+            .inspect_err(|error| {
+                warn!(
+                    error_len = error.to_string().chars().count(),
+                    "Audio chunk usage context construction failed"
+                );
+            })
+            .ok();
 
         ctx.report_progress(5, Some("Checking backend availability"));
 
@@ -210,8 +228,20 @@ impl JobHandler for AudioChunkTranscriptionHandler {
             .transcribe(&chunk_data, "audio/wav", None)
             .await
         {
-            Ok(r) => r,
+            Ok(result) => {
+                if let Some(usage) = &usage {
+                    usage
+                        .record_audio_seconds(result.duration_secs, UsageOutcome::Completed)
+                        .await;
+                }
+                result
+            }
             Err(e) => {
+                if let Some(usage) = &usage {
+                    usage
+                        .record_audio_seconds(None, UsageOutcome::FailedAfterPartialUsage)
+                        .await;
+                }
                 let error_text = e.to_string();
                 return JobResult::Retry(format!(
                     "Whisper transcription failed for chunk {} ({})",

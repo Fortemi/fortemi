@@ -21,11 +21,12 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use matric_core::{captions, JobRepository, JobType};
+use matric_core::{captions, JobRepository, JobType, UsageMeter, UsageOutcome};
 use matric_db::{Database, PgFileStorageRepository, SchemaContext};
 use matric_inference::transcription::{TranscriptionBackend, TranscriptionResult};
 
 use crate::handler::{JobContext, JobHandler, JobResult};
+use crate::media_usage::MediaUsageContext;
 
 /// Extract the target schema from a job's payload.
 pub(crate) fn extract_schema(ctx: &JobContext) -> &str {
@@ -453,11 +454,20 @@ pub(crate) async fn check_video_fan_in(
 pub struct AudioTranscriptionHandler {
     db: Database,
     transcription: Arc<dyn TranscriptionBackend>,
+    usage_meter: Arc<dyn UsageMeter>,
 }
 
 impl AudioTranscriptionHandler {
-    pub fn new(db: Database, transcription: Arc<dyn TranscriptionBackend>) -> Self {
-        Self { db, transcription }
+    pub fn new(
+        db: Database,
+        transcription: Arc<dyn TranscriptionBackend>,
+        usage_meter: Arc<dyn UsageMeter>,
+    ) -> Self {
+        Self {
+            db,
+            transcription,
+            usage_meter,
+        }
     }
 }
 
@@ -496,6 +506,14 @@ impl JobHandler for AudioTranscriptionHandler {
             Ok(sc) => sc,
             Err(e) => return e,
         };
+        let usage = MediaUsageContext::new(self.usage_meter.clone(), &ctx, schema)
+            .inspect_err(|error| {
+                warn!(
+                    error_len = error.to_string().chars().count(),
+                    "Audio transcription usage context construction failed"
+                );
+            })
+            .ok();
 
         let is_video = payload
             .get("is_video")
@@ -631,6 +649,7 @@ impl JobHandler for AudioTranscriptionHandler {
                 &wav_path,
                 is_video,
                 schema,
+                usage.as_ref(),
             )
             .await
         }
@@ -649,6 +668,7 @@ impl AudioTranscriptionHandler {
         wav_path: &std::path::Path,
         is_video: bool,
         schema: &str,
+        usage: Option<&MediaUsageContext>,
     ) -> JobResult {
         ctx.report_progress(30, Some("Transcribing audio"));
 
@@ -668,8 +688,20 @@ impl AudioTranscriptionHandler {
             .transcribe(&wav_data, "audio/wav", None)
             .await
         {
-            Ok(r) => r,
+            Ok(result) => {
+                if let Some(usage) = usage {
+                    usage
+                        .record_audio_seconds(result.duration_secs, UsageOutcome::Completed)
+                        .await;
+                }
+                result
+            }
             Err(e) => {
+                if let Some(usage) = usage {
+                    usage
+                        .record_audio_seconds(None, UsageOutcome::FailedAfterPartialUsage)
+                        .await;
+                }
                 let error_text = e.to_string();
                 return JobResult::Retry(audio_transcription_failure_detail(
                     "whisper_transcription",

@@ -2368,6 +2368,7 @@ version = "2026.7.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bigdecimal",
  "calamine",
  "chrono",
  "flate2",

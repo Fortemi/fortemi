@@ -3218,12 +3218,17 @@ async fn main() -> anyhow::Result<()> {
         // Always register — handler retries if Whisper backend is unavailable.
         if let Some(ref backend) = transcription_backend {
             worker
-                .register_handler(AudioTranscriptionHandler::new(db.clone(), backend.clone()))
+                .register_handler(AudioTranscriptionHandler::new(
+                    db.clone(),
+                    backend.clone(),
+                    usage_meter.clone(),
+                ))
                 .await;
             worker
                 .register_handler(AudioChunkTranscriptionHandler::new(
                     db.clone(),
                     backend.clone(),
+                    usage_meter.clone(),
                 ))
                 .await;
         }
@@ -60666,6 +60671,7 @@ not-json
         let handler = AudioTranscriptionHandler::new(
             db.clone(),
             Arc::new(MockTranscriptionBackend) as Arc<dyn TranscriptionBackend>,
+            Arc::new(NoOpMeter),
         );
         match handler.execute(matric_jobs::JobContext::new(job)).await {
             matric_jobs::JobResult::Success(_) => {}

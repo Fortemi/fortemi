@@ -50,6 +50,7 @@ pub mod keyframe_character_vision_handler;
 pub mod keyframe_setting_vision_handler;
 pub mod keyframe_vision_handler;
 pub mod media_optimize_handler;
+mod media_usage;
 pub mod pause;
 pub mod relabel_handler;
 pub mod sidecar;
