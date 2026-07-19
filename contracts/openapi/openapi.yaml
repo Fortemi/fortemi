@@ -6156,22 +6156,26 @@ paths:
     get:
       tags:
       - System
-      summary: Live health check endpoint (readiness probe).
-      description: |-
-        Performs concurrent live connectivity checks on all dependent services:
-        - PostgreSQL (SELECT 1)
-        - Redis search cache (connection check)
-        - Ollama vision backend (if configured)
-        - Whisper transcription backend (if configured)
-
-        Returns 200 for healthy or degraded (optional services down),
-        503 when critical services (PostgreSQL) are unreachable.
+      summary: Compatibility alias for the canonical `/livez` process liveness probe.
       operationId: health_check_live
       responses:
         '200':
-          description: Healthy or degraded
-        '503':
-          description: Critical service unavailable
+          description: Process is live
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security: []
+  /livez:
+    get:
+      tags:
+      - System
+      operationId: liveness_probe
+      responses:
+        '200':
+          description: Process is live
         '429':
           content:
             application/problem+json:
@@ -6296,6 +6300,23 @@ paths:
       responses:
         '200':
           description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security: []
+  /readyz:
+    get:
+      tags:
+      - System
+      operationId: readiness_probe
+      responses:
+        '200':
+          description: Process is ready to serve traffic
+        '503':
+          description: Process is draining or a required dependency is unavailable
         '429':
           content:
             application/problem+json:

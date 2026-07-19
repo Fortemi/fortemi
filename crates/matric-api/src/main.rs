@@ -1006,7 +1006,7 @@ use matric_jobs::{
     MediaOptimizeHandler, OfficeConvertAdapter, PauseState, PdfOcrAdapter, PdfTextAdapter,
     SpeakerDiarizationHandler, SpeakerRelabelHandler, SpreadsheetAdapter, StructuredExtractAdapter,
     TextNativeAdapter, ThumbnailSpriteHandler, VideoMultimodalAdapter, ViewAssemblyHandler,
-    ViewVisionHandler, VisionAdapter, WorkerConfig, WorkerEvent,
+    ViewVisionHandler, VisionAdapter, WorkerConfig, WorkerEvent, WorkerHandle,
 };
 use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
@@ -1057,6 +1057,32 @@ type GlobalRateLimiter = RateLimiter<
 static RTP_AUDIO_FRAMES_TOTAL: AtomicUsize = AtomicUsize::new(0);
 static RTP_CODEC_DECODE_FAILURES_TOTAL: AtomicUsize = AtomicUsize::new(0);
 static RTP_OUTBOX_WRITE_FAILURES_TOTAL: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Clone, Default)]
+struct LifecycleState {
+    ready: Arc<AtomicBool>,
+    draining: Arc<AtomicBool>,
+}
+
+impl LifecycleState {
+    fn mark_ready(&self) {
+        self.draining.store(false, Ordering::Release);
+        self.ready.store(true, Ordering::Release);
+    }
+
+    fn begin_draining(&self) {
+        self.ready.store(false, Ordering::Release);
+        self.draining.store(true, Ordering::Release);
+    }
+
+    fn is_ready(&self) -> bool {
+        self.ready.load(Ordering::Acquire) && !self.is_draining()
+    }
+
+    fn is_draining(&self) -> bool {
+        self.draining.load(Ordering::Acquire)
+    }
+}
 
 /// Application state shared across handlers.
 #[derive(Clone)]
@@ -1152,6 +1178,8 @@ struct AppState {
     ingest_stream_metrics: Arc<crate::handlers::ingest_stream::IngestStreamMetrics>,
     /// Per-connector counters for inbound event sources, surfaced on `/health/streaming` (#833).
     inbound_metrics: Arc<matric_jobs::inbound::InboundMetrics>,
+    /// Process readiness and drain state for orchestrator probes.
+    lifecycle: LifecycleState,
 }
 
 impl AppState {
@@ -1278,7 +1306,8 @@ impl AppState {
         handlers::provenance::create_prov_location, handlers::provenance::create_named_location,
         handlers::provenance::create_prov_device, handlers::provenance::create_file_provenance,
         handlers::provenance::create_note_provenance,
-        streaming_health_check, health_check_live, get_related_notes,
+        streaming_health_check, health_check_live, liveness_probe, readiness_probe,
+        get_related_notes,
         graph_diagnostics, capture_diagnostics_snapshot, list_diagnostics_snapshots,
         compare_diagnostics_snapshots, recompute_snn_scores, pfnet_sparsify,
         coarse_community_detection, trigger_graph_maintenance,
@@ -2005,6 +2034,11 @@ struct RateLimitConfig {
     period_secs: u64,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ShutdownConfig {
+    grace_secs: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UsageMeterMode {
     NoOp,
@@ -2036,6 +2070,8 @@ struct LoggingConfig {
 
 const MAX_RATE_LIMIT_REQUESTS: u32 = 1_000_000;
 const MAX_RATE_LIMIT_PERIOD_SECS: u64 = 86_400;
+const DEFAULT_SHUTDOWN_GRACE_SECS: u64 = 30;
+const MAX_SHUTDOWN_GRACE_SECS: u64 = 300;
 const DEFAULT_RUST_LOG: &str = "info";
 
 fn strict_bool_value(name: &str, value: Option<&str>, default: bool) -> anyhow::Result<bool> {
@@ -2148,6 +2184,33 @@ where
         requests,
         period_secs,
     })
+}
+
+fn parse_shutdown_config() -> anyhow::Result<ShutdownConfig> {
+    parse_shutdown_config_with_env(|name| std::env::var(name).ok())
+}
+
+fn parse_shutdown_config_with_env<F>(env: F) -> anyhow::Result<ShutdownConfig>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let grace_secs = match env("MATRIC_SHUTDOWN_GRACE_SECS") {
+        Some(raw) => {
+            let value = raw.parse::<u64>().map_err(|_| {
+                anyhow::anyhow!("MATRIC_SHUTDOWN_GRACE_SECS must be an integer, got '{raw}'")
+            })?;
+            if value == 0 || value > MAX_SHUTDOWN_GRACE_SECS {
+                anyhow::bail!(
+                    "MATRIC_SHUTDOWN_GRACE_SECS must be between 1 and \
+                     {MAX_SHUTDOWN_GRACE_SECS}"
+                );
+            }
+            value
+        }
+        None => DEFAULT_SHUTDOWN_GRACE_SECS,
+    };
+
+    Ok(ShutdownConfig { grace_secs })
 }
 
 fn parse_rate_limit_requests_value(name: &str, raw: Option<&str>) -> anyhow::Result<u32> {
@@ -2614,6 +2677,103 @@ fn cors_layer(allowed_origins: Vec<HeaderValue>) -> CorsLayer {
         ))
 }
 
+async fn wait_for_shutdown_request(rx: &mut tokio::sync::watch::Receiver<bool>) {
+    if *rx.borrow() {
+        return;
+    }
+    while rx.changed().await.is_ok() {
+        if *rx.borrow() {
+            return;
+        }
+    }
+}
+
+#[cfg(unix)]
+async fn wait_for_shutdown_signal() -> std::io::Result<&'static str> {
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => {
+            result?;
+            Ok("sigint")
+        }
+        signal = terminate.recv() => {
+            signal
+                .map(|_| "sigterm")
+                .ok_or_else(|| std::io::Error::other("SIGTERM listener closed"))
+        }
+    }
+}
+
+#[cfg(not(unix))]
+async fn wait_for_shutdown_signal() -> std::io::Result<&'static str> {
+    tokio::signal::ctrl_c().await?;
+    Ok("sigint")
+}
+
+async fn serve_api(
+    listener: tokio::net::TcpListener,
+    app: Router,
+    lifecycle: LifecycleState,
+    worker_handle: Option<WorkerHandle>,
+    grace_secs: u64,
+) -> anyhow::Result<()> {
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let signal_lifecycle = lifecycle.clone();
+    let signal_task = tokio::spawn(async move {
+        match wait_for_shutdown_signal().await {
+            Ok(signal) => {
+                signal_lifecycle.begin_draining();
+                info!(signal, grace_secs, "Shutdown signal received; draining");
+                let _ = shutdown_tx.send(true);
+                if let Some(handle) = worker_handle {
+                    if let Err(error) = handle.shutdown().await {
+                        warn!(
+                            error_len = telemetry_text_len(&error.to_string()),
+                            "Failed to signal job worker shutdown"
+                        );
+                    }
+                }
+            }
+            Err(error) => {
+                error!(
+                    error_len = telemetry_text_len(&error.to_string()),
+                    "Failed to install shutdown signal listener"
+                );
+            }
+        }
+    });
+
+    let mut server_shutdown_rx = shutdown_rx.clone();
+    let server = std::future::IntoFuture::into_future(
+        axum::serve(listener, app).with_graceful_shutdown(async move {
+            wait_for_shutdown_request(&mut server_shutdown_rx).await;
+        }),
+    );
+    tokio::pin!(server);
+
+    let mut grace_rx = shutdown_rx;
+    let grace_timeout = async move {
+        wait_for_shutdown_request(&mut grace_rx).await;
+        tokio::time::sleep(std::time::Duration::from_secs(grace_secs)).await;
+    };
+    tokio::pin!(grace_timeout);
+
+    let result = tokio::select! {
+        result = &mut server => result.map_err(anyhow::Error::from),
+        _ = &mut grace_timeout => {
+            warn!(grace_secs, "Shutdown grace period exhausted; forcing process exit");
+            Ok(())
+        }
+    };
+    if lifecycle.is_draining() {
+        let _ = signal_task.await;
+    } else {
+        signal_task.abort();
+    }
+    lifecycle.begin_draining();
+    result
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     if export_openapi_if_requested()? {
@@ -2721,6 +2881,7 @@ async fn main() -> anyhow::Result<()> {
 
     let security_config = parse_startup_security_config()?;
     let rate_limit_config = parse_rate_limit_config()?;
+    let shutdown_config = parse_shutdown_config()?;
     let max_upload_size = std::env::var("MATRIC_MAX_UPLOAD_SIZE_BYTES")
         .ok()
         .and_then(|value| value.parse().ok())
@@ -3126,7 +3287,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let mut active_extraction_strategies: Vec<String> = Vec::new();
-    let _worker_handle = if worker_enabled {
+    let worker_handle = if worker_enabled {
         info!("Starting job worker...");
 
         // Build extraction adapter registry with conditional registration
@@ -3598,6 +3759,7 @@ async fn main() -> anyhow::Result<()> {
     let ingest_cursor_store = matric_api::services::IngestCursorStore::from_env().await;
     let ingest_token_store = matric_api::services::IngestTokenStore::from_env().await;
     let idempotency_store = matric_api::services::IdempotencyStore::from_env().await;
+    let lifecycle = LifecycleState::default();
     let state = AppState {
         db,
         search,
@@ -3654,6 +3816,7 @@ async fn main() -> anyhow::Result<()> {
             crate::handlers::ingest_stream::IngestStreamMetrics::default(),
         ),
         inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
+        lifecycle: lifecycle.clone(),
     };
 
     // Spawn the inbound external event source supervisor (#833, Phase D).
@@ -3748,6 +3911,8 @@ async fn main() -> anyhow::Result<()> {
         // Health check
         .route("/health", get(health_check))
         .route("/health/live", get(health_check_live))
+        .route("/livez", get(liveness_probe))
+        .route("/readyz", get(readiness_probe))
         .route("/api/v1/health/streaming", get(streaming_health_check))
         .route("/api/v1/system/compatibility", get(system_compatibility))
         // Operator-only generated API inventory (#965).
@@ -4361,7 +4526,19 @@ async fn main() -> anyhow::Result<()> {
         "Starting server"
     );
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    lifecycle.mark_ready();
+    info!(
+        shutdown_grace_secs = shutdown_config.grace_secs,
+        "Server ready"
+    );
+    serve_api(
+        listener,
+        app,
+        lifecycle,
+        worker_handle,
+        shutdown_config.grace_secs,
+    )
+    .await?;
 
     Ok(())
 }
@@ -7959,11 +8136,17 @@ async fn rate_limit_middleware(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    if let Some(response) = current_rate_limit_rejection(state.rate_limiter.as_deref()) {
-        tracing::warn!("Rate limit exceeded");
-        return response;
+    if !is_orchestrator_probe_path(request.uri().path()) {
+        if let Some(response) = current_rate_limit_rejection(state.rate_limiter.as_deref()) {
+            tracing::warn!("Rate limit exceeded");
+            return response;
+        }
     }
     next.run(request).await
+}
+
+fn is_orchestrator_probe_path(path: &str) -> bool {
+    matches!(path, "/health/live" | "/livez" | "/readyz")
 }
 
 // =============================================================================
@@ -8011,7 +8194,10 @@ async fn cache_control_middleware(
     {
         // Stable reference data — cache for 5 minutes
         "public, max-age=300"
-    } else if path.starts_with("/health") || path.starts_with("/api/v1/health") {
+    } else if path.starts_with("/health")
+        || path.starts_with("/api/v1/health")
+        || is_orchestrator_probe_path(&path)
+    {
         // Health checks — always fresh
         "no-cache, max-age=0"
     } else if route_policy::is_operator_docs_route(&path) {
@@ -8223,7 +8409,7 @@ fn apply_security_headers(path: &str, response: &mut axum::response::Response) {
 }
 
 fn security_header_class(path: &str, response: &axum::response::Response) -> SecurityHeaderClass {
-    if path == "/health" || path.starts_with("/api/v1/health") {
+    if path == "/health" || path.starts_with("/api/v1/health") || is_orchestrator_probe_path(path) {
         return SecurityHeaderClass::PublicProbe;
     }
     if route_policy::is_operator_docs_route(path)
@@ -10414,6 +10600,7 @@ async fn rate_limit_status(State(state): State<AppState>) -> impl IntoResponse {
 // HEALTH CHECK
 // =============================================================================
 
+#[cfg(test)]
 fn health_dependency_error_code(kind: &str) -> &'static str {
     match kind {
         "database_query" => "database_query_failed",
@@ -10427,6 +10614,7 @@ fn health_dependency_error_code(kind: &str) -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn set_health_service_reason_code(
     services: &mut serde_json::Value,
     service_name: &str,
@@ -10518,6 +10706,10 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
             },
         },
         "job_processing": job_processing,
+        "lifecycle": {
+            "ready": state.lifecycle.is_ready(),
+            "draining": state.lifecycle.is_draining(),
+        },
         "sse": state.event_bus.metrics.snapshot(),
     }))
 }
@@ -10988,243 +11180,84 @@ fn build_rtp_metrics(
     })
 }
 
-/// Live health check endpoint (readiness probe).
-///
-/// Performs concurrent live connectivity checks on all dependent services:
-/// - PostgreSQL (SELECT 1)
-/// - Redis search cache (connection check)
-/// - Ollama vision backend (if configured)
-/// - Whisper transcription backend (if configured)
-///
-/// Returns 200 for healthy or degraded (optional services down),
-/// 503 when critical services (PostgreSQL) are unreachable.
+fn live_probe_response() -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "live" })),
+    )
+}
+
+#[utoipa::path(
+    get,
+    path = "/livez",
+    tag = "System",
+    responses((status = 200, description = "Process is live"))
+)]
+async fn liveness_probe() -> impl IntoResponse {
+    live_probe_response()
+}
+
+/// Compatibility alias for the canonical `/livez` process liveness probe.
 #[utoipa::path(
     get,
     path = "/health/live",
     tag = "System",
+    responses((status = 200, description = "Process is live"))
+)]
+async fn health_check_live() -> impl IntoResponse {
+    live_probe_response()
+}
+
+#[utoipa::path(
+    get,
+    path = "/readyz",
+    tag = "System",
     responses(
-        (status = 200, description = "Healthy or degraded"),
-        (status = 503, description = "Critical service unavailable"),
+        (status = 200, description = "Process is ready to serve traffic"),
+        (status = 503, description = "Process is draining or a required dependency is unavailable"),
     )
 )]
-async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
-    let start = std::time::Instant::now();
+async fn readiness_probe(State(state): State<AppState>) -> impl IntoResponse {
+    if !state.lifecycle.is_ready() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "status": "not_ready",
+                "reason_code": if state.lifecycle.is_draining() {
+                    "draining"
+                } else {
+                    "initializing"
+                },
+            })),
+        );
+    }
 
-    // Run all checks concurrently
-    let (
-        db_result,
-        redis_result,
-        inference_result,
-        vision_result,
-        transcription_result,
-        ner_result,
-        diarization_result,
-    ) = tokio::join!(
-        // PostgreSQL: SELECT 1 with 5s timeout
-        async {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&state.db.pool),
-            )
-            .await
-            {
-                Ok(Ok(1)) => ("ok", None),
-                Ok(Ok(_)) => ("ok", None),
-                Ok(Err(_)) => (
-                    "error",
-                    Some(health_dependency_error_code("database_query")),
-                ),
-                Err(_) => (
-                    "error",
-                    Some(health_dependency_error_code("dependency_timeout")),
-                ),
-            }
-        },
-        // Redis: connection check
-        async {
-            if state.search_cache.is_connected().await {
-                ("ok", None)
-            } else {
-                (
-                    "unavailable",
-                    Some(health_dependency_error_code("cache_unavailable")),
-                )
-            }
-        },
-        // Inference backend (Ollama generation/embedding) (#568)
-        async {
-            match state.generation_backend() {
-                Some(backend) => match backend.health_check().await {
-                    Ok(true) => ("ok", None),
-                    Ok(false) => (
-                        "error",
-                        Some(health_dependency_error_code("provider_unreachable")),
-                    ),
-                    Err(_) => (
-                        "error",
-                        Some(health_dependency_error_code("provider_check")),
-                    ),
-                },
-                None => (
-                    "error",
-                    Some(health_dependency_error_code("backend_not_initialized")),
-                ),
-            }
-        },
-        // Vision backend (optional)
-        async {
-            match &state.vision_backend {
-                Some(backend) => match backend.health_check().await {
-                    Ok(_) => ("ok", None),
-                    Err(_) => (
-                        "error",
-                        Some(health_dependency_error_code("provider_check")),
-                    ),
-                },
-                None => ("not_configured", None),
-            }
-        },
-        // Transcription backend (optional)
-        async {
-            match &state.transcription_backend {
-                Some(backend) => match backend.health_check().await {
-                    Ok(_) => ("ok", None),
-                    Err(_) => (
-                        "error",
-                        Some(health_dependency_error_code("provider_check")),
-                    ),
-                },
-                None => ("not_configured", None),
-            }
-        },
-        // GLiNER NER backend (optional)
-        async {
-            match &state.ner_backend {
-                Some(backend) => match backend.health_check().await {
-                    Ok(true) => ("ok", None),
-                    Ok(false) => (
-                        "error",
-                        Some(health_dependency_error_code("provider_unhealthy")),
-                    ),
-                    Err(_) => (
-                        "error",
-                        Some(health_dependency_error_code("provider_check")),
-                    ),
-                },
-                None => ("not_configured", None),
-            }
-        },
-        // pyannote diarization backend (optional)
-        async {
-            match &state.diarization_backend {
-                Some(backend) => match backend.health_check().await {
-                    Ok(true) => ("ok", None),
-                    Ok(false) => (
-                        "error",
-                        Some(health_dependency_error_code("provider_unhealthy")),
-                    ),
-                    Err(_) => (
-                        "error",
-                        Some(health_dependency_error_code("provider_check")),
-                    ),
-                },
-                None => ("not_configured", None),
-            }
-        },
-    );
-
-    let elapsed_ms = start.elapsed().as_millis();
-
-    // PostgreSQL is critical — if it's down, the service is unhealthy
-    let db_healthy = db_result.0 == "ok";
-
-    // Determine overall status
-    let (overall_status, http_status) = if !db_healthy {
-        ("unhealthy", StatusCode::SERVICE_UNAVAILABLE)
-    } else if redis_result.0 == "error"
-        || (inference_result.0 == "error")
-        || (vision_result.0 == "error")
-        || (transcription_result.0 == "error")
-        || (ner_result.0 == "error")
-        || (diarization_result.0 == "error")
-    {
-        ("degraded", StatusCode::OK)
+    if dependencies_ready(&state).await {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({ "status": "ready" })),
+        )
     } else {
-        ("healthy", StatusCode::OK)
-    };
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "status": "not_ready",
+                "reason_code": "required_dependency_unavailable",
+            })),
+        )
+    }
+}
 
-    let mut services = serde_json::json!({
-        "postgresql": {
-            "status": db_result.0,
-        },
-        "redis": {
-            "status": redis_result.0,
-        },
-        "inference": {
-            "status": inference_result.0,
-        },
-        "vision": {
-            "status": vision_result.0,
-        },
-        "transcription": {
-            "status": transcription_result.0,
-        },
-        "ner": {
-            "status": ner_result.0,
-        },
-        "diarization": {
-            "status": diarization_result.0,
-        },
-    });
-
-    // Add stable dependency reason codes where present. These are client-safe
-    // classifiers, not raw backend error messages.
-    if let Some(err) = &db_result.1 {
-        set_health_service_reason_code(&mut services, "postgresql", err);
-    }
-    if let Some(err) = &redis_result.1 {
-        set_health_service_reason_code(&mut services, "redis", err);
-    }
-    if let Some(err) = &inference_result.1 {
-        set_health_service_reason_code(&mut services, "inference", err);
-    }
-    if let Some(err) = &vision_result.1 {
-        set_health_service_reason_code(&mut services, "vision", err);
-    }
-    if let Some(err) = &transcription_result.1 {
-        set_health_service_reason_code(&mut services, "transcription", err);
-    }
-    if let Some(err) = &ner_result.1 {
-        set_health_service_reason_code(&mut services, "ner", err);
-    }
-    if let Some(err) = &diarization_result.1 {
-        set_health_service_reason_code(&mut services, "diarization", err);
-    }
-
-    let body = serde_json::json!({
-        "status": overall_status,
-        "version": env!("CARGO_PKG_VERSION"),
-        "git_sha": state.git_sha,
-        "build_date": state.build_date,
-        "check_duration_ms": elapsed_ms,
-        "services": services,
-        "capabilities": {
-            "vision": state.vision_backend.is_some(),
-            "audio_transcription": state.transcription_backend.is_some(),
-            "speaker_diarization": state.diarization_backend.is_some(),
-            "ner": state.ner_backend.is_some(),
-            "auth_required": state.require_auth,
-            "extraction_strategies": state.extraction_strategies,
-            "chat": {
-                "available": state.generation_backend().is_some()
-                    && state.inference_available.load(Ordering::Relaxed),
-                "configured": state.generation_backend().is_some(),
-                "max_concurrent": matric_core::defaults::chat_max_concurrent(),
-            },
-        },
-    });
-
-    (http_status, Json(body))
+/// Check required dependencies without coupling readiness to optional backends.
+async fn dependencies_ready(state: &AppState) -> bool {
+    matches!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&state.db.pool),
+        )
+        .await,
+        Ok(Ok(_))
+    )
 }
 
 // =============================================================================
@@ -52935,6 +52968,7 @@ not-json
                 crate::handlers::ingest_stream::IngestStreamMetrics::default(),
             ),
             inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
+            lifecycle: LifecycleState::default(),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
@@ -53303,6 +53337,108 @@ not-json
         assert!(config.enabled);
         assert_eq!(config.requests, 100);
         assert_eq!(config.period_secs, 60);
+    }
+
+    #[test]
+    fn shutdown_config_is_bounded_and_strict() {
+        let default = parse_shutdown_config_with_env(|_| None).unwrap();
+        assert_eq!(default.grace_secs, DEFAULT_SHUTDOWN_GRACE_SECS);
+
+        let configured = parse_shutdown_config_with_env(|name| {
+            (name == "MATRIC_SHUTDOWN_GRACE_SECS").then(|| "45".to_string())
+        })
+        .unwrap();
+        assert_eq!(configured.grace_secs, 45);
+
+        for invalid in ["0", "301", "thirty"] {
+            let error = parse_shutdown_config_with_env(|name| {
+                (name == "MATRIC_SHUTDOWN_GRACE_SECS").then(|| invalid.to_string())
+            })
+            .expect_err("invalid shutdown grace must fail startup");
+            assert!(error.to_string().contains("MATRIC_SHUTDOWN_GRACE_SECS"));
+        }
+    }
+
+    #[test]
+    fn lifecycle_transitions_from_initializing_to_ready_to_draining() {
+        let lifecycle = LifecycleState::default();
+        assert!(!lifecycle.is_ready());
+        assert!(!lifecycle.is_draining());
+
+        lifecycle.mark_ready();
+        assert!(lifecycle.is_ready());
+        assert!(!lifecycle.is_draining());
+
+        lifecycle.begin_draining();
+        assert!(!lifecycle.is_ready());
+        assert!(lifecycle.is_draining());
+    }
+
+    #[test]
+    fn canonical_orchestrator_probes_are_rate_limit_exempt() {
+        for path in ["/livez", "/readyz", "/health/live"] {
+            assert!(is_orchestrator_probe_path(path));
+        }
+        assert!(!is_orchestrator_probe_path("/health"));
+        assert!(!is_orchestrator_probe_path("/api/v1/notes"));
+    }
+
+    #[tokio::test]
+    async fn shutdown_request_waiter_unblocks_only_after_notification() {
+        let (tx, mut rx) = tokio::sync::watch::channel(false);
+        let mut waiter = tokio::spawn(async move {
+            wait_for_shutdown_request(&mut rx).await;
+        });
+
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(10), &mut waiter)
+                .await
+                .is_err(),
+            "waiter must remain blocked before shutdown"
+        );
+
+        tx.send(true).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+            .await
+            .expect("waiter should observe shutdown")
+            .expect("waiter task should complete");
+    }
+
+    #[test]
+    fn liveness_response_is_small_and_process_local() {
+        let (status, Json(body)) = live_probe_response();
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, serde_json::json!({ "status": "live" }));
+    }
+
+    #[tokio::test]
+    async fn readiness_fails_before_ready_and_during_drain() {
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect to test database");
+        let state = build_call_api_test_state(db, &database_url).await;
+
+        let initializing = readiness_probe(State(state.clone())).await.into_response();
+        assert_eq!(initializing.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            read_response_json(initializing).await["reason_code"],
+            "initializing"
+        );
+
+        state.lifecycle.mark_ready();
+        let ready = readiness_probe(State(state.clone())).await.into_response();
+        assert_eq!(ready.status(), StatusCode::OK);
+        assert_eq!(read_response_json(ready).await["status"], "ready");
+
+        state.lifecycle.begin_draining();
+        let draining = readiness_probe(State(state)).await.into_response();
+        assert_eq!(draining.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            read_response_json(draining).await["reason_code"],
+            "draining"
+        );
     }
 
     #[test]
@@ -57326,6 +57462,8 @@ not-json
     fn auth_exemption_list_matches_adr_094() {
         assert!(is_auth_exempt(&Method::GET, "/health"));
         assert!(is_auth_exempt(&Method::GET, "/health/live"));
+        assert!(is_auth_exempt(&Method::GET, "/livez"));
+        assert!(is_auth_exempt(&Method::GET, "/readyz"));
         assert!(is_auth_exempt(&Method::GET, "/api/v1/health/streaming"));
         assert!(is_auth_exempt(&Method::GET, "/api/v1/health/knowledge"));
         assert!(is_auth_exempt(&Method::OPTIONS, "/api/v1/notes"));
@@ -57472,6 +57610,7 @@ not-json
                 crate::handlers::ingest_stream::IngestStreamMetrics::default(),
             ),
             inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
+            lifecycle: LifecycleState::default(),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
@@ -59185,6 +59324,7 @@ not-json
                 crate::handlers::ingest_stream::IngestStreamMetrics::default(),
             ),
             inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
+            lifecycle: LifecycleState::default(),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
@@ -59518,6 +59658,7 @@ not-json
                 crate::handlers::ingest_stream::IngestStreamMetrics::default(),
             ),
             inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
+            lifecycle: LifecycleState::default(),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),

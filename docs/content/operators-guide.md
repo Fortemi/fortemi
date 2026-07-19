@@ -577,8 +577,9 @@ curl -X DELETE http://localhost:3000/api/v1/embedding-sets/my-set-slug
 
 | Endpoint | Purpose | Notes |
 |----------|---------|-------|
-| `GET /health` | Fast health check | Always returns 200 if the API process is running |
-| `GET /api/v1/health/live` | Live connectivity check | Probes all backends; returns 503 if PostgreSQL is down |
+| `GET /health` | Aggregate diagnostics | Capability and subsystem summary; not an orchestrator probe |
+| `GET /livez` | Process liveness | Cheap process-local check; `/health/live` is a compatibility alias |
+| `GET /readyz` | Traffic readiness | Returns 503 during drain or when PostgreSQL is unavailable |
 
 The `/health` response includes capability flags that reflect what is actually running:
 
@@ -614,37 +615,24 @@ curl http://localhost:3000/health
 | `extraction_strategies` | List of registered attachment extraction adapters |
 | `job_processing` | `"running"` or `"paused"` (reflects global pause state) |
 
-### Live Health Check (Readiness Probe)
+### Orchestrator Probes
 
-Use `/api/v1/health/live` as a readiness probe in container orchestration. It checks each backend concurrently with a 5-second timeout:
+Use `/livez` for liveness and `/readyz` for readiness:
 
 ```bash
-curl http://localhost:3000/api/v1/health/live
+curl http://localhost:3000/livez
+curl http://localhost:3000/readyz
 ```
 
 ```json
-{
-  "status": "healthy",
-  "check_duration_ms": 12,
-  "services": {
-    "postgresql": { "status": "ok" },
-    "redis": { "status": "ok" },
-    "vision": { "status": "ok" },
-    "transcription": { "status": "not_configured" },
-    "ner": { "status": "not_configured" }
-  }
-}
+{"status":"ready"}
 ```
 
-**Service statuses:**
-- `ok` — reachable and responding
-- `not_configured` — backend is not configured (not an error)
-- `error` — configured but unreachable (check the `error` field for details)
-- `unavailable` — connected but reporting unhealthy
-
-**HTTP status codes:**
-- `200` — healthy or degraded (optional services down; PostgreSQL is up)
-- `503` — unhealthy (PostgreSQL is unreachable)
+On SIGINT or SIGTERM, Fortemi marks `/readyz` unavailable before Axum stops
+accepting connections. In-flight requests drain for up to
+`MATRIC_SHUTDOWN_GRACE_SECS` (default 30 seconds), while `/livez` remains
+successful until process exit. Configure the Docker or Kubernetes termination
+grace period to be at least as long.
 
 ### Check Extraction Capabilities
 

@@ -1456,6 +1456,8 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         DocsPublic,
         PublicProbe,
     ),
+    r("/livez", Public, "health_probe", DocsPublic, PublicProbe),
+    r("/readyz", Public, "health_probe", DocsPublic, PublicProbe),
     r("/oauth/authorize", OAuth, "oauth_flow", DocsPublic, NoStore),
     r(
         "/oauth/introspect",
@@ -1841,6 +1843,8 @@ mod tests {
         assert!(!is_public_without_bearer(
             "/api/v1/webhooks/incoming/example"
         ));
+        assert!(is_public_without_bearer("/livez"));
+        assert!(is_public_without_bearer("/readyz"));
         assert!(is_public_without_bearer("/api/v1/realtime/twilio/CA123"));
         assert!(is_public_without_bearer("/api/v1/health/streaming"));
         assert!(is_public_without_bearer("/api/v1/system/compatibility"));

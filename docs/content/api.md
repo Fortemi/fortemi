@@ -3454,10 +3454,21 @@ The `chat` capability reports:
 ### Liveness Probe
 
 ```http
-GET /health/live
+GET /livez
 ```
 
 Minimal liveness probe for container orchestrators (Kubernetes, Docker Swarm). Returns `200 OK` as long as the process is running, without checking downstream dependencies.
+`GET /health/live` is a compatibility alias.
+
+### Readiness Probe
+
+```http
+GET /readyz
+```
+
+Returns `200 OK` only after initialization while required dependencies are
+available. It returns `503 Service Unavailable` during shutdown drain or when
+PostgreSQL is unavailable.
 
 ## Error Responses
 

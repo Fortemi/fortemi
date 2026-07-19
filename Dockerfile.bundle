@@ -252,7 +252,7 @@ EXPOSE 3000 3001
 
 # Health check against the API
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:3000/health || exit 1
+    CMD curl -f http://localhost:3000/livez || exit 1
 
 # Data volumes for persistence
 VOLUME ["/var/lib/postgresql/data", "/var/lib/matric/files"]

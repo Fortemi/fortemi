@@ -43,7 +43,7 @@
 #
 # Verification:
 #   curl localhost:11434/api/tags          # ollama up, models visible
-#   curl localhost:3000/health             # matric-api up
+#   curl localhost:3000/livez              # matric-api process live
 #   curl localhost:3001/health             # agent-proxy up
 #   open http://localhost:4180             # UI (only with --profile ui)
 

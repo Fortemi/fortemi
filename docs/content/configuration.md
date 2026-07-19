@@ -51,6 +51,7 @@ DATABASE_URL=<DATABASE_URL>
 | `HOST` | String | `0.0.0.0` | IP address to bind the API server (0.0.0.0 = all interfaces) |
 | `PORT` | Integer | `3000` | Port number for the HTTP API server |
 | `ALLOWED_ORIGINS` | String | `http://localhost:3000` | Comma-separated list of allowed CORS origins |
+| `MATRIC_SHUTDOWN_GRACE_SECS` | Integer | `30` | Maximum graceful HTTP drain window after SIGINT/SIGTERM, from 1 through 300 seconds. Set the orchestrator stop grace period to at least this value. |
 | `MATRIC_MAX_BODY_SIZE_BYTES` | Integer | `2147483648` | Global request-body ceiling in bytes (default: 2 GB, needed for database backup uploads). This does not increase the per-file attachment limit. |
 | `MATRIC_MAX_UPLOAD_SIZE_BYTES` | Integer | `52428800` | Maximum decoded attachment or provider-media file size in bytes (default: 50 MB). JSON/base64, multipart, tus finalization, and provider downloads enforce this limit before storage. |
 | `MATRIC_ATTACHMENT_SCAN_MODE` | Enum | Required explicitly | Managed attachment scan policy: `required` or local-only `disabled`. Hosted/multi-tenant mode requires `required`; a missing value fails startup. |
