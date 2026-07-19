@@ -36545,7 +36545,7 @@ mod tests {
     async fn cors_exposes_retry_after_response_header() {
         let response = Router::new()
             .route(
-                "/limited",
+                "/health",
                 get(|| async { (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "1")]) }),
             )
             .layer(cors_layer(vec![HeaderValue::from_static(
@@ -36554,7 +36554,7 @@ mod tests {
             .oneshot(
                 axum::http::Request::builder()
                     .method(Method::GET)
-                    .uri("/limited")
+                    .uri("/health")
                     .header(header::ORIGIN, "http://127.0.0.1:1421")
                     .body(Body::empty())
                     .unwrap(),
