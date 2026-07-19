@@ -65,6 +65,7 @@ pub mod tags;
 pub mod templates;
 pub mod tus;
 pub mod unified_filter;
+pub mod usage_ledger;
 pub mod versioning;
 pub mod webhooks;
 
@@ -137,6 +138,7 @@ pub use tags::PgTagRepository;
 pub use templates::PgTemplateRepository;
 pub use tus::PgTusRepository;
 pub use unified_filter::{UnifiedFilterQueryBuilder, UnifiedFilterResult};
+pub use usage_ledger::{PgUsageLedgerRepository, UsageLedgerRecord, UsageRecordOutcome};
 pub use versioning::{
     NoteVersions, OriginalVersion, RevisionVersionSummary, VersionSummary, VersioningRepository,
 };
@@ -204,6 +206,8 @@ pub struct Database {
     pub inbound_sources: PgInboundSourceRepository,
     /// Shared durable event outbox for write-path event publication.
     pub outbox: PgEventOutboxRepository,
+    /// Immutable usage ledger and per-sink delivery state.
+    pub usage_ledger: PgUsageLedgerRepository,
     /// PKE public key registry (Issue #113).
     pub pke_keys: PgPkeKeyRepository,
     /// PKE keyset repository for REST API (Issues #328, #332).
@@ -245,6 +249,7 @@ impl Database {
             incoming_webhooks: PgIncomingWebhookReceiverRepository::new(pool.clone()),
             inbound_sources: PgInboundSourceRepository::new(pool.clone()),
             outbox: PgEventOutboxRepository::new(pool.clone()),
+            usage_ledger: PgUsageLedgerRepository::new(pool.clone()),
             pke_keys: PgPkeKeyRepository::new(pool.clone()),
             pke_keysets: PgPkeKeysetRepository::new(pool.clone()),
             tus: PgTusRepository::new(pool.clone()),
@@ -534,6 +539,7 @@ impl Clone for Database {
             incoming_webhooks: PgIncomingWebhookReceiverRepository::new(self.pool.clone()),
             inbound_sources: PgInboundSourceRepository::new(self.pool.clone()),
             outbox: PgEventOutboxRepository::new(self.pool.clone()),
+            usage_ledger: PgUsageLedgerRepository::new(self.pool.clone()),
             pke_keys: PgPkeKeyRepository::new(self.pool.clone()),
             pke_keysets: PgPkeKeysetRepository::new(self.pool.clone()),
             tus: PgTusRepository::new(self.pool.clone()),

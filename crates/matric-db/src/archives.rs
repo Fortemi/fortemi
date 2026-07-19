@@ -152,6 +152,10 @@ const SHARED_TABLES: &[&str] = &[
     "oauth_token",
     "pke_public_keys",
     "transcript_segments",
+    "usage_event_conflict",
+    "usage_event_delivery",
+    "usage_event_ledger",
+    "usage_sink",
     "user_config",
     "user_metadata_label",
 ];
