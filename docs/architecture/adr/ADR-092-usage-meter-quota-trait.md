@@ -468,6 +468,11 @@ overspending one budget while keeping recorded billing based on actual usage.
 
 ### Privacy and retention
 
+The implemented ledger-specific store inventory, runtime modes, deletion
+limits, backup beyond-use posture, and verification contract are defined in
+[`usage-ledger-retention.md`](../usage-ledger-retention.md). The broader DSAR
+catalog and legal/operator decisions remain owned by #900.
+
 - Subject identifiers use internal opaque IDs or keyed pseudonyms. Email
   addresses, display names, IP addresses, and raw external account IDs are not
   general-purpose usage attributes.
