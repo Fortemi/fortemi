@@ -7,7 +7,9 @@ use tempfile::NamedTempFile;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use matric_core::{AttachmentStatus, ExtractionStrategy, JobRepository, JobType, ProgressFn};
+use matric_core::{
+    AttachmentScanStatus, AttachmentStatus, ExtractionStrategy, JobRepository, JobType, ProgressFn,
+};
 use matric_db::{Database, SchemaContext};
 
 /// Minimum note content length (in chars) below which extraction results
@@ -17,6 +19,7 @@ const MIN_CONTENT_LEN: usize = 50;
 
 use crate::extraction::ExtractionRegistry;
 use crate::handler::{JobContext, JobHandler, JobResult};
+use crate::{AttachmentScanMetrics, AttachmentScanMode};
 
 /// Extract the target schema from a job's payload.
 ///
@@ -177,11 +180,32 @@ fn extraction_failure_message(error: &str) -> String {
 pub struct ExtractionHandler {
     db: Database,
     registry: Arc<ExtractionRegistry>,
+    attachment_scan_mode: AttachmentScanMode,
+    attachment_scan_metrics: Arc<AttachmentScanMetrics>,
 }
 
 impl ExtractionHandler {
     pub fn new(db: Database, registry: Arc<ExtractionRegistry>) -> Self {
-        Self { db, registry }
+        Self {
+            db,
+            registry,
+            attachment_scan_mode: AttachmentScanMode::Disabled,
+            attachment_scan_metrics: Arc::new(AttachmentScanMetrics::default()),
+        }
+    }
+
+    pub fn new_with_attachment_scanning(
+        db: Database,
+        registry: Arc<ExtractionRegistry>,
+        attachment_scan_mode: AttachmentScanMode,
+        attachment_scan_metrics: Arc<AttachmentScanMetrics>,
+    ) -> Self {
+        Self {
+            db,
+            registry,
+            attachment_scan_mode,
+            attachment_scan_metrics,
+        }
     }
 }
 
@@ -918,6 +942,7 @@ impl JobHandler for ExtractionHandler {
                             );
                             if let Ok(mut tx) = schema_ctx.begin_tx().await {
                                 let mut stored = 0usize;
+                                let mut pending_scan_ids = Vec::new();
                                 for df in &result.derived_files {
                                     // Resolve file data: use source_path if data is empty
                                     let file_data = if df.data.is_empty() {
@@ -962,6 +987,50 @@ impl JobHandler for ExtractionHandler {
                                     {
                                         Ok(child_att) => {
                                             stored += 1;
+                                            let requires_independent_scan = matches!(
+                                                df.derivation_type.as_str(),
+                                                "email_attachment"
+                                                    | "archive_entry"
+                                                    | "embedded_attachment"
+                                            );
+                                            if requires_independent_scan {
+                                                if self.attachment_scan_mode
+                                                    == AttachmentScanMode::Required
+                                                {
+                                                    pending_scan_ids.push(child_att.id);
+                                                } else {
+                                                    let content_hash =
+                                                        matric_db::compute_content_hash(&file_data);
+                                                    if let Err(error) = file_storage
+                                                        .set_scan_verdict_tx(
+                                                            &mut tx,
+                                                            child_att.id,
+                                                            AttachmentScanStatus::Bypassed,
+                                                            Some("fortemi-policy"),
+                                                            None,
+                                                            None,
+                                                            Some("explicit_local_bypass"),
+                                                            Some(&content_hash),
+                                                        )
+                                                        .await
+                                                    {
+                                                        let error_text = error.to_string();
+                                                        warn!(
+                                                            child_attachment_present = true,
+                                                            error_len =
+                                                                telemetry_text_len(&error_text),
+                                                            error_reason =
+                                                                extraction_error_reason_code(
+                                                                    &error_text
+                                                                ),
+                                                            "Failed to persist derived attachment scan bypass"
+                                                        );
+                                                    } else {
+                                                        self.attachment_scan_metrics
+                                                            .record_bypass();
+                                                    }
+                                                }
+                                            }
 
                                             // Track audio_track attachment ID for AudioTranscription job (#542)
                                             if df.derivation_type == "audio_track" {
@@ -1047,6 +1116,43 @@ impl JobHandler for ExtractionHandler {
                                         count = stored,
                                         "Derived files persisted as child attachments"
                                     );
+                                    for child_id in pending_scan_ids {
+                                        let mut payload = json!({
+                                            "attachment_id": child_id.to_string(),
+                                            "downstream_jobs": [],
+                                        });
+                                        if schema != "public" {
+                                            payload["schema"] = json!(schema);
+                                        }
+                                        match self
+                                            .db
+                                            .jobs
+                                            .queue(
+                                                Some(note_id),
+                                                JobType::AttachmentVirusScan,
+                                                JobType::AttachmentVirusScan.default_priority(),
+                                                Some(payload),
+                                                JobType::AttachmentVirusScan.default_cost_tier(),
+                                            )
+                                            .await
+                                        {
+                                            Ok(job_id) => ctx.emit_job_queued(
+                                                job_id,
+                                                JobType::AttachmentVirusScan,
+                                                Some(note_id),
+                                            ),
+                                            Err(error) => {
+                                                let error_text = error.to_string();
+                                                warn!(
+                                                    child_attachment_present = true,
+                                                    error_len = telemetry_text_len(&error_text),
+                                                    error_reason =
+                                                        extraction_error_reason_code(&error_text),
+                                                    "Failed to queue derived attachment scan"
+                                                );
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

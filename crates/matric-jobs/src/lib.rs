@@ -38,6 +38,7 @@
 //! ```
 
 pub mod adapters;
+pub mod attachment_scan;
 pub mod audio_chunk_handler;
 pub mod audio_transcription_handler;
 pub mod diarization_handler;
@@ -63,6 +64,10 @@ pub mod worker;
 pub use matric_core::*;
 
 // Re-export job types
+pub use attachment_scan::{
+    AttachmentScanConfig, AttachmentScanFailure, AttachmentScanHandler, AttachmentScanMetrics,
+    AttachmentScanMode, AttachmentScanOutcome, AttachmentScanner, ClamdScanner,
+};
 pub use audio_chunk_handler::AudioChunkTranscriptionHandler;
 pub use audio_transcription_handler::AudioTranscriptionHandler;
 pub use diarization_handler::SpeakerDiarizationHandler;

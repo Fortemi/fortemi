@@ -2500,6 +2500,13 @@ pub struct Attachment {
     pub detected_document_type_id: Option<Uuid>,
     pub detection_confidence: Option<f32>,
     pub detection_method: Option<String>,
+    pub virus_scan_status: AttachmentScanStatus,
+    pub virus_scan_at: Option<DateTime<Utc>>,
+    pub virus_scan_backend: Option<String>,
+    pub virus_scan_engine_version: Option<String>,
+    pub virus_scan_signature_version: Option<String>,
+    pub virus_scan_reason_code: Option<String>,
+    pub virus_scan_blob_hash: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -2546,9 +2553,94 @@ impl fmt::Debug for Attachment {
                 "detection_method_len",
                 &optional_debug_len(self.detection_method.as_ref()),
             )
+            .field("virus_scan_status", &self.virus_scan_status)
+            .field("virus_scan_at", &self.virus_scan_at)
+            .field(
+                "virus_scan_backend_len",
+                &optional_debug_len(self.virus_scan_backend.as_ref()),
+            )
+            .field(
+                "virus_scan_engine_version_len",
+                &optional_debug_len(self.virus_scan_engine_version.as_ref()),
+            )
+            .field(
+                "virus_scan_signature_version_len",
+                &optional_debug_len(self.virus_scan_signature_version.as_ref()),
+            )
+            .field(
+                "virus_scan_reason_code_len",
+                &optional_debug_len(self.virus_scan_reason_code.as_ref()),
+            )
+            .field(
+                "virus_scan_blob_hash_len",
+                &optional_debug_len(self.virus_scan_blob_hash.as_ref()),
+            )
             .field("created_at", &self.created_at)
             .field("updated_at", &self.updated_at)
             .finish()
+    }
+}
+
+/// Malware/content scan verdict for managed attachment bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentScanStatus {
+    /// Legacy attachment that has not received an explicit scan policy decision.
+    #[default]
+    Unknown,
+    /// Bytes are staged but downstream processing and reads remain blocked.
+    Pending,
+    /// The configured scanner reported a clean verdict.
+    Clean,
+    /// The configured scanner reported malicious content.
+    Infected,
+    /// The scan could not complete because of an operational failure.
+    Error,
+    /// The scanner could not safely scan this content class or size.
+    Unsupported,
+    /// A local-only explicit policy bypassed scanning.
+    Bypassed,
+}
+
+impl AttachmentScanStatus {
+    /// Whether normal processing and download paths may read the attachment.
+    pub fn allows_access(self) -> bool {
+        matches!(self, Self::Clean | Self::Bypassed)
+    }
+}
+
+impl std::fmt::Display for AttachmentScanStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = match self {
+            Self::Unknown => "unknown",
+            Self::Pending => "pending",
+            Self::Clean => "clean",
+            Self::Infected => "infected",
+            Self::Error => "error",
+            Self::Unsupported => "unsupported",
+            Self::Bypassed => "bypassed",
+        };
+        f.write_str(value)
+    }
+}
+
+impl std::str::FromStr for AttachmentScanStatus {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "unknown" => Ok(Self::Unknown),
+            "pending" => Ok(Self::Pending),
+            "clean" => Ok(Self::Clean),
+            "infected" => Ok(Self::Infected),
+            "error" => Ok(Self::Error),
+            "unsupported" => Ok(Self::Unsupported),
+            "bypassed" => Ok(Self::Bypassed),
+            _ => Err(format!(
+                "Invalid attachment scan status; value_len={}",
+                debug_len(value)
+            )),
+        }
     }
 }
 
@@ -2610,6 +2702,8 @@ pub struct AttachmentSummary {
     pub detection_confidence: Option<f32>,
     pub has_preview: bool,
     pub is_canonical_content: bool,
+    pub virus_scan_status: AttachmentScanStatus,
+    pub virus_scan_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -2633,6 +2727,8 @@ impl fmt::Debug for AttachmentSummary {
             .field("detection_confidence", &self.detection_confidence)
             .field("has_preview", &self.has_preview)
             .field("is_canonical_content", &self.is_canonical_content)
+            .field("virus_scan_status", &self.virus_scan_status)
+            .field("virus_scan_at", &self.virus_scan_at)
             .field("created_at", &self.created_at)
             .finish()
     }
@@ -3526,6 +3622,8 @@ pub enum JobType {
     GenerateCoarseEmbedding,
     /// Extract EXIF metadata from images
     ExifExtraction,
+    /// Scan managed attachment bytes before processing or download
+    AttachmentVirusScan,
     /// Extract content from file attachment
     Extraction,
     /// Classify attachment into a semantic document type using AI
@@ -3597,6 +3695,8 @@ impl JobType {
             JobType::GenerateCoarseEmbedding => 2,
             // EXIF extraction - medium priority for metadata processing
             JobType::ExifExtraction => 5,
+            // Attachment scanning gates all parser and media work
+            JobType::AttachmentVirusScan => 9,
             // Extraction is high priority since it gates downstream work
             JobType::Extraction => 7,
             // Document type inference - low priority, runs after content extraction
@@ -5694,6 +5794,13 @@ mod tests {
             detected_document_type_id: Some(Uuid::new_v4()),
             detection_confidence: Some(0.88),
             detection_method: Some("éé".to_string()),
+            virus_scan_status: AttachmentScanStatus::Clean,
+            virus_scan_at: Some(now),
+            virus_scan_backend: Some("éé".to_string()),
+            virus_scan_engine_version: Some("éé".to_string()),
+            virus_scan_signature_version: Some("éé".to_string()),
+            virus_scan_reason_code: Some("éé".to_string()),
+            virus_scan_blob_hash: Some("éé".to_string()),
             created_at: now,
             updated_at: now,
         };
@@ -5709,6 +5816,8 @@ mod tests {
             detection_confidence: Some(0.77),
             has_preview: false,
             is_canonical_content: false,
+            virus_scan_status: AttachmentScanStatus::Pending,
+            virus_scan_at: None,
             created_at: now,
         };
         let global = GlobalAttachmentSummary {

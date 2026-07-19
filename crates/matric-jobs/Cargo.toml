@@ -31,7 +31,7 @@ thiserror.workspace = true
 anyhow.workspace = true
 
 # Async
-tokio = { workspace = true, features = ["process"] }
+tokio = { workspace = true, features = ["process", "net", "io-util", "time"] }
 async-trait.workspace = true
 futures.workspace = true
 

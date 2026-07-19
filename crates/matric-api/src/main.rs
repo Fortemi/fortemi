@@ -46,9 +46,9 @@ use utoipa_swagger_ui::{Config, SwaggerUi};
 use uuid::Uuid;
 
 use matric_core::{
-    AllowAllPolicy, ArchiveRepository, AttachmentStatus, AuditEvent, AuditFailurePolicy,
-    AuditOutcome, AuditSeverity, AuditSink, AuditSource, AuditVisibilityClass, AuthPrincipal,
-    AuthorizationPolicy, AuthorizationServerMetadata, BatchTagNoteRequest,
+    AllowAllPolicy, ArchiveRepository, AttachmentScanStatus, AttachmentStatus, AuditEvent,
+    AuditFailurePolicy, AuditOutcome, AuditSeverity, AuditSink, AuditSource, AuditVisibilityClass,
+    AuthPrincipal, AuthorizationPolicy, AuthorizationServerMetadata, BatchTagNoteRequest,
     ClientRegistrationRequest, CollectionRepository, CreateApiKeyRequest, CreateNoteRequest,
     Decision, DenyReason, DocumentTypeRepository, EventBus, EventContext, EventEnvelope,
     ExtractionAdapter, ExtractionStrategy, Job, JobRepository, JobStatus, JobType,
@@ -422,6 +422,127 @@ fn media_optimize_job_payload(attachment_id: Uuid, content_type: &str) -> serde_
         "attachment_id": attachment_id.to_string(),
         "content_type_len": telemetry_text_len(content_type),
     })
+}
+
+fn scan_downstream_job(job_type: JobType, payload: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "job_type": match job_type {
+            JobType::Extraction => "extraction",
+            JobType::ExifExtraction => "exif_extraction",
+            JobType::MediaOptimize => "media_optimize",
+            JobType::AudioTranscription => "audio_transcription",
+            _ => unreachable!("scan downstream job type must be allowlisted"),
+        },
+        "payload": payload,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn attachment_scan_downstream_jobs(
+    attachment_id: Uuid,
+    strategy: ExtractionStrategy,
+    filename: &str,
+    content_type: &str,
+    schema: Option<&str>,
+    vision_mode: Option<&str>,
+    media_optimize: bool,
+) -> Vec<serde_json::Value> {
+    let mut jobs = vec![scan_downstream_job(
+        JobType::Extraction,
+        extraction_job_payload(
+            attachment_id,
+            strategy,
+            filename,
+            content_type,
+            schema,
+            vision_mode,
+        ),
+    )];
+    if content_type.starts_with("image/") {
+        let mut payload = serde_json::json!({
+            "attachment_id": attachment_id.to_string(),
+        });
+        if let Some(schema) = schema {
+            payload["schema"] = serde_json::json!(schema);
+        }
+        jobs.push(scan_downstream_job(JobType::ExifExtraction, payload));
+    }
+    if media_optimize && (content_type.starts_with("audio/") || content_type.starts_with("video/"))
+    {
+        let mut payload = media_optimize_job_payload(attachment_id, content_type);
+        if let Some(schema) = schema {
+            payload["schema"] = serde_json::json!(schema);
+        }
+        jobs.push(scan_downstream_job(JobType::MediaOptimize, payload));
+    }
+    jobs
+}
+
+async fn queue_attachment_scan_job(
+    state: &AppState,
+    note_id: Uuid,
+    attachment_id: Uuid,
+    schema: Option<&str>,
+    downstream_jobs: Vec<serde_json::Value>,
+) -> Result<Uuid, ApiError> {
+    let mut payload = serde_json::json!({
+        "attachment_id": attachment_id.to_string(),
+        "downstream_jobs": downstream_jobs,
+    });
+    if let Some(schema) = schema {
+        payload["schema"] = serde_json::json!(schema);
+    }
+    let job_id = state
+        .db
+        .jobs
+        .queue(
+            Some(note_id),
+            JobType::AttachmentVirusScan,
+            JobType::AttachmentVirusScan.default_priority(),
+            Some(payload),
+            JobType::AttachmentVirusScan.default_cost_tier(),
+        )
+        .await?;
+    state.event_bus.emit(ServerEvent::JobQueued {
+        job_id,
+        job_type: format!("{:?}", JobType::AttachmentVirusScan),
+        note_id: Some(note_id),
+    });
+    Ok(job_id)
+}
+
+async fn apply_attachment_scan_policy_tx(
+    state: &AppState,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    attachment: &mut matric_core::Attachment,
+    data: &[u8],
+) -> Result<(), ApiError> {
+    if state.attachment_scan_mode == AttachmentScanMode::Disabled {
+        let content_hash = matric_db::compute_content_hash(data);
+        state
+            .db
+            .file_storage
+            .as_ref()
+            .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?
+            .set_scan_verdict_tx(
+                tx,
+                attachment.id,
+                AttachmentScanStatus::Bypassed,
+                Some("fortemi-policy"),
+                None,
+                None,
+                Some("explicit_local_bypass"),
+                Some(&content_hash),
+            )
+            .await?;
+        attachment.virus_scan_status = AttachmentScanStatus::Bypassed;
+        attachment.virus_scan_at = Some(Utc::now());
+        attachment.virus_scan_backend = Some("fortemi-policy".to_string());
+        attachment.virus_scan_reason_code = Some("explicit_local_bypass".to_string());
+        attachment.virus_scan_blob_hash = Some(content_hash);
+        state.attachment_scan_metrics.record_bypass();
+    }
+    Ok(())
 }
 
 /// Parse and validate a `revision_mode` string, returning 400 for invalid values.
@@ -877,14 +998,15 @@ use matric_inference::{
     PyAnnoteBackend, VisionBackend,
 };
 use matric_jobs::{
-    ArchiveAdapter, AudioChunkTranscriptionHandler, AudioTranscribeAdapter,
-    AudioTranscriptionHandler, CodeAstAdapter, EmailAdapter, ExtractionHandler, ExtractionRegistry,
-    Glb3DModelAdapter, JobWorker, KeyframeAssemblyHandler, KeyframeCharacterVisionHandler,
-    KeyframeSettingVisionHandler, KeyframeVisionHandler, MediaOptimizeHandler,
-    OfficeConvertAdapter, PauseState, PdfOcrAdapter, PdfTextAdapter, SpeakerDiarizationHandler,
-    SpeakerRelabelHandler, SpreadsheetAdapter, StructuredExtractAdapter, TextNativeAdapter,
-    ThumbnailSpriteHandler, VideoMultimodalAdapter, ViewAssemblyHandler, ViewVisionHandler,
-    VisionAdapter, WorkerConfig, WorkerEvent,
+    ArchiveAdapter, AttachmentScanConfig, AttachmentScanHandler, AttachmentScanMetrics,
+    AttachmentScanMode, AttachmentScanner, AudioChunkTranscriptionHandler, AudioTranscribeAdapter,
+    AudioTranscriptionHandler, ClamdScanner, CodeAstAdapter, EmailAdapter, ExtractionHandler,
+    ExtractionRegistry, Glb3DModelAdapter, JobWorker, KeyframeAssemblyHandler,
+    KeyframeCharacterVisionHandler, KeyframeSettingVisionHandler, KeyframeVisionHandler,
+    MediaOptimizeHandler, OfficeConvertAdapter, PauseState, PdfOcrAdapter, PdfTextAdapter,
+    SpeakerDiarizationHandler, SpeakerRelabelHandler, SpreadsheetAdapter, StructuredExtractAdapter,
+    TextNativeAdapter, ThumbnailSpriteHandler, VideoMultimodalAdapter, ViewAssemblyHandler,
+    ViewVisionHandler, VisionAdapter, WorkerConfig, WorkerEvent,
 };
 use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
@@ -980,6 +1102,10 @@ struct AppState {
     max_memories: i64,
     /// Maximum file upload size in bytes (for attachment validation).
     max_upload_size: usize,
+    /// Managed attachment scan policy for processing and download decisions.
+    attachment_scan_mode: AttachmentScanMode,
+    /// Bounded-cardinality managed attachment scan counters.
+    attachment_scan_metrics: Arc<AttachmentScanMetrics>,
     /// Vision backend for ad-hoc image description (None if OLLAMA_VISION_MODEL not set).
     vision_backend: Option<Arc<dyn VisionBackend>>,
     /// Transcription backend for ad-hoc audio transcription (None if WHISPER_BASE_URL not set).
@@ -2595,6 +2721,33 @@ async fn main() -> anyhow::Result<()> {
 
     let security_config = parse_startup_security_config()?;
     let rate_limit_config = parse_rate_limit_config()?;
+    let max_upload_size = std::env::var("MATRIC_MAX_UPLOAD_SIZE_BYTES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(matric_core::defaults::MAX_UPLOAD_SIZE_BYTES);
+    let attachment_scan_config =
+        AttachmentScanConfig::from_env(security_config.multi_tenant, max_upload_size)?;
+    let attachment_scan_metrics = Arc::new(AttachmentScanMetrics::default());
+    let attachment_scanner: Option<Arc<dyn AttachmentScanner>> = match attachment_scan_config.mode {
+        AttachmentScanMode::Required => {
+            let scanner = ClamdScanner::connect(&attachment_scan_config).await?;
+            attachment_scan_metrics.set_available(true);
+            info!(
+                backend = scanner.backend_name(),
+                max_bytes = scanner.max_bytes(),
+                "Managed attachment scanner is healthy"
+            );
+            Some(Arc::new(scanner))
+        }
+        AttachmentScanMode::Disabled => {
+            warn!(
+                target: "fortemi.security",
+                "MANAGED ATTACHMENT MALWARE SCANNING IS EXPLICITLY DISABLED. \
+                 This mode is local-development only; uploads will be recorded as bypassed."
+            );
+            None
+        }
+    };
 
     info!(
         "Rate limiting: {} ({} requests per {} seconds)",
@@ -2812,6 +2965,14 @@ async fn main() -> anyhow::Result<()> {
     let worker_enabled = std::env::var("WORKER_ENABLED")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(true);
+    let worker_config = WorkerConfig::from_env();
+    if attachment_scan_config.mode == AttachmentScanMode::Required
+        && (!worker_enabled || !worker_config.enabled)
+    {
+        anyhow::bail!(
+            "Required attachment scanning needs WORKER_ENABLED=true and JOB_WORKER_ENABLED=true."
+        );
+    }
 
     // Read event bus capacity from env var with fallback
     let event_bus_capacity = std::env::var("MATRIC_EVENT_BUS_CAPACITY")
@@ -3083,14 +3244,10 @@ async fn main() -> anyhow::Result<()> {
         );
         info!("Unsupported MIME types will be stored without extraction");
 
-        let mut worker = JobWorker::new(
-            db.clone(),
-            WorkerConfig::from_env(),
-            Some(extraction_registry),
-        )
-        .with_fast_backend(OllamaBackend::fast_from_env())
-        .with_standard_backend(Some(OllamaBackend::from_env()))
-        .with_vision_backend(vision_backend.clone());
+        let mut worker = JobWorker::new(db.clone(), worker_config, Some(extraction_registry))
+            .with_fast_backend(OllamaBackend::fast_from_env())
+            .with_standard_backend(Some(OllamaBackend::from_env()))
+            .with_vision_backend(vision_backend.clone());
 
         // Wire pause state into worker for global/per-archive pause control (Issue #466).
         if let Some(ref ps) = pause_state {
@@ -3107,6 +3264,16 @@ async fn main() -> anyhow::Result<()> {
                 model_len = model.chars().count(),
                 "Fast generation model configured for cascaded routing"
             );
+        }
+
+        if let Some(ref scanner) = attachment_scanner {
+            worker
+                .register_handler(AttachmentScanHandler::new(
+                    db.clone(),
+                    scanner.clone(),
+                    attachment_scan_metrics.clone(),
+                ))
+                .await;
         }
 
         worker
@@ -3204,7 +3371,12 @@ async fn main() -> anyhow::Result<()> {
             .await;
         if let Some(registry) = worker.extraction_registry() {
             worker
-                .register_handler(ExtractionHandler::new(db.clone(), registry.clone()))
+                .register_handler(ExtractionHandler::new_with_attachment_scanning(
+                    db.clone(),
+                    registry.clone(),
+                    attachment_scan_config.mode,
+                    attachment_scan_metrics.clone(),
+                ))
                 .await;
         }
         worker
@@ -3455,10 +3627,9 @@ async fn main() -> anyhow::Result<()> {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(matric_core::defaults::MAX_MEMORIES),
-        max_upload_size: std::env::var("MATRIC_MAX_UPLOAD_SIZE_BYTES")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(matric_core::defaults::MAX_UPLOAD_SIZE_BYTES),
+        max_upload_size,
+        attachment_scan_mode: attachment_scan_config.mode,
+        attachment_scan_metrics,
         vision_backend,
         transcription_backend,
         realtime_deepgram_metrics,
@@ -7189,6 +7360,7 @@ fn twilio_recording_transcription_payload(
     recording_url: &str,
 ) -> serde_json::Value {
     serde_json::json!({
+        "attachment_id": attachment_id.to_string(),
         "parent_attachment_id": attachment_id.to_string(),
         "audio_attachment_id": attachment_id.to_string(),
         "is_video": false,
@@ -7276,25 +7448,39 @@ async fn queue_twilio_recording_transcription(
             .begin()
             .await
             .map_err(matric_core::Error::Database)?;
-        let attachment = file_storage
+        let mut attachment = file_storage
             .store_file_tx(&mut tx, note_id, &filename, &content_type, &audio_bytes)
             .await?;
+        apply_attachment_scan_policy_tx(state, &mut tx, &mut attachment, &audio_bytes).await?;
         tx.commit().await.map_err(matric_core::Error::Database)?;
         attachment
     };
 
     let payload = twilio_recording_transcription_payload(session, attachment.id, recording_url);
-    let job_id = state
-        .db
-        .jobs
-        .queue_deduplicated(
-            Some(note_id),
-            JobType::AudioTranscription,
-            JobType::AudioTranscription.default_priority(),
-            Some(payload),
-            JobType::AudioTranscription.default_cost_tier(),
+    let job_id = if state.attachment_scan_mode == AttachmentScanMode::Required {
+        Some(
+            queue_attachment_scan_job(
+                state,
+                note_id,
+                attachment.id,
+                None,
+                vec![scan_downstream_job(JobType::AudioTranscription, payload)],
+            )
+            .await?,
         )
-        .await?;
+    } else {
+        state
+            .db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::AudioTranscription,
+                JobType::AudioTranscription.default_priority(),
+                Some(payload),
+                JobType::AudioTranscription.default_cost_tier(),
+            )
+            .await?
+    };
 
     let mut metadata = session.metadata.clone();
     if !metadata.is_object() {
@@ -10271,6 +10457,12 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
     } else {
         "running"
     };
+    let attachment_scan_queue_depth = state
+        .db
+        .jobs
+        .pending_count_for_type(JobType::AttachmentVirusScan)
+        .await
+        .unwrap_or_default();
 
     // Build inference status for health response (#568, #630).
     // `configured` reflects static env/db config; `available` reflects the latest
@@ -10312,6 +10504,12 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
             "speaker_diarization": state.diarization_backend.is_some(),
             "ner": state.ner_backend.is_some(),
             "auth_required": state.require_auth,
+            "attachment_scanning": {
+                "mode": state.attachment_scan_mode.as_str(),
+                "configured": state.attachment_scan_mode == AttachmentScanMode::Required,
+                "queue_depth": attachment_scan_queue_depth,
+                "metrics": state.attachment_scan_metrics.snapshot(),
+            },
             "extraction_strategies": state.extraction_strategies,
             "chat": {
                 "available": gen_backend.is_some() && inference_reachable,
@@ -26428,6 +26626,29 @@ async fn load_shard_blob_export_inventory_tx(
     if note_ids.is_empty() {
         return Ok(Vec::new());
     }
+    let scan_gated: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM attachment a
+            JOIN attachment_blob ab ON ab.id = a.blob_id
+            WHERE a.note_id = ANY($1)
+              AND ab.storage_backend IN ('database', 'filesystem')
+              AND (
+                  a.virus_scan_status NOT IN ('clean', 'bypassed')
+                  OR a.virus_scan_blob_hash IS DISTINCT FROM ab.content_hash
+              )
+        )",
+    )
+    .bind(note_ids)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("check attachment sidecar scan policy", error))?;
+    if scan_gated {
+        return Err(shard_validation_failed(
+            "Knowledge shard attachment sidecars are blocked by scan policy.",
+        ));
+    }
+
     let rows = sqlx::query(
         "SELECT DISTINCT ON (ab.content_hash)
                 ab.id, ab.content_hash, ab.size_bytes, ab.storage_backend,
@@ -28811,6 +29032,7 @@ async fn upload_attachment(
         }
     }
     // Document type classification happens asynchronously after extraction (Phase 2)
+    apply_attachment_scan_policy_tx(&state, &mut tx, &mut attachment, &data).await?;
 
     tx.commit()
         .await
@@ -28848,43 +29070,45 @@ async fn upload_attachment(
     ))
     .await;
 
-    // Queue background extraction job for the uploaded attachment
     let vision_mode = body
         .vision_mode
         .as_deref()
         .or(att_query.vision_mode.as_deref());
-    queue_extraction_job(
-        &state.db,
-        id,
-        attachment.id,
-        strategy,
-        &body.filename,
-        &content_type,
-        &state.event_bus,
-        Some(&archive_ctx.schema),
-        vision_mode,
-    )
-    .await;
-
-    // Queue EXIF extraction for image uploads (extracts camera info, GPS, datetime → provenance)
-    queue_exif_extraction_job(
-        &state.db,
-        id,
-        attachment.id,
-        &content_type,
-        &state.event_bus,
-        Some(&archive_ctx.schema),
-    )
-    .await;
-
-    // Queue media optimization if requested (#506)
-    // Query parameter takes priority over body field
     let media_optimize = att_query
         .media_optimize
         .or(body.media_optimize)
         .unwrap_or(false);
-    if media_optimize {
-        queue_media_optimize_job(
+    if state.attachment_scan_mode == AttachmentScanMode::Required {
+        queue_attachment_scan_job(
+            &state,
+            id,
+            attachment.id,
+            Some(&archive_ctx.schema),
+            attachment_scan_downstream_jobs(
+                attachment.id,
+                strategy,
+                &body.filename,
+                &content_type,
+                Some(&archive_ctx.schema),
+                vision_mode,
+                media_optimize,
+            ),
+        )
+        .await?;
+    } else {
+        queue_extraction_job(
+            &state.db,
+            id,
+            attachment.id,
+            strategy,
+            &body.filename,
+            &content_type,
+            &state.event_bus,
+            Some(&archive_ctx.schema),
+            vision_mode,
+        )
+        .await;
+        queue_exif_extraction_job(
             &state.db,
             id,
             attachment.id,
@@ -28893,6 +29117,17 @@ async fn upload_attachment(
             Some(&archive_ctx.schema),
         )
         .await;
+        if media_optimize {
+            queue_media_optimize_job(
+                &state.db,
+                id,
+                attachment.id,
+                &content_type,
+                &state.event_bus,
+                Some(&archive_ctx.schema),
+            )
+            .await;
+        }
     }
 
     Ok(Json(attachment))
@@ -29036,6 +29271,7 @@ async fn upload_attachment_multipart(
             return Err(invalid_attachment_document_type_id());
         }
     }
+    apply_attachment_scan_policy_tx(&state, &mut tx, &mut attachment, &data).await?;
 
     tx.commit()
         .await
@@ -29073,36 +29309,38 @@ async fn upload_attachment_multipart(
     ))
     .await;
 
-    // Queue background extraction job for the uploaded attachment
-    queue_extraction_job(
-        &state.db,
-        id,
-        attachment.id,
-        strategy,
-        &filename,
-        &content_type,
-        &state.event_bus,
-        Some(&archive_ctx.schema),
-        att_query.vision_mode.as_deref(),
-    )
-    .await;
-
-    // Queue EXIF extraction for image uploads (extracts camera info, GPS, datetime → provenance)
-    queue_exif_extraction_job(
-        &state.db,
-        id,
-        attachment.id,
-        &content_type,
-        &state.event_bus,
-        Some(&archive_ctx.schema),
-    )
-    .await;
-
-    // Queue media optimization if requested (#506)
-    // Query parameter takes priority over form field
     let do_media_optimize = att_query.media_optimize.or(media_optimize).unwrap_or(false);
-    if do_media_optimize {
-        queue_media_optimize_job(
+    if state.attachment_scan_mode == AttachmentScanMode::Required {
+        queue_attachment_scan_job(
+            &state,
+            id,
+            attachment.id,
+            Some(&archive_ctx.schema),
+            attachment_scan_downstream_jobs(
+                attachment.id,
+                strategy,
+                &filename,
+                &content_type,
+                Some(&archive_ctx.schema),
+                att_query.vision_mode.as_deref(),
+                do_media_optimize,
+            ),
+        )
+        .await?;
+    } else {
+        queue_extraction_job(
+            &state.db,
+            id,
+            attachment.id,
+            strategy,
+            &filename,
+            &content_type,
+            &state.event_bus,
+            Some(&archive_ctx.schema),
+            att_query.vision_mode.as_deref(),
+        )
+        .await;
+        queue_exif_extraction_job(
             &state.db,
             id,
             attachment.id,
@@ -29111,6 +29349,17 @@ async fn upload_attachment_multipart(
             Some(&archive_ctx.schema),
         )
         .await;
+        if do_media_optimize {
+            queue_media_optimize_job(
+                &state.db,
+                id,
+                attachment.id,
+                &content_type,
+                &state.event_bus,
+                Some(&archive_ctx.schema),
+            )
+            .await;
+        }
     }
 
     Ok(Json(attachment))
@@ -30619,7 +30868,7 @@ async fn tus_patch_upload(
             matric_core::detect_content_type(&upload.filename, &file_data, &upload.content_type);
         let ctx2 = state.db.for_schema(&archive_ctx.schema)?;
         let mut tx2 = ctx2.begin_tx().await?;
-        let attachment = file_storage
+        let mut attachment = file_storage
             .store_file_tx(
                 &mut tx2,
                 note_id,
@@ -30650,6 +30899,7 @@ async fn tus_patch_upload(
                     .await?;
             }
         }
+        apply_attachment_scan_policy_tx(&state, &mut tx2, &mut attachment, &file_data).await?;
 
         tx2.commit()
             .await
@@ -30690,29 +30940,37 @@ async fn tus_patch_upload(
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        queue_extraction_job(
-            &state.db,
-            note_id,
-            attachment.id,
-            strategy,
-            &upload.filename,
-            &content_type,
-            &state.event_bus,
-            Some(&archive_ctx.schema),
-            tus_vision_mode.as_deref(),
-        )
-        .await;
-        queue_exif_extraction_job(
-            &state.db,
-            note_id,
-            attachment.id,
-            &content_type,
-            &state.event_bus,
-            Some(&archive_ctx.schema),
-        )
-        .await;
-        if media_optimize {
-            queue_media_optimize_job(
+        if state.attachment_scan_mode == AttachmentScanMode::Required {
+            queue_attachment_scan_job(
+                &state,
+                note_id,
+                attachment.id,
+                Some(&archive_ctx.schema),
+                attachment_scan_downstream_jobs(
+                    attachment.id,
+                    strategy,
+                    &upload.filename,
+                    &content_type,
+                    Some(&archive_ctx.schema),
+                    tus_vision_mode.as_deref(),
+                    media_optimize,
+                ),
+            )
+            .await?;
+        } else {
+            queue_extraction_job(
+                &state.db,
+                note_id,
+                attachment.id,
+                strategy,
+                &upload.filename,
+                &content_type,
+                &state.event_bus,
+                Some(&archive_ctx.schema),
+                tus_vision_mode.as_deref(),
+            )
+            .await;
+            queue_exif_extraction_job(
                 &state.db,
                 note_id,
                 attachment.id,
@@ -30721,6 +30979,17 @@ async fn tus_patch_upload(
                 Some(&archive_ctx.schema),
             )
             .await;
+            if media_optimize {
+                queue_media_optimize_job(
+                    &state.db,
+                    note_id,
+                    attachment.id,
+                    &content_type,
+                    &state.event_bus,
+                    Some(&archive_ctx.schema),
+                )
+                .await;
+            }
         }
 
         // Mark TUS record as finalized (keeps it for the client GET window)
@@ -32082,7 +32351,10 @@ async fn apply_shard_attachment_projections(
     projections: &[ShardAttachmentProjection],
     staged_blobs: &std::collections::HashMap<String, StagedShardBlob>,
     used_staged_blobs: &mut std::collections::HashSet<String>,
-) -> Result<(), ApiError> {
+    scan_mode: AttachmentScanMode,
+) -> Result<(Vec<(Uuid, Uuid)>, usize), ApiError> {
+    let mut pending_scans = Vec::new();
+    let mut bypassed = 0usize;
     for (display_order, projection) in projections.iter().enumerate() {
         let attachment = &projection.attachment;
         let existing_blob = sqlx::query_as::<_, (Uuid, String, i64, String)>(
@@ -32180,11 +32452,31 @@ async fn apply_shard_attachment_projections(
                 "reason": projection.reason.as_deref(),
             }
         });
+        let scan_status = if reference_only {
+            AttachmentScanStatus::Unknown
+        } else if scan_mode == AttachmentScanMode::Required {
+            AttachmentScanStatus::Pending
+        } else {
+            AttachmentScanStatus::Bypassed
+        };
+        let scan_decided = scan_status == AttachmentScanStatus::Bypassed;
         sqlx::query(
             "INSERT INTO attachment
              (id, note_id, blob_id, filename, original_filename, display_order,
-              status, extracted_text, extracted_metadata)
-             VALUES ($1, $2, $3, $4, $4, $5, $6::attachment_status, $7, $8)",
+              status, extracted_text, extracted_metadata, virus_scan_status,
+              virus_scan_at, virus_scan_backend, virus_scan_reason_code,
+              virus_scan_blob_hash)
+             VALUES (
+                 $1, $2, $3, $4, $4, $5, $6::attachment_status, $7, $8, $9,
+                 CASE WHEN $10 THEN NOW() ELSE NULL END,
+                 CASE WHEN $10 THEN 'fortemi-policy' ELSE NULL END,
+                 CASE
+                     WHEN $10 THEN 'explicit_local_bypass'
+                     WHEN $11 THEN 'reference_bytes_unavailable'
+                     ELSE NULL
+                 END,
+                 CASE WHEN $10 THEN $12 ELSE NULL END
+             )",
         )
         .bind(attachment.id)
         .bind(note_id)
@@ -32194,11 +32486,20 @@ async fn apply_shard_attachment_projections(
         .bind(projection.extraction_status.database_status())
         .bind(&projection.extracted_text)
         .bind(extracted_metadata)
+        .bind(scan_status.to_string())
+        .bind(scan_decided)
+        .bind(reference_only)
+        .bind(&attachment.checksum)
         .execute(&mut **tx)
         .await
         .map_err(|error| shard_operation_failed("insert reference attachment", error))?;
+        if scan_status == AttachmentScanStatus::Pending {
+            pending_scans.push((note_id, attachment.id));
+        } else if scan_status == AttachmentScanStatus::Bypassed {
+            bypassed += 1;
+        }
     }
-    Ok(())
+    Ok((pending_scans, bypassed))
 }
 
 async fn apply_shard_note_history_components_tx(
@@ -34464,7 +34765,16 @@ async fn apply_validated_shard_components(
     schema: &str,
     staged_blobs: &std::collections::HashMap<String, StagedShardBlob>,
     policy: ValidatedShardApplyPolicy,
-) -> Result<(ShardImportCounts, ShardImportCounts, Vec<Uuid>), ApiError> {
+) -> Result<
+    (
+        ShardImportCounts,
+        ShardImportCounts,
+        Vec<Uuid>,
+        Vec<(Uuid, Uuid)>,
+        usize,
+    ),
+    ApiError,
+> {
     let ctx = state.db.for_schema(schema)?;
     let mut tx = ctx
         .begin_tx()
@@ -34473,6 +34783,8 @@ async fn apply_validated_shard_components(
     let mut imported = ShardImportCounts::default();
     let mut skipped = ShardImportCounts::default();
     let mut queued_note_ids = Vec::new();
+    let mut pending_attachment_scans = Vec::new();
+    let mut bypassed_attachments = 0usize;
     let mut reference_blob_cleanup_candidates = Vec::new();
     let mut used_staged_blobs = std::collections::HashSet::new();
     let should_import = |component: &str| selected_components.contains(component);
@@ -34753,14 +35065,17 @@ async fn apply_validated_shard_components(
                 .map_err(|error| {
                     shard_operation_failed("restore imported note timestamps", error)
                 })?;
-                apply_shard_attachment_projections(
+                let (pending_scans, bypassed) = apply_shard_attachment_projections(
                     &mut tx,
                     note_id,
                     &note.attachments,
                     staged_blobs,
                     &mut used_staged_blobs,
+                    state.attachment_scan_mode,
                 )
                 .await?;
+                pending_attachment_scans.extend(pending_scans);
+                bypassed_attachments += bypassed;
                 if !opts.skip_embedding_regen && note.deleted_at.is_none() {
                     queued_note_ids.push(note_id);
                 }
@@ -35030,7 +35345,13 @@ async fn apply_validated_shard_components(
         return Err(shard_operation_failed("commit import transaction", error));
     }
 
-    Ok((imported, skipped, queued_note_ids))
+    Ok((
+        imported,
+        skipped,
+        queued_note_ids,
+        pending_attachment_scans,
+        bypassed_attachments,
+    ))
 }
 
 /// Byte-slice compatibility wrapper for shard import tests.
@@ -35221,7 +35542,22 @@ where
     if let Some(backend) = state.db.filesystem_storage_backend() {
         discard_staged_shard_sidecars(&backend, &staged_blobs).await;
     }
-    let (imported, skipped, queued_note_ids) = apply_result?;
+    let (imported, skipped, queued_note_ids, pending_attachment_scans, bypassed_attachments) =
+        apply_result?;
+
+    for (note_id, attachment_id) in pending_attachment_scans {
+        queue_attachment_scan_job(
+            state,
+            note_id,
+            attachment_id,
+            schema_for_jobs.as_deref(),
+            Vec::new(),
+        )
+        .await?;
+    }
+    for _ in 0..bypassed_attachments {
+        state.attachment_scan_metrics.record_bypass();
+    }
 
     for note_id in queued_note_ids {
         queue_nlp_pipeline(
@@ -45922,6 +46258,54 @@ not-json
             .await
             .expect("materialize seeded source blob metadata");
 
+        let blocked_export = match knowledge_shard(
+            State(state.clone()),
+            Extension(ArchiveContext {
+                schema: source.schema_name.clone(),
+                is_default: false,
+                name: Some(source_name.clone()),
+            }),
+            Query(ShardExportQuery {
+                profile: None,
+                include: None,
+                include_blobs: true,
+            }),
+        )
+        .await
+        {
+            Ok(_) => panic!("scan-gated attachment sidecars must not be exported"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            blocked_export,
+            ApiError::BadRequest(ref message)
+                if message == "Knowledge shard attachment sidecars are blocked by scan policy."
+        ));
+
+        let checksum_for_verdict = attachment_checksum.clone();
+        source_ctx
+            .execute(move |tx| {
+                Box::pin(async move {
+                    sqlx::query(
+                        "UPDATE attachment
+                         SET virus_scan_status = 'bypassed',
+                             virus_scan_at = NOW(),
+                             virus_scan_backend = 'fortemi-policy',
+                             virus_scan_reason_code = 'explicit_local_bypass',
+                             virus_scan_blob_hash = $2
+                         WHERE blob_id = $1",
+                    )
+                    .bind(source_blob_id)
+                    .bind(checksum_for_verdict)
+                    .execute(&mut **tx)
+                    .await
+                    .map(|_| ())
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("record explicit local scan bypass for source attachment");
+
         let export = knowledge_shard(
             State(state.clone()),
             Extension(ArchiveContext {
@@ -45953,6 +46337,66 @@ not-json
             read_shard_archive(&exported_bytes, ShardArchiveLimits::default()).unwrap();
         let sidecar_name = shard_blob_entry_name(&attachment_checksum).unwrap();
         assert_eq!(exported_files[&sidecar_name], attachment_bytes);
+
+        let required_name = format!("shard-sidecar-required-{}", Uuid::new_v4().simple());
+        let required_destination = db
+            .archives
+            .create_archive_schema(
+                &required_name,
+                Some("Knowledge Shard required scan policy test"),
+            )
+            .await
+            .expect("create required scan destination");
+        let mut required_state = state.clone();
+        required_state.attachment_scan_mode = AttachmentScanMode::Required;
+        knowledge_shard_import_internal(
+            &required_state,
+            &exported_bytes,
+            &opts,
+            &required_destination.schema_name,
+        )
+        .await
+        .expect("import sidecars under required scan policy");
+        let required_attachment_count = db
+            .for_schema(&required_destination.schema_name)
+            .unwrap()
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_scalar::<_, i64>(
+                        "SELECT COUNT(*)
+                         FROM attachment a
+                         JOIN attachment_blob ab ON ab.id = a.blob_id
+                         WHERE ab.storage_backend <> 'reference'
+                           AND a.virus_scan_status = 'pending'",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("count required scan attachments");
+        let required_scan_jobs: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM job_queue
+             WHERE job_type = 'attachment_virus_scan'
+               AND payload->>'schema' = $1",
+        )
+        .bind(&required_destination.schema_name)
+        .fetch_one(db.pool())
+        .await
+        .expect("count required scan jobs");
+        assert!(required_attachment_count > 0);
+        assert_eq!(required_scan_jobs, required_attachment_count);
+        sqlx::query("DELETE FROM job_queue WHERE payload->>'schema' = $1")
+            .bind(&required_destination.schema_name)
+            .execute(db.pool())
+            .await
+            .expect("clean required scan jobs");
+        db.archives
+            .drop_archive_schema(&required_name)
+            .await
+            .expect("drop required scan destination");
 
         let tamper_name = format!("shard-sidecar-tamper-{}", Uuid::new_v4().simple());
         let tamper = db
@@ -46079,6 +46523,28 @@ not-json
                 .expect("read imported sidecar bytes"),
             attachment_bytes
         );
+        let imported_scan_policy = destination_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_scalar::<_, bool>(
+                        "SELECT COALESCE(bool_and(
+                            a.virus_scan_status = 'bypassed'
+                            AND a.virus_scan_backend = 'fortemi-policy'
+                            AND a.virus_scan_reason_code = 'explicit_local_bypass'
+                            AND a.virus_scan_blob_hash = ab.content_hash
+                        ), false)
+                        FROM attachment a
+                        JOIN attachment_blob ab ON ab.id = a.blob_id
+                        WHERE ab.storage_backend <> 'reference'",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read imported attachment scan policy");
+        assert!(imported_scan_policy);
         let imported_attachments = destination_ctx
             .query(|tx| {
                 Box::pin(async move {
@@ -52440,6 +52906,8 @@ not-json
             ),
             max_memories: matric_core::defaults::MAX_MEMORIES,
             max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
+            attachment_scan_mode: AttachmentScanMode::Disabled,
+            attachment_scan_metrics: Arc::new(AttachmentScanMetrics::default()),
             vision_backend: None,
             transcription_backend: None,
             realtime_deepgram_metrics: None,
@@ -56975,6 +57443,8 @@ not-json
             ),
             max_memories: matric_core::defaults::MAX_MEMORIES,
             max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
+            attachment_scan_mode: AttachmentScanMode::Disabled,
+            attachment_scan_metrics: Arc::new(AttachmentScanMetrics::default()),
             vision_backend: None,
             transcription_backend: None,
             realtime_deepgram_metrics: None,
@@ -58686,6 +59156,8 @@ not-json
             ),
             max_memories: matric_core::defaults::MAX_MEMORIES,
             max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
+            attachment_scan_mode: AttachmentScanMode::Disabled,
+            attachment_scan_metrics: Arc::new(AttachmentScanMetrics::default()),
             vision_backend: None,
             transcription_backend: None,
             realtime_deepgram_metrics: None,
@@ -59017,6 +59489,8 @@ not-json
             ),
             max_memories: matric_core::defaults::MAX_MEMORIES,
             max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
+            attachment_scan_mode: AttachmentScanMode::Disabled,
+            attachment_scan_metrics: Arc::new(AttachmentScanMetrics::default()),
             vision_backend: None,
             transcription_backend: None,
             realtime_deepgram_metrics: None,

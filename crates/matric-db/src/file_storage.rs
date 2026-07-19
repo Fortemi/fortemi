@@ -24,8 +24,8 @@
 
 use async_trait::async_trait;
 use matric_core::{
-    Attachment, AttachmentBlob, AttachmentStatus, AttachmentSummary, Error, ExtractionStrategy,
-    GlobalAttachmentSummary, Result,
+    Attachment, AttachmentBlob, AttachmentScanStatus, AttachmentStatus, AttachmentSummary, Error,
+    ExtractionStrategy, GlobalAttachmentSummary, Result,
 };
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::path::{Path, PathBuf};
@@ -63,6 +63,22 @@ fn attachment_not_found_error(attachment_id: Uuid) -> Error {
         "Attachment not found; attachment_id_present={}",
         attachment.id_present
     ))
+}
+
+fn attachment_scan_denied_error() -> Error {
+    Error::Forbidden("attachment_scan_verdict_denies_access".to_string())
+}
+
+fn ensure_attachment_scan_allows_access(
+    status: AttachmentScanStatus,
+    scan_blob_hash: Option<&str>,
+    content_hash: &str,
+) -> Result<()> {
+    if status.allows_access() && scan_blob_hash == Some(content_hash) {
+        Ok(())
+    } else {
+        Err(attachment_scan_denied_error())
+    }
 }
 
 fn storage_io_error_kind(error: &std::io::Error) -> &'static str {
@@ -108,7 +124,15 @@ pub struct FileDownloadInfo {
     pub content_type: String,
     pub filename: String,
     pub size_bytes: u64,
+    pub virus_scan_status: AttachmentScanStatus,
     pub source: FileSource,
+}
+
+/// Attachment bytes and immutable blob identity presented to a scanner.
+pub struct AttachmentScanFile {
+    pub data: Vec<u8>,
+    pub content_hash: String,
+    pub size_bytes: u64,
 }
 
 /// Where the file content lives.
@@ -1004,6 +1028,9 @@ impl PgFileStorageRepository {
                          ai_description, ai_model,
                          has_preview, is_canonical_content,
                          detected_document_type_id, detection_confidence, detection_method,
+                         virus_scan_status, virus_scan_at, virus_scan_backend,
+                         virus_scan_engine_version, virus_scan_signature_version,
+                         virus_scan_reason_code, virus_scan_blob_hash,
                          created_at, updated_at"#,
         )
         .bind(attachment_id)
@@ -1025,7 +1052,8 @@ impl PgFileStorageRepository {
     /// Returns `Error::NotFound` if the attachment or blob doesn't exist.
     pub async fn download_file(&self, attachment_id: Uuid) -> Result<(Vec<u8>, String, String)> {
         let row = sqlx::query(
-            r#"SELECT ab.content_type, ab.storage_backend, ab.storage_path, ab.data, a.filename
+            r#"SELECT ab.content_type, ab.storage_backend, ab.storage_path, ab.data,
+                      ab.content_hash, a.filename, a.virus_scan_status, a.virus_scan_blob_hash
                FROM attachment a
                JOIN attachment_blob ab ON a.blob_id = ab.id
                WHERE a.id = $1"#,
@@ -1038,6 +1066,12 @@ impl PgFileStorageRepository {
         let storage_backend: String = row.get("storage_backend");
         let content_type: String = row.get("content_type");
         let filename: String = row.get("filename");
+        let scan_blob_hash: Option<String> = row.get("virus_scan_blob_hash");
+        ensure_attachment_scan_allows_access(
+            parse_attachment_scan_status(row.get("virus_scan_status")),
+            scan_blob_hash.as_deref(),
+            row.get("content_hash"),
+        )?;
 
         let data = if storage_backend == "database" {
             row.get::<Option<Vec<u8>>, _>("data")
@@ -1060,7 +1094,8 @@ impl PgFileStorageRepository {
             r#"SELECT a.id, a.note_id, a.filename, ab.content_type, ab.size_bytes,
                       a.status::TEXT, dt.name as document_type_name,
                       ddt.name as detected_document_type_name, a.detection_confidence,
-                      a.has_preview, a.is_canonical_content, a.created_at
+                      a.has_preview, a.is_canonical_content,
+                      a.virus_scan_status, a.virus_scan_at, a.created_at
                FROM attachment a
                JOIN attachment_blob ab ON a.blob_id = ab.id
                LEFT JOIN document_type dt ON a.document_type_id = dt.id
@@ -1086,6 +1121,8 @@ impl PgFileStorageRepository {
                 detection_confidence: row.get("detection_confidence"),
                 has_preview: row.get("has_preview"),
                 is_canonical_content: row.get("is_canonical_content"),
+                virus_scan_status: parse_attachment_scan_status(row.get("virus_scan_status")),
+                virus_scan_at: row.get("virus_scan_at"),
                 created_at: row.get("created_at"),
             });
         }
@@ -1158,6 +1195,9 @@ impl PgFileStorageRepository {
                       ai_description, ai_model,
                       has_preview, is_canonical_content,
                       detected_document_type_id, detection_confidence, detection_method,
+                      virus_scan_status, virus_scan_at, virus_scan_backend,
+                      virus_scan_engine_version, virus_scan_signature_version,
+                      virus_scan_reason_code, virus_scan_blob_hash,
                       created_at, updated_at
                FROM attachment
                WHERE id = $1"#,
@@ -1188,6 +1228,34 @@ impl PgFileStorageRepository {
         .execute(&self.pool)
         .await?;
 
+        Ok(())
+    }
+
+    /// Persist a scan verdict in the default schema.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn set_scan_verdict(
+        &self,
+        attachment_id: Uuid,
+        status: AttachmentScanStatus,
+        backend: Option<&str>,
+        engine_version: Option<&str>,
+        signature_version: Option<&str>,
+        reason_code: Option<&str>,
+        blob_hash: Option<&str>,
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        self.set_scan_verdict_tx(
+            &mut tx,
+            attachment_id,
+            status,
+            backend,
+            engine_version,
+            signature_version,
+            reason_code,
+            blob_hash,
+        )
+        .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -1329,7 +1397,8 @@ impl PgFileStorageRepository {
             r#"SELECT a.id, a.note_id, a.filename, ab.content_type, ab.size_bytes,
                       a.status::TEXT, dt.name as document_type_name,
                       ddt.name as detected_document_type_name, a.detection_confidence,
-                      a.has_preview, a.is_canonical_content, a.created_at
+                      a.has_preview, a.is_canonical_content,
+                      a.virus_scan_status, a.virus_scan_at, a.created_at
                FROM attachment a
                JOIN attachment_blob ab ON a.blob_id = ab.id
                LEFT JOIN document_type dt ON a.document_type_id = dt.id
@@ -1355,6 +1424,8 @@ impl PgFileStorageRepository {
                 detection_confidence: row.get("detection_confidence"),
                 has_preview: row.get("has_preview"),
                 is_canonical_content: row.get("is_canonical_content"),
+                virus_scan_status: parse_attachment_scan_status(row.get("virus_scan_status")),
+                virus_scan_at: row.get("virus_scan_at"),
                 created_at: row.get("created_at"),
             });
         }
@@ -1541,6 +1612,9 @@ impl PgFileStorageRepository {
                          ai_description, ai_model,
                          has_preview, is_canonical_content,
                          detected_document_type_id, detection_confidence, detection_method,
+                         virus_scan_status, virus_scan_at, virus_scan_backend,
+                         virus_scan_engine_version, virus_scan_signature_version,
+                         virus_scan_reason_code, virus_scan_blob_hash,
                          created_at, updated_at"#,
         )
         .bind(attachment_id)
@@ -1566,6 +1640,9 @@ impl PgFileStorageRepository {
                       ai_description, ai_model,
                       has_preview, is_canonical_content,
                       detected_document_type_id, detection_confidence, detection_method,
+                      virus_scan_status, virus_scan_at, virus_scan_backend,
+                      virus_scan_engine_version, virus_scan_signature_version,
+                      virus_scan_reason_code, virus_scan_blob_hash,
                       created_at, updated_at
                FROM attachment
                WHERE id = $1"#,
@@ -1585,7 +1662,8 @@ impl PgFileStorageRepository {
         attachment_id: Uuid,
     ) -> Result<(Vec<u8>, String, String)> {
         let row = sqlx::query(
-            r#"SELECT ab.content_type, ab.storage_backend, ab.storage_path, ab.data, a.filename
+            r#"SELECT ab.content_type, ab.storage_backend, ab.storage_path, ab.data,
+                      ab.content_hash, a.filename, a.virus_scan_status, a.virus_scan_blob_hash
                FROM attachment a
                JOIN attachment_blob ab ON a.blob_id = ab.id
                WHERE a.id = $1"#,
@@ -1598,6 +1676,12 @@ impl PgFileStorageRepository {
         let storage_backend: String = row.get("storage_backend");
         let content_type: String = row.get("content_type");
         let filename: String = row.get("filename");
+        let scan_blob_hash: Option<String> = row.get("virus_scan_blob_hash");
+        ensure_attachment_scan_allows_access(
+            parse_attachment_scan_status(row.get("virus_scan_status")),
+            scan_blob_hash.as_deref(),
+            row.get("content_hash"),
+        )?;
 
         let data = if storage_backend == "database" {
             row.get::<Option<Vec<u8>>, _>("data")
@@ -1612,6 +1696,124 @@ impl PgFileStorageRepository {
         Ok((data, content_type, filename))
     }
 
+    /// Read attachment bytes for the scanner without applying the normal verdict gate.
+    ///
+    /// This is the only storage read that may access pending or quarantined bytes.
+    pub async fn read_file_for_scan_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+    ) -> Result<AttachmentScanFile> {
+        let row = sqlx::query(
+            r#"SELECT ab.storage_backend, ab.storage_path, ab.data,
+                      ab.content_hash, ab.size_bytes
+               FROM attachment a
+               JOIN attachment_blob ab ON a.blob_id = ab.id
+               WHERE a.id = $1"#,
+        )
+        .bind(attachment_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| Error::NotFound("Attachment not found".into()))?;
+
+        let storage_backend: String = row.get("storage_backend");
+        let data = if storage_backend == "database" {
+            row.get::<Option<Vec<u8>>, _>("data")
+                .ok_or_else(|| Error::NotFound("Blob data missing".into()))?
+        } else {
+            let path: String = row
+                .get::<Option<String>, _>("storage_path")
+                .ok_or_else(|| Error::NotFound("Storage path missing".into()))?;
+            self.backend.read(&path).await?
+        };
+        let size_bytes: i64 = row.get("size_bytes");
+        if size_bytes < 0 || data.len() as i64 != size_bytes {
+            return Err(Error::InvalidInput(
+                "attachment_scan_blob_size_mismatch".to_string(),
+            ));
+        }
+
+        let content_hash: String = row.get("content_hash");
+        if compute_content_hash(&data) != content_hash {
+            return Err(Error::InvalidInput(
+                "attachment_scan_blob_identity_mismatch".to_string(),
+            ));
+        }
+
+        Ok(AttachmentScanFile {
+            data,
+            content_hash,
+            size_bytes: size_bytes as u64,
+        })
+    }
+
+    /// Persist a scan verdict and mirror fail-closed verdicts to quarantine.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn set_scan_verdict_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+        status: AttachmentScanStatus,
+        backend: Option<&str>,
+        engine_version: Option<&str>,
+        signature_version: Option<&str>,
+        reason_code: Option<&str>,
+        blob_hash: Option<&str>,
+    ) -> Result<()> {
+        validate_scan_metadata("backend", backend, 64)?;
+        validate_scan_metadata("engine_version", engine_version, 128)?;
+        validate_scan_metadata("signature_version", signature_version, 128)?;
+        validate_scan_metadata("reason_code", reason_code, 64)?;
+        validate_scan_metadata("blob_hash", blob_hash, 128)?;
+
+        let result = sqlx::query(
+            r#"UPDATE attachment
+               SET virus_scan_status = $2,
+                   virus_scan_at = CASE
+                       WHEN $2 IN ('unknown', 'pending') THEN NULL
+                       ELSE NOW()
+                   END,
+                   virus_scan_backend = $3,
+                   virus_scan_engine_version = $4,
+                   virus_scan_signature_version = $5,
+                   virus_scan_reason_code = $6,
+                   virus_scan_blob_hash = $7,
+                   status = CASE
+                       WHEN $2 IN ('infected', 'error', 'unsupported')
+                           THEN 'quarantined'::attachment_status
+                       WHEN $2 IN ('clean', 'bypassed')
+                            AND status = 'quarantined'::attachment_status
+                           THEN 'uploaded'::attachment_status
+                       ELSE status
+                   END,
+                   updated_at = NOW()
+               WHERE id = $1
+                 AND $7 IS NOT NULL
+                 AND EXISTS (
+                     SELECT 1
+                     FROM attachment_blob ab
+                     WHERE ab.id = attachment.blob_id
+                       AND ab.content_hash = $7
+                 )"#,
+        )
+        .bind(attachment_id)
+        .bind(status.to_string())
+        .bind(backend)
+        .bind(engine_version)
+        .bind(signature_version)
+        .bind(reason_code)
+        .bind(blob_hash)
+        .execute(&mut **tx)
+        .await?;
+        if result.rows_affected() != 1 {
+            return Err(Error::InvalidInput(
+                "attachment_scan_blob_identity_mismatch".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Query file metadata without reading file content.
     ///
     /// Returns (storage_backend, storage_path_or_none, data_or_none, content_type, filename, size_bytes).
@@ -1623,7 +1825,8 @@ impl PgFileStorageRepository {
     ) -> Result<FileDownloadInfo> {
         let row = sqlx::query(
             r#"SELECT ab.content_type, ab.storage_backend, ab.storage_path, ab.data,
-                      ab.size_bytes, a.filename
+                      ab.content_hash, ab.size_bytes, a.filename, a.virus_scan_status,
+                      a.virus_scan_blob_hash
                FROM attachment a
                JOIN attachment_blob ab ON a.blob_id = ab.id
                WHERE a.id = $1"#,
@@ -1637,6 +1840,13 @@ impl PgFileStorageRepository {
         let content_type: String = row.get("content_type");
         let filename: String = row.get("filename");
         let size_bytes: i64 = row.get("size_bytes");
+        let virus_scan_status = parse_attachment_scan_status(row.get("virus_scan_status"));
+        let scan_blob_hash: Option<String> = row.get("virus_scan_blob_hash");
+        ensure_attachment_scan_allows_access(
+            virus_scan_status,
+            scan_blob_hash.as_deref(),
+            row.get("content_hash"),
+        )?;
 
         if storage_backend == "database" {
             let data = row
@@ -1646,6 +1856,7 @@ impl PgFileStorageRepository {
                 content_type,
                 filename,
                 size_bytes: size_bytes as u64,
+                virus_scan_status,
                 source: FileSource::Inline(data),
             })
         } else {
@@ -1656,6 +1867,7 @@ impl PgFileStorageRepository {
                 content_type,
                 filename,
                 size_bytes: size_bytes as u64,
+                virus_scan_status,
                 source: FileSource::Filesystem(path),
             })
         }
@@ -2068,11 +2280,39 @@ impl PgFileStorageRepository {
 
         sqlx::query(
             r#"UPDATE attachment
-               SET extracted_metadata = $2, status = 'completed', updated_at = NOW()
+               SET extracted_metadata = $2,
+                   status = 'completed',
+                   virus_scan_status = CASE
+                       WHEN $3 IN ('email_attachment', 'archive_entry', 'embedded_attachment')
+                           THEN 'pending'
+                       ELSE 'clean'
+                   END,
+                   virus_scan_at = CASE
+                       WHEN $3 IN ('email_attachment', 'archive_entry', 'embedded_attachment')
+                           THEN NULL
+                       ELSE NOW()
+                   END,
+                   virus_scan_backend = CASE
+                       WHEN $3 IN ('email_attachment', 'archive_entry', 'embedded_attachment')
+                           THEN NULL
+                       ELSE 'fortemi-derived'
+                   END,
+                   virus_scan_reason_code = CASE
+                       WHEN $3 IN ('email_attachment', 'archive_entry', 'embedded_attachment')
+                           THEN 'untrusted_embedded_content'
+                       ELSE 'generated_from_clean_parent'
+                   END,
+                   virus_scan_blob_hash = CASE
+                       WHEN $3 IN ('email_attachment', 'archive_entry', 'embedded_attachment')
+                           THEN NULL
+                       ELSE (SELECT content_hash FROM attachment_blob WHERE id = attachment.blob_id)
+                   END,
+                   updated_at = NOW()
                WHERE id = $1"#,
         )
         .bind(attachment.id)
         .bind(&derived_metadata)
+        .bind(derivation_type)
         .execute(&mut **tx)
         .await?;
 
@@ -2120,6 +2360,9 @@ impl PgFileStorageRepository {
                       ai_description, ai_model,
                       has_preview, is_canonical_content,
                       detected_document_type_id, detection_confidence, detection_method,
+                      virus_scan_status, virus_scan_at, virus_scan_backend,
+                      virus_scan_engine_version, virus_scan_signature_version,
+                      virus_scan_reason_code, virus_scan_blob_hash,
                       created_at, updated_at
                FROM attachment
                WHERE extracted_metadata->>'source_attachment_id' = $1
@@ -2146,6 +2389,19 @@ fn parse_attachment_status(s: &str) -> AttachmentStatus {
         "quarantined" => AttachmentStatus::Quarantined,
         _ => AttachmentStatus::Uploaded,
     }
+}
+
+fn parse_attachment_scan_status(value: &str) -> AttachmentScanStatus {
+    value.parse().unwrap_or(AttachmentScanStatus::Unknown)
+}
+
+fn validate_scan_metadata(name: &str, value: Option<&str>, max_chars: usize) -> Result<()> {
+    if value.is_some_and(|value| value.chars().count() > max_chars) {
+        return Err(Error::InvalidInput(format!(
+            "attachment_scan_{name}_too_long"
+        )));
+    }
+    Ok(())
 }
 
 /// Parse extraction strategy from database string.
@@ -2201,6 +2457,13 @@ fn attachment_from_row(row: &sqlx::postgres::PgRow) -> Result<Attachment> {
             .get::<Option<f64>, _>("detection_confidence")
             .map(|v| v as f32),
         detection_method: row.get("detection_method"),
+        virus_scan_status: parse_attachment_scan_status(row.get("virus_scan_status")),
+        virus_scan_at: row.get("virus_scan_at"),
+        virus_scan_backend: row.get("virus_scan_backend"),
+        virus_scan_engine_version: row.get("virus_scan_engine_version"),
+        virus_scan_signature_version: row.get("virus_scan_signature_version"),
+        virus_scan_reason_code: row.get("virus_scan_reason_code"),
+        virus_scan_blob_hash: row.get("virus_scan_blob_hash"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })

@@ -6736,6 +6736,7 @@ components:
       - status
       - has_preview
       - is_canonical_content
+      - virus_scan_status
       - created_at
       - updated_at
       properties:
@@ -6807,6 +6808,33 @@ components:
         updated_at:
           type: string
           format: date-time
+        virus_scan_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        virus_scan_backend:
+          type:
+          - string
+          - 'null'
+        virus_scan_blob_hash:
+          type:
+          - string
+          - 'null'
+        virus_scan_engine_version:
+          type:
+          - string
+          - 'null'
+        virus_scan_reason_code:
+          type:
+          - string
+          - 'null'
+        virus_scan_signature_version:
+          type:
+          - string
+          - 'null'
+        virus_scan_status:
+          $ref: '#/components/schemas/AttachmentScanStatus'
     AttachmentBlob:
       type: object
       description: Attachment blob for content-addressable storage.
@@ -6841,6 +6869,17 @@ components:
           type:
           - string
           - 'null'
+    AttachmentScanStatus:
+      type: string
+      description: Malware/content scan verdict for managed attachment bytes.
+      enum:
+      - unknown
+      - pending
+      - clean
+      - infected
+      - error
+      - unsupported
+      - bypassed
     AttachmentSearchRequest:
       type: object
       description: Attachment search request.
@@ -6939,6 +6978,7 @@ components:
       - status
       - has_preview
       - is_canonical_content
+      - virus_scan_status
       - created_at
       properties:
         content_type:
@@ -6976,6 +7016,13 @@ components:
           format: int64
         status:
           $ref: '#/components/schemas/AttachmentStatus'
+        virus_scan_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        virus_scan_status:
+          $ref: '#/components/schemas/AttachmentScanStatus'
     AuthorizationForm:
       type: object
       description: Authorization form submission.

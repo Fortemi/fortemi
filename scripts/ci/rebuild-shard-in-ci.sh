@@ -106,6 +106,7 @@ docker run -d --name "$API_NAME" --network "$NETWORK" \
     -e RATE_LIMIT_ENABLED=false \
     -e REQUIRE_AUTH=false \
     -e I_UNDERSTAND_NO_AUTH=true \
+    -e MATRIC_ATTACHMENT_SCAN_MODE=disabled \
     -e FORTEMI_ALLOW_LOCAL_ISSUER=true \
     -e ISSUER_URL="${API_URL}" \
     "$API_IMAGE"

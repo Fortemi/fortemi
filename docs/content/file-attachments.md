@@ -446,7 +446,7 @@ Dangerous extensions are explicitly blocked:
 Files larger than the configured maximum are rejected.
 
 **Default Limits:**
-- API upload: 100 MB (configurable via `MAX_UPLOAD_SIZE`)
+- Decoded attachment/provider media: 50 MB (configurable via `MATRIC_MAX_UPLOAD_SIZE_BYTES`)
 - Database inline storage threshold: 10 MB
 
 **Why:** Prevents denial-of-service and storage exhaustion
@@ -506,17 +506,44 @@ Upload Request
 └────────┬────────┘
          │
          ▼
-     Store ✓
+┌─────────────────┐
+│ Scan Pending    │ → No parser or download access
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ clamd INSTREAM  │ → Clean releases downstream jobs
+└────────┬────────┘
+         │
+         ▼
+     Process ✓
 ```
 
 ### Quarantine Status
 
-Files that fail validation are marked with `status: quarantined` and:
+Files rejected by extension, signature, MIME, or size validation are not
+stored. Stored files with `infected`, `error`, or `unsupported` scan verdicts
+are marked with `status: quarantined` and:
 
 - Not indexed for search
 - Not processed for content extraction
-- Visible only to administrators
-- Can be manually reviewed and deleted
+- Refused by original and derived download routes
+- Retained for an audited operator review or deletion workflow
+
+Uploads enter `virus_scan_status: pending`. Hosted mode requires a healthy
+scanner at startup and fails closed on timeout or unavailability. An explicit
+local-only `MATRIC_ATTACHMENT_SCAN_MODE=disabled` records `bypassed` rather
+than `clean` and emits a visible warning. Legacy rows are `unknown` until an
+explicit rescan or local policy decision.
+
+This managed-upload scan is distinct from secret detection for Referenced
+archives. A clean malware verdict also does not replace archive structure,
+checksum, entry allowlist, or decompression-limit validation.
+
+Knowledge Shard attachment sidecars are managed bytes. Imports stage them as
+pending in required mode (or explicitly bypassed in local disabled mode), and
+exports refuse sidecar bytes until the attachment verdict matches the current
+content-addressed blob.
 
 ## Content Deduplication
 
@@ -880,8 +907,9 @@ When the final chunk completes the upload (offset equals Upload-Length), Fortemi
 3. Validates file safety (magic bytes, extension blocklist)
 4. Detects the actual content type
 5. Stores via the standard attachment pipeline (BLAKE3 dedup, blob reference counting)
-6. Queues background extraction jobs (content extraction, EXIF, media optimization)
-7. Deletes the staging file
+6. Persists a pending scan verdict and queues managed attachment scanning
+7. Queues extraction, EXIF, and media optimization only after a clean verdict
+8. Deletes the staging file
 
 The `200 OK` response body contains the completed `Attachment` JSON, identical to what `POST /attachments` returns.
 

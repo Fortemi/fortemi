@@ -555,6 +555,7 @@ jobs:
             -e PORT=3000 \
             -e REQUIRE_AUTH=false \
             -e I_UNDERSTAND_NO_AUTH=true \
+            -e MATRIC_ATTACHMENT_SCAN_MODE=disabled \
             matric-memory:test
 
           # Wait for API to be healthy (use docker exec for DinD environment)

@@ -115,6 +115,7 @@ impl PgJobRepository {
             JobType::GenerateGraphEmbedding => "generate_graph_embedding",
             JobType::GenerateCoarseEmbedding => "generate_coarse_embedding",
             JobType::ExifExtraction => "exif_extraction",
+            JobType::AttachmentVirusScan => "attachment_virus_scan",
             JobType::Extraction => "extraction",
             JobType::DocumentTypeInference => "document_type_inference",
             JobType::MetadataExtraction => "metadata_extraction",
@@ -157,6 +158,7 @@ impl PgJobRepository {
             "generate_graph_embedding" => JobType::GenerateGraphEmbedding,
             "generate_coarse_embedding" => JobType::GenerateCoarseEmbedding,
             "exif_extraction" => JobType::ExifExtraction,
+            "attachment_virus_scan" => JobType::AttachmentVirusScan,
             "extraction" => JobType::Extraction,
             "document_type_inference" => JobType::DocumentTypeInference,
             "metadata_extraction" => JobType::MetadataExtraction,
@@ -360,6 +362,81 @@ impl JobRepository for PgJobRepository {
             }
             Ok(result)
         }
+    }
+
+    async fn queue_attachment_once(
+        &self,
+        attachment_id: Uuid,
+        schema: &str,
+        note_id: Option<Uuid>,
+        job_type: JobType,
+        payload: Option<JsonValue>,
+    ) -> Result<Option<Uuid>> {
+        let job_type_str = Self::job_type_to_str(job_type);
+        let priority = job_type.default_priority();
+        let cost_tier = job_type.default_cost_tier();
+        let release_key = format!("{schema}:{attachment_id}:{job_type_str}");
+        let mut payload = payload.unwrap_or_else(|| JsonValue::Object(Default::default()));
+        let payload_object = payload.as_object_mut().ok_or_else(|| {
+            Error::InvalidInput("Attachment downstream job payload must be an object".to_string())
+        })?;
+        payload_object.insert(
+            "scan_release_key".to_string(),
+            JsonValue::String(release_key.clone()),
+        );
+
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(&release_key)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+        let already_queued: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1
+                FROM job_queue
+                WHERE payload->>'scan_release_key' = $1
+            )",
+        )
+        .bind(&release_key)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+        if already_queued {
+            tx.commit().await.map_err(Error::Database)?;
+            return Ok(None);
+        }
+
+        let job_id = new_v7();
+        let now = Utc::now();
+        let estimated_duration: Option<i32> =
+            sqlx::query_scalar("SELECT estimate_job_duration($1::job_type, NULL)")
+                .bind(job_type_str)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(Error::Database)?
+                .flatten();
+
+        sqlx::query(
+            "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at, cost_tier)
+             VALUES ($1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6, $7, $8)",
+        )
+        .bind(job_id)
+        .bind(note_id)
+        .bind(job_type_str)
+        .bind(priority)
+        .bind(payload)
+        .bind(estimated_duration)
+        .bind(now)
+        .bind(cost_tier)
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+        tx.commit().await.map_err(Error::Database)?;
+
+        self.notify.notify_waiters();
+        Ok(Some(job_id))
     }
 
     async fn claim_next(&self) -> Result<Option<Job>> {
@@ -629,6 +706,18 @@ impl JobRepository for PgJobRepository {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM job_queue WHERE status = 'pending'::job_status",
         )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+        Ok(count)
+    }
+
+    async fn pending_count_for_type(&self, job_type: JobType) -> Result<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM job_queue
+             WHERE status = 'pending'::job_status AND job_type = $1::job_type",
+        )
+        .bind(Self::job_type_to_str(job_type))
         .fetch_one(&self.pool)
         .await
         .map_err(Error::Database)?;

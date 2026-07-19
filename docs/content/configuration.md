@@ -53,6 +53,10 @@ DATABASE_URL=<DATABASE_URL>
 | `ALLOWED_ORIGINS` | String | `http://localhost:3000` | Comma-separated list of allowed CORS origins |
 | `MATRIC_MAX_BODY_SIZE_BYTES` | Integer | `2147483648` | Global request-body ceiling in bytes (default: 2 GB, needed for database backup uploads). This does not increase the per-file attachment limit. |
 | `MATRIC_MAX_UPLOAD_SIZE_BYTES` | Integer | `52428800` | Maximum decoded attachment or provider-media file size in bytes (default: 50 MB). JSON/base64, multipart, tus finalization, and provider downloads enforce this limit before storage. |
+| `MATRIC_ATTACHMENT_SCAN_MODE` | Enum | Required explicitly | Managed attachment scan policy: `required` or local-only `disabled`. Hosted/multi-tenant mode requires `required`; a missing value fails startup. |
+| `MATRIC_ATTACHMENT_CLAMD_ADDR` | IP socket | None | Numeric clamd TCP address used with `INSTREAM`, for example `127.0.0.1:3310`. Required in scan mode `required`. Keep this unauthenticated protocol on a trusted private boundary. |
+| `MATRIC_ATTACHMENT_SCAN_TIMEOUT_MS` | Integer | `30000` | Per-command and per-scan clamd timeout, from 100 through 300000 milliseconds. |
+| `MATRIC_ATTACHMENT_SCAN_MAX_BYTES` | Integer | Upload maximum | Maximum bytes presented to clamd. In required mode it must be at least `MATRIC_MAX_UPLOAD_SIZE_BYTES`; over-limit scanner verdicts fail closed as unsupported. |
 | `FORTEMI_SHARD_TRUSTED_KEYS_JSON` | JSON array | None | Allowlisted Knowledge Shard Ed25519 public keys as `{"key_id","public_key","revoked"}` records. `public_key` is an unpadded base64url-encoded 32-byte key. When configured, shard imports default to signature policy `require`. |
 
 **Example:**
@@ -62,6 +66,9 @@ PORT=8080       # Custom port
 ALLOWED_ORIGINS=https://memory.example.com,http://localhost:3000
 MATRIC_MAX_BODY_SIZE_BYTES=2147483648
 MATRIC_MAX_UPLOAD_SIZE_BYTES=104857600  # 100 MB
+MATRIC_ATTACHMENT_SCAN_MODE=required
+MATRIC_ATTACHMENT_CLAMD_ADDR=127.0.0.1:3310
+MATRIC_ATTACHMENT_SCAN_MAX_BYTES=104857600
 FORTEMI_SHARD_TRUSTED_KEYS_JSON='[{"key_id":"publisher-1","public_key":"<BASE64URL_PUBLIC_KEY>"}]'
 ```
 
@@ -71,6 +78,16 @@ small metadata allowance, while multipart uploads include framing and metadata
 overhead. `MATRIC_MAX_BODY_SIZE_BYTES` remains the global upper bound, primarily
 for large backup operations; if it is lower than a route-specific ceiling, the
 lower global value wins.
+
+Managed attachment scanning is separate from file-type validation and from the
+Referenced-archive secret pre-scan. Required mode stages managed uploads as
+`pending`, streams their bounded bytes to clamd with `INSTREAM`, and releases
+extraction, EXIF, media optimization, transcription, and download only after a
+clean verdict. `infected`, `error`, `unsupported`, `pending`, and legacy
+`unknown` rows remain fail closed. Local `disabled` mode records `bypassed`
+explicitly and emits a security warning; it never records those bytes as clean.
+Knowledge Shard attachment sidecars enter the same policy on import, and shard
+exports refuse sidecar bytes whose attachment verdict does not match the blob.
 
 ### Authentication
 

@@ -761,7 +761,7 @@ docker exec Fortémi-matric-1 psql -U matric -d matric -c \
    WHERE id NOT IN (SELECT DISTINCT blob_id FROM attachment);"
 ```
 
-### File Safety Validation
+### File Safety Validation And Scanning
 
 Blocked file types include executables (.exe, .dll, .sh, .bat), scripts (.ps1, .vbs), and other dangerous formats.
 
@@ -769,8 +769,23 @@ Check quarantined files:
 
 ```bash
 docker exec Fortémi-matric-1 psql -U matric -d matric -c \
-  "SELECT id, filename, status, error_message FROM attachment WHERE status = 'quarantined';"
+  "SELECT id, status, virus_scan_status, virus_scan_at, virus_scan_backend,
+          virus_scan_reason_code
+   FROM attachment
+   WHERE status = 'quarantined'
+   ORDER BY updated_at DESC;"
 ```
+
+Hosted deployments must set `MATRIC_ATTACHMENT_SCAN_MODE=required` and
+`MATRIC_ATTACHMENT_CLAMD_ADDR` to a healthy clamd endpoint. Fortemi uses
+`INSTREAM`; it never sends application-local storage paths to the daemon.
+Clamd TCP is not authenticated or encrypted, so keep it on a trusted private
+network boundary. Align `MATRIC_ATTACHMENT_SCAN_MAX_BYTES` with the attachment
+upload limit. Scanner timeout, unavailability, protocol errors, and size
+unsupported results remain quarantined and do not release parser jobs.
+
+`GET /health` reports scanner availability, scan mode, pending queue depth,
+active scans, verdict counts, and cumulative duration with bounded labels.
 
 See [File Attachments documentation](#/core-systems-attachments) for details.
 

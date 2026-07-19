@@ -5,6 +5,7 @@
 //!
 //! UAT references: UAT-2B-018, UAT-2B-019
 
+use matric_core::AttachmentScanStatus;
 use matric_db::{FilesystemBackend, PgFileStorageRepository};
 use sqlx::PgPool;
 use tempfile::TempDir;
@@ -115,6 +116,19 @@ async fn test_shared_blob_survives_sibling_deletion() {
         "Blob reference_count should be 1 after deleting one of two attachments"
     );
 
+    file_storage
+        .set_scan_verdict(
+            attachment1.id,
+            AttachmentScanStatus::Clean,
+            Some("test-scanner"),
+            None,
+            None,
+            Some("scanner_clean"),
+            Some(&matric_db::compute_content_hash(file_data)),
+        )
+        .await
+        .expect("Failed to mark attachment clean");
+
     // Original attachment should still be downloadable
     let (data, content_type, filename) = file_storage
         .download_file(attachment1.id)
@@ -185,6 +199,130 @@ async fn test_orphaned_blob_cleaned_up_on_last_delete() {
             "Physical blob file should be deleted when last reference is removed"
         );
     }
+}
+
+#[tokio::test]
+async fn attachment_download_requires_allowed_scan_verdict() {
+    let pool = setup_test_db().await;
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let file_storage = setup_file_storage(pool.clone(), &temp_dir);
+    let note_id = create_test_note(&pool).await;
+    let data = format!("bounded clean attachment {note_id}");
+    let data = data.as_bytes();
+
+    let attachment = file_storage
+        .store_file(note_id, "scan.txt", "text/plain", data)
+        .await
+        .expect("Failed to store attachment");
+    let content_hash = matric_db::compute_content_hash(data);
+    assert_eq!(attachment.virus_scan_status, AttachmentScanStatus::Pending);
+    assert!(matches!(
+        file_storage
+            .download_file(attachment.id)
+            .await
+            .expect_err("pending attachment must not be readable"),
+        matric_core::Error::Forbidden(_)
+    ));
+
+    let derived = {
+        let mut tx = pool.begin().await.expect("Failed to begin derived file tx");
+        let derived = file_storage
+            .store_derived_attachment_tx(
+                &mut tx,
+                note_id,
+                attachment.id,
+                "embedded.txt",
+                "text/plain",
+                b"untrusted embedded bytes",
+                "archive_entry",
+            )
+            .await
+            .expect("Failed to store derived attachment");
+        tx.commit().await.expect("Failed to commit derived file");
+        derived
+    };
+    assert!(matches!(
+        file_storage
+            .download_file(derived.id)
+            .await
+            .expect_err("untrusted derived attachment must remain scan-gated"),
+        matric_core::Error::Forbidden(_)
+    ));
+
+    assert!(matches!(
+        file_storage
+            .set_scan_verdict(
+                attachment.id,
+                AttachmentScanStatus::Clean,
+                Some("test-scanner"),
+                Some("1.0"),
+                Some("42"),
+                Some("scanner_clean"),
+                Some("mismatched-hash"),
+            )
+            .await
+            .expect_err("verdict for a different blob must be rejected"),
+        matric_core::Error::InvalidInput(_)
+    ));
+
+    file_storage
+        .set_scan_verdict(
+            attachment.id,
+            AttachmentScanStatus::Infected,
+            Some("test-scanner"),
+            Some("1.0"),
+            Some("42"),
+            Some("malware_detected"),
+            Some(&content_hash),
+        )
+        .await
+        .expect("Failed to persist infected verdict");
+    assert!(matches!(
+        file_storage
+            .download_file(attachment.id)
+            .await
+            .expect_err("infected attachment must not be readable"),
+        matric_core::Error::Forbidden(_)
+    ));
+    assert_eq!(
+        file_storage
+            .get(attachment.id)
+            .await
+            .expect("Failed to reload attachment")
+            .status,
+        matric_core::AttachmentStatus::Quarantined
+    );
+
+    file_storage
+        .set_scan_verdict(
+            attachment.id,
+            AttachmentScanStatus::Clean,
+            Some("test-scanner"),
+            Some("1.0"),
+            Some("42"),
+            Some("scanner_clean"),
+            Some(&content_hash),
+        )
+        .await
+        .expect("Failed to persist clean verdict");
+    let (downloaded, _, _) = file_storage
+        .download_file(attachment.id)
+        .await
+        .expect("clean attachment should be readable");
+    assert_eq!(downloaded, data);
+
+    sqlx::query("UPDATE attachment SET virus_scan_blob_hash = 'stale-hash' WHERE id = $1")
+        .bind(attachment.id)
+        .execute(&pool)
+        .await
+        .expect("Failed to simulate a stale verdict");
+    assert!(matches!(
+        file_storage
+            .download_file(attachment.id)
+            .await
+            .expect_err("a clean verdict for different bytes must not authorize access"),
+        matric_core::Error::Forbidden(_)
+    ));
 }
 
 /// Verify that store_file_tx does NOT double-increment the reference count.

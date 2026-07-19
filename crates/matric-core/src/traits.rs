@@ -390,6 +390,16 @@ pub trait JobRepository: Send + Sync {
         cost_tier: Option<i16>,
     ) -> Result<Option<Uuid>>;
 
+    /// Queue a downstream attachment job exactly once across scan retries.
+    async fn queue_attachment_once(
+        &self,
+        attachment_id: Uuid,
+        schema: &str,
+        note_id: Option<Uuid>,
+        job_type: JobType,
+        payload: Option<JsonValue>,
+    ) -> Result<Option<Uuid>>;
+
     /// Claim the next pending job for processing.
     async fn claim_next(&self) -> Result<Option<Job>>;
 
@@ -436,6 +446,9 @@ pub trait JobRepository: Send + Sync {
 
     /// Get pending jobs count.
     async fn pending_count(&self) -> Result<i64>;
+
+    /// Get pending jobs count for one bounded job type.
+    async fn pending_count_for_type(&self, job_type: JobType) -> Result<i64>;
 
     /// List recent jobs.
     async fn list_recent(&self, limit: i64) -> Result<Vec<Job>>;

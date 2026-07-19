@@ -18,6 +18,7 @@ services:
       - PORT=3000
       - REDIS_ENABLED=false
       - FILE_STORAGE_PATH=/var/lib/matric/files
+      - MATRIC_ATTACHMENT_SCAN_MODE=disabled
     depends_on:
       db:
         condition: service_healthy
@@ -52,6 +53,7 @@ services:
       - DATABASE_URL=postgres://db:5432/matric?user=matric&password=${POSTGRES_PASSWORD:-fortemi-local-dev}
       - RUST_LOG=info
       - WORKER_MODE=true
+      - MATRIC_ATTACHMENT_SCAN_MODE=disabled
     depends_on:
       db:
         condition: service_healthy
