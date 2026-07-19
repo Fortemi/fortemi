@@ -1,7 +1,7 @@
 #!/bin/bash
 # matric-builder entrypoint script
 #
-# Handles Docker-in-Docker setup when running in CI environments.
+# Detects optional host Docker daemon access in CI environments.
 # For standard use, simply passes through to the command.
 
 set -e
@@ -26,7 +26,7 @@ log_error() {
 
 # Check if Docker socket is available
 if [ -S /var/run/docker.sock ]; then
-    log_info "Docker socket detected - Docker-in-Docker mode enabled"
+    log_warn "Docker socket detected - this grants root-equivalent host control"
 
     # Verify Docker is accessible
     if docker info > /dev/null 2>&1; then
@@ -35,7 +35,7 @@ if [ -S /var/run/docker.sock ]; then
         log_info "Docker version: ${DOCKER_VERSION}"
     else
         log_warn "Docker socket present but daemon not accessible"
-        log_warn "Check permissions on /var/run/docker.sock"
+        log_warn "Do not make the socket world-writable; see build/RUNNER_SETUP.md"
     fi
 else
     log_info "No Docker socket - running in standalone mode"

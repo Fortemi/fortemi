@@ -2,22 +2,28 @@
 
 ## Why Build Containers?
 
-At Integro Labs, our build servers are also development servers. Using build containers provides:
+Use a dedicated runner host or VM for socket-backed build jobs. Build containers
+provide:
 
 1. **Isolation** - CI builds don't modify system Rust/toolchain versions
 2. **Reproducibility** - Same environment across all builds
 3. **No Version Conflicts** - Developers can use different Rust versions locally
 4. **Clean Builds** - Each job starts fresh, no leftover state
 
+These properties isolate the toolchain, not the host Docker control plane. A
+job with Docker socket access has root-equivalent host control.
+
 ### Runner Label Strategy
 
 | Label | Type | Purpose |
 |-------|------|---------|
-| `matric-builder` | Docker | Isolated Rust builds, Docker-in-Docker |
+| `matric-builder` | Docker | Trusted builds with optional host-daemon access |
 | `titan` | Host | Direct system access, local services |
 | `gpu` | Host | GPU access for ML/inference tests |
 
-**Rule**: Use `matric-builder` for builds. Use `titan`/`gpu` only when you need direct hardware or local service access.
+**Rule**: Use `matric-builder` for trusted builds. Do not route untrusted fork
+or public pull-request workloads to a socket-backed runner. Use `titan`/`gpu`
+only when direct hardware or local service access is required.
 
 ---
 
@@ -28,6 +34,8 @@ This guide explains how to configure a Gitea Actions runner to use the matric-bu
 - Docker installed on runner host
 - Gitea Actions runner (act_runner) installed
 - Access to `ghcr.io` container registry
+- Dedicated runner host or VM and service account, with no general user
+  workloads or untrusted CI co-tenancy
 
 ## Runner Registration
 
@@ -109,9 +117,16 @@ sudo systemctl enable act_runner
 sudo systemctl start act_runner
 ```
 
-## Docker-in-Docker Configuration
+The `docker` group grants root-equivalent host control. Use this service
+configuration only for the dedicated trusted builder. A runner configured only
+for host execution, with no Docker-backed labels or jobs, should omit
+`Group=docker` and `DOCKER_HOST`.
 
-For jobs that need to build Docker images, mount the Docker socket:
+## Host Docker Daemon Configuration (Trusted Opt-In)
+
+Only jobs that must build or inspect container images should receive host
+daemon access. The following opt-in configuration is for a dedicated runner
+host or VM that executes trusted workflows only.
 
 ### Runner Config
 
@@ -126,19 +141,18 @@ container:
 
 ### Security Considerations
 
-Mounting the Docker socket grants significant privileges:
-
-1. **User permissions**: Ensure the runner user is in the `docker` group
-2. **Socket permissions**: The socket must be accessible to the container
-3. **Network isolation**: Consider using Docker networks to isolate builds
-
-Treat a Docker-socket runner as equivalent to privileged access on the runner
-host. Any workflow step that can talk to `/var/run/docker.sock` can build,
-run, and mount host resources through Docker. Keep the following posture:
+Treat a Docker-socket runner as root-equivalent host control. Any workflow step
+that can talk to `/var/run/docker.sock` can build, run, and mount host resources
+through Docker. `privileged: false` constrains the job container itself but does
+not constrain commands sent to the host daemon. A `:ro` socket mount still
+allows mutating Docker API calls and is not a security boundary. Keep the
+following posture:
 
 - `matric-builder` is the default label for CI builds and pull-request tests.
-  Publish jobs and other secret-bearing jobs must keep job-level `if:` guards
-  that exclude pull-request execution. The lint step
+  Limit repository write and pull-request access to trusted contributors; do
+  not attach a socket-backed runner to public fork workloads. Publish jobs and
+  other secret-bearing jobs must keep job-level `if:` guards that exclude
+  pull-request execution. The lint step
   `scripts/ci/verify-release-job-guards.py` enforces this for workflows with a
   `pull_request` trigger.
 - `titan` and `gpu` labels are hardware/local-service exceptions. Avoid using
@@ -161,6 +175,9 @@ run, and mount host resources through Docker. Keep the following posture:
   immutable digest and rotate it intentionally. If the label uses `:latest`,
   treat that as an operator convenience alias and pull only from the trusted
   registry.
+- Do not make the socket world-writable. The expected distribution default is
+  normally `root:docker` with mode `0660`; repair the Docker service/package
+  configuration if ownership or mode drifts.
 
 ```bash
 # Add runner user to docker group
@@ -169,6 +186,22 @@ sudo usermod -aG docker runner
 # Verify
 groups runner
 ```
+
+### Lower-Blast-Radius Alternatives
+
+Prefer one of these designs when host-daemon control is unnecessary:
+
+- Run rootless Docker under the dedicated runner account and expose only that
+  account's Unix socket.
+- Use a remote BuildKit builder over mutually authenticated TLS, with a
+  dedicated builder identity, network allowlist, and no unauthenticated Docker
+  TCP listener.
+- Use an ephemeral VM per trusted build and destroy it after artifact
+  publication.
+
+A Docker API proxy is not automatically safe: the proxy itself still controls
+the host socket. Use one only after enumerating and enforcing the exact API
+methods required by the workflow.
 
 ## GPU Runner (matric-builder-gpu)
 
@@ -198,8 +231,11 @@ runner:
 container:
   options: |
     --gpus all
-    -v /var/run/docker.sock:/var/run/docker.sock
 ```
+
+GPU inference jobs do not receive the Docker socket by default. If a trusted GPU
+job also needs to build images, use the dedicated opt-in runner boundary above
+rather than adding a global socket mount to the GPU label.
 
 ## Verification
 
@@ -259,13 +295,19 @@ docker login ghcr.io
 
 ```bash
 # Check Docker socket
-ls -la /var/run/docker.sock
+stat -c '%A %U %G %n' /var/run/docker.sock
 # Should be: srw-rw---- 1 root docker ...
 
 # Verify user in docker group
 id runner
 # Should include: groups=...,docker(...)
 ```
+
+Do not use a world-writable mode to bypass access errors. On the dedicated
+trusted runner, repair Docker's `root:docker` ownership/mode through the service
+or package configuration, add only the runner service account to the group, and
+restart the runner session. Otherwise remove direct socket access and use a
+rootless or mutually authenticated remote builder.
 
 ### Out of Disk Space
 
@@ -371,6 +413,13 @@ systemctl list-timers fortemi-runner-capacity.timer
 The scheduled monitor and workflow sentinel use the same thresholds. Cleanup
 remains a separate, drain-required operator action so monitoring cannot delete
 active-job state.
+
+## Boundary With the User-Facing Bundle
+
+This document applies only to trusted internal CI builders. It does not
+authorize mounting the Docker socket into Fortemi's end-user bundle,
+sidecars, or application services. Bundle daemon access and the `autoheal`
+boundary are tracked separately in issue #937.
 
 ## Updating the Builder Image
 

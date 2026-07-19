@@ -42,10 +42,17 @@ docker run --rm -v $(pwd):/build -w /build matric-builder \
     cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-### Build Application Image (Docker-in-Docker)
+### Build Application Image Through the Host Daemon (Trusted Opt-In)
+
+The socket-backed example below grants the builder root-equivalent host control.
+Use it only on a dedicated builder host or VM for trusted jobs. Do not co-locate
+untrusted pull-request workloads or general user workloads on that host.
+Mounting the socket `:ro` does not constrain Docker API operations and is not a
+security boundary. Prefer a rootless daemon or an authenticated remote BuildKit
+builder when the job does not require control of the host daemon.
 
 ```bash
-# Mount Docker socket for image building
+# Trusted, dedicated builder host only.
 docker run --rm \
     -v $(pwd):/build \
     -v /var/run/docker.sock:/var/run/docker.sock \
@@ -63,7 +70,7 @@ build/
 ├── RUNNER_SETUP.md         # Gitea runner configuration guide
 ├── docker-compose.test.yml # Integration test infrastructure
 └── scripts/
-    └── entrypoint.sh       # Docker-in-Docker setup script
+    └── entrypoint.sh       # Optional host-daemon socket detection
 ```
 
 ## Builder Image Contents
@@ -136,15 +143,31 @@ docker compose -f build/docker-compose.test.yml down -v
 
 ### Permission Denied on Docker Socket
 
-When running Docker-in-Docker, the builder needs access to the host's Docker socket:
+Do not make the socket world-writable. Membership in the `docker` group is
+root-equivalent host control, so grant it only to the dedicated trusted runner
+account. If direct daemon access is not required, remove the socket mount and
+use a rootless or authenticated remote builder instead.
 
 ```bash
-# Check socket permissions
-ls -la /var/run/docker.sock
+# Inspect the daemon-owned socket and group.
+stat -c '%A %U %G %n' /var/run/docker.sock
+getent group docker
+id runner
 
-# May need to add user to docker group or adjust permissions
-sudo chmod 666 /var/run/docker.sock
+# On a dedicated trusted runner, add the service account and restart its session.
+sudo usermod -aG docker runner
+sudo systemctl restart act_runner
 ```
+
+If the socket owner or mode is not the distribution default (normally
+`root:docker` and `0660`), repair the Docker service/package configuration and
+restart Docker instead of applying an ad hoc permissive mode. See
+[RUNNER_SETUP.md](./RUNNER_SETUP.md) for the runner threat boundary and remote
+builder alternatives.
+
+This guidance covers trusted internal CI builders. End-user bundle access to
+the Docker daemon is a separate product boundary tracked in issue #937; runner
+configuration must not be copied into the user-facing bundle.
 
 ### Cargo Cache
 

@@ -16,11 +16,16 @@ for the package version, tenant registry, local commands, and deployment details
 
 ## Self-Hosted Runner Security
 
-The `matric-builder` runner uses Docker-in-Docker through the host Docker
+The `matric-builder` runner controls the host Docker daemon through its Unix
 socket, so it should be treated as privileged access to the runner host. It is
 the default label for build, test, container, and publish jobs. The `titan` and
 `gpu` labels are reserved for hardware or local-service access and should not be
 used for publish jobs unless the workflow has a specific host-exposure review.
+Socket-backed jobs run only on a dedicated trusted runner host or VM; a
+read-only socket mount does not constrain Docker API control, and untrusted fork
+workloads must not share that runner. Rootless Docker, a mutually authenticated
+remote BuildKit service, or an ephemeral VM is preferred when the job does not
+need the host daemon.
 
 Secret-bearing jobs must not run for `pull_request` events. The CI lint job runs
 `scripts/ci/verify-release-job-guards.py`, which fails if a workflow that
@@ -44,7 +49,9 @@ Package and registry publish posture:
   registry before enterprise/private package readiness is claimed.
 
 See `build/RUNNER_SETUP.md` for runner registration, Docker-socket isolation,
-and label configuration details.
+and label configuration details. This is an internal CI trust boundary, not
+guidance for the user-facing Fortemi bundle; bundle daemon access remains
+separately governed by issue #937.
 
 ## Pipeline Stages
 
@@ -246,7 +253,7 @@ Both workflows push to the internal Gitea registry and GHCR simultaneously.
 
 The pipeline uses two self-hosted runners:
 
-### matric-builder (Docker-in-Docker)
+### matric-builder (host-daemon-backed)
 - Lint, Build, Test
 - Docker image builds
 - Container testing

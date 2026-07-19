@@ -14,7 +14,7 @@
 #   # Local testing against running instance
 #   bash scripts/container-api-tests.sh
 #
-#   # CI with Docker-in-Docker
+#   # CI with access to the host Docker daemon
 #   CURL_CMD="docker exec fortemi-test-api curl" bash scripts/container-api-tests.sh
 #
 #   # Verbose mode
