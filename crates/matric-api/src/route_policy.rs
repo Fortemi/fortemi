@@ -1872,6 +1872,37 @@ mod tests {
     }
 
     #[test]
+    fn generated_api_inventory_has_no_public_mount_or_execution_mode() {
+        let docs_policies: Vec<_> = ROUTE_POLICY_INVENTORY
+            .iter()
+            .filter(|policy| policy.action_family == "docs_schema")
+            .collect();
+        assert_eq!(
+            docs_policies.len(),
+            3,
+            "OpenAPI, AsyncAPI, and Swagger must be the only generated-doc mounts"
+        );
+        assert!(docs_policies.iter().all(|policy| {
+            policy.class == AdminOperator && policy.docs == Operator && policy.cache == NoStore
+        }));
+
+        let source = include_str!("main.rs");
+        for forbidden in [
+            format!("SwaggerUi::new({:?})", "/docs"),
+            format!(".route({:?}", "/openapi.yaml"),
+            format!(".route({:?}", "/asyncapi.yaml"),
+            format!(".try_it_out_enabled({})", "true"),
+        ] {
+            assert!(
+                !source.contains(&forbidden),
+                "generated API inventory must not restore forbidden mount: {forbidden}"
+            );
+        }
+        assert!(source.contains(&format!("SwaggerUi::new({:?})", OPERATOR_DOCS_PATH)));
+        assert!(source.contains(&format!(".try_it_out_enabled({})", "false")));
+    }
+
+    #[test]
     fn api_key_route_builds_admin_policy_input() {
         let input = authorization_input_for_request(&Method::POST, "/api/v1/api-keys", None)
             .expect("api-key route should be inventoried");

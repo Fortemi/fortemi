@@ -40344,6 +40344,36 @@ mod tests {
         assert_eq!(headers["cross-origin-opener-policy"], "same-origin");
     }
 
+    #[tokio::test]
+    async fn operator_generated_docs_are_never_shared_cacheable() {
+        for path in [
+            route_policy::OPERATOR_DOCS_PATH,
+            "/api/v1/operator/docs/swagger-ui.css",
+            route_policy::OPERATOR_OPENAPI_PATH,
+            route_policy::OPERATOR_ASYNCAPI_PATH,
+        ] {
+            let response = Router::new()
+                .fallback(|| async { StatusCode::OK })
+                .layer(axum::middleware::from_fn(cache_control_middleware))
+                .oneshot(
+                    axum::http::Request::builder()
+                        .method(Method::GET)
+                        .uri(path)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .expect("operator documentation cache response");
+
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                "no-store",
+                "operator documentation must not be shared-cacheable: {path}"
+            );
+        }
+    }
+
     #[test]
     fn security_headers_for_downloads_do_not_apply_document_csp() {
         let mut response = (
