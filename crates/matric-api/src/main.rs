@@ -965,7 +965,7 @@ struct AppState {
     /// Authorization policy decision point (#710). Starts with AllowAllPolicy to
     /// preserve current CE/personal-server behavior while middleware wiring lands.
     authorization_policy: Arc<dyn AuthorizationPolicy>,
-    /// Best-effort usage recorder. CE explicitly defaults to `NoOpMeter`.
+    /// Runtime-selected recorder. CE defaults to `NoOpMeter`; durable mode is startup-required.
     usage_meter: Arc<dyn UsageMeter>,
     /// OAuth access token lifetime (standard clients).
     oauth_token_lifetime: chrono::Duration,
@@ -1875,6 +1875,12 @@ struct RateLimitConfig {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UsageMeterMode {
+    NoOp,
+    DurableRequired,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LogFormat {
     Text,
     Json,
@@ -1909,6 +1915,16 @@ fn strict_bool_value(name: &str, value: Option<&str>, default: bool) -> anyhow::
             "{name} has invalid boolean value '{v}'. Expected one of: true, false, 1, 0."
         ),
         None => Ok(default),
+    }
+}
+
+fn parse_usage_meter_mode(value: Option<&str>) -> anyhow::Result<UsageMeterMode> {
+    match value.unwrap_or("noop") {
+        "noop" => Ok(UsageMeterMode::NoOp),
+        "durable-required" => Ok(UsageMeterMode::DurableRequired),
+        _ => anyhow::bail!(
+            "MATRIC_USAGE_METER_MODE has an invalid value. Expected one of: noop, durable-required."
+        ),
     }
 }
 
@@ -2809,7 +2825,44 @@ async fn main() -> anyhow::Result<()> {
         event_bus_capacity,
         replay_buffer_size,
     ));
-    let usage_meter: Arc<dyn UsageMeter> = Arc::new(NoOpMeter);
+    let usage_meter_mode =
+        parse_usage_meter_mode(std::env::var("MATRIC_USAGE_METER_MODE").ok().as_deref())?;
+    let require_usage_sink = strict_bool_value(
+        "MATRIC_USAGE_REQUIRE_SINK",
+        std::env::var("MATRIC_USAGE_REQUIRE_SINK").ok().as_deref(),
+        false,
+    )?;
+    let usage_meter: Arc<dyn UsageMeter> = match usage_meter_mode {
+        UsageMeterMode::NoOp => {
+            if require_usage_sink {
+                anyhow::bail!(
+                    "MATRIC_USAGE_REQUIRE_SINK=true requires \
+                     MATRIC_USAGE_METER_MODE=durable-required."
+                );
+            }
+            Arc::new(NoOpMeter)
+        }
+        UsageMeterMode::DurableRequired => {
+            db.usage_ledger
+                .verify_ready(require_usage_sink)
+                .await
+                .map_err(|_| {
+                    anyhow::anyhow!(
+                        "Durable usage metering is required but its ledger or required sink \
+                         configuration is unavailable."
+                    )
+                })?;
+            Arc::new(db.usage_ledger.clone())
+        }
+    };
+    info!(
+        usage_meter_mode = match usage_meter_mode {
+            UsageMeterMode::NoOp => "noop",
+            UsageMeterMode::DurableRequired => "durable_required",
+        },
+        required_sink = require_usage_sink,
+        "Usage meter initialized"
+    );
     let job_usage_rx = event_bus.subscribe();
     let job_usage_meter = usage_meter.clone();
     tokio::spawn(async move {
@@ -51916,6 +51969,19 @@ not-json
         assert!(strict_bool_value("MATRIC_TEST_STRICT_BOOL", Some("true"), false).unwrap());
         assert!(!strict_bool_value("MATRIC_TEST_STRICT_BOOL", Some("0"), true).unwrap());
         assert!(strict_bool_value("MATRIC_TEST_STRICT_BOOL", None, true).unwrap());
+    }
+
+    #[test]
+    fn usage_meter_mode_defaults_to_noop_and_rejects_fallback_typos() {
+        assert_eq!(parse_usage_meter_mode(None).unwrap(), UsageMeterMode::NoOp);
+        assert_eq!(
+            parse_usage_meter_mode(Some("durable-required")).unwrap(),
+            UsageMeterMode::DurableRequired
+        );
+        let error = parse_usage_meter_mode(Some("durable"))
+            .expect_err("unknown usage meter mode must fail closed");
+        assert!(error.to_string().contains("MATRIC_USAGE_METER_MODE"));
+        assert!(error.to_string().contains("durable-required"));
     }
 
     #[test]

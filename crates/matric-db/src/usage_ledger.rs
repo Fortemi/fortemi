@@ -3,13 +3,19 @@
 //! Validated Fortemi events are authoritative here. Sink delivery rows are
 //! created transactionally and contain no credentials or provider payloads.
 
+use std::time::Duration as StdDuration;
+
+use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, Pool, Postgres, Row};
 use uuid::Uuid;
 
-use matric_core::{new_v7, DuplicateIdentity, MeteringError, UsageEvent};
+use matric_core::{
+    new_v7, DuplicateIdentity, MeteringError, TimeWindow, UsageAggregate, UsageClass,
+    UsageDimension, UsageEvent, UsageMeasurement, UsageMeter, UsageQuantity, UsageSubject,
+};
 
 #[derive(Clone, PartialEq, FromRow)]
 pub struct UsageLedgerRecord {
@@ -79,6 +85,11 @@ struct DeliveryCandidate {
     previous_lease_id: Option<Uuid>,
     event_fingerprint: String,
     event: JsonValue,
+}
+
+struct UsageWindowBounds {
+    start: Option<DateTime<Utc>>,
+    end: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone)]
@@ -264,6 +275,26 @@ impl PgUsageLedgerRepository {
             .await
             .map(|row| row.get("count"))
             .map_err(|_| MeteringError::BackendUnavailable)
+    }
+
+    pub async fn verify_ready(
+        &self,
+        require_enabled_required_sink: bool,
+    ) -> Result<(), MeteringError> {
+        let enabled_required_sinks: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM public.usage_sink
+            WHERE enabled AND required
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| MeteringError::BackendUnavailable)?;
+        if require_enabled_required_sink && enabled_required_sinks == 0 {
+            return Err(MeteringError::BackendUnavailable);
+        }
+        Ok(())
     }
 
     pub async fn backfill_sink(
@@ -572,6 +603,119 @@ impl PgUsageLedgerRepository {
             .await
             .map_err(|_| MeteringError::BackendUnavailable)?;
         Ok(true)
+    }
+}
+
+#[async_trait]
+impl UsageMeter for PgUsageLedgerRepository {
+    async fn record(&self, event: &UsageEvent) -> Result<(), MeteringError> {
+        self.record_event(event).await.map(|_| ())
+    }
+
+    async fn current(
+        &self,
+        subject: &UsageSubject,
+        dimension: &UsageDimension,
+        window: TimeWindow,
+    ) -> Result<UsageAggregate, MeteringError> {
+        let subject_json =
+            serde_json::to_value(subject).map_err(|_| MeteringError::BackendUnavailable)?;
+        let dimension_json =
+            serde_json::to_value(dimension).map_err(|_| MeteringError::BackendUnavailable)?;
+        let bounds = usage_window_bounds(window, Utc::now())?;
+        let payloads: Vec<JsonValue> = sqlx::query_scalar(
+            r#"
+            SELECT event
+            FROM public.usage_event_ledger
+            WHERE event -> 'subject' = $1
+              AND event -> 'dimension' = $2
+              AND event ->> 'class' IN ('billable_actual', 'reversal')
+              AND ($3::TIMESTAMPTZ IS NULL OR event_time >= $3)
+              AND ($4::TIMESTAMPTZ IS NULL OR event_time < $4)
+            ORDER BY event_time, event_id
+            "#,
+        )
+        .bind(subject_json)
+        .bind(dimension_json)
+        .bind(bounds.start)
+        .bind(bounds.end)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| MeteringError::BackendUnavailable)?;
+
+        let mut quantity = UsageQuantity::zero(dimension.unit())?;
+        let mut unavailable_events = 0_u64;
+        for payload in payloads {
+            let event: UsageEvent =
+                serde_json::from_value(payload).map_err(|_| MeteringError::BackendUnavailable)?;
+            event.validate()?;
+            if event.subject != *subject
+                || event.dimension != *dimension
+                || !matches!(
+                    event.class,
+                    UsageClass::BillableActual | UsageClass::Reversal
+                )
+            {
+                return Err(MeteringError::BackendUnavailable);
+            }
+            match event.measurement {
+                UsageMeasurement::Measured(measured) => {
+                    quantity = quantity.checked_add(&measured)?;
+                }
+                UsageMeasurement::Unavailable { .. } => {
+                    unavailable_events = unavailable_events.saturating_add(1);
+                }
+            }
+        }
+        Ok(UsageAggregate {
+            quantity,
+            unavailable_events,
+        })
+    }
+
+    async fn flush(&self, grace: StdDuration) -> Result<(), MeteringError> {
+        tokio::time::timeout(
+            grace,
+            sqlx::query("SELECT event_id FROM public.usage_event_ledger LIMIT 0")
+                .execute(&self.pool),
+        )
+        .await
+        .map_err(|_| MeteringError::BackendUnavailable)?
+        .map(|_| ())
+        .map_err(|_| MeteringError::BackendUnavailable)
+    }
+}
+
+fn usage_window_bounds(
+    window: TimeWindow,
+    now: DateTime<Utc>,
+) -> Result<UsageWindowBounds, MeteringError> {
+    match window {
+        TimeWindow::LastMinute => Ok(UsageWindowBounds {
+            start: Some(now - Duration::minutes(1)),
+            end: None,
+        }),
+        TimeWindow::LastHour => Ok(UsageWindowBounds {
+            start: Some(now - Duration::hours(1)),
+            end: None,
+        }),
+        TimeWindow::LastDay => Ok(UsageWindowBounds {
+            start: Some(now - Duration::days(1)),
+            end: None,
+        }),
+        TimeWindow::LastMonth => Ok(UsageWindowBounds {
+            start: Some(now - Duration::days(30)),
+            end: None,
+        }),
+        TimeWindow::Lifetime => Ok(UsageWindowBounds {
+            start: None,
+            end: None,
+        }),
+        TimeWindow::Range { start, end } if start < end => Ok(UsageWindowBounds {
+            start: Some(start),
+            end: Some(end),
+        }),
+        TimeWindow::Range { .. } => Err(MeteringError::InvalidTimeWindow),
     }
 }
 
@@ -1037,7 +1181,12 @@ mod tests {
         );
         reversal.class = UsageClass::Reversal;
         reversal.outcome = UsageOutcome::Corrected;
-        for event in [&partial, &final_event, &reversal] {
+        let mut unavailable = test_event();
+        unavailable.measurement = UsageMeasurement::Unavailable {
+            unit: UsageUnit::Count,
+        };
+        unavailable.source = UsageSource::Unavailable;
+        for event in [&partial, &final_event, &reversal, &unavailable] {
             assert_eq!(
                 repo.record_event(event).await.unwrap(),
                 UsageRecordOutcome::Accepted { delivery_count: 0 }
@@ -1048,9 +1197,40 @@ mod tests {
         repo.register_sink(&late_sink, false).await.unwrap();
         let cutoff = Utc::now() + Duration::seconds(1);
         assert_eq!(repo.backfill_sink(&late_sink, cutoff, 2).await.unwrap(), 2);
-        assert_eq!(repo.backfill_sink(&late_sink, cutoff, 2).await.unwrap(), 1);
+        assert_eq!(repo.backfill_sink(&late_sink, cutoff, 2).await.unwrap(), 2);
         assert_eq!(repo.backfill_sink(&late_sink, cutoff, 2).await.unwrap(), 0);
         assert!(repo.backfill_sink(&late_sink, cutoff, 0).await.is_err());
+
+        let aggregate = repo
+            .current(
+                &partial.subject,
+                &UsageDimension::ApiRequest,
+                TimeWindow::Lifetime,
+            )
+            .await
+            .unwrap();
+        assert_eq!(aggregate.quantity.value().to_string(), "1");
+        assert_eq!(aggregate.unavailable_events, 1);
+        let now = Utc::now();
+        assert_eq!(
+            repo.current(
+                &partial.subject,
+                &UsageDimension::ApiRequest,
+                TimeWindow::Range {
+                    start: now,
+                    end: now,
+                },
+            )
+            .await,
+            Err(MeteringError::InvalidTimeWindow)
+        );
+        repo.flush(StdDuration::from_secs(1)).await.unwrap();
+        assert_eq!(
+            repo.verify_ready(true).await,
+            Err(MeteringError::BackendUnavailable)
+        );
+        repo.register_sink(&late_sink, true).await.unwrap();
+        repo.verify_ready(true).await.unwrap();
 
         let stored: Vec<JsonValue> = sqlx::query_scalar(
             r#"
@@ -1059,7 +1239,12 @@ mod tests {
             WHERE event_id = ANY($1)
             "#,
         )
-        .bind([partial.event_id, final_event.event_id, reversal.event_id])
+        .bind([
+            partial.event_id,
+            final_event.event_id,
+            reversal.event_id,
+            unavailable.event_id,
+        ])
         .fetch_all(&pool)
         .await
         .unwrap();
@@ -1070,9 +1255,15 @@ mod tests {
         assert!(stored.contains(&partial));
         assert!(stored.contains(&final_event));
         assert!(stored.contains(&reversal));
+        assert!(stored.contains(&unavailable));
 
         sqlx::query("DELETE FROM public.usage_event_ledger WHERE event_id = ANY($1)")
-            .bind([partial.event_id, final_event.event_id, reversal.event_id])
+            .bind([
+                partial.event_id,
+                final_event.event_id,
+                reversal.event_id,
+                unavailable.event_id,
+            ])
             .execute(&pool)
             .await
             .unwrap();
