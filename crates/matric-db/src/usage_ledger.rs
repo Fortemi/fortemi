@@ -266,6 +266,42 @@ impl PgUsageLedgerRepository {
             .map_err(|_| MeteringError::BackendUnavailable)
     }
 
+    pub async fn backfill_sink(
+        &self,
+        sink_name: &str,
+        recorded_before: DateTime<Utc>,
+        limit: u32,
+    ) -> Result<u64, MeteringError> {
+        validate_sink_name(sink_name)?;
+        if !(1..=10_000).contains(&limit) {
+            return Err(MeteringError::InvalidIdentifier("usage replay limit"));
+        }
+        sqlx::query(
+            r#"
+            INSERT INTO public.usage_event_delivery (event_id, sink_name)
+            SELECT ledger.event_id, sink.sink_name
+            FROM public.usage_event_ledger AS ledger
+            JOIN public.usage_sink AS sink
+              ON sink.sink_name = $1 AND sink.enabled
+            LEFT JOIN public.usage_event_delivery AS delivery
+              ON delivery.event_id = ledger.event_id
+             AND delivery.sink_name = sink.sink_name
+            WHERE ledger.recorded_at <= $2
+              AND delivery.event_id IS NULL
+            ORDER BY ledger.recorded_at, ledger.event_id
+            LIMIT $3
+            ON CONFLICT DO NOTHING
+            "#,
+        )
+        .bind(sink_name)
+        .bind(recorded_before)
+        .bind(i64::from(limit))
+        .execute(&self.pool)
+        .await
+        .map(|result| result.rows_affected())
+        .map_err(|_| MeteringError::BackendUnavailable)
+    }
+
     pub async fn claim_delivery(
         &self,
         sink_name: &str,
@@ -587,6 +623,8 @@ fn json_class(value: &JsonValue) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use matric_core::{
         UsageClass, UsageDimension, UsageMeasurement, UsageOutcome, UsageProducer, UsageQuantity,
@@ -739,6 +777,14 @@ mod tests {
             repo.record_event(&conflict).await,
             Err(MeteringError::DuplicateConflict(DuplicateIdentity::EventId))
         );
+        let mut idempotency_conflict = test_event();
+        idempotency_conflict.idempotency_key = event.idempotency_key.clone();
+        assert_eq!(
+            repo.record_event(&idempotency_conflict).await,
+            Err(MeteringError::DuplicateConflict(
+                DuplicateIdentity::IdempotencyKey
+            ))
+        );
         let conflict_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM public.usage_event_conflict WHERE incoming_event_id = $1",
         )
@@ -747,6 +793,14 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(conflict_count, 1);
+        let idempotency_conflict_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM public.usage_event_conflict WHERE incoming_event_id = $1",
+        )
+        .bind(idempotency_conflict.event_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(idempotency_conflict_count, 1);
 
         sqlx::query("DELETE FROM public.usage_event_ledger WHERE event_id = $1")
             .bind(event.event_id)
@@ -921,6 +975,109 @@ mod tests {
             .unwrap();
         sqlx::query("DELETE FROM public.usage_sink WHERE sink_name = $1")
             .bind(&sink_name)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn database_concurrency_backfill_and_event_semantics_hold_when_available() {
+        let _guard = DATABASE_TEST_LOCK.lock().await;
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            eprintln!("Skipping usage concurrency/backfill DB test: DATABASE_URL not set");
+            return;
+        };
+        let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+        let repo = PgUsageLedgerRepository::new(pool.clone());
+        let concurrent_sink = format!("concurrent_sink_{}", Uuid::now_v7().simple());
+        repo.register_sink(&concurrent_sink, true).await.unwrap();
+
+        let event = test_event();
+        let worker_count = 8;
+        let barrier = Arc::new(tokio::sync::Barrier::new(worker_count));
+        let mut workers = tokio::task::JoinSet::new();
+        for _ in 0..worker_count {
+            let barrier = barrier.clone();
+            let repo = repo.clone();
+            let event = event.clone();
+            workers.spawn(async move {
+                barrier.wait().await;
+                repo.record_event(&event).await
+            });
+        }
+        let mut accepted = 0;
+        let mut exact_replays = 0;
+        while let Some(result) = workers.join_next().await {
+            match result.unwrap().unwrap() {
+                UsageRecordOutcome::Accepted { .. } => accepted += 1,
+                UsageRecordOutcome::ExactReplay => exact_replays += 1,
+            }
+        }
+        assert_eq!(accepted, 1);
+        assert_eq!(exact_replays, worker_count - 1);
+        assert_eq!(repo.delivery_count(event.event_id).await.unwrap(), 1);
+
+        sqlx::query("DELETE FROM public.usage_event_ledger WHERE event_id = $1")
+            .bind(event.event_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM public.usage_sink WHERE sink_name = $1")
+            .bind(&concurrent_sink)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let mut partial = test_event();
+        partial.outcome = UsageOutcome::FailedAfterPartialUsage;
+        let final_event = test_event();
+        let mut reversal = test_event();
+        reversal.measurement = UsageMeasurement::Measured(
+            UsageQuantity::new((-1_i64).into(), UsageUnit::Count).unwrap(),
+        );
+        reversal.class = UsageClass::Reversal;
+        reversal.outcome = UsageOutcome::Corrected;
+        for event in [&partial, &final_event, &reversal] {
+            assert_eq!(
+                repo.record_event(event).await.unwrap(),
+                UsageRecordOutcome::Accepted { delivery_count: 0 }
+            );
+        }
+
+        let late_sink = format!("late_sink_{}", Uuid::now_v7().simple());
+        repo.register_sink(&late_sink, false).await.unwrap();
+        let cutoff = Utc::now() + Duration::seconds(1);
+        assert_eq!(repo.backfill_sink(&late_sink, cutoff, 2).await.unwrap(), 2);
+        assert_eq!(repo.backfill_sink(&late_sink, cutoff, 2).await.unwrap(), 1);
+        assert_eq!(repo.backfill_sink(&late_sink, cutoff, 2).await.unwrap(), 0);
+        assert!(repo.backfill_sink(&late_sink, cutoff, 0).await.is_err());
+
+        let stored: Vec<JsonValue> = sqlx::query_scalar(
+            r#"
+            SELECT event
+            FROM public.usage_event_ledger
+            WHERE event_id = ANY($1)
+            "#,
+        )
+        .bind([partial.event_id, final_event.event_id, reversal.event_id])
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let stored: Vec<UsageEvent> = stored
+            .into_iter()
+            .map(|value| serde_json::from_value(value).unwrap())
+            .collect();
+        assert!(stored.contains(&partial));
+        assert!(stored.contains(&final_event));
+        assert!(stored.contains(&reversal));
+
+        sqlx::query("DELETE FROM public.usage_event_ledger WHERE event_id = ANY($1)")
+            .bind([partial.event_id, final_event.event_id, reversal.event_id])
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM public.usage_sink WHERE sink_name = $1")
+            .bind(&late_sink)
             .execute(&pool)
             .await
             .unwrap();
