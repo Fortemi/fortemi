@@ -3126,7 +3126,7 @@ async fn main() -> anyhow::Result<()> {
     let worker_enabled = std::env::var("WORKER_ENABLED")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(true);
-    let worker_config = WorkerConfig::from_env();
+    let worker_config = WorkerConfig::from_env()?;
     if attachment_scan_config.mode == AttachmentScanMode::Required
         && (!worker_enabled || !worker_config.enabled)
     {
@@ -4775,7 +4775,8 @@ async fn bridge_worker_events(
                     WorkerEvent::JobFailed {
                         job_id,
                         job_type,
-                        error,
+                        failure_code,
+                        ..
                     } => {
                         let note_id = db
                             .jobs
@@ -4788,9 +4789,10 @@ async fn bridge_worker_events(
                             job_id,
                             job_type: format!("{:?}", job_type),
                             note_id,
-                            error,
+                            error: failure_code,
                         }
                     }
+                    WorkerEvent::JobRetryScheduled { .. } => continue,
                     WorkerEvent::JobQueued {
                         job_id,
                         job_type,
@@ -19822,9 +19824,11 @@ async fn list_jobs(
         "jobs": jobs,
         "total": stats.total,
         "pending": stats.pending,
+        "delayed": stats.delayed,
         "processing": stats.processing,
         "completed_last_hour": stats.completed_last_hour,
         "failed_last_hour": stats.failed_last_hour,
+        "dead": stats.dead,
         "incompatible": stats.incompatible
     })))
 }
@@ -59173,6 +59177,8 @@ not-json
                 job_id: Uuid::nil(),
                 job_type: matric_core::JobType::AiRevision,
                 error: "inference timeout".to_string(),
+                failure_class: matric_core::JobFailureClass::Timeout,
+                failure_code: "timed_out".to_string(),
             })
             .unwrap();
 
@@ -59190,7 +59196,7 @@ not-json
             } => {
                 assert_eq!(job_id, Uuid::nil());
                 assert_eq!(job_type, "AiRevision");
-                assert_eq!(error, "inference timeout");
+                assert_eq!(error, "timed_out");
             }
             other => panic!("Expected JobFailed, got {:?}", other),
         }
@@ -59570,13 +59576,15 @@ not-json
                 job_id,
                 job_type: matric_core::JobType::Embedding,
                 error: "test inference timeout".to_string(),
+                failure_class: matric_core::JobFailureClass::Timeout,
+                failure_code: "timed_out".to_string(),
             })
             .unwrap();
 
         // Collect events
         let events = collector.await.unwrap();
 
-        // Assert JobFailed event appeared with correct error message
+        // Assert JobFailed event appeared with the stable failure code.
         let job_failed = events.iter().find(|e| e["payload"]["type"] == "JobFailed");
         assert!(
             job_failed.is_some(),
@@ -59586,7 +59594,7 @@ not-json
 
         let failed = job_failed.unwrap();
         assert_eq!(failed["payload"]["job_id"], job_id.to_string());
-        assert_eq!(failed["payload"]["error"], "test inference timeout");
+        assert_eq!(failed["payload"]["error"], "timed_out");
         assert_eq!(failed["payload"]["job_type"], "Embedding");
     }
 

@@ -178,7 +178,7 @@ Events are classified by priority for backpressure decisions:
 | `job.started` | A job started processing | `job_id`, `job_type`, `note_id` |
 | `job.progress` | Job progress update (coalescable) | `job_id`, `note_id`, `progress`, `message` |
 | `job.completed` | A job completed successfully | `job_id`, `job_type`, `note_id`, `duration_ms` |
-| `job.failed` | A job failed with error | `job_id`, `job_type`, `note_id`, `error` |
+| `job.failed` | A job failed terminally; `error` is a stable failure code, not raw backend text | `job_id`, `job_type`, `note_id`, `error` |
 | `jobs.paused` | Job processing was paused | `scope` |
 | `jobs.resumed` | Job processing was resumed | `scope` |
 

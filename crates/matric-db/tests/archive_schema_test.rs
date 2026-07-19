@@ -362,6 +362,7 @@ async fn test_schema_drift_detection() {
         "inbound_source",
         "incoming_webhook_receiver",
         "inference_config_audit",
+        "job_attempt",
         "job_history",
         "job_queue",
         "oauth_authorization_code",

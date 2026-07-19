@@ -204,7 +204,11 @@ Background jobs handle embedding generation, concept extraction, link detection,
 
 When the container restarts (crash, deployment, OOM-kill), in-flight jobs are killed but the database still shows them as `running`. On startup, the worker automatically **reaps** these orphaned jobs:
 
-- Jobs older than 10 minutes (2x the 5-minute job timeout) are reset to `pending` for retry
+- Jobs older than 10 minutes (2x the 5-minute job timeout) are moved to
+  `pending` with a scheduled retry time
+- Reaped jobs receive a future `next_attempt_at` using the configured
+  stale-worker exponential backoff and deterministic jitter; they are not
+  immediately claimable
 - Jobs that have exhausted their retry limit are marked as `failed`
 - The reap count is logged at `warn` level: `"Reaped stale running jobs from previous worker count=N"`
 
@@ -214,10 +218,12 @@ To manually check for stuck jobs:
 
 ```bash
 docker exec fortemi-matric-1 psql -U matric -d matric -c \
-  "SELECT id, job_type, status, started_at, retry_count
+  "SELECT id, job_type, status, started_at, retry_count, next_attempt_at,
+          failure_class, failure_code
    FROM job_queue
-   WHERE status = 'running'
-   AND started_at < NOW() - INTERVAL '10 minutes'"
+   WHERE (status = 'running' AND started_at < NOW() - INTERVAL '10 minutes')
+      OR (status = 'pending' AND next_attempt_at IS NOT NULL)
+   ORDER BY COALESCE(next_attempt_at, started_at)"
 ```
 
 ### Pause/Resume Job Processing

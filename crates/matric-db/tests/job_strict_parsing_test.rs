@@ -16,6 +16,10 @@ async fn isolated_job_pool() -> sqlx::PgPool {
         .execute(&pool)
         .await
         .expect("create session-local job queue");
+    sqlx::query("CREATE TEMP TABLE job_attempt (LIKE public.job_attempt INCLUDING ALL)")
+        .execute(&pool)
+        .await
+        .expect("create session-local job attempt table");
     pool
 }
 
@@ -104,7 +108,9 @@ async fn incompatible_rows_are_visible_but_never_claimed_or_rewritten() {
     let stats = repository.queue_stats().await.expect("read queue stats");
     assert_eq!(stats.total, 2);
     assert_eq!(stats.pending, 0);
+    assert_eq!(stats.delayed, 0);
     assert_eq!(stats.processing, 1);
+    assert_eq!(stats.dead, 0);
     assert_eq!(stats.incompatible, 1);
     assert_eq!(
         repository

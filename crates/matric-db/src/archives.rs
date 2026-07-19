@@ -145,6 +145,7 @@ const SHARED_TABLES: &[&str] = &[
     "inbound_source",
     "incoming_webhook_receiver",
     "inference_config_audit",
+    "job_attempt",
     "job_history",
     "job_queue",
     "oauth_authorization_code",
@@ -1062,7 +1063,7 @@ impl ArchiveRepository for PgArchiveRepository {
         }
 
         // Clean up orphaned jobs BEFORE dropping schema (Issue #415).
-        // job_queue and job_history are shared tables not affected by DROP SCHEMA CASCADE.
+        // Job queue, attempts, and history are shared tables not affected by DROP SCHEMA CASCADE.
         // Delete jobs referencing notes in this archive to prevent queue pollution.
         sqlx::query(&format!(
             "DELETE FROM job_queue WHERE note_id IN (SELECT id FROM {}.note)",

@@ -20,7 +20,7 @@
 //! never compete for the same jobs (claim_next_for_types filters by registered
 //! handler types). See the type assignment table in the source.
 
-use matric_core::{JobRepository, JobStatus, JobType};
+use matric_core::{JobRepository, JobRetryPolicy, JobStatus, JobType};
 use matric_db::{create_pool, Database};
 use matric_jobs::{
     JobContext, JobHandler, JobResult, NoOpHandler, WorkerBuilder, WorkerConfig, WorkerEvent,
@@ -115,6 +115,36 @@ impl JobHandler for TrackingHandler {
             ctx.report_progress(100, Some("Done"));
             JobResult::Success(Some(json!({"result": "ok"})))
         }
+    }
+}
+
+struct RetryTrackingHandler {
+    job_type: JobType,
+    executions: Arc<Mutex<Vec<Uuid>>>,
+}
+
+impl RetryTrackingHandler {
+    fn new(job_type: JobType) -> (Self, Arc<Mutex<Vec<Uuid>>>) {
+        let executions = Arc::new(Mutex::new(Vec::new()));
+        (
+            Self {
+                job_type,
+                executions: executions.clone(),
+            },
+            executions,
+        )
+    }
+}
+
+#[async_trait::async_trait]
+impl JobHandler for RetryTrackingHandler {
+    fn job_type(&self) -> JobType {
+        self.job_type
+    }
+
+    async fn execute(&self, ctx: JobContext) -> JobResult {
+        self.executions.lock().await.push(ctx.job.id);
+        JobResult::Retry("backend temporarily unavailable".to_string())
     }
 }
 
@@ -401,11 +431,23 @@ async fn test_worker_retries_failed_job() {
 
     let job_id = create_test_job(&db, JobType::ConceptTagging, None, 10).await;
 
-    // Create handler that tracks executions and always fails
-    let (handler, executions) = TrackingHandler::new(JobType::ConceptTagging, true);
+    // Create handler that explicitly requests retry.
+    let (handler, executions) = RetryTrackingHandler::new(JobType::ConceptTagging);
+    let test_retry_policy = JobRetryPolicy {
+        transient_base_delay_ms: 100,
+        rate_limit_base_delay_ms: 100,
+        timeout_base_delay_ms: 100,
+        stale_worker_base_delay_ms: 100,
+        max_delay_ms: 500,
+        jitter_percent: 0,
+    };
 
     let worker = WorkerBuilder::new(db.clone())
-        .with_config(WorkerConfig::default().with_poll_interval(100))
+        .with_config(
+            WorkerConfig::default()
+                .with_poll_interval(100)
+                .with_retry_policy(test_retry_policy),
+        )
         .with_handler(handler)
         .build()
         .await;

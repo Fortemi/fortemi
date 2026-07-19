@@ -277,16 +277,20 @@ Returns overall queue health:
 {
   "total": 42,
   "pending": 5,
+  "delayed": 2,
   "processing": 3,
   "completed_last_hour": 30,
   "failed_last_hour": 4,
+  "dead": 7,
   "incompatible": 0
 }
 ```
 
-`pending` and `processing` count only job types understood by the running
-binary. A non-zero `incompatible` count means persisted rows use a job type or
-status that this binary cannot decode, usually because the database and binary
+`pending` counts ready work; `delayed` counts pending retries whose
+`next_attempt_at` is still in the future; `dead` counts retained terminal
+failures. These counts include only job types understood by the running binary.
+A non-zero `incompatible` count means persisted rows use a job type or status
+that this binary cannot decode, usually because the database and binary
 versions are out of sync. Fortemi leaves those rows unclaimed and emits a
 structured `job.incompatible_row` error when an operator reads one. Upgrade or
 roll back the binary/migrations as a unit; do not rewrite the row to another
@@ -519,18 +523,27 @@ Possible causes:
 
 1. **Worker disabled:** Check `JOB_WORKER_ENABLED` is not `false`
 2. **Worker paused:** Check `GET /api/v1/jobs/pause` for global or per-archive pause state
-3. **Model unavailable:** Tier-1/tier-2 jobs need Ollama models loaded. Check `GET /health` for model availability
-4. **Concurrency limit:** Default `JOB_MAX_CONCURRENT=4`. Increase for faster throughput.
-5. **Incompatible row:** Check `/api/v1/jobs/stats`. A non-zero `incompatible`
+3. **Delayed retry:** Check `/api/v1/jobs/stats`; `delayed` work becomes
+   claimable only when `next_attempt_at` is due.
+4. **Model unavailable:** Tier-1/tier-2 jobs need Ollama models loaded. Check `GET /health` for model availability
+5. **Concurrency limit:** Default `JOB_MAX_CONCURRENT=4`. Increase for faster throughput.
+6. **Incompatible row:** Check `/api/v1/jobs/stats`. A non-zero `incompatible`
    count identifies schema/binary drift that workers intentionally refuse to
    claim.
 
 ### Jobs Failing Repeatedly
 
-Check the job error message:
+Check stable failure metadata and attempt evidence in the database operator
+surface. The ordinary job API redacts raw backend errors:
 
 ```bash
-curl "http://localhost:3000/api/v1/jobs?status=failed&limit=10" | jq '.[].error_message'
+docker exec fortemi-matric-1 psql -U matric -d matric -c \
+  "SELECT job_id, attempt_number, failure_class, failure_code, retry_at,
+          duration_ms, payload_size, payload_fingerprint, archive_schema
+   FROM job_attempt
+   WHERE outcome IN ('retry_scheduled', 'terminal_failed', 'stale_reaped')
+   ORDER BY completed_at DESC
+   LIMIT 20"
 ```
 
 Common causes:

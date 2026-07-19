@@ -10,7 +10,8 @@ use tokio::sync::Notify;
 use uuid::Uuid;
 
 use matric_core::{
-    new_v7, Error, Job, JobRepository, JobStatus, JobType, QueueStats, Result, TierGroup,
+    new_v7, Error, Job, JobFailureClass, JobRepository, JobRetryOutcome, JobRetryPolicy, JobStatus,
+    JobType, QueueStats, Result, TierGroup,
 };
 
 /// PostgreSQL implementation of JobRepository.
@@ -62,11 +63,14 @@ impl PgJobRepository {
         };
 
         let query = format!(
-            "UPDATE job_queue
-             SET status = 'running'::job_status, started_at = $1
+            "WITH claimed AS (
+             UPDATE job_queue
+             SET status = 'running'::job_status, started_at = $1,
+                 next_attempt_at = NULL, failure_class = NULL, failure_code = NULL
              WHERE id = (
                  SELECT id FROM job_queue
                  WHERE status = 'pending'::job_status
+                   AND (next_attempt_at IS NULL OR next_attempt_at <= $1)
                    AND {tier_clause}
                    AND job_type::text = ANY($2)
                    AND (payload->>'schema' IS NULL
@@ -77,7 +81,26 @@ impl PgJobRepository {
              )
              RETURNING id, note_id, job_type::text, status::text, priority, payload, result,
                        error_message, progress_percent, progress_message, retry_count, max_retries,
-                       created_at, started_at, completed_at, cost_tier"
+                       created_at, started_at, completed_at, cost_tier
+             ),
+             attempt AS (
+                 INSERT INTO job_attempt (
+                     id, job_id, attempt_number, started_at, payload_size,
+                     payload_fingerprint, archive_schema
+                 )
+                 SELECT uuidv7(), id, retry_count + 1, $1,
+                        octet_length(payload::text),
+                        encode(sha256(convert_to(payload::text, 'UTF8')), 'hex'),
+                        CASE
+                            WHEN payload->>'schema' ~ '^[a-z][a-z0-9_]{{0,62}}$'
+                            THEN payload->>'schema'
+                            ELSE NULL
+                        END
+                 FROM claimed
+                 RETURNING job_id
+             )
+             SELECT claimed.* FROM claimed
+             JOIN attempt ON attempt.job_id = claimed.id"
         );
 
         let row = sqlx::query(&query)
@@ -166,6 +189,24 @@ impl PgJobRepository {
             field,
             value_len,
         }
+    }
+
+    fn validate_failure_metadata(failure_class: JobFailureClass, failure_code: &str) -> Result<()> {
+        let mut characters = failure_code.chars();
+        let valid = failure_code.len() <= 64
+            && matches!(characters.next(), Some('a'..='z'))
+            && characters.all(|character| {
+                character.is_ascii_lowercase()
+                    || character.is_ascii_digit()
+                    || matches!(character, '_' | '.' | '-')
+            });
+        if !valid {
+            return Err(Error::InvalidInput(
+                "Job failure code must use bounded lowercase identifier syntax".to_string(),
+            ));
+        }
+        let _ = failure_class;
+        Ok(())
     }
 
     /// Parse a job row into a Job struct.
@@ -423,11 +464,14 @@ impl JobRepository for PgJobRepository {
         // per graphile-worker benchmarks). An empty caller filter expands to
         // every type supported by this binary, never arbitrary database enum values.
         let row = sqlx::query(
-            "UPDATE job_queue
-             SET status = 'running'::job_status, started_at = $1
+            "WITH claimed AS (
+             UPDATE job_queue
+             SET status = 'running'::job_status, started_at = $1,
+                 next_attempt_at = NULL, failure_class = NULL, failure_code = NULL
              WHERE id = (
                  SELECT id FROM job_queue
                  WHERE status = 'pending'::job_status
+                   AND (next_attempt_at IS NULL OR next_attempt_at <= $1)
                    AND job_type::text = ANY($2)
                  ORDER BY priority DESC, created_at ASC
                  LIMIT 1
@@ -435,7 +479,26 @@ impl JobRepository for PgJobRepository {
              )
              RETURNING id, note_id, job_type::text, status::text, priority, payload, result,
                        error_message, progress_percent, progress_message, retry_count, max_retries,
-                       created_at, started_at, completed_at, cost_tier",
+                       created_at, started_at, completed_at, cost_tier
+             ),
+             attempt AS (
+                 INSERT INTO job_attempt (
+                     id, job_id, attempt_number, started_at, payload_size,
+                     payload_fingerprint, archive_schema
+                 )
+                 SELECT uuidv7(), id, retry_count + 1, $1,
+                        octet_length(payload::text),
+                        encode(sha256(convert_to(payload::text, 'UTF8')), 'hex'),
+                        CASE
+                            WHEN payload->>'schema' ~ '^[a-z][a-z0-9_]{0,62}$'
+                            THEN payload->>'schema'
+                            ELSE NULL
+                        END
+                 FROM claimed
+                 RETURNING job_id
+             )
+             SELECT claimed.* FROM claimed
+             JOIN attempt ON attempt.job_id = claimed.id",
         )
         .bind(now)
         .bind(&type_strings)
@@ -465,11 +528,14 @@ impl JobRepository for PgJobRepository {
         };
 
         let query = format!(
-            "UPDATE job_queue
-             SET status = 'running'::job_status, started_at = $1
+            "WITH claimed AS (
+             UPDATE job_queue
+             SET status = 'running'::job_status, started_at = $1,
+                 next_attempt_at = NULL, failure_class = NULL, failure_code = NULL
              WHERE id = (
                  SELECT id FROM job_queue
                  WHERE status = 'pending'::job_status
+                   AND (next_attempt_at IS NULL OR next_attempt_at <= $1)
                    AND {tier_clause}
                    AND job_type::text = ANY($2)
                  ORDER BY priority DESC, created_at ASC
@@ -478,7 +544,26 @@ impl JobRepository for PgJobRepository {
              )
              RETURNING id, note_id, job_type::text, status::text, priority, payload, result,
                        error_message, progress_percent, progress_message, retry_count, max_retries,
-                       created_at, started_at, completed_at, cost_tier"
+                       created_at, started_at, completed_at, cost_tier
+             ),
+             attempt AS (
+                 INSERT INTO job_attempt (
+                     id, job_id, attempt_number, started_at, payload_size,
+                     payload_fingerprint, archive_schema
+                 )
+                 SELECT uuidv7(), id, retry_count + 1, $1,
+                        octet_length(payload::text),
+                        encode(sha256(convert_to(payload::text, 'UTF8')), 'hex'),
+                        CASE
+                            WHEN payload->>'schema' ~ '^[a-z][a-z0-9_]{{0,62}}$'
+                            THEN payload->>'schema'
+                            ELSE NULL
+                        END
+                 FROM claimed
+                 RETURNING job_id
+             )
+             SELECT claimed.* FROM claimed
+             JOIN attempt ON attempt.job_id = claimed.id"
         );
 
         let row = sqlx::query(&query)
@@ -496,6 +581,7 @@ impl JobRepository for PgJobRepository {
         let count: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM job_queue
              WHERE status = 'pending'::job_status
+               AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
                AND cost_tier = $1
                AND job_type::text = ANY($2)",
         )
@@ -515,7 +601,9 @@ impl JobRepository for PgJobRepository {
         message: Option<&str>,
     ) -> Result<()> {
         sqlx::query(
-            "UPDATE job_queue SET progress_percent = $1, progress_message = $2 WHERE id = $3",
+            "UPDATE job_queue
+             SET progress_percent = $1, progress_message = $2
+             WHERE id = $3 AND status = 'running'::job_status",
         )
         .bind(percent)
         .bind(message)
@@ -531,13 +619,17 @@ impl JobRepository for PgJobRepository {
 
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
-        // Get job info for history
-        let job_row =
-            sqlx::query("SELECT job_type::text, payload, started_at FROM job_queue WHERE id = $1")
-                .bind(job_id)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(Error::Database)?;
+        // Lock the active execution so a late handler cannot overwrite a stale-reaper retry.
+        let job_row = sqlx::query(
+            "SELECT job_type::text, payload, started_at
+             FROM job_queue
+             WHERE id = $1 AND status = 'running'::job_status
+             FOR UPDATE",
+        )
+        .bind(job_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
 
         let job_type: String = job_row.get("job_type");
         let started_at: Option<chrono::DateTime<Utc>> = job_row.get("started_at");
@@ -548,11 +640,23 @@ impl JobRepository for PgJobRepository {
             "UPDATE job_queue
              SET status = 'completed'::job_status, completed_at = $1, result = $2,
                  progress_percent = 100, actual_duration_ms = $3
-             WHERE id = $4",
+             WHERE id = $4 AND status = 'running'::job_status",
         )
         .bind(now)
         .bind(&result)
         .bind(duration_ms)
+        .bind(job_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        sqlx::query(
+            "UPDATE job_attempt
+             SET outcome = 'completed', completed_at = $1,
+                 duration_ms = GREATEST(0, EXTRACT(EPOCH FROM ($1 - started_at)) * 1000)::BIGINT
+             WHERE job_id = $2 AND outcome = 'running'",
+        )
+        .bind(now)
         .bind(job_id)
         .execute(&mut *tx)
         .await
@@ -577,48 +681,95 @@ impl JobRepository for PgJobRepository {
         Ok(())
     }
 
-    async fn fail(&self, job_id: Uuid, error: &str) -> Result<()> {
+    async fn retry(
+        &self,
+        job_id: Uuid,
+        error: &str,
+        failure_class: JobFailureClass,
+        failure_code: &str,
+        retry_at: chrono::DateTime<Utc>,
+    ) -> Result<JobRetryOutcome> {
+        Self::validate_failure_metadata(failure_class, failure_code)?;
+        if !failure_class.is_retryable() {
+            return Err(Error::InvalidInput(
+                "Non-retryable job failure class cannot schedule a retry".to_string(),
+            ));
+        }
+
         let now = Utc::now();
+        if retry_at <= now {
+            return Err(Error::InvalidInput(
+                "Job retry time must be in the future".to_string(),
+            ));
+        }
 
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
-        // Get current retry count
-        let (retry_count, max_retries): (i32, i32) =
-            sqlx::query_as("SELECT retry_count, max_retries FROM job_queue WHERE id = $1")
-                .bind(job_id)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(Error::Database)?;
+        let (retry_count, max_retries): (i32, i32) = sqlx::query_as(
+            "SELECT retry_count, max_retries FROM job_queue
+                 WHERE id = $1 AND status = 'running'::job_status
+                 FOR UPDATE",
+        )
+        .bind(job_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
 
         if retry_count < max_retries {
-            // Retry: reset to pending with incremented retry count
             sqlx::query(
                 "UPDATE job_queue
                  SET status = 'pending'::job_status, retry_count = $1, error_message = $2,
-                     started_at = NULL, progress_percent = 0, progress_message = NULL
-                 WHERE id = $3",
+                     started_at = NULL, progress_percent = 0, progress_message = NULL,
+                     next_attempt_at = $3, failure_class = $4, failure_code = $5
+                 WHERE id = $6",
             )
             .bind(retry_count + 1)
             .bind(error)
-            .bind(job_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
-        } else {
-            // Max retries exceeded: mark as failed
-            sqlx::query(
-                "UPDATE job_queue
-                 SET status = 'failed'::job_status, completed_at = $1, error_message = $2
-                 WHERE id = $3",
-            )
-            .bind(now)
-            .bind(error)
+            .bind(retry_at)
+            .bind(failure_class.as_str())
+            .bind(failure_code)
             .bind(job_id)
             .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
-            // Record failure in history
+            sqlx::query(
+                "UPDATE job_attempt
+                 SET outcome = 'retry_scheduled', completed_at = $1, retry_at = $2,
+                     duration_ms = GREATEST(0, EXTRACT(EPOCH FROM ($1 - started_at)) * 1000)::BIGINT,
+                     failure_class = $3, failure_code = $4
+                 WHERE job_id = $5 AND attempt_number = $6 AND outcome = 'running'",
+            )
+            .bind(now)
+            .bind(retry_at)
+            .bind(failure_class.as_str())
+            .bind(failure_code)
+            .bind(job_id)
+            .bind(retry_count + 1)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+            tx.commit().await.map_err(Error::Database)?;
+            return Ok(JobRetryOutcome::Scheduled {
+                next_attempt_at: retry_at,
+            });
+        } else {
+            sqlx::query(
+                "UPDATE job_queue
+                 SET status = 'failed'::job_status, completed_at = $1, error_message = $2,
+                     next_attempt_at = NULL, failure_class = $3, failure_code = $4
+                 WHERE id = $5",
+            )
+            .bind(now)
+            .bind(error)
+            .bind(failure_class.as_str())
+            .bind("retry_exhausted")
+            .bind(job_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
             let job_type: String =
                 sqlx::query_scalar("SELECT job_type::text FROM job_queue WHERE id = $1")
                     .bind(job_id)
@@ -636,7 +787,89 @@ impl JobRepository for PgJobRepository {
             .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
+
+            sqlx::query(
+                "UPDATE job_attempt
+                 SET outcome = 'terminal_failed', completed_at = $1,
+                     duration_ms = GREATEST(0, EXTRACT(EPOCH FROM ($1 - started_at)) * 1000)::BIGINT,
+                     failure_class = $2, failure_code = 'retry_exhausted'
+                 WHERE job_id = $3 AND attempt_number = $4 AND outcome = 'running'",
+            )
+            .bind(now)
+            .bind(failure_class.as_str())
+            .bind(job_id)
+            .bind(retry_count + 1)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
         }
+
+        tx.commit().await.map_err(Error::Database)?;
+        Ok(JobRetryOutcome::Exhausted)
+    }
+
+    async fn fail(
+        &self,
+        job_id: Uuid,
+        error: &str,
+        failure_class: JobFailureClass,
+        failure_code: &str,
+    ) -> Result<()> {
+        Self::validate_failure_metadata(failure_class, failure_code)?;
+        let now = Utc::now();
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+
+        let (job_type, retry_count): (String, i32) = sqlx::query_as(
+            "SELECT job_type::text, retry_count FROM job_queue
+             WHERE id = $1 AND status = 'running'::job_status
+             FOR UPDATE",
+        )
+        .bind(job_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        sqlx::query(
+            "UPDATE job_queue
+             SET status = 'failed'::job_status, completed_at = $1, error_message = $2,
+                 next_attempt_at = NULL, failure_class = $3, failure_code = $4
+             WHERE id = $5",
+        )
+        .bind(now)
+        .bind(error)
+        .bind(failure_class.as_str())
+        .bind(failure_code)
+        .bind(job_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        sqlx::query(
+            "INSERT INTO job_history (id, job_type, duration_ms, payload_size, success, created_at)
+             VALUES ($1, $2::job_type, 0, NULL, false, $3)",
+        )
+        .bind(new_v7())
+        .bind(job_type)
+        .bind(now)
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        sqlx::query(
+            "UPDATE job_attempt
+             SET outcome = 'terminal_failed', completed_at = $1,
+                 duration_ms = GREATEST(0, EXTRACT(EPOCH FROM ($1 - started_at)) * 1000)::BIGINT,
+                 failure_class = $2, failure_code = $3
+             WHERE job_id = $4 AND attempt_number = $5 AND outcome = 'running'",
+        )
+        .bind(now)
+        .bind(failure_class.as_str())
+        .bind(failure_code)
+        .bind(job_id)
+        .bind(retry_count + 1)
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
 
         tx.commit().await.map_err(Error::Database)?;
         Ok(())
@@ -678,6 +911,7 @@ impl JobRepository for PgJobRepository {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM job_queue
              WHERE status = 'pending'::job_status
+               AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
                AND job_type::text = ANY($1)",
         )
         .bind(&supported_types)
@@ -690,7 +924,9 @@ impl JobRepository for PgJobRepository {
     async fn pending_count_for_type(&self, job_type: JobType) -> Result<i64> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM job_queue
-             WHERE status = 'pending'::job_status AND job_type = $1::job_type",
+             WHERE status = 'pending'::job_status
+               AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+               AND job_type = $1::job_type",
         )
         .bind(Self::job_type_to_str(job_type))
         .fetch_one(&self.pool)
@@ -782,8 +1018,14 @@ impl JobRepository for PgJobRepository {
             "SELECT
                 COUNT(*) FILTER (
                     WHERE status = 'pending'
+                      AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
                       AND job_type::text = ANY($1)
                 ) as pending,
+                COUNT(*) FILTER (
+                    WHERE status = 'pending'
+                      AND next_attempt_at > NOW()
+                      AND job_type::text = ANY($1)
+                ) as delayed,
                 COUNT(*) FILTER (
                     WHERE status = 'running'
                       AND job_type::text = ANY($1)
@@ -798,6 +1040,10 @@ impl JobRepository for PgJobRepository {
                       AND job_type::text = ANY($1)
                       AND completed_at > NOW() - INTERVAL '1 hour'
                 ) as failed_last_hour,
+                COUNT(*) FILTER (
+                    WHERE status = 'failed'
+                      AND job_type::text = ANY($1)
+                ) as dead,
                 COUNT(*) FILTER (
                     WHERE NOT (job_type::text = ANY($1))
                        OR NOT (status::text = ANY($2))
@@ -814,9 +1060,11 @@ impl JobRepository for PgJobRepository {
         use sqlx::Row;
         Ok(QueueStats {
             pending: row.get::<i64, _>("pending"),
+            delayed: row.get::<i64, _>("delayed"),
             processing: row.get::<i64, _>("processing"),
             completed_last_hour: row.get::<i64, _>("completed_last_hour"),
             failed_last_hour: row.get::<i64, _>("failed_last_hour"),
+            dead: row.get::<i64, _>("dead"),
             incompatible: row.get::<i64, _>("incompatible"),
             total: row.get::<i64, _>("total"),
         })
@@ -841,18 +1089,43 @@ impl JobRepository for PgJobRepository {
         Ok(result.rows_affected() as i64)
     }
 
-    async fn reap_stale_running(&self, timeout_secs: u64) -> Result<i64> {
+    async fn reap_stale_running(
+        &self,
+        timeout_secs: u64,
+        retry_policy: &JobRetryPolicy,
+    ) -> Result<i64> {
         let cutoff = Utc::now() - chrono::Duration::seconds(timeout_secs as i64);
 
-        // Reset stale running jobs to pending with incremented retry count.
-        // Jobs that have exhausted retries are marked as failed instead.
         let result = sqlx::query(
             "WITH stale AS (
-                 SELECT id, retry_count, max_retries
+                 SELECT id, retry_count, max_retries, started_at,
+                        LEAST(
+                            $2::BIGINT,
+                            $3::BIGINT * (1::BIGINT << LEAST(retry_count, 10))
+                        ) AS base_delay_ms
                  FROM job_queue
                  WHERE status = 'running'::job_status
                    AND started_at < $1
                  FOR UPDATE SKIP LOCKED
+             ),
+             scheduled AS (
+                 SELECT stale.*,
+                        NOW() + (
+                            LEAST(
+                                $2::BIGINT,
+                                base_delay_ms
+                                + (
+                                    get_byte(uuid_send(id), 15)
+                                    % (
+                                        GREATEST(
+                                            1,
+                                            (base_delay_ms * $4::BIGINT / 100)::INTEGER
+                                        ) + 1
+                                    )
+                                )
+                            ) * INTERVAL '1 millisecond'
+                        ) AS retry_at
+                 FROM stale
              ),
              retried AS (
                  UPDATE job_queue
@@ -861,25 +1134,71 @@ impl JobRepository for PgJobRepository {
                      error_message = 'Reaped: job orphaned after worker restart',
                      started_at = NULL,
                      progress_percent = 0,
-                     progress_message = NULL
-                 FROM stale
+                     progress_message = NULL,
+                     next_attempt_at = stale.retry_at,
+                     failure_class = 'stale_worker',
+                     failure_code = 'worker_lease_expired'
+                 FROM scheduled AS stale
                  WHERE job_queue.id = stale.id
                    AND stale.retry_count < stale.max_retries
-                 RETURNING job_queue.id
+                 RETURNING job_queue.id, job_queue.retry_count, stale.retry_at
+             ),
+             retried_attempts AS (
+                 UPDATE job_attempt
+                 SET outcome = 'stale_reaped',
+                     completed_at = NOW(),
+                     retry_at = retried.retry_at,
+                     duration_ms = GREATEST(
+                         0,
+                         EXTRACT(EPOCH FROM (NOW() - job_attempt.started_at)) * 1000
+                     )::BIGINT,
+                     failure_class = 'stale_worker',
+                     failure_code = 'worker_lease_expired'
+                 FROM retried
+                 WHERE job_attempt.job_id = retried.id
+                   AND job_attempt.attempt_number = retried.retry_count
+                   AND job_attempt.outcome = 'running'
+                 RETURNING job_attempt.job_id
              ),
              exhausted AS (
                  UPDATE job_queue
                  SET status = 'failed'::job_status,
                      completed_at = NOW(),
-                     error_message = 'Reaped: job orphaned after worker restart (retries exhausted)'
-                 FROM stale
+                     error_message = 'Reaped: job orphaned after worker restart (retries exhausted)',
+                     next_attempt_at = NULL,
+                     failure_class = 'stale_worker',
+                     failure_code = 'retry_exhausted'
+                 FROM scheduled AS stale
                  WHERE job_queue.id = stale.id
                    AND stale.retry_count >= stale.max_retries
-                 RETURNING job_queue.id
+                 RETURNING job_queue.id, job_queue.retry_count
+             ),
+             exhausted_attempts AS (
+                 UPDATE job_attempt
+                 SET outcome = 'terminal_failed',
+                     completed_at = NOW(),
+                     duration_ms = GREATEST(
+                         0,
+                         EXTRACT(EPOCH FROM (NOW() - job_attempt.started_at)) * 1000
+                     )::BIGINT,
+                     failure_class = 'stale_worker',
+                     failure_code = 'retry_exhausted'
+                 FROM exhausted
+                 WHERE job_attempt.job_id = exhausted.id
+                   AND job_attempt.attempt_number = exhausted.retry_count + 1
+                   AND job_attempt.outcome = 'running'
+                 RETURNING job_attempt.job_id
              )
              SELECT (SELECT COUNT(*) FROM retried) + (SELECT COUNT(*) FROM exhausted) AS total",
         )
         .bind(cutoff)
+        .bind(i64::try_from(retry_policy.max_delay_ms).map_err(|_| {
+            Error::InvalidInput("Job retry maximum delay exceeds database bounds".to_string())
+        })?)
+        .bind(i64::try_from(retry_policy.stale_worker_base_delay_ms).map_err(|_| {
+            Error::InvalidInput("Stale-worker retry delay exceeds database bounds".to_string())
+        })?)
+        .bind(i64::from(retry_policy.jitter_percent))
         .fetch_one(&self.pool)
         .await
         .map_err(Error::Database)?;

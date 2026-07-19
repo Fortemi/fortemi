@@ -435,8 +435,24 @@ pub trait JobRepository: Send + Sync {
     /// Mark job as completed.
     async fn complete(&self, job_id: Uuid, result: Option<JsonValue>) -> Result<()>;
 
-    /// Mark job as failed.
-    async fn fail(&self, job_id: Uuid, error: &str) -> Result<()>;
+    /// Schedule a retry at a future instant, or terminate it when retries are exhausted.
+    async fn retry(
+        &self,
+        job_id: Uuid,
+        error: &str,
+        failure_class: JobFailureClass,
+        failure_code: &str,
+        retry_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<JobRetryOutcome>;
+
+    /// Mark a job as terminally failed without scheduling another execution.
+    async fn fail(
+        &self,
+        job_id: Uuid,
+        error: &str,
+        failure_class: JobFailureClass,
+        failure_code: &str,
+    ) -> Result<()>;
 
     /// Get job by ID.
     async fn get(&self, job_id: Uuid) -> Result<Option<Job>>;
@@ -476,7 +492,11 @@ pub trait JobRepository: Send + Sync {
     /// `pending` with incremented retry count so they get re-processed.
     ///
     /// Returns the number of jobs reaped.
-    async fn reap_stale_running(&self, timeout_secs: u64) -> Result<i64>;
+    async fn reap_stale_running(
+        &self,
+        timeout_secs: u64,
+        retry_policy: &JobRetryPolicy,
+    ) -> Result<i64>;
 }
 
 // =============================================================================

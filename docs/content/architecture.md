@@ -855,6 +855,7 @@ WorkerConfig {
     poll_interval_ms: 60_000,     // Safety-net poll interval (not the primary wake mechanism)
     max_concurrent_jobs: 4,       // Parallel job limit
     enabled: true,                // Master switch
+    retry_policy: JobRetryPolicy::default(),
 }
 ```
 
@@ -888,7 +889,8 @@ WorkerConfig {
 │     - JobStarted                                    │
 │     - JobProgress (percent, message)                │
 │     - JobCompleted                                  │
-│     - JobFailed (error message)                     │
+│     - JobRetryScheduled (class, code, due time)     │
+│     - JobFailed (stable class and code)             │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -919,13 +921,17 @@ pub const DEFAULT_MAX_RETRIES: i32 = 3;
 **Retry Behavior:**
 
 1. Handler returns `JobResult::Retry(error)`
-2. Worker increments `retry_count`
-3. If `retry_count < MAX_RETRIES`, job status set to `Pending` with backoff
+2. Worker classifies the failure and calculates bounded exponential backoff
+3. If `retry_count < MAX_RETRIES`, the job remains `Pending` with a future
+   `next_attempt_at`; claim queries ignore it until due
 4. If `retry_count >= MAX_RETRIES`, job status set to `Failed`
 
 **Backoff Strategy:**
-- Linear backoff: `retry_count * poll_interval_ms`
-- Example with default 60s safety-net: jobs retry on the next wake cycle (event-driven wakeup or 60s timeout)
+- Exponential by failure class, capped at one hour by default
+- Deterministic jitter defaults to 20% to spread dependency recovery load
+- Rate-limit, timeout, stale-worker, and ordinary transient failures have
+  separate configurable base delays
+- `JobResult::Failed` is terminal; only `JobResult::Retry` enters this schedule
 
 **Use Cases:**
 - Transient network failures (Ollama connection)
@@ -940,7 +946,8 @@ pub enum WorkerEvent {
     JobStarted { job_id, job_type },
     JobProgress { job_id, percent, message },
     JobCompleted { job_id, job_type },
-    JobFailed { job_id, job_type, error },
+    JobRetryScheduled { job_id, job_type, failure_class, failure_code, next_attempt_at, retry_count },
+    JobFailed { job_id, job_type, error, failure_class, failure_code },
     WorkerStarted,
     WorkerStopped,
 }

@@ -195,6 +195,12 @@ RUST_LOG=matric_api::routes::search=trace,info
 | `WORKER_THREADS` | Integer | CPU cores | Number of Tokio worker threads for background jobs |
 | `JOB_POLL_INTERVAL_MS` | Integer | `60000` | Safety-net polling interval in milliseconds. The worker is event-driven (woken by NOTIFY); this interval only triggers as a fallback for crash recovery and race conditions. |
 | `JOB_MAX_CONCURRENT` | Integer | `4` | Maximum number of jobs that can run concurrently in the worker |
+| `JOB_RETRY_BASE_DELAY_MS` | Integer | `5000` | Base delay for transient retries |
+| `JOB_RETRY_RATE_LIMIT_BASE_DELAY_MS` | Integer | `30000` | Base delay for rate-limited upstream retries |
+| `JOB_RETRY_TIMEOUT_BASE_DELAY_MS` | Integer | `15000` | Base delay for timed-out jobs |
+| `JOB_RETRY_STALE_BASE_DELAY_MS` | Integer | `30000` | Base delay after stale-worker recovery |
+| `JOB_RETRY_MAX_DELAY_MS` | Integer | `3600000` | Finite cap for every retry delay |
+| `JOB_RETRY_JITTER_PERCENT` | Integer | `20` | Deterministic jitter window, from 0 through 100 |
 
 **Example:**
 ```bash
@@ -202,7 +208,15 @@ WORKER_ENABLED=true
 WORKER_THREADS=4
 JOB_POLL_INTERVAL_MS=60000
 JOB_MAX_CONCURRENT=4
+JOB_RETRY_BASE_DELAY_MS=5000
+JOB_RETRY_MAX_DELAY_MS=3600000
+JOB_RETRY_JITTER_PERCENT=20
 ```
+
+Worker safety settings are parsed strictly. Invalid booleans, zero or
+out-of-range concurrency, poll intervals outside 100-300000 ms, retry bases
+outside 100-600000 ms, retry caps below a configured base, and jitter outside
+0-100 stop startup with a configuration error.
 
 ### Chat (Synchronous LLM)
 

@@ -3567,6 +3567,116 @@ impl std::str::FromStr for JobStatus {
     }
 }
 
+/// Stable failure classes shared by job handlers, storage, and queue adapters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobFailureClass {
+    Transient,
+    RateLimited,
+    Timeout,
+    StaleWorker,
+    Permanent,
+    PolicyDenied,
+    Cancelled,
+    Poison,
+}
+
+impl JobFailureClass {
+    pub const ALL: [Self; 8] = [
+        Self::Transient,
+        Self::RateLimited,
+        Self::Timeout,
+        Self::StaleWorker,
+        Self::Permanent,
+        Self::PolicyDenied,
+        Self::Cancelled,
+        Self::Poison,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Transient => "transient",
+            Self::RateLimited => "rate_limited",
+            Self::Timeout => "timeout",
+            Self::StaleWorker => "stale_worker",
+            Self::Permanent => "permanent",
+            Self::PolicyDenied => "policy_denied",
+            Self::Cancelled => "cancelled",
+            Self::Poison => "poison",
+        }
+    }
+
+    pub const fn is_retryable(self) -> bool {
+        matches!(
+            self,
+            Self::Transient | Self::RateLimited | Self::Timeout | Self::StaleWorker
+        )
+    }
+}
+
+impl std::str::FromStr for JobFailureClass {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value {
+            "transient" => Ok(Self::Transient),
+            "rate_limited" => Ok(Self::RateLimited),
+            "timeout" => Ok(Self::Timeout),
+            "stale_worker" => Ok(Self::StaleWorker),
+            "permanent" => Ok(Self::Permanent),
+            "policy_denied" => Ok(Self::PolicyDenied),
+            "cancelled" => Ok(Self::Cancelled),
+            "poison" => Ok(Self::Poison),
+            _ => Err(format!(
+                "Invalid job failure class; value_len={}",
+                debug_len(value)
+            )),
+        }
+    }
+}
+
+/// Persistence result when a retry is scheduled or its finite cap is exhausted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobRetryOutcome {
+    Scheduled { next_attempt_at: DateTime<Utc> },
+    Exhausted,
+}
+
+/// Bounded retry timing shared by workers and stale-job recovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JobRetryPolicy {
+    pub transient_base_delay_ms: u64,
+    pub rate_limit_base_delay_ms: u64,
+    pub timeout_base_delay_ms: u64,
+    pub stale_worker_base_delay_ms: u64,
+    pub max_delay_ms: u64,
+    pub jitter_percent: u8,
+}
+
+impl Default for JobRetryPolicy {
+    fn default() -> Self {
+        Self {
+            transient_base_delay_ms: 5_000,
+            rate_limit_base_delay_ms: 30_000,
+            timeout_base_delay_ms: 15_000,
+            stale_worker_base_delay_ms: 30_000,
+            max_delay_ms: 3_600_000,
+            jitter_percent: 20,
+        }
+    }
+}
+
+impl JobRetryPolicy {
+    pub const fn base_delay_ms(self, failure_class: JobFailureClass) -> u64 {
+        match failure_class {
+            JobFailureClass::RateLimited => self.rate_limit_base_delay_ms,
+            JobFailureClass::Timeout => self.timeout_base_delay_ms,
+            JobFailureClass::StaleWorker => self.stale_worker_base_delay_ms,
+            _ => self.transient_base_delay_ms,
+        }
+    }
+}
+
 /// AI revision mode controlling enhancement aggressiveness.
 ///
 /// Modes are ordered by how much transformation they apply:
@@ -4036,10 +4146,15 @@ fn debug_len(value: &str) -> usize {
 /// Queue statistics summary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueStats {
+    /// Pending jobs whose due time has arrived.
     pub pending: i64,
+    /// Pending retries whose due time is still in the future.
+    pub delayed: i64,
     pub processing: i64,
     pub completed_last_hour: i64,
     pub failed_last_hour: i64,
+    /// Terminal failed jobs retained for operator inspection.
+    pub dead: i64,
     /// Rows whose type or status is not understood by this binary.
     pub incompatible: i64,
     pub total: i64,
@@ -8856,6 +8971,38 @@ mod tests {
             assert_eq!(json, format!("\"{}\"", expected));
             let parsed: JobStatus = serde_json::from_str(&json).unwrap();
             assert_eq!(parsed, status);
+        }
+    }
+
+    #[test]
+    fn job_failure_classes_round_trip_and_partition_retry_policy() {
+        for failure_class in JobFailureClass::ALL {
+            let encoded = failure_class.as_str();
+            assert_eq!(encoded.parse::<JobFailureClass>(), Ok(failure_class));
+            assert_eq!(
+                serde_json::from_str::<JobFailureClass>(
+                    &serde_json::to_string(&failure_class).unwrap()
+                )
+                .unwrap(),
+                failure_class
+            );
+        }
+
+        for retryable in [
+            JobFailureClass::Transient,
+            JobFailureClass::RateLimited,
+            JobFailureClass::Timeout,
+            JobFailureClass::StaleWorker,
+        ] {
+            assert!(retryable.is_retryable());
+        }
+        for terminal in [
+            JobFailureClass::Permanent,
+            JobFailureClass::PolicyDenied,
+            JobFailureClass::Cancelled,
+            JobFailureClass::Poison,
+        ] {
+            assert!(!terminal.is_retryable());
         }
     }
 

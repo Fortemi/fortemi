@@ -10,7 +10,10 @@ use tokio::time::sleep;
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
-use matric_core::{cost_tier, JobRepository, JobType, Result, TierGroup};
+use matric_core::{
+    cost_tier, Error, JobFailureClass, JobRepository, JobRetryOutcome, JobRetryPolicy, JobType,
+    Result, TierGroup,
+};
 use matric_db::Database;
 use matric_inference::{OllamaBackend, VisionBackend};
 
@@ -32,6 +35,8 @@ pub struct WorkerConfig {
     pub max_concurrent_jobs: usize,
     /// Whether to enable job processing.
     pub enabled: bool,
+    /// Bounded retry timing shared with stale-job recovery.
+    pub retry_policy: JobRetryPolicy,
 }
 
 impl Default for WorkerConfig {
@@ -40,6 +45,7 @@ impl Default for WorkerConfig {
             poll_interval_ms: DEFAULT_POLL_INTERVAL_MS,
             max_concurrent_jobs: matric_core::defaults::JOB_MAX_CONCURRENT,
             enabled: true,
+            retry_policy: JobRetryPolicy::default(),
         }
     }
 }
@@ -74,6 +80,41 @@ fn worker_failure_telemetry(error: &str) -> (usize, &'static str) {
     (error.len(), worker_error_reason_code(error))
 }
 
+fn retry_failure_class(error: &str) -> JobFailureClass {
+    let error = error.to_ascii_lowercase();
+    if error.contains("rate limit") || error.contains("too many requests") || error.contains("429")
+    {
+        JobFailureClass::RateLimited
+    } else if error.contains("timeout") || error.contains("timed out") {
+        JobFailureClass::Timeout
+    } else {
+        JobFailureClass::Transient
+    }
+}
+
+fn retry_delay(
+    job_id: Uuid,
+    retry_count: i32,
+    failure_class: JobFailureClass,
+    policy: JobRetryPolicy,
+) -> Duration {
+    let base_ms = policy.base_delay_ms(failure_class);
+    let exponent = retry_count.clamp(0, 10) as u32;
+    let delay_ms = base_ms
+        .saturating_mul(1_u64 << exponent)
+        .min(policy.max_delay_ms);
+    let jitter_window = delay_ms.saturating_mul(u64::from(policy.jitter_percent)) / 100;
+    let mut seed_bytes = [0_u8; 8];
+    seed_bytes.copy_from_slice(&job_id.as_bytes()[..8]);
+    let seed = u64::from_be_bytes(seed_bytes) ^ retry_count.max(0) as u64;
+    let jitter_secs = seed % (jitter_window + 1);
+    Duration::from_millis(
+        delay_ms
+            .saturating_add(jitter_secs)
+            .min(policy.max_delay_ms),
+    )
+}
+
 fn worker_job_type_len(job_type: &JobType) -> usize {
     format!("{job_type:?}").len()
 }
@@ -97,27 +138,88 @@ impl WorkerConfig {
     /// | `JOB_WORKER_ENABLED` | `true` | Enable/disable job processing |
     /// | `JOB_MAX_CONCURRENT` | `1` | Max concurrent jobs |
     /// | `JOB_POLL_INTERVAL_MS` | `60000` | Safety-net poll interval (ms) |
-    pub fn from_env() -> Self {
-        let enabled = std::env::var("JOB_WORKER_ENABLED")
-            .map(|v| v != "false" && v != "0")
-            .unwrap_or(true);
+    /// | `JOB_RETRY_BASE_DELAY_MS` | `5000` | Transient retry base delay |
+    /// | `JOB_RETRY_RATE_LIMIT_BASE_DELAY_MS` | `30000` | Rate-limit retry base delay |
+    /// | `JOB_RETRY_TIMEOUT_BASE_DELAY_MS` | `15000` | Timeout retry base delay |
+    /// | `JOB_RETRY_STALE_BASE_DELAY_MS` | `30000` | Stale-worker retry base delay |
+    /// | `JOB_RETRY_MAX_DELAY_MS` | `3600000` | Retry delay cap |
+    /// | `JOB_RETRY_JITTER_PERCENT` | `20` | Deterministic jitter window |
+    pub fn from_env() -> Result<Self> {
+        let defaults = Self::default();
+        let enabled = parse_bool_env("JOB_WORKER_ENABLED", defaults.enabled)?;
+        let max_concurrent_jobs = usize::try_from(parse_u64_env(
+            "JOB_MAX_CONCURRENT",
+            defaults.max_concurrent_jobs as u64,
+            1,
+            64,
+        )?)
+        .map_err(|_| Error::Config("JOB_MAX_CONCURRENT exceeds platform bounds".to_string()))?;
+        let poll_interval_ms = parse_u64_env(
+            "JOB_POLL_INTERVAL_MS",
+            defaults.poll_interval_ms,
+            100,
+            300_000,
+        )?;
 
-        let max_concurrent_jobs = std::env::var("JOB_MAX_CONCURRENT")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(matric_core::defaults::JOB_MAX_CONCURRENT)
-            .max(1);
+        let mut retry_policy = defaults.retry_policy;
+        retry_policy.transient_base_delay_ms = parse_u64_env(
+            "JOB_RETRY_BASE_DELAY_MS",
+            retry_policy.transient_base_delay_ms,
+            100,
+            600_000,
+        )?;
+        retry_policy.rate_limit_base_delay_ms = parse_u64_env(
+            "JOB_RETRY_RATE_LIMIT_BASE_DELAY_MS",
+            retry_policy.rate_limit_base_delay_ms,
+            100,
+            600_000,
+        )?;
+        retry_policy.timeout_base_delay_ms = parse_u64_env(
+            "JOB_RETRY_TIMEOUT_BASE_DELAY_MS",
+            retry_policy.timeout_base_delay_ms,
+            100,
+            600_000,
+        )?;
+        retry_policy.stale_worker_base_delay_ms = parse_u64_env(
+            "JOB_RETRY_STALE_BASE_DELAY_MS",
+            retry_policy.stale_worker_base_delay_ms,
+            100,
+            600_000,
+        )?;
+        retry_policy.max_delay_ms = parse_u64_env(
+            "JOB_RETRY_MAX_DELAY_MS",
+            retry_policy.max_delay_ms,
+            100,
+            86_400_000,
+        )?;
+        retry_policy.jitter_percent = u8::try_from(parse_u64_env(
+            "JOB_RETRY_JITTER_PERCENT",
+            u64::from(retry_policy.jitter_percent),
+            0,
+            100,
+        )?)
+        .expect("validated retry jitter must fit u8");
+        let largest_base = [
+            retry_policy.transient_base_delay_ms,
+            retry_policy.rate_limit_base_delay_ms,
+            retry_policy.timeout_base_delay_ms,
+            retry_policy.stale_worker_base_delay_ms,
+        ]
+        .into_iter()
+        .max()
+        .expect("retry policy has fixed base delays");
+        if retry_policy.max_delay_ms < largest_base {
+            return Err(Error::Config(
+                "JOB_RETRY_MAX_DELAY_MS must be at least every retry base delay".to_string(),
+            ));
+        }
 
-        let poll_interval_ms = std::env::var("JOB_POLL_INTERVAL_MS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(DEFAULT_POLL_INTERVAL_MS);
-
-        Self {
+        Ok(Self {
             poll_interval_ms,
             max_concurrent_jobs,
             enabled,
-        }
+            retry_policy,
+        })
     }
 
     /// Create a new config with custom poll interval.
@@ -137,6 +239,60 @@ impl WorkerConfig {
         self.enabled = enabled;
         self
     }
+
+    /// Override retry timing, primarily for deployments and deterministic tests.
+    pub fn with_retry_policy(mut self, retry_policy: JobRetryPolicy) -> Self {
+        self.retry_policy = retry_policy;
+        self
+    }
+}
+
+fn read_env(name: &str) -> Result<Option<String>> {
+    match std::env::var(name) {
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            Err(Error::Config(format!("{name} must be valid UTF-8")))
+        }
+    }
+}
+
+fn parse_bool_value(name: &str, value: &str) -> Result<bool> {
+    match value {
+        "true" | "1" => Ok(true),
+        "false" | "0" => Ok(false),
+        _ => Err(Error::Config(format!(
+            "{name} must be one of true, false, 1, or 0"
+        ))),
+    }
+}
+
+fn parse_bool_env(name: &str, default: bool) -> Result<bool> {
+    read_env(name)?
+        .as_deref()
+        .map(|value| parse_bool_value(name, value))
+        .transpose()
+        .map(|value| value.unwrap_or(default))
+}
+
+fn parse_bounded_u64_value(name: &str, value: &str, min: u64, max: u64) -> Result<u64> {
+    let parsed = value
+        .parse::<u64>()
+        .map_err(|_| Error::Config(format!("{name} must be an unsigned integer")))?;
+    if !(min..=max).contains(&parsed) {
+        return Err(Error::Config(format!(
+            "{name} must be between {min} and {max}"
+        )));
+    }
+    Ok(parsed)
+}
+
+fn parse_u64_env(name: &str, default: u64, min: u64, max: u64) -> Result<u64> {
+    read_env(name)?
+        .as_deref()
+        .map(|value| parse_bounded_u64_value(name, value, min, max))
+        .transpose()
+        .map(|value| value.unwrap_or(default))
 }
 
 /// Event emitted by the job worker.
@@ -158,11 +314,22 @@ pub enum WorkerEvent {
     },
     /// A job completed successfully.
     JobCompleted { job_id: Uuid, job_type: JobType },
-    /// A job failed.
+    /// A retry was durably scheduled.
+    JobRetryScheduled {
+        job_id: Uuid,
+        job_type: JobType,
+        failure_class: JobFailureClass,
+        failure_code: String,
+        next_attempt_at: chrono::DateTime<chrono::Utc>,
+        retry_count: i32,
+    },
+    /// A job failed terminally.
     JobFailed {
         job_id: Uuid,
         job_type: JobType,
         error: String,
+        failure_class: JobFailureClass,
+        failure_code: String,
     },
     /// Worker started.
     WorkerStarted,
@@ -203,17 +370,36 @@ impl fmt::Debug for WorkerEvent {
                 .field("job_id_set", &job_id_set(job_id))
                 .field("job_type_len", &worker_job_type_len(job_type))
                 .finish(),
+            Self::JobRetryScheduled {
+                job_id,
+                job_type,
+                failure_class,
+                failure_code,
+                next_attempt_at,
+                retry_count,
+            } => f
+                .debug_struct("JobRetryScheduled")
+                .field("job_id_set", &job_id_set(job_id))
+                .field("job_type_len", &worker_job_type_len(job_type))
+                .field("failure_class", failure_class)
+                .field("failure_code", failure_code)
+                .field("next_attempt_at", next_attempt_at)
+                .field("retry_count", retry_count)
+                .finish(),
             Self::JobFailed {
                 job_id,
                 job_type,
                 error,
+                failure_class,
+                failure_code,
             } => {
-                let (error_len, reason_code) = worker_failure_telemetry(error);
+                let (error_len, _) = worker_failure_telemetry(error);
                 f.debug_struct("JobFailed")
                     .field("job_id_set", &job_id_set(job_id))
                     .field("job_type_len", &worker_job_type_len(job_type))
                     .field("error_len", &error_len)
-                    .field("reason_code", &reason_code)
+                    .field("failure_class", failure_class)
+                    .field("failure_code", failure_code)
                     .finish()
             }
             Self::WorkerStarted => f.write_str("WorkerStarted"),
@@ -383,7 +569,12 @@ impl JobWorker {
         // Use 2x the job timeout as the staleness threshold to avoid reaping
         // jobs that are legitimately still running during normal operation.
         let stale_threshold = matric_core::defaults::JOB_TIMEOUT_SECS * 2;
-        match self.db.jobs.reap_stale_running(stale_threshold).await {
+        match self
+            .db
+            .jobs
+            .reap_stale_running(stale_threshold, &self.config.retry_policy)
+            .await
+        {
             Ok(0) => debug!("No stale running jobs to reap"),
             Ok(n) => warn!(count = n, "Reaped stale running jobs from previous worker"),
             Err(e) => {
@@ -754,6 +945,7 @@ impl JobWorker {
             db: self.db.clone(),
             handlers: self.handlers.clone(),
             event_tx: self.event_tx.clone(),
+            retry_policy: self.config.retry_policy,
         }
     }
 
@@ -775,6 +967,7 @@ struct JobWorkerRef {
     db: Database,
     handlers: Arc<RwLock<HashMap<JobType, Arc<dyn JobHandler>>>>,
     event_tx: broadcast::Sender<WorkerEvent>,
+    retry_policy: JobRetryPolicy,
 }
 
 impl JobWorkerRef {
@@ -783,6 +976,7 @@ impl JobWorkerRef {
         let start = Instant::now();
         let job_id = job.id;
         let job_type = job.job_type;
+        let retry_count = job.retry_count;
         let job_type_len = worker_job_type_len(&job_type);
 
         info!(job_id_present = true, job_type_len, "Processing job");
@@ -820,7 +1014,7 @@ impl JobWorkerRef {
                             job_id_present = true,
                             job_type_len, timeout_secs, "Job exceeded timeout of {}s", timeout_secs
                         );
-                        JobResult::Failed(format!("Job exceeded timeout of {}s", timeout_secs))
+                        JobResult::Retry("job_timeout".to_string())
                     }
                 }
             }
@@ -830,7 +1024,6 @@ impl JobWorkerRef {
             }
         };
 
-        let is_retry = matches!(&result, JobResult::Retry(_));
         match result {
             JobResult::Success(result_data) => {
                 if let Err(e) = self.db.jobs.complete(job_id, result_data).await {
@@ -854,8 +1047,14 @@ impl JobWorkerRef {
                         .send(WorkerEvent::JobCompleted { job_id, job_type });
                 }
             }
-            JobResult::Failed(error) | JobResult::Retry(error) => {
-                if let Err(e) = self.db.jobs.fail(job_id, &error).await {
+            JobResult::Failed(error) => {
+                let failure_code = worker_error_reason_code(&error);
+                if let Err(e) = self
+                    .db
+                    .jobs
+                    .fail(job_id, &error, JobFailureClass::Permanent, failure_code)
+                    .await
+                {
                     let error_text = e.to_string();
                     let (error_len, error_reason) = worker_failure_telemetry(&error_text);
                     error!(
@@ -871,7 +1070,7 @@ impl JobWorkerRef {
                         job_type_len,
                         error_len,
                         error_reason,
-                        is_retry,
+                        retry_scheduled = false,
                         duration_ms = start.elapsed().as_millis() as u64,
                         "Job failed"
                     );
@@ -879,7 +1078,71 @@ impl JobWorkerRef {
                         job_id,
                         job_type,
                         error,
+                        failure_class: JobFailureClass::Permanent,
+                        failure_code: failure_code.to_string(),
                     });
+                }
+            }
+            JobResult::Retry(error) => {
+                let failure_class = retry_failure_class(&error);
+                let failure_code = worker_error_reason_code(&error);
+                let delay = retry_delay(job_id, retry_count, failure_class, self.retry_policy);
+                let retry_at = chrono::Utc::now()
+                    + chrono::Duration::from_std(delay)
+                        .expect("bounded job retry delay must fit chrono");
+                match self
+                    .db
+                    .jobs
+                    .retry(job_id, &error, failure_class, failure_code, retry_at)
+                    .await
+                {
+                    Ok(JobRetryOutcome::Scheduled { next_attempt_at }) => {
+                        warn!(
+                            job_id_present = true,
+                            job_type_len,
+                            failure_class = failure_class.as_str(),
+                            failure_code,
+                            retry_delay_secs = delay.as_secs(),
+                            next_attempt_at = %next_attempt_at,
+                            duration_ms = start.elapsed().as_millis() as u64,
+                            "Job retry scheduled"
+                        );
+                        let _ = self.event_tx.send(WorkerEvent::JobRetryScheduled {
+                            job_id,
+                            job_type,
+                            failure_class,
+                            failure_code: failure_code.to_string(),
+                            next_attempt_at,
+                            retry_count: retry_count + 1,
+                        });
+                    }
+                    Ok(JobRetryOutcome::Exhausted) => {
+                        warn!(
+                            job_id_present = true,
+                            job_type_len,
+                            failure_class = failure_class.as_str(),
+                            failure_code = "retry_exhausted",
+                            duration_ms = start.elapsed().as_millis() as u64,
+                            "Job retries exhausted"
+                        );
+                        let _ = self.event_tx.send(WorkerEvent::JobFailed {
+                            job_id,
+                            job_type,
+                            error,
+                            failure_class,
+                            failure_code: "retry_exhausted".to_string(),
+                        });
+                    }
+                    Err(e) => {
+                        let error_text = e.to_string();
+                        let (error_len, error_reason) = worker_failure_telemetry(&error_text);
+                        error!(
+                            error_len,
+                            error_reason,
+                            job_id_present = true,
+                            "Failed to schedule job retry"
+                        );
+                    }
                 }
             }
         }
@@ -959,6 +1222,7 @@ mod tests {
         assert_eq!(config.poll_interval_ms, DEFAULT_POLL_INTERVAL_MS);
         assert_eq!(config.max_concurrent_jobs, 1);
         assert!(config.enabled);
+        assert_eq!(config.retry_policy, JobRetryPolicy::default());
     }
 
     #[test]
@@ -966,11 +1230,69 @@ mod tests {
         let config = WorkerConfig::default()
             .with_poll_interval(1000)
             .with_max_concurrent(8)
-            .with_enabled(false);
+            .with_enabled(false)
+            .with_retry_policy(JobRetryPolicy {
+                transient_base_delay_ms: 10,
+                rate_limit_base_delay_ms: 20,
+                timeout_base_delay_ms: 30,
+                stale_worker_base_delay_ms: 40,
+                max_delay_ms: 100,
+                jitter_percent: 0,
+            });
 
         assert_eq!(config.poll_interval_ms, 1000);
         assert_eq!(config.max_concurrent_jobs, 8);
         assert!(!config.enabled);
+        assert_eq!(config.retry_policy.max_delay_ms, 100);
+    }
+
+    #[test]
+    fn retry_failure_classes_are_stable() {
+        assert_eq!(
+            retry_failure_class("provider returned 429 rate limit"),
+            JobFailureClass::RateLimited
+        );
+        assert_eq!(retry_failure_class("job_timeout"), JobFailureClass::Timeout);
+        assert_eq!(
+            retry_failure_class("backend temporarily unavailable"),
+            JobFailureClass::Transient
+        );
+    }
+
+    #[test]
+    fn retry_delay_is_bounded_exponential_and_deterministic() {
+        let job_id = Uuid::parse_str("018f0000-0000-7000-8000-000000000001").unwrap();
+        let policy = JobRetryPolicy::default();
+        let first = retry_delay(job_id, 0, JobFailureClass::Transient, policy);
+        assert!((5_000..=6_000).contains(&(first.as_millis() as u64)));
+        assert_eq!(
+            first,
+            retry_delay(job_id, 0, JobFailureClass::Transient, policy)
+        );
+
+        for retry_count in 0..=5 {
+            let delay = retry_delay(job_id, retry_count, JobFailureClass::Transient, policy);
+            let base = 5_000_u64 * (1_u64 << retry_count);
+            assert!((base..=base + (base / 5)).contains(&(delay.as_millis() as u64)));
+        }
+
+        assert_eq!(
+            retry_delay(job_id, 30, JobFailureClass::RateLimited, policy).as_secs(),
+            3_600,
+        );
+    }
+
+    #[test]
+    fn worker_config_values_fail_closed() {
+        assert!(parse_bool_value("JOB_WORKER_ENABLED", "true").unwrap());
+        assert!(!parse_bool_value("JOB_WORKER_ENABLED", "0").unwrap());
+        assert!(parse_bool_value("JOB_WORKER_ENABLED", "flase").is_err());
+        assert!(parse_bounded_u64_value("JOB_MAX_CONCURRENT", "0", 1, 64).is_err());
+        assert!(parse_bounded_u64_value("JOB_MAX_CONCURRENT", "65", 1, 64).is_err());
+        assert!(parse_bounded_u64_value("JOB_POLL_INTERVAL_MS", "99", 100, 300_000).is_err());
+        assert!(parse_bounded_u64_value("JOB_POLL_INTERVAL_MS", "300001", 100, 300_000).is_err());
+        assert!(parse_bounded_u64_value("JOB_RETRY_BASE_DELAY_MS", "99", 100, 600_000).is_err());
+        assert!(parse_bounded_u64_value("JOB_RETRY_JITTER_PERCENT", "101", 0, 100).is_err());
     }
 
     #[test]
@@ -1244,6 +1566,8 @@ mod tests {
             job_id,
             job_type: JobType::AiRevision,
             error: "test error".to_string(),
+            failure_class: JobFailureClass::Permanent,
+            failure_code: "operation_failed".to_string(),
         };
 
         match event {
@@ -1251,10 +1575,14 @@ mod tests {
                 job_id: id,
                 job_type,
                 error,
+                failure_class,
+                failure_code,
             } => {
                 assert_eq!(id, job_id);
                 assert_eq!(job_type, JobType::AiRevision);
                 assert_eq!(error, "test error");
+                assert_eq!(failure_class, JobFailureClass::Permanent);
+                assert_eq!(failure_code, "operation_failed");
             }
             _ => panic!("Wrong event variant"),
         }
@@ -1410,6 +1738,8 @@ mod tests {
                 job_id,
                 job_type: JobType::AiRevision,
                 error: failure_error.to_string(),
+                failure_class: JobFailureClass::Permanent,
+                failure_code: "operation_failed".to_string(),
             }
         );
 
@@ -1422,8 +1752,9 @@ mod tests {
             "job_type_len",
             "message_len",
             "error_len",
-            "reason_code",
-            "database_error",
+            "failure_class",
+            "failure_code",
+            "operation_failed",
         ] {
             assert!(rendered.contains(expected), "missing field: {expected}");
         }
