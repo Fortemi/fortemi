@@ -138,7 +138,9 @@ pub use tags::PgTagRepository;
 pub use templates::PgTemplateRepository;
 pub use tus::PgTusRepository;
 pub use unified_filter::{UnifiedFilterQueryBuilder, UnifiedFilterResult};
-pub use usage_ledger::{PgUsageLedgerRepository, UsageLedgerRecord, UsageRecordOutcome};
+pub use usage_ledger::{
+    PgUsageLedgerRepository, UsageDeliveryClaim, UsageLedgerRecord, UsageRecordOutcome,
+};
 pub use versioning::{
     NoteVersions, OriginalVersion, RevisionVersionSummary, VersionSummary, VersioningRepository,
 };

@@ -155,6 +155,7 @@ const SHARED_TABLES: &[&str] = &[
     "usage_event_conflict",
     "usage_event_delivery",
     "usage_event_ledger",
+    "usage_delivery_attempt",
     "usage_sink",
     "user_config",
     "user_metadata_label",
