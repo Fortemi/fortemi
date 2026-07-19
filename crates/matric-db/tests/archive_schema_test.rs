@@ -372,6 +372,7 @@ async fn test_schema_drift_detection() {
         "usage_event_conflict",
         "usage_event_delivery",
         "usage_event_ledger",
+        "usage_delivery_attempt",
         "usage_sink",
         "user_config",
         "user_metadata_label",
