@@ -36,6 +36,7 @@ THIRD_PARTY_BUNDLE_SERVICES = {
     "whisper",
     "whisper-gpu",
 }
+RELEASE_EVIDENCE_DOC = "docs/content/container-release-evidence.md"
 
 
 def parse_bool(value: Any) -> bool | None:
@@ -236,8 +237,12 @@ def validate(
     mutable_fortemi = sorted(set(mutable) - set(mutable_third_party))
     if mutable_fortemi:
         warnings.append(
-            "#888 Fortemi release image evidence remains for services: "
+            "Fortemi services use mutable convenience image aliases: "
             + ", ".join(mutable_fortemi)
+            + "; this is distinct from release evidence, which is recorded "
+            + "after publication. Production deployment records should use "
+            + "digest-qualified references per "
+            + RELEASE_EVIDENCE_DOC
         )
 
     autoheal = services.get(AUTOHEAL_SERVICE)

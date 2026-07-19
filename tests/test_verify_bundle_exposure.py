@@ -49,14 +49,57 @@ class BundleExposureTests(unittest.TestCase):
         errors, warnings, report = MODULE.validate(base_config())
 
         self.assertEqual(errors, [])
-        self.assertIn("#888", "\n".join(warnings))
-        self.assertNotIn("#937", "\n".join(warnings))
+        warning_text = "\n".join(warnings)
+        self.assertNotIn("#888", warning_text)
+        self.assertIn("mutable convenience image aliases: fortemi", warning_text)
+        self.assertIn("distinct from release evidence", warning_text)
+        self.assertIn(
+            "docs/content/container-release-evidence.md",
+            warning_text,
+        )
         self.assertEqual(report["api_bind"], "127.0.0.1:3000")
         self.assertEqual(report["docker_socket_profile"], "absent")
         self.assertEqual(
             report["db_secret_source"],
             "generated_or_operator_supplied",
         )
+
+    def test_mutable_fortemi_warning_preserves_sorted_service_names(self) -> None:
+        config = base_config()
+        config["services"].update(
+            {
+                "pyannote": {
+                    "image": "ghcr.io/fortemi/fortemi:pyannote-latest",
+                },
+                "gliner": {
+                    "image": "ghcr.io/fortemi/fortemi:gliner-latest",
+                },
+            }
+        )
+
+        errors, warnings, _ = MODULE.validate(config)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 1)
+        warning = warnings[0]
+        self.assertIn(
+            "mutable convenience image aliases: fortemi, gliner, pyannote",
+            warning,
+        )
+        self.assertNotIn("#888", warning)
+        self.assertIn("distinct from release evidence", warning)
+        self.assertIn(MODULE.RELEASE_EVIDENCE_DOC, warning)
+
+    def test_digest_pinned_fortemi_image_does_not_warn(self) -> None:
+        config = base_config()
+        config["services"]["fortemi"]["image"] = (
+            "ghcr.io/fortemi/fortemi@sha256:" + "a" * 64
+        )
+
+        errors, warnings, _ = MODULE.validate(config)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(warnings, [])
 
     def test_local_profile_rejects_missing_or_reusable_password(self) -> None:
         for password in ("", "matric", "fortemi-local-dev", "changeme"):
