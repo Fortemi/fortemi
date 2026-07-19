@@ -6,7 +6,7 @@
 **Related:** ADR-088 (plugin strategy), ADR-090 (tenancy), ADR-098 (per-tenant rate limits), #713, #714, #877
 **Related docs:** `.aiwg/security/multi-tenant-threat-model.md` §8
 
-## July 2026 implementation checkpoint
+## July 2026 checkpoint rebaseline
 
 The core contract, CE defaults, and non-durable in-memory recorder are
 implemented in `matric-core`. Durable ledger storage, runtime recorder wiring,

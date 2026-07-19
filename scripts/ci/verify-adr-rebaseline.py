@@ -32,6 +32,11 @@ FIELDS = (
     "Checkpoint decision date",
 )
 STALE_DUPLICATE_TRACKERS = ("Fortemi/fortemi#1016", "Fortemi/fortemi#1019")
+ACCEPTED_CHECKPOINT_STATUSES = {
+    "090": "Accepted target architecture",
+    "092": "Accepted; core contract implemented",
+    "093": "Accepted target architecture",
+}
 
 
 def checkpoint_section(text: str) -> str | None:
@@ -53,9 +58,7 @@ def verify_checkpoint(text: str, adr: str, owner: str) -> list[str]:
         if section.count(marker) != 1:
             failures.append(f"ADR-{adr}: expected exactly one {field} field")
 
-    expected_status = (
-        "Accepted target architecture" if adr in {"090", "093"} else "Proposed"
-    )
+    expected_status = ACCEPTED_CHECKPOINT_STATUSES.get(adr, "Proposed")
     if expected_status not in section:
         failures.append(f"ADR-{adr}: missing status {expected_status!r}")
     if owner not in section:

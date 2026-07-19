@@ -43,6 +43,21 @@ class AdrRebaselineContractTests(unittest.TestCase):
             ["ADR-088: expected exactly one checkpoint section"],
         )
 
+    def test_checkpoint_accepts_implemented_adr_status(self) -> None:
+        text = f"""
+{MODULE.CHECKPOINT_HEADING}
+
+- **Decision status:** Accepted; core contract implemented.
+- **Implementation phase:** Runtime recorder integration.
+- **Phase owner:** `Fortemi/fortemi#713`.
+- **Checkpoint decision date:** 2026-07-14.
+""".lstrip()
+
+        self.assertEqual(
+            MODULE.verify_checkpoint(text, "092", "Fortemi/fortemi#713"),
+            [],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
