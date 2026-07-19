@@ -554,6 +554,8 @@ impl PgUsageLedgerRepository {
                 lease_id = NULL, lease_expires_at = NULL, updated_at = $2
             WHERE event_id = $6 AND sink_name = $7
               AND status = 'in_flight' AND lease_id = $8
+              AND external_idempotency_key = $9
+              AND attempt_count = $10
               AND lease_expires_at > $2
             "#,
         )
@@ -565,6 +567,8 @@ impl PgUsageLedgerRepository {
         .bind(claim.event_id)
         .bind(&claim.sink_name)
         .bind(claim.attempt_id)
+        .bind(claim.external_idempotency_key)
+        .bind(claim.attempt_number)
         .execute(&mut *tx)
         .await
         .map_err(|_| MeteringError::BackendUnavailable)?
@@ -585,7 +589,7 @@ impl PgUsageLedgerRepository {
             SET outcome = $1, completed_at = $2, retry_at = $3,
                 reason_class = $4
             WHERE attempt_id = $5 AND event_id = $6 AND sink_name = $7
-              AND outcome = 'in_flight'
+              AND attempt_number = $8 AND outcome = 'in_flight'
             "#,
         )
         .bind(outcome)
@@ -595,6 +599,7 @@ impl PgUsageLedgerRepository {
         .bind(claim.attempt_id)
         .bind(claim.event_id)
         .bind(&claim.sink_name)
+        .bind(claim.attempt_number)
         .execute(&mut *tx)
         .await
         .map_err(|_| MeteringError::BackendUnavailable)?
@@ -950,8 +955,22 @@ mod tests {
         .unwrap();
         assert_eq!(idempotency_conflict_count, 1);
 
-        sqlx::query("DELETE FROM public.usage_event_ledger WHERE event_id = $1")
-            .bind(event.event_id)
+        let mut maximum_idempotency = test_event();
+        maximum_idempotency.idempotency_key = "k".repeat(256);
+        maximum_idempotency.validate().unwrap();
+        assert!(matches!(
+            repo.record_event(&maximum_idempotency).await.unwrap(),
+            UsageRecordOutcome::Accepted { .. }
+        ));
+        let mut maximum_conflict = maximum_idempotency.clone();
+        maximum_conflict.outcome = UsageOutcome::FailedAfterPartialUsage;
+        assert_eq!(
+            repo.record_event(&maximum_conflict).await,
+            Err(MeteringError::DuplicateConflict(DuplicateIdentity::EventId))
+        );
+
+        sqlx::query("DELETE FROM public.usage_event_ledger WHERE event_id = ANY($1)")
+            .bind([event.event_id, maximum_idempotency.event_id])
             .execute(&pool)
             .await
             .unwrap();
@@ -1022,6 +1041,18 @@ mod tests {
             first.external_idempotency_key
         );
         assert!(!repo.acknowledge_delivery(&first, Utc::now()).await.unwrap());
+        let mut tampered = second.clone();
+        tampered.external_idempotency_key = Uuid::now_v7();
+        assert!(!repo
+            .acknowledge_delivery(&tampered, Utc::now())
+            .await
+            .unwrap());
+        tampered = second.clone();
+        tampered.attempt_number += 1;
+        assert!(!repo
+            .acknowledge_delivery(&tampered, Utc::now())
+            .await
+            .unwrap());
 
         let retry_at = Utc::now() + Duration::minutes(1);
         assert!(repo
