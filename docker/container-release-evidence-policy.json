@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "policy_issue": 888,
+  "reviewed_at": "2026-07-17",
+  "revisit_by": "2026-10-15",
+  "source_control": {
+    "origin": "https://git.integrolabs.net/Fortemi/fortemi",
+    "authentication": "Gitea Actions credentials sourced from Vault",
+    "oidc_identity_available": false,
+    "github_pat_destination_only": true
+  },
+  "artifact": {
+    "name_prefix": "container-release-evidence",
+    "format": "fortemi.container-release-evidence.v1",
+    "retention_days": 365
+  },
+  "build_inputs": {
+    "allowed_public_build_args": ["VERSION", "GIT_SHA", "BUILD_DATE"],
+    "secrets_as_build_args_allowed": false
+  },
+  "verification_samples": [
+    {
+      "tested_at": "2026-07-17",
+      "family": "api",
+      "source_revision": "bda3598d5dde002a4fd147992addd26c7d487044",
+      "tagged_reference": "ghcr.io/fortemi/fortemi:2026.7.1",
+      "alias": "ghcr.io/fortemi/fortemi:latest",
+      "digest": "sha256:1b079d858104d114c043be1e089a727a3e69e5fad885c48d809296ae9da65b03",
+      "platforms": ["linux/amd64"]
+    },
+    {
+      "tested_at": "2026-07-17",
+      "family": "bundle",
+      "source_revision": "bda3598d5dde002a4fd147992addd26c7d487044",
+      "tagged_reference": "ghcr.io/fortemi/fortemi:bundle-2026.7.1",
+      "alias": "ghcr.io/fortemi/fortemi:bundle-latest",
+      "digest": "sha256:cfad953beeefb38313db35a4c44dbf0667776044c80eff5ada7091fa3e7c04c2",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    }
+  ],
+  "license_notices": {
+    "status": "pending-gate",
+    "owner": "release-engineering",
+    "owner_issue": 901,
+    "requirement": "Release images must include the license and third-party notice set before this status can become implemented."
+  },
+  "controls": {
+    "digest": {
+      "status": "implemented",
+      "owner": "release-engineering",
+      "evidence": "A post-push receipt records the registry manifest digest and proves every mutable alias resolves to that digest."
+    },
+    "sbom": {
+      "status": "deferred",
+      "owner": "security-engineering",
+      "license_gate_issue": 901,
+      "revisit_by": "2026-10-15",
+      "reason": "No reviewed SBOM generator, storage format, or registry attachment lifecycle is deployed on the self-hosted release runners."
+    },
+    "provenance": {
+      "status": "deferred",
+      "owner": "release-engineering",
+      "revisit_by": "2026-10-15",
+      "reason": "Gitea is the source control and workflow origin and does not currently provide the OIDC identity needed for an authenticated SLSA attestation; the GHCR PAT identifies only the destination."
+    },
+    "signature": {
+      "status": "deferred",
+      "owner": "security-engineering",
+      "revisit_by": "2026-10-15",
+      "reason": "Neither a managed signing key/KMS path nor a Gitea workflow OIDC identity has been provisioned and approved."
+    }
+  },
+  "publish_path_profiles": {
+    "gitea-direct": {
+      "workflow_origin": "gitea-actions",
+      "registry_authentication": "Vault-sourced Gitea PAT",
+      "oidc_identity": false,
+      "controls": ["digest", "sbom", "provenance", "signature"]
+    },
+    "ghcr-from-gitea-pat": {
+      "workflow_origin": "gitea-actions",
+      "registry_authentication": "Vault-sourced GitHub PAT",
+      "oidc_identity": false,
+      "controls": ["digest", "sbom", "provenance", "signature"]
+    }
+  },
+  "future_family_defaults": {
+    "jetson-l4t": {
+      "exposure": "public-optional-runtime",
+      "sbom_scope": "final-stage plus vendor runtime package inventory",
+      "required_publish_path_profiles": ["gitea-direct", "ghcr-from-gitea-pat"],
+      "owner_issue": 683
+    }
+  },
+  "families": {
+    "api": {
+      "exposure": "public-runtime",
+      "sbom_scope": "final-stage runtime filesystem",
+      "workflows": [".gitea/workflows/ci-builder.yaml"],
+      "registries": {
+        "git.integrolabs.net": {
+          "platforms": ["linux/amd64"],
+          "publish_path_profile": "gitea-direct"
+        },
+        "ghcr.io": {
+          "platforms": ["linux/amd64"],
+          "publish_path_profile": "ghcr-from-gitea-pat"
+        }
+      },
+      "immutable_tag_patterns": ["^sha-[0-9a-f]{7}$", "^[0-9]{4}\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"]
+    },
+    "bundle": {
+      "exposure": "public-runtime",
+      "sbom_scope": "final-stage runtime filesystem including embedded PostgreSQL",
+      "workflows": [".gitea/workflows/ci-builder.yaml"],
+      "registries": {
+        "git.integrolabs.net": {
+          "platforms": ["linux/amd64"],
+          "publish_path_profile": "gitea-direct"
+        },
+        "ghcr.io": {
+          "platforms": ["linux/amd64", "linux/arm64"],
+          "publish_path_profile": "ghcr-from-gitea-pat"
+        }
+      },
+      "immutable_tag_patterns": ["^bundle-[0-9a-f]{7}$", "^bundle-sha-[0-9a-f]{7}$", "^bundle-[0-9]{4}\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"]
+    },
+    "gliner": {
+      "exposure": "public-optional-runtime",
+      "sbom_scope": "final-stage Python runtime and model package inventory",
+      "workflows": [".gitea/workflows/build-gliner.yaml"],
+      "registries": {
+        "git.integrolabs.net": {
+          "platforms": ["linux/amd64", "linux/arm64"],
+          "publish_path_profile": "gitea-direct"
+        },
+        "ghcr.io": {
+          "platforms": ["linux/amd64", "linux/arm64"],
+          "publish_path_profile": "ghcr-from-gitea-pat"
+        }
+      },
+      "immutable_tag_patterns": ["^gliner-[0-9a-f]{7}$", "^gliner-[0-9]+(?:\\.[0-9]+){0,2}$"]
+    },
+    "pyannote": {
+      "exposure": "public-optional-runtime",
+      "sbom_scope": "final-stage Python, CUDA, and model package inventory",
+      "workflows": [".gitea/workflows/build-pyannote.yaml"],
+      "registries": {
+        "git.integrolabs.net": {
+          "platforms": ["linux/amd64"],
+          "publish_path_profile": "gitea-direct"
+        },
+        "ghcr.io": {
+          "platforms": ["linux/amd64"],
+          "publish_path_profile": "ghcr-from-gitea-pat"
+        }
+      },
+      "immutable_tag_patterns": ["^pyannote-[0-9a-f]{7}$", "^pyannote-[0-9]+(?:\\.[0-9]+){0,2}$"]
+    },
+    "builder": {
+      "exposure": "public-ci-infrastructure",
+      "sbom_scope": "final-stage CI toolchain filesystem",
+      "workflows": [".gitea/workflows/build-builder.yaml"],
+      "registries": {
+        "git.integrolabs.net": {
+          "platforms": ["linux/amd64"],
+          "publish_path_profile": "gitea-direct"
+        },
+        "ghcr.io": {
+          "platforms": ["linux/amd64"],
+          "publish_path_profile": "ghcr-from-gitea-pat"
+        }
+      },
+      "immutable_tag_patterns": ["^sha-[0-9a-f]{7}$", "^[0-9]{4}\\.[0-9]+\\.[0-9]+$"]
+    },
+    "testdb": {
+      "exposure": "public-ci-infrastructure",
+      "sbom_scope": "final-stage database test runtime filesystem",
+      "workflows": [".gitea/workflows/build-builder.yaml"],
+      "registries": {
+        "git.integrolabs.net": {
+          "platforms": ["linux/amd64"],
+          "publish_path_profile": "gitea-direct"
+        },
+        "ghcr.io": {
+          "platforms": ["linux/amd64"],
+          "publish_path_profile": "ghcr-from-gitea-pat"
+        }
+      },
+      "immutable_tag_patterns": ["^sha-[0-9a-f]{7}$", "^[0-9]{4}\\.[0-9]+\\.[0-9]+$"]
+    }
+  }
+}

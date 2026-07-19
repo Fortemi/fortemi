@@ -182,4 +182,31 @@ jobs:
             push_with_retry ${GHCR}:pyannote-${VERSION}
           fi
 
+          CHANNEL=dev
+          GHCR_ALIASES=(--alias "${GHCR}:pyannote" --alias "${GHCR}:pyannote-latest")
+          GITEA_ALIASES=(--alias "${GITEA}:pyannote" --alias "${GITEA}:pyannote-main" --alias "${GITEA}:pyannote-latest")
+          if [[ "${GITHUB_REF}" == refs/tags/sidecar-pyannote-v* ]]; then
+            CHANNEL=release
+            GHCR_ALIASES+=(--alias "${GHCR}:pyannote-${VERSION}")
+            GITEA_ALIASES+=(--alias "${GITEA}:pyannote-${VERSION}")
+          fi
+          mkdir -p container-release-evidence
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family pyannote --source-revision "${GITHUB_SHA}" --channel "${CHANNEL}" \
+            --immutable-ref "${GHCR}:pyannote-${SHORT_SHA}" \
+            "${GHCR_ALIASES[@]}" \
+            --output container-release-evidence/ghcr-pyannote.json
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family pyannote --source-revision "${GITHUB_SHA}" --channel "${CHANNEL}" \
+            --immutable-ref "${GITEA}:pyannote-${SHORT_SHA}" \
+            "${GITEA_ALIASES[@]}" \
+            --output container-release-evidence/gitea-pyannote.json
+
           echo "Published pyannote images to both registries"
+
+      - name: Upload pyannote image evidence
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
+        with:
+          name: container-release-evidence-pyannote-${{ github.run_id }}
+          path: container-release-evidence/
+          retention-days: 365

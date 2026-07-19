@@ -257,6 +257,10 @@ git push origin sidecar-pyannote-v1
 ```
 
 Both workflows push to the internal Gitea registry and GHCR simultaneously.
+Every image publisher then reads the manifest back from each registry and
+uploads a digest receipt. See [Container Release Evidence](#/container-release-evidence)
+for the family matrix, control status, artifact format, and verification
+commands.
 
 ## Self-Hosted Runners
 

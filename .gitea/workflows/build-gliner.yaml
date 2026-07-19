@@ -147,4 +147,33 @@ jobs:
             --push \
             build/gliner
 
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          CHANNEL=dev
+          GHCR_ALIASES=(--alias "${GHCR_REGISTRY}/${IMAGE_NAME}:gliner" --alias "${GHCR_REGISTRY}/${IMAGE_NAME}:gliner-latest")
+          GITEA_ALIASES=(--alias "${GITEA_REGISTRY}/${IMAGE_NAME}:gliner" --alias "${GITEA_REGISTRY}/${IMAGE_NAME}:gliner-main" --alias "${GITEA_REGISTRY}/${IMAGE_NAME}:gliner-latest")
+          if [[ "${GITHUB_REF}" == refs/tags/sidecar-gliner-v* ]]; then
+            CHANNEL=release
+            VERSION="${GITHUB_REF_NAME#sidecar-gliner-v}"
+            GHCR_ALIASES+=(--alias "${GHCR_REGISTRY}/${IMAGE_NAME}:gliner-${VERSION}")
+            GITEA_ALIASES+=(--alias "${GITEA_REGISTRY}/${IMAGE_NAME}:gliner-${VERSION}")
+          fi
+          mkdir -p container-release-evidence
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family gliner --source-revision "${GITHUB_SHA}" --channel "${CHANNEL}" \
+            --immutable-ref "${GHCR_REGISTRY}/${IMAGE_NAME}:gliner-${SHORT_SHA}" \
+            "${GHCR_ALIASES[@]}" \
+            --output container-release-evidence/ghcr-gliner.json
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family gliner --source-revision "${GITHUB_SHA}" --channel "${CHANNEL}" \
+            --immutable-ref "${GITEA_REGISTRY}/${IMAGE_NAME}:gliner-${SHORT_SHA}" \
+            "${GITEA_ALIASES[@]}" \
+            --output container-release-evidence/gitea-gliner.json
+
           echo "Published GLiNER linux/amd64 + linux/arm64 images to both registries"
+
+      - name: Upload GLiNER image evidence
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
+        with:
+          name: container-release-evidence-gliner-${{ github.run_id }}
+          path: container-release-evidence/
+          retention-days: 365

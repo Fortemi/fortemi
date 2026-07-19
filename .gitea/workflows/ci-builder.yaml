@@ -219,6 +219,13 @@ jobs:
           python3 scripts/ci/verify-checkout-contract.py
           python3 -m unittest tests/test_verify_checkout_contract.py
 
+      - name: Check container release evidence policy
+        run: |
+          python3 scripts/ci/verify-container-release-evidence.py
+          python3 -m unittest \
+            tests/test_container_release_evidence.py \
+            tests/test_verify_container_release_evidence.py
+
       - name: Check runner capacity guard
         run: |
           bash -n scripts/ci/check-runner-capacity.sh
@@ -881,7 +888,32 @@ jobs:
           push_with_retry ${IMAGE}:bundle-${SHORT_SHA}
           push_with_retry ${IMAGE}:bundle-main
 
+          mkdir -p container-release-evidence
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family api \
+            --source-revision "${GITHUB_SHA}" \
+            --channel dev \
+            --immutable-ref "${IMAGE}:sha-${SHORT_SHA}" \
+            --alias "${IMAGE}:dev" \
+            --alias "${IMAGE}:main" \
+            --output container-release-evidence/gitea-api-dev.json
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family bundle \
+            --source-revision "${GITHUB_SHA}" \
+            --channel dev \
+            --immutable-ref "${IMAGE}:bundle-${SHORT_SHA}" \
+            --alias "${IMAGE}:bundle" \
+            --alias "${IMAGE}:bundle-main" \
+            --output container-release-evidence/gitea-bundle-dev.json
+
           # GLiNER sidecar image is built by build-gliner.yaml (triggers on build/gliner/** changes or workflow_dispatch)
+
+      - name: Upload internal dev image evidence
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
+        with:
+          name: container-release-evidence-gitea-dev-${{ github.run_id }}
+          path: container-release-evidence/
+          retention-days: 365
 
   # Release image - pushes on version tags only
   publish-release:
@@ -973,12 +1005,35 @@ jobs:
           push_with_retry ${IMAGE}:bundle-${VERSION}
           push_with_retry ${IMAGE}:bundle-latest
 
+          mkdir -p container-release-evidence
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family api \
+            --source-revision "${GITHUB_SHA}" \
+            --channel release \
+            --immutable-ref "${IMAGE}:${VERSION}" \
+            --alias "${IMAGE}:latest" \
+            --output container-release-evidence/gitea-api-release.json
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family bundle \
+            --source-revision "${GITHUB_SHA}" \
+            --channel release \
+            --immutable-ref "${IMAGE}:bundle-${VERSION}" \
+            --alias "${IMAGE}:bundle-latest" \
+            --output container-release-evidence/gitea-bundle-release.json
+
           # Sidecar images (GLiNER, pyannote) are released independently
           # via build-gliner.yaml and build-pyannote.yaml workflows
 
           echo "Published release images:"
           echo "  API-only: ${IMAGE}:${VERSION}, ${IMAGE}:latest"
           echo "  Bundle:   ${IMAGE}:bundle-${VERSION}, ${IMAGE}:bundle-latest"
+
+      - name: Upload internal release image evidence
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
+        with:
+          name: container-release-evidence-gitea-release-${{ github.run_id }}
+          path: container-release-evidence/
+          retention-days: 365
 
   # Create Gitea release on tag push
   create-release:
@@ -1123,10 +1178,33 @@ jobs:
           export VERSION="dev-${SHORT_SHA}"
           scripts/ci/promote-ghcr-images.sh
 
+          mkdir -p container-release-evidence
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family api \
+            --source-revision "${GITHUB_SHA}" \
+            --channel dev \
+            --immutable-ref "${TARGET_IMAGE}:sha-${SHORT_SHA}" \
+            --alias "${TARGET_IMAGE}:main" \
+            --output container-release-evidence/ghcr-api-dev.json
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family bundle \
+            --source-revision "${GITHUB_SHA}" \
+            --channel dev \
+            --immutable-ref "${TARGET_IMAGE}:bundle-sha-${SHORT_SHA}" \
+            --alias "${TARGET_IMAGE}:bundle-main" \
+            --output container-release-evidence/ghcr-bundle-dev.json
+
           echo ""
           echo "=== Published dev images to ghcr.io ==="
           echo "  ${TARGET_IMAGE}:main, :sha-${SHORT_SHA}"
           echo "  ${TARGET_IMAGE}:bundle-main, :bundle-sha-${SHORT_SHA}"
+
+      - name: Upload GHCR dev image evidence
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
+        with:
+          name: container-release-evidence-ghcr-dev-${{ github.run_id }}
+          path: container-release-evidence/
+          retention-days: 365
 
   # Push release images to GitHub Container Registry
   publish-github:
@@ -1175,12 +1253,35 @@ jobs:
           export BUNDLE_TARGET_TAGS="bundle-${VERSION} bundle-latest"
           scripts/ci/promote-ghcr-images.sh
 
+          mkdir -p container-release-evidence
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family api \
+            --source-revision "${GITHUB_SHA}" \
+            --channel release \
+            --immutable-ref "${TARGET_IMAGE}:${VERSION}" \
+            --alias "${TARGET_IMAGE}:latest" \
+            --output container-release-evidence/ghcr-api-release.json
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family bundle \
+            --source-revision "${GITHUB_SHA}" \
+            --channel release \
+            --immutable-ref "${TARGET_IMAGE}:bundle-${VERSION}" \
+            --alias "${TARGET_IMAGE}:bundle-latest" \
+            --output container-release-evidence/ghcr-bundle-release.json
+
           # Sidecar images (GLiNER, pyannote) are released independently
           # via build-gliner.yaml and build-pyannote.yaml workflows
 
           echo "Published to GitHub Container Registry:"
           echo "  API-only: ${TARGET_IMAGE}:${VERSION}, ${TARGET_IMAGE}:latest"
           echo "  Bundle:   ${TARGET_IMAGE}:bundle-${VERSION}, ${TARGET_IMAGE}:bundle-latest"
+
+      - name: Upload GHCR release image evidence
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
+        with:
+          name: container-release-evidence-ghcr-release-${{ github.run_id }}
+          path: container-release-evidence/
+          retention-days: 365
 
   # Create GitHub Release with changelog
   create-github-release:

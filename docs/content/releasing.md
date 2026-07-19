@@ -101,6 +101,9 @@ docker image inspect ghcr.io/fortemi/fortemi:bundle-${VERSION} --format '{{index
 ```
 
 Use `ghcr.io/fortemi/fortemi@sha256:...` references in production deployment records and rollback plans.
+The release jobs upload registry-derived receipts that bind version and mutable
+tags to these digests. Verify and retain them as described in
+[Container Release Evidence](#/container-release-evidence).
 
 > **Sidecar images** (GLiNER, pyannote) are released independently with their own tags. See [CI/CD docs](#/operations-ci-cd) for details.
 

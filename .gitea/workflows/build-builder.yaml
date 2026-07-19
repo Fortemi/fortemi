@@ -217,6 +217,40 @@ jobs:
             push_with_retry ${GITEA_TESTDB}:${VERSION}
           fi
 
+          CHANNEL=dev
+          GHCR_BUILDER_ALIASES=(--alias "${GHCR_BUILDER}:latest")
+          GHCR_TESTDB_ALIASES=(--alias "${GHCR_TESTDB}:latest")
+          GITEA_BUILDER_ALIASES=(--alias "${GITEA_BUILDER}:latest")
+          GITEA_TESTDB_ALIASES=(--alias "${GITEA_TESTDB}:latest")
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            CHANNEL=release
+            GHCR_BUILDER_ALIASES+=(--alias "${GHCR_BUILDER}:${VERSION}")
+            GHCR_TESTDB_ALIASES+=(--alias "${GHCR_TESTDB}:${VERSION}")
+            GITEA_BUILDER_ALIASES+=(--alias "${GITEA_BUILDER}:${VERSION}")
+            GITEA_TESTDB_ALIASES+=(--alias "${GITEA_TESTDB}:${VERSION}")
+          fi
+          mkdir -p container-release-evidence
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family builder --source-revision "${GITHUB_SHA}" --channel "${CHANNEL}" \
+            --immutable-ref "${GHCR_BUILDER}:sha-${SHORT_SHA}" \
+            "${GHCR_BUILDER_ALIASES[@]}" \
+            --output container-release-evidence/ghcr-builder.json
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family testdb --source-revision "${GITHUB_SHA}" --channel "${CHANNEL}" \
+            --immutable-ref "${GHCR_TESTDB}:sha-${SHORT_SHA}" \
+            "${GHCR_TESTDB_ALIASES[@]}" \
+            --output container-release-evidence/ghcr-testdb.json
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family builder --source-revision "${GITHUB_SHA}" --channel "${CHANNEL}" \
+            --immutable-ref "${GITEA_BUILDER}:sha-${SHORT_SHA}" \
+            "${GITEA_BUILDER_ALIASES[@]}" \
+            --output container-release-evidence/gitea-builder.json
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family testdb --source-revision "${GITHUB_SHA}" --channel "${CHANNEL}" \
+            --immutable-ref "${GITEA_TESTDB}:sha-${SHORT_SHA}" \
+            "${GITEA_TESTDB_ALIASES[@]}" \
+            --output container-release-evidence/gitea-testdb.json
+
           echo "Published images:"
           echo "  GitHub (ghcr.io):"
           echo "    - ${GHCR_BUILDER}:latest, :sha-${SHORT_SHA}"
@@ -224,6 +258,13 @@ jobs:
           echo "  Gitea:"
           echo "    - ${GITEA_BUILDER}:latest, :sha-${SHORT_SHA}"
           echo "    - ${GITEA_TESTDB}:latest, :sha-${SHORT_SHA}"
+
+      - name: Upload builder image evidence
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
+        with:
+          name: container-release-evidence-builder-${{ github.run_id }}
+          path: container-release-evidence/
+          retention-days: 365
 
   # After builder is published, trigger CI to validate with new image
   trigger-ci:
