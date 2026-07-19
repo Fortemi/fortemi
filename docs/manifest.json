@@ -81,6 +81,7 @@
       "summary": "Deployment, maintenance, and operational runbooks.",
       "sections": [
         { "id": "operations-guide", "title": "Operators Guide", "summary": "Comprehensive operational reference for administrators.", "file": "operators-guide.md" },
+        { "id": "container-dependency-trust", "title": "Container Dependency Trust", "summary": "Third-party image inventory, verification, mirrors, updates, and rollback.", "file": "container-dependency-trust.md" },
         { "id": "operations-general", "title": "Operations Overview", "summary": "Day-to-day operational procedures.", "file": "operations.md" },
         { "id": "operations-backup", "title": "Backup & Recovery", "summary": "Database backup, restore, and disaster recovery.", "file": "backup.md" },
         { "id": "operations-job-monitoring", "title": "Job Monitoring", "summary": "Background job worker, queue health, and stale-job reaping.", "file": "job-monitoring.md" },
