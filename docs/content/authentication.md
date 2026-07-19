@@ -203,13 +203,19 @@ OAuth2 is ideal for:
 - Third-party integrations requiring user consent
 - MCP server (HTTP mode)
 
-Fortémi implements **OAuth 2.0** with:
-- **Dynamic Client Registration** (RFC 7591)
+Fortémi's current **self-hosted operator compatibility profile** implements OAuth 2.0
+with:
+- **Open Dynamic Client Registration** (RFC 7591 compatibility)
 - **Authorization Code Flow** with PKCE (RFC 7636)
 - **Client Credentials Grant**
 - **Refresh Tokens** (30-day expiration)
 - **Token Introspection** (RFC 7662)
 - **Token Revocation** (RFC 7009)
+
+This is not a hosted-strict launch profile. Hosted-strict OAuth remains unavailable
+until its registration, client-type, authorization, and resource-binding owners
+land. In particular, current open registration must not be exposed as a
+hosted-safe default.
 
 ### Discovery Endpoint
 
@@ -238,8 +244,8 @@ GET /.well-known/oauth-authorization-server
     "client_secret_basic",
     "client_secret_post"
   ],
-  "scopes_supported": ["read", "write", "delete", "admin", "mcp"],
-  "code_challenge_methods_supported": ["S256", "plain"]
+  "scopes_supported": ["read", "write", "admin", "mcp"],
+  "code_challenge_methods_supported": ["S256"]
 }
 ```
 
@@ -277,6 +283,13 @@ GET /.well-known/oauth-authorization-server
   "registration_client_uri": "http://localhost:3000/oauth/register/mm_AbCdEfGh12345678901234"
 }
 ```
+
+The compatibility registration response currently includes
+`registration_access_token` and `registration_client_uri`, but Fortémi does not
+implement RFC 7592 client management routes. Do not treat either field as a
+working read, update, or delete API. Hosted-strict discovery and documentation
+must not advertise registration management unless those routes and their
+authorization policy are implemented.
 
 **Important:** Save `client_id` and `client_secret` securely. The secret is only shown once.
 

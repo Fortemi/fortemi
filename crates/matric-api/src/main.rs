@@ -2,6 +2,7 @@
 
 mod handlers;
 mod middleware;
+mod oauth_profile;
 mod query_types;
 mod route_policy;
 mod shard_signature;
@@ -67,6 +68,7 @@ use matric_db::{
 use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
 };
+use oauth_profile::{active_oauth_capabilities, is_allowed_oauth_scope};
 use tokio::sync::RwLock;
 
 // ---------------------------------------------------------------------------
@@ -20124,7 +20126,7 @@ fn oauth_invalid_scope_detail(scope: &str) -> String {
     format!(
         "Invalid scope: scope_len={}, allowed_count={}",
         telemetry_text_len(scope),
-        ALLOWED_SCOPES.len()
+        active_oauth_capabilities().scopes.len()
     )
 }
 
@@ -20229,11 +20231,14 @@ fn oauth_revocation_audit_event(
 
 /// OAuth2 authorization server metadata (RFC 8414).
 fn oauth_authorization_server_metadata(issuer: &str) -> AuthorizationServerMetadata {
+    let capabilities = active_oauth_capabilities();
     AuthorizationServerMetadata {
         issuer: issuer.to_string(),
         authorization_endpoint: format!("{issuer}/oauth/authorize"),
         token_endpoint: format!("{issuer}/oauth/token"),
-        registration_endpoint: Some(format!("{issuer}/oauth/register")),
+        registration_endpoint: capabilities
+            .advertise_registration_endpoint
+            .then(|| format!("{issuer}/oauth/register")),
         introspection_endpoint: Some(format!("{issuer}/oauth/introspect")),
         revocation_endpoint: Some(format!("{issuer}/oauth/revoke")),
         response_types_supported: vec!["code".to_string()],
@@ -20242,18 +20247,9 @@ fn oauth_authorization_server_metadata(issuer: &str) -> AuthorizationServerMetad
             "client_credentials".to_string(),
             "refresh_token".to_string(),
         ],
-        token_endpoint_auth_methods_supported: vec![
-            "client_secret_basic".to_string(),
-            "client_secret_post".to_string(),
-        ],
-        scopes_supported: vec![
-            "read".to_string(),
-            "write".to_string(),
-            "delete".to_string(),
-            "admin".to_string(),
-            "mcp".to_string(),
-        ],
-        code_challenge_methods_supported: Some(vec!["S256".to_string()]),
+        token_endpoint_auth_methods_supported: capabilities.token_endpoint_auth_methods.clone(),
+        scopes_supported: capabilities.scopes.clone(),
+        code_challenge_methods_supported: Some(capabilities.pkce_methods.clone()),
     }
 }
 
@@ -20265,23 +20261,25 @@ async fn oauth_discovery(State(state): State<AppState>) -> impl IntoResponse {
 
 /// OAuth Protected Resource Metadata (RFC 9728).
 /// Required by MCP OAuth clients to discover authorization server.
+fn oauth_protected_resource_metadata(issuer: &str) -> serde_json::Value {
+    let capabilities = active_oauth_capabilities();
+    serde_json::json!({
+        "resource": issuer,
+        "authorization_servers": [issuer],
+        "bearer_methods_supported": ["header"],
+        "scopes_supported": capabilities.scopes,
+    })
+}
+
 #[utoipa::path(get, path = "/.well-known/oauth-protected-resource", tag = "OAuth",
     responses((status = 200, description = "Success")))]
 async fn oauth_protected_resource(State(state): State<AppState>) -> impl IntoResponse {
-    Json(serde_json::json!({
-        "resource": state.issuer.clone(),
-        "authorization_servers": [format!("{}", state.issuer)],
-        "bearer_methods_supported": ["header"],
-        "scopes_supported": ["read", "write", "delete", "admin", "mcp"],
-    }))
+    Json(oauth_protected_resource_metadata(&state.issuer))
 }
 
 /// OAuth2 Dynamic Client Registration (RFC 7591).
 /// Allowed OAuth2 grant types for client registration.
 const ALLOWED_GRANT_TYPES: &[&str] = &["authorization_code", "client_credentials", "refresh_token"];
-
-/// Allowed OAuth2 scopes for API key and client registration.
-const ALLOWED_SCOPES: &[&str] = &["read", "write", "admin", "mcp"];
 
 #[utoipa::path(post, path = "/oauth/register", tag = "OAuth",
     request_body = ClientRegistrationRequest,
@@ -20301,7 +20299,7 @@ async fn oauth_register(
     // Validate scope if provided
     if let Some(ref scope) = req.scope {
         for s in scope.split_whitespace() {
-            if !ALLOWED_SCOPES.contains(&s) {
+            if !is_allowed_oauth_scope(s) {
                 let msg = oauth_invalid_scope_detail(s);
                 return Err(OAuthApiError::OAuth(OAuthError::invalid_request(&msg)));
             }
@@ -41105,6 +41103,34 @@ mod tests {
         assert_eq!(
             metadata.code_challenge_methods_supported,
             Some(vec!["S256".to_string()])
+        );
+        assert_eq!(
+            metadata.registration_endpoint,
+            Some("https://auth.example.com/oauth/register".to_string())
+        );
+        assert_eq!(
+            metadata.token_endpoint_auth_methods_supported,
+            ["client_secret_basic", "client_secret_post"]
+        );
+        assert_eq!(metadata.scopes_supported, ["read", "write", "admin", "mcp"]);
+        assert!(!metadata
+            .scopes_supported
+            .iter()
+            .any(|scope| scope == "delete"));
+    }
+
+    #[test]
+    fn oauth_protected_resource_metadata_uses_active_profile_scopes() {
+        let metadata = oauth_protected_resource_metadata("https://resource.example.com");
+
+        assert_eq!(metadata["resource"], "https://resource.example.com");
+        assert_eq!(
+            metadata["authorization_servers"],
+            serde_json::json!(["https://resource.example.com"])
+        );
+        assert_eq!(
+            metadata["scopes_supported"],
+            serde_json::json!(["read", "write", "admin", "mcp"])
         );
     }
 

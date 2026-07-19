@@ -951,7 +951,7 @@ Expected response:
 {
   "resource": "https://memory.example.com/mcp",
   "authorization_servers": ["https://memory.example.com"],
-  "scopes_supported": ["mcp", "read", "write"]
+  "scopes_supported": ["read", "write", "mcp"]
 }
 ```
 

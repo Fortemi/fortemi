@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "active_runtime_profile": "self_hosted_operator",
+  "profiles": {
+    "local_dev": {
+      "availability": "current",
+      "registration_mode": "open_dcr_compat",
+      "advertise_registration_endpoint": true,
+      "registration_management_supported": false,
+      "client_id_metadata_document_supported": false,
+      "token_endpoint_auth_methods": [
+        "client_secret_basic",
+        "client_secret_post"
+      ],
+      "pkce_methods": [
+        "S256"
+      ],
+      "scopes": [
+        "read",
+        "write",
+        "admin",
+        "mcp"
+      ],
+      "allow_local_issuer": true,
+      "owner_issues": [
+        "#924",
+        "#941",
+        "#944",
+        "#972"
+      ]
+    },
+    "self_hosted_operator": {
+      "availability": "current",
+      "registration_mode": "open_dcr_compat",
+      "advertise_registration_endpoint": true,
+      "registration_management_supported": false,
+      "client_id_metadata_document_supported": false,
+      "token_endpoint_auth_methods": [
+        "client_secret_basic",
+        "client_secret_post"
+      ],
+      "pkce_methods": [
+        "S256"
+      ],
+      "scopes": [
+        "read",
+        "write",
+        "admin",
+        "mcp"
+      ],
+      "allow_local_issuer": false,
+      "owner_issues": [
+        "#924",
+        "#941",
+        "#944",
+        "#972"
+      ]
+    },
+    "hosted_strict": {
+      "availability": "dependency_gated",
+      "registration_mode": "unavailable",
+      "advertise_registration_endpoint": false,
+      "registration_management_supported": false,
+      "client_id_metadata_document_supported": false,
+      "token_endpoint_auth_methods": [],
+      "pkce_methods": [
+        "S256"
+      ],
+      "scopes": [
+        "read",
+        "write",
+        "admin",
+        "mcp"
+      ],
+      "allow_local_issuer": false,
+      "owner_issues": [
+        "#924",
+        "#941",
+        "#944",
+        "#972"
+      ]
+    },
+    "compatibility": {
+      "availability": "current",
+      "registration_mode": "open_dcr_compat",
+      "advertise_registration_endpoint": true,
+      "registration_management_supported": false,
+      "client_id_metadata_document_supported": false,
+      "token_endpoint_auth_methods": [
+        "client_secret_basic",
+        "client_secret_post"
+      ],
+      "pkce_methods": [
+        "S256"
+      ],
+      "scopes": [
+        "read",
+        "write",
+        "admin",
+        "mcp"
+      ],
+      "allow_local_issuer": false,
+      "owner_issues": [
+        "#924",
+        "#941",
+        "#944",
+        "#972"
+      ]
+    }
+  },
+  "non_advertised_legacy_seed_scopes": {
+    "delete": {
+      "owner_issue": "#924",
+      "reason": "The immutable OAuth migration seeded delete before the accepted runtime scope contract was finalized."
+    }
+  }
+}
