@@ -589,6 +589,28 @@ jobs:
             exit 1
           fi
 
+          # Provision a disposable admin key for the protected operator contract
+          # routes. Keep the plaintext key only inside the ephemeral API container.
+          CONTRACT_KEY="mm_key_$(openssl rand -hex 32)"
+          CONTRACT_KEY_HASH=$(printf '%s' "${CONTRACT_KEY}" | sha256sum | cut -d' ' -f1)
+          CONTRACT_KEY_PREFIX=$(printf '%.12s' "${CONTRACT_KEY}")
+          docker exec ${TEST_DB} psql \
+            -v ON_ERROR_STOP=1 \
+            -U "${TEST_DB_USER}" \
+            -d "${TEST_DB_NAME}" \
+            -c "INSERT INTO api_key (
+                  id, key_hash, key_prefix, name, description, scope,
+                  is_active, created_at, updated_at
+                ) VALUES (
+                  gen_random_uuid(), '${CONTRACT_KEY_HASH}', '${CONTRACT_KEY_PREFIX}',
+                  'CI contract export', 'Ephemeral isolated-container verifier',
+                  'admin', true, NOW(), NOW()
+                )"
+          printf '%s' "${CONTRACT_KEY}" |
+            docker exec -i ${TEST_API} sh -c \
+              'umask 077; cat > /tmp/fortemi-ci-contract-key'
+          unset CONTRACT_KEY
+
       - name: Run container API tests
         run: |
           TEST_API="matric-test-api-${GITHUB_RUN_ID}"
@@ -600,7 +622,9 @@ jobs:
       - name: Verify published OpenAPI contract
         run: |
           TEST_API="matric-test-api-${GITHUB_RUN_ID}"
-          docker exec ${TEST_API} curl -sf http://localhost:3000/openapi.yaml >openapi-runtime.yaml
+          docker exec ${TEST_API} sh -c \
+            'curl -sf -H "Authorization: Bearer $(cat /tmp/fortemi-ci-contract-key)" http://localhost:3000/api/v1/operator/openapi.yaml' \
+            >openapi-runtime.yaml
           scripts/ci/openapi-contract.sh receipt \
             openapi-runtime.yaml \
             openapi-contract-receipt.json
@@ -608,7 +632,9 @@ jobs:
       - name: Export AsyncAPI spec
         run: |
           TEST_API="matric-test-api-${GITHUB_RUN_ID}"
-          docker exec ${TEST_API} curl -sf http://localhost:3000/asyncapi.yaml >asyncapi.yaml
+          docker exec ${TEST_API} sh -c \
+            'curl -sf -H "Authorization: Bearer $(cat /tmp/fortemi-ci-contract-key)" http://localhost:3000/api/v1/operator/asyncapi.yaml' \
+            >asyncapi.yaml
 
       - name: Upload OpenAPI contract artifact
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
