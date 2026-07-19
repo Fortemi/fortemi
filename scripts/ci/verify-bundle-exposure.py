@@ -24,6 +24,9 @@ KNOWN_INSECURE_PASSWORDS = {
     "<operator_supplied_database_password>",
 }
 PRIVATE_DNS_SUFFIXES = (".localhost", ".local", ".internal", ".lan")
+AUTOHEAL_PROFILE = "ops-autoheal"
+AUTOHEAL_SERVICE = "autoheal"
+AUTOHEAL_IMAGE = "willfarrell/autoheal:1.2.0"
 
 
 def parse_bool(value: Any) -> bool | None:
@@ -128,9 +131,13 @@ def mutable_image_services(services: dict[str, Any]) -> list[str]:
     )
 
 
-def validate(rendered: dict[str, Any]) -> tuple[list[str], list[str], dict[str, str]]:
+def validate(
+    rendered: dict[str, Any],
+    active_profiles: set[str] | None = None,
+) -> tuple[list[str], list[str], dict[str, str]]:
     errors: list[str] = []
     warnings: list[str] = []
+    active_profiles = active_profiles or set()
     services = rendered.get("services")
     if not isinstance(services, dict) or not isinstance(services.get("fortemi"), dict):
         return ["rendered config is missing services.fortemi"], warnings, {}
@@ -205,9 +212,36 @@ def validate(rendered: dict[str, Any]) -> tuple[list[str], list[str], dict[str, 
         warnings.append(
             "#990 mutable image trust remains for services: " + ", ".join(mutable)
         )
-    if sockets:
-        warnings.append(
-            "#937 Docker socket access remains for services: " + ", ".join(sockets)
+
+    autoheal = services.get(AUTOHEAL_SERVICE)
+    autoheal_enabled = AUTOHEAL_PROFILE in active_profiles
+    if sockets and not autoheal_enabled:
+        errors.append(
+            "Docker socket access requires the explicit ops-autoheal profile"
+        )
+    unexpected_sockets = [name for name in sockets if name != AUTOHEAL_SERVICE]
+    if unexpected_sockets:
+        errors.append(
+            "Docker socket access is forbidden outside the autoheal service: "
+            + ", ".join(unexpected_sockets)
+        )
+    if autoheal_enabled:
+        if not isinstance(autoheal, dict):
+            errors.append(
+                "ops-autoheal profile must render the reviewed autoheal service"
+            )
+        else:
+            if AUTOHEAL_SERVICE not in sockets:
+                errors.append(
+                    "ops-autoheal service must render its reviewed Docker socket mount"
+                )
+            if autoheal.get("image") != AUTOHEAL_IMAGE:
+                errors.append(
+                    f"ops-autoheal image must be pinned to {AUTOHEAL_IMAGE}"
+                )
+    elif autoheal is not None:
+        errors.append(
+            "autoheal service must not render without the explicit ops-autoheal profile"
         )
 
     report = {
@@ -224,7 +258,9 @@ def validate(rendered: dict[str, Any]) -> tuple[list[str], list[str], dict[str, 
             else "generated_or_operator_supplied"
         ),
         "image_trust": "digest_locked" if not mutable else "mutable_exception",
-        "docker_socket_profile": "absent" if not sockets else "present",
+        "docker_socket_profile": (
+            AUTOHEAL_PROFILE if autoheal_enabled and sockets else "absent"
+        ),
     }
     return errors, warnings, report
 
@@ -232,6 +268,11 @@ def validate(rendered: dict[str, Any]) -> tuple[list[str], list[str], dict[str, 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("rendered_config", type=Path)
+    parser.add_argument(
+        "--active-profiles",
+        default="",
+        help="comma-separated effective Docker Compose profiles",
+    )
     args = parser.parse_args()
 
     try:
@@ -240,7 +281,12 @@ def main() -> int:
         print(f"ERROR: cannot read rendered Compose JSON: {error}", file=sys.stderr)
         return 2
 
-    errors, warnings, report = validate(rendered)
+    active_profiles = {
+        profile.strip()
+        for profile in args.active_profiles.split(",")
+        if profile.strip()
+    }
+    errors, warnings, report = validate(rendered, active_profiles)
     for warning in warnings:
         print(f"WARNING: {warning}", file=sys.stderr)
     for key, value in report.items():

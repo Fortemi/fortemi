@@ -40,6 +40,13 @@
 #   COMPOSE_PROFILES=gpu-12gb   # in .env (mid-range GPU)
 #   COMPOSE_PROFILES=gpu-24gb   # in .env (high-end GPU)
 #
+# Optional host-control profile (never enabled by default):
+#   COMPOSE_PROFILES=edge,ops-autoheal
+# This grants the third-party autoheal container root-equivalent control of the
+# host through the Docker socket. A read-only socket mount is not a security
+# boundary. Prefer restart policies plus operator monitoring unless this risk is
+# explicitly accepted.
+#
 # For clean install (wipe database):
 #   docker compose -f docker-compose.bundle.yml down -v
 #   docker compose -f docker-compose.bundle.yml up -d
@@ -49,11 +56,14 @@
 # Manual MCP_CLIENT_ID/MCP_CLIENT_SECRET in .env only needed for standalone (non-Docker) deployments.
 
 services:
-  # Autoheal: restarts containers that fail their Docker healthcheck.
-  # Only containers with label autoheal=true are monitored.
-  # Does NOT monitor matric (contains PostgreSQL — needs human investigation).
+  # Trusted, explicit opt-in only: restarts labeled unhealthy containers.
+  # Docker socket access is root-equivalent host control; :ro is not a security
+  # boundary. The default bundle relies on restart policies and operator
+  # monitoring and contains no Docker socket mount.
   autoheal:
-    image: willfarrell/autoheal
+    image: willfarrell/autoheal:1.2.0
+    profiles:
+      - ops-autoheal
     environment:
       - AUTOHEAL_CONTAINER_LABEL=autoheal
       - AUTOHEAL_INTERVAL=30

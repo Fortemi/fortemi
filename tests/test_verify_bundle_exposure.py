@@ -40,16 +40,6 @@ def base_config() -> dict:
                     "POSTGRES_PASSWORD": "a" * 64,
                 },
             },
-            "autoheal": {
-                "image": "willfarrell/autoheal",
-                "volumes": [
-                    {
-                        "type": "bind",
-                        "source": "/var/run/docker.sock",
-                        "target": "/var/run/docker.sock",
-                    }
-                ],
-            },
         }
     }
 
@@ -60,8 +50,9 @@ class BundleExposureTests(unittest.TestCase):
 
         self.assertEqual(errors, [])
         self.assertIn("#990", "\n".join(warnings))
-        self.assertIn("#937", "\n".join(warnings))
+        self.assertNotIn("#937", "\n".join(warnings))
         self.assertEqual(report["api_bind"], "127.0.0.1:3000")
+        self.assertEqual(report["docker_socket_profile"], "absent")
         self.assertEqual(
             report["db_secret_source"],
             "generated_or_operator_supplied",
@@ -192,6 +183,73 @@ class BundleExposureTests(unittest.TestCase):
 
         output = "\n".join((*errors, *warnings, *report.values()))
         self.assertNotIn(secret, output)
+
+    def test_ops_autoheal_profile_accepts_only_reviewed_service(self) -> None:
+        config = base_config()
+        config["services"]["autoheal"] = self.autoheal_service()
+
+        errors, _, report = MODULE.validate(config, {"edge", "ops-autoheal"})
+
+        self.assertEqual(errors, [])
+        self.assertEqual(report["docker_socket_profile"], "ops-autoheal")
+
+    def test_socket_mount_requires_explicit_ops_autoheal_profile(self) -> None:
+        config = base_config()
+        config["services"]["autoheal"] = self.autoheal_service()
+
+        errors, _, _ = MODULE.validate(config)
+
+        self.assertIn(
+            "requires the explicit ops-autoheal profile",
+            "\n".join(errors),
+        )
+
+    def test_ops_autoheal_profile_requires_service_and_pinned_image(self) -> None:
+        missing_errors, _, _ = MODULE.validate(base_config(), {"ops-autoheal"})
+        self.assertIn(
+            "must render the reviewed autoheal service",
+            "\n".join(missing_errors),
+        )
+
+        config = base_config()
+        config["services"]["autoheal"] = self.autoheal_service()
+        config["services"]["autoheal"]["image"] = "willfarrell/autoheal:latest"
+        image_errors, _, _ = MODULE.validate(config, {"ops-autoheal"})
+        self.assertIn("must be pinned", "\n".join(image_errors))
+
+    def test_other_service_can_never_mount_docker_socket(self) -> None:
+        config = base_config()
+        config["services"]["autoheal"] = self.autoheal_service()
+        config["services"]["unexpected"] = {
+            "image": "example.invalid/unexpected:1",
+            "volumes": [
+                {
+                    "type": "bind",
+                    "source": "/run/docker.sock",
+                    "target": "/run/docker.sock",
+                }
+            ],
+        }
+
+        errors, _, _ = MODULE.validate(config, {"ops-autoheal"})
+
+        self.assertIn(
+            "forbidden outside the autoheal service: unexpected",
+            "\n".join(errors),
+        )
+
+    @staticmethod
+    def autoheal_service() -> dict:
+        return {
+            "image": "willfarrell/autoheal:1.2.0",
+            "volumes": [
+                {
+                    "type": "bind",
+                    "source": "/var/run/docker.sock",
+                    "target": "/var/run/docker.sock",
+                }
+            ],
+        }
 
     @staticmethod
     def shared_config() -> dict:

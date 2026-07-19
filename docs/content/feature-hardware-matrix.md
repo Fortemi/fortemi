@@ -33,12 +33,12 @@ Three Docker Compose profiles map to GPU VRAM tiers:
 | **API + MCP** | matric | Optional | Unlimited | 3000, 3001 | Axum HTTP + MCP server |
 | **PostgreSQL 18** | Embedded in matric | No | — | 5432 (internal) | pgvector + PostGIS + pg_trgm |
 | **Redis** | redis | No | 256 MB | — | Query result cache |
-| **Autoheal** | autoheal | No | — | — | Restarts failed containers |
 
 ## Sidecar Services (Optional)
 
 | Service | Container | Profile | GPU | Memory | Port | Disable Via |
 |---------|-----------|---------|-----|--------|------|-------------|
+| **Autoheal** | autoheal | ops-autoheal | No | — | — | Omit `ops-autoheal` (default); enabling grants root-equivalent host control through the Docker socket |
 | **Whisper (CPU)** | whisper | edge | No | 4 GB | 8000 | `WHISPER_BASE_URL=` |
 | **Whisper (GPU)** | whisper-gpu | gpu-12gb, gpu-24gb | Yes (all) | 8 GB | 8000 | `WHISPER_BASE_URL=` |
 | **pyannote (CPU)** | pyannote | edge | No | 4 GB | 8001 | `DIARIZATION_BASE_URL=` |

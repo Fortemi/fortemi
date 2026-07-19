@@ -6,7 +6,8 @@ umask 077
 # Params: INSTALL_DIR, DOMAIN, PROTOCOL, COMPOSE_PROFILES, INFERENCE_PROVIDER,
 #         OLLAMA_GEN_MODEL, OLLAMA_EMBED_MODEL, OPENAI_API_KEY,
 #         OPENROUTER_API_KEY, LLAMACPP_BASE_URL, DATA_DIR,
-#         FORTEMI_INSTALL_MODE, FORTEMI_EXPOSURE_PROFILE
+#         FORTEMI_INSTALL_MODE, FORTEMI_EXPOSURE_PROFILE,
+#         FORTEMI_AUTOHEAL_MODE
 
 INSTALL_DIR="${INSTALL_DIR:?INSTALL_DIR is required}"
 DOMAIN="${DOMAIN:-localhost}"
@@ -17,6 +18,32 @@ OLLAMA_EMBED_MODEL="${OLLAMA_EMBED_MODEL:-nomic-embed-text}"
 DATA_DIR="${DATA_DIR:-${INSTALL_DIR}/data}"
 FORTEMI_INSTALL_MODE="${FORTEMI_INSTALL_MODE:-secure}"
 FORTEMI_EXPOSURE_PROFILE="${FORTEMI_EXPOSURE_PROFILE:-local}"
+FORTEMI_AUTOHEAL_MODE="${FORTEMI_AUTOHEAL_MODE:-disabled}"
+
+case "${FORTEMI_AUTOHEAL_MODE}" in
+    disabled)
+        case ",${COMPOSE_PROFILES}," in
+            *,ops-autoheal,*)
+                echo "ERROR: COMPOSE_PROFILES includes ops-autoheal but" >&2
+                echo "       FORTEMI_AUTOHEAL_MODE is not ops-autoheal." >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    ops-autoheal)
+        case ",${COMPOSE_PROFILES}," in
+            *,ops-autoheal,*)
+                ;;
+            *)
+                COMPOSE_PROFILES="${COMPOSE_PROFILES},ops-autoheal"
+                ;;
+        esac
+        ;;
+    *)
+        echo "ERROR: FORTEMI_AUTOHEAL_MODE must be 'disabled' or 'ops-autoheal'." >&2
+        exit 1
+        ;;
+esac
 
 case "${FORTEMI_INSTALL_MODE}" in
     secure)
@@ -104,7 +131,7 @@ cat > "${ENV_FILE}" <<EOF
 # Domain and protocol (${PROTOCOL}://${DOMAIN})
 ISSUER_URL=${PROTOCOL}://${DOMAIN}
 
-# Hardware profile: edge | gpu-12gb | gpu-24gb
+# Profiles: one hardware profile, optionally plus explicit ops-autoheal
 COMPOSE_PROFILES=${COMPOSE_PROFILES}
 
 # Install mode: secure | local-no-auth
@@ -112,6 +139,9 @@ FORTEMI_INSTALL_MODE=${FORTEMI_INSTALL_MODE}
 
 # Exposure profile: local | shared
 FORTEMI_EXPOSURE_PROFILE=${FORTEMI_EXPOSURE_PROFILE}
+
+# Autoheal installer choice: disabled | ops-autoheal
+FORTEMI_AUTOHEAL_MODE=${FORTEMI_AUTOHEAL_MODE}
 
 # Inference provider: ollama | openai | openrouter | llamacpp
 MATRIC_INFERENCE_DEFAULT=${INFERENCE_PROVIDER}
@@ -202,6 +232,14 @@ fi
 if [ "${FORTEMI_EXPOSURE_PROFILE}" = "shared" ]; then
     echo "  WARNING: non-loopback exposure selected; deploy preflight will require"
     echo "           public HTTPS metadata/origins and a non-default DB secret."
+fi
+if [ "${FORTEMI_AUTOHEAL_MODE}" = "ops-autoheal" ]; then
+    echo "  Autoheal: enabled by explicit operator choice"
+    echo "  WARNING: ops-autoheal grants a third-party container root-equivalent"
+    echo "           host control through the Docker socket; :ro is not a"
+    echo "           security boundary."
+else
+    echo "  Autoheal: disabled; no Docker socket mount"
 fi
 if [ "${INFERENCE_PROVIDER}" = "ollama" ]; then
     echo "  Model:    ${OLLAMA_GEN_MODEL}"

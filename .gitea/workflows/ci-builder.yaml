@@ -175,7 +175,13 @@ jobs:
 
       - name: Check Docker bundle exposure policy
         run: |
+          for profiles in edge gpu-12gb gpu-24gb; do
+            POSTGRES_PASSWORD=ci-render-fixture-not-a-runtime-secret \
+              COMPOSE_PROFILES="${profiles}" \
+              bash scripts/validate-bundle-exposure.sh /dev/null
+          done
           POSTGRES_PASSWORD=ci-render-fixture-not-a-runtime-secret \
+            COMPOSE_PROFILES=edge,ops-autoheal \
             bash scripts/validate-bundle-exposure.sh /dev/null
           python3 -m unittest tests/test_verify_bundle_exposure.py
 

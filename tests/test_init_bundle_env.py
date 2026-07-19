@@ -196,6 +196,93 @@ class InitBundleEnvTests(unittest.TestCase):
             self.assertIn("symlinked backup", result.stderr)
             self.assertEqual(target.read_text(encoding="utf-8"), "preserve\n")
 
+    def test_installer_disables_autoheal_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            install_dir = Path(directory)
+            scripts_dir = install_dir / "scripts"
+            scripts_dir.mkdir()
+            bootstrap = scripts_dir / "init-bundle-env.sh"
+            bootstrap.write_bytes(SCRIPT.read_bytes())
+            bootstrap.chmod(0o755)
+            env = os.environ.copy()
+            env.update(
+                {
+                    "INSTALL_DIR": str(install_dir),
+                    "DATA_DIR": str(install_dir / "data"),
+                }
+            )
+            env.pop("FORTEMI_AUTOHEAL_MODE", None)
+
+            result = subprocess.run(
+                ["bash", str(CONFIGURE)],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            content = (install_dir / ".env").read_text(encoding="utf-8")
+            self.assertIn("COMPOSE_PROFILES=edge\n", content)
+            self.assertIn("FORTEMI_AUTOHEAL_MODE=disabled\n", content)
+            self.assertNotIn("COMPOSE_PROFILES=edge,ops-autoheal", content)
+            self.assertIn("no Docker socket mount", result.stdout)
+
+    def test_installer_requires_explicit_autoheal_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            install_dir = Path(directory)
+            scripts_dir = install_dir / "scripts"
+            scripts_dir.mkdir()
+            bootstrap = scripts_dir / "init-bundle-env.sh"
+            bootstrap.write_bytes(SCRIPT.read_bytes())
+            bootstrap.chmod(0o755)
+            env = os.environ.copy()
+            env.update(
+                {
+                    "INSTALL_DIR": str(install_dir),
+                    "DATA_DIR": str(install_dir / "data"),
+                    "FORTEMI_AUTOHEAL_MODE": "ops-autoheal",
+                }
+            )
+
+            result = subprocess.run(
+                ["bash", str(CONFIGURE)],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            content = (install_dir / ".env").read_text(encoding="utf-8")
+            self.assertIn("COMPOSE_PROFILES=edge,ops-autoheal\n", content)
+            self.assertIn("FORTEMI_AUTOHEAL_MODE=ops-autoheal\n", content)
+            self.assertIn("root-equivalent", result.stdout)
+            self.assertIn(":ro is not a", result.stdout)
+
+    def test_installer_rejects_conflicting_autoheal_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            env = os.environ.copy()
+            env.update(
+                {
+                    "INSTALL_DIR": directory,
+                    "COMPOSE_PROFILES": "edge,ops-autoheal",
+                    "FORTEMI_AUTOHEAL_MODE": "disabled",
+                }
+            )
+
+            result = subprocess.run(
+                ["bash", str(CONFIGURE)],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("is not ops-autoheal", result.stderr)
+            self.assertFalse((Path(directory) / ".env").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

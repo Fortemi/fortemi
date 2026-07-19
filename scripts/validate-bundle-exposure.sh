@@ -19,6 +19,18 @@ rendered=$(mktemp)
 render_error=$(mktemp)
 trap 'rm -f "$rendered" "$render_error"' EXIT
 
+if ! active_profiles=$(
+  docker compose \
+    --env-file "$env_file" \
+    -f "$compose_file" \
+    config --environment 2>"$render_error" |
+    sed -n 's/^COMPOSE_PROFILES=//p'
+); then
+  echo "ERROR: Docker bundle environment did not render successfully" >&2
+  cat "$render_error" >&2
+  exit 2
+fi
+
 if ! docker compose \
   --env-file "$env_file" \
   -f "$compose_file" \
@@ -28,4 +40,6 @@ if ! docker compose \
   exit 2
 fi
 
-python3 "$root/scripts/ci/verify-bundle-exposure.py" "$rendered"
+python3 "$root/scripts/ci/verify-bundle-exposure.py" \
+  --active-profiles "$active_profiles" \
+  "$rendered"

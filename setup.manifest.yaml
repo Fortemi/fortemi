@@ -47,6 +47,15 @@ params:
       Hardware profile — edge (6-8GB VRAM), gpu-12gb (12-16GB), or gpu-24gb (24GB+).
       GPU profiles only apply to local inference (Ollama/llama.cpp).
 
+  - name: FORTEMI_AUTOHEAL_MODE
+    type: choice
+    choices: [disabled, ops-autoheal]
+    default: disabled
+    description: >-
+      Optional container auto-restart mode. disabled keeps the Docker socket out
+      of the bundle. ops-autoheal explicitly grants a pinned third-party
+      container root-equivalent host control through the Docker socket.
+
   - name: FORTEMI_INSTALL_MODE
     type: choice
     choices: [secure, local-no-auth]

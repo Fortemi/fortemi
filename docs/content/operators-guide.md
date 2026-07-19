@@ -161,6 +161,36 @@ authentication, public HTTPS issuer/resource/origin values, a generated or
 operator-supplied database secret, reverse-proxy TLS, and host-firewall
 restrictions.
 
+### Container Restart Policy and Optional Autoheal
+
+The default bundle does not mount the host Docker socket. Every monitored
+application service already uses `restart: unless-stopped`; combine those
+restart policies with operator health monitoring and manual or platform-managed
+restart procedures for the socket-free path.
+
+Autoheal is available only through the explicit `ops-autoheal` profile:
+
+```bash
+# Keep the selected hardware profile and add the host-control profile.
+COMPOSE_PROFILES=edge,ops-autoheal
+scripts/validate-bundle-exposure.sh
+docker compose -f docker-compose.bundle.yml up -d
+```
+
+The profile runs the pinned third-party `willfarrell/autoheal:1.2.0` image and
+mounts the host Docker socket read-only. Docker API access through that socket
+is still root-equivalent host control; `:ro` is not a security boundary. The
+image can inspect and restart labeled containers, and compromise of that image
+can compromise the operator host. Treat enabling it as an explicit trust
+acceptance, not application-level health hardening.
+
+The guided installer defaults `FORTEMI_AUTOHEAL_MODE=disabled`. Set it to
+`ops-autoheal` only after accepting the warning printed during configuration.
+The rendered-config preflight rejects socket access without that exact profile
+and rejects socket mounts on any other service. Release verification must
+classify the autoheal image as a consumed third-party dependency under #990;
+Fortemi image provenance does not attest to this upstream image.
+
 Container variables (docker-compose.bundle.yml):
 
 | Variable | Default | Description |

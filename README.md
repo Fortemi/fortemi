@@ -258,6 +258,21 @@ If `inference.available` is `false`, you likely missed the `OLLAMA_HOST=0.0.0.0`
 replaces only empty or known reusable defaults. The bundle refuses to start
 without a generated or operator-supplied value.
 
+The default bundle contains no Docker socket mount. Services use
+`restart: unless-stopped`; operators monitor health and restart unhealthy
+containers through their normal operations tooling. Optional autoheal is an
+explicit host-control decision:
+
+```bash
+COMPOSE_PROFILES=edge,ops-autoheal
+```
+
+`ops-autoheal` runs the pinned third-party `willfarrell/autoheal:1.2.0` image
+with the host Docker socket. That access is root-equivalent host control; the
+read-only mount flag is not a security boundary. Enable it only after accepting
+that trust boundary. The installer exposes the same choice as
+`FORTEMI_AUTOHEAL_MODE=ops-autoheal` and defaults to `disabled`.
+
 **Ports:** 3000 (API + Swagger UI at `/docs`), 3001 (MCP), 8080 (Open3D renderer). API and MCP publish to `127.0.0.1` by default. If host port 3001 is taken, set `MCP_HOST_PORT=3002` in `.env`; `API_HOST_PORT` does the same for the API. Run `scripts/validate-bundle-exposure.sh` before starting the bundle.
 
 The bundle automatically initializes PostgreSQL, runs all migrations, auto-registers MCP OAuth credentials, starts Redis, and launches all services. The Fortémi documentation knowledge base (the "support archive") is **not loaded by default** — see [Support Archive](#support-archive-fortemi-docs) below to add it with one command.
@@ -838,7 +853,8 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `COMPOSE_PROFILES` | `edge` | Hardware profile: `edge`, `gpu-12gb`, `gpu-24gb` |
+| `COMPOSE_PROFILES` | `edge` | Hardware profile: `edge`, `gpu-12gb`, `gpu-24gb`; optional `ops-autoheal` is a separate explicit host-control profile. |
+| `FORTEMI_AUTOHEAL_MODE` | `disabled` | Installer choice. `ops-autoheal` opts a pinned third-party container into root-equivalent Docker socket access. |
 | `FORTEMI_EXPOSURE_PROFILE` | `local` | `local` permits loopback publishing only; `shared` enables validated non-loopback publishing. |
 | `API_HOST_BIND` | `127.0.0.1` | Host IP for the published API port. |
 | `MCP_HOST_BIND` | `127.0.0.1` | Host IP for the published MCP port. |
