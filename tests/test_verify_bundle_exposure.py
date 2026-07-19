@@ -37,7 +37,7 @@ def base_config() -> dict:
                     "ISSUER_URL": "https://localhost:3000",
                     "MCP_BASE_URL": "https://localhost:3000/mcp",
                     "ALLOWED_ORIGINS": "",
-                    "POSTGRES_PASSWORD": "fortemi-local-dev",
+                    "POSTGRES_PASSWORD": "a" * 64,
                 },
             },
             "autoheal": {
@@ -62,7 +62,29 @@ class BundleExposureTests(unittest.TestCase):
         self.assertIn("#990", "\n".join(warnings))
         self.assertIn("#937", "\n".join(warnings))
         self.assertEqual(report["api_bind"], "127.0.0.1:3000")
-        self.assertEqual(report["db_secret_source"], "local_dev_default")
+        self.assertEqual(
+            report["db_secret_source"],
+            "generated_or_operator_supplied",
+        )
+
+    def test_local_profile_rejects_missing_or_reusable_password(self) -> None:
+        for password in ("", "matric", "fortemi-local-dev", "changeme"):
+            with self.subTest(password=password):
+                config = base_config()
+                config["services"]["fortemi"]["environment"][
+                    "POSTGRES_PASSWORD"
+                ] = password
+
+                errors, _, report = MODULE.validate(config)
+
+                self.assertIn(
+                    "generated or operator-supplied POSTGRES_PASSWORD",
+                    "\n".join(errors),
+                )
+                self.assertEqual(
+                    report["db_secret_source"],
+                    "missing_or_insecure",
+                )
 
     def test_local_profile_rejects_implicit_all_interface_binding(self) -> None:
         config = base_config()
@@ -120,7 +142,10 @@ class BundleExposureTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(report["auth_mode"], "required")
         self.assertEqual(report["issuer_mode"], "public_https")
-        self.assertEqual(report["db_secret_source"], "operator_supplied")
+        self.assertEqual(
+            report["db_secret_source"],
+            "generated_or_operator_supplied",
+        )
 
     def test_shared_profile_rejects_each_missing_security_control(self) -> None:
         cases = {
@@ -131,7 +156,7 @@ class BundleExposureTests(unittest.TestCase):
             "password": (
                 "POSTGRES_PASSWORD",
                 " MATRIC ",
-                "non-default POSTGRES_PASSWORD",
+                "generated or operator-supplied POSTGRES_PASSWORD",
             ),
         }
         for name, (key, value, expected) in cases.items():
@@ -181,7 +206,7 @@ class BundleExposureTests(unittest.TestCase):
                 "ISSUER_URL": "https://memory.example.com",
                 "MCP_BASE_URL": "https://memory.example.com/mcp",
                 "ALLOWED_ORIGINS": "https://memory.example.com",
-                "POSTGRES_PASSWORD": "operator-supplied-value",
+                "POSTGRES_PASSWORD": "operator-supplied-value-for-bundle",
             }
         )
         return config

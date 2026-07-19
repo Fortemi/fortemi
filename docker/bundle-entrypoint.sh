@@ -18,13 +18,37 @@ echo "Version: ${MATRIC_VERSION:-unknown}"
 # PostgreSQL data directory
 PGDATA="${PGDATA:-/var/lib/postgresql/data}"
 POSTGRES_USER="${POSTGRES_USER:-matric}"
-POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-fortemi-local-dev}"
 POSTGRES_DB="${POSTGRES_DB:-matric}"
-export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
+export POSTGRES_USER POSTGRES_DB
 BACKUP_DEST="${BACKUP_DEST:-/var/backups/matric-memory}"
 BACKUP_SCRIPT_PATH="${BACKUP_SCRIPT_PATH:-/app/scripts/backup.sh}"
 PRE_MIGRATION_BACKUP_RETAIN="${PRE_MIGRATION_BACKUP_RETAIN:-7}"
 PRE_MIGRATION_BACKUP_ACK_NO_BACKUP="${PRE_MIGRATION_BACKUP_ACK_NO_BACKUP:-false}"
+
+require_postgres_password() {
+    local normalized
+    if [ -z "${POSTGRES_PASSWORD:-}" ]; then
+        echo "ERROR: POSTGRES_PASSWORD is required for every Docker bundle profile." >&2
+        echo "Run scripts/init-bundle-env.sh before starting the bundle." >&2
+        exit 1
+    fi
+    if [[ "$POSTGRES_PASSWORD" == *$'\n'* || "$POSTGRES_PASSWORD" == *$'\r'* ]]; then
+        echo "ERROR: POSTGRES_PASSWORD must be a single-line value." >&2
+        exit 1
+    fi
+    normalized="${POSTGRES_PASSWORD,,}"
+    case "$normalized" in
+        matric|fortemi-local-dev|password|changeme|\
+        "<postgres_password>"|"<operator_supplied_database_password>")
+            echo "ERROR: POSTGRES_PASSWORD uses a known reusable or placeholder value." >&2
+            echo "Run scripts/init-bundle-env.sh to generate a per-install secret." >&2
+            exit 1
+            ;;
+    esac
+    export POSTGRES_PASSWORD
+}
+
+require_postgres_password
 
 if [ -z "${DATABASE_URL:-}" ]; then
     DATABASE_URL="$(printf '%s%s:%s@localhost:5432/%s' 'postgres://' "$POSTGRES_USER" "$POSTGRES_PASSWORD" "$POSTGRES_DB")"

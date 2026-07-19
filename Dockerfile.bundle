@@ -3,7 +3,9 @@
 #
 # Usage:
 #   docker build -f Dockerfile.bundle -t fortemi:bundle .
-#   docker run -d -p 3000:3000 -p 3001:3001 -v fortemi-data:/var/lib/postgresql/data fortemi:bundle
+#   scripts/init-bundle-env.sh
+#   docker run -d --env-file .env -p 3000:3000 -p 3001:3001 \
+#     -v fortemi-data:/var/lib/postgresql/data fortemi:bundle
 #
 # Build stage for Rust API
 FROM rust:slim-bookworm AS builder
@@ -158,7 +160,6 @@ ENV MATRIC_BUILD_DATE=${BUILD_DATE}
 # PostgreSQL environment
 # =============================================================================
 ENV POSTGRES_USER=matric
-ENV POSTGRES_PASSWORD=fortemi-local-dev
 ENV POSTGRES_DB=matric
 ENV PGDATA=/var/lib/postgresql/data
 

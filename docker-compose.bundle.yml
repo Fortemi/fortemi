@@ -1,6 +1,8 @@
 # docker-compose.bundle.yml - All-in-one Fortemi deployment
 #
 # Usage (end-user / default - pulls from GHCR):
+#   scripts/init-bundle-env.sh
+#   scripts/validate-bundle-exposure.sh
 #   docker compose -f docker-compose.bundle.yml up -d
 #
 # Usage (internal development - pulls from Gitea registry):
@@ -281,7 +283,9 @@ services:
     environment:
       # ── PostgreSQL ──────────────────────────────────────────────────────
       - POSTGRES_USER=matric
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-fortemi-local-dev}
+      # Required for every supported bundle profile. Generate an ignored,
+      # mode-0600 .env value with scripts/init-bundle-env.sh. (#992)
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
       - POSTGRES_DB=matric
 
       # ── API Server ─────────────────────────────────────────────────────

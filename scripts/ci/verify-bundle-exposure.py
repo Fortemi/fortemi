@@ -14,7 +14,15 @@ from urllib.parse import urlsplit
 
 LOOPBACK_PROFILE = "local"
 SHARED_PROFILE = "shared"
-KNOWN_LOCAL_PASSWORDS = {"", "matric", "fortemi-local-dev"}
+KNOWN_INSECURE_PASSWORDS = {
+    "",
+    "matric",
+    "fortemi-local-dev",
+    "password",
+    "changeme",
+    "<postgres_password>",
+    "<operator_supplied_database_password>",
+}
 PRIVATE_DNS_SUFFIXES = (".localhost", ".local", ".internal", ".lan")
 
 
@@ -25,6 +33,17 @@ def parse_bool(value: Any) -> bool | None:
     if normalized in {"false", "0"}:
         return False
     return None
+
+
+def is_insecure_password(value: Any) -> bool:
+    normalized = str(value).strip()
+    if (
+        len(normalized) >= 2
+        and normalized[0] == normalized[-1]
+        and normalized[0] in {"'", '"'}
+    ):
+        normalized = normalized[1:-1]
+    return normalized.strip().casefold() in KNOWN_INSECURE_PASSWORDS
 
 
 def is_loopback_bind(value: str | None) -> bool:
@@ -159,7 +178,12 @@ def validate(rendered: dict[str, Any]) -> tuple[list[str], list[str], dict[str, 
         if origin.strip()
     ]
     password = str(environment.get("POSTGRES_PASSWORD", ""))
-    uses_local_password = password.strip().casefold() in KNOWN_LOCAL_PASSWORDS
+    uses_insecure_password = is_insecure_password(password)
+    if uses_insecure_password:
+        errors.append(
+            "bundle profiles require a generated or operator-supplied "
+            "POSTGRES_PASSWORD"
+        )
 
     if profile == SHARED_PROFILE:
         if auth is not True:
@@ -173,11 +197,6 @@ def validate(rendered: dict[str, Any]) -> tuple[list[str], list[str], dict[str, 
         ):
             errors.append(
                 "shared exposure requires explicit public HTTPS ALLOWED_ORIGINS"
-            )
-        if uses_local_password:
-            errors.append(
-                "shared exposure requires an operator-supplied non-default "
-                "POSTGRES_PASSWORD"
             )
 
     mutable = mutable_image_services(services)
@@ -200,7 +219,9 @@ def validate(rendered: dict[str, Any]) -> tuple[list[str], list[str], dict[str, 
         if is_public_https_url(issuer, path_policy="issuer")
         else "local_or_invalid",
         "db_secret_source": (
-            "local_dev_default" if uses_local_password else "operator_supplied"
+            "missing_or_insecure"
+            if uses_insecure_password
+            else "generated_or_operator_supplied"
         ),
         "image_trust": "digest_locked" if not mutable else "mutable_exception",
         "docker_socket_profile": "absent" if not sockets else "present",

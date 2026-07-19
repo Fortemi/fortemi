@@ -173,8 +173,17 @@ jobs:
 
       - name: Check Docker bundle exposure policy
         run: |
-          bash scripts/validate-bundle-exposure.sh /dev/null
+          POSTGRES_PASSWORD=ci-render-fixture-not-a-runtime-secret \
+            bash scripts/validate-bundle-exposure.sh /dev/null
           python3 -m unittest tests/test_verify_bundle_exposure.py
+
+      - name: Check Docker bundle database secret contract
+        run: |
+          python3 scripts/ci/verify-bundle-db-secrets.py
+          python3 -m unittest \
+            tests/test_bundle_entrypoint_password.py \
+            tests/test_init_bundle_env.py \
+            tests/test_verify_bundle_db_secrets.py
 
       - name: Check tracked source-backup artifacts
         run: |

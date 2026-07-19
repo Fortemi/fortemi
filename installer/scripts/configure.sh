@@ -47,7 +47,6 @@ case "${FORTEMI_EXPOSURE_PROFILE}" in
             echo "ERROR: shared exposure requires FORTEMI_INSTALL_MODE=secure."
             exit 1
         fi
-        : "${POSTGRES_PASSWORD:?shared exposure requires POSTGRES_PASSWORD}"
         : "${ALLOWED_ORIGINS:?shared exposure requires ALLOWED_ORIGINS}"
         : "${MCP_BASE_URL:?shared exposure requires MCP_BASE_URL}"
         API_HOST_BIND_VALUE="${API_HOST_BIND:-0.0.0.0}"
@@ -71,10 +70,23 @@ if [ -z "${PROTOCOL:-}" ]; then
 fi
 
 ENV_FILE="${INSTALL_DIR}/.env"
+PRESERVED_POSTGRES_PASSWORD_ASSIGNMENT=""
 
 if [ -f "${ENV_FILE}" ]; then
+    if [ -L "${ENV_FILE}.bak" ]; then
+        echo "ERROR: refusing to overwrite symlinked backup: ${ENV_FILE}.bak" >&2
+        exit 1
+    fi
+    POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}" \
+        "${INSTALL_DIR}/scripts/init-bundle-env.sh" "${ENV_FILE}"
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [[ "$line" == POSTGRES_PASSWORD=* ]]; then
+            PRESERVED_POSTGRES_PASSWORD_ASSIGNMENT="$line"
+        fi
+    done < "${ENV_FILE}"
     echo "Existing .env found — backing up to .env.bak"
     cp "${ENV_FILE}" "${ENV_FILE}.bak"
+    chmod 600 "${ENV_FILE}.bak"
 fi
 
 # Create data directories
@@ -122,11 +134,17 @@ API_HOST_PORT=${API_HOST_PORT_VALUE}
 MCP_HOST_PORT=${MCP_HOST_PORT_VALUE}
 EOF
 
+if [ -n "${PRESERVED_POSTGRES_PASSWORD_ASSIGNMENT}" ]; then
+    printf '%s\n' "${PRESERVED_POSTGRES_PASSWORD_ASSIGNMENT}" >> "${ENV_FILE}"
+else
+    POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}" \
+        "${INSTALL_DIR}/scripts/init-bundle-env.sh" "${ENV_FILE}"
+fi
+
 if [ "${FORTEMI_EXPOSURE_PROFILE}" = "shared" ]; then
     cat >> "${ENV_FILE}" <<EOF
 ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
 MCP_BASE_URL=${MCP_BASE_URL}
-POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 EOF
 fi
 
