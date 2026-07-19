@@ -3527,6 +3527,46 @@ pub enum JobStatus {
     Cancelled,
 }
 
+impl JobStatus {
+    /// Every queue status understood by this binary.
+    pub const ALL: [Self; 5] = [
+        Self::Pending,
+        Self::Running,
+        Self::Completed,
+        Self::Failed,
+        Self::Cancelled,
+    ];
+
+    /// Stable database and external-envelope representation.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+impl std::str::FromStr for JobStatus {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "running" => Ok(Self::Running),
+            "completed" => Ok(Self::Completed),
+            "failed" => Ok(Self::Failed),
+            "cancelled" => Ok(Self::Cancelled),
+            _ => Err(format!(
+                "Invalid job status; value_len={}",
+                debug_len(value)
+            )),
+        }
+    }
+}
+
 /// AI revision mode controlling enhancement aggressiveness.
 ///
 /// Modes are ordered by how much transformation they apply:
@@ -3663,6 +3703,90 @@ pub enum JobType {
 }
 
 impl JobType {
+    /// Every job type understood and executable by this binary.
+    pub const ALL: [Self; 37] = [
+        Self::AiRevision,
+        Self::AiRevisionContextual,
+        Self::Embedding,
+        Self::Linking,
+        Self::ContextUpdate,
+        Self::TitleGeneration,
+        Self::CreateEmbeddingSet,
+        Self::RefreshEmbeddingSet,
+        Self::BuildSetIndex,
+        Self::PurgeNote,
+        Self::ConceptTagging,
+        Self::ReEmbedAll,
+        Self::EntityExtraction,
+        Self::GenerateFineTuningData,
+        Self::EmbedForSet,
+        Self::GenerateGraphEmbedding,
+        Self::GenerateCoarseEmbedding,
+        Self::ExifExtraction,
+        Self::AttachmentVirusScan,
+        Self::Extraction,
+        Self::DocumentTypeInference,
+        Self::MetadataExtraction,
+        Self::RelatedConceptInference,
+        Self::ReferenceExtraction,
+        Self::GraphMaintenance,
+        Self::SpeakerDiarization,
+        Self::SpeakerRelabel,
+        Self::MediaOptimize,
+        Self::ThumbnailSprite,
+        Self::KeyframeVision,
+        Self::KeyframeCharacterVision,
+        Self::KeyframeSettingVision,
+        Self::KeyframeAssembly,
+        Self::ViewVision,
+        Self::ViewAssembly,
+        Self::AudioTranscription,
+        Self::AudioChunkTranscription,
+    ];
+
+    /// Stable database and external-envelope representation.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AiRevision => "ai_revision",
+            Self::AiRevisionContextual => "ai_revision_contextual",
+            Self::Embedding => "embedding",
+            Self::Linking => "linking",
+            Self::ContextUpdate => "context_update",
+            Self::TitleGeneration => "title_generation",
+            Self::CreateEmbeddingSet => "create_embedding_set",
+            Self::RefreshEmbeddingSet => "refresh_embedding_set",
+            Self::BuildSetIndex => "build_set_index",
+            Self::PurgeNote => "purge_note",
+            Self::ConceptTagging => "concept_tagging",
+            Self::ReEmbedAll => "re_embed_all",
+            Self::EntityExtraction => "entity_extraction",
+            Self::GenerateFineTuningData => "generate_fine_tuning_data",
+            Self::EmbedForSet => "embed_for_set",
+            Self::GenerateGraphEmbedding => "generate_graph_embedding",
+            Self::GenerateCoarseEmbedding => "generate_coarse_embedding",
+            Self::ExifExtraction => "exif_extraction",
+            Self::AttachmentVirusScan => "attachment_virus_scan",
+            Self::Extraction => "extraction",
+            Self::DocumentTypeInference => "document_type_inference",
+            Self::MetadataExtraction => "metadata_extraction",
+            Self::RelatedConceptInference => "related_concept_inference",
+            Self::ReferenceExtraction => "reference_extraction",
+            Self::GraphMaintenance => "graph_maintenance",
+            Self::SpeakerDiarization => "speaker_diarization",
+            Self::SpeakerRelabel => "speaker_relabel",
+            Self::MediaOptimize => "media_optimize",
+            Self::ThumbnailSprite => "thumbnail_sprite",
+            Self::KeyframeVision => "keyframe_vision",
+            Self::KeyframeCharacterVision => "keyframe_character_vision",
+            Self::KeyframeSettingVision => "keyframe_setting_vision",
+            Self::KeyframeAssembly => "keyframe_assembly",
+            Self::ViewVision => "view_vision",
+            Self::ViewAssembly => "view_assembly",
+            Self::AudioTranscription => "audio_transcription",
+            Self::AudioChunkTranscription => "audio_chunk_transcription",
+        }
+    }
+
     /// Default priority for this job type (higher = more urgent)
     pub fn default_priority(&self) -> i32 {
         match self {
@@ -3761,6 +3885,17 @@ impl JobType {
             // Everything else is tier-agnostic
             _ => None,
         }
+    }
+}
+
+impl std::str::FromStr for JobType {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|job_type| job_type.as_str() == value)
+            .ok_or_else(|| format!("Invalid job type; value_len={}", debug_len(value)))
     }
 }
 
@@ -3905,6 +4040,8 @@ pub struct QueueStats {
     pub processing: i64,
     pub completed_last_hour: i64,
     pub failed_last_hour: i64,
+    /// Rows whose type or status is not understood by this binary.
+    pub incompatible: i64,
     pub total: i64,
 }
 

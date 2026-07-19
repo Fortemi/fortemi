@@ -400,14 +400,14 @@ pub trait JobRepository: Send + Sync {
         payload: Option<JsonValue>,
     ) -> Result<Option<Uuid>>;
 
-    /// Claim the next pending job for processing.
+    /// Claim the next pending job whose type is supported by this binary.
     async fn claim_next(&self) -> Result<Option<Job>>;
 
     /// Claim the next pending job whose type is in `job_types`.
-    /// An empty slice means "claim any type" (same as `claim_next`).
+    /// An empty slice means "claim any supported type" (same as `claim_next`).
     async fn claim_next_for_types(&self, job_types: &[JobType]) -> Result<Option<Job>>;
 
-    /// Claim the next pending job for a specific cost tier group.
+    /// Claim the next supported pending job for a specific cost tier group.
     ///
     /// Tier groups:
     /// - `CpuAndAgnostic`: cost_tier IS NULL OR cost_tier = 0

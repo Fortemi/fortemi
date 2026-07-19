@@ -278,10 +278,19 @@ Returns overall queue health:
   "total": 42,
   "pending": 5,
   "processing": 3,
-  "completed": 30,
-  "failed": 4
+  "completed_last_hour": 30,
+  "failed_last_hour": 4,
+  "incompatible": 0
 }
 ```
+
+`pending` and `processing` count only job types understood by the running
+binary. A non-zero `incompatible` count means persisted rows use a job type or
+status that this binary cannot decode, usually because the database and binary
+versions are out of sync. Fortemi leaves those rows unclaimed and emits a
+structured `job.incompatible_row` error when an operator reads one. Upgrade or
+roll back the binary/migrations as a unit; do not rewrite the row to another
+executable type or status.
 
 ### Pending Jobs for a Note
 
@@ -512,6 +521,9 @@ Possible causes:
 2. **Worker paused:** Check `GET /api/v1/jobs/pause` for global or per-archive pause state
 3. **Model unavailable:** Tier-1/tier-2 jobs need Ollama models loaded. Check `GET /health` for model availability
 4. **Concurrency limit:** Default `JOB_MAX_CONCURRENT=4`. Increase for faster throughput.
+5. **Incompatible row:** Check `/api/v1/jobs/stats`. A non-zero `incompatible`
+   count identifies schema/binary drift that workers intentionally refuse to
+   claim.
 
 ### Jobs Failing Repeatedly
 

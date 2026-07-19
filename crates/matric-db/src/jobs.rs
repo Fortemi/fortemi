@@ -50,10 +50,7 @@ impl PgJobRepository {
         excluded_schemas: &[String],
     ) -> Result<Option<Job>> {
         let now = Utc::now();
-        let type_strings: Vec<String> = job_types
-            .iter()
-            .map(|jt| Self::job_type_to_str(*jt).to_string())
-            .collect();
+        let type_strings = Self::claim_type_strings(job_types);
 
         let tier_clause = match tier_group {
             TierGroup::CpuAndAgnostic => "(cost_tier IS NULL OR cost_tier = 0)",
@@ -71,7 +68,7 @@ impl PgJobRepository {
                  SELECT id FROM job_queue
                  WHERE status = 'pending'::job_status
                    AND {tier_clause}
-                   AND (cardinality($2::text[]) = 0 OR job_type::text = ANY($2))
+                   AND job_type::text = ANY($2)
                    AND (payload->>'schema' IS NULL
                         OR payload->>'schema' NOT IN (SELECT unnest($3::text[])))
                  ORDER BY priority DESC, created_at ASC
@@ -91,127 +88,101 @@ impl PgJobRepository {
             .await
             .map_err(Error::Database)?;
 
-        Ok(row.map(Self::parse_job_row))
+        row.map(Self::parse_job_row).transpose()
     }
 
     /// Convert JobType to string for database.
     fn job_type_to_str(job_type: JobType) -> &'static str {
-        match job_type {
-            JobType::AiRevision => "ai_revision",
-            JobType::AiRevisionContextual => "ai_revision_contextual",
-            JobType::Embedding => "embedding",
-            JobType::Linking => "linking",
-            JobType::ContextUpdate => "context_update",
-            JobType::TitleGeneration => "title_generation",
-            JobType::CreateEmbeddingSet => "create_embedding_set",
-            JobType::RefreshEmbeddingSet => "refresh_embedding_set",
-            JobType::BuildSetIndex => "build_set_index",
-            JobType::PurgeNote => "purge_note",
-            JobType::ConceptTagging => "concept_tagging",
-            JobType::ReEmbedAll => "re_embed_all",
-            JobType::EntityExtraction => "entity_extraction",
-            JobType::GenerateFineTuningData => "generate_fine_tuning_data",
-            JobType::EmbedForSet => "embed_for_set",
-            JobType::GenerateGraphEmbedding => "generate_graph_embedding",
-            JobType::GenerateCoarseEmbedding => "generate_coarse_embedding",
-            JobType::ExifExtraction => "exif_extraction",
-            JobType::AttachmentVirusScan => "attachment_virus_scan",
-            JobType::Extraction => "extraction",
-            JobType::DocumentTypeInference => "document_type_inference",
-            JobType::MetadataExtraction => "metadata_extraction",
-            JobType::RelatedConceptInference => "related_concept_inference",
-            JobType::ReferenceExtraction => "reference_extraction",
-            JobType::GraphMaintenance => "graph_maintenance",
-            JobType::SpeakerDiarization => "speaker_diarization",
-            JobType::SpeakerRelabel => "speaker_relabel",
-            JobType::MediaOptimize => "media_optimize",
-            JobType::ThumbnailSprite => "thumbnail_sprite",
-            JobType::KeyframeVision => "keyframe_vision",
-            JobType::KeyframeCharacterVision => "keyframe_character_vision",
-            JobType::KeyframeSettingVision => "keyframe_setting_vision",
-            JobType::KeyframeAssembly => "keyframe_assembly",
-            JobType::ViewVision => "view_vision",
-            JobType::ViewAssembly => "view_assembly",
-            JobType::AudioTranscription => "audio_transcription",
-            JobType::AudioChunkTranscription => "audio_chunk_transcription",
-        }
+        job_type.as_str()
     }
 
     /// Convert string from database to JobType.
-    fn str_to_job_type(s: &str) -> JobType {
-        match s {
-            "ai_revision" => JobType::AiRevision,
-            "ai_revision_contextual" => JobType::AiRevisionContextual,
-            "embedding" => JobType::Embedding,
-            "linking" => JobType::Linking,
-            "context_update" => JobType::ContextUpdate,
-            "title_generation" => JobType::TitleGeneration,
-            "create_embedding_set" => JobType::CreateEmbeddingSet,
-            "refresh_embedding_set" => JobType::RefreshEmbeddingSet,
-            "build_set_index" => JobType::BuildSetIndex,
-            "purge_note" => JobType::PurgeNote,
-            "concept_tagging" => JobType::ConceptTagging,
-            "re_embed_all" => JobType::ReEmbedAll,
-            "entity_extraction" => JobType::EntityExtraction,
-            "generate_fine_tuning_data" => JobType::GenerateFineTuningData,
-            "embed_for_set" => JobType::EmbedForSet,
-            "generate_graph_embedding" => JobType::GenerateGraphEmbedding,
-            "generate_coarse_embedding" => JobType::GenerateCoarseEmbedding,
-            "exif_extraction" => JobType::ExifExtraction,
-            "attachment_virus_scan" => JobType::AttachmentVirusScan,
-            "extraction" => JobType::Extraction,
-            "document_type_inference" => JobType::DocumentTypeInference,
-            "metadata_extraction" => JobType::MetadataExtraction,
-            "related_concept_inference" => JobType::RelatedConceptInference,
-            "reference_extraction" => JobType::ReferenceExtraction,
-            "graph_maintenance" => JobType::GraphMaintenance,
-            "speaker_diarization" => JobType::SpeakerDiarization,
-            "speaker_relabel" => JobType::SpeakerRelabel,
-            "media_optimize" => JobType::MediaOptimize,
-            "thumbnail_sprite" => JobType::ThumbnailSprite,
-            "keyframe_vision" => JobType::KeyframeVision,
-            "keyframe_character_vision" => JobType::KeyframeCharacterVision,
-            "keyframe_setting_vision" => JobType::KeyframeSettingVision,
-            "keyframe_assembly" => JobType::KeyframeAssembly,
-            "view_vision" => JobType::ViewVision,
-            "view_assembly" => JobType::ViewAssembly,
-            "audio_transcription" => JobType::AudioTranscription,
-            "audio_chunk_transcription" => JobType::AudioChunkTranscription,
-            _ => JobType::ContextUpdate, // fallback
-        }
+    fn str_to_job_type(value: &str) -> std::result::Result<JobType, String> {
+        value.parse()
     }
 
     /// Convert JobStatus to string for database.
     #[allow(dead_code)]
     fn job_status_to_str(status: JobStatus) -> &'static str {
-        match status {
-            JobStatus::Pending => "pending",
-            JobStatus::Running => "running",
-            JobStatus::Completed => "completed",
-            JobStatus::Failed => "failed",
-            JobStatus::Cancelled => "cancelled",
-        }
+        status.as_str()
     }
 
     /// Convert string from database to JobStatus.
-    fn str_to_job_status(s: &str) -> JobStatus {
-        match s {
-            "pending" => JobStatus::Pending,
-            "running" => JobStatus::Running,
-            "completed" => JobStatus::Completed,
-            "failed" => JobStatus::Failed,
-            "cancelled" => JobStatus::Cancelled,
-            _ => JobStatus::Pending, // fallback
+    fn str_to_job_status(value: &str) -> std::result::Result<JobStatus, String> {
+        value.parse()
+    }
+
+    fn supported_job_type_strings() -> Vec<String> {
+        JobType::ALL
+            .into_iter()
+            .map(|job_type| job_type.as_str().to_string())
+            .collect()
+    }
+
+    fn supported_job_status_strings() -> Vec<String> {
+        JobStatus::ALL
+            .into_iter()
+            .map(|status| status.as_str().to_string())
+            .collect()
+    }
+
+    fn claim_type_strings(job_types: &[JobType]) -> Vec<String> {
+        if job_types.is_empty() {
+            Self::supported_job_type_strings()
+        } else {
+            job_types
+                .iter()
+                .map(|job_type| job_type.as_str().to_string())
+                .collect()
+        }
+    }
+
+    fn enum_diagnostic_value(value: &str) -> String {
+        const MAX_ENUM_VALUE_CHARS: usize = 64;
+        if value.chars().count() <= MAX_ENUM_VALUE_CHARS
+            && value.chars().all(|character| {
+                character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'
+            })
+        {
+            value.to_string()
+        } else {
+            "<redacted>".to_string()
+        }
+    }
+
+    fn incompatible_job_row(job_id: Uuid, field: &'static str, value: &str) -> Error {
+        let value_len = value.chars().count();
+        tracing::error!(
+            target: "fortemi.jobs",
+            event = "job.incompatible_row",
+            %job_id,
+            field,
+            value = %Self::enum_diagnostic_value(value),
+            value_len,
+            "persisted job row rejected"
+        );
+        Error::IncompatibleJobRow {
+            job_id,
+            field,
+            value_len,
         }
     }
 
     /// Parse a job row into a Job struct.
-    fn parse_job_row(row: sqlx::postgres::PgRow) -> Job {
-        Job {
-            id: row.get("id"),
+    fn parse_job_row(row: sqlx::postgres::PgRow) -> Result<Job> {
+        let id: Uuid = row.get("id");
+        let job_type_value: String = row.get("job_type");
+        let status_value: String = row.get("status");
+        let job_type = Self::str_to_job_type(&job_type_value)
+            .map_err(|_| Self::incompatible_job_row(id, "job_type", &job_type_value))?;
+        let status = Self::str_to_job_status(&status_value)
+            .map_err(|_| Self::incompatible_job_row(id, "status", &status_value))?;
+
+        Ok(Job {
+            id,
             note_id: row.get("note_id"),
-            job_type: Self::str_to_job_type(row.get("job_type")),
-            status: Self::str_to_job_status(row.get("status")),
+            job_type,
+            status,
             priority: row.get("priority"),
             payload: row.get("payload"),
             result: row.get("result"),
@@ -224,7 +195,7 @@ impl PgJobRepository {
             started_at: row.get("started_at"),
             completed_at: row.get("completed_at"),
             cost_tier: row.get("cost_tier"),
-        }
+        })
     }
 }
 
@@ -445,21 +416,19 @@ impl JobRepository for PgJobRepository {
 
     async fn claim_next_for_types(&self, job_types: &[JobType]) -> Result<Option<Job>> {
         let now = Utc::now();
-        let type_strings: Vec<String> = job_types
-            .iter()
-            .map(|jt| Self::job_type_to_str(*jt).to_string())
-            .collect();
+        let type_strings = Self::claim_type_strings(job_types);
 
         // Use FOR UPDATE SKIP LOCKED for concurrent processing.
         // Filter by job type BEFORE locking (proven 20x faster than lock-then-filter
-        // per graphile-worker benchmarks). Empty array = claim any type.
+        // per graphile-worker benchmarks). An empty caller filter expands to
+        // every type supported by this binary, never arbitrary database enum values.
         let row = sqlx::query(
             "UPDATE job_queue
              SET status = 'running'::job_status, started_at = $1
              WHERE id = (
                  SELECT id FROM job_queue
                  WHERE status = 'pending'::job_status
-                   AND (cardinality($2::text[]) = 0 OR job_type::text = ANY($2))
+                   AND job_type::text = ANY($2)
                  ORDER BY priority DESC, created_at ASC
                  LIMIT 1
                  FOR UPDATE SKIP LOCKED
@@ -474,7 +443,7 @@ impl JobRepository for PgJobRepository {
         .await
         .map_err(Error::Database)?;
 
-        Ok(row.map(Self::parse_job_row))
+        row.map(Self::parse_job_row).transpose()
     }
 
     async fn claim_next_for_tier(
@@ -483,10 +452,7 @@ impl JobRepository for PgJobRepository {
         job_types: &[JobType],
     ) -> Result<Option<Job>> {
         let now = Utc::now();
-        let type_strings: Vec<String> = job_types
-            .iter()
-            .map(|jt| Self::job_type_to_str(*jt).to_string())
-            .collect();
+        let type_strings = Self::claim_type_strings(job_types);
 
         // Build tier filter clause based on group.
         let tier_clause = match tier_group {
@@ -505,7 +471,7 @@ impl JobRepository for PgJobRepository {
                  SELECT id FROM job_queue
                  WHERE status = 'pending'::job_status
                    AND {tier_clause}
-                   AND (cardinality($2::text[]) = 0 OR job_type::text = ANY($2))
+                   AND job_type::text = ANY($2)
                  ORDER BY priority DESC, created_at ASC
                  LIMIT 1
                  FOR UPDATE SKIP LOCKED
@@ -522,14 +488,19 @@ impl JobRepository for PgJobRepository {
             .await
             .map_err(Error::Database)?;
 
-        Ok(row.map(Self::parse_job_row))
+        row.map(Self::parse_job_row).transpose()
     }
 
     async fn pending_count_for_tier(&self, tier: i16) -> Result<i64> {
+        let supported_types = Self::supported_job_type_strings();
         let count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM job_queue WHERE status = 'pending'::job_status AND cost_tier = $1",
+            "SELECT COUNT(*) FROM job_queue
+             WHERE status = 'pending'::job_status
+               AND cost_tier = $1
+               AND job_type::text = ANY($2)",
         )
         .bind(tier)
+        .bind(&supported_types)
         .fetch_one(&self.pool)
         .await
         .map_err(Error::Database)?;
@@ -683,7 +654,7 @@ impl JobRepository for PgJobRepository {
         .await
         .map_err(Error::Database)?;
 
-        Ok(row.map(Self::parse_job_row))
+        row.map(Self::parse_job_row).transpose()
     }
 
     async fn get_for_note(&self, note_id: Uuid) -> Result<Vec<Job>> {
@@ -699,13 +670,17 @@ impl JobRepository for PgJobRepository {
         .await
         .map_err(Error::Database)?;
 
-        Ok(rows.into_iter().map(Self::parse_job_row).collect())
+        rows.into_iter().map(Self::parse_job_row).collect()
     }
 
     async fn pending_count(&self) -> Result<i64> {
+        let supported_types = Self::supported_job_type_strings();
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM job_queue WHERE status = 'pending'::job_status",
+            "SELECT COUNT(*) FROM job_queue
+             WHERE status = 'pending'::job_status
+               AND job_type::text = ANY($1)",
         )
+        .bind(&supported_types)
         .fetch_one(&self.pool)
         .await
         .map_err(Error::Database)?;
@@ -738,7 +713,7 @@ impl JobRepository for PgJobRepository {
         .await
         .map_err(Error::Database)?;
 
-        Ok(rows.into_iter().map(Self::parse_job_row).collect())
+        rows.into_iter().map(Self::parse_job_row).collect()
     }
 
     async fn list_filtered(
@@ -797,19 +772,41 @@ impl JobRepository for PgJobRepository {
         q = q.bind(limit).bind(offset);
 
         let rows = q.fetch_all(&self.pool).await.map_err(Error::Database)?;
-        Ok(rows.into_iter().map(Self::parse_job_row).collect())
+        rows.into_iter().map(Self::parse_job_row).collect()
     }
 
     async fn queue_stats(&self) -> Result<QueueStats> {
+        let supported_types = Self::supported_job_type_strings();
+        let supported_statuses = Self::supported_job_status_strings();
         let row = sqlx::query(
             "SELECT
-                COUNT(*) FILTER (WHERE status = 'pending') as pending,
-                COUNT(*) FILTER (WHERE status = 'running') as processing,
-                COUNT(*) FILTER (WHERE status = 'completed' AND completed_at > NOW() - INTERVAL '1 hour') as completed_last_hour,
-                COUNT(*) FILTER (WHERE status = 'failed' AND completed_at > NOW() - INTERVAL '1 hour') as failed_last_hour,
+                COUNT(*) FILTER (
+                    WHERE status = 'pending'
+                      AND job_type::text = ANY($1)
+                ) as pending,
+                COUNT(*) FILTER (
+                    WHERE status = 'running'
+                      AND job_type::text = ANY($1)
+                ) as processing,
+                COUNT(*) FILTER (
+                    WHERE status = 'completed'
+                      AND job_type::text = ANY($1)
+                      AND completed_at > NOW() - INTERVAL '1 hour'
+                ) as completed_last_hour,
+                COUNT(*) FILTER (
+                    WHERE status = 'failed'
+                      AND job_type::text = ANY($1)
+                      AND completed_at > NOW() - INTERVAL '1 hour'
+                ) as failed_last_hour,
+                COUNT(*) FILTER (
+                    WHERE NOT (job_type::text = ANY($1))
+                       OR NOT (status::text = ANY($2))
+                ) as incompatible,
                 COUNT(*) as total
-             FROM job_queue"
+             FROM job_queue",
         )
+        .bind(&supported_types)
+        .bind(&supported_statuses)
         .fetch_one(&self.pool)
         .await
         .map_err(Error::Database)?;
@@ -820,6 +817,7 @@ impl JobRepository for PgJobRepository {
             processing: row.get::<i64, _>("processing"),
             completed_last_hour: row.get::<i64, _>("completed_last_hour"),
             failed_last_hour: row.get::<i64, _>("failed_last_hour"),
+            incompatible: row.get::<i64, _>("incompatible"),
             total: row.get::<i64, _>("total"),
         })
     }
@@ -894,318 +892,66 @@ impl JobRepository for PgJobRepository {
 mod tests {
     use super::*;
 
-    // Test JobType to string conversion
     #[test]
-    fn test_job_type_to_str_all_variants() {
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::AiRevision),
-            "ai_revision"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::Embedding),
-            "embedding"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::Linking),
-            "linking"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::ContextUpdate),
-            "context_update"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::TitleGeneration),
-            "title_generation"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::CreateEmbeddingSet),
-            "create_embedding_set"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::RefreshEmbeddingSet),
-            "refresh_embedding_set"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::BuildSetIndex),
-            "build_set_index"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::PurgeNote),
-            "purge_note"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::ConceptTagging),
-            "concept_tagging"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::ReEmbedAll),
-            "re_embed_all"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::ExifExtraction),
-            "exif_extraction"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::Extraction),
-            "extraction"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::DocumentTypeInference),
-            "document_type_inference"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::MetadataExtraction),
-            "metadata_extraction"
-        );
-        assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::ReferenceExtraction),
-            "reference_extraction"
-        );
-    }
-
-    // Test string to JobType conversion
-    #[test]
-    fn test_str_to_job_type_all_variants() {
-        assert_eq!(
-            PgJobRepository::str_to_job_type("ai_revision"),
-            JobType::AiRevision
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("embedding"),
-            JobType::Embedding
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("linking"),
-            JobType::Linking
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("context_update"),
-            JobType::ContextUpdate
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("title_generation"),
-            JobType::TitleGeneration
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("create_embedding_set"),
-            JobType::CreateEmbeddingSet
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("refresh_embedding_set"),
-            JobType::RefreshEmbeddingSet
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("build_set_index"),
-            JobType::BuildSetIndex
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("purge_note"),
-            JobType::PurgeNote
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("concept_tagging"),
-            JobType::ConceptTagging
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("re_embed_all"),
-            JobType::ReEmbedAll
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("exif_extraction"),
-            JobType::ExifExtraction
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("extraction"),
-            JobType::Extraction
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("document_type_inference"),
-            JobType::DocumentTypeInference
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("metadata_extraction"),
-            JobType::MetadataExtraction
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("reference_extraction"),
-            JobType::ReferenceExtraction
-        );
-    }
-
-    #[test]
-    fn test_str_to_job_type_unknown_fallback() {
-        // Unknown strings should fall back to ContextUpdate
-        assert_eq!(
-            PgJobRepository::str_to_job_type("unknown_type"),
-            JobType::ContextUpdate
-        );
-        assert_eq!(PgJobRepository::str_to_job_type(""), JobType::ContextUpdate);
-        assert_eq!(
-            PgJobRepository::str_to_job_type("invalid"),
-            JobType::ContextUpdate
-        );
-    }
-
-    #[test]
-    fn test_str_to_job_type_case_sensitive() {
-        // Test that conversion is case-sensitive
-        assert_eq!(
-            PgJobRepository::str_to_job_type("AI_REVISION"),
-            JobType::ContextUpdate
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("Embedding"),
-            JobType::ContextUpdate
-        );
-    }
-
-    // Test JobStatus to string conversion
-    #[test]
-    fn test_job_status_to_str_all_variants() {
-        assert_eq!(
-            PgJobRepository::job_status_to_str(JobStatus::Pending),
-            "pending"
-        );
-        assert_eq!(
-            PgJobRepository::job_status_to_str(JobStatus::Running),
-            "running"
-        );
-        assert_eq!(
-            PgJobRepository::job_status_to_str(JobStatus::Completed),
-            "completed"
-        );
-        assert_eq!(
-            PgJobRepository::job_status_to_str(JobStatus::Failed),
-            "failed"
-        );
-        assert_eq!(
-            PgJobRepository::job_status_to_str(JobStatus::Cancelled),
-            "cancelled"
-        );
-    }
-
-    // Test string to JobStatus conversion
-    #[test]
-    fn test_str_to_job_status_all_variants() {
-        assert_eq!(
-            PgJobRepository::str_to_job_status("pending"),
-            JobStatus::Pending
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_status("running"),
-            JobStatus::Running
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_status("completed"),
-            JobStatus::Completed
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_status("failed"),
-            JobStatus::Failed
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_status("cancelled"),
-            JobStatus::Cancelled
-        );
-    }
-
-    #[test]
-    fn test_str_to_job_status_unknown_fallback() {
-        // Unknown strings should fall back to Pending
-        assert_eq!(
-            PgJobRepository::str_to_job_status("unknown_status"),
-            JobStatus::Pending
-        );
-        assert_eq!(PgJobRepository::str_to_job_status(""), JobStatus::Pending);
-        assert_eq!(
-            PgJobRepository::str_to_job_status("invalid"),
-            JobStatus::Pending
-        );
-    }
-
-    #[test]
-    fn test_str_to_job_status_case_sensitive() {
-        // Test that conversion is case-sensitive
-        assert_eq!(
-            PgJobRepository::str_to_job_status("PENDING"),
-            JobStatus::Pending
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_status("Running"),
-            JobStatus::Pending
-        );
-    }
-
-    // Test round-trip conversion for JobType
-    #[test]
-    fn test_job_type_round_trip() {
-        let types = vec![
-            JobType::AiRevision,
-            JobType::Embedding,
-            JobType::Linking,
-            JobType::ContextUpdate,
-            JobType::TitleGeneration,
-            JobType::CreateEmbeddingSet,
-            JobType::RefreshEmbeddingSet,
-            JobType::BuildSetIndex,
-            JobType::PurgeNote,
-            JobType::ConceptTagging,
-            JobType::ReEmbedAll,
-            JobType::ExifExtraction,
-            JobType::Extraction,
-            JobType::DocumentTypeInference,
-            JobType::ReferenceExtraction,
-        ];
-
-        for job_type in types {
-            let str_repr = PgJobRepository::job_type_to_str(job_type);
-            let recovered = PgJobRepository::str_to_job_type(str_repr);
-            assert_eq!(job_type, recovered);
+    fn job_type_round_trip_covers_every_supported_variant() {
+        for job_type in JobType::ALL {
+            let encoded = PgJobRepository::job_type_to_str(job_type);
+            assert_eq!(
+                PgJobRepository::str_to_job_type(encoded),
+                Ok(job_type),
+                "failed to round-trip {encoded}"
+            );
         }
     }
 
-    // Test round-trip conversion for JobStatus
     #[test]
-    fn test_job_status_round_trip() {
-        let statuses = vec![
-            JobStatus::Pending,
-            JobStatus::Running,
-            JobStatus::Completed,
-            JobStatus::Failed,
-            JobStatus::Cancelled,
-        ];
-
-        for status in statuses {
-            let str_repr = PgJobRepository::job_status_to_str(status);
-            let recovered = PgJobRepository::str_to_job_status(str_repr);
-            assert_eq!(status, recovered);
+    fn unknown_empty_and_future_job_types_are_rejected() {
+        for value in [
+            "",
+            "unknown_type",
+            "future_worker_job",
+            "attachment_processing",
+        ] {
+            let error = PgJobRepository::str_to_job_type(value)
+                .expect_err("unknown job type must fail closed");
+            assert!(error.contains(&format!("value_len={}", value.chars().count())));
+            assert!(!error.contains(value) || value.is_empty());
         }
     }
 
-    // Test that all JobType strings are unique
     #[test]
-    fn test_job_type_strings_are_unique() {
-        let types = vec![
-            JobType::AiRevision,
-            JobType::Embedding,
-            JobType::Linking,
-            JobType::ContextUpdate,
-            JobType::TitleGeneration,
-            JobType::CreateEmbeddingSet,
-            JobType::RefreshEmbeddingSet,
-            JobType::BuildSetIndex,
-            JobType::PurgeNote,
-            JobType::ConceptTagging,
-            JobType::ReEmbedAll,
-            JobType::ExifExtraction,
-            JobType::Extraction,
-            JobType::DocumentTypeInference,
-            JobType::ReferenceExtraction,
-        ];
+    fn case_mismatched_job_types_are_rejected() {
+        assert!(PgJobRepository::str_to_job_type("AI_REVISION").is_err());
+        assert!(PgJobRepository::str_to_job_type("Embedding").is_err());
+    }
 
-        let strings: Vec<&str> = types
+    #[test]
+    fn job_status_round_trip_covers_every_supported_variant() {
+        for status in JobStatus::ALL {
+            let encoded = PgJobRepository::job_status_to_str(status);
+            assert_eq!(
+                PgJobRepository::str_to_job_status(encoded),
+                Ok(status),
+                "failed to round-trip {encoded}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_empty_future_and_case_mismatched_statuses_are_rejected() {
+        for value in ["", "unknown_status", "delayed", "PENDING", "Running"] {
+            let error = PgJobRepository::str_to_job_status(value)
+                .expect_err("unknown job status must fail closed");
+            assert!(error.contains(&format!("value_len={}", value.chars().count())));
+            assert!(!error.contains(value) || value.is_empty());
+        }
+    }
+
+    #[test]
+    fn supported_job_type_strings_are_unique_and_complete() {
+        let strings: Vec<&str> = JobType::ALL
             .iter()
-            .map(|t| PgJobRepository::job_type_to_str(*t))
+            .map(|job_type| PgJobRepository::job_type_to_str(*job_type))
             .collect();
         let mut unique_strings = strings.clone();
         unique_strings.sort();
@@ -1216,22 +962,17 @@ mod tests {
             unique_strings.len(),
             "JobType strings must be unique"
         );
+        assert_eq!(
+            PgJobRepository::supported_job_type_strings().len(),
+            JobType::ALL.len()
+        );
     }
 
-    // Test that all JobStatus strings are unique
     #[test]
-    fn test_job_status_strings_are_unique() {
-        let statuses = [
-            JobStatus::Pending,
-            JobStatus::Running,
-            JobStatus::Completed,
-            JobStatus::Failed,
-            JobStatus::Cancelled,
-        ];
-
-        let strings: Vec<&str> = statuses
+    fn supported_job_status_strings_are_unique_and_complete() {
+        let strings: Vec<&str> = JobStatus::ALL
             .iter()
-            .map(|s| PgJobRepository::job_status_to_str(*s))
+            .map(|status| PgJobRepository::job_status_to_str(*status))
             .collect();
         let mut unique_strings = strings.clone();
         unique_strings.sort();
@@ -1241,6 +982,26 @@ mod tests {
             strings.len(),
             unique_strings.len(),
             "JobStatus strings must be unique"
+        );
+        assert_eq!(
+            PgJobRepository::supported_job_status_strings().len(),
+            JobStatus::ALL.len()
+        );
+    }
+
+    #[test]
+    fn enum_diagnostic_value_is_bounded_and_identifier_only() {
+        assert_eq!(
+            PgJobRepository::enum_diagnostic_value("future_job_type"),
+            "future_job_type"
+        );
+        assert_eq!(
+            PgJobRepository::enum_diagnostic_value("Bearer secret"),
+            "<redacted>"
+        );
+        assert_eq!(
+            PgJobRepository::enum_diagnostic_value(&"a".repeat(65)),
+            "<redacted>"
         );
     }
 }

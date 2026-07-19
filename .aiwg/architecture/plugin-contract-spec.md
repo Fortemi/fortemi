@@ -5,6 +5,7 @@
 **Audience:** Enterprise Edition (EE) plugin authors and Community Edition (CE) core maintainers
 **Related ADRs:** ADR-088 (plugin strategy), ADR-089 (authorization), ADR-091 (audit), ADR-092 (metering), ADR-093 (key provider), ADR-099 (DSAR), ADR-100 (MCP gate)
 **Related docs:** `.aiwg/architecture/ce-ee-audit-2026-05.md`, `.aiwg/security/multi-tenant-threat-model.md`
+**Related issues:** `Fortemi/fortemi#723` (external job-backend contract), `Fortemi/fortemi#931` (strict persisted job parsing)
 
 ---
 
@@ -104,9 +105,11 @@ Every plugin MUST guarantee:
 
 5. **Idempotency keys honored.** When the core passes a `job_id` or `idempotency_key`, the plugin treats repeat invocations as no-ops on the second-and-subsequent call. This is mandatory for `JobRepository`, `ExtractionAdapter`, `AuditSink`.
 
-6. **No secret material logged.** Plugin logs must not contain raw API keys, OAuth tokens, JWTs, private keys, or PII beyond what the core's redaction policy permits (`AuthContext::redact()`). The core's `tracing` subscriber redacts known token formats by regex as a backstop, but this is defense in depth, not a substitute.
+6. **Job envelopes fail closed.** Every `JobRepository`, `JobNotifier`, and external job-delivery adapter MUST parse job type, job status, and envelope version as closed vocabularies before claim or dispatch. An unknown value is incompatible data: it MUST remain unclaimed and unmodified, and MUST produce bounded redacted diagnostics plus quarantine/DLQ or equivalent reconciliation evidence. It MUST NOT default to a known executable type, a claimable status, or a supported envelope version. PostgreSQL and external-backend conformance fixtures MUST assert this same rule.
 
-7. **Cleanup on shutdown.** The `shutdown(&self)` hook (see §9) drains in-flight work, flushes buffers, and releases external connections within the configured grace window.
+7. **No secret material logged.** Plugin logs must not contain raw API keys, OAuth tokens, JWTs, private keys, or PII beyond what the core's redaction policy permits (`AuthContext::redact()`). The core's `tracing` subscriber redacts known token formats by regex as a backstop, but this is defense in depth, not a substitute.
+
+8. **Cleanup on shutdown.** The `shutdown(&self)` hook (see §9) drains in-flight work, flushes buffers, and releases external connections within the configured grace window.
 
 ## 6. Semver Discipline
 

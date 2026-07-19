@@ -32,6 +32,16 @@ pub enum Error {
     /// Job queue error
     Job(String),
 
+    /// A persisted job row uses a type or status this binary cannot decode.
+    IncompatibleJobRow {
+        /// Persisted job identifier.
+        job_id: uuid::Uuid,
+        /// Rejected enum field (`job_type` or `status`).
+        field: &'static str,
+        /// Character count of the rejected value.
+        value_len: usize,
+    },
+
     /// Serialization/deserialization error
     Serialization(String),
 
@@ -74,6 +84,16 @@ impl fmt::Debug for Error {
             Self::Inference(value) => redacted_error_debug(f, "Inference", value),
             Self::Search(value) => redacted_error_debug(f, "Search", value),
             Self::Job(value) => redacted_error_debug(f, "Job", value),
+            Self::IncompatibleJobRow {
+                job_id,
+                field,
+                value_len,
+            } => f
+                .debug_struct("IncompatibleJobRow")
+                .field("job_id_present", &(!job_id.is_nil()))
+                .field("field", field)
+                .field("value_len", value_len)
+                .finish(),
             Self::Serialization(value) => redacted_error_debug(f, "Serialization", value),
             Self::Config(value) => redacted_error_debug(f, "Config", value),
             Self::InvalidInput(value) => redacted_error_debug(f, "InvalidInput", value),
@@ -97,6 +117,15 @@ impl fmt::Display for Error {
             Self::Inference(value) => write_redacted_error(f, "Inference error", value),
             Self::Search(value) => write_redacted_error(f, "Search error", value),
             Self::Job(value) => write_redacted_error(f, "Job error", value),
+            Self::IncompatibleJobRow {
+                job_id,
+                field,
+                value_len,
+            } => write!(
+                f,
+                "Incompatible job row: job_id_present={} field={field} value_len={value_len}",
+                !job_id.is_nil()
+            ),
             Self::Serialization(value) => write_redacted_error(f, "Serialization error", value),
             Self::Config(value) => write_redacted_error(f, "Configuration error", value),
             Self::InvalidInput(value) => write_redacted_error(f, "Invalid input", value),
@@ -250,6 +279,27 @@ mod tests {
             err.to_string(),
             "Job error: message_class=text message_len=10"
         );
+    }
+
+    #[test]
+    fn incompatible_job_row_error_exposes_only_bounded_diagnostics() {
+        let job_id = Uuid::new_v4();
+        let err = Error::IncompatibleJobRow {
+            job_id,
+            field: "job_type",
+            value_len: 23,
+        };
+
+        let display = err.to_string();
+        let debug = format!("{err:?}");
+        assert_eq!(
+            display,
+            "Incompatible job row: job_id_present=true field=job_type value_len=23"
+        );
+        assert!(debug.contains("IncompatibleJobRow"));
+        assert!(debug.contains("job_id_present: true"));
+        assert!(!display.contains(&job_id.to_string()));
+        assert!(!debug.contains(&job_id.to_string()));
     }
 
     #[test]

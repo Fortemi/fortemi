@@ -19791,7 +19791,8 @@ async fn list_jobs(
         "pending": stats.pending,
         "processing": stats.processing,
         "completed_last_hour": stats.completed_last_hour,
-        "failed_last_hour": stats.failed_last_hour
+        "failed_last_hour": stats.failed_last_hour,
+        "incompatible": stats.incompatible
     })))
 }
 

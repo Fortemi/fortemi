@@ -105,6 +105,7 @@ fn storage_error_class(error: &Error) -> &'static str {
         Error::Inference(_) => "inference",
         Error::Search(_) => "search",
         Error::Job(_) => "job",
+        Error::IncompatibleJobRow { .. } => "incompatible_job_row",
         Error::Serialization(_) => "serialization",
         Error::Config(_) => "config",
         Error::InvalidInput(_) => "invalid_input",
