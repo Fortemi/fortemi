@@ -875,11 +875,13 @@ curl -X DELETE https://memory.example.com/api/v1/notes/{note_id}/attachments/tus
 ### Finalization
 
 When the final chunk completes the upload (offset equals Upload-Length), Fortemi automatically:
-1. Validates file safety (magic bytes, extension blocklist)
-2. Detects the actual content type
-3. Stores via the standard attachment pipeline (BLAKE3 dedup, blob reference counting)
-4. Queues background extraction jobs (content extraction, EXIF, media optimization)
-5. Deletes the staging file
+1. Verifies the declared and on-disk sizes against `MATRIC_MAX_UPLOAD_SIZE_BYTES`
+2. Reads the staging file through a bounded finalization reader
+3. Validates file safety (magic bytes, extension blocklist)
+4. Detects the actual content type
+5. Stores via the standard attachment pipeline (BLAKE3 dedup, blob reference counting)
+6. Queues background extraction jobs (content extraction, EXIF, media optimization)
+7. Deletes the staging file
 
 The `200 OK` response body contains the completed `Attachment` JSON, identical to what `POST /attachments` returns.
 

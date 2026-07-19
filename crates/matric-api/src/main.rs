@@ -562,6 +562,10 @@ fn upload_length_exceeds_max_size() -> ApiError {
     ApiError::BadRequest("Upload-Length exceeds the maximum upload size.".to_string())
 }
 
+fn attachment_exceeds_max_size() -> ApiError {
+    ApiError::BadRequest("Attachment exceeds the maximum upload size.".to_string())
+}
+
 fn incoming_webhook_schema_validation_failed() -> ApiError {
     ApiError::BadRequest(
         "Incoming webhook payload failed schema validation. Check the webhook schema contract."
@@ -3563,6 +3567,8 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(matric_core::defaults::MAX_BODY_SIZE_BYTES);
 
     let max_upload_size = state.max_upload_size;
+    let attachment_json_body_limit = attachment_json_request_limit(max_upload_size);
+    let attachment_multipart_body_limit = attachment_multipart_request_limit(max_upload_size);
     let shard_max_compressed_bytes = max_upload_size.min(SHARD_MAX_COMPRESSED_BYTES);
     let shard_max_base64_bytes = shard_base64_size_limit(shard_max_compressed_bytes);
 
@@ -3847,11 +3853,14 @@ async fn main() -> anyhow::Result<()> {
         // File Attachments
         .route(
             "/api/v1/notes/{id}/attachments",
-            get(list_attachments).post(upload_attachment),
+            get(list_attachments)
+                .post(upload_attachment)
+                .layer(DefaultBodyLimit::max(attachment_json_body_limit)),
         )
         .route(
             "/api/v1/notes/{id}/attachments/upload",
-            post(upload_attachment_multipart).layer(DefaultBodyLimit::max(max_upload_size)),
+            post(upload_attachment_multipart)
+                .layer(DefaultBodyLimit::max(attachment_multipart_body_limit)),
         )
         // Tus resumable upload endpoints (Issue #528)
         // PATCH chunks need body limit raised above axum's 2 MB default (client sends 5 MB chunks).
@@ -7114,6 +7123,44 @@ fn twilio_recording_provider_failure(
     }
 }
 
+async fn read_twilio_recording_body_bounded(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>, ApiError> {
+    let max_bytes_u64 = u64::try_from(max_bytes).unwrap_or(u64::MAX);
+    if response
+        .content_length()
+        .is_some_and(|content_length| content_length > max_bytes_u64)
+    {
+        return Err(twilio_recording_provider_failure(
+            "reject oversized recording",
+            "declared content length exceeds upload limit",
+        ));
+    }
+
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|err| twilio_recording_provider_failure("read recording body", err))?
+    {
+        let next_len = body.len().checked_add(chunk.len()).ok_or_else(|| {
+            twilio_recording_provider_failure(
+                "reject oversized recording",
+                "recording size overflow",
+            )
+        })?;
+        if next_len > max_bytes {
+            return Err(twilio_recording_provider_failure(
+                "reject oversized recording",
+                "streamed recording exceeds upload limit",
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 fn twilio_recording_reference_metadata(recording_url: &str) -> serde_json::Value {
     serde_json::json!({
         "recording_url_class": telemetry_url_class(recording_url),
@@ -7189,10 +7236,7 @@ async fn queue_twilio_recording_transcription(
         .unwrap_or("audio/wav")
         .trim()
         .to_string();
-    let audio_bytes = response
-        .bytes()
-        .await
-        .map_err(|err| twilio_recording_provider_failure("read recording body", err))?;
+    let audio_bytes = read_twilio_recording_body_bounded(response, state.max_upload_size).await?;
     if audio_bytes.is_empty() {
         return Err(ApiError::BadRequest(
             "recording download was empty".to_string(),
@@ -28459,6 +28503,85 @@ struct UploadAttachmentBody {
     vision_mode: Option<String>,
 }
 
+const ATTACHMENT_REQUEST_OVERHEAD_BYTES: usize = 64 * 1024;
+
+fn attachment_base64_size_limit(max_decoded_bytes: usize) -> usize {
+    max_decoded_bytes
+        .checked_add(2)
+        .and_then(|rounded| rounded.checked_div(3))
+        .and_then(|groups| groups.checked_mul(4))
+        .unwrap_or(usize::MAX)
+}
+
+fn attachment_json_request_limit(max_upload_bytes: usize) -> usize {
+    attachment_base64_size_limit(max_upload_bytes).saturating_add(ATTACHMENT_REQUEST_OVERHEAD_BYTES)
+}
+
+fn attachment_multipart_request_limit(max_upload_bytes: usize) -> usize {
+    max_upload_bytes.saturating_add(ATTACHMENT_REQUEST_OVERHEAD_BYTES)
+}
+
+fn decoded_base64_size(encoded: &str) -> Option<usize> {
+    if !encoded.len().is_multiple_of(4) {
+        return None;
+    }
+    let padding = encoded
+        .as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'=')
+        .count();
+    if padding > 2 {
+        return None;
+    }
+    encoded
+        .len()
+        .checked_div(4)?
+        .checked_mul(3)?
+        .checked_sub(padding)
+}
+
+fn decode_attachment_data_bounded(
+    encoded: &str,
+    max_decoded_bytes: usize,
+) -> Result<Vec<u8>, ApiError> {
+    let decoded_size = decoded_base64_size(encoded)
+        .ok_or_else(|| invalid_base64_payload("Invalid base64-encoded attachment data."))?;
+    if decoded_size > max_decoded_bytes {
+        return Err(attachment_exceeds_max_size());
+    }
+
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| invalid_base64_payload("Invalid base64-encoded attachment data."))?;
+    if data.len() > max_decoded_bytes {
+        return Err(attachment_exceeds_max_size());
+    }
+    Ok(data)
+}
+
+async fn read_multipart_attachment_bounded(
+    mut field: axum::extract::multipart::Field<'_>,
+    max_bytes: usize,
+) -> Result<Vec<u8>, ApiError> {
+    let mut uploaded = Vec::new();
+    while let Some(chunk) = field
+        .chunk()
+        .await
+        .map_err(|_| ApiError::BadRequest("Invalid uploaded file data.".to_string()))?
+    {
+        let next_len = uploaded
+            .len()
+            .checked_add(chunk.len())
+            .ok_or_else(attachment_exceeds_max_size)?;
+        if next_len > max_bytes {
+            return Err(attachment_exceeds_max_size());
+        }
+        uploaded.extend_from_slice(&chunk);
+    }
+    Ok(uploaded)
+}
+
 impl fmt::Debug for UploadAttachmentBody {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UploadAttachmentBody")
@@ -28609,10 +28732,7 @@ async fn upload_attachment(
         .as_ref()
         .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
 
-    // Decode base64 data
-    let data = base64::engine::general_purpose::STANDARD
-        .decode(&body.data)
-        .map_err(|_| invalid_base64_payload("Invalid base64-encoded attachment data."))?;
+    let data = decode_attachment_data_bounded(&body.data, state.max_upload_size)?;
 
     // Validate file safety — block executables and dangerous file types (fixes #241)
     let validation =
@@ -28817,15 +28937,7 @@ async fn upload_attachment_multipart(
             Some("file") => {
                 filename = field.file_name().map(|n| n.to_string());
                 content_type = field.content_type().map(|c| c.to_string());
-                data = Some(
-                    field
-                        .bytes()
-                        .await
-                        .map_err(|_| {
-                            ApiError::BadRequest("Invalid uploaded file data.".to_string())
-                        })?
-                        .to_vec(),
-                );
+                data = Some(read_multipart_attachment_bounded(field, state.max_upload_size).await?);
             }
             Some("document_type_id") => {
                 let val = field.text().await.map_err(|_| {
@@ -30003,6 +30115,55 @@ fn tus_operation_failed(context: &'static str, error: impl std::fmt::Display) ->
     }
 }
 
+async fn read_tus_staging_file_bounded(
+    path: &str,
+    expected_bytes: i64,
+    max_bytes: usize,
+) -> Result<Vec<u8>, ApiError> {
+    use tokio::io::AsyncReadExt;
+
+    let expected_bytes =
+        usize::try_from(expected_bytes).map_err(|_| upload_length_exceeds_max_size())?;
+    if expected_bytes > max_bytes {
+        return Err(upload_length_exceeds_max_size());
+    }
+
+    let file = tokio::fs::File::open(path)
+        .await
+        .map_err(|error| tus_operation_failed("open staging file for finalization", error))?;
+    let metadata_bytes = file
+        .metadata()
+        .await
+        .map_err(|error| tus_operation_failed("read staging file metadata", error))?
+        .len();
+    let max_bytes_u64 = u64::try_from(max_bytes).unwrap_or(u64::MAX);
+    if metadata_bytes > max_bytes_u64 {
+        return Err(upload_length_exceeds_max_size());
+    }
+    if metadata_bytes != u64::try_from(expected_bytes).unwrap_or(u64::MAX) {
+        return Err(tus_operation_failed(
+            "verify staging file length",
+            "staging file length does not match Upload-Length",
+        ));
+    }
+
+    let mut file = file.take(max_bytes_u64.saturating_add(1));
+    let mut data = Vec::with_capacity(expected_bytes);
+    file.read_to_end(&mut data)
+        .await
+        .map_err(|error| tus_operation_failed("read staging file", error))?;
+    if data.len() > max_bytes {
+        return Err(upload_length_exceeds_max_size());
+    }
+    if data.len() != expected_bytes {
+        return Err(tus_operation_failed(
+            "verify staging file length",
+            "staging file changed during finalization",
+        ));
+    }
+    Ok(data)
+}
+
 /// Query parameters for tus upload creation.
 #[derive(Deserialize)]
 struct TusCreateQuery {
@@ -30392,10 +30553,14 @@ async fn tus_patch_upload(
 
     // Check if upload is complete
     if new_offset == upload.total_size {
-        // Finalize: read staging file, store via attachment pipeline
-        let file_data = tokio::fs::read(&upload.storage_path)
-            .await
-            .map_err(|e| tus_operation_failed("read staging file", e))?;
+        // Finalization retains a full in-memory buffer for validation and storage, but only
+        // after both declared and actual staging sizes have passed the upload cap.
+        let file_data = read_tus_staging_file_bounded(
+            &upload.storage_path,
+            upload.total_size,
+            state.max_upload_size,
+        )
+        .await?;
 
         // Commit offset update before finalization
         tx.commit()
@@ -42118,6 +42283,199 @@ mod tests {
         assert!(!body.contains("request failed"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
+    }
+
+    #[test]
+    fn attachment_base64_preflight_bounds_decoded_data_and_request_overhead() {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"abcde");
+        assert_eq!(decoded_base64_size(&encoded), Some(5));
+        assert_eq!(
+            decode_attachment_data_bounded(&encoded, 5).unwrap(),
+            b"abcde"
+        );
+        assert!(matches!(
+            decode_attachment_data_bounded(
+                &base64::engine::general_purpose::STANDARD.encode(b"abcdef"),
+                5
+            ),
+            Err(ApiError::BadRequest(_))
+        ));
+        assert!(matches!(
+            decode_attachment_data_bounded("not-base64", 5),
+            Err(ApiError::BadRequest(_))
+        ));
+        assert_eq!(attachment_base64_size_limit(5), 8);
+        assert_eq!(
+            attachment_json_request_limit(5),
+            8 + ATTACHMENT_REQUEST_OVERHEAD_BYTES
+        );
+        assert_eq!(
+            attachment_multipart_request_limit(5),
+            5 + ATTACHMENT_REQUEST_OVERHEAD_BYTES
+        );
+    }
+
+    #[tokio::test]
+    async fn attachment_json_route_rejects_oversized_body_before_decode() {
+        async fn bounded_json_upload(
+            Json(body): Json<UploadAttachmentBody>,
+        ) -> Result<StatusCode, ApiError> {
+            decode_attachment_data_bounded(&body.data, 5)?;
+            Ok(StatusCode::NO_CONTENT)
+        }
+
+        fn json_request(data: &str) -> axum::http::Request<Body> {
+            let body = serde_json::json!({
+                "filename": "test.txt",
+                "content_type": "text/plain",
+                "data": data,
+            });
+            axum::http::Request::builder()
+                .method(Method::POST)
+                .uri("/health")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap()
+        }
+
+        let router = Router::new().route(
+            "/health",
+            post(bounded_json_upload)
+                .layer(DefaultBodyLimit::max(attachment_json_request_limit(5))),
+        );
+        let normal = base64::engine::general_purpose::STANDARD.encode(b"abcde");
+        let accepted = router.clone().oneshot(json_request(&normal)).await.unwrap();
+        assert_eq!(accepted.status(), StatusCode::NO_CONTENT);
+
+        let oversized = "A".repeat(attachment_json_request_limit(5));
+        let rejected = router.oneshot(json_request(&oversized)).await.unwrap();
+        assert_eq!(rejected.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn multipart_attachment_reader_rejects_streamed_bytes_over_limit() {
+        async fn bounded_upload(
+            mut multipart: axum::extract::Multipart,
+        ) -> Result<StatusCode, ApiError> {
+            let field = multipart
+                .next_field()
+                .await
+                .map_err(|_| ApiError::BadRequest("Invalid multipart upload request.".to_string()))?
+                .ok_or_else(|| ApiError::BadRequest("Missing file data.".to_string()))?;
+            read_multipart_attachment_bounded(field, 5).await?;
+            Ok(StatusCode::NO_CONTENT)
+        }
+
+        fn multipart_request(file_data: &str) -> axum::http::Request<Body> {
+            const BOUNDARY: &str = "fortemi-bounded-upload";
+            let body = format!(
+                "--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\n{file_data}\r\n--{BOUNDARY}--\r\n"
+            );
+            axum::http::Request::builder()
+                .method(Method::POST)
+                .uri("/health")
+                .header(
+                    header::CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={BOUNDARY}"),
+                )
+                .body(Body::from(body))
+                .unwrap()
+        }
+
+        let router = Router::new().route("/health", post(bounded_upload));
+        let accepted = router
+            .clone()
+            .oneshot(multipart_request("abcde"))
+            .await
+            .unwrap();
+        assert_eq!(accepted.status(), StatusCode::NO_CONTENT);
+
+        let rejected = router.oneshot(multipart_request("abcdef")).await.unwrap();
+        assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn twilio_recording_reader_checks_declared_and_streamed_sizes() {
+        async fn chunked_recording() -> axum::response::Response {
+            let chunks = futures::stream::iter([
+                Ok::<Bytes, std::io::Error>(Bytes::from_static(b"abcd")),
+                Ok::<Bytes, std::io::Error>(Bytes::from_static(b"ef")),
+            ]);
+            axum::response::Response::new(Body::from_stream(chunks))
+        }
+
+        let router = Router::new()
+            .route("/health", get(|| async { b"abcde".to_vec() }))
+            .route("/health/live", get(|| async { b"abcdef".to_vec() }))
+            .route("/api/v1/health/streaming", get(chunked_recording));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind bounded recording test server");
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let normal = client
+            .get(format!("{base_url}/health"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            read_twilio_recording_body_bounded(normal, 5).await.unwrap(),
+            b"abcde"
+        );
+
+        let declared_oversized = client
+            .get(format!("{base_url}/health/live"))
+            .send()
+            .await
+            .unwrap();
+        assert!(matches!(
+            read_twilio_recording_body_bounded(declared_oversized, 5).await,
+            Err(ApiError::ProviderFailure { .. })
+        ));
+
+        let chunked_oversized = client
+            .get(format!("{base_url}/api/v1/health/streaming"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(chunked_oversized.content_length(), None);
+        assert!(matches!(
+            read_twilio_recording_body_bounded(chunked_oversized, 5).await,
+            Err(ApiError::ProviderFailure { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn tus_finalization_reader_enforces_declared_and_actual_file_caps() {
+        let staging = tempfile::tempdir().expect("create tus staging directory");
+        let path = staging.path().join("upload.part");
+        tokio::fs::write(&path, b"abcde").await.unwrap();
+        assert_eq!(
+            read_tus_staging_file_bounded(path.to_str().unwrap(), 5, 5)
+                .await
+                .unwrap(),
+            b"abcde"
+        );
+
+        tokio::fs::write(&path, b"abcdef").await.unwrap();
+        assert!(matches!(
+            read_tus_staging_file_bounded(path.to_str().unwrap(), 5, 5).await,
+            Err(ApiError::BadRequest(_))
+        ));
+
+        tokio::fs::write(&path, b"abcd").await.unwrap();
+        assert!(matches!(
+            read_tus_staging_file_bounded(path.to_str().unwrap(), 5, 5).await,
+            Err(ApiError::OperationFailed { .. })
+        ));
+        assert!(matches!(
+            read_tus_staging_file_bounded(path.to_str().unwrap(), 6, 5).await,
+            Err(ApiError::BadRequest(_))
+        ));
     }
 
     #[tokio::test]

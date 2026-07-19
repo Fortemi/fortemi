@@ -621,7 +621,7 @@ treat verbose output as an ordinary hosted default.
 |----------|---------|-------------|---------|
 | `MATRIC_EVENT_BUS_CAPACITY` | `256` | Event bus broadcast channel capacity | `1024` |
 | `MATRIC_WEBHOOK_TIMEOUT_SECS` | `10` | Webhook HTTP request timeout (seconds) | `30` |
-| `MATRIC_MAX_BODY_SIZE_BYTES` | `2147483648` | Maximum request body size (2 GB for database backups) | `1073741824` |
+| `MATRIC_MAX_BODY_SIZE_BYTES` | `2147483648` | Global request-body ceiling (2 GB for database backups); attachment files remain bounded by `MATRIC_MAX_UPLOAD_SIZE_BYTES` | `1073741824` |
 
 #### Full-Text Search (FTS)
 

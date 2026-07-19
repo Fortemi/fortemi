@@ -51,8 +51,8 @@ DATABASE_URL=<DATABASE_URL>
 | `HOST` | String | `0.0.0.0` | IP address to bind the API server (0.0.0.0 = all interfaces) |
 | `PORT` | Integer | `3000` | Port number for the HTTP API server |
 | `ALLOWED_ORIGINS` | String | `http://localhost:3000` | Comma-separated list of allowed CORS origins |
-| `MATRIC_MAX_BODY_SIZE_BYTES` | Integer | `2147483648` | Maximum request body size in bytes (default: 2 GB, needed for database backup uploads) |
-| `MATRIC_MAX_UPLOAD_SIZE_BYTES` | Integer | `52428800` | Maximum file upload size in bytes (default: 50 MB). Enforced at the multipart upload route and validated per-file. |
+| `MATRIC_MAX_BODY_SIZE_BYTES` | Integer | `2147483648` | Global request-body ceiling in bytes (default: 2 GB, needed for database backup uploads). This does not increase the per-file attachment limit. |
+| `MATRIC_MAX_UPLOAD_SIZE_BYTES` | Integer | `52428800` | Maximum decoded attachment or provider-media file size in bytes (default: 50 MB). JSON/base64, multipart, tus finalization, and provider downloads enforce this limit before storage. |
 | `FORTEMI_SHARD_TRUSTED_KEYS_JSON` | JSON array | None | Allowlisted Knowledge Shard Ed25519 public keys as `{"key_id","public_key","revoked"}` records. `public_key` is an unpadded base64url-encoded 32-byte key. When configured, shard imports default to signature policy `require`. |
 
 **Example:**
@@ -64,6 +64,13 @@ MATRIC_MAX_BODY_SIZE_BYTES=2147483648
 MATRIC_MAX_UPLOAD_SIZE_BYTES=104857600  # 100 MB
 FORTEMI_SHARD_TRUSTED_KEYS_JSON='[{"key_id":"publisher-1","public_key":"<BASE64URL_PUBLIC_KEY>"}]'
 ```
+
+Attachment routes derive their request-body ceilings from
+`MATRIC_MAX_UPLOAD_SIZE_BYTES`: JSON uploads include base64 expansion and a
+small metadata allowance, while multipart uploads include framing and metadata
+overhead. `MATRIC_MAX_BODY_SIZE_BYTES` remains the global upper bound, primarily
+for large backup operations; if it is lower than a route-specific ceiling, the
+lower global value wins.
 
 ### Authentication
 
