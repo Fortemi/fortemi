@@ -7041,14 +7041,8 @@ async fn usage_metering_middleware(
 ) -> axum::response::Response {
     let event_id = Uuid::now_v7();
     let event_time = Utc::now();
-    let subject = api_request_usage_subject(request.extensions().get::<Auth>());
-    let request_id = request
-        .headers()
-        .get("x-request-id")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| Uuid::parse_str(value).ok())
-        .filter(|id| !id.is_nil())
-        .map(|id| id.to_string());
+    let subject = usage_subject_from_auth(request.extensions().get::<Auth>());
+    let request_id = canonical_usage_request_id(request.headers());
     let route_class = route_policy::route_policy_for_path(request.uri().path())
         .map(|policy| usage_route_class_label(policy.class));
 
@@ -7086,7 +7080,16 @@ async fn usage_metering_middleware(
     response
 }
 
-fn api_request_usage_subject(auth: Option<&Auth>) -> Result<UsageSubject, MeteringError> {
+pub(crate) fn canonical_usage_request_id(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| Uuid::parse_str(value).ok())
+        .filter(|id| !id.is_nil())
+        .map(|id| id.to_string())
+}
+
+pub(crate) fn usage_subject_from_auth(auth: Option<&Auth>) -> Result<UsageSubject, MeteringError> {
     match auth.map(|auth| &auth.principal) {
         Some(AuthPrincipal::OAuthClient {
             client_id, user_id, ..
@@ -42123,11 +42126,11 @@ mod tests {
 
     #[test]
     fn api_request_metering_makes_anonymous_and_unknown_subjects_explicit() {
-        let anonymous = api_request_usage_subject(Some(&Auth {
+        let anonymous = usage_subject_from_auth(Some(&Auth {
             principal: AuthPrincipal::Anonymous,
         }))
         .unwrap();
-        let unknown = api_request_usage_subject(None).unwrap();
+        let unknown = usage_subject_from_auth(None).unwrap();
 
         assert!(anonymous.is_anonymous());
         assert_eq!(anonymous.anonymous_key(), Some("api-anonymous"));

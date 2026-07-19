@@ -9,19 +9,28 @@
 //! on env config + a live Ollama probe.
 
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::Json;
+use chrono::{DateTime, Utc};
+use matric_core::{
+    MeteringError, UsageAttributeKey, UsageAttributeValue, UsageAttributes, UsageClass,
+    UsageCorrelation, UsageDimension, UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome,
+    UsageProducer, UsageSource, UsageSubject, UsageUnit,
+};
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
 use tracing::{debug, error, info, warn};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
-use crate::{ApiError, AppState};
+use crate::{canonical_usage_request_id, usage_subject_from_auth, ApiError, AppState, Auth};
 
 const INFERENCE_COMPLETION_PROVIDER_DETAIL: &str =
     "Inference completion backend failed. Check server logs for diagnostics.";
@@ -324,6 +333,8 @@ pub async fn list_providers(State(state): State<AppState>) -> impl IntoResponse 
 )]
 pub async fn complete(
     State(state): State<AppState>,
+    auth: Auth,
+    headers: HeaderMap,
     Json(req): Json<CompleteRequest>,
 ) -> Result<Json<CompleteResponse>, axum::response::Response> {
     let provider_id = req
@@ -361,6 +372,13 @@ pub async fn complete(
     };
 
     let (system, prompt) = flatten_messages(&req.messages);
+    let metering = inference_usage_context(&state, &auth, &headers, &provider_id, Utc::now())
+        .inspect_err(|error| {
+            warn!(
+                error_len = complete_text_len(&error.to_string()),
+                "Inference usage context construction failed"
+            );
+        });
 
     debug!(
         provider_id_len = complete_text_len(&provider_id),
@@ -378,6 +396,9 @@ pub async fn complete(
 
     match result {
         Ok(content) => {
+            if let Ok(context) = &metering {
+                context.record(UsageOutcome::Completed).await;
+            }
             info!(
                 provider_id_len = complete_text_len(&provider_id),
                 model_len = complete_text_len(&req.model),
@@ -392,6 +413,9 @@ pub async fn complete(
             }))
         }
         Err(e) => {
+            if let Ok(context) = &metering {
+                context.record(UsageOutcome::FailedAfterPartialUsage).await;
+            }
             error!(
                 provider_id_len = complete_text_len(&provider_id),
                 model_len = complete_text_len(&req.model),
@@ -405,6 +429,108 @@ pub async fn complete(
             .into_response())
         }
     }
+}
+
+struct InferenceUsageContext {
+    meter: Arc<dyn UsageMeter>,
+    subject: UsageSubject,
+    request_id: Option<String>,
+    provider: Option<&'static str>,
+    event_time: DateTime<Utc>,
+    input_event_id: Uuid,
+    output_event_id: Uuid,
+}
+
+impl InferenceUsageContext {
+    async fn record(&self, outcome: UsageOutcome) {
+        for (dimension, event_id, suffix) in [
+            (
+                UsageDimension::InferenceInputTokens,
+                self.input_event_id,
+                "input",
+            ),
+            (
+                UsageDimension::InferenceOutputTokens,
+                self.output_event_id,
+                "output",
+            ),
+        ] {
+            let event = inference_usage_event(self, dimension, event_id, suffix, outcome);
+            match event {
+                Ok(event) => {
+                    if let Err(error) = self.meter.record(&event).await {
+                        warn!(
+                            error_len = complete_text_len(&error.to_string()),
+                            "Best-effort inference usage recording failed"
+                        );
+                    }
+                }
+                Err(error) => {
+                    warn!(
+                        error_len = complete_text_len(&error.to_string()),
+                        "Inference usage event construction failed"
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn inference_usage_context(
+    state: &AppState,
+    auth: &Auth,
+    headers: &HeaderMap,
+    provider_id: &str,
+    event_time: DateTime<Utc>,
+) -> Result<InferenceUsageContext, MeteringError> {
+    Ok(InferenceUsageContext {
+        meter: state.usage_meter.clone(),
+        subject: usage_subject_from_auth(Some(auth))?,
+        request_id: canonical_usage_request_id(headers),
+        provider: matric_inference::provider_profiles::lookup(provider_id)
+            .map(|profile| profile.id),
+        event_time,
+        input_event_id: Uuid::now_v7(),
+        output_event_id: Uuid::now_v7(),
+    })
+}
+
+fn inference_usage_event(
+    context: &InferenceUsageContext,
+    dimension: UsageDimension,
+    event_id: Uuid,
+    suffix: &str,
+    outcome: UsageOutcome,
+) -> Result<UsageEvent, MeteringError> {
+    let mut attrs = UsageAttributes::default();
+    if let Some(provider) = context.provider {
+        attrs.insert(
+            &dimension,
+            UsageAttributeKey::Provider,
+            UsageAttributeValue::label(provider)?,
+        )?;
+    }
+    let correlation = match context.request_id.as_deref() {
+        Some(request_id) => UsageCorrelation::default().with_request_id(request_id)?,
+        None => UsageCorrelation::default(),
+    };
+
+    UsageEvent::new(
+        format!("inference:{event_id}:{suffix}:actual"),
+        context.event_time,
+        context.subject.clone(),
+        dimension,
+        UsageMeasurement::Unavailable {
+            unit: UsageUnit::Token,
+        },
+        UsageClass::BillableActual,
+        UsageProducer::Inference,
+        UsageSource::Unavailable,
+        outcome,
+    )?
+    .with_identity(event_id, Utc::now())
+    .with_correlation(correlation)?
+    .with_attrs(attrs)
 }
 
 /// `POST /api/v1/inference/stream` — same shape as `/complete`, returns SSE.
@@ -697,5 +823,98 @@ mod tests {
         assert!(!rendered.contains("stop-secret-reason"));
         assert!(!rendered.contains("Provider Secret Name"));
         assert!(!rendered.contains("secret-capability"));
+    }
+
+    #[tokio::test]
+    async fn unavailable_inference_usage_is_replay_safe_and_privacy_bounded() {
+        let meter = matric_core::InMemoryMeter::default();
+        let request_id = Uuid::now_v7();
+        let context = InferenceUsageContext {
+            meter: Arc::new(meter.clone()),
+            subject: UsageSubject::unknown()
+                .with_client("resolved-client")
+                .unwrap(),
+            request_id: Some(request_id.to_string()),
+            provider: Some("openai"),
+            event_time: Utc::now(),
+            input_event_id: Uuid::now_v7(),
+            output_event_id: Uuid::now_v7(),
+        };
+
+        context.record(UsageOutcome::Completed).await;
+        let events = meter.events().await;
+
+        assert_eq!(events.len(), 2);
+        for event in &events {
+            assert!(matches!(
+                event.dimension,
+                UsageDimension::InferenceInputTokens | UsageDimension::InferenceOutputTokens
+            ));
+            assert_eq!(
+                event.measurement,
+                UsageMeasurement::Unavailable {
+                    unit: UsageUnit::Token
+                }
+            );
+            assert_eq!(event.class, UsageClass::BillableActual);
+            assert_eq!(event.producer, UsageProducer::Inference);
+            assert_eq!(event.source, UsageSource::Unavailable);
+            assert_eq!(event.outcome, UsageOutcome::Completed);
+            assert_eq!(
+                event.correlation.request_id(),
+                Some(request_id.to_string().as_str())
+            );
+            assert_eq!(
+                event.attrs.get(UsageAttributeKey::Provider),
+                Some(&UsageAttributeValue::Label("openai".to_string()))
+            );
+            assert!(event.idempotency_key.contains(&event.event_id.to_string()));
+
+            meter
+                .record(event)
+                .await
+                .expect("exact inference usage replay must be idempotent");
+        }
+        assert_eq!(meter.events().await.len(), 2);
+
+        let encoded = serde_json::to_string(&events).unwrap();
+        for forbidden in [
+            "patient prompt",
+            "private completion",
+            "sk-provider-secret",
+            "https://provider.example/v1",
+        ] {
+            assert!(!encoded.contains(forbidden));
+        }
+    }
+
+    #[tokio::test]
+    async fn arbitrary_provider_input_is_not_exported_as_usage_metadata() {
+        let raw_provider =
+            "openai?api_key=sk-secret&callback=https://user:pass@provider.example/v1";
+        let meter = matric_core::InMemoryMeter::default();
+        let context = InferenceUsageContext {
+            meter: Arc::new(meter.clone()),
+            subject: UsageSubject::unknown(),
+            request_id: None,
+            provider: matric_inference::provider_profiles::lookup(raw_provider)
+                .map(|profile| profile.id),
+            event_time: Utc::now(),
+            input_event_id: Uuid::now_v7(),
+            output_event_id: Uuid::now_v7(),
+        };
+
+        context.record(UsageOutcome::Completed).await;
+        let events = meter.events().await;
+
+        assert_eq!(events.len(), 2);
+        assert!(events
+            .iter()
+            .all(|event| event.attrs.get(UsageAttributeKey::Provider).is_none()));
+        let encoded = serde_json::to_string(&events).unwrap();
+        assert!(!encoded.contains(raw_provider));
+        assert!(!encoded.contains("sk-secret"));
+        assert!(!encoded.contains("provider.example"));
+        assert!(!encoded.contains("user:pass"));
     }
 }
