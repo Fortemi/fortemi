@@ -30,9 +30,6 @@ paths:
     get:
       tags:
       - OAuth
-      summary: |-
-        OAuth Protected Resource Metadata (RFC 9728).
-        Required by MCP OAuth clients to discover authorization server.
       operationId: oauth_protected_resource
       responses:
         '200':
