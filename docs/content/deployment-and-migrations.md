@@ -295,6 +295,11 @@ services:
       - "host.docker.internal:host-gateway"
 ```
 
+The mapping does not make a loopback-only Ollama listener reachable. Configure
+the host service for the exact Docker host-gateway address, or use a protected
+proxy, as documented in
+[Ollama Connectivity](#/operations-ollama-connectivity).
+
 ### Verify Ollama
 
 ```bash

@@ -655,11 +655,14 @@ docker exec $(docker compose -f docker-compose.bundle.yml ps -q matric) \
   getent hosts host.docker.internal
 ```
 
-If it doesn't resolve (some older Docker versions on Linux), add to your `.env`:
+If it does not resolve, do not substitute a hard-coded bridge address. Verify
+Docker's `host-gateway` support and the host Ollama listener using
+[Ollama Connectivity](#/operations-ollama-connectivity). The Fortemi URL
+remains:
 
 ```bash
-OLLAMA_BASE=http://172.17.0.1:11434
-OLLAMA_HOST=http://172.17.0.1:11434
+OLLAMA_BASE=http://host.docker.internal:11434
+OLLAMA_HOST=http://host.docker.internal:11434
 ```
 
 ### Slow first startup

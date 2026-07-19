@@ -80,11 +80,18 @@ MATRIC_OLLAMA_URL=http://gpu-server:11434
 MATRIC_OLLAMA_URL=http://ollama:11434
 ```
 
-**Pitfall:** Ollama's default bind is `127.0.0.1`. For remote access, start it with:
+**Pitfall:** Ollama's default bind is `127.0.0.1`. For an intentional shared
+service, bind one private/service address rather than a wildcard:
 
 ```bash
-OLLAMA_HOST=0.0.0.0 ollama serve
+OLLAMA_HOST=<PRIVATE_SERVICE_IP>:11434 ollama serve
 ```
+
+Restrict the listener to Fortemi clients and prefer a TLS proxy with
+authentication or mTLS, request/body limits, timeouts, and rate controls.
+Ollama workloads can exhaust GPU, CPU, memory, and model-loading capacity.
+For local Docker use, follow the exact host-gateway or compose-managed recipes
+in [Ollama Connectivity](#/operations-ollama-connectivity).
 
 ### OpenAI
 
@@ -246,7 +253,7 @@ responses or billing.
 
 | Symptom | Fix |
 |---------|-----|
-| "Connection refused" (Ollama) | Confirm `ollama serve` is running. For remote, start with `OLLAMA_HOST=0.0.0.0 ollama serve`. |
+| "Connection refused" (Ollama) | Confirm `ollama serve` is running and the selected local, Docker host-gateway, or protected shared-service listener matches [Ollama Connectivity](#/operations-ollama-connectivity). |
 | "Connection refused" (Docker) | Confirm container name matches `MATRIC_OLLAMA_URL`. |
 | "Model not found" (Ollama) | Run `ollama pull <model-name>`. |
 | "Model not found" (cloud) | Verify the model slug matches the provider's API exactly. |

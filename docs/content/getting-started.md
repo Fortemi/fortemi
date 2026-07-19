@@ -567,9 +567,11 @@ If Ollama is running inside Docker, update `OLLAMA_BASE` in `docker-compose.bund
 ```yaml
 environment:
   - OLLAMA_BASE=http://host.docker.internal:11434  # Default
-  # Or for Linux without host.docker.internal:
-  # - OLLAMA_BASE=http://172.17.0.1:11434
 ```
+
+On Linux, use the compose `host-gateway` mapping and bind host Ollama to the
+resolved gateway address. Do not hard-code a bridge IP. See
+[Ollama Connectivity](#/operations-ollama-connectivity).
 
 ### Automatic Linking Not Working
 

@@ -53,7 +53,7 @@ services:
     image: ${FORTEMI_WORKSTATION_OLLAMA_IMAGE:-ollama/ollama:latest@sha256:6345fbc18bd73a1e16404be681dbc6fd291a027cab43ed541abe78c4c81051b0}
     container_name: workstation-ollama
     ports:
-      - "11434:11434"
+      - "${FORTEMI_OLLAMA_BIND_ADDR:-127.0.0.1}:11434:11434"
     volumes:
       # Bind-mount existing host models — no 6.4GB redownload
       - ${HOME}/.ollama:/root/.ollama

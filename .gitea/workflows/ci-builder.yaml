@@ -156,6 +156,11 @@ jobs:
           python3 scripts/ci/verify-docker-socket-guidance.py
           python3 -m unittest tests/test_verify_docker_socket_guidance.py
 
+      - name: Check Ollama listener guidance
+        run: |
+          python3 scripts/ci/verify-ollama-exposure-guidance.py
+          python3 -m unittest tests/test_ollama_exposure_guidance.py
+
       # Match test.yml's pinned, checksum-verified Compose renderer. This only
       # renders configuration; the lint container does not receive a socket.
       - name: Install docker compose plugin (pinned)

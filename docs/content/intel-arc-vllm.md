@@ -154,6 +154,10 @@ rejects requests for model names it does not serve.
 
 On Linux, `docker-compose.bundle.yml` already maps `host.docker.internal` to the
 host gateway for the Fortemi container.
+Configure the host Ollama listener for that exact gateway address; for a
+shared embedding service, apply the firewall, authentication/TLS proxy, and
+resource controls in
+[Ollama Connectivity](#/operations-ollama-connectivity).
 
 ## Network exposure check
 

@@ -394,11 +394,16 @@ OLLAMA_EMBED_DIM=768
 
 **Example (Linux with Docker):**
 ```bash
-OLLAMA_BASE=http://172.17.0.1:11434
+OLLAMA_BASE=http://host.docker.internal:11434
 OLLAMA_EMBED_MODEL=nomic-embed-text
 OLLAMA_GEN_MODEL=qwen2.5:7b
 OLLAMA_EMBED_DIM=768
 ```
+
+The URL requires the compose `host-gateway` mapping and an Ollama listener on
+the exact Docker gateway address. Follow
+[Ollama Connectivity](#/operations-ollama-connectivity); do not assume a
+fixed bridge IP.
 
 **Example (Performance Tuning):**
 ```bash
@@ -1218,12 +1223,14 @@ OLLAMA_BASE=http://host.docker.internal:11434
 
 **Linux:**
 ```bash
-# Use Docker bridge network gateway IP
-OLLAMA_BASE=http://172.17.0.1:11434
-
-# Or use host network mode in docker-compose.bundle.yml:
-# network_mode: "host"
+# docker-compose.bundle.yml maps this name with host-gateway.
+OLLAMA_BASE=http://host.docker.internal:11434
 ```
+
+The host Ollama listener must bind only to the resolved gateway address or sit
+behind an access-controlled proxy. See
+[Ollama Connectivity](#/operations-ollama-connectivity). Host networking
+removes network-namespace isolation and is not a connectivity shortcut.
 
 ### Environment Variable Files
 

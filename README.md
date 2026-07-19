@@ -187,6 +187,8 @@ cd fortemi
 ```
 
 `./workstation help` lists every subcommand (status, logs, shell, psql, reset, models, …). Need only the API without HotM? Skip cloning HotM and run `./workstation up --backend-only`.
+The compose-managed Ollama service communicates with Fortemi on the private
+compose network and publishes its optional host port on loopback only.
 
 **Want a different LLM than Ollama?** Run `./workstation configure-llm` for an interactive picker covering vLLM (on host), real OpenAI, OpenRouter, llama.cpp (on host), or staying with Ollama. Writes `.env.workstation` (gitignored, mode 600); compose loads it automatically on next `up`. No Dockerfile or compose edits needed.
 
@@ -211,20 +213,33 @@ ollama pull qwen3.5:9b           # ~6.5 GB — generation + vision
 ollama pull nomic-embed-text     # ~280 MB — embeddings
 ```
 
-**Critical on Linux**: the systemd Ollama service binds `127.0.0.1` by default and rejects container traffic. The Docker bundle can't reach it without one extra step:
+**Critical on Linux**: the systemd Ollama service binds `127.0.0.1` by
+default and rejects container traffic. Do not solve this by quietly listening
+on every host interface. Resolve Docker's configured host-gateway address,
+review it, and bind Ollama to that address only:
 
 ```bash
-# Make host Ollama accept connections from Docker containers
+HOST_GATEWAY_IP="$(
+  docker network inspect bridge \
+    --format '{{(index .IPAM.Config 0).Gateway}}'
+)"
+test -n "${HOST_GATEWAY_IP}"
+printf 'Docker host gateway: %s\n' "${HOST_GATEWAY_IP}"
+
 sudo mkdir -p /etc/systemd/system/ollama.service.d
-sudo tee /etc/systemd/system/ollama.service.d/override.conf <<'EOF'
-[Service]
-Environment="OLLAMA_HOST=0.0.0.0"
-EOF
+printf '[Service]\nEnvironment="OLLAMA_HOST=%s:11434"\n' \
+  "${HOST_GATEWAY_IP}" |
+  sudo tee /etc/systemd/system/ollama.service.d/override.conf >/dev/null
 sudo systemctl daemon-reload
 sudo systemctl restart ollama
 ```
 
-On macOS the Ollama desktop app handles this automatically. On Windows with WSL2, follow the Linux steps inside WSL.
+This exposes Ollama only on Docker's host-gateway address. Rootless/custom
+Docker and remote/shared Ollama require an explicit listener, firewall, and
+proxy decision; see
+[Ollama Connectivity and Network Exposure](docs/content/ollama-connectivity.md).
+On macOS the Ollama desktop app handles local Docker connectivity
+automatically. On Windows with WSL2, verify the actual gateway inside WSL.
 
 If you skip the systemd override, the bundle will start and the API will be healthy, but `GET /health` will report `capabilities.inference.available: false` — no chat, no embeddings, no auto-linking. Full-text search still works.
 
@@ -251,7 +266,9 @@ curl http://localhost:3000/health
 # → {"status":"healthy","capabilities":{"inference":{"available":true,...},...}}
 ```
 
-If `inference.available` is `false`, you likely missed the `OLLAMA_HOST=0.0.0.0` step above — see [Troubleshooting](#troubleshooting-docker--ollama) below.
+If `inference.available` is `false`, verify the selected connectivity profile
+and listener address above; see
+[Troubleshooting](#troubleshooting-docker--ollama) below.
 
 `scripts/init-bundle-env.sh` creates a unique database password in the ignored
 `.env` file, sets mode `0600`, and never prints the value. It is idempotent and
@@ -655,9 +672,13 @@ The bundle started but can't reach Ollama. Three common causes:
    # From inside the bundle:
    docker compose -f docker-compose.bundle.yml exec fortemi \
      curl -fsS --max-time 3 http://host.docker.internal:11434/api/version
-   # Connection refused → systemd override is missing
+   # Connection refused means the selected listener/profile is not reachable.
    ```
-   Fix with the `OLLAMA_HOST=0.0.0.0` systemd drop-in from [Prerequisite: Ollama on the host](#prerequisite-ollama-on-the-host).
+   For the Linux host-service profile, use the exact gateway-address systemd
+   drop-in from
+   [Prerequisite: Ollama on the host](#prerequisite-ollama-on-the-host).
+   For local development, prefer the compose-managed workstation Ollama
+   service. Do not broaden a listener merely to clear this error.
 3. **Models not pulled** — `ollama list` on the host shows neither `qwen3.5:9b` nor `nomic-embed-text` → pull them. The probe doesn't fail on missing models (the daemon is reachable; the model load happens at first request) but you'll get 404s on the first generation call.
 
 ### Bundle port collision
@@ -698,6 +719,10 @@ OLLAMA_BASE=http://your-remote-ollama-host:11434
 ```
 
 The bundle's `extra_hosts: host.docker.internal:host-gateway` only matters when reaching the local host. For remote hosts, use the real DNS name or IP. If TLS is in the path, prefix with `https://`.
+Remote Ollama is a shared inference service: restrict its listener/firewall to
+Fortemi clients, put authentication or mTLS and request limits at a TLS proxy,
+and account for GPU/CPU exhaustion. See
+[Ollama Connectivity and Network Exposure](docs/content/ollama-connectivity.md).
 
 ### Using something other than Ollama entirely
 

@@ -522,6 +522,28 @@ docker exec Fortémi-matric-1 psql -U matric -d matric -c \
 
 **Fix:**
 
+Choose the case that matches the deployment. A connection error is not a
+reason to broaden Ollama to every host interface.
+
+**Fortemi API outside Docker (host-local):**
+
+```bash
+OLLAMA_BASE=http://127.0.0.1:11434
+curl -fsS http://127.0.0.1:11434/api/version
+```
+
+Keep Ollama on its default loopback listener.
+
+**Compose-managed local workstation:**
+
+```bash
+docker compose -f docker-compose.workstation.yml exec matric-api \
+  curl -fsS http://ollama:11434/api/version
+```
+
+Fortemi and Ollama communicate on the private compose network. The Ollama host
+port is loopback-bound by default.
+
 **Ollama not installed:**
 ```bash
 # Install Ollama on host
@@ -555,6 +577,18 @@ environment:
 docker compose -f docker-compose.bundle.yml down
 docker compose -f docker-compose.bundle.yml up -d
 ```
+
+The mapping only supplies a route. Host Ollama must listen on Docker's exact
+host-gateway address, not a wildcard or an assumed bridge IP. Follow
+[Ollama Connectivity](#/operations-ollama-connectivity) to inspect the
+address, review the systemd change, and verify both sides.
+
+**Intentional remote/shared Ollama:**
+
+Use an approved private listener or authenticated TLS/mTLS proxy URL. Restrict
+the firewall to Fortemi clients and enforce request size, concurrency,
+timeouts, and rate limits so an authenticated caller cannot exhaust GPU/CPU
+capacity. See [Ollama Connectivity](#/operations-ollama-connectivity).
 
 **Wrong OLLAMA_URL:**
 ```bash

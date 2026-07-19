@@ -87,6 +87,7 @@
         { "id": "operations-backup", "title": "Backup & Recovery", "summary": "Database backup, restore, and disaster recovery.", "file": "backup.md" },
         { "id": "operations-job-monitoring", "title": "Job Monitoring", "summary": "Background job worker, queue health, and stale-job reaping.", "file": "job-monitoring.md" },
         { "id": "operations-hardware", "title": "Hardware Planning", "summary": "GPU, memory, and storage sizing guidelines.", "file": "hardware-planning.md" },
+        { "id": "operations-ollama-connectivity", "title": "Ollama Connectivity", "summary": "Least-exposure local, Docker host-gateway, and shared Ollama network profiles.", "file": "ollama-connectivity.md" },
         { "id": "operations-intel-arc-vllm", "title": "Intel Arc / vLLM Deployment", "summary": "Running the Docker bundle on Intel Arc/XPU hosts with a host vLLM generation endpoint.", "file": "intel-arc-vllm.md" },
         { "id": "operations-ollama", "title": "Ollama Optimization", "summary": "Model loading, GPU allocation, and inference tuning.", "file": "ollama-optimization.md" },
         { "id": "operations-ci-cd", "title": "CI/CD Pipeline", "summary": "Gitea Actions workflow and deployment automation.", "file": "ci-cd.md" },

@@ -134,10 +134,14 @@ For development or testing:
 # Enable both optimizations
 export OLLAMA_FLASH_ATTENTION=1
 export OLLAMA_KV_CACHE_TYPE=q8_0
-export OLLAMA_HOST=0.0.0.0
 
 ollama serve
 ```
+
+Performance settings do not require broader network exposure. Keep the
+default loopback listener unless Fortemi uses a reviewed Docker host-gateway
+or shared-service profile from
+[Ollama Connectivity](#/operations-ollama-connectivity).
 
 ### Systemd Service Override
 
@@ -151,7 +155,6 @@ Add the following configuration:
 
 ```ini
 [Service]
-Environment="OLLAMA_HOST=0.0.0.0"
 Environment="OLLAMA_FLASH_ATTENTION=1"
 Environment="OLLAMA_KV_CACHE_TYPE=q8_0"
 ```
@@ -181,7 +184,7 @@ If running Ollama in Docker:
 docker run -d \
   --gpus=all \
   -v ollama:/root/.ollama \
-  -p 11434:11434 \
+  -p 127.0.0.1:11434:11434 \
   -e OLLAMA_FLASH_ATTENTION=1 \
   -e OLLAMA_KV_CACHE_TYPE=q8_0 \
   --name ollama \
@@ -195,7 +198,7 @@ services:
   ollama:
     image: ollama/ollama
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama:/root/.ollama
     environment:
@@ -410,10 +413,12 @@ sudo systemctl edit ollama
 
 ```ini
 [Service]
-Environment="OLLAMA_HOST=0.0.0.0"
 Environment="OLLAMA_FLASH_ATTENTION=1"
 Environment="OLLAMA_KV_CACHE_TYPE=q8_0"
 ```
+
+Configure the listener separately using the least-exposure profile in
+[Ollama Connectivity](#/operations-ollama-connectivity).
 
 ### Verification
 

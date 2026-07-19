@@ -698,9 +698,12 @@ AI features (embedding generation, auto-titling, AI revision) require either Oll
    # For Docker Desktop (macOS/Windows)
    OLLAMA_BASE=http://host.docker.internal:11434
 
-   # For Linux with Ollama on same host
-   OLLAMA_BASE=http://172.17.0.1:11434
+   # For Linux with Ollama on the same host (compose supplies host-gateway)
+   OLLAMA_BASE=http://host.docker.internal:11434
    ```
+   Configure Ollama to listen only on Docker's resolved host-gateway address,
+   as described in
+   [Ollama Connectivity](#/operations-ollama-connectivity).
 4. Add to `.env` or uncomment in `docker-compose.bundle.yml`:
    ```
    OLLAMA_BASE=http://host.docker.internal:11434

@@ -227,6 +227,12 @@ services:
       - OLLAMA_BASE=http://host.docker.internal:11434
 ```
 
+This mapping does not change Ollama's listener. Bind host Ollama to Docker's
+resolved host-gateway address only, or use an access-controlled proxy. The
+compose-managed local workstation avoids a host listener entirely. See
+[Ollama Connectivity](#/operations-ollama-connectivity) for the local,
+Docker-to-host, and shared-service profiles.
+
 ### Verify Ollama Connectivity
 
 ```bash
@@ -241,7 +247,7 @@ docker compose -f docker-compose.bundle.yml exec matric \
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Embedding jobs fail with "connection refused" | Ollama not reachable | Add `extra_hosts` mapping |
+| Embedding jobs fail with "connection refused" | Ollama route/listener mismatch | Select and verify the matching [Ollama connectivity profile](#/operations-ollama-connectivity); do not broaden the listener |
 | Jobs stuck in "failed" state | Old Ollama URL cached | Reset jobs: `UPDATE job_queue SET status = 'pending' WHERE status = 'failed'` |
 | "Model not found" errors | Missing model | Run `ollama pull nomic-embed-text` on host |
 

@@ -471,6 +471,10 @@ extra_hosts:
   - "host.docker.internal:host-gateway"
 ```
 
+The mapping supplies a route but does not configure the host listener. Bind
+Ollama to Docker's resolved host-gateway address only, following
+[Ollama Connectivity](#/operations-ollama-connectivity).
+
 ### Jobs timing out
 
 CPU inference is slower. Increase timeouts:
