@@ -60,7 +60,11 @@ curl http://localhost:3001/.well-known/oauth-protected-resource
 
 ### Nginx Configuration
 
-Configure nginx to proxy to the container:
+Configure nginx to proxy to the container. Set
+`FORTEMI_TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128` when this same-host nginx is
+the immediate Fortemi peer. The edge must overwrite client forwarding fields,
+as below, and Fortemi should listen only on a private or loopback interface.
+Unset `FORTEMI_TRUSTED_PROXY_CIDRS` means forwarded metadata is ignored.
 
 ```nginx
 server {
@@ -75,8 +79,12 @@ server {
         proxy_pass http://localhost:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header X-Forwarded-Protocol "";
+        proxy_set_header Forwarded "";
     }
 
     # WebSocket and SSE support for real-time events
@@ -105,8 +113,12 @@ server {
         proxy_pass http://localhost:3001/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header X-Forwarded-Protocol "";
+        proxy_set_header Forwarded "";
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -116,8 +128,12 @@ server {
         proxy_pass http://localhost:3001/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header X-Forwarded-Protocol "";
+        proxy_set_header Forwarded "";
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";

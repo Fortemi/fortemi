@@ -6,6 +6,7 @@ mod oauth_profile;
 mod query_types;
 mod route_policy;
 mod shard_signature;
+mod trusted_proxy;
 
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
@@ -70,6 +71,7 @@ use middleware::archive_routing::{
 };
 use oauth_profile::{active_oauth_capabilities, is_allowed_oauth_scope};
 use tokio::sync::RwLock;
+use trusted_proxy::{ExternalRequestContext, SocketPeer, TrustedProxyConfig};
 
 // ---------------------------------------------------------------------------
 // Hot-swappable inference runtime (#569)
@@ -1182,6 +1184,8 @@ struct AppState {
     inbound_metrics: Arc<matric_jobs::inbound::InboundMetrics>,
     /// Process readiness and drain state for orchestrator probes.
     lifecycle: LifecycleState,
+    /// Immediate-peer allowlist for security-sensitive forwarded metadata.
+    trusted_proxy_config: TrustedProxyConfig,
 }
 
 impl AppState {
@@ -2747,7 +2751,11 @@ async fn serve_api(
 
     let mut server_shutdown_rx = shutdown_rx.clone();
     let server = std::future::IntoFuture::into_future(
-        axum::serve(listener, app).with_graceful_shutdown(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(async move {
             wait_for_shutdown_request(&mut server_shutdown_rx).await;
         }),
     );
@@ -2882,6 +2890,12 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(matric_core::defaults::SERVER_PORT);
 
     let security_config = parse_startup_security_config()?;
+    let trusted_proxy_config = TrustedProxyConfig::from_env()?;
+    info!(
+        trusted_proxy_source_count = trusted_proxy_config.trusted_source_count(),
+        forwarded_headers_enabled = trusted_proxy_config.trusted_source_count() > 0,
+        "Trusted proxy policy loaded"
+    );
     let rate_limit_config = parse_rate_limit_config()?;
     let shutdown_config = parse_shutdown_config()?;
     let max_upload_size = std::env::var("MATRIC_MAX_UPLOAD_SIZE_BYTES")
@@ -3819,6 +3833,7 @@ async fn main() -> anyhow::Result<()> {
         ),
         inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
         lifecycle: lifecycle.clone(),
+        trusted_proxy_config,
     };
 
     // Spawn the inbound external event source supervisor (#833, Phase D).
@@ -6913,9 +6928,10 @@ fn verify_incoming_signature(
     secret: &str,
     body: &[u8],
     uri: Option<&Uri>,
+    external_context: Option<&ExternalRequestContext>,
 ) -> Result<(), ApiError> {
     if signature_header.eq_ignore_ascii_case("X-Twilio-Signature") {
-        return verify_twilio_incoming_signature(headers, secret, body, uri);
+        return verify_twilio_incoming_signature(headers, secret, body, uri, external_context);
     }
 
     use hmac::{Hmac, Mac};
@@ -6946,6 +6962,7 @@ fn verify_twilio_incoming_signature(
     secret: &str,
     body: &[u8],
     uri: Option<&Uri>,
+    external_context: Option<&ExternalRequestContext>,
 ) -> Result<(), ApiError> {
     use hmac::{Hmac, Mac};
     use sha1::Sha1;
@@ -6956,7 +6973,7 @@ fn verify_twilio_incoming_signature(
         .get("X-Twilio-Signature")
         .and_then(|value| value.to_str().ok())
         .ok_or_else(|| ApiError::Unauthorized("missing incoming webhook signature".to_string()))?;
-    let expected_url = incoming_webhook_external_url(headers, uri).ok_or_else(|| {
+    let expected_url = incoming_webhook_external_url(external_context, uri).ok_or_else(|| {
         ApiError::Unauthorized("missing incoming webhook request URL".to_string())
     })?;
     let mut params: Vec<(String, String)> = serde_urlencoded::from_bytes(body).map_err(|_| {
@@ -6983,26 +7000,12 @@ fn verify_twilio_incoming_signature(
         .map_err(|_| ApiError::Unauthorized("invalid incoming webhook signature".to_string()))
 }
 
-fn incoming_webhook_external_url(headers: &HeaderMap, uri: Option<&Uri>) -> Option<String> {
+fn incoming_webhook_external_url(
+    external_context: Option<&ExternalRequestContext>,
+    uri: Option<&Uri>,
+) -> Option<String> {
     let uri = uri?;
-    if uri.scheme().is_some() && uri.authority().is_some() {
-        return Some(uri.to_string());
-    }
-
-    let proto = header_str(headers, "X-Forwarded-Proto")
-        .or_else(|| header_str(headers, "X-Forwarded-Protocol"))
-        .unwrap_or("https");
-    let host = header_str(headers, "X-Forwarded-Host").or_else(|| header_str(headers, "Host"))?;
-    Some(format!("{proto}://{host}{uri}"))
-}
-
-fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    headers
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
+    external_context.map(|context| context.external_url(uri))
 }
 
 fn incoming_payload_from_body(
@@ -7076,11 +7079,32 @@ async fn get_incoming_webhook_receiver(
     ))]
 async fn receive_incoming_webhook(
     State(state): State<AppState>,
+    SocketPeer(socket_peer): SocketPeer,
     OriginalUri(uri): OriginalUri,
     Path(slug): Path<String>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
+    let external_context = ExternalRequestContext::from_request(
+        &state.trusted_proxy_config,
+        socket_peer,
+        &headers,
+        &uri,
+    )
+    .map_err(|error| {
+        warn!(
+            reason = %error,
+            "Rejected malformed metadata from a configured trusted proxy"
+        );
+        ApiError::Unauthorized("invalid trusted proxy request metadata".to_string())
+    })?;
+    tracing::debug!(
+        socket_peer_present = external_context.socket_peer_present(),
+        trusted_client_ip_present = external_context.client_ip_present(),
+        proxy_trusted = external_context.proxy_trusted(),
+        forwarded_header_state = external_context.forwarded_disposition().as_str(),
+        "Incoming webhook ingress context resolved"
+    );
     let receiver = state
         .db
         .incoming_webhooks
@@ -7126,6 +7150,7 @@ async fn receive_incoming_webhook(
         &secret,
         &body,
         Some(&uri),
+        Some(&external_context),
     ) {
         emit_incoming_webhook_audit_event(incoming_webhook_decision_audit_event(
             &receiver,
@@ -52999,6 +53024,7 @@ not-json
             ),
             inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
             lifecycle: LifecycleState::default(),
+            trusted_proxy_config: TrustedProxyConfig::default(),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
@@ -57641,6 +57667,7 @@ not-json
             ),
             inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
             lifecycle: LifecycleState::default(),
+            trusted_proxy_config: TrustedProxyConfig::default(),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
@@ -59357,6 +59384,7 @@ not-json
             ),
             inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
             lifecycle: LifecycleState::default(),
+            trusted_proxy_config: TrustedProxyConfig::default(),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
@@ -59693,6 +59721,7 @@ not-json
             ),
             inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
             lifecycle: LifecycleState::default(),
+            trusted_proxy_config: TrustedProxyConfig::default(),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
@@ -61258,7 +61287,8 @@ not-json
         let mut headers = HeaderMap::new();
         headers.insert("X-Fortemi-Signature", signature.parse().unwrap());
 
-        verify_incoming_signature(&headers, "X-Fortemi-Signature", secret, body, None).unwrap();
+        verify_incoming_signature(&headers, "X-Fortemi-Signature", secret, body, None, None)
+            .unwrap();
     }
 
     #[test]
@@ -61283,9 +61313,71 @@ not-json
         headers.insert("X-Forwarded-Proto", "https".parse().unwrap());
         headers.insert("X-Forwarded-Host", "voice.example.com".parse().unwrap());
         headers.insert("X-Twilio-Signature", signature.parse().unwrap());
+        let context = ExternalRequestContext::from_request(
+            &TrustedProxyConfig::from_value(Some("127.0.0.1/32")).unwrap(),
+            Some("127.0.0.1:45000".parse().unwrap()),
+            &headers,
+            &uri,
+        )
+        .unwrap();
 
-        verify_incoming_signature(&headers, "X-Twilio-Signature", secret, body, Some(&uri))
+        verify_incoming_signature(
+            &headers,
+            "X-Twilio-Signature",
+            secret,
+            body,
+            Some(&uri),
+            Some(&context),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn incoming_signature_ignores_untrusted_forwarded_url_spoofing() {
+        use hmac::{Hmac, Mac};
+        use sha1::Sha1;
+        type HmacSha1 = Hmac<Sha1>;
+
+        let secret = "twilio-auth-token-value";
+        let uri: Uri = "/api/v1/webhooks/incoming/twilio-voice-events"
+            .parse()
             .unwrap();
+        let body = b"CallSid=CA1234567890ABCDE";
+        let attacker_payload = "http://attacker.example/api/v1/webhooks/incoming/twilio-voice-eventsCallSidCA1234567890ABCDE";
+        let mut mac = HmacSha1::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(attacker_payload.as_bytes());
+        let signature =
+            base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Host", "voice.example.com".parse().unwrap());
+        headers.insert("X-Forwarded-Proto", "http".parse().unwrap());
+        headers.insert("X-Forwarded-Host", "attacker.example".parse().unwrap());
+        headers.insert("X-Twilio-Signature", signature.parse().unwrap());
+        let context = ExternalRequestContext::from_request(
+            &TrustedProxyConfig::from_value(Some("10.0.0.0/8")).unwrap(),
+            Some("192.0.2.4:45000".parse().unwrap()),
+            &headers,
+            &uri,
+        )
+        .unwrap();
+
+        assert_eq!(
+            context.forwarded_disposition().as_str(),
+            "suppressed",
+            "configured proxy mismatch must suppress spoofed metadata"
+        );
+        assert!(matches!(
+            verify_incoming_signature(
+                &headers,
+                "X-Twilio-Signature",
+                secret,
+                body,
+                Some(&uri),
+                Some(&context),
+            ),
+            Err(ApiError::Unauthorized(_))
+        ));
     }
 
     #[test]
@@ -61296,6 +61388,13 @@ not-json
         let mut headers = HeaderMap::new();
         headers.insert("Host", "voice.example.com".parse().unwrap());
         headers.insert("X-Twilio-Signature", "invalid".parse().unwrap());
+        let context = ExternalRequestContext::from_request(
+            &TrustedProxyConfig::default(),
+            Some("192.0.2.4:45000".parse().unwrap()),
+            &headers,
+            &uri,
+        )
+        .unwrap();
 
         assert!(matches!(
             verify_incoming_signature(
@@ -61304,6 +61403,7 @@ not-json
                 "twilio-auth-token-value",
                 b"CallSid=CA1234567890ABCDE&CallStatus=ringing",
                 Some(&uri),
+                Some(&context),
             ),
             Err(ApiError::Unauthorized(_))
         ));
@@ -61319,7 +61419,8 @@ not-json
                 "X-Fortemi-Signature",
                 "super-secret-value",
                 body,
-                None
+                None,
+                None,
             ),
             Err(ApiError::Unauthorized(_))
         ));
@@ -61332,7 +61433,8 @@ not-json
                 "X-Fortemi-Signature",
                 "super-secret-value",
                 body,
-                None
+                None,
+                None,
             ),
             Err(ApiError::Unauthorized(_))
         ));
@@ -61530,6 +61632,7 @@ not-json
 
         let response = receive_incoming_webhook(
             State(state.clone()),
+            SocketPeer(None),
             OriginalUri(uri),
             Path(slug.clone()),
             headers,
@@ -61617,6 +61720,7 @@ not-json
         headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
         let res = receive_incoming_webhook(
             State(state.clone()),
+            SocketPeer(None),
             OriginalUri(uri.clone()),
             Path(slug.clone()),
             headers,
@@ -61633,6 +61737,7 @@ not-json
         headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
         let res = receive_incoming_webhook(
             State(state.clone()),
+            SocketPeer(None),
             OriginalUri(uri),
             Path(slug.clone()),
             headers,
@@ -61715,6 +61820,7 @@ not-json
 
         let res = receive_incoming_webhook(
             State(state.clone()),
+            SocketPeer(None),
             OriginalUri(uri),
             Path(slug.clone()),
             headers,

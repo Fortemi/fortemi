@@ -2,6 +2,22 @@
 
 This directory contains nginx configuration templates for deploying Fortemi with HotM (Hall of the Mountain) SPA frontend.
 
+## Trusted Ingress Boundary
+
+Fortemi trusts no forwarded headers by default. When nginx is the immediate
+peer, configure its numeric source address in
+`FORTEMI_TRUSTED_PROXY_CIDRS` (for example,
+`127.0.0.1/32,::1/128`) and keep the Fortemi listener on a private or loopback
+interface.
+
+Every proxy location must overwrite `X-Forwarded-For`, `X-Real-IP`,
+`X-Forwarded-Host`, `X-Forwarded-Port`, and `X-Forwarded-Proto` from nginx
+variables. Clear client-supplied `Forwarded` and the legacy
+`X-Forwarded-Protocol` header. The checked-in template derives the client
+address directly from `$remote_addr` because this nginx instance is the
+authoritative client-facing edge. Do not trust browser-side or local
+traffic-inspection proxies.
+
 ## Architecture Overview
 
 ```

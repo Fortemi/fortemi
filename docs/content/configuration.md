@@ -51,6 +51,7 @@ DATABASE_URL=<DATABASE_URL>
 | `HOST` | String | `0.0.0.0` | IP address to bind the API server (0.0.0.0 = all interfaces) |
 | `PORT` | Integer | `3000` | Port number for the HTTP API server |
 | `ALLOWED_ORIGINS` | String | `http://localhost:3000` | Comma-separated list of allowed CORS origins |
+| `FORTEMI_TRUSTED_PROXY_CIDRS` | CIDR list | None | Comma-separated numeric CIDRs for immediate reverse-proxy peers whose canonical forwarding metadata Fortemi may consume. Unset trusts no proxy. |
 | `MATRIC_SHUTDOWN_GRACE_SECS` | Integer | `30` | Maximum graceful HTTP drain window after SIGINT/SIGTERM, from 1 through 300 seconds. Set the orchestrator stop grace period to at least this value. |
 | `MATRIC_MAX_BODY_SIZE_BYTES` | Integer | `2147483648` | Global request-body ceiling in bytes (default: 2 GB, needed for database backup uploads). This does not increase the per-file attachment limit. |
 | `MATRIC_MAX_UPLOAD_SIZE_BYTES` | Integer | `52428800` | Maximum decoded attachment or provider-media file size in bytes (default: 50 MB). JSON/base64, multipart, tus finalization, and provider downloads enforce this limit before storage. |
@@ -65,6 +66,7 @@ DATABASE_URL=<DATABASE_URL>
 HOST=127.0.0.1  # Localhost only
 PORT=8080       # Custom port
 ALLOWED_ORIGINS=https://memory.example.com,http://localhost:3000
+FORTEMI_TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128
 MATRIC_MAX_BODY_SIZE_BYTES=2147483648
 MATRIC_MAX_UPLOAD_SIZE_BYTES=104857600  # 100 MB
 MATRIC_ATTACHMENT_SCAN_MODE=required
@@ -72,6 +74,15 @@ MATRIC_ATTACHMENT_CLAMD_ADDR=127.0.0.1:3310
 MATRIC_ATTACHMENT_SCAN_MAX_BYTES=104857600
 FORTEMI_SHARD_TRUSTED_KEYS_JSON='[{"key_id":"publisher-1","public_key":"<BASE64URL_PUBLIC_KEY>"}]'
 ```
+
+Forwarded request metadata is a security boundary. Fortemi ignores
+`Forwarded`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`,
+`X-Forwarded-For`, and `X-Real-IP` unless the immediate socket peer matches
+`FORTEMI_TRUSTED_PROXY_CIDRS`. Configure only the final proxy hop that connects
+directly to Fortemi. The edge proxy must remove client-supplied forwarding
+fields and set canonical values; do not add local traffic-inspection proxies
+to this allowlist. In hosted deployments, bind Fortemi to a private or loopback
+interface so clients cannot bypass the trusted edge.
 
 Attachment routes derive their request-body ceilings from
 `MATRIC_MAX_UPLOAD_SIZE_BYTES`: JSON uploads include base64 expansion and a
