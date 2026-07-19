@@ -2852,6 +2852,22 @@ impl JobHandler for EmbeddingHandler {
                 .store_tx(&mut tx, note_id, chunk_vectors, model_name)
                 .await
         };
+        if let Err(store_error) = store_result {
+            let rollback_error = tx
+                .rollback()
+                .await
+                .map_err(matric_core::Error::Database)
+                .err();
+            if let Some(usage) = &usage {
+                usage
+                    .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
+                    .await;
+            }
+            return match rollback_error {
+                Some(error) => embedding_job_failure(error, "rollback_embeddings"),
+                None => embedding_job_failure(store_error, "store_embeddings"),
+            };
+        }
         if let Err(e) = tx.commit().await.map_err(matric_core::Error::Database) {
             if let Some(usage) = &usage {
                 usage
@@ -2859,15 +2875,6 @@ impl JobHandler for EmbeddingHandler {
                     .await;
             }
             return embedding_job_failure(e, "commit_embeddings");
-        }
-
-        if let Err(e) = store_result {
-            if let Some(usage) = &usage {
-                usage
-                    .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
-                    .await;
-            }
-            return embedding_job_failure(e, "store_embeddings");
         }
 
         // Complete provenance activity (#430)
@@ -8003,7 +8010,154 @@ impl JobHandler for GraphMaintenanceHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use matric_core::ArchiveRepository;
     use matric_db::embeddings::utils::chunk_text;
+
+    struct SuccessfulEmbeddingBackend {
+        dimension: usize,
+    }
+
+    #[async_trait::async_trait]
+    impl EmbeddingBackend for SuccessfulEmbeddingBackend {
+        async fn embed_texts(
+            &self,
+            texts: &[String],
+        ) -> matric_core::Result<Vec<matric_core::Vector>> {
+            Ok(texts
+                .iter()
+                .map(|_| matric_core::Vector::from(vec![0.25_f32; self.dimension]))
+                .collect())
+        }
+
+        fn dimension(&self) -> usize {
+            self.dimension
+        }
+
+        fn model_name(&self) -> &str {
+            "test-embedding-model"
+        }
+    }
+
+    #[tokio::test]
+    async fn embedding_store_failure_rolls_back_existing_vectors() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let archive_name = format!("embedding_rollback_{}", uuid::Uuid::now_v7());
+        let archive = db
+            .archives
+            .create_archive_schema(&archive_name, Some("embedding rollback test"))
+            .await
+            .expect("create test archive");
+        let schema = archive.schema_name;
+        let schema_ctx = db.for_schema(&schema).expect("create schema context");
+
+        let notes = matric_db::PgNoteRepository::new(db.pool.clone());
+        let note_id = schema_ctx
+            .execute(move |tx| {
+                Box::pin(async move {
+                    notes
+                        .insert_tx(
+                            tx,
+                            matric_core::CreateNoteRequest {
+                                content: "Embedding rollback regression content".to_string(),
+                                format: "markdown".to_string(),
+                                source: "test".to_string(),
+                                collection_id: None,
+                                tags: None,
+                                metadata: None,
+                                document_type_id: None,
+                                title: None,
+                            },
+                        )
+                        .await
+                })
+            })
+            .await
+            .expect("seed test note");
+
+        let embeddings = matric_db::PgEmbeddingRepository::new(db.pool.clone());
+        schema_ctx
+            .execute(move |tx| {
+                Box::pin(async move {
+                    embeddings
+                        .store_tx(
+                            tx,
+                            note_id,
+                            vec![(
+                                "existing embedding".to_string(),
+                                matric_core::Vector::from(vec![0.5_f32; 768]),
+                            )],
+                            "existing-model",
+                        )
+                        .await
+                })
+            })
+            .await
+            .expect("seed existing embedding");
+
+        sqlx::query(&format!(
+            "UPDATE {schema}.embedding_set SET is_active = FALSE WHERE slug = 'default'"
+        ))
+        .execute(&db.pool)
+        .await
+        .expect("disable default embedding set");
+
+        let now = Utc::now();
+        let job = matric_core::Job {
+            id: uuid::Uuid::now_v7(),
+            note_id: Some(note_id),
+            job_type: JobType::Embedding,
+            status: matric_core::JobStatus::Running,
+            priority: 1,
+            payload: Some(serde_json::json!({"schema": schema})),
+            result: None,
+            error_message: None,
+            progress_percent: 0,
+            progress_message: None,
+            retry_count: 0,
+            max_retries: 1,
+            created_at: now,
+            started_at: Some(now),
+            completed_at: None,
+            cost_tier: None,
+        };
+        let handler = EmbeddingHandler::new(
+            db.clone(),
+            Arc::new(SuccessfulEmbeddingBackend { dimension: 768 }),
+            Arc::new(matric_core::InMemoryMeter::default()),
+        );
+
+        let result = handler.execute(JobContext::new(job)).await;
+        match result {
+            JobResult::Failed(message) => assert_eq!(message, EMBEDDING_JOB_FAILURE),
+            other => panic!("expected failed embedding job, got {other:?}"),
+        }
+
+        let stored: Vec<(String, String)> = sqlx::query_as(&format!(
+            "SELECT text, model FROM {schema}.embedding WHERE note_id = $1 ORDER BY chunk_index"
+        ))
+        .bind(note_id)
+        .fetch_all(&db.pool)
+        .await
+        .expect("read embeddings after failed replacement");
+        assert_eq!(
+            stored,
+            vec![(
+                "existing embedding".to_string(),
+                "existing-model".to_string()
+            )],
+            "failed replacement must preserve the prior embedding"
+        );
+
+        db.archives
+            .drop_archive_schema(&archive_name)
+            .await
+            .expect("drop test archive");
+    }
 
     #[tokio::test]
     async fn embedding_usage_records_exact_vectors_unavailable_tokens_and_replay() {
