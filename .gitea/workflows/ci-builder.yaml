@@ -147,7 +147,9 @@ jobs:
         run: bash scripts/ci/forbid-provider-imports.sh .
 
       - name: Check fail-closed auth defaults
-        run: bash scripts/ci/forbid-insecure-auth-defaults.sh .
+        run: |
+          bash scripts/ci/forbid-insecure-auth-defaults.sh .
+          python3 -m unittest tests/test_forbid_insecure_auth_defaults.py
 
       - name: Check Docker daemon guidance
         run: |
