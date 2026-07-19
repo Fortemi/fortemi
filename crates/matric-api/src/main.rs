@@ -61627,6 +61627,7 @@ not-json
         let mut headers = HeaderMap::new();
         headers.insert("X-Fortemi-Signature", signature.parse().unwrap());
         headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        headers.insert(header::HOST, "localhost".parse().unwrap());
 
         let uri: Uri = format!("/api/v1/webhooks/incoming/{slug}").parse().unwrap();
 
@@ -61718,6 +61719,7 @@ not-json
         let mut headers = HeaderMap::new();
         headers.insert("X-Fortemi-Signature", wrong.parse().unwrap());
         headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        headers.insert(header::HOST, "localhost".parse().unwrap());
         let res = receive_incoming_webhook(
             State(state.clone()),
             SocketPeer(None),
@@ -61735,6 +61737,7 @@ not-json
         // Missing signature header → 401.
         let mut headers = HeaderMap::new();
         headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        headers.insert(header::HOST, "localhost".parse().unwrap());
         let res = receive_incoming_webhook(
             State(state.clone()),
             SocketPeer(None),
@@ -61816,6 +61819,7 @@ not-json
         let mut headers = HeaderMap::new();
         headers.insert("X-Fortemi-Signature", signature.parse().unwrap());
         headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        headers.insert(header::HOST, "localhost".parse().unwrap());
         let uri: Uri = format!("/api/v1/webhooks/incoming/{slug}").parse().unwrap();
 
         let res = receive_incoming_webhook(
