@@ -1,17 +1,19 @@
 # ADR-092: Usage Meter and Quota Trait
 
-**Status:** Proposed
+**Status:** Accepted (core contract implemented 2026-07-18)
 **Date:** 2026-05-20
 **Deciders:** roctinam, product/billing review TBD
 **Related:** ADR-088 (plugin strategy), ADR-090 (tenancy), ADR-098 (per-tenant rate limits), #713, #714, #877
 **Related docs:** `.aiwg/security/multi-tenant-threat-model.md` §8
 
-## July 2026 checkpoint rebaseline
+## July 2026 implementation checkpoint
 
-This ADR remains design-only at the July 2026 checkpoint. `UsageMeter`, `QuotaPolicy`, `NoOpMeter`, and `UnlimitedQuota` were documented, but no implementation was found in `crates/`.
+The core contract, CE defaults, and non-durable in-memory recorder are
+implemented in `matric-core`. Durable ledger storage, runtime recorder wiring,
+hosted enforcement, and external sink plugins remain later phases.
 
-- **Decision status:** Proposed; design only.
-- **Implementation phase:** Core metering/quota contract construction.
+- **Decision status:** Accepted; core contract implemented.
+- **Implementation phase:** Runtime recorder and hosted policy integration.
 - **Phase owner:** `Fortemi/fortemi#713`, with private billing integration in `Fortemi-Enterprise/billing#1`.
 - **Checkpoint decision date:** 2026-07-14.
 
@@ -49,7 +51,7 @@ pub trait UsageMeter: Send + Sync {
 
     /// Query current-window consumption for a resolved subject + dimension.
     async fn current(&self, subject: &UsageSubject, dim: &UsageDimension, window: TimeWindow)
-        -> Result<UsageQuantity, MeteringError>;
+        -> Result<UsageAggregate, MeteringError>;
 
     /// Flush in-flight events. Called at shutdown.
     async fn flush(&self, grace: Duration) -> Result<(), MeteringError>;
@@ -67,10 +69,11 @@ pub struct UsageEvent {
     pub recorded_at: chrono::DateTime<chrono::Utc>,
     pub subject: UsageSubject,
     pub dimension: UsageDimension,
-    pub quantity: UsageQuantity,
+    pub measurement: UsageMeasurement,
     pub class: UsageClass,
     pub producer: UsageProducer,
     pub source: UsageSource,
+    pub outcome: UsageOutcome,
     pub correlation: UsageCorrelation,
     pub attrs: UsageAttributes,
 }
@@ -84,9 +87,19 @@ pub struct UsageSubject {
 }
 
 pub struct UsageQuantity {
-    /// Canonical base-10 representation; never a binary floating-point value.
-    pub value: String,
+    /// Exact decimal serialized as a canonical base-10 string.
+    pub value: BigDecimal,
     pub unit: UsageUnit,
+}
+
+pub enum UsageMeasurement {
+    Measured(UsageQuantity),
+    Unavailable { unit: UsageUnit },
+}
+
+pub struct UsageAggregate {
+    pub quantity: UsageQuantity,
+    pub unavailable_events: u64,
 }
 
 pub enum UsageUnit {
@@ -131,24 +144,42 @@ pub enum UsageSource {
     Estimated,
     Cache,
     Admission,
+    Unavailable,
+}
+
+pub enum UsageOutcome {
+    Completed,
+    ClientInterrupted,
+    ProviderInterrupted,
+    Denied,
+    FailedBeforeUsage,
+    FailedAfterPartialUsage,
+    Corrected,
 }
 
 pub enum UsageDimension {
     ApiRequest,                   // count
-    TokensInput { model: String },
-    TokensOutput { model: String },
-    TokensCachedInput { model: String },
-    TokensReasoningOutput { model: String },
-    TokensAudioInput { model: String },
-    TokensAudioOutput { model: String },
+    InferenceInputTokens,
+    InferenceOutputTokens,
+    CachedInputTokens,
+    ReasoningOutputTokens,
+    AudioInputTokens,
+    AudioOutputTokens,
     StorageBytes,
-    EmbeddingsCount,
+    IngestRows,
+    EmbeddingTokens,
     EmbeddingVectors,
-    JobsEnqueued { job_kind: String },
-    MediaProcessedSeconds { kind: MediaKind },
-    BridgeProviderCall { capability: String },
-    McpToolCall { class: String },
-    Custom(String),
+    JobEnqueued,
+    ActiveJob,
+    ActiveStream,
+    ConcurrentOperation,
+    MediaProcessedSeconds,
+    RealtimeAudioSeconds,
+    BridgeSession,
+    BridgeProviderCall,
+    McpToolCall,
+    SaturationSignal,
+    Custom { name: String, unit: UsageUnit },
 }
 
 pub enum TimeWindow {
@@ -157,18 +188,23 @@ pub enum TimeWindow {
     LastDay,
     LastMonth,
     Lifetime,
-    Custom(Duration),
+    Range { start: DateTime<Utc>, end: DateTime<Utc> },
 }
 ```
 
-`UsageAttributes` is not an arbitrary JSON bag. It is a bounded, versioned,
-allowlisted map of non-secret scalar fields. The core contract rejects unknown
-or oversized attributes before persistence. Provider-specific usage can be
-attached only through the scrubbed structure described below.
+`UsageAttributes` is not an arbitrary JSON bag. Keys are a fixed
+`UsageAttributeKey` enum and each dimension has an explicit key allowlist.
+String labels have a restricted character set and size bound. The core
+contract rejects unknown, mismatched, URL-shaped, or oversized values before
+persistence. Provider-specific usage can be attached only through the
+scrubbed structure described below.
 
-`UsageQuantity.value` is a canonical base-10 string paired with an explicit
-unit. Producers never send binary floating-point quantities, and consumers
-must reject a dimension/unit mismatch rather than convert it implicitly.
+`UsageQuantity.value` uses `BigDecimal` and serializes as a canonical
+base-10 string paired with an explicit unit. Producers never send binary
+floating-point quantities, and consumers must reject a dimension/unit mismatch
+rather than convert it implicitly. `UsageMeasurement::Unavailable` represents
+missing provider usage without coercing it to numeric zero; aggregates report
+the count of unavailable actual events separately.
 `UsageProducer` values are stable and low-cardinality. Tenant, model, route,
 principal, provider request, and operation identifiers never become producer
 names.
@@ -212,6 +248,9 @@ pub struct QuotaReservationRequest {
 
 pub struct QuotaReservation {
     pub reservation_id: Uuid,
+    pub idempotency_key: String,
+    pub subject: UsageSubject,
+    pub dimension: UsageDimension,
     pub policy_id: String,
     pub reserved: UsageQuantity,
     pub expires_at: DateTime<Utc>,
@@ -223,12 +262,12 @@ pub enum QuotaDecision {
         policy_id: String,
         reset_at: Option<DateTime<Utc>>,
     },
-    Hard {
+    HardLimit {
         policy_id: String,
         retry_after: Option<Duration>,
         reset_at: Option<DateTime<Utc>>,
     },
-    Soft {
+    SoftLimit {
         remaining: Option<UsageQuantity>,
         policy_id: String,
         reset_at: Option<DateTime<Utc>>,
@@ -292,11 +331,16 @@ pub struct UnlimitedQuota;  // Always Allow
 
 #[async_trait]
 impl UsageMeter for NoOpMeter {
-    async fn record(&self, _e: &UsageEvent) -> Result<(), MeteringError> { Ok(()) }
+    async fn record(&self, event: &UsageEvent) -> Result<(), MeteringError> {
+        event.validate()
+    }
     async fn current(&self, _: &UsageSubject, dim: &UsageDimension, _: TimeWindow)
-        -> Result<UsageQuantity, MeteringError>
+        -> Result<UsageAggregate, MeteringError>
     {
-        Ok(UsageQuantity::zero_for(dim))
+        Ok(UsageAggregate {
+            quantity: UsageQuantity::zero(dim.unit())?,
+            unavailable_events: 0,
+        })
     }
     async fn flush(&self, _: Duration) -> Result<(), MeteringError> { Ok(()) }
 }
@@ -465,13 +509,13 @@ overspending one budget while keeping recorded billing based on actual usage.
 ## Implementation
 
 **Code location:**
-- Trait + types: `crates/matric-core/src/metering.rs` (new)
-- Default impls: `crates/matric-core/src/metering/no_op.rs`
+- Traits, types, CE defaults, and in-memory recorder:
+  `crates/matric-core/src/metering.rs`
 - Middleware: `crates/matric-api/src/middleware/quota.rs` (new, used in ADR-098)
 - EE plugins: separate `fortemi-enterprise-billing-*`, `fortemi-enterprise-quota-*` crates
 
 **Phases:**
-1. Land traits + NoOp impls
+1. Land traits + CE defaults + in-memory contract recorder (complete)
 2. Wire `record` into router and inference paths
 3. Wire `check` into router (gated behind `multi-tenant` feature)
 4. First EE billing plugin (`fortemi-enterprise-billing-openmeter`)

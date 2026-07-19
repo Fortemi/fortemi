@@ -19,6 +19,7 @@ pub mod fair;
 pub mod file_safety;
 pub mod hardware;
 pub mod logging;
+pub mod metering;
 pub mod models;
 pub mod search;
 pub mod shard;
@@ -45,6 +46,7 @@ pub use file_safety::{
     detect_content_type, is_valid_mime_type, sanitize_filename, validate_file, ValidationResult,
 };
 pub use hardware::{ContextBudget, HardwareConfig};
+pub use metering::*;
 pub use models::*;
 pub use search::*;
 pub use shard::*;

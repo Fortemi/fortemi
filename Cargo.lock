@@ -321,6 +321,7 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -2258,6 +2259,7 @@ name = "matric-core"
 version = "2026.7.1"
 dependencies = [
  "async-trait",
+ "bigdecimal",
  "chrono",
  "futures",
  "infer",

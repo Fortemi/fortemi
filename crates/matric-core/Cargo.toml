@@ -16,6 +16,7 @@ serde_json.workspace = true
 # Types
 uuid.workspace = true
 chrono.workspace = true
+bigdecimal.workspace = true
 
 # Error handling
 thiserror.workspace = true
