@@ -3473,12 +3473,18 @@ catalog and the redaction boundary.
 A single global rate limiter applies across all routes (there are no per-route
 tiers). Limits are configured by environment variables:
 
+- `RATE_LIMIT_ENABLED`: enable or disable the current process-local limiter
 - `RATE_LIMIT_REQUESTS`: maximum requests per window
 - `RATE_LIMIT_PERIOD_SECS`: window length in seconds
 
 The 429 response is `problem+json` (`type=https://fortemi.com/problems/rate-limit-exceeded`)
 and carries **no** rate-limit headers (no `X-RateLimit-*`, no `RateLimit-*`, and
 no `Retry-After`). Clients should back off on HTTP `429` with exponential backoff.
+
+The future hosted quota contract is tracked separately by ADR-098 and #714. Its
+target fields are the combined `RateLimit` and `RateLimit-Policy` draft fields,
+with `Retry-After` when a retry time is known. Those fields are not current CE
+behavior, and Fortemi will not emit legacy `X-RateLimit-*` compatibility headers.
 
 ## Versioning
 

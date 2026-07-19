@@ -71,14 +71,14 @@ The choice is configurable via a `QuotaPolicy` impl. The trait abstracts the bac
 
 ### Rate-limit response headers
 
-Per standard practice (RFC 6585, draft-ietf-httpapi-ratelimit-headers):
+This is future hosted behavior, not the current CE response contract. The target
+uses the combined fields from `draft-ietf-httpapi-ratelimit-headers-11` behind a
+formatter boundary because the specification is still an Internet-Draft:
 
 ```
 HTTP/1.1 200 OK
-RateLimit-Limit: 1000
-RateLimit-Remaining: 873
-RateLimit-Reset: 60
-RateLimit-Policy: "1000;w=60"
+RateLimit-Policy: "api";q=1000;w=60
+RateLimit: "api";r=873;t=60
 
 # On 429:
 HTTP/1.1 429 Too Many Requests
@@ -86,6 +86,12 @@ Retry-After: 12
 X-Quota-Dimension: api_request
 X-Quota-Reset: 2026-05-20T15:00:00Z
 ```
+
+Fortemi will not emit legacy `X-RateLimit-*` compatibility headers. The
+formatter may coarsen or omit quota values when exact values would disclose
+tenant capacity or global service state. `Retry-After` remains the stable
+instruction on 429 when a retry time is known; the draft fields are quota hints
+and are not required on every response.
 
 ### Burst allowance
 

@@ -536,12 +536,15 @@ if response.status_code == 403:
 
 ## Rate Limiting
 
-API keys include automatic rate limiting to prevent abuse.
+The current CE limiter is process-wide. API-key-specific limit metadata is not
+enforced by this limiter and must not be treated as tenant or principal
+isolation.
 
 ### Default Limits
 
-- **Per minute:** 60 requests
-- **Per hour:** 1000 requests
+- `RATE_LIMIT_ENABLED=true`
+- `RATE_LIMIT_REQUESTS=100`
+- `RATE_LIMIT_PERIOD_SECS=60`
 
 ### Rate Limit Headers
 
@@ -550,6 +553,10 @@ The global rate limiter does **not** emit rate-limit headers. There are no
 and no `Retry-After` header on the rate-limit (429) response. Clients cannot
 read a remaining-quota value; detect the limit by the HTTP `429` status and
 back off.
+
+Future hosted tenant-aware quotas are tracked by ADR-098 and #714. They target
+the combined `RateLimit` and `RateLimit-Policy` draft fields and do not add
+legacy `X-RateLimit-*` compatibility headers.
 
 ### Handling Rate Limits
 

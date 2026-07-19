@@ -124,7 +124,8 @@ MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>
 
 # Rate limiting
 RATE_LIMIT_ENABLED=true
-RATE_LIMIT_PER_MINUTE=100
+RATE_LIMIT_REQUESTS=100
+RATE_LIMIT_PERIOD_SECS=60
 
 # Strict tag filtering
 STRICT_TAG_FILTER=true
@@ -425,11 +426,15 @@ ATTACHMENT_HASH_ALGORITHM=blake3
 AUDIT_LOG_ENABLED=true
 AUDIT_LOG_LEVEL=info
 
-# Rate limiting per tenant
+# Current CE process-wide rate limiting
 RATE_LIMIT_ENABLED=true
-RATE_LIMIT_PER_MINUTE=1000
-RATE_LIMIT_PER_TENANT=true
+RATE_LIMIT_REQUESTS=1000
+RATE_LIMIT_PERIOD_SECS=60
 ```
+
+These variables configure the current process-local limiter across all requests;
+they do not enable per-tenant isolation. Tenant-aware hosted quota enforcement is
+the future target tracked by ADR-098 and issue #714.
 
 ### Multi-Tenancy with SKOS Schemes
 
