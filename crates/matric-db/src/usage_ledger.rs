@@ -281,6 +281,10 @@ impl PgUsageLedgerRepository {
         &self,
         require_enabled_required_sink: bool,
     ) -> Result<(), MeteringError> {
+        sqlx::query("SELECT event_id FROM public.usage_event_ledger LIMIT 0")
+            .execute(&self.pool)
+            .await
+            .map_err(|_| MeteringError::BackendUnavailable)?;
         let enabled_required_sinks: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*)
@@ -1117,6 +1121,22 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        let remaining_delivery_rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM public.usage_event_delivery WHERE sink_name = $1",
+        )
+        .bind(&sink_name)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let remaining_attempt_rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM public.usage_delivery_attempt WHERE sink_name = $1",
+        )
+        .bind(&sink_name)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(remaining_delivery_rows, 0);
+        assert_eq!(remaining_attempt_rows, 0);
         sqlx::query("DELETE FROM public.usage_sink WHERE sink_name = $1")
             .bind(&sink_name)
             .execute(&pool)
