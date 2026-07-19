@@ -555,6 +555,7 @@ jobs:
             -e PORT=3000 \
             -e REQUIRE_AUTH=false \
             -e I_UNDERSTAND_NO_AUTH=true \
+            -e RATE_LIMIT_ENABLED=false \
             -e MATRIC_ATTACHMENT_SCAN_MODE=disabled \
             matric-memory:test
 
