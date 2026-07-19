@@ -431,6 +431,7 @@ pub async fn complete(
     }
 }
 
+#[derive(Clone)]
 struct InferenceUsageContext {
     meter: Arc<dyn UsageMeter>,
     subject: UsageSubject,
@@ -553,6 +554,8 @@ fn inference_usage_event(
 )]
 pub async fn stream(
     State(state): State<AppState>,
+    auth: Auth,
+    headers: HeaderMap,
     Json(req): Json<CompleteRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, axum::response::Response> {
     use futures::StreamExt;
@@ -591,6 +594,13 @@ pub async fn stream(
     };
 
     let (system, prompt) = flatten_messages(&req.messages);
+    let metering = inference_usage_context(&state, &auth, &headers, &provider_id, Utc::now())
+        .inspect_err(|error| {
+            warn!(
+                error_len = complete_text_len(&error.to_string()),
+                "Inference stream usage context construction failed"
+            );
+        });
 
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(32);
     let model_name = req.model.clone();
@@ -617,11 +627,16 @@ pub async fn stream(
                                 .await
                                 .is_err()
                             {
-                                // Receiver closed — client disconnected.
+                                if let Ok(context) = &metering {
+                                    context.record(UsageOutcome::ClientInterrupted).await;
+                                }
                                 return;
                             }
                         }
                         Err(e) => {
+                            if let Ok(context) = &metering {
+                                context.record(UsageOutcome::ProviderInterrupted).await;
+                            }
                             error!(
                                 provider_id_len = complete_text_len(&pid_clone),
                                 model_len = complete_text_len(&model_name),
@@ -636,6 +651,9 @@ pub async fn stream(
                         }
                     }
                 }
+                if let Ok(context) = &metering {
+                    context.record(UsageOutcome::Completed).await;
+                }
                 let done_payload = serde_json::json!({
                     "finish_reason": "stop",
                     "model": model_name,
@@ -647,6 +665,9 @@ pub async fn stream(
                     .await;
             }
             Err(e) => {
+                if let Ok(context) = &metering {
+                    context.record(UsageOutcome::FailedAfterPartialUsage).await;
+                }
                 error!(
                     provider_id_len = complete_text_len(&pid_clone),
                     model_len = complete_text_len(&model_name),
@@ -916,5 +937,32 @@ mod tests {
         assert!(!encoded.contains("sk-secret"));
         assert!(!encoded.contains("provider.example"));
         assert!(!encoded.contains("user:pass"));
+    }
+
+    #[tokio::test]
+    async fn streaming_terminal_outcomes_remain_distinct() {
+        for expected in [
+            UsageOutcome::Completed,
+            UsageOutcome::ClientInterrupted,
+            UsageOutcome::ProviderInterrupted,
+            UsageOutcome::FailedAfterPartialUsage,
+        ] {
+            let meter = matric_core::InMemoryMeter::default();
+            let context = InferenceUsageContext {
+                meter: Arc::new(meter.clone()),
+                subject: UsageSubject::anonymous("stream-test").unwrap(),
+                request_id: Some(Uuid::now_v7().to_string()),
+                provider: Some("ollama"),
+                event_time: Utc::now(),
+                input_event_id: Uuid::now_v7(),
+                output_event_id: Uuid::now_v7(),
+            };
+
+            context.record(expected).await;
+            let events = meter.events().await;
+
+            assert_eq!(events.len(), 2);
+            assert!(events.iter().all(|event| event.outcome == expected));
+        }
     }
 }
