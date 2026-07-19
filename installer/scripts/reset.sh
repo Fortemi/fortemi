@@ -9,6 +9,9 @@ INSTALL_DIR="${INSTALL_DIR:?INSTALL_DIR is required}"
 
 cd "${INSTALL_DIR}"
 
+echo "Validating rendered bundle exposure policy..."
+bash scripts/validate-bundle-exposure.sh .env
+
 echo "WARNING: This will destroy all Fortémi data (database, uploads, etc.)"
 echo "Press Ctrl+C within 5 seconds to abort..."
 sleep 5

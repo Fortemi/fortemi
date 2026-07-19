@@ -142,11 +142,19 @@ Set in `.env` file (project root):
 
 | Variable | Required | Description |
 |----------|----------|-------------|
+| `FORTEMI_EXPOSURE_PROFILE` | No | Defaults to `local`, which permits only loopback API/MCP publishing. Set `shared` explicitly for validated non-loopback exposure. |
+| `API_HOST_BIND` / `MCP_HOST_BIND` | No | Default to `127.0.0.1`. Non-loopback values require the `shared` exposure profile. |
 | `ISSUER_URL` | Yes for hosted/multi-tenant | External URL for OAuth/MCP/AsyncAPI metadata. Hosted values must be public HTTPS with no query, fragment, userinfo, local/private/listen host, or unsupported path. |
 | `FORTEMI_ALLOW_LOCAL_ISSUER` | Local only | Allows `http://localhost` issuer URLs for local development. Do not enable for hosted deployments. |
 | `MCP_CLIENT_ID` | No | OAuth client ID (auto-managed, set only for manual override) |
 | `MCP_CLIENT_SECRET` | No | OAuth client secret (auto-managed, set only for manual override) |
 | `MCP_BASE_URL` | No | MCP resource URL (default: `${ISSUER_URL}/mcp`) |
+
+Run `scripts/validate-bundle-exposure.sh` before bundle startup and reset. The
+check renders the effective Compose model, so `.env` and overlay interpolation
+cannot silently publish API/MCP to all interfaces. `shared` exposure requires
+authentication, public HTTPS issuer/resource/origin values, a non-default
+database secret, reverse-proxy TLS, and host-firewall restrictions.
 
 Container variables (docker-compose.bundle.yml):
 

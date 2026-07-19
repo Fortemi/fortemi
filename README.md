@@ -252,7 +252,7 @@ curl http://localhost:3000/health
 
 If `inference.available` is `false`, you likely missed the `OLLAMA_HOST=0.0.0.0` step above — see [Troubleshooting](#troubleshooting-docker--ollama) below.
 
-**Ports:** 3000 (API + Swagger UI at `/docs`), 3001 (MCP), 8080 (Open3D renderer). If host port 3001 is taken on your machine, set `MCP_HOST_PORT=3002` in `.env` to remap; `API_HOST_PORT` does the same for the API.
+**Ports:** 3000 (API + Swagger UI at `/docs`), 3001 (MCP), 8080 (Open3D renderer). API and MCP publish to `127.0.0.1` by default. If host port 3001 is taken, set `MCP_HOST_PORT=3002` in `.env`; `API_HOST_PORT` does the same for the API. Run `scripts/validate-bundle-exposure.sh` before starting the bundle.
 
 The bundle automatically initializes PostgreSQL, runs all migrations, auto-registers MCP OAuth credentials, starts Redis, and launches all services. The Fortémi documentation knowledge base (the "support archive") is **not loaded by default** — see [Support Archive](#support-archive-fortemi-docs) below to add it with one command.
 
@@ -635,15 +635,32 @@ The bundle started but can't reach Ollama. Three common causes:
 
 ### Bundle port collision
 
-The bundle binds host ports `3000` (API) and `3001` (MCP). On a host already running something on those ports:
+The bundle publishes API and MCP to loopback by default. On a host already running something on ports `3000` or `3001`:
 
 ```bash
 # In .env
+API_HOST_BIND=127.0.0.1
+MCP_HOST_BIND=127.0.0.1
 API_HOST_PORT=3010
 MCP_HOST_PORT=3011
 ```
 
-Container-side ports stay fixed; only the host mapping changes. For local development, `ISSUER_URL` must match the host-facing address (e.g. `http://localhost:3010`) and `FORTEMI_ALLOW_LOCAL_ISSUER=true` must be set. Hosted deployments must use a public HTTPS issuer.
+Container-side ports stay fixed; only the host mapping changes. For local development, `ISSUER_URL` must match the host-facing address (e.g. `http://localhost:3010`) and `FORTEMI_ALLOW_LOCAL_ISSUER=true` must be set.
+
+Non-loopback publishing is an explicit shared-appliance profile, not a port-only override:
+
+```bash
+FORTEMI_EXPOSURE_PROFILE=shared
+API_HOST_BIND=0.0.0.0
+MCP_HOST_BIND=0.0.0.0
+REQUIRE_AUTH=true
+ISSUER_URL=https://memory.example.com
+MCP_BASE_URL=https://memory.example.com/mcp
+ALLOWED_ORIGINS=https://memory.example.com
+POSTGRES_PASSWORD=<OPERATOR_SUPPLIED_DATABASE_PASSWORD>
+```
+
+The shared profile requires public HTTPS issuer/resource/origin metadata and a non-default database secret. Put TLS at the reverse proxy, restrict the published ports with the host firewall, and run `scripts/validate-bundle-exposure.sh` before `docker compose up`.
 
 ### Connecting to a remote Ollama instead of host
 
@@ -816,6 +833,9 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `COMPOSE_PROFILES` | `edge` | Hardware profile: `edge`, `gpu-12gb`, `gpu-24gb` |
+| `FORTEMI_EXPOSURE_PROFILE` | `local` | `local` permits loopback publishing only; `shared` enables validated non-loopback publishing. |
+| `API_HOST_BIND` | `127.0.0.1` | Host IP for the published API port. |
+| `MCP_HOST_BIND` | `127.0.0.1` | Host IP for the published MCP port. |
 | `DATABASE_URL` | `postgres://localhost/matric` | PostgreSQL connection |
 | `PORT` | `3000` | API server port |
 | `REQUIRE_AUTH` | `true` | Require OAuth2/API key auth on protected routes. Security booleans accept only `true`, `false`, `1`, or `0`. |

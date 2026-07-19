@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 # Generate .env configuration for Fortémi Docker bundle
 # Params: INSTALL_DIR, DOMAIN, PROTOCOL, COMPOSE_PROFILES, INFERENCE_PROVIDER,
 #         OLLAMA_GEN_MODEL, OLLAMA_EMBED_MODEL, OPENAI_API_KEY,
 #         OPENROUTER_API_KEY, LLAMACPP_BASE_URL, DATA_DIR,
-#         FORTEMI_INSTALL_MODE
+#         FORTEMI_INSTALL_MODE, FORTEMI_EXPOSURE_PROFILE
 
 INSTALL_DIR="${INSTALL_DIR:?INSTALL_DIR is required}"
 DOMAIN="${DOMAIN:-localhost}"
@@ -15,21 +16,18 @@ OLLAMA_GEN_MODEL="${OLLAMA_GEN_MODEL:-qwen3.5:9b}"
 OLLAMA_EMBED_MODEL="${OLLAMA_EMBED_MODEL:-nomic-embed-text}"
 DATA_DIR="${DATA_DIR:-${INSTALL_DIR}/data}"
 FORTEMI_INSTALL_MODE="${FORTEMI_INSTALL_MODE:-secure}"
+FORTEMI_EXPOSURE_PROFILE="${FORTEMI_EXPOSURE_PROFILE:-local}"
 
 case "${FORTEMI_INSTALL_MODE}" in
     secure)
         REQUIRE_AUTH_VALUE=true
         I_UNDERSTAND_NO_AUTH_VALUE=false
         HOST_VALUE="${HOST:-0.0.0.0}"
-        API_HOST_PORT_VALUE="${API_HOST_PORT:-3000}"
-        MCP_HOST_PORT_VALUE="${MCP_HOST_PORT:-3001}"
         ;;
     local-no-auth)
         REQUIRE_AUTH_VALUE=false
         I_UNDERSTAND_NO_AUTH_VALUE=true
         HOST_VALUE="${HOST:-0.0.0.0}"
-        API_HOST_PORT_VALUE="${API_HOST_PORT:-127.0.0.1:3000}"
-        MCP_HOST_PORT_VALUE="${MCP_HOST_PORT:-127.0.0.1:3001}"
         ;;
     *)
         echo "ERROR: FORTEMI_INSTALL_MODE must be 'secure' or 'local-no-auth'."
@@ -38,6 +36,30 @@ case "${FORTEMI_INSTALL_MODE}" in
         exit 1
         ;;
 esac
+
+case "${FORTEMI_EXPOSURE_PROFILE}" in
+    local)
+        API_HOST_BIND_VALUE="${API_HOST_BIND:-127.0.0.1}"
+        MCP_HOST_BIND_VALUE="${MCP_HOST_BIND:-127.0.0.1}"
+        ;;
+    shared)
+        if [ "${FORTEMI_INSTALL_MODE}" != "secure" ]; then
+            echo "ERROR: shared exposure requires FORTEMI_INSTALL_MODE=secure."
+            exit 1
+        fi
+        : "${POSTGRES_PASSWORD:?shared exposure requires POSTGRES_PASSWORD}"
+        : "${ALLOWED_ORIGINS:?shared exposure requires ALLOWED_ORIGINS}"
+        : "${MCP_BASE_URL:?shared exposure requires MCP_BASE_URL}"
+        API_HOST_BIND_VALUE="${API_HOST_BIND:-0.0.0.0}"
+        MCP_HOST_BIND_VALUE="${MCP_HOST_BIND:-0.0.0.0}"
+        ;;
+    *)
+        echo "ERROR: FORTEMI_EXPOSURE_PROFILE must be 'local' or 'shared'."
+        exit 1
+        ;;
+esac
+API_HOST_PORT_VALUE="${API_HOST_PORT:-3000}"
+MCP_HOST_PORT_VALUE="${MCP_HOST_PORT:-3001}"
 
 # Smart protocol default: http for localhost, https otherwise
 if [ -z "${PROTOCOL:-}" ]; then
@@ -76,6 +98,9 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES}
 # Install mode: secure | local-no-auth
 FORTEMI_INSTALL_MODE=${FORTEMI_INSTALL_MODE}
 
+# Exposure profile: local | shared
+FORTEMI_EXPOSURE_PROFILE=${FORTEMI_EXPOSURE_PROFILE}
+
 # Inference provider: ollama | openai | openrouter | llamacpp
 MATRIC_INFERENCE_DEFAULT=${INFERENCE_PROVIDER}
 
@@ -91,9 +116,19 @@ UPLOAD_DIR=${DATA_DIR}/uploads
 REQUIRE_AUTH=${REQUIRE_AUTH_VALUE}
 I_UNDERSTAND_NO_AUTH=${I_UNDERSTAND_NO_AUTH_VALUE}
 HOST=${HOST_VALUE}
+API_HOST_BIND=${API_HOST_BIND_VALUE}
+MCP_HOST_BIND=${MCP_HOST_BIND_VALUE}
 API_HOST_PORT=${API_HOST_PORT_VALUE}
 MCP_HOST_PORT=${MCP_HOST_PORT_VALUE}
 EOF
+
+if [ "${FORTEMI_EXPOSURE_PROFILE}" = "shared" ]; then
+    cat >> "${ENV_FILE}" <<EOF
+ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+MCP_BASE_URL=${MCP_BASE_URL}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+EOF
+fi
 
 # Append provider-specific configuration
 case "${INFERENCE_PROVIDER}" in
@@ -138,10 +173,17 @@ echo "  URL:      ${PROTOCOL}://${DOMAIN}"
 echo "  Profile:  ${COMPOSE_PROFILES}"
 echo "  Provider: ${INFERENCE_PROVIDER}"
 echo "  Mode:     ${FORTEMI_INSTALL_MODE}"
+echo "  Exposure: ${FORTEMI_EXPOSURE_PROFILE}"
+echo "  API bind: ${API_HOST_BIND_VALUE}:${API_HOST_PORT_VALUE}"
+echo "  MCP bind: ${MCP_HOST_BIND_VALUE}:${MCP_HOST_PORT_VALUE}"
 if [ "${FORTEMI_INSTALL_MODE}" = "local-no-auth" ]; then
     echo "  Auth:     disabled intentionally; host ports bound to 127.0.0.1"
 else
     echo "  Auth:     required"
+fi
+if [ "${FORTEMI_EXPOSURE_PROFILE}" = "shared" ]; then
+    echo "  WARNING: non-loopback exposure selected; deploy preflight will require"
+    echo "           public HTTPS metadata/origins and a non-default DB secret."
 fi
 if [ "${INFERENCE_PROVIDER}" = "ollama" ]; then
     echo "  Model:    ${OLLAMA_GEN_MODEL}"

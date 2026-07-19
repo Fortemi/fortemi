@@ -154,6 +154,11 @@ jobs:
           python3 scripts/ci/verify-docker-socket-guidance.py
           python3 -m unittest tests/test_verify_docker_socket_guidance.py
 
+      - name: Check Docker bundle exposure policy
+        run: |
+          bash scripts/validate-bundle-exposure.sh /dev/null
+          python3 -m unittest tests/test_verify_bundle_exposure.py
+
       - name: Check tracked source-backup artifacts
         run: |
           python3 scripts/ci/verify-source-backup-artifacts.py

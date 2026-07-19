@@ -8,6 +8,9 @@ INSTALL_DIR="${INSTALL_DIR:?INSTALL_DIR is required}"
 
 cd "${INSTALL_DIR}"
 
+echo "Validating rendered bundle exposure policy..."
+bash scripts/validate-bundle-exposure.sh .env
+
 echo "Pulling Docker images..."
 docker compose -f docker-compose.bundle.yml pull
 

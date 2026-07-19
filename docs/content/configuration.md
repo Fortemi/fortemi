@@ -127,11 +127,24 @@ FORTEMI_ALLOW_LOCAL_ISSUER=true
 
 **Example (Hosted/team deployment):**
 ```bash
+FORTEMI_EXPOSURE_PROFILE=shared
+API_HOST_BIND=0.0.0.0
+MCP_HOST_BIND=0.0.0.0
 REQUIRE_AUTH=true
 ISSUER_URL=https://memory.team.com
+MCP_BASE_URL=https://memory.team.com/mcp
+ALLOWED_ORIGINS=https://memory.team.com
+POSTGRES_PASSWORD=<OPERATOR_SUPPLIED_DATABASE_PASSWORD>
 OAUTH_TOKEN_LIFETIME_SECS=3600
 OAUTH_MCP_TOKEN_LIFETIME_SECS=86400
 ```
+
+Docker bundle publishing defaults to `127.0.0.1` for API and MCP. Before
+starting or resetting the bundle, run `scripts/validate-bundle-exposure.sh`.
+The `shared` profile fails validation unless authentication, public HTTPS
+issuer/resource/origin metadata, and a non-default database password are all
+present. A reverse proxy must terminate TLS and the host firewall must limit
+direct API/MCP access.
 
 ### Rate Limiting
 

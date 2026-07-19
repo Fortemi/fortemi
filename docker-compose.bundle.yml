@@ -255,12 +255,17 @@ services:
         BUILD_DATE: ${BUILD_DATE:-unknown}
         CARGO_BUILD_JOBS: ${CARGO_BUILD_JOBS:-8}
     ports:
-      # Host-side port is env-configurable so operators can dodge
-      # collisions with existing services on the host (e.g. another
-      # dashboard on 3001) without needing a docker-compose override file.
-      # Container-side stays fixed.
-      - "${API_HOST_PORT:-3000}:3000"
-      - "${MCP_HOST_PORT:-3001}:3001"
+      # The supported default is local/workstation access. Non-loopback
+      # publishing requires FORTEMI_EXPOSURE_PROFILE=shared and must pass
+      # scripts/validate-bundle-exposure.sh before startup. (#989)
+      - target: 3000
+        published: "${API_HOST_PORT:-3000}"
+        host_ip: "${API_HOST_BIND:-127.0.0.1}"
+        protocol: tcp
+      - target: 3001
+        published: "${MCP_HOST_PORT:-3001}"
+        host_ip: "${MCP_HOST_BIND:-127.0.0.1}"
+        protocol: tcp
     depends_on:
       redis:
         condition: service_healthy
@@ -286,6 +291,7 @@ services:
       - DEBUG_SESSION_CONTEXT=${DEBUG_SESSION_CONTEXT:-}
       - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-false}
       - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
+      - FORTEMI_EXPOSURE_PROFILE=${FORTEMI_EXPOSURE_PROFILE:-local}
       # ADR-094: anonymous mode is opt-in only. To run a local single-user
       # bundle without auth, explicitly set REQUIRE_AUTH=false and
       # I_UNDERSTAND_NO_AUTH=true in your environment.
