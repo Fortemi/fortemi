@@ -2809,6 +2809,12 @@ async fn main() -> anyhow::Result<()> {
         event_bus_capacity,
         replay_buffer_size,
     ));
+    let usage_meter: Arc<dyn UsageMeter> = Arc::new(NoOpMeter);
+    let job_usage_rx = event_bus.subscribe();
+    let job_usage_meter = usage_meter.clone();
+    tokio::spawn(async move {
+        record_job_enqueued_usage(job_usage_rx, job_usage_meter).await;
+    });
     info!(
         broadcast_capacity = event_bus_capacity,
         replay_buffer_size, "Event bus initialized"
@@ -3375,7 +3381,7 @@ async fn main() -> anyhow::Result<()> {
         require_auth: security_config.require_auth, // ADR-094: fail-closed default — see startup validation block in main()
         call_recording_require_confirmation: security_config.call_recording_require_confirmation,
         authorization_policy: authorization_policy_for_mode(security_config.multi_tenant),
-        usage_meter: Arc::new(NoOpMeter),
+        usage_meter,
         oauth_token_lifetime,
         oauth_mcp_token_lifetime,
         max_memories: std::env::var("MAX_MEMORIES")
@@ -4120,6 +4126,122 @@ async fn main() -> anyhow::Result<()> {
 // =============================================================================
 // EVENTING: WebSocket, SSE, and Event Bridge (Issues #38-#45)
 // =============================================================================
+
+async fn record_job_enqueued_usage(
+    mut event_rx: tokio::sync::broadcast::Receiver<EventEnvelope>,
+    meter: Arc<dyn UsageMeter>,
+) {
+    loop {
+        match event_rx.recv().await {
+            Ok(envelope) => match job_enqueued_usage_event(&envelope) {
+                Ok(Some(event)) => {
+                    if let Err(error) = meter.record(&event).await {
+                        warn!(
+                            error_len = telemetry_text_len(&error.to_string()),
+                            "Best-effort job enqueue usage recording failed"
+                        );
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    warn!(
+                        error_len = telemetry_text_len(&error.to_string()),
+                        "Job enqueue usage event construction failed"
+                    );
+                }
+            },
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
+                warn!(
+                    missed,
+                    "Job enqueue usage subscriber lagged; best-effort events were missed"
+                );
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+        }
+    }
+}
+
+fn job_enqueued_usage_event(envelope: &EventEnvelope) -> Result<Option<UsageEvent>, MeteringError> {
+    let ServerEvent::JobQueued {
+        job_id, job_type, ..
+    } = &envelope.payload
+    else {
+        return Ok(None);
+    };
+    let job_kind = job_kind_usage_label(job_type).ok_or(MeteringError::InvalidLabel("job kind"))?;
+    let dimension = UsageDimension::JobEnqueued;
+    let mut attrs = UsageAttributes::default();
+    attrs.insert(
+        &dimension,
+        UsageAttributeKey::JobKind,
+        UsageAttributeValue::label(job_kind)?,
+    )?;
+
+    let subject = match envelope.tenant_id.as_deref() {
+        Some(tenant_id) => UsageSubject::unknown().with_tenant(tenant_id)?,
+        None => UsageSubject::unknown(),
+    };
+    let correlation = UsageCorrelation::default().with_job_id(*job_id);
+
+    let event = UsageEvent::new(
+        format!("job:{job_id}:enqueued"),
+        envelope.occurred_at,
+        subject,
+        dimension,
+        UsageMeasurement::Measured(UsageQuantity::whole(1, UsageUnit::Count)?),
+        UsageClass::NonBillableAdmission,
+        UsageProducer::Jobs,
+        UsageSource::Admission,
+        UsageOutcome::Completed,
+    )?
+    .with_identity(*job_id, Utc::now())
+    .with_correlation(correlation)?
+    .with_attrs(attrs)?;
+
+    Ok(Some(event))
+}
+
+fn job_kind_usage_label(job_type: &str) -> Option<&'static str> {
+    match job_type {
+        "AiRevision" => Some("ai_revision"),
+        "AiRevisionContextual" => Some("ai_revision_contextual"),
+        "Embedding" => Some("embedding"),
+        "Linking" => Some("linking"),
+        "ContextUpdate" => Some("context_update"),
+        "TitleGeneration" => Some("title_generation"),
+        "CreateEmbeddingSet" => Some("create_embedding_set"),
+        "RefreshEmbeddingSet" => Some("refresh_embedding_set"),
+        "BuildSetIndex" => Some("build_set_index"),
+        "PurgeNote" => Some("purge_note"),
+        "ConceptTagging" => Some("concept_tagging"),
+        "ReEmbedAll" => Some("re_embed_all"),
+        "EntityExtraction" => Some("entity_extraction"),
+        "GenerateFineTuningData" => Some("generate_fine_tuning_data"),
+        "EmbedForSet" => Some("embed_for_set"),
+        "GenerateGraphEmbedding" => Some("generate_graph_embedding"),
+        "GenerateCoarseEmbedding" => Some("generate_coarse_embedding"),
+        "ExifExtraction" => Some("exif_extraction"),
+        "Extraction" => Some("extraction"),
+        "DocumentTypeInference" => Some("document_type_inference"),
+        "MetadataExtraction" => Some("metadata_extraction"),
+        "RelatedConceptInference" => Some("related_concept_inference"),
+        "ReferenceExtraction" => Some("reference_extraction"),
+        "GraphMaintenance" => Some("graph_maintenance"),
+        "SpeakerDiarization" => Some("speaker_diarization"),
+        "SpeakerRelabel" => Some("speaker_relabel"),
+        "MediaOptimize" => Some("media_optimize"),
+        "ThumbnailSprite" => Some("thumbnail_sprite"),
+        "KeyframeVision" => Some("keyframe_vision"),
+        "KeyframeCharacterVision" => Some("keyframe_character_vision"),
+        "KeyframeSettingVision" => Some("keyframe_setting_vision"),
+        "KeyframeAssembly" => Some("keyframe_assembly"),
+        "ViewVision" => Some("view_vision"),
+        "ViewAssembly" => Some("view_assembly"),
+        "AudioTranscription" => Some("audio_transcription"),
+        "AudioChunkTranscription" => Some("audio_chunk_transcription"),
+        _ => None,
+    }
+}
 
 /// Bridge WorkerEvent from the job worker to ServerEvent on the unified EventBus.
 async fn bridge_worker_events(
@@ -42188,6 +42310,65 @@ mod tests {
 
         assert_eq!(status, StatusCode::IM_A_TEAPOT);
         assert_eq!(body.as_ref(), b"unchanged");
+    }
+
+    #[tokio::test]
+    async fn job_enqueue_usage_is_nonbillable_replay_safe_and_bounded() {
+        let job_id = Uuid::now_v7();
+        let note_id = Uuid::now_v7();
+        let envelope = EventEnvelope::new(ServerEvent::JobQueued {
+            job_id,
+            job_type: "Embedding".to_string(),
+            note_id: Some(note_id),
+        });
+        let event = job_enqueued_usage_event(&envelope)
+            .unwrap()
+            .expect("job queued event must produce usage");
+        let meter = matric_core::InMemoryMeter::default();
+
+        assert_eq!(event.event_id, job_id);
+        assert_eq!(event.idempotency_key, format!("job:{job_id}:enqueued"));
+        assert_eq!(event.dimension, UsageDimension::JobEnqueued);
+        assert_eq!(event.class, UsageClass::NonBillableAdmission);
+        assert_eq!(event.producer, UsageProducer::Jobs);
+        assert_eq!(event.source, UsageSource::Admission);
+        assert_eq!(event.outcome, UsageOutcome::Completed);
+        assert!(event.subject.is_unknown());
+        assert_eq!(event.correlation.job_id(), Some(job_id));
+        assert_eq!(
+            event.attrs.get(UsageAttributeKey::JobKind),
+            Some(&UsageAttributeValue::Label("embedding".to_string()))
+        );
+
+        meter.record(&event).await.unwrap();
+        meter
+            .record(&event)
+            .await
+            .expect("exact job enqueue replay must be idempotent");
+        assert_eq!(meter.events().await.len(), 1);
+
+        let encoded = serde_json::to_string(&event).unwrap();
+        assert!(!encoded.contains(&note_id.to_string()));
+        assert!(!encoded.contains("payload"));
+        assert!(!encoded.contains("error"));
+    }
+
+    #[test]
+    fn job_enqueue_usage_rejects_arbitrary_job_kind_metadata() {
+        let raw_job_kind = "Embedding?token=sk-secret&url=https://user:pass@jobs.example/private";
+        let envelope = EventEnvelope::new(ServerEvent::JobQueued {
+            job_id: Uuid::now_v7(),
+            job_type: raw_job_kind.to_string(),
+            note_id: None,
+        });
+
+        let error = job_enqueued_usage_event(&envelope).unwrap_err();
+        let rendered = error.to_string();
+
+        assert_eq!(error, MeteringError::InvalidLabel("job kind"));
+        assert!(!rendered.contains(raw_job_kind));
+        assert!(!rendered.contains("sk-secret"));
+        assert!(!rendered.contains("jobs.example"));
     }
 
     #[tokio::test]
