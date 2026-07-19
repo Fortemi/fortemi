@@ -154,6 +154,23 @@ jobs:
           python3 scripts/ci/verify-docker-socket-guidance.py
           python3 -m unittest tests/test_verify_docker_socket_guidance.py
 
+      # Match test.yml's pinned, checksum-verified Compose renderer. This only
+      # renders configuration; the lint container does not receive a socket.
+      - name: Install docker compose plugin (pinned)
+        run: |
+          if docker compose version >/dev/null 2>&1; then
+            echo "compose plugin already present: $(docker compose version --short)"
+            exit 0
+          fi
+          COMPOSE_VERSION=v2.39.2
+          COMPOSE_SHA256=a55a8cd4ef103aac282812554e531aac8df7e914a287ee81e14d695556a22902
+          curl -fsSL -o /tmp/docker-compose \
+            "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
+          echo "${COMPOSE_SHA256}  /tmp/docker-compose" | sha256sum -c -
+          mkdir -p ~/.docker/cli-plugins
+          install -m 0755 /tmp/docker-compose ~/.docker/cli-plugins/docker-compose
+          docker compose version
+
       - name: Check Docker bundle exposure policy
         run: |
           bash scripts/validate-bundle-exposure.sh /dev/null
