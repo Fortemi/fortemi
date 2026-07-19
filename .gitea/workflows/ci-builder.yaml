@@ -46,11 +46,30 @@ env:
   BUILD_REPO_TOKEN_VAULT_FIELD: ${{ vars.BUILD_REPO_TOKEN_VAULT_FIELD }}
 
 jobs:
+  runner-capacity:
+    name: Runner Capacity Preflight
+    runs-on: matric-builder
+    steps:
+      - name: Checkout capacity guard
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Check free bytes and inodes
+        env:
+          RUNNER_MIN_FREE_KIB: ${{ vars.RUNNER_MIN_FREE_KIB }}
+          RUNNER_MIN_FREE_INODES: ${{ vars.RUNNER_MIN_FREE_INODES }}
+        run: bash scripts/ci/check-runner-capacity.sh
+
   # Keep the public source mirror aligned with authoritative Gitea refs. GHCR
   # and release API calls do not update repository refs themselves.
   sync-github-source:
     name: Sync Source to GitHub
     runs-on: matric-builder
+    needs: [runner-capacity]
     if: github.event_name == 'push'
     steps:
       - name: Checkout complete repository
@@ -93,6 +112,7 @@ jobs:
   build-testdb:
     name: Build Test Database Image
     runs-on: matric-builder
+    needs: [runner-capacity]
     steps:
       - name: Checkout
         run: |
@@ -110,6 +130,7 @@ jobs:
   lint:
     name: Lint
     runs-on: matric-builder
+    needs: [runner-capacity]
     steps:
       - name: Checkout
         run: |
@@ -135,6 +156,11 @@ jobs:
         run: |
           python3 scripts/ci/verify-checkout-contract.py
           python3 -m unittest tests/test_verify_checkout_contract.py
+
+      - name: Check runner capacity guard
+        run: |
+          bash -n scripts/ci/check-runner-capacity.sh
+          python3 -m unittest tests/test_runner_capacity.py
 
       - name: Check ADR rebaseline governance contract
         run: |
@@ -171,6 +197,7 @@ jobs:
   knowledge-shard-matrix:
     name: Knowledge Shard Conformance Matrix
     runs-on: matric-builder
+    needs: [runner-capacity]
     steps:
       - name: Checkout
         run: |
@@ -200,6 +227,7 @@ jobs:
   audit:
     name: Security Audit (deps)
     runs-on: matric-builder
+    needs: [runner-capacity]
     # Advisory scan; runs in parallel with lint.
     # Fails on high/critical advisories. See .cargo/audit.toml for the allowlist
     # mechanism (accept individual advisories with documented expiry).
@@ -236,6 +264,7 @@ jobs:
   deny:
     name: Policy Check (cargo-deny)
     runs-on: matric-builder
+    needs: [runner-capacity]
     # License + advisory + duplicate + source policy enforcement.
     # See deny.toml at repo root for the active policies.
     steps:
@@ -261,6 +290,7 @@ jobs:
   mcp-lockfile-sync:
     name: mcp-server Lockfile Sync
     runs-on: matric-builder
+    needs: [runner-capacity]
     # Verifies mcp-server/package-lock.json is in sync with package.json.
     # The audit job already runs `npm ci` implicitly, but this job exists
     # to surface drift with an explicit, actionable error message instead

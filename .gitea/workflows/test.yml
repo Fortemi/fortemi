@@ -34,10 +34,29 @@ env:
   LLVM_PROFILE_FILE: "target/coverage/profile-%p-%m.profraw"
 
 jobs:
+  runner-capacity:
+    name: Runner Capacity Preflight
+    runs-on: matric-builder
+    steps:
+      - name: Checkout capacity guard
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Check free bytes and inodes
+        env:
+          RUNNER_MIN_FREE_KIB: ${{ vars.RUNNER_MIN_FREE_KIB }}
+          RUNNER_MIN_FREE_INODES: ${{ vars.RUNNER_MIN_FREE_INODES }}
+        run: bash scripts/ci/check-runner-capacity.sh
+
   # Build testdb image once for all jobs
   build-testdb:
     name: Build Test Database Image
     runs-on: matric-builder
+    needs: [runner-capacity]
     steps:
       - name: Checkout
         run: |
@@ -454,6 +473,7 @@ jobs:
   validate-intel-overlay:
     name: Validate Intel Compose Overlay
     runs-on: matric-builder
+    needs: [runner-capacity]
     steps:
       - name: Checkout
         run: |

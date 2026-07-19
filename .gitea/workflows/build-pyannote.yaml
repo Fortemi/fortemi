@@ -33,6 +33,12 @@ jobs:
           git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
+      - name: Check free bytes and inodes
+        env:
+          RUNNER_MIN_FREE_KIB: ${{ vars.RUNNER_MIN_FREE_KIB }}
+          RUNNER_MIN_FREE_INODES: ${{ vars.RUNNER_MIN_FREE_INODES }}
+        run: bash scripts/ci/check-runner-capacity.sh
+
       - name: Fetch registry and model tokens from vault
         env:
           VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}

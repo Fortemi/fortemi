@@ -269,16 +269,108 @@ id runner
 
 ### Out of Disk Space
 
-Builder images and caches can consume significant space:
+The primary CI, test, and Linux sidecar workflows run a capacity sentinel before
+their build fan-out. It checks both the free blocks and free inodes on the
+filesystem backing `GITHUB_WORKSPACE`. Defaults are:
+
+- `RUNNER_MIN_FREE_KIB=41943040` (40 GiB)
+- `RUNNER_MIN_FREE_INODES=1000000`
+
+Set repository variables with those names only after measuring a successful
+maximum-load run. Invalid, zero, or unavailable values fail closed. A failed
+`Runner Capacity Preflight` is an infrastructure result; do not reinterpret it
+as a test failure or bypass the dependency.
+
+#### Diagnose
+
+Use read-only diagnostics first:
 
 ```bash
-# Check Docker disk usage
-docker system df
-
-# Clean up
-docker system prune -a
-docker volume prune
+df -hP /var/lib/docker /var/lib/act_runner
+df -iP /var/lib/docker /var/lib/act_runner
+docker system df -v
+sudo journalctl -u act_runner --since '24 hours ago' |
+  grep -E 'no space left|ENOSPC|disk quota'
 ```
+
+Record free bytes, free inodes, Docker image/build-cache usage, active runner
+jobs, and the largest runner work directories in the incident. A full
+filesystem can prevent the preflight container from executing at all; the
+sentinel job name still isolates the failure before the expensive build fan-out.
+
+#### Drain Before Cleanup
+
+1. Disable or drain the runner in Gitea so it accepts no new jobs.
+2. Wait for every active job on that runner to finish or cancel it explicitly.
+3. Capture the read-only diagnostics above.
+4. Remove only resources proven stale, then rerun the diagnostics.
+5. Re-enable the runner and dispatch the failed immutable commit SHA.
+
+Do not run `docker system prune -a` or `docker volume prune` on an active
+runner. Broad volume pruning can destroy test or service state, and an age
+filter alone does not prove that a resource is unrelated to a running job.
+
+For a drained dedicated runner, a bounded cache policy can use commands such as:
+
+```bash
+# Stopped containers older than one day.
+docker container prune --force --filter 'until=24h'
+
+# Dangling images older than seven days. This does not remove all unused images.
+docker image prune --force --filter 'until=168h'
+
+# BuildKit cache older than seven days, retaining up to 40 GiB.
+docker builder prune --force --filter 'until=168h' --keep-storage 40GB
+```
+
+Review the candidates and retention values for the installed Docker/BuildKit
+version before automating them. Do not automate volume deletion. Give
+long-lived images and volumes ownership labels, and make cleanup select only
+the runner-owned labels.
+
+#### Continuous Monitoring
+
+Install the repository guard on the runner and call it from the host scheduler
+against the filesystem that backs both Actions workspaces and Docker:
+
+```ini
+# /etc/systemd/system/fortemi-runner-capacity.service
+[Unit]
+Description=Check Fortemi runner disk and inode capacity
+
+[Service]
+Type=oneshot
+Environment=RUNNER_MIN_FREE_KIB=41943040
+Environment=RUNNER_MIN_FREE_INODES=1000000
+ExecStart=/opt/fortemi/scripts/ci/check-runner-capacity.sh --path /var/lib/docker
+```
+
+```ini
+# /etc/systemd/system/fortemi-runner-capacity.timer
+[Unit]
+Description=Monitor Fortemi runner capacity every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Connect unit failures to the host's existing alerting. After installing or
+updating the script:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now fortemi-runner-capacity.timer
+systemctl list-timers fortemi-runner-capacity.timer
+```
+
+The scheduled monitor and workflow sentinel use the same thresholds. Cleanup
+remains a separate, drain-required operator action so monitoring cannot delete
+active-job state.
 
 ## Updating the Builder Image
 
