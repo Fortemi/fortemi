@@ -548,11 +548,11 @@ isolation.
 
 ### Rate Limit Headers
 
-The global rate limiter does **not** emit rate-limit headers. There are no
-`X-RateLimit-Limit`, `X-RateLimit-Remaining`, or `X-RateLimit-Reset` headers,
-and no `Retry-After` header on the rate-limit (429) response. Clients cannot
-read a remaining-quota value; detect the limit by the HTTP `429` status and
-back off.
+The global rate limiter does **not** emit quota-capacity headers. There are no
+`X-RateLimit-Limit`, `X-RateLimit-Remaining`, or `X-RateLimit-Reset` headers, or
+draft `RateLimit` / `RateLimit-Policy` fields. Its 429 response includes only
+`Retry-After` with a whole-number delay in seconds. Clients cannot read a
+remaining-quota value; wait at least the indicated delay before retrying.
 
 Future hosted tenant-aware quotas are tracked by ADR-098 and #714. They target
 the combined `RateLimit` and `RateLimit-Policy` draft fields and do not add
@@ -572,10 +572,10 @@ legacy `X-RateLimit-*` compatibility headers.
 ```
 
 **Best Practices:**
-- Implement exponential backoff when rate limited (no `Retry-After` is provided)
+- Honor `Retry-After` and retain a bounded exponential-backoff policy
 - Cache frequently accessed data
 - Batch operations when possible (e.g., `bulk_create_notes`)
-- Back off on HTTP `429` — there is no remaining-quota header to monitor
+- Back off on HTTP `429`; there is no remaining-quota header to monitor
 
 **Python Example:**
 ```python
@@ -587,9 +587,8 @@ def api_call_with_retry(url, headers, max_retries=3):
         response = requests.get(url, headers=headers)
 
         if response.status_code == 429:
-            # The global rate limiter sends no Retry-After header.
-            # Use plain exponential backoff.
-            backoff = 2 ** attempt
+            retry_after = int(response.headers.get("Retry-After", "1"))
+            backoff = max(retry_after, 2 ** attempt)
             print(f"Rate limited. Waiting {backoff}s...")
             time.sleep(backoff)
             continue

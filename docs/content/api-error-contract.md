@@ -48,7 +48,7 @@ The current public catalog is generated from the API `ProblemType` registry:
 | `https://fortemi.com/problems/not-found` | 404 | Not Found | Requested resource is not present or not visible to the caller. |
 | `https://fortemi.com/problems/gone` | 410 | Gone | Previously valid cursor or token state is no longer usable. |
 | `https://fortemi.com/problems/conflict` | 409 | Conflict | Duplicate resource or state conflict. |
-| `https://fortemi.com/problems/rate-limit-exceeded` | 429 | Too Many Requests | Rate limit or quota boundary reached. The global limiter sends no headers; back off on 429. (Only the chat 503 capacity response carries `Retry-After`.) |
+| `https://fortemi.com/problems/rate-limit-exceeded` | 429 | Too Many Requests | Rate limit or quota boundary reached. The global limiter sends `Retry-After` but no quota-capacity headers. |
 | `https://fortemi.com/problems/internal-error` | 500 | Internal Server Error | Unexpected internal failure. |
 | `https://fortemi.com/problems/operation-failed` | 500 | Operation Failed | Backup, restore, command, or storage operation failed. |
 | `https://fortemi.com/problems/provider-failure` | 502 | Provider Failure | AI, media, or inference provider failed. |

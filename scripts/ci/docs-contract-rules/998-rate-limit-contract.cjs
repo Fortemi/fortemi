@@ -5,7 +5,7 @@ const CURRENT_CE_ENV_VARS = Object.freeze([
   "RATE_LIMIT_REQUESTS",
   "RATE_LIMIT_PERIOD_SECS",
 ]);
-const CURRENT_CE_HEADERS = Object.freeze([]);
+const CURRENT_CE_HEADERS = Object.freeze(["Retry-After"]);
 const FUTURE_HOSTED_HEADERS = Object.freeze(["RateLimit", "RateLimit-Policy"]);
 const LEGACY_HEADERS = Object.freeze([
   "X-RateLimit-*",
@@ -84,12 +84,12 @@ module.exports = {
       validate(content) {
         return (
           CURRENT_CE_ENV_VARS.every((name) => content.includes(`\`${name}\``)) &&
-          content.includes("carries **no** rate-limit headers") &&
+          /carries only\s+`Retry-After`/.test(content) &&
           content.includes("future hosted quota")
         );
       },
       remediation:
-        "Document all three current CE env vars, the header-free current 429, and a separately labeled future hosted contract.",
+        "Document all three current CE env vars, the current Retry-After-only 429, and a separately labeled future hosted contract.",
     },
     {
       id: "rate-limit-future-header-contract",

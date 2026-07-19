@@ -29,7 +29,7 @@ use axum::{
     Form, Json, Router,
 };
 use base64::Engine;
-use governor::{Quota, RateLimiter};
+use governor::{clock::Clock, Quota, RateLimiter};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 use tower_http::{
@@ -2453,6 +2453,7 @@ fn cors_layer(allowed_origins: Vec<HeaderValue>) -> CorsLayer {
             header::CONTENT_LENGTH,
             header::CONTENT_DISPOSITION,
             header::ETAG,
+            header::RETRY_AFTER,
             "x-request-id".parse().unwrap(),
         ])
         .allow_credentials(true)
@@ -7023,23 +7024,50 @@ async fn validate_incoming_webhook_payload_handler(
 // RATE LIMITING MIDDLEWARE
 // =============================================================================
 
+fn retry_after_delay_seconds(wait: std::time::Duration) -> u64 {
+    wait.as_secs()
+        .saturating_add(u64::from(wait.subsec_nanos() > 0))
+        .clamp(1, MAX_RATE_LIMIT_PERIOD_SECS)
+}
+
+fn rate_limit_rejection_response(wait: std::time::Duration) -> axum::response::Response {
+    let mut response = problem_response(
+        StatusCode::TOO_MANY_REQUESTS,
+        ProblemType::RateLimit,
+        "Too many requests. Please wait before retrying.".to_string(),
+        None,
+    );
+    let retry_after = retry_after_delay_seconds(wait);
+    response.headers_mut().insert(
+        header::RETRY_AFTER,
+        HeaderValue::from_str(&retry_after.to_string())
+            .expect("bounded Retry-After delay must be a valid header"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+fn current_rate_limit_rejection(
+    limiter: Option<&GlobalRateLimiter>,
+) -> Option<axum::response::Response> {
+    let limiter = limiter?;
+    let rejection = limiter.check().err()?;
+    let clock = governor::clock::DefaultClock::default();
+    Some(rate_limit_rejection_response(
+        rejection.wait_time_from(clock.now()),
+    ))
+}
+
 async fn rate_limit_middleware(
     State(state): State<AppState>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    // If rate limiting is disabled, pass through
-    if let Some(limiter) = &state.rate_limiter {
-        // Check rate limit
-        if limiter.check().is_err() {
-            tracing::warn!("Rate limit exceeded");
-            return problem_response(
-                StatusCode::TOO_MANY_REQUESTS,
-                ProblemType::RateLimit,
-                "Too many requests. Please wait before retrying.".to_string(),
-                None,
-            );
-        }
+    if let Some(response) = current_rate_limit_rejection(state.rate_limiter.as_deref()) {
+        tracing::warn!("Rate limit exceeded");
+        return response;
     }
     next.run(request).await
 }
@@ -36511,6 +36539,94 @@ mod tests {
             .to_ascii_lowercase();
         assert!(allowed_headers.contains("cache-control"));
         assert!(allowed_headers.contains("x-fortemi-memory"));
+    }
+
+    #[tokio::test]
+    async fn cors_exposes_retry_after_response_header() {
+        let response = Router::new()
+            .route(
+                "/limited",
+                get(|| async { (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "1")]) }),
+            )
+            .layer(cors_layer(vec![HeaderValue::from_static(
+                "http://127.0.0.1:1421",
+            )]))
+            .oneshot(
+                axum::http::Request::builder()
+                    .method(Method::GET)
+                    .uri("/limited")
+                    .header(header::ORIGIN, "http://127.0.0.1:1421")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let exposed_headers = response
+            .headers()
+            .get(header::ACCESS_CONTROL_EXPOSE_HEADERS)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_ascii_lowercase();
+        assert!(exposed_headers.contains("retry-after"));
+    }
+
+    #[test]
+    fn retry_after_delay_seconds_ceil_and_clamp() {
+        assert_eq!(retry_after_delay_seconds(std::time::Duration::ZERO), 1);
+        assert_eq!(
+            retry_after_delay_seconds(std::time::Duration::from_millis(1)),
+            1
+        );
+        assert_eq!(
+            retry_after_delay_seconds(std::time::Duration::from_millis(1001)),
+            2
+        );
+        assert_eq!(
+            retry_after_delay_seconds(std::time::Duration::from_secs(
+                MAX_RATE_LIMIT_PERIOD_SECS + 1
+            )),
+            MAX_RATE_LIMIT_PERIOD_SECS
+        );
+    }
+
+    #[tokio::test]
+    async fn current_rate_limit_rejection_covers_disabled_allowed_and_denied() {
+        assert!(current_rate_limit_rejection(None).is_none());
+
+        let limiter = RateLimiter::direct(Quota::per_second(
+            NonZeroU32::new(1).expect("non-zero test quota"),
+        ));
+        assert!(current_rate_limit_rejection(Some(&limiter)).is_none());
+
+        let response = current_rate_limit_rejection(Some(&limiter))
+            .expect("second immediate request must be denied");
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers()[header::RETRY_AFTER], "1");
+        assert_eq!(
+            response
+                .headers()
+                .get_all(header::RETRY_AFTER)
+                .iter()
+                .count(),
+            1
+        );
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(!response.headers().contains_key("ratelimit"));
+        assert!(!response.headers().contains_key("ratelimit-policy"));
+        assert!(!response.headers().contains_key("x-ratelimit-limit"));
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let problem: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/rate-limit-exceeded"
+        );
+        assert_eq!(problem["status"], 429);
+        assert!(problem.get("retry_after").is_none());
     }
 
     #[tokio::test]

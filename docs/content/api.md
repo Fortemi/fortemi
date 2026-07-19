@@ -3477,9 +3477,11 @@ tiers). Limits are configured by environment variables:
 - `RATE_LIMIT_REQUESTS`: maximum requests per window
 - `RATE_LIMIT_PERIOD_SECS`: window length in seconds
 
-The 429 response is `problem+json` (`type=https://fortemi.com/problems/rate-limit-exceeded`)
-and carries **no** rate-limit headers (no `X-RateLimit-*`, no `RateLimit-*`, and
-no `Retry-After`). Clients should back off on HTTP `429` with exponential backoff.
+The 429 response is `problem+json`
+(`type=https://fortemi.com/problems/rate-limit-exceeded`) and carries only
+`Retry-After` with a whole-number delay in seconds. It does not include
+`X-RateLimit-*`, `RateLimit`, or `RateLimit-Policy` fields. Clients should wait
+at least that delay before retrying and continue to use bounded backoff.
 
 The future hosted quota contract is tracked separately by ADR-098 and #714. Its
 target fields are the combined `RateLimit` and `RateLimit-Policy` draft fields,
