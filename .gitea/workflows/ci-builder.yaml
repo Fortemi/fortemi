@@ -598,16 +598,16 @@ jobs:
 
       - name: Verify published OpenAPI contract
         run: |
-          TEST_PORT=$((13001 + (GITHUB_RUN_ID % 1000)))
-          curl -sf http://localhost:${TEST_PORT}/openapi.yaml -o openapi-runtime.yaml
+          TEST_API="matric-test-api-${GITHUB_RUN_ID}"
+          docker exec ${TEST_API} curl -sf http://localhost:3000/openapi.yaml >openapi-runtime.yaml
           scripts/ci/openapi-contract.sh receipt \
             openapi-runtime.yaml \
             openapi-contract-receipt.json
 
       - name: Export AsyncAPI spec
         run: |
-          TEST_PORT=$((13001 + (GITHUB_RUN_ID % 1000)))
-          curl -sf http://localhost:${TEST_PORT}/asyncapi.yaml -o asyncapi.yaml
+          TEST_API="matric-test-api-${GITHUB_RUN_ID}"
+          docker exec ${TEST_API} curl -sf http://localhost:3000/asyncapi.yaml >asyncapi.yaml
 
       - name: Upload OpenAPI contract artifact
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
