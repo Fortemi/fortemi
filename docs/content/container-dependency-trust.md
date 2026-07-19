@@ -13,6 +13,11 @@ surface, review date and cadence, rollback behavior, and mirror policy.
 `scripts/ci/verify-third-party-dependencies.py` fails CI when a Compose or
 Dockerfile input is absent from that record, lacks a digest, drifts across
 surfaces, exceeds its review cadence, or introduces an unreviewed package feed.
+Python packages installed into the GLiNER and pyannote sidecars have a separate
+machine-readable authority at `docker/python-sidecar-locks.json`.
+`scripts/ci/verify-python-sidecar-locks.py` rejects input or lock checksum
+drift, open-ended requirements, unhashed distributions, unreviewed indexes,
+unsupported platforms, and CPU/CUDA graph mismatches.
 
 ## Runtime Inventory
 
@@ -31,6 +36,44 @@ The manifest also classifies the Docker Debian package feed used only by the CI
 builder. NodeSource is not a bundle or builder input: Node and npm are copied
 from the reviewed, digest-pinned Docker Official Image instead of adding that
 external repository.
+
+## Python Sidecar Locks
+
+GLiNER is a CPU-only image published for `linux/amd64` and `linux/arm64`. Its
+lock selects the PyTorch CPU wheel channel and rejects NVIDIA, CUDA, and Triton
+packages. pyannote is published for `linux/amd64`; one CUDA 12.6-capable image
+serves both the GPU profiles and the edge CPU profile. Its coordinated
+`torch`/`torchaudio` pair can execute without a GPU while retaining CUDA 12.6
+support when the NVIDIA device is present. TorchCodec is pinned to the CPU wheel
+from the release line compatible with the coordinated PyTorch version. A strict
+identity specifier prevents pip from substituting a same-version CUDA wheel, so
+built-in audio decoding does not silently load a different CUDA ABI.
+
+Both Dockerfiles install only wheels from the reviewed lock with
+`--require-hashes` and `--only-binary=:all:`. PyPI, the PyTorch CPU index, and
+the PyTorch CUDA 12.6 index are the only package feeds. Exact versions plus
+the lock's SHA-256 allowlist prevent another artifact or dependency from being
+accepted merely because an index returns it first.
+
+To update either graph, install exactly `uv 0.9.26`, edit the direct
+`requirements.txt`, and regenerate both locks:
+
+```bash
+scripts/lock-python-sidecars.sh
+python3 scripts/ci/verify-python-sidecar-locks.py
+python3 -m unittest tests/test_verify_python_sidecar_locks.py
+```
+
+Review every version and feed change, update the checksums and review date in
+`docker/python-sidecar-locks.json`, then build both sidecars. The regeneration
+script resolves for Python 3.12, excludes releases newer than its recorded
+cutoff, forbids source distributions, and proves the GLiNER graph is identical
+for amd64 and arm64.
+
+Rollback the direct requirement file and its generated lock as one unit from
+the prior reviewed commit. Rebuild GLiNER on both architectures. For pyannote,
+prove CPU-mode startup, TorchCodec audio decoding, and CUDA 12.6 imports before
+republishing; never reuse a rolling sidecar tag as rollback evidence.
 
 ## Verify a Dependency
 
@@ -96,3 +139,5 @@ replace the repository's reviewed defaults.
 - #937 owns whether the Docker-socket-bearing autoheal service can run and
   keeps it behind explicit `ops-autoheal`.
 - #1075 owns removal of the retired llama.cpp registry namespace.
+- #1076 owns exact, hash-locked Python package graphs, supported sidecar
+  platforms, and the PyTorch CPU/CUDA compatibility boundary.

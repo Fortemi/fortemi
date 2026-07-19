@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "policy_issue": 1076,
+  "resolver": {
+    "name": "uv",
+    "version": "0.9.26",
+    "python_version": "3.12",
+    "exclude_newer": "2026-07-19T00:00:00Z",
+    "source_builds": "forbidden",
+    "regeneration_command": "scripts/lock-python-sidecars.sh"
+  },
+  "feeds": [
+    {
+      "id": "pypi",
+      "url": "https://pypi.org/simple",
+      "role": "non-accelerator Python distributions and the pyannote TorchCodec CPU wheel",
+      "verification": "HTTPS plus exact versions and pip --require-hashes SHA-256 allowlist"
+    },
+    {
+      "id": "pytorch-cpu",
+      "url": "https://download.pytorch.org/whl/cpu",
+      "role": "GLiNER CPU-only PyTorch wheels",
+      "verification": "HTTPS plus exact local version and pip --require-hashes SHA-256 allowlist"
+    },
+    {
+      "id": "pytorch-cu126",
+      "url": "https://download.pytorch.org/whl/cu126",
+      "role": "pyannote CUDA 12.6 PyTorch and torchaudio wheels",
+      "verification": "HTTPS plus exact local versions and pip --require-hashes SHA-256 allowlist"
+    }
+  ],
+  "locks": [
+    {
+      "service": "gliner",
+      "requirements": "build/gliner/requirements.txt",
+      "requirements_sha256": "37c6599c921668a3d0a251b73b011cd553b0452383af0f58e5b6f4d858733b92",
+      "lock": "build/gliner/requirements.lock",
+      "lock_sha256": "b75bafaab1fb1f71fe3bdb4fa4e392d86e463ad329ed991d11206d1d00e45734",
+      "dockerfile": "build/gliner/Dockerfile",
+      "workflow": ".gitea/workflows/build-gliner.yaml",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "accelerator": "cpu",
+      "pytorch_backend": "cpu",
+      "required_packages": {
+        "torch": "2.13.0"
+      },
+      "runtime_packages": {
+        "torch": "2.13.0+cpu"
+      },
+      "reviewed_at": "2026-07-19",
+      "update_cadence_days": 30,
+      "rollback": "Restore the prior requirements input and generated lock together, then rebuild both GLiNER architectures."
+    },
+    {
+      "service": "pyannote",
+      "requirements": "build/pyannote/requirements.txt",
+      "requirements_sha256": "f4dc075b79ba65f4b986b991ca7313409a63d88d3a248f623bce273bd15e7855",
+      "lock": "build/pyannote/requirements.lock",
+      "lock_sha256": "d3452113b7a69889c4cf8f8f4c8944f793a13a87edb19c7bd7524408e5f31868",
+      "dockerfile": "build/pyannote/Dockerfile",
+      "workflow": ".gitea/workflows/build-pyannote.yaml",
+      "platforms": ["linux/amd64"],
+      "accelerator": "cuda",
+      "cuda_version": "12.6",
+      "pytorch_backend": "cu126",
+      "torchcodec_backend": "cpu",
+      "required_packages": {
+        "torch": "2.11.0",
+        "torchaudio": "2.11.0",
+        "torchcodec": "0.11.1"
+      },
+      "runtime_packages": {
+        "torch": "2.11.0+cu126",
+        "torchaudio": "2.11.0+cu126",
+        "torchcodec": "0.11.1+cpu"
+      },
+      "reviewed_at": "2026-07-19",
+      "update_cadence_days": 30,
+      "rollback": "Restore the prior requirements input and generated lock together; verify CPU-mode startup, TorchCodec audio decoding, and CUDA 12.6 before republishing."
+    }
+  ]
+}

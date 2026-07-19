@@ -177,6 +177,8 @@ jobs:
         run: |
           python3 scripts/ci/verify-third-party-dependencies.py
           python3 -m unittest tests/test_verify_third_party_dependencies.py
+          python3 scripts/ci/verify-python-sidecar-locks.py
+          python3 -m unittest tests/test_verify_python_sidecar_locks.py
           for profiles in edge gpu-12gb gpu-24gb; do
             POSTGRES_PASSWORD=ci-render-fixture-not-a-runtime-secret \
               COMPOSE_PROFILES="${profiles}" \

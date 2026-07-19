@@ -132,6 +132,11 @@ jobs:
             exit 1
           fi
 
+          docker exec pyannote-verify python -c \
+            "import torch, torchaudio, torchcodec; from torchcodec.decoders import AudioDecoder; assert torch.__version__ == '2.11.0+cu126'; assert torchaudio.__version__ == '2.11.0+cu126'; assert torchcodec.__version__ == '0.11.1+cpu'; assert torch.version.cuda == '12.6'; print('pyannote CUDA 12.6 dependency contract: OK')"
+          docker exec pyannote-verify sh -c \
+            "ffmpeg -hide_banner -loglevel error -f lavfi -i 'sine=frequency=440:duration=0.1' -y /tmp/torchcodec.wav && python -c \"from torchcodec.decoders import AudioDecoder; samples = AudioDecoder('/tmp/torchcodec.wav').get_all_samples(); assert samples.sample_rate == 44100; assert samples.data.shape[-1] == 4410; print('TorchCodec audio decode contract: OK')\""
+
           # Cleanup
           docker stop pyannote-verify && docker rm pyannote-verify
           echo "All pyannote tests passed!"

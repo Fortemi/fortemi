@@ -130,6 +130,9 @@ jobs:
             exit 1
           fi
 
+          docker exec gliner-verify python -c \
+            "import torch; assert torch.__version__ == '2.13.0+cpu'; assert torch.version.cuda is None; print('GLiNER CPU dependency contract: OK')"
+
           # Cleanup
           docker stop gliner-verify && docker rm gliner-verify
           echo "All GLiNER tests passed!"

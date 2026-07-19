@@ -2,6 +2,13 @@
   "schema_version": 1,
   "policy_issue": 990,
   "reviewed_at": "2026-07-19",
+  "related_package_lock_manifests": [
+    {
+      "path": "docker/python-sidecar-locks.json",
+      "owner_issue": 1076,
+      "scope": "GLiNER and pyannote direct/transitive Python package feeds, versions, hashes, and platform constraints"
+    }
+  ],
   "images": [
     {
       "id": "rust-bookworm-build",

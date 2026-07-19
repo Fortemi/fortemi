@@ -9,8 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.lock .
+RUN pip install --no-cache-dir \
+    --require-hashes \
+    --only-binary=:all: \
+    -r requirements.lock
+
+RUN python -c "import torch, torchaudio, torchcodec; from torchcodec.decoders import AudioDecoder; assert torch.__version__ == '2.11.0+cu126'; assert torchaudio.__version__ == '2.11.0+cu126'; assert torchcodec.__version__ == '0.11.1+cpu'; assert torch.version.cuda == '12.6'"
 
 COPY app.py .
 

@@ -7,8 +7,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.lock .
+RUN pip install --no-cache-dir \
+    --require-hashes \
+    --only-binary=:all: \
+    -r requirements.lock
+
+RUN python -c "import torch; assert torch.__version__ == '2.13.0+cpu'; assert torch.version.cuda is None"
 
 COPY app.py .
 
