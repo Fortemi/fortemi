@@ -10,6 +10,8 @@
 .vscode/
 *.swp
 *.swo
+*.bak
+*.orig
 *~
 
 # OS files
@@ -21,7 +23,6 @@ Thumbs.db
 .env.local
 .env.*.local
 .env.workstation
-.env.workstation.bak
 
 # Test database
 *.db

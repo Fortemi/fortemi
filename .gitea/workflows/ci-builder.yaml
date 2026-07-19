@@ -154,6 +154,11 @@ jobs:
           python3 scripts/ci/verify-docker-socket-guidance.py
           python3 -m unittest tests/test_verify_docker_socket_guidance.py
 
+      - name: Check tracked source-backup artifacts
+        run: |
+          python3 scripts/ci/verify-source-backup-artifacts.py
+          python3 -m unittest tests/test_verify_source_backup_artifacts.py
+
       - name: Check release job guards
         run: python3 scripts/ci/verify-release-job-guards.py
 

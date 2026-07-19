@@ -68,6 +68,15 @@ Validates code quality and formatting:
 
 **Exit criteria**: All formatting rules pass, no clippy warnings
 
+The lint job also rejects tracked editor/source backup artifacts ending in
+`.bak`, `.orig`, or `~`. Recover prior source through git history instead of
+keeping stale copies beside active code. Any intentional compatibility fixture
+must be an exact path in
+`scripts/ci/source-backup-artifacts.allowlist` with a rationale. The check uses
+tracked paths, not broad `*backup*` keywords, so product backup code and runtime
+database backups in operator data directories are outside this rule; runtime
+outputs must still never be committed as repository source.
+
 ### 2. Build & Unit Test (runs on: matric-builder)
 
 Compiles and runs the test suite with a dedicated PostgreSQL container (`build/Dockerfile.testdb`). The testdb image includes `max_locks_per_transaction=256` to support parallel archive schema tests (each archive create/drop acquires locks on ~41 tables + indexes).

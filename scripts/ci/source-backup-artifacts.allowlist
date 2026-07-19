@@ -1,0 +1,5 @@
+# Exact tracked paths only, one per line:
+# path<TAB>rationale
+#
+# Exceptions must explain why version control, rather than git history or an
+# operator data directory, is the correct home for the backup/editor artifact.
