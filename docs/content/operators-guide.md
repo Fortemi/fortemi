@@ -191,6 +191,12 @@ and rejects socket mounts on any other service. Release verification must
 classify the autoheal image as a consumed third-party dependency under #990;
 Fortemi image provenance does not attest to this upstream image.
 
+All third-party bundle defaults use reviewed `tag@sha256` references. See
+[Third-Party Container Dependency Trust](container-dependency-trust.md) for the
+complete inventory, digest verification, update/rollback procedure, and
+customer or air-gapped mirror overrides. Mirror overrides must remain complete
+digest references; the exposure preflight rejects mutable bundle overrides.
+
 Container variables (docker-compose.bundle.yml):
 
 | Variable | Default | Description |

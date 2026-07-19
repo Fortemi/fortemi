@@ -8,7 +8,7 @@
 #     -v fortemi-data:/var/lib/postgresql/data fortemi:bundle
 #
 # Build stage for Rust API
-FROM rust:slim-bookworm AS builder
+FROM rust:slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777 AS builder
 
 ARG VERSION=dev
 ARG GIT_SHA=unknown
@@ -39,8 +39,12 @@ RUN --mount=type=cache,id=fortemi-bundle-cargo-registry-${TARGETARCH},target=/us
     cp target/release/matric-api /app/matric-api && \
     cp target/release/matric-pke /app/matric-pke
 
+# Node runtime source. Copying from the official digest-pinned image avoids
+# adding an external package feed to the final bundle build.
+FROM node:22-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS node-runtime
+
 # Runtime stage - based on pgvector image for PostgreSQL + pgvector
-FROM pgvector/pgvector:pg18 AS runtime
+FROM pgvector/pgvector:pg18@sha256:12a379b47ad65289572ea0756efc11b7c241a6662833e8af7038cd3b73d647e0 AS runtime
 
 ARG VERSION=dev
 ARG GIT_SHA=unknown
@@ -64,8 +68,8 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
+    libatomic1 \
     curl \
-    gnupg \
     gzip \
     # Core extraction (always available)
     poppler-utils \
@@ -92,13 +96,10 @@ RUN if [ "$ENABLE_POSTGIS" = "true" ]; then \
     else echo "PostGIS disabled"; fi
 
 # Node.js for MCP server (always required)
-RUN apt-get update \
-    && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 # Create app directory
 WORKDIR /app

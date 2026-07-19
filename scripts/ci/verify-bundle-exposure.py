@@ -26,7 +26,16 @@ KNOWN_INSECURE_PASSWORDS = {
 PRIVATE_DNS_SUFFIXES = (".localhost", ".local", ".internal", ".lan")
 AUTOHEAL_PROFILE = "ops-autoheal"
 AUTOHEAL_SERVICE = "autoheal"
-AUTOHEAL_IMAGE = "willfarrell/autoheal:1.2.0"
+AUTOHEAL_IMAGE = (
+    "willfarrell/autoheal:1.2.0"
+    "@sha256:31f580ef0279eaced5b38d631b08c474d70d8403c1c2fdd6ddcf2e879d5f3f7c"
+)
+THIRD_PARTY_BUNDLE_SERVICES = {
+    "autoheal",
+    "redis",
+    "whisper",
+    "whisper-gpu",
+}
 
 
 def parse_bool(value: Any) -> bool | None:
@@ -131,6 +140,16 @@ def mutable_image_services(services: dict[str, Any]) -> list[str]:
     )
 
 
+def mutable_third_party_services(services: dict[str, Any]) -> list[str]:
+    return sorted(
+        name
+        for name in THIRD_PARTY_BUNDLE_SERVICES
+        if isinstance(services.get(name), dict)
+        and services[name].get("image")
+        and "@sha256:" not in services[name]["image"]
+    )
+
+
 def validate(
     rendered: dict[str, Any],
     active_profiles: set[str] | None = None,
@@ -207,10 +226,18 @@ def validate(
             )
 
     mutable = mutable_image_services(services)
+    mutable_third_party = mutable_third_party_services(services)
     sockets = socket_services(services)
-    if mutable:
+    if mutable_third_party:
+        errors.append(
+            "third-party bundle images require immutable digest references: "
+            + ", ".join(mutable_third_party)
+        )
+    mutable_fortemi = sorted(set(mutable) - set(mutable_third_party))
+    if mutable_fortemi:
         warnings.append(
-            "#990 mutable image trust remains for services: " + ", ".join(mutable)
+            "#888 Fortemi release image evidence remains for services: "
+            + ", ".join(mutable_fortemi)
         )
 
     autoheal = services.get(AUTOHEAL_SERVICE)
@@ -257,7 +284,11 @@ def validate(
             if uses_insecure_password
             else "generated_or_operator_supplied"
         ),
-        "image_trust": "digest_locked" if not mutable else "mutable_exception",
+        "image_trust": (
+            "third_party_digest_locked"
+            if not mutable_third_party
+            else "third_party_mutable"
+        ),
         "docker_socket_profile": (
             AUTOHEAL_PROFILE if autoheal_enabled and sockets else "absent"
         ),

@@ -16,7 +16,7 @@
 services:
   speaches:
     container_name: speaches
-    image: ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3
+    image: ${FORTEMI_SPEACHES_CUDA_IMAGE:-ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3@sha256:c0da392c37e76a01ba479239b43124c67baf8913ae0f491071d6ac544641dad7}
     restart: unless-stopped
     ports:
       - "8000:8000"

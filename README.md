@@ -273,6 +273,12 @@ read-only mount flag is not a security boundary. Enable it only after accepting
 that trust boundary. The installer exposes the same choice as
 `FORTEMI_AUTOHEAL_MODE=ops-autoheal` and defaults to `disabled`.
 
+Third-party image defaults are locked to reviewed multi-architecture digests.
+Use only complete `tag@sha256` values for customer registry overrides. The
+[dependency trust guide](docs/content/container-dependency-trust.md) documents
+the inventory, verification, mirror, update, and rollback process separately
+from Fortemi-published image evidence.
+
 **Ports:** 3000 (API + Swagger UI at `/docs`), 3001 (MCP), 8080 (Open3D renderer). API and MCP publish to `127.0.0.1` by default. If host port 3001 is taken, set `MCP_HOST_PORT=3002` in `.env`; `API_HOST_PORT` does the same for the API. Run `scripts/validate-bundle-exposure.sh` before starting the bundle.
 
 The bundle automatically initializes PostgreSQL, runs all migrations, auto-registers MCP OAuth credentials, starts Redis, and launches all services. The Fortémi documentation knowledge base (the "support archive") is **not loaded by default** — see [Support Archive](#support-archive-fortemi-docs) below to add it with one command.
@@ -792,7 +798,10 @@ To run a llama.cpp sidecar alongside the bundle, place a GGUF model at `./models
 docker compose -f docker-compose.bundle.yml -f docker-compose.llamacpp.yml up -d
 ```
 
-`docker-compose.llamacpp.yml` ships the `ghcr.io/ggerganov/llama.cpp:server` image with the OpenAI-compatible protocol exposed at `:8080/v1`. See the file header for tunables (`LLAMACPP_MODEL_FILE`, `LLAMACPP_CTX_SIZE`, `LLAMACPP_GPU_LAYERS`).
+`docker-compose.llamacpp.yml` ships the digest-locked
+`ghcr.io/ggml-org/llama.cpp:server` image with the OpenAI-compatible protocol
+exposed at `:8080/v1`. See the file header for tunables
+(`LLAMACPP_MODEL_FILE`, `LLAMACPP_CTX_SIZE`, `LLAMACPP_GPU_LAYERS`).
 
 **Custom OpenAI-compatible endpoints** (vLLM, LiteLLM, LocalAI, on-prem providers not yet in the catalog) keep working via the legacy escape hatch:
 
@@ -855,6 +864,9 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 |----------|---------|-------------|
 | `COMPOSE_PROFILES` | `edge` | Hardware profile: `edge`, `gpu-12gb`, `gpu-24gb`; optional `ops-autoheal` is a separate explicit host-control profile. |
 | `FORTEMI_AUTOHEAL_MODE` | `disabled` | Installer choice. `ops-autoheal` opts a pinned third-party container into root-equivalent Docker socket access. |
+| `FORTEMI_REDIS_IMAGE` | reviewed Redis digest | Complete `tag@sha256` override for an approved customer mirror. |
+| `FORTEMI_SPEACHES_CPU_IMAGE` / `FORTEMI_SPEACHES_CUDA_IMAGE` | reviewed Speaches digests | Complete CPU/GPU transcription image overrides for approved mirrors. |
+| `FORTEMI_AUTOHEAL_IMAGE` | reviewed autoheal digest | Complete optional autoheal mirror reference; `ops-autoheal` is still required. |
 | `FORTEMI_EXPOSURE_PROFILE` | `local` | `local` permits loopback publishing only; `shared` enables validated non-loopback publishing. |
 | `API_HOST_BIND` | `127.0.0.1` | Host IP for the published API port. |
 | `MCP_HOST_BIND` | `127.0.0.1` | Host IP for the published MCP port. |

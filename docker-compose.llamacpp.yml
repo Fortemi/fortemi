@@ -17,12 +17,13 @@
 # protocol (/v1/chat/completions, /v1/embeddings), so the OpenAI backend in
 # matric-inference handles it directly when pointed at the llama.cpp server.
 #
-# To pin a specific build, replace `:server` with a versioned tag from
-# https://github.com/ggerganov/llama.cpp/pkgs/container/llama.cpp.
+# The default is locked in docker/third-party-dependencies.json. Set
+# FORTEMI_LLAMACPP_IMAGE to a complete tag@sha256 reference for an approved
+# customer mirror.
 
 services:
   llamacpp:
-    image: ghcr.io/ggerganov/llama.cpp:server
+    image: ${FORTEMI_LLAMACPP_IMAGE:-ghcr.io/ggml-org/llama.cpp:server@sha256:b832a7b7252a90a79a1e8d23d9be3ac5261a33224f60682dff0cade412fa55d3}
     container_name: fortemi-llamacpp
     restart: unless-stopped
     ports:

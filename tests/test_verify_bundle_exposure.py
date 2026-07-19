@@ -49,7 +49,7 @@ class BundleExposureTests(unittest.TestCase):
         errors, warnings, report = MODULE.validate(base_config())
 
         self.assertEqual(errors, [])
-        self.assertIn("#990", "\n".join(warnings))
+        self.assertIn("#888", "\n".join(warnings))
         self.assertNotIn("#937", "\n".join(warnings))
         self.assertEqual(report["api_bind"], "127.0.0.1:3000")
         self.assertEqual(report["docker_socket_profile"], "absent")
@@ -241,7 +241,10 @@ class BundleExposureTests(unittest.TestCase):
     @staticmethod
     def autoheal_service() -> dict:
         return {
-            "image": "willfarrell/autoheal:1.2.0",
+            "image": (
+                "willfarrell/autoheal:1.2.0"
+                "@sha256:31f580ef0279eaced5b38d631b08c474d70d8403c1c2fdd6ddcf2e879d5f3f7c"
+            ),
             "volumes": [
                 {
                     "type": "bind",

@@ -7,7 +7,7 @@
 # For all-in-one deployment with embedded PostgreSQL, use Dockerfile.bundle instead.
 #
 # Build stage
-FROM rust:slim-bookworm AS builder
+FROM rust:slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777 AS builder
 
 # Build arguments for version stamping
 ARG VERSION=dev
@@ -38,7 +38,7 @@ RUN cargo build --release --package matric-api && \
     cp target/release/matric-api /app/matric-api
 
 # Runtime stage
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818 AS runtime
 
 # Version labels
 ARG VERSION=dev

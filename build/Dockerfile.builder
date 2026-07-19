@@ -10,12 +10,15 @@
 # Registry:
 #   ghcr.io/fortemi/fortemi-builder:latest
 
-FROM rust:1.92-bookworm
+FROM node:22-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS node-runtime
+
+FROM rust:1.92-bookworm@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2
 
 # Build arguments
 ARG RUST_VERSION=1.92.0
 ARG SQLX_VERSION=0.8
-ARG NODE_VERSION=22
+ARG DOCKER_CLI_VERSION=5:29.6.2-1~debian.12~bookworm
+ARG DOCKER_BUILDX_VERSION=0.35.0-1~debian.12~bookworm
 
 # Labels
 LABEL org.opencontainers.image.title="fortemi-builder"
@@ -42,6 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     # Database
     libpq-dev \
+    libatomic1 \
     postgresql-client \
     # Media processing (required by audio/video pipeline)
     ffmpeg \
@@ -61,17 +65,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/debian/gpg \
         -o /etc/apt/keyrings/docker.asc \
+    && gpg --batch --show-keys --with-colons /etc/apt/keyrings/docker.asc \
+        | grep -q 'fpr:::::::::9DC858229FC7DD38854AE2D88D81803C0EBFCD88:' \
     && chmod a+r /etc/apt/keyrings/docker.asc \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" \
         > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends docker-ce-cli docker-buildx-plugin \
+    && apt-get install -y --no-install-recommends \
+        docker-ce-cli="${DOCKER_CLI_VERSION}" \
+        docker-buildx-plugin="${DOCKER_BUILDX_VERSION}" \
+    && install -d /usr/share/fortemi \
+    && dpkg-query -W -f='${Package}\t${Version}\n' \
+        docker-ce-cli docker-buildx-plugin \
+        > /usr/share/fortemi/builder-third-party-packages.tsv \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js LTS
-RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
+# Install Node.js LTS from the reviewed official image without adding another
+# external apt repository to the trusted builder.
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 # Pin Rust version and add components
 RUN rustup default ${RUST_VERSION} \

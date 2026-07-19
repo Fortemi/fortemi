@@ -61,7 +61,7 @@ services:
   # boundary. The default bundle relies on restart policies and operator
   # monitoring and contains no Docker socket mount.
   autoheal:
-    image: willfarrell/autoheal:1.2.0
+    image: ${FORTEMI_AUTOHEAL_IMAGE:-willfarrell/autoheal:1.2.0@sha256:31f580ef0279eaced5b38d631b08c474d70d8403c1c2fdd6ddcf2e879d5f3f7c}
     profiles:
       - ops-autoheal
     environment:
@@ -75,7 +75,7 @@ services:
 
   # Redis cache for search query results
   redis:
-    image: redis:7-alpine
+    image: ${FORTEMI_REDIS_IMAGE:-redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99}
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - matric-redis:/data
@@ -91,7 +91,7 @@ services:
   # Whisper speech-to-text server (GPU-accelerated, OpenAI-compatible API)
   # Opt-in via hardware profile: --profile gpu-12gb or --profile gpu-24gb
   whisper-gpu:
-    image: ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3
+    image: ${FORTEMI_SPEACHES_CUDA_IMAGE:-ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3@sha256:c0da392c37e76a01ba479239b43124c67baf8913ae0f491071d6ac544641dad7}
     profiles:
       - gpu-12gb
       - gpu-24gb
@@ -130,7 +130,7 @@ services:
   # Activated by default via COMPOSE_PROFILES=edge in .env
   # For GPU-accelerated transcription, set COMPOSE_PROFILES=gpu-12gb or gpu-24gb
   whisper:
-    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    image: ${FORTEMI_SPEACHES_CPU_IMAGE:-ghcr.io/speaches-ai/speaches:latest-cpu@sha256:21e3df06d842fb7802ab470dd77c25f0e8c0d22950e8d8c6ae886e851af53ef8}
     profiles:
       - edge
     volumes:
