@@ -110,7 +110,13 @@ use axum::http::HeaderMap;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Extension;
+use chrono::{DateTime, Utc};
 use futures::{Stream, StreamExt};
+use matric_core::{
+    MeteringError, UsageAttributes, UsageClass, UsageCorrelation, UsageDimension, UsageEvent,
+    UsageMeasurement, UsageMeter, UsageOutcome, UsageProducer, UsageQuantity, UsageSource,
+    UsageSubject, UsageUnit,
+};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
@@ -123,7 +129,9 @@ use matric_api::services::{IngestCursorStore, SearchCache};
 use matric_core::CreateNoteRequest;
 use matric_db::{PgNoteRepository, SchemaContext};
 
-use crate::{ApiError, AppState, ArchiveContext, Auth};
+use crate::{
+    canonical_usage_request_id, usage_subject_from_auth, ApiError, AppState, ArchiveContext, Auth,
+};
 
 /// Default per-line byte ceiling when `FORTEMI_INGEST_MAX_LINE_BYTES` is unset.
 const DEFAULT_INGEST_MAX_LINE_BYTES: usize = 1024 * 1024;
@@ -927,6 +935,65 @@ struct PumpConfig {
     skip_boundary: u64,
     /// `progress` cadence in data lines (0 disables) (#826).
     progress_interval: u64,
+    /// Immutable metering identity captured before the body pump starts.
+    usage: Option<IngestUsageContext>,
+}
+
+#[derive(Clone)]
+struct IngestUsageContext {
+    meter: Arc<dyn UsageMeter>,
+    subject: UsageSubject,
+    request_id: Option<String>,
+    event_id: Uuid,
+    event_time: DateTime<Utc>,
+}
+
+impl IngestUsageContext {
+    async fn record(&self, stats: &IngestStats, outcome: UsageOutcome) {
+        let event = ingest_rows_usage_event(self, stats.success, outcome);
+        match event {
+            Ok(event) => {
+                if let Err(error) = self.meter.record(&event).await {
+                    tracing::warn!(
+                        error_len = error.to_string().chars().count(),
+                        "Best-effort ingest row usage recording failed"
+                    );
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error_len = error.to_string().chars().count(),
+                    "Ingest row usage event construction failed"
+                );
+            }
+        }
+    }
+}
+
+fn ingest_rows_usage_event(
+    context: &IngestUsageContext,
+    successful_rows: u64,
+    outcome: UsageOutcome,
+) -> Result<UsageEvent, MeteringError> {
+    let correlation = match context.request_id.as_deref() {
+        Some(request_id) => UsageCorrelation::default().with_request_id(request_id)?,
+        None => UsageCorrelation::default(),
+    };
+
+    UsageEvent::new(
+        format!("ingest:{}:rows:actual", context.event_id),
+        context.event_time,
+        context.subject.clone(),
+        UsageDimension::IngestRows,
+        UsageMeasurement::Measured(UsageQuantity::whole(successful_rows, UsageUnit::Count)?),
+        UsageClass::BillableActual,
+        UsageProducer::Api,
+        UsageSource::LocalMeasured,
+        outcome,
+    )?
+    .with_identity(context.event_id, Utc::now())
+    .with_correlation(correlation)?
+    .with_attrs(UsageAttributes::default())
 }
 
 async fn pump_ingest_stream<B, N>(
@@ -947,7 +1014,12 @@ async fn pump_ingest_stream<B, N>(
     while let Some(chunk) = body.next().await {
         // A transport error (client disconnect, truncated body) ends ingestion;
         // already-acked lines stand.
-        let Ok(bytes) = chunk else { break };
+        let Ok(bytes) = chunk else {
+            if let Some(usage) = &cfg.usage {
+                usage.record(&stats, UsageOutcome::ClientInterrupted).await;
+            }
+            return;
+        };
         for ev in splitter.push(&bytes) {
             if step(
                 ev,
@@ -961,13 +1033,16 @@ async fn pump_ingest_stream<B, N>(
             .await
             .is_break()
             {
+                if let Some(usage) = &cfg.usage {
+                    usage.record(&stats, UsageOutcome::ClientInterrupted).await;
+                }
                 return; // client gone — abandon without cache work or `done`
             }
         }
     }
 
     if let Some(ev) = splitter.finish() {
-        let _ = step(
+        if step(
             ev,
             &sink,
             &tx,
@@ -976,7 +1051,14 @@ async fn pump_ingest_stream<B, N>(
             &cfg,
             &mut controls,
         )
-        .await;
+        .await
+        .is_break()
+        {
+            if let Some(usage) = &cfg.usage {
+                usage.record(&stats, UsageOutcome::ClientInterrupted).await;
+            }
+            return;
+        }
     }
 
     // Single post-stream invalidation so stored notes appear in FTS results
@@ -985,6 +1067,16 @@ async fn pump_ingest_stream<B, N>(
         search_cache.invalidate_all().await;
     }
 
+    if let Some(usage) = &cfg.usage {
+        let outcome = if stats.errors == 0 {
+            UsageOutcome::Completed
+        } else if stats.success == 0 {
+            UsageOutcome::FailedBeforeUsage
+        } else {
+            UsageOutcome::FailedAfterPartialUsage
+        };
+        usage.record(&stats, outcome).await;
+    }
     let _ = tx.send(IngestFrame::done(&stats)).await;
     // `tx` drops here — the SSE channel closes and the client's stream ends.
 }
@@ -1140,7 +1232,7 @@ async fn process_line<N: NoteSink>(
     )
 )]
 pub async fn ingest_stream_handler(
-    _auth: Auth,
+    auth: Auth,
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     headers: HeaderMap,
@@ -1165,6 +1257,22 @@ pub async fn ingest_stream_handler(
         Ok(v) => v,
         Err(resp) => return resp,
     };
+    let usage = usage_subject_from_auth(Some(&auth))
+        .and_then(|subject| subject.with_archive(schema.clone()))
+        .map(|subject| IngestUsageContext {
+            meter: state.usage_meter.clone(),
+            subject,
+            request_id: canonical_usage_request_id(&headers),
+            event_id: Uuid::now_v7(),
+            event_time: Utc::now(),
+        })
+        .inspect_err(|error| {
+            tracing::warn!(
+                error_len = error.to_string().chars().count(),
+                "Ingest usage context construction failed"
+            );
+        })
+        .ok();
 
     let buffer = ingest_stream_buffer();
     let (tx, rx) = mpsc::channel::<IngestFrame>(buffer);
@@ -1187,6 +1295,7 @@ pub async fn ingest_stream_handler(
         max_line_bytes: ingest_max_line_bytes(),
         skip_boundary,
         progress_interval: ingest_progress_interval() as u64,
+        usage,
     };
 
     tokio::spawn(async move {
@@ -1204,6 +1313,11 @@ pub async fn ingest_stream_handler(
                 .await;
             }
             Err(e) => {
+                if let Some(usage) = &cfg.usage {
+                    usage
+                        .record(&IngestStats::default(), UsageOutcome::FailedBeforeUsage)
+                        .await;
+                }
                 let _ = tx.send(IngestFrame::fatal(&e)).await;
                 // `tx` drops here — channel closes.
             }
@@ -1556,6 +1670,72 @@ mod tests {
         assert_eq!(j["errors"], 1);
     }
 
+    #[tokio::test]
+    async fn ingest_usage_records_exact_success_rows_and_partial_outcome() {
+        let meter = matric_core::InMemoryMeter::default();
+        let request_id = Uuid::now_v7();
+        let context = IngestUsageContext {
+            meter: Arc::new(meter.clone()),
+            subject: UsageSubject::anonymous("resolved-ingest")
+                .unwrap()
+                .with_archive("resolved-archive")
+                .unwrap(),
+            request_id: Some(request_id.to_string()),
+            event_id: Uuid::now_v7(),
+            event_time: Utc::now(),
+        };
+        let stats = IngestStats {
+            line_no: 5,
+            success: 3,
+            errors: 2,
+        };
+
+        context
+            .record(&stats, UsageOutcome::FailedAfterPartialUsage)
+            .await;
+        let events = meter.events().await;
+
+        assert_eq!(events.len(), 1);
+        let event = &events[0];
+        assert_eq!(event.event_id, context.event_id);
+        assert_eq!(
+            event.idempotency_key,
+            format!("ingest:{}:rows:actual", context.event_id)
+        );
+        assert_eq!(event.dimension, UsageDimension::IngestRows);
+        assert_eq!(event.class, UsageClass::BillableActual);
+        assert_eq!(event.producer, UsageProducer::Api);
+        assert_eq!(event.source, UsageSource::LocalMeasured);
+        assert_eq!(event.outcome, UsageOutcome::FailedAfterPartialUsage);
+        assert_eq!(
+            event.measurement.quantity().unwrap().value().to_string(),
+            "3"
+        );
+        assert_eq!(event.measurement.unit(), &UsageUnit::Count);
+        assert_eq!(event.subject.archive_id(), Some("resolved-archive"));
+        assert_eq!(
+            event.correlation.request_id(),
+            Some(request_id.to_string().as_str())
+        );
+        assert!(event.attrs.is_empty());
+
+        meter
+            .record(event)
+            .await
+            .expect("exact ingest usage replay must be idempotent");
+        assert_eq!(meter.events().await.len(), 1);
+
+        let encoded = serde_json::to_string(event).unwrap();
+        for forbidden in [
+            "raw note content",
+            "private title",
+            "secret tag",
+            "ingest bearer token",
+        ] {
+            assert!(!encoded.contains(forbidden));
+        }
+    }
+
     /// Frames own their data — building one, then dropping every input, leaves
     /// the frame wholly intact (no shared/borrowed ownership). Mirrors the
     /// value-independence guarantee asserted for `/chat/stream` frames.
@@ -1612,6 +1792,7 @@ mod tests {
             max_line_bytes: max,
             skip_boundary,
             progress_interval: progress_interval as u64,
+            usage: None,
         };
         // buffer == the harness channel capacity so pressure math is accurate;
         // every existing test drives far fewer than 80% of 64 frames, so no
