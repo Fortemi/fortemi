@@ -51,9 +51,12 @@ use matric_core::{
     ClientRegistrationRequest, CollectionRepository, CreateApiKeyRequest, CreateNoteRequest,
     Decision, DenyReason, DocumentTypeRepository, EventBus, EventContext, EventEnvelope,
     ExtractionAdapter, ExtractionStrategy, Job, JobRepository, JobStatus, JobType,
-    ListNotesRequest, NoteRepository, OAuthError, ResourceKind, RevisionMode, RoleBasedPolicy,
-    ServerEvent, StrictTagFilterInput, TagInput, TagRepository, TemplateRepository,
-    TokenIntrospectionResponse, TokenRequest, TracingSink, UpdateNoteStatusRequest,
+    ListNotesRequest, MeteringError, NoOpMeter, NoteRepository, OAuthError, ResourceKind,
+    RevisionMode, RoleBasedPolicy, ServerEvent, StrictTagFilterInput, TagInput, TagRepository,
+    TemplateRepository, TokenIntrospectionResponse, TokenRequest, TracingSink,
+    UpdateNoteStatusRequest, UsageAttributeKey, UsageAttributeValue, UsageAttributes, UsageClass,
+    UsageCorrelation, UsageDimension, UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome,
+    UsageProducer, UsageQuantity, UsageSource, UsageSubject, UsageUnit,
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_db::{
@@ -962,6 +965,8 @@ struct AppState {
     /// Authorization policy decision point (#710). Starts with AllowAllPolicy to
     /// preserve current CE/personal-server behavior while middleware wiring lands.
     authorization_policy: Arc<dyn AuthorizationPolicy>,
+    /// Best-effort usage recorder. CE explicitly defaults to `NoOpMeter`.
+    usage_meter: Arc<dyn UsageMeter>,
     /// OAuth access token lifetime (standard clients).
     oauth_token_lifetime: chrono::Duration,
     /// OAuth access token lifetime (MCP clients).
@@ -3370,6 +3375,7 @@ async fn main() -> anyhow::Result<()> {
         require_auth: security_config.require_auth, // ADR-094: fail-closed default — see startup validation block in main()
         call_recording_require_confirmation: security_config.call_recording_require_confirmation,
         authorization_policy: authorization_policy_for_mode(security_config.multi_tenant),
+        usage_meter: Arc::new(NoOpMeter),
         oauth_token_lifetime,
         oauth_mcp_token_lifetime,
         max_memories: std::env::var("MAX_MEMORIES")
@@ -4067,6 +4073,10 @@ async fn main() -> anyhow::Result<()> {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             rate_limit_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.usage_meter.clone(),
+            usage_metering_middleware,
         ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -7018,6 +7028,145 @@ async fn validate_incoming_webhook_payload_handler(
         StatusCode::UNPROCESSABLE_ENTITY
     };
     Ok((status, Json(response)))
+}
+
+// =============================================================================
+// USAGE METERING MIDDLEWARE (#1067)
+// =============================================================================
+
+async fn usage_metering_middleware(
+    State(meter): State<Arc<dyn UsageMeter>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let event_id = Uuid::now_v7();
+    let event_time = Utc::now();
+    let subject = api_request_usage_subject(request.extensions().get::<Auth>());
+    let request_id = request
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| Uuid::parse_str(value).ok())
+        .filter(|id| !id.is_nil())
+        .map(|id| id.to_string());
+    let route_class = route_policy::route_policy_for_path(request.uri().path())
+        .map(|policy| usage_route_class_label(policy.class));
+
+    let response = next.run(request).await;
+    let status = response.status();
+
+    let event = subject.and_then(|subject| {
+        api_request_usage_event(
+            event_id,
+            event_time,
+            subject,
+            request_id.as_deref(),
+            route_class,
+            status,
+        )
+    });
+
+    match event {
+        Ok(event) => {
+            if let Err(error) = meter.record(&event).await {
+                warn!(
+                    error_len = telemetry_text_len(&error.to_string()),
+                    "Best-effort API usage recording failed"
+                );
+            }
+        }
+        Err(error) => {
+            warn!(
+                error_len = telemetry_text_len(&error.to_string()),
+                "API usage event construction failed"
+            );
+        }
+    }
+
+    response
+}
+
+fn api_request_usage_subject(auth: Option<&Auth>) -> Result<UsageSubject, MeteringError> {
+    match auth.map(|auth| &auth.principal) {
+        Some(AuthPrincipal::OAuthClient {
+            client_id, user_id, ..
+        }) => {
+            let subject = UsageSubject::unknown().with_client(client_id.clone())?;
+            match user_id {
+                Some(user_id) => subject.with_principal(user_id.clone()),
+                None => Ok(subject),
+            }
+        }
+        Some(AuthPrincipal::ApiKey { key_id, .. }) => {
+            UsageSubject::unknown().with_client(format!("api-key:{key_id}"))
+        }
+        Some(AuthPrincipal::Anonymous) => UsageSubject::anonymous("api-anonymous"),
+        None => Ok(UsageSubject::unknown()),
+    }
+}
+
+fn usage_route_class_label(class: route_policy::PolicyClass) -> &'static str {
+    match class {
+        route_policy::PolicyClass::Public => "public",
+        route_policy::PolicyClass::PublicWithInlineProof => "public_inline_proof",
+        route_policy::PolicyClass::AuthenticatedRead => "authenticated_read",
+        route_policy::PolicyClass::AuthenticatedWrite => "authenticated_write",
+        route_policy::PolicyClass::AdminOperator => "admin_operator",
+        route_policy::PolicyClass::TenantObject => "tenant_object",
+        route_policy::PolicyClass::SystemHealth => "system_health",
+        route_policy::PolicyClass::OAuth => "oauth",
+        route_policy::PolicyClass::RealtimeTransport => "realtime_transport",
+    }
+}
+
+fn api_request_usage_outcome(status: StatusCode) -> UsageOutcome {
+    match status {
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS => {
+            UsageOutcome::Denied
+        }
+        status if status.is_server_error() => UsageOutcome::FailedAfterPartialUsage,
+        _ => UsageOutcome::Completed,
+    }
+}
+
+fn api_request_usage_event(
+    event_id: Uuid,
+    event_time: DateTime<Utc>,
+    subject: UsageSubject,
+    request_id: Option<&str>,
+    route_class: Option<&str>,
+    status: StatusCode,
+) -> Result<UsageEvent, MeteringError> {
+    let dimension = UsageDimension::ApiRequest;
+    let mut attrs = UsageAttributes::default();
+    if let Some(route_class) = route_class {
+        attrs.insert(
+            &dimension,
+            UsageAttributeKey::RouteClass,
+            UsageAttributeValue::label(route_class)?,
+        )?;
+    }
+
+    let correlation = match request_id {
+        Some(request_id) => UsageCorrelation::default().with_request_id(request_id)?,
+        None => UsageCorrelation::default(),
+    };
+    let recorded_at = Utc::now();
+
+    UsageEvent::new(
+        format!("api-request:{event_id}:actual"),
+        event_time,
+        subject,
+        dimension,
+        UsageMeasurement::Measured(UsageQuantity::whole(1, UsageUnit::Count)?),
+        UsageClass::BillableActual,
+        UsageProducer::Api,
+        UsageSource::LocalMeasured,
+        api_request_usage_outcome(status),
+    )?
+    .with_identity(event_id, recorded_at)
+    .with_correlation(correlation)?
+    .with_attrs(attrs)
 }
 
 // =============================================================================
@@ -41892,6 +42041,153 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn api_request_metering_records_resolved_subject_and_privacy_safe_context() {
+        let meter = matric_core::InMemoryMeter::default();
+        let app = Router::new()
+            .route(
+                "/api/v1/notes",
+                get(|| async { (StatusCode::CREATED, "handler-response") }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                Arc::new(meter.clone()) as Arc<dyn UsageMeter>,
+                usage_metering_middleware,
+            ));
+        let request_id = Uuid::now_v7();
+        let mut request = axum::http::Request::builder()
+            .uri("/api/v1/notes?token=secret-query-value")
+            .header("x-request-id", request_id.to_string())
+            .header(header::AUTHORIZATION, "Bearer secret-token-value")
+            .header("x-forwarded-for", "203.0.113.10")
+            .body(Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(Auth {
+            principal: AuthPrincipal::OAuthClient {
+                client_id: "resolved-client".to_string(),
+                scope: "write".to_string(),
+                user_id: Some("resolved-user".to_string()),
+            },
+        });
+
+        let response = app.oneshot(request).await.unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        let events = meter.events().await;
+
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(body.as_ref(), b"handler-response");
+        assert_eq!(events.len(), 1);
+        let event = &events[0];
+        assert_eq!(event.event_id.get_version_num(), 7);
+        assert_eq!(
+            event.idempotency_key,
+            format!("api-request:{}:actual", event.event_id)
+        );
+        assert_eq!(event.dimension, UsageDimension::ApiRequest);
+        assert_eq!(event.class, UsageClass::BillableActual);
+        assert_eq!(event.producer, UsageProducer::Api);
+        assert_eq!(event.source, UsageSource::LocalMeasured);
+        assert_eq!(event.outcome, UsageOutcome::Completed);
+        assert_eq!(event.subject.client_id(), Some("resolved-client"));
+        assert_eq!(event.subject.principal_id(), Some("resolved-user"));
+        assert_eq!(
+            event.correlation.request_id(),
+            Some(request_id.to_string().as_str())
+        );
+        assert_eq!(
+            event.attrs.get(UsageAttributeKey::RouteClass),
+            Some(&UsageAttributeValue::Label("tenant_object".to_string()))
+        );
+
+        let encoded = serde_json::to_string(event).unwrap();
+        let debug = format!("{event:?}");
+        for forbidden in [
+            "secret-query-value",
+            "secret-token-value",
+            "203.0.113.10",
+            "/api/v1/notes",
+        ] {
+            assert!(!encoded.contains(forbidden));
+            assert!(!debug.contains(forbidden));
+        }
+        assert!(!debug.contains("resolved-client"));
+        assert!(!debug.contains("resolved-user"));
+
+        meter
+            .record(event)
+            .await
+            .expect("exact recorder replay must be idempotent");
+        assert_eq!(meter.events().await.len(), 1);
+    }
+
+    #[test]
+    fn api_request_metering_makes_anonymous_and_unknown_subjects_explicit() {
+        let anonymous = api_request_usage_subject(Some(&Auth {
+            principal: AuthPrincipal::Anonymous,
+        }))
+        .unwrap();
+        let unknown = api_request_usage_subject(None).unwrap();
+
+        assert!(anonymous.is_anonymous());
+        assert_eq!(anonymous.anonymous_key(), Some("api-anonymous"));
+        assert!(unknown.is_unknown());
+    }
+
+    struct FailingUsageMeter;
+
+    #[async_trait::async_trait]
+    impl UsageMeter for FailingUsageMeter {
+        async fn record(&self, _event: &UsageEvent) -> Result<(), MeteringError> {
+            Err(MeteringError::BackendUnavailable)
+        }
+
+        async fn current(
+            &self,
+            _subject: &UsageSubject,
+            _dimension: &UsageDimension,
+            _window: matric_core::TimeWindow,
+        ) -> Result<matric_core::UsageAggregate, MeteringError> {
+            Err(MeteringError::BackendUnavailable)
+        }
+
+        async fn flush(&self, _grace: std::time::Duration) -> Result<(), MeteringError> {
+            Err(MeteringError::BackendUnavailable)
+        }
+    }
+
+    #[tokio::test]
+    async fn api_request_metering_failure_does_not_rewrite_handler_response() {
+        let app = Router::new()
+            .route(
+                "/api/v1/notes",
+                get(|| async { (StatusCode::IM_A_TEAPOT, "unchanged") }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                Arc::new(FailingUsageMeter) as Arc<dyn UsageMeter>,
+                usage_metering_middleware,
+            ));
+
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/notes")
+                    .header("x-request-id", Uuid::now_v7().to_string())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+
+        assert_eq!(status, StatusCode::IM_A_TEAPOT);
+        assert_eq!(body.as_ref(), b"unchanged");
+    }
+
+    #[tokio::test]
     async fn rate_limit_problem_uses_stable_type() {
         let response = problem_response(
             StatusCode::TOO_MANY_REQUESTS,
@@ -51053,6 +51349,7 @@ not-json
             require_auth: false,
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
+            usage_meter: Arc::new(NoOpMeter),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -55574,6 +55871,7 @@ not-json
             require_auth: false,
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
+            usage_meter: Arc::new(NoOpMeter),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -57284,6 +57582,7 @@ not-json
             require_auth: false,
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
+            usage_meter: Arc::new(NoOpMeter),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -57614,6 +57913,7 @@ not-json
             require_auth: false,
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
+            usage_meter: Arc::new(NoOpMeter),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
