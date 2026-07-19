@@ -28206,6 +28206,8 @@ async fn list_all_attachments(
     responses((status = 201, description = "Created")))]
 async fn upload_attachment(
     State(state): State<AppState>,
+    auth: Auth,
+    headers: HeaderMap,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Query(att_query): Query<UploadAttachmentQuery>,
@@ -28303,6 +28305,15 @@ async fn upload_attachment(
     tx.commit()
         .await
         .map_err(|e| attachment_media_operation_failed("Attachment upload", "commit upload", e))?;
+    record_attachment_storage_usage(
+        &state,
+        &auth,
+        &headers,
+        &archive_ctx,
+        attachment.id,
+        data.len(),
+    )
+    .await;
 
     // Emit AttachmentCreated event (Issue #454, scoped via #452)
     state.event_bus.emit_with_context(
@@ -28387,6 +28398,8 @@ async fn upload_attachment(
     responses((status = 201, description = "Created")))]
 async fn upload_attachment_multipart(
     State(state): State<AppState>,
+    auth: Auth,
+    headers: HeaderMap,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Query(att_query): Query<UploadAttachmentQuery>,
@@ -28525,6 +28538,15 @@ async fn upload_attachment_multipart(
     tx.commit()
         .await
         .map_err(|e| attachment_media_operation_failed("Attachment upload", "commit upload", e))?;
+    record_attachment_storage_usage(
+        &state,
+        &auth,
+        &headers,
+        &archive_ctx,
+        attachment.id,
+        data.len(),
+    )
+    .await;
 
     // Emit AttachmentCreated event (Issue #454, scoped via #452)
     state.event_bus.emit_with_context(
@@ -28590,6 +28612,74 @@ async fn upload_attachment_multipart(
     }
 
     Ok(Json(attachment))
+}
+
+async fn record_attachment_storage_usage(
+    state: &AppState,
+    auth: &Auth,
+    headers: &HeaderMap,
+    archive_ctx: &ArchiveContext,
+    attachment_id: Uuid,
+    size_bytes: usize,
+) {
+    let event = usage_subject_from_auth(Some(auth))
+        .and_then(|subject| subject.with_archive(archive_ctx.schema.clone()))
+        .and_then(|subject| {
+            attachment_storage_usage_event(
+                attachment_id,
+                Utc::now(),
+                subject,
+                canonical_usage_request_id(headers).as_deref(),
+                size_bytes,
+            )
+        });
+
+    match event {
+        Ok(event) => {
+            if let Err(error) = state.usage_meter.record(&event).await {
+                warn!(
+                    error_len = telemetry_text_len(&error.to_string()),
+                    "Best-effort attachment storage usage recording failed"
+                );
+            }
+        }
+        Err(error) => {
+            warn!(
+                error_len = telemetry_text_len(&error.to_string()),
+                "Attachment storage usage event construction failed"
+            );
+        }
+    }
+}
+
+fn attachment_storage_usage_event(
+    attachment_id: Uuid,
+    event_time: DateTime<Utc>,
+    subject: UsageSubject,
+    request_id: Option<&str>,
+    size_bytes: usize,
+) -> Result<UsageEvent, MeteringError> {
+    let dimension = UsageDimension::StorageBytes;
+    let correlation = match request_id {
+        Some(request_id) => UsageCorrelation::default().with_request_id(request_id)?,
+        None => UsageCorrelation::default(),
+    };
+    let size_bytes = u64::try_from(size_bytes).map_err(|_| MeteringError::InvalidQuantity)?;
+
+    UsageEvent::new(
+        format!("attachment:{attachment_id}:stored"),
+        event_time,
+        subject,
+        dimension,
+        UsageMeasurement::Measured(UsageQuantity::whole(size_bytes, UsageUnit::Byte)?),
+        UsageClass::BillableActual,
+        UsageProducer::Api,
+        UsageSource::LocalMeasured,
+        UsageOutcome::Completed,
+    )?
+    .with_identity(attachment_id, Utc::now())
+    .with_correlation(correlation)?
+    .with_attrs(UsageAttributes::default())
 }
 
 async fn emit_attachment_upload_audit_event(event: AuditEvent) {
@@ -42369,6 +42459,66 @@ mod tests {
         assert!(!rendered.contains(raw_job_kind));
         assert!(!rendered.contains("sk-secret"));
         assert!(!rendered.contains("jobs.example"));
+    }
+
+    #[tokio::test]
+    async fn attachment_storage_usage_records_exact_bytes_without_file_metadata() {
+        let attachment_id = Uuid::now_v7();
+        let request_id = Uuid::now_v7();
+        let subject = UsageSubject::unknown()
+            .with_client("resolved-client")
+            .unwrap()
+            .with_archive("resolved-archive")
+            .unwrap();
+        let event = attachment_storage_usage_event(
+            attachment_id,
+            Utc::now(),
+            subject,
+            Some(&request_id.to_string()),
+            4096,
+        )
+        .unwrap();
+        let meter = matric_core::InMemoryMeter::default();
+
+        assert_eq!(event.event_id, attachment_id);
+        assert_eq!(
+            event.idempotency_key,
+            format!("attachment:{attachment_id}:stored")
+        );
+        assert_eq!(event.dimension, UsageDimension::StorageBytes);
+        assert_eq!(event.class, UsageClass::BillableActual);
+        assert_eq!(event.producer, UsageProducer::Api);
+        assert_eq!(event.source, UsageSource::LocalMeasured);
+        assert_eq!(event.outcome, UsageOutcome::Completed);
+        assert_eq!(event.subject.client_id(), Some("resolved-client"));
+        assert_eq!(event.subject.archive_id(), Some("resolved-archive"));
+        assert_eq!(
+            event.measurement.quantity().unwrap().value().to_string(),
+            "4096"
+        );
+        assert_eq!(event.measurement.unit(), &UsageUnit::Byte);
+        assert!(event.attrs.is_empty());
+        assert_eq!(
+            event.correlation.request_id(),
+            Some(request_id.to_string().as_str())
+        );
+
+        meter.record(&event).await.unwrap();
+        meter
+            .record(&event)
+            .await
+            .expect("exact attachment usage replay must be idempotent");
+        assert_eq!(meter.events().await.len(), 1);
+
+        let encoded = serde_json::to_string(&event).unwrap();
+        for forbidden in [
+            "private-filename.pdf",
+            "application/pdf",
+            "base64-content",
+            "multipart",
+        ] {
+            assert!(!encoded.contains(forbidden));
+        }
     }
 
     #[tokio::test]
