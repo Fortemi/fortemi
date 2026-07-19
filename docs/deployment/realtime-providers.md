@@ -9,6 +9,8 @@ Current implementation summary:
 - Call lookup path: `GET /api/v1/calls/{call_id}`
 - Supported Twilio receiver schema: `twilio.voice.v1`
 - Supported Twilio media schema: `twilio.media-stream.v1`
+- Twilio `start.streamSid` is hashed at the adapter boundary and atomically bound to one persisted internal media attempt per call.
+- `RealtimeAudioSeconds` usage counts only normalized PCM samples successfully accepted by the configured ASR session.
 - Deepgram config is read from `DEEPGRAM_*` env vars.
 - Twilio account credentials are not read from process env by the API. Store the Twilio Auth Token in the incoming webhook receiver `hmac_secret`; Fortemi validates `X-Twilio-Signature` with that secret.
 
@@ -20,7 +22,7 @@ Fortemi keeps the realtime contract provider-neutral so different operators can 
 |---|---|---|
 | Receiver registration | `slug`, `provider`, `schema_ref`, `signature_header`, active state, and secret presence | The actual signature algorithm and payload shape, selected by `schema_ref` and `signature_header` |
 | Call start | `provider`, `provider_call_id`, optional `remote_party`, metadata, and audit fields | Twilio maps `CallSid`, `From`, `To`, `Direction`, consent, and disclosure fields into that shape |
-| Media stream | `MediaFrame` with codec, RTP timestamp, sequence, marker, and payload | Twilio Media Streams JSON envelopes and PCMU/G.711 payloads stay inside the Twilio adapter |
+| Media stream | `MediaFrame` with codec, RTP timestamp, sequence, marker, and payload; one database-owned attempt identity | Twilio Media Streams JSON envelopes and PCMU/G.711 payloads stay inside the Twilio adapter; only a SHA-256 stream-binding fingerprint crosses into persistence |
 | Call lifecycle | `active`, `ended`, `normal_hangup`, `failed`, and `dropped` | Provider status names such as `ringing`, `in-progress`, `completed`, `busy`, and `no-answer` |
 | Transcription backend | Streaming ASR session events: partial, final, and error | Deepgram URL, API key, model, language, reconnect behavior, and fallback accounting |
 
@@ -44,6 +46,7 @@ Contract completeness checklist:
 | Consent and disclosure | Preserve confirmation status, disclosure version, and policy metadata as structured call metadata. | Regulated and all-party-consent deployments can audit decisions without provider-specific schema changes. |
 | Lifecycle | Emit standards-shaped `call_started`, `state_change`, `recording_available`, and `ended` call events through the outbox. | Downstream jobs and future providers depend on stable events rather than Twilio status strings. |
 | Media | Normalize provider envelopes into `MediaFrame` values before ASR. | Codec and transport choices can evolve independently from transcript persistence. |
+| Usage | Persist accepted PCM samples and sample rate per media attempt, then emit one replay-safe `RealtimeAudioSeconds` event. | Billing-class duration is exact and does not depend on call wall-clock time, frame estimates, or a provider billing API. |
 | Batch quality path | Treat recording callbacks as a durable `recording_available` contract. | Live transcripts and later higher-quality batch transcripts can coexist under an explicit policy. |
 
 References:
@@ -229,7 +232,23 @@ Fortemi maps Twilio Voice statuses into standards-shaped call events at the adap
 | `CallStatus=failed`, `busy`, or `no-answer` | End the session with `failed`. |
 | `RecordingStatus=completed` + `RecordingUrl` | Return a `recording_available` side effect for downstream transcription handling. |
 | Twilio Media Streams `media` envelope | Translate PCMU/G.711 8 kHz payloads into Fortemi `MediaFrame` values. |
-| Twilio Media Streams `stop` or socket close | End the call as dropped if no terminal webhook already ended it. |
+| Twilio Media Streams `start` envelope | Validate the CallSid, hash the StreamSid, and atomically claim one active persisted media attempt. A concurrent or replayed binding is rejected before ASR media processing. |
+| Twilio Media Streams `stop` envelope | Close ASR and finalize the media attempt as `completed`; the Voice status webhook remains authoritative for the call-session lifecycle. |
+| Media socket close without `stop` | Close ASR and finalize the media attempt as `client_interrupted` without ending the call session, allowing a new StreamSid to establish a distinct reconnect attempt while the call remains eligible. |
+| Provider/socket or ASR failure | Finalize as `provider_interrupted`, `start_failed`, or `close_failed` according to the failure point. Explicit supersession uses `failover`. |
+
+## Authoritative Realtime Usage
+
+The `realtime_media_stream_attempt` row is Fortemi's authoritative boundary for realtime ASR audio usage:
+
+- The Twilio StreamSid is represented only by a SHA-256 fingerprint. Raw CallSid, StreamSid, phone numbers, media, transcripts, URLs, headers, credentials, and provider diagnostics are excluded from usage events.
+- PostgreSQL serializes claims by internal `call_id`. The runtime rejects a different binding while an attempt is active. Repository policy also supports explicit supersession, which terminalizes the prior attempt as `failover`.
+- Each successful `AsrSession::push_pcm16k` call increments persisted `accepted_samples`. Failed pushes do not increment usage.
+- `sample_rate_hz` is persisted with the attempt. Final usage is the exact decimal ratio `accepted_samples / sample_rate_hz`; it is never inferred from call timestamps, media frame count, or RTP timestamps.
+- The terminal row is immutable. Finalization replay rebuilds the same deterministic usage event and the durable usage ledger acknowledges it as an exact replay.
+- CE recording remains best-effort after terminal persistence. Deployments that require a durable ledger should use `MATRIC_USAGE_METER_MODE=durable-required`; hosted hard-cap reservation and admission enforcement remain a separate quota-policy concern.
+
+The `rtp_session_duration_seconds` metric and the estimated-cost dashboard derived from it remain **operational wall-clock telemetry**. They measure `call_sessions.ended_at - started_at`, can include ringing, silence, reconnect gaps, and provider/control latency, and must not be used as a billing source of truth. Billing and usage reporting should consume `RealtimeAudioSeconds` from the usage ledger instead.
 
 ## Consent and Disclosure
 

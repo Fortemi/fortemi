@@ -151,6 +151,7 @@ const SHARED_TABLES: &[&str] = &[
     "oauth_client",
     "oauth_token",
     "pke_public_keys",
+    "realtime_media_stream_attempt",
     "transcript_segments",
     "usage_event_conflict",
     "usage_event_delivery",

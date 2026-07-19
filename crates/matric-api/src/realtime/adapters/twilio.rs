@@ -10,6 +10,7 @@ use futures::stream;
 use matric_core::{Error, Result};
 use serde::Deserialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::fmt;
 
 use crate::realtime::{
@@ -30,6 +31,8 @@ enum TwilioMediaEnvelope {
         start: TwilioStart,
         #[serde(default, rename = "sequenceNumber")]
         sequence_number: Option<String>,
+        #[serde(default, rename = "streamSid")]
+        stream_sid: Option<String>,
     },
     Media {
         media: TwilioMedia,
@@ -40,6 +43,8 @@ enum TwilioMediaEnvelope {
         stop: TwilioStop,
         #[serde(default, rename = "sequenceNumber")]
         sequence_number: Option<String>,
+        #[serde(default, rename = "streamSid")]
+        stream_sid: Option<String>,
     },
     Mark {
         mark: TwilioMark,
@@ -59,12 +64,17 @@ impl fmt::Debug for TwilioMediaEnvelope {
             Self::Start {
                 start,
                 sequence_number,
+                stream_sid,
             } => f
                 .debug_struct("TwilioMediaEnvelope::Start")
                 .field("start", start)
                 .field(
                     "sequence_number_len",
                     &sequence_number.as_ref().map(|value| twilio_text_len(value)),
+                )
+                .field(
+                    "stream_sid_len",
+                    &stream_sid.as_ref().map(|value| twilio_text_len(value)),
                 )
                 .finish(),
             Self::Media {
@@ -81,12 +91,17 @@ impl fmt::Debug for TwilioMediaEnvelope {
             Self::Stop {
                 stop,
                 sequence_number,
+                stream_sid,
             } => f
                 .debug_struct("TwilioMediaEnvelope::Stop")
                 .field("stop", stop)
                 .field(
                     "sequence_number_len",
                     &sequence_number.as_ref().map(|value| twilio_text_len(value)),
+                )
+                .field(
+                    "stream_sid_len",
+                    &stream_sid.as_ref().map(|value| twilio_text_len(value)),
                 )
                 .finish(),
             Self::Mark {
@@ -119,12 +134,18 @@ impl fmt::Debug for TwilioMediaEnvelope {
 #[serde(rename_all = "camelCase")]
 struct TwilioStart {
     call_sid: String,
+    #[serde(default)]
+    stream_sid: Option<String>,
 }
 
 impl fmt::Debug for TwilioStart {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TwilioStart")
             .field("call_sid_len", &twilio_text_len(&self.call_sid))
+            .field(
+                "stream_sid_len",
+                &self.stream_sid.as_ref().map(|value| twilio_text_len(value)),
+            )
             .finish()
     }
 }
@@ -151,12 +172,18 @@ impl fmt::Debug for TwilioMedia {
 #[serde(rename_all = "camelCase")]
 struct TwilioStop {
     call_sid: String,
+    #[serde(default)]
+    stream_sid: Option<String>,
 }
 
 impl fmt::Debug for TwilioStop {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TwilioStop")
             .field("call_sid_len", &twilio_text_len(&self.call_sid))
+            .field(
+                "stream_sid_len",
+                &self.stream_sid.as_ref().map(|value| twilio_text_len(value)),
+            )
             .finish()
     }
 }
@@ -190,6 +217,8 @@ impl fmt::Debug for TwilioDtmf {
 #[derive(Clone, PartialEq, Eq)]
 pub enum TwilioTranslatedEvent {
     Media(MediaFrame),
+    StreamStarted(TwilioStreamBinding),
+    StreamStopped(TwilioStreamBinding),
     Control(CallControlEvent),
 }
 
@@ -204,11 +233,49 @@ impl fmt::Debug for TwilioTranslatedEvent {
                 .field("marker", &frame.marker)
                 .field("payload_len", &frame.payload.len())
                 .finish(),
+            Self::StreamStarted(binding) => f
+                .debug_tuple("TwilioTranslatedEvent::StreamStarted")
+                .field(binding)
+                .finish(),
+            Self::StreamStopped(binding) => f
+                .debug_tuple("TwilioTranslatedEvent::StreamStopped")
+                .field(binding)
+                .finish(),
             Self::Control(event) => f
                 .debug_struct("TwilioTranslatedEvent::Control")
                 .field("event_class", &twilio_control_event_class(event))
                 .finish(),
         }
+    }
+}
+
+/// Sanitized provider stream binding. Only the adapter retains the raw call ID;
+/// persistence consumes the SHA-256 stream fingerprint.
+#[derive(Clone, PartialEq, Eq)]
+pub struct TwilioStreamBinding {
+    provider_call_id: String,
+    provider_stream_sha256: [u8; 32],
+}
+
+impl TwilioStreamBinding {
+    pub fn provider_call_id(&self) -> &str {
+        &self.provider_call_id
+    }
+
+    pub fn provider_stream_sha256(&self) -> &[u8; 32] {
+        &self.provider_stream_sha256
+    }
+}
+
+impl fmt::Debug for TwilioStreamBinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TwilioStreamBinding")
+            .field(
+                "provider_call_id_len",
+                &twilio_text_len(&self.provider_call_id),
+            )
+            .field("provider_stream_digest_present", &true)
+            .finish()
     }
 }
 
@@ -218,14 +285,12 @@ pub fn translate_media_stream_json(input: &str) -> Result<TwilioTranslatedEvent>
         TwilioMediaEnvelope::Start {
             start,
             sequence_number,
-        } => Ok(TwilioTranslatedEvent::Control(
-            CallControlEvent::CallStarted {
-                provider: TWILIO_PROVIDER.to_string(),
-                provider_call_id: start.call_sid,
-                remote_party: None,
-                metadata: serde_json::json!({"source": "twilio_media_stream"}),
-            },
-        ))
+            stream_sid,
+        } => Ok(TwilioTranslatedEvent::StreamStarted(twilio_stream_binding(
+            start.call_sid,
+            stream_sid,
+            start.stream_sid,
+        )?))
         .map(|event| with_sequence(event, sequence_number)),
         TwilioMediaEnvelope::Media {
             media,
@@ -254,10 +319,12 @@ pub fn translate_media_stream_json(input: &str) -> Result<TwilioTranslatedEvent>
         TwilioMediaEnvelope::Stop {
             stop,
             sequence_number,
-        } => Ok(TwilioTranslatedEvent::Control(CallControlEvent::Custom {
-            event_type: "call_media_stopped".to_string(),
-            payload: twilio_provider_call_reference_metadata(&stop.call_sid),
-        }))
+            stream_sid,
+        } => Ok(TwilioTranslatedEvent::StreamStopped(twilio_stream_binding(
+            stop.call_sid,
+            stream_sid,
+            stop.stream_sid,
+        )?))
         .map(|event| with_sequence(event, sequence_number)),
         TwilioMediaEnvelope::Mark {
             mark,
@@ -280,6 +347,41 @@ pub fn translate_media_stream_json(input: &str) -> Result<TwilioTranslatedEvent>
             .map(|event| with_sequence(event, sequence_number))
         }
     }
+}
+
+fn twilio_stream_binding(
+    provider_call_id: String,
+    envelope_stream_sid: Option<String>,
+    nested_stream_sid: Option<String>,
+) -> Result<TwilioStreamBinding> {
+    if provider_call_id.is_empty() || provider_call_id.len() > 256 {
+        return Err(Error::InvalidInput(
+            "invalid Twilio media stream call binding".to_string(),
+        ));
+    }
+    let provider_stream_id = match (envelope_stream_sid, nested_stream_sid) {
+        (Some(envelope), Some(nested)) if envelope != nested => {
+            return Err(Error::InvalidInput(
+                "mismatched Twilio media stream binding".to_string(),
+            ));
+        }
+        (Some(value), _) | (_, Some(value)) => value,
+        (None, None) => {
+            return Err(Error::InvalidInput(
+                "missing Twilio media stream binding".to_string(),
+            ));
+        }
+    };
+    if provider_stream_id.is_empty() || provider_stream_id.len() > 256 {
+        return Err(Error::InvalidInput(
+            "invalid Twilio media stream binding".to_string(),
+        ));
+    }
+
+    Ok(TwilioStreamBinding {
+        provider_call_id,
+        provider_stream_sha256: Sha256::digest(provider_stream_id.as_bytes()).into(),
+    })
 }
 
 fn with_sequence(
@@ -353,6 +455,22 @@ impl TwilioMediaStreamAdapter {
         for envelope in envelopes {
             match translate_media_stream_json(envelope.as_ref())? {
                 TwilioTranslatedEvent::Media(frame) => frames.push(frame),
+                TwilioTranslatedEvent::StreamStarted(binding) => {
+                    control_events.push(CallControlEvent::CallStarted {
+                        provider: TWILIO_PROVIDER.to_string(),
+                        provider_call_id: binding.provider_call_id,
+                        remote_party: None,
+                        metadata: serde_json::json!({"source": "twilio_media_stream"}),
+                    });
+                }
+                TwilioTranslatedEvent::StreamStopped(binding) => {
+                    control_events.push(CallControlEvent::Custom {
+                        event_type: "call_media_stopped".to_string(),
+                        payload: twilio_provider_call_reference_metadata(
+                            binding.provider_call_id(),
+                        ),
+                    });
+                }
                 TwilioTranslatedEvent::Control(event) => control_events.push(event),
             }
         }
@@ -861,7 +979,7 @@ mod tests {
     #[test]
     fn twilio_wire_debug_redacts_provider_payloads_and_call_metadata() {
         let start: TwilioMediaEnvelope = serde_json::from_str(
-            r#"{"event":"start","sequenceNumber":"séq-secret-1","start":{"callSid":"CAcustómer@example.com"}}"#,
+            r#"{"event":"start","sequenceNumber":"séq-secret-1","streamSid":"MZstream-secrét-top","start":{"callSid":"CAcustómer@example.com","streamSid":"MZstream-secrét-top"}}"#,
         )
         .unwrap();
         let media: TwilioMediaEnvelope = serde_json::from_str(
@@ -869,7 +987,7 @@ mod tests {
         )
         .unwrap();
         let stop: TwilioMediaEnvelope = serde_json::from_str(
-            r#"{"event":"stop","sequenceNumber":"séq-secret-3","stop":{"callSid":"CApostgres://usér:pass@db.internal/app"}}"#,
+            r#"{"event":"stop","sequenceNumber":"séq-secret-3","streamSid":"MZstop-secrét","stop":{"callSid":"CApostgres://usér:pass@db.internal/app"}}"#,
         )
         .unwrap();
         let mark: TwilioMediaEnvelope = serde_json::from_str(
@@ -912,6 +1030,10 @@ mod tests {
             format!(
                 "call_sid_len: {}",
                 twilio_text_len("CAcustómer@example.com")
+            ),
+            format!(
+                "stream_sid_len: {:?}",
+                Some(twilio_text_len("MZstream-secrét-top"))
             ),
             format!(
                 "payload_len: {}",
@@ -983,6 +1105,8 @@ mod tests {
             "api.twilió.com",
             "sk-live-recording",
             "v2026-privaté",
+            "MZstream-secrét-top",
+            "MZstop-secrét",
         ] {
             assert!(!combined.contains(raw), "raw value leaked: {raw}");
         }
@@ -1002,7 +1126,7 @@ mod tests {
         let adapter = TwilioMediaStreamAdapter::from_envelopes(
             "CApostgres://usér:pass@db.internal/app",
             [
-                r#"{"event":"start","sequenceNumber":"1","start":{"callSid":"CAprivate-start"}}"#,
+                r#"{"event":"start","sequenceNumber":"1","streamSid":"MZprivate-stream","start":{"callSid":"CAprivate-start","streamSid":"MZprivate-stream"}}"#,
                 r#"{"event":"media","sequenceNumber":"2","media":{"payload":"/////w==","timestamp":"160","chunk":"1"}}"#,
             ],
         )
@@ -1154,31 +1278,66 @@ mod tests {
     }
 
     #[test]
-    fn stop_envelope_redacts_provider_call_id_in_custom_payload() {
+    fn start_and_stop_envelopes_return_only_a_stream_fingerprint() {
         let provider_call_id = "CA-secret-provider-call-id";
-        let envelope = format!(
-            r#"{{"event":"stop","sequenceNumber":"9","stop":{{"callSid":"{provider_call_id}"}}}}"#
+        let provider_stream_id = "MZ-secret-provider-stream-id";
+        let start = format!(
+            r#"{{"event":"start","sequenceNumber":"1","streamSid":"{provider_stream_id}","start":{{"callSid":"{provider_call_id}","streamSid":"{provider_stream_id}"}}}}"#
         );
-        let event = translate_media_stream_json(&envelope).unwrap();
-        let payload = match event {
-            TwilioTranslatedEvent::Control(CallControlEvent::Custom {
-                event_type,
-                payload,
-            }) => {
-                assert_eq!(event_type, "call_media_stopped");
-                payload
-            }
+        let stop = format!(
+            r#"{{"event":"stop","sequenceNumber":"9","streamSid":"{provider_stream_id}","stop":{{"callSid":"{provider_call_id}"}}}}"#
+        );
+        let started = match translate_media_stream_json(&start).unwrap() {
+            TwilioTranslatedEvent::StreamStarted(binding) => binding,
+            other => panic!("unexpected translated event: {other:?}"),
+        };
+        let stopped = match translate_media_stream_json(&stop).unwrap() {
+            TwilioTranslatedEvent::StreamStopped(binding) => binding,
             other => panic!("unexpected translated event: {other:?}"),
         };
 
-        assert_eq!(payload["provider_call_id_present"], true);
+        assert_eq!(started.provider_call_id(), provider_call_id);
         assert_eq!(
-            payload["provider_call_id_len"],
-            provider_call_id.chars().count()
+            started.provider_stream_sha256(),
+            stopped.provider_stream_sha256()
         );
-        let rendered = serde_json::to_string(&payload).expect("serialize stop payload");
+        assert_eq!(
+            started.provider_stream_sha256().as_slice(),
+            Sha256::digest(provider_stream_id.as_bytes()).as_slice()
+        );
+        let rendered = format!("{started:?}\n{stopped:?}");
+        assert!(rendered.contains("provider_stream_digest_present: true"));
         assert!(!rendered.contains(provider_call_id));
+        assert!(!rendered.contains(provider_stream_id));
         assert!(!rendered.contains("secret-provider"));
+    }
+
+    #[test]
+    fn stream_binding_validation_is_protocol_safe() {
+        let missing = translate_media_stream_json(
+            r#"{"event":"start","sequenceNumber":"1","start":{"callSid":"CA-secret"}}"#,
+        )
+        .unwrap_err();
+        let mismatch = translate_media_stream_json(
+            r#"{"event":"start","sequenceNumber":"1","streamSid":"MZ-secret-a","start":{"callSid":"CA-secret","streamSid":"MZ-secret-b"}}"#,
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            &missing,
+            Error::InvalidInput(message) if message == "missing Twilio media stream binding"
+        ));
+        assert!(matches!(
+            &mismatch,
+            Error::InvalidInput(message) if message == "mismatched Twilio media stream binding"
+        ));
+        for rendered in [
+            format!("{missing:?}\n{missing}"),
+            format!("{mismatch:?}\n{mismatch}"),
+        ] {
+            assert!(!rendered.contains("CA-secret"));
+            assert!(!rendered.contains("MZ-secret"));
+        }
     }
 
     #[test]
@@ -1211,7 +1370,7 @@ mod tests {
         let mut adapter = TwilioMediaStreamAdapter::from_envelopes(
             "CA123",
             [
-                r#"{"event":"start","sequenceNumber":"1","start":{"callSid":"CA123"}}"#,
+                r#"{"event":"start","sequenceNumber":"1","streamSid":"MZ123","start":{"callSid":"CA123","streamSid":"MZ123"}}"#,
                 r#"{"event":"media","sequenceNumber":"2","media":{"payload":"/////w==","timestamp":"160","chunk":"1"}}"#,
                 r##"{"event":"dtmf","sequenceNumber":"3","dtmf":{"digit":"#"}}"##,
             ],

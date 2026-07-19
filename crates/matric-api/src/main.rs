@@ -29,6 +29,7 @@ use axum::{
     Form, Json, Router,
 };
 use base64::Engine;
+use bigdecimal::BigDecimal;
 use governor::{clock::Clock, Quota, RateLimiter};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
@@ -4528,7 +4529,7 @@ async fn twilio_realtime_ws(
     emit_twilio_realtime_audit_event(twilio_realtime_audit_event(
         Some(call_id),
         &provider_call_id,
-        "websocket_bound",
+        "websocket_eligible",
         AuditOutcome::Success,
         None,
     ))
@@ -4596,23 +4597,153 @@ type TwilioAsrPipeline = (
     >,
 );
 
+struct TwilioActiveMediaAttempt {
+    attempt: matric_db::call_sessions::RealtimeMediaStreamAttempt,
+    asr_pipeline: TwilioAsrPipeline,
+}
+
 async fn handle_twilio_realtime_connection(
     mut socket: WebSocket,
     state: AppState,
     call_id: Uuid,
     provider_call_id: String,
 ) {
-    let mut asr_pipeline = start_twilio_asr_pipeline(&state, call_id, &provider_call_id).await;
+    use matric_db::call_sessions::{
+        RealtimeMediaBindingPolicy, RealtimeMediaClaim, RealtimeMediaTerminalStatus,
+    };
+
+    let mut active: Option<TwilioActiveMediaAttempt> = None;
+    let mut terminal_status = RealtimeMediaTerminalStatus::ClientInterrupted;
 
     while let Some(message) = socket.recv().await {
         match message {
             Ok(Message::Text(text)) => {
                 match matric_api::realtime::adapters::twilio::translate_media_stream_json(&text) {
+                    Ok(
+                        matric_api::realtime::adapters::twilio::TwilioTranslatedEvent::StreamStarted(
+                            binding,
+                        ),
+                    ) => {
+                        if binding.provider_call_id() != provider_call_id {
+                            terminal_status = RealtimeMediaTerminalStatus::ProviderInterrupted;
+                            emit_twilio_realtime_audit_event(twilio_realtime_audit_event(
+                                Some(call_id),
+                                &provider_call_id,
+                                "websocket_start_mismatch",
+                                AuditOutcome::Denied,
+                                Some("provider_call_binding_mismatch"),
+                            ))
+                            .await;
+                            break;
+                        }
+                        if active.is_some() {
+                            terminal_status = RealtimeMediaTerminalStatus::ProviderInterrupted;
+                            break;
+                        }
+
+                        let claim = match state
+                            .db
+                            .call_sessions
+                            .claim_realtime_media_stream(
+                                call_id,
+                                binding.provider_stream_sha256(),
+                                matric_api::realtime::codec::TARGET_SAMPLE_RATE_HZ,
+                                RealtimeMediaBindingPolicy::RejectActive,
+                            )
+                            .await
+                        {
+                            Ok(claim) => claim,
+                            Err(error) => {
+                                tracing::warn!(
+                                    call_id_present = true,
+                                    provider_call_id_len =
+                                        telemetry_text_len(&provider_call_id),
+                                    error_len = telemetry_text_len(&error.to_string()),
+                                    detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                                    operation = "media_stream_claim",
+                                    "Realtime media stream claim failed"
+                                );
+                                break;
+                            }
+                        };
+
+                        let attempt = match claim {
+                            RealtimeMediaClaim::Claimed {
+                                attempt,
+                                superseded,
+                            } => {
+                                if let Some(superseded) = superseded {
+                                    record_realtime_audio_usage(
+                                        state.usage_meter.as_ref(),
+                                        &superseded,
+                                    )
+                                    .await;
+                                }
+                                attempt
+                            }
+                            RealtimeMediaClaim::BindingReplay(attempt) => {
+                                if attempt.status != "active" {
+                                    record_realtime_audio_usage(
+                                        state.usage_meter.as_ref(),
+                                        &attempt,
+                                    )
+                                    .await;
+                                }
+                                emit_twilio_realtime_audit_event(twilio_realtime_audit_event(
+                                    Some(call_id),
+                                    &provider_call_id,
+                                    "websocket_binding_replay",
+                                    AuditOutcome::Denied,
+                                    Some("provider_stream_binding_replay"),
+                                ))
+                                .await;
+                                break;
+                            }
+                            RealtimeMediaClaim::ActiveConflict => {
+                                emit_twilio_realtime_audit_event(twilio_realtime_audit_event(
+                                    Some(call_id),
+                                    &provider_call_id,
+                                    "websocket_binding_conflict",
+                                    AuditOutcome::Denied,
+                                    Some("active_media_binding_exists"),
+                                ))
+                                .await;
+                                break;
+                            }
+                        };
+
+                        emit_twilio_realtime_audit_event(twilio_realtime_audit_event(
+                            Some(call_id),
+                            &provider_call_id,
+                            "websocket_bound",
+                            AuditOutcome::Success,
+                            None,
+                        ))
+                        .await;
+                        match start_twilio_asr_pipeline(&state, call_id, &provider_call_id).await {
+                            Some(asr_pipeline) => {
+                                active = Some(TwilioActiveMediaAttempt {
+                                    attempt,
+                                    asr_pipeline,
+                                });
+                            }
+                            None => {
+                                finalize_and_record_realtime_audio_usage(
+                                    &state,
+                                    &attempt,
+                                    RealtimeMediaTerminalStatus::StartFailed,
+                                )
+                                .await;
+                                break;
+                            }
+                        }
+                    }
                     Ok(matric_api::realtime::adapters::twilio::TwilioTranslatedEvent::Media(
                         frame,
                     )) => {
                         RTP_AUDIO_FRAMES_TOTAL.fetch_add(1, Ordering::Relaxed);
-                        if let Some((session, _)) = asr_pipeline.as_mut() {
+                        if let Some(active) = active.as_mut() {
+                            let (session, _) = &mut active.asr_pipeline;
                             match matric_api::realtime::codec::normalize_frame_to_pcm16k(&frame) {
                                 Ok(samples) if !samples.is_empty() => {
                                     if let Err(error) = session.push_pcm16k(&samples).await {
@@ -4625,6 +4756,50 @@ async fn handle_twilio_realtime_connection(
                                             operation = "asr_audio_push",
                                             "Realtime ASR audio push failed"
                                         );
+                                        terminal_status =
+                                            RealtimeMediaTerminalStatus::ProviderInterrupted;
+                                        break;
+                                    }
+                                    let accepted_samples = match i64::try_from(samples.len())
+                                        .ok()
+                                        .and_then(|count| {
+                                            active.attempt.accepted_samples.checked_add(count)
+                                        }) {
+                                        Some(count) => count,
+                                        None => {
+                                            terminal_status =
+                                                RealtimeMediaTerminalStatus::ProviderInterrupted;
+                                            break;
+                                        }
+                                    };
+                                    active.attempt.accepted_samples = accepted_samples;
+                                    match state
+                                        .db
+                                        .call_sessions
+                                        .record_realtime_accepted_samples(
+                                            active.attempt.attempt_id,
+                                            active.attempt.claim_id,
+                                            samples.len(),
+                                        )
+                                        .await
+                                    {
+                                        Ok(attempt) => active.attempt = attempt,
+                                        Err(error) => {
+                                            tracing::warn!(
+                                                call_id_present = true,
+                                                provider_call_id_len =
+                                                    telemetry_text_len(&provider_call_id),
+                                                error_len =
+                                                    telemetry_text_len(&error.to_string()),
+                                                detail =
+                                                    API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                                                operation = "persist_accepted_samples",
+                                                "Realtime accepted sample persistence failed"
+                                            );
+                                            terminal_status =
+                                                RealtimeMediaTerminalStatus::ProviderInterrupted;
+                                            break;
+                                        }
                                     }
                                 }
                                 Ok(_) => {}
@@ -4650,6 +4825,23 @@ async fn handle_twilio_realtime_connection(
                             bytes = frame.payload.len(),
                             "Twilio media frame received"
                         );
+                    }
+                    Ok(
+                        matric_api::realtime::adapters::twilio::TwilioTranslatedEvent::StreamStopped(
+                            binding,
+                        ),
+                    ) => {
+                        let binding_matches = active.as_ref().is_some_and(|active| {
+                            binding.provider_call_id() == provider_call_id
+                                && binding.provider_stream_sha256().as_slice()
+                                    == active.attempt.provider_binding_sha256.as_slice()
+                        });
+                        terminal_status = if binding_matches {
+                            RealtimeMediaTerminalStatus::Completed
+                        } else {
+                            RealtimeMediaTerminalStatus::ProviderInterrupted
+                        };
+                        break;
                     }
                     Ok(matric_api::realtime::adapters::twilio::TwilioTranslatedEvent::Control(
                         event,
@@ -4689,22 +4881,22 @@ async fn handle_twilio_realtime_connection(
                     operation = "media_stream_socket",
                     "Twilio media stream socket error"
                 );
+                terminal_status = RealtimeMediaTerminalStatus::ProviderInterrupted;
                 break;
             }
         }
     }
 
-    finish_twilio_asr_pipeline(asr_pipeline, call_id, &provider_call_id).await;
-
-    handle_twilio_control_event(
-        &state,
-        call_id,
-        &provider_call_id,
-        matric_api::realtime::CallControlEvent::Dropped {
-            reason: "websocket_closed".to_string(),
-        },
-    )
-    .await;
+    if let Some(active) = active {
+        let close_failed =
+            finish_twilio_asr_pipeline(Some(active.asr_pipeline), call_id, &provider_call_id).await;
+        let terminal_status = if close_failed {
+            RealtimeMediaTerminalStatus::CloseFailed
+        } else {
+            terminal_status
+        };
+        finalize_and_record_realtime_audio_usage(&state, &active.attempt, terminal_status).await;
+    }
 }
 
 fn twilio_invalid_media_envelope_payload() -> String {
@@ -4755,12 +4947,12 @@ async fn finish_twilio_asr_pipeline(
     asr_pipeline: Option<TwilioAsrPipeline>,
     _call_id: Uuid,
     provider_call_id: &str,
-) {
+) -> bool {
     let Some((mut session, handle)) = asr_pipeline else {
-        return;
+        return false;
     };
 
-    if let Err(error) = session.close().await {
+    let close_failed = if let Err(error) = session.close().await {
         tracing::warn!(
             call_id_present = true,
             provider_call_id_len = telemetry_text_len(provider_call_id),
@@ -4769,7 +4961,10 @@ async fn finish_twilio_asr_pipeline(
             operation = "asr_session_close",
             "Realtime ASR session close failed"
         );
-    }
+        true
+    } else {
+        false
+    };
     drop(session);
 
     match handle.await {
@@ -4806,6 +5001,139 @@ async fn finish_twilio_asr_pipeline(
             );
         }
     }
+    close_failed
+}
+
+async fn finalize_and_record_realtime_audio_usage(
+    state: &AppState,
+    attempt: &matric_db::call_sessions::RealtimeMediaStreamAttempt,
+    status: matric_db::call_sessions::RealtimeMediaTerminalStatus,
+) {
+    use matric_db::call_sessions::RealtimeMediaFinalization;
+
+    match state
+        .db
+        .call_sessions
+        .finalize_realtime_media_stream(
+            attempt.attempt_id,
+            attempt.claim_id,
+            status,
+            match u64::try_from(attempt.accepted_samples) {
+                Ok(value) => value,
+                Err(_) => {
+                    tracing::warn!(
+                        call_id_present = true,
+                        detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                        operation = "finalize_media_stream_attempt",
+                        "Realtime accepted sample count is invalid"
+                    );
+                    return;
+                }
+            },
+        )
+        .await
+    {
+        Ok(RealtimeMediaFinalization::Finalized(attempt))
+        | Ok(RealtimeMediaFinalization::Replay(attempt)) => {
+            record_realtime_audio_usage(state.usage_meter.as_ref(), &attempt).await;
+        }
+        Err(error) => {
+            tracing::warn!(
+                call_id_present = true,
+                error_len = telemetry_text_len(&error.to_string()),
+                detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "finalize_media_stream_attempt",
+                "Realtime media stream finalization failed"
+            );
+        }
+    }
+}
+
+async fn record_realtime_audio_usage(
+    meter: &dyn UsageMeter,
+    attempt: &matric_db::call_sessions::RealtimeMediaStreamAttempt,
+) {
+    match realtime_audio_usage_event(attempt) {
+        Ok(event) => {
+            if let Err(error) = meter.record(&event).await {
+                tracing::warn!(
+                    call_id_present = true,
+                    error_len = telemetry_text_len(&error.to_string()),
+                    detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                    operation = "record_realtime_audio_usage",
+                    "Best-effort realtime audio usage recording failed"
+                );
+            }
+        }
+        Err(error) => {
+            tracing::warn!(
+                call_id_present = true,
+                error_len = telemetry_text_len(&error.to_string()),
+                detail = API_TWILIO_REALTIME_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "build_realtime_audio_usage",
+                "Realtime audio usage event construction failed"
+            );
+        }
+    }
+}
+
+fn realtime_audio_usage_event(
+    attempt: &matric_db::call_sessions::RealtimeMediaStreamAttempt,
+) -> Result<UsageEvent, MeteringError> {
+    let sample_count =
+        u64::try_from(attempt.accepted_samples).map_err(|_| MeteringError::InvalidQuantity)?;
+    let sample_rate =
+        u64::try_from(attempt.sample_rate_hz).map_err(|_| MeteringError::InvalidQuantity)?;
+    if sample_rate == 0 {
+        return Err(MeteringError::InvalidQuantity);
+    }
+
+    let dimension = UsageDimension::RealtimeAudioSeconds;
+    let seconds = BigDecimal::from(sample_count) / BigDecimal::from(sample_rate);
+    let terminal_at = attempt.terminal_at.ok_or(MeteringError::InvalidQuantity)?;
+    let outcome = match attempt.status.as_str() {
+        "completed" => UsageOutcome::Completed,
+        "client_interrupted" => UsageOutcome::ClientInterrupted,
+        "provider_interrupted" | "failover" => UsageOutcome::ProviderInterrupted,
+        "start_failed" => UsageOutcome::FailedBeforeUsage,
+        "close_failed" if sample_count == 0 => UsageOutcome::FailedBeforeUsage,
+        "close_failed" => UsageOutcome::FailedAfterPartialUsage,
+        _ => return Err(MeteringError::InvalidQuantity),
+    };
+    let event_id = Uuid::new_v5(
+        &attempt.attempt_id,
+        b"realtime_audio_seconds:billable_actual",
+    );
+    let mut attrs = UsageAttributes::default();
+    attrs.insert(
+        &dimension,
+        UsageAttributeKey::MediaKind,
+        UsageAttributeValue::label("audio")?,
+    )?;
+    attrs.insert(
+        &dimension,
+        UsageAttributeKey::Provider,
+        UsageAttributeValue::label("twilio")?,
+    )?;
+    attrs.insert(
+        &dimension,
+        UsageAttributeKey::Protocol,
+        UsageAttributeValue::label("websocket")?,
+    )?;
+
+    UsageEvent::new(
+        format!("realtime:{}:audio_seconds:actual", attempt.attempt_id),
+        terminal_at,
+        UsageSubject::unknown(),
+        dimension,
+        UsageMeasurement::Measured(UsageQuantity::new(seconds, UsageUnit::Second)?),
+        UsageClass::BillableActual,
+        UsageProducer::Realtime,
+        UsageSource::LocalMeasured,
+        outcome,
+    )?
+    .with_identity(event_id, terminal_at)
+    .with_attrs(attrs)
 }
 
 async fn handle_twilio_control_event(
@@ -60792,7 +61120,7 @@ not-json
     }
 
     #[tokio::test]
-    async fn twilio_realtime_ws_requires_recent_session_and_marks_drop_on_close() {
+    async fn twilio_realtime_ws_persists_exact_usage_without_ending_call_session() {
         use futures::SinkExt;
         use sqlx::Row;
 
@@ -60824,6 +61152,8 @@ not-json
         state.realtime_asr_backend = Some(Arc::new(
             matric_api::realtime::asr::MockAsrBackend::default(),
         ));
+        let usage_meter = matric_core::InMemoryMeter::default();
+        state.usage_meter = Arc::new(usage_meter.clone());
         let router = Router::new()
             .route(
                 "/api/v1/realtime/twilio/{provider_call_id}",
@@ -60844,32 +61174,92 @@ not-json
             .await
             .expect("connect Twilio realtime websocket");
         assert_eq!(response.status(), 101);
+        let provider_stream_id = format!("MZ{}", Uuid::new_v4().simple());
         ws.send(tokio_tungstenite::tungstenite::Message::Text(
-            r#"{"event":"media","sequenceNumber":"1","media":{"payload":"/////w==","timestamp":"160","chunk":"1"}}"#
+            format!(
+                r#"{{"event":"start","sequenceNumber":"1","streamSid":"{provider_stream_id}","start":{{"callSid":"{provider_call_id}","streamSid":"{provider_stream_id}"}}}}"#
+            )
+            .into(),
+        ))
+        .await
+        .expect("send Twilio start envelope");
+        ws.send(tokio_tungstenite::tungstenite::Message::Text(
+            r#"{"event":"media","sequenceNumber":"2","media":{"payload":"/////w==","timestamp":"160","chunk":"1"}}"#
                 .to_string()
                 .into(),
         ))
         .await
         .expect("send Twilio media envelope");
-        ws.close(None).await.expect("close websocket");
+        ws.send(tokio_tungstenite::tungstenite::Message::Text(
+            format!(
+                r#"{{"event":"stop","sequenceNumber":"3","streamSid":"{provider_stream_id}","stop":{{"callSid":"{provider_call_id}"}}}}"#
+            )
+            .into(),
+        ))
+        .await
+        .expect("send Twilio stop envelope");
 
-        let ended = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        let attempt = tokio::time::timeout(std::time::Duration::from_secs(3), async {
             loop {
-                let current = db
-                    .call_sessions
-                    .get_session_by_provider_call_id("twilio", &provider_call_id)
-                    .await
-                    .expect("load twilio session")
-                    .expect("session exists");
-                if current.ended_at.is_some() {
-                    break current;
+                let current = sqlx::query(
+                    r#"
+                    SELECT attempt_id, accepted_samples, sample_rate_hz, status, terminal_at
+                    FROM realtime_media_stream_attempt
+                    WHERE call_id = $1
+                    "#,
+                )
+                .bind(session.call_id)
+                .fetch_optional(db.pool())
+                .await
+                .expect("load realtime media attempt");
+                if current
+                    .as_ref()
+                    .is_some_and(|row| row.get::<Option<DateTime<Utc>>, _>("terminal_at").is_some())
+                {
+                    break current.unwrap();
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
         })
         .await
-        .expect("session should be marked dropped after websocket close");
-        assert_eq!(ended.end_reason.as_deref(), Some("dropped"));
+        .expect("media attempt should be finalized");
+        assert_eq!(attempt.get::<i64, _>("accepted_samples"), 8);
+        assert_eq!(attempt.get::<i32, _>("sample_rate_hz"), 16_000);
+        assert_eq!(attempt.get::<String, _>("status"), "completed");
+
+        let current_session = db
+            .call_sessions
+            .get_session(session.call_id)
+            .await
+            .expect("load call session")
+            .expect("call session remains");
+        assert!(current_session.ended_at.is_none());
+        assert!(current_session.end_reason.is_none());
+
+        let usage_event = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                if let Some(event) = usage_meter.events().await.into_iter().next() {
+                    break event;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("realtime usage event should be recorded");
+        assert_eq!(usage_event.dimension, UsageDimension::RealtimeAudioSeconds);
+        assert_eq!(
+            usage_event
+                .measurement
+                .quantity()
+                .unwrap()
+                .value()
+                .to_string(),
+            "0.0005"
+        );
+        assert_eq!(usage_event.outcome, UsageOutcome::Completed);
+        assert!(usage_event.subject.is_unknown());
+        assert_eq!(usage_event.correlation, UsageCorrelation::default());
+        assert_eq!(usage_event.attrs.len(), 3);
 
         let segment = sqlx::query(
             r#"
@@ -60914,6 +61304,21 @@ not-json
         assert_eq!(payload["speaker"], "speaker_0");
         assert_eq!(payload["sequence"], 1);
 
+        let serialized_usage =
+            serde_json::to_string(&usage_event).expect("serialize realtime usage event");
+        for forbidden in [
+            provider_call_id.as_str(),
+            provider_stream_id.as_str(),
+            "+15551234567",
+            "mock transcript",
+            "/////w==",
+        ] {
+            assert!(
+                !serialized_usage.contains(forbidden),
+                "usage event leaked provider/media data: {forbidden}"
+            );
+        }
+
         sqlx::query("DELETE FROM event_outbox WHERE entity_id = $1")
             .bind(session.call_id)
             .execute(db.pool())
@@ -60937,6 +61342,110 @@ not-json
             &Method::GET,
             "/api/v1/realtime/twilio/CA123"
         ));
+    }
+
+    #[tokio::test]
+    async fn realtime_audio_usage_is_exact_replay_safe_and_private() {
+        let terminal_at = Utc::now();
+        let attempt_id = Uuid::now_v7();
+        let attempt = matric_db::call_sessions::RealtimeMediaStreamAttempt {
+            attempt_id,
+            call_id: Uuid::now_v7(),
+            attempt_number: 4,
+            claim_id: Uuid::new_v4(),
+            provider_binding_sha256: vec![0x7f; 32],
+            sample_rate_hz: 16_000,
+            accepted_samples: 20_001,
+            status: "client_interrupted".to_string(),
+            claimed_at: terminal_at - chrono::Duration::seconds(2),
+            last_sample_at: Some(terminal_at),
+            terminal_at: Some(terminal_at),
+        };
+
+        let event = realtime_audio_usage_event(&attempt).unwrap();
+        let replay = realtime_audio_usage_event(&attempt).unwrap();
+        assert_eq!(event, replay);
+        assert_eq!(
+            event.measurement.quantity().unwrap().value().to_string(),
+            "1.2500625"
+        );
+        assert_eq!(event.outcome, UsageOutcome::ClientInterrupted);
+        assert_eq!(event.event_time, terminal_at);
+        assert_eq!(event.recorded_at, terminal_at);
+        assert!(event.subject.is_unknown());
+        assert_eq!(event.correlation, UsageCorrelation::default());
+
+        let meter = matric_core::InMemoryMeter::default();
+        meter.record(&event).await.unwrap();
+        meter.record(&replay).await.unwrap();
+        assert_eq!(meter.events().await.len(), 1);
+
+        let reconnect = matric_db::call_sessions::RealtimeMediaStreamAttempt {
+            attempt_id: Uuid::now_v7(),
+            attempt_number: attempt.attempt_number + 1,
+            claim_id: Uuid::new_v4(),
+            provider_binding_sha256: vec![0x6f; 32],
+            ..attempt.clone()
+        };
+        let reconnect_event = realtime_audio_usage_event(&reconnect).unwrap();
+        assert_ne!(event.event_id, reconnect_event.event_id);
+        assert_ne!(event.idempotency_key, reconnect_event.idempotency_key);
+
+        let serialized = serde_json::to_string(&event).unwrap();
+        let debug = format!("{event:?}\n{attempt:?}");
+        for forbidden in [
+            "CA-provider-secret",
+            "MZ-provider-secret",
+            "+15551234567",
+            "private transcript",
+            "https://api.twilio.com/media?token=secret",
+            "Authorization: Bearer secret",
+            "provider diagnostics secret",
+            "[127, 127",
+        ] {
+            assert!(!serialized.contains(forbidden));
+            assert!(!debug.contains(forbidden));
+        }
+    }
+
+    #[test]
+    fn realtime_terminal_states_have_explicit_usage_outcomes() {
+        let terminal_at = Utc::now();
+        for (index, status, accepted_samples, expected) in [
+            (1_u128, "completed", 16_000, UsageOutcome::Completed),
+            (
+                2,
+                "client_interrupted",
+                8_000,
+                UsageOutcome::ClientInterrupted,
+            ),
+            (
+                3,
+                "provider_interrupted",
+                4_000,
+                UsageOutcome::ProviderInterrupted,
+            ),
+            (4, "start_failed", 0, UsageOutcome::FailedBeforeUsage),
+            (5, "close_failed", 0, UsageOutcome::FailedBeforeUsage),
+            (6, "close_failed", 1, UsageOutcome::FailedAfterPartialUsage),
+            (7, "failover", 2_000, UsageOutcome::ProviderInterrupted),
+        ] {
+            let attempt = matric_db::call_sessions::RealtimeMediaStreamAttempt {
+                attempt_id: Uuid::from_u128(index),
+                call_id: Uuid::now_v7(),
+                attempt_number: i32::try_from(index).unwrap(),
+                claim_id: Uuid::new_v4(),
+                provider_binding_sha256: vec![u8::try_from(index).unwrap(); 32],
+                sample_rate_hz: 16_000,
+                accepted_samples,
+                status: status.to_string(),
+                claimed_at: terminal_at,
+                last_sample_at: None,
+                terminal_at: Some(terminal_at),
+            };
+            let event = realtime_audio_usage_event(&attempt).unwrap();
+            assert_eq!(event.outcome, expected, "status={status}");
+        }
     }
 
     #[test]

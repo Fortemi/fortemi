@@ -1,6 +1,8 @@
 //! Repository for provider-agnostic real-time call session persistence.
 
-use chrono::Utc;
+use std::fmt;
+
+use chrono::{DateTime, Utc};
 use matric_core::{
     CallSession, CreateCallSessionRequest, CreateTranscriptSegmentRequest, Error, Result,
     TranscriptSegment, UpdateCallSessionRequest,
@@ -9,6 +11,95 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use crate::outbox::{CreateOutboxEvent, PgEventOutboxRepository};
+
+const REALTIME_BINDING_DIGEST_BYTES: usize = 32;
+
+/// Persisted terminal state for one authoritative ASR media attempt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RealtimeMediaTerminalStatus {
+    Completed,
+    ClientInterrupted,
+    ProviderInterrupted,
+    StartFailed,
+    CloseFailed,
+    Failover,
+}
+
+impl RealtimeMediaTerminalStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::ClientInterrupted => "client_interrupted",
+            Self::ProviderInterrupted => "provider_interrupted",
+            Self::StartFailed => "start_failed",
+            Self::CloseFailed => "close_failed",
+            Self::Failover => "failover",
+        }
+    }
+}
+
+/// Policy applied when a different provider binding arrives for an active call.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum RealtimeMediaBindingPolicy {
+    #[default]
+    RejectActive,
+    SupersedeActive,
+}
+
+/// Database-owned realtime media attempt.
+#[derive(Clone, sqlx::FromRow)]
+pub struct RealtimeMediaStreamAttempt {
+    pub attempt_id: Uuid,
+    pub call_id: Uuid,
+    pub attempt_number: i32,
+    pub claim_id: Uuid,
+    pub provider_binding_sha256: Vec<u8>,
+    pub sample_rate_hz: i32,
+    pub accepted_samples: i64,
+    pub status: String,
+    pub claimed_at: DateTime<Utc>,
+    pub last_sample_at: Option<DateTime<Utc>>,
+    pub terminal_at: Option<DateTime<Utc>>,
+}
+
+impl fmt::Debug for RealtimeMediaStreamAttempt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RealtimeMediaStreamAttempt")
+            .field("attempt_id_present", &true)
+            .field("call_id_present", &true)
+            .field("attempt_number", &self.attempt_number)
+            .field("claim_id_present", &true)
+            .field(
+                "provider_binding_digest_present",
+                &(!self.provider_binding_sha256.is_empty()),
+            )
+            .field("sample_rate_hz", &self.sample_rate_hz)
+            .field("accepted_samples", &self.accepted_samples)
+            .field("status", &self.status)
+            .field("claimed_at", &self.claimed_at)
+            .field("last_sample_at_set", &self.last_sample_at.is_some())
+            .field("terminal_at_set", &self.terminal_at.is_some())
+            .finish()
+    }
+}
+
+/// Result of an atomic media-stream ownership claim.
+#[derive(Clone, Debug)]
+pub enum RealtimeMediaClaim {
+    Claimed {
+        attempt: RealtimeMediaStreamAttempt,
+        superseded: Option<RealtimeMediaStreamAttempt>,
+    },
+    ActiveConflict,
+    BindingReplay(RealtimeMediaStreamAttempt),
+}
+
+/// Result of replay-safe attempt finalization.
+#[derive(Clone, Debug)]
+pub enum RealtimeMediaFinalization {
+    Finalized(RealtimeMediaStreamAttempt),
+    Replay(RealtimeMediaStreamAttempt),
+}
 
 /// PostgreSQL repository for call sessions and final transcript segments.
 #[derive(Clone)]
@@ -142,6 +233,283 @@ impl PgCallSessionRepository {
             },
         )
         .await
+    }
+
+    /// Atomically claim the sole active media binding for a call.
+    ///
+    /// The provider binding is a SHA-256 digest produced at the adapter
+    /// boundary; raw provider identifiers never enter this repository.
+    pub async fn claim_realtime_media_stream(
+        &self,
+        call_id: Uuid,
+        provider_binding_sha256: &[u8],
+        sample_rate_hz: u32,
+        policy: RealtimeMediaBindingPolicy,
+    ) -> Result<RealtimeMediaClaim> {
+        if provider_binding_sha256.len() != REALTIME_BINDING_DIGEST_BYTES {
+            return Err(Error::InvalidInput(
+                "provider binding digest must be SHA-256".to_string(),
+            ));
+        }
+        let sample_rate_hz = i32::try_from(sample_rate_hz)
+            .ok()
+            .filter(|value| (1..=384_000).contains(value))
+            .ok_or_else(|| Error::InvalidInput("sample rate is out of range".to_string()))?;
+
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        let eligible = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            SELECT call_id
+            FROM public.call_sessions
+            WHERE call_id = $1 AND ended_at IS NULL
+            FOR UPDATE
+            "#,
+        )
+        .bind(call_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+        if eligible.is_none() {
+            tx.rollback().await.map_err(Error::Database)?;
+            return Err(Error::InvalidInput(
+                "call session is not eligible for media binding".to_string(),
+            ));
+        }
+
+        if let Some(existing) =
+            Self::realtime_attempt_by_binding_tx(&mut tx, call_id, provider_binding_sha256).await?
+        {
+            tx.commit().await.map_err(Error::Database)?;
+            return Ok(RealtimeMediaClaim::BindingReplay(existing));
+        }
+
+        let active = Self::active_realtime_attempt_tx(&mut tx, call_id).await?;
+        let superseded = match (active, policy) {
+            (Some(_), RealtimeMediaBindingPolicy::RejectActive) => {
+                tx.commit().await.map_err(Error::Database)?;
+                return Ok(RealtimeMediaClaim::ActiveConflict);
+            }
+            (Some(active), RealtimeMediaBindingPolicy::SupersedeActive) => Some(
+                Self::finalize_realtime_attempt_tx(
+                    &mut tx,
+                    active.attempt_id,
+                    active.claim_id,
+                    RealtimeMediaTerminalStatus::Failover,
+                )
+                .await?,
+            ),
+            (None, _) => None,
+        };
+
+        let attempt_number = sqlx::query_scalar::<_, i32>(
+            r#"
+            SELECT COALESCE(MAX(attempt_number), 0)::INTEGER + 1
+            FROM public.realtime_media_stream_attempt
+            WHERE call_id = $1
+            "#,
+        )
+        .bind(call_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+        let attempt_id = matric_core::new_v7();
+        let claim_id = Uuid::new_v4();
+        let attempt = sqlx::query_as::<_, RealtimeMediaStreamAttempt>(
+            r#"
+            INSERT INTO public.realtime_media_stream_attempt (
+                attempt_id, call_id, attempt_number, claim_id,
+                provider_binding_sha256, sample_rate_hz
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING attempt_id, call_id, attempt_number, claim_id,
+                      provider_binding_sha256, sample_rate_hz, accepted_samples,
+                      status, claimed_at, last_sample_at, terminal_at
+            "#,
+        )
+        .bind(attempt_id)
+        .bind(call_id)
+        .bind(attempt_number)
+        .bind(claim_id)
+        .bind(provider_binding_sha256)
+        .bind(sample_rate_hz)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+        tx.commit().await.map_err(Error::Database)?;
+        Ok(RealtimeMediaClaim::Claimed {
+            attempt,
+            superseded,
+        })
+    }
+
+    /// Persist samples only after the ASR session accepted them.
+    pub async fn record_realtime_accepted_samples(
+        &self,
+        attempt_id: Uuid,
+        claim_id: Uuid,
+        accepted_samples: usize,
+    ) -> Result<RealtimeMediaStreamAttempt> {
+        let accepted_samples = i64::try_from(accepted_samples)
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or_else(|| {
+                Error::InvalidInput("accepted sample count must be positive".to_string())
+            })?;
+        sqlx::query_as::<_, RealtimeMediaStreamAttempt>(
+            r#"
+            UPDATE public.realtime_media_stream_attempt
+            SET accepted_samples = accepted_samples + $3,
+                last_sample_at = NOW()
+            WHERE attempt_id = $1
+              AND claim_id = $2
+              AND status = 'active'
+            RETURNING attempt_id, call_id, attempt_number, claim_id,
+                      provider_binding_sha256, sample_rate_hz, accepted_samples,
+                      status, claimed_at, last_sample_at, terminal_at
+            "#,
+        )
+        .bind(attempt_id)
+        .bind(claim_id)
+        .bind(accepted_samples)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Error::Database)?
+        .ok_or_else(|| {
+            Error::InvalidInput("realtime media attempt ownership is no longer active".to_string())
+        })
+    }
+
+    /// Finalize an attempt once, returning the same terminal fact on replay.
+    pub async fn finalize_realtime_media_stream(
+        &self,
+        attempt_id: Uuid,
+        claim_id: Uuid,
+        status: RealtimeMediaTerminalStatus,
+        accepted_samples: u64,
+    ) -> Result<RealtimeMediaFinalization> {
+        let accepted_samples = i64::try_from(accepted_samples).map_err(|_| {
+            Error::InvalidInput("accepted sample count is out of range".to_string())
+        })?;
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        if let Some(attempt) = sqlx::query_as::<_, RealtimeMediaStreamAttempt>(
+            r#"
+            UPDATE public.realtime_media_stream_attempt
+            SET status = $3,
+                accepted_samples = $4,
+                last_sample_at = CASE
+                    WHEN $4 > accepted_samples THEN NOW()
+                    ELSE last_sample_at
+                END,
+                terminal_at = NOW()
+            WHERE attempt_id = $1
+              AND claim_id = $2
+              AND status = 'active'
+              AND accepted_samples <= $4
+            RETURNING attempt_id, call_id, attempt_number, claim_id,
+                      provider_binding_sha256, sample_rate_hz, accepted_samples,
+                      status, claimed_at, last_sample_at, terminal_at
+            "#,
+        )
+        .bind(attempt_id)
+        .bind(claim_id)
+        .bind(status.as_str())
+        .bind(accepted_samples)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(Error::Database)?
+        {
+            tx.commit().await.map_err(Error::Database)?;
+            return Ok(RealtimeMediaFinalization::Finalized(attempt));
+        }
+
+        let existing = sqlx::query_as::<_, RealtimeMediaStreamAttempt>(
+            r#"
+            SELECT attempt_id, call_id, attempt_number, claim_id,
+                   provider_binding_sha256, sample_rate_hz, accepted_samples,
+                   status, claimed_at, last_sample_at, terminal_at
+            FROM public.realtime_media_stream_attempt
+            WHERE attempt_id = $1 AND claim_id = $2
+            "#,
+        )
+        .bind(attempt_id)
+        .bind(claim_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+        tx.commit().await.map_err(Error::Database)?;
+
+        match existing {
+            Some(attempt) if attempt.status != "active" => {
+                Ok(RealtimeMediaFinalization::Replay(attempt))
+            }
+            _ => Err(Error::InvalidInput(
+                "realtime media attempt ownership is invalid".to_string(),
+            )),
+        }
+    }
+
+    async fn realtime_attempt_by_binding_tx(
+        tx: &mut Transaction<'_, Postgres>,
+        call_id: Uuid,
+        provider_binding_sha256: &[u8],
+    ) -> Result<Option<RealtimeMediaStreamAttempt>> {
+        sqlx::query_as::<_, RealtimeMediaStreamAttempt>(
+            r#"
+            SELECT attempt_id, call_id, attempt_number, claim_id,
+                   provider_binding_sha256, sample_rate_hz, accepted_samples,
+                   status, claimed_at, last_sample_at, terminal_at
+            FROM public.realtime_media_stream_attempt
+            WHERE call_id = $1 AND provider_binding_sha256 = $2
+            "#,
+        )
+        .bind(call_id)
+        .bind(provider_binding_sha256)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(Error::Database)
+    }
+
+    async fn active_realtime_attempt_tx(
+        tx: &mut Transaction<'_, Postgres>,
+        call_id: Uuid,
+    ) -> Result<Option<RealtimeMediaStreamAttempt>> {
+        sqlx::query_as::<_, RealtimeMediaStreamAttempt>(
+            r#"
+            SELECT attempt_id, call_id, attempt_number, claim_id,
+                   provider_binding_sha256, sample_rate_hz, accepted_samples,
+                   status, claimed_at, last_sample_at, terminal_at
+            FROM public.realtime_media_stream_attempt
+            WHERE call_id = $1 AND status = 'active'
+            "#,
+        )
+        .bind(call_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(Error::Database)
+    }
+
+    async fn finalize_realtime_attempt_tx(
+        tx: &mut Transaction<'_, Postgres>,
+        attempt_id: Uuid,
+        claim_id: Uuid,
+        status: RealtimeMediaTerminalStatus,
+    ) -> Result<RealtimeMediaStreamAttempt> {
+        sqlx::query_as::<_, RealtimeMediaStreamAttempt>(
+            r#"
+            UPDATE public.realtime_media_stream_attempt
+            SET status = $3, terminal_at = NOW()
+            WHERE attempt_id = $1 AND claim_id = $2 AND status = 'active'
+            RETURNING attempt_id, call_id, attempt_number, claim_id,
+                      provider_binding_sha256, sample_rate_hz, accepted_samples,
+                      status, claimed_at, last_sample_at, terminal_at
+            "#,
+        )
+        .bind(attempt_id)
+        .bind(claim_id)
+        .bind(status.as_str())
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(Error::Database)
     }
 
     /// Persist a final transcript segment. Partial ASR hypotheses stay ephemeral.
@@ -407,6 +775,29 @@ mod tests {
         assert_clone_send_sync::<PgCallSessionRepository>();
     }
 
+    #[test]
+    fn realtime_attempt_debug_redacts_binding_and_claim_material() {
+        let attempt = RealtimeMediaStreamAttempt {
+            attempt_id: Uuid::now_v7(),
+            call_id: Uuid::now_v7(),
+            attempt_number: 1,
+            claim_id: Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").unwrap(),
+            provider_binding_sha256: vec![0x5a; REALTIME_BINDING_DIGEST_BYTES],
+            sample_rate_hz: 16_000,
+            accepted_samples: 320,
+            status: "active".to_string(),
+            claimed_at: Utc::now(),
+            last_sample_at: None,
+            terminal_at: None,
+        };
+
+        let rendered = format!("{attempt:?}");
+        assert!(rendered.contains("provider_binding_digest_present: true"));
+        assert!(rendered.contains("claim_id_present: true"));
+        assert!(!rendered.contains("aaaaaaaa-aaaa"));
+        assert!(!rendered.contains("[90, 90"));
+    }
+
     fn backend_seconds(metrics: &RealtimeCallMetrics, backend: &str) -> f64 {
         metrics
             .duration_seconds_by_backend
@@ -612,6 +1003,235 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn realtime_media_claims_samples_replays_and_failover_are_authoritative() {
+        if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
+            return;
+        }
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let _guard = call_session_db_test_guard().await;
+        let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+        let repo = PgCallSessionRepository::new(pool.clone());
+        let suffix = Uuid::new_v4();
+        let session = repo
+            .create_session(CreateCallSessionRequest {
+                provider: "twilio".to_string(),
+                provider_call_id: format!("realtime-attempt-{suffix}"),
+                started_at: Some(Utc::now()),
+                asr_backend: Some("mock".to_string()),
+                remote_party: None,
+                archive_id: None,
+                metadata: serde_json::json!({"test": "authoritative media attempt"}),
+            })
+            .await
+            .unwrap();
+        let binding_a = vec![0x11; REALTIME_BINDING_DIGEST_BYTES];
+        let binding_b = vec![0x22; REALTIME_BINDING_DIGEST_BYTES];
+        let binding_c = vec![0x33; REALTIME_BINDING_DIGEST_BYTES];
+
+        let mut tasks = Vec::new();
+        for _ in 0..8 {
+            let repo = repo.clone();
+            let binding = binding_a.clone();
+            tasks.push(tokio::spawn(async move {
+                repo.claim_realtime_media_stream(
+                    session.call_id,
+                    &binding,
+                    16_000,
+                    RealtimeMediaBindingPolicy::RejectActive,
+                )
+                .await
+                .unwrap()
+            }));
+        }
+        let mut claims = Vec::with_capacity(tasks.len());
+        for task in tasks {
+            claims.push(task.await);
+        }
+        let claimed_count = claims
+            .iter()
+            .filter(|claim| matches!(claim.as_ref().unwrap(), RealtimeMediaClaim::Claimed { .. }))
+            .count();
+        let replay_count = claims
+            .iter()
+            .filter(|claim| {
+                matches!(
+                    claim.as_ref().unwrap(),
+                    RealtimeMediaClaim::BindingReplay(_)
+                )
+            })
+            .count();
+        assert_eq!(claimed_count, 1);
+        assert_eq!(replay_count, 7);
+
+        let first = claims
+            .into_iter()
+            .map(|claim| claim.unwrap())
+            .find_map(|claim| match claim {
+                RealtimeMediaClaim::Claimed { attempt, .. }
+                | RealtimeMediaClaim::BindingReplay(attempt) => Some(attempt),
+                RealtimeMediaClaim::ActiveConflict => None,
+            })
+            .unwrap();
+        assert_eq!(first.attempt_number, 1);
+        assert_eq!(first.accepted_samples, 0);
+
+        let conflict = repo
+            .claim_realtime_media_stream(
+                session.call_id,
+                &binding_b,
+                16_000,
+                RealtimeMediaBindingPolicy::RejectActive,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(conflict, RealtimeMediaClaim::ActiveConflict));
+
+        let first = repo
+            .record_realtime_accepted_samples(first.attempt_id, first.claim_id, 8_000)
+            .await
+            .unwrap();
+        assert_eq!(first.accepted_samples, 8_000);
+        assert!(first.last_sample_at.is_some());
+
+        let terminal = match repo
+            .finalize_realtime_media_stream(
+                first.attempt_id,
+                first.claim_id,
+                RealtimeMediaTerminalStatus::Completed,
+                16_000,
+            )
+            .await
+            .unwrap()
+        {
+            RealtimeMediaFinalization::Finalized(attempt) => attempt,
+            RealtimeMediaFinalization::Replay(_) => panic!("first finalization must win"),
+        };
+        assert_eq!(terminal.status, "completed");
+        assert_eq!(terminal.accepted_samples, 16_000);
+        assert!(terminal.terminal_at.is_some());
+
+        let replay = repo
+            .finalize_realtime_media_stream(
+                first.attempt_id,
+                first.claim_id,
+                RealtimeMediaTerminalStatus::ProviderInterrupted,
+                16_000,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            replay,
+            RealtimeMediaFinalization::Replay(ref attempt) if attempt.status == "completed"
+        ));
+
+        let repeated_binding = repo
+            .claim_realtime_media_stream(
+                session.call_id,
+                &binding_a,
+                16_000,
+                RealtimeMediaBindingPolicy::RejectActive,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            repeated_binding,
+            RealtimeMediaClaim::BindingReplay(ref attempt)
+                if attempt.attempt_id == first.attempt_id
+        ));
+
+        let second = match repo
+            .claim_realtime_media_stream(
+                session.call_id,
+                &binding_b,
+                16_000,
+                RealtimeMediaBindingPolicy::RejectActive,
+            )
+            .await
+            .unwrap()
+        {
+            RealtimeMediaClaim::Claimed {
+                attempt,
+                superseded: None,
+            } => attempt,
+            other => panic!("unexpected second claim: {other:?}"),
+        };
+        assert_eq!(second.attempt_number, 2);
+
+        let third = match repo
+            .claim_realtime_media_stream(
+                session.call_id,
+                &binding_c,
+                16_000,
+                RealtimeMediaBindingPolicy::SupersedeActive,
+            )
+            .await
+            .unwrap()
+        {
+            RealtimeMediaClaim::Claimed {
+                attempt,
+                superseded: Some(superseded),
+            } => {
+                assert_eq!(superseded.attempt_id, second.attempt_id);
+                assert_eq!(superseded.status, "failover");
+                attempt
+            }
+            other => panic!("unexpected failover claim: {other:?}"),
+        };
+        assert_eq!(third.attempt_number, 3);
+
+        assert!(repo
+            .record_realtime_accepted_samples(second.attempt_id, second.claim_id, 1)
+            .await
+            .is_err());
+        assert!(repo
+            .finalize_realtime_media_stream(
+                second.attempt_id,
+                Uuid::new_v4(),
+                RealtimeMediaTerminalStatus::ClientInterrupted,
+                0,
+            )
+            .await
+            .is_err());
+
+        repo.finalize_realtime_media_stream(
+            third.attempt_id,
+            third.claim_id,
+            RealtimeMediaTerminalStatus::CloseFailed,
+            0,
+        )
+        .await
+        .unwrap();
+        let terminal_mutation = sqlx::query(
+            r#"
+            UPDATE public.realtime_media_stream_attempt
+            SET accepted_samples = accepted_samples + 1
+            WHERE attempt_id = $1
+            "#,
+        )
+        .bind(third.attempt_id)
+        .execute(&pool)
+        .await;
+        assert!(terminal_mutation.is_err());
+
+        sqlx::query("DELETE FROM public.call_sessions WHERE call_id = $1")
+            .bind(session.call_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let remaining = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM public.realtime_media_stream_attempt WHERE call_id = $1",
+        )
+        .bind(session.call_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(remaining, 0);
     }
 
     #[tokio::test]

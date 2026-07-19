@@ -368,6 +368,7 @@ async fn test_schema_drift_detection() {
         "oauth_client",
         "oauth_token",
         "pke_public_keys",
+        "realtime_media_stream_attempt",
         "transcript_segments",
         "usage_event_conflict",
         "usage_event_delivery",
