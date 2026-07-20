@@ -62,6 +62,11 @@ profiles can select a registered compatible route with
 `provider_config.provider_id`; endpoints and credentials still come from the
 provider registry and are never accepted from the search request.
 
+Without `set`, search and background indexing both resolve the archive's
+default embedding set/config before falling back to the global registry
+default. Both paths derive the same non-secret contract fingerprint from
+provider, model, dimension, normalization policy, and embedding-set identity.
+
 The returned query vector must match the effective configured dimension.
 Provider construction failures, request failures, empty responses, and
 dimension mismatches fall back to FTS so search remains available, but the

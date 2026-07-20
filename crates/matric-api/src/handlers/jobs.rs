@@ -14,11 +14,11 @@ use tracing::{debug, info, instrument, warn};
 use matric_core::{
     AttachmentStatus, CreateFileProvenanceRequest, CreateProvDeviceRequest,
     CreateProvLocationRequest, CreateSemanticRelationRequest, DocumentTypeRepository,
-    EmbeddingBackend, EmbeddingRepository, GenerationBackend, JobRepository, JobType,
-    LinkRepository, MeteringError, NoteRepository, ProvRelation, RevisionMode,
-    SkosSemanticRelation, UsageAttributes, UsageClass, UsageCorrelation, UsageDimension,
-    UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome, UsageProducer, UsageQuantity,
-    UsageSource, UsageSubject,
+    EmbeddingConfigProfile, EmbeddingContract, EmbeddingRepository, GenerationBackend,
+    JobRepository, JobType, LinkRepository, MeteringError, NoteRepository, ProvRelation,
+    RevisionMode, SkosSemanticRelation, UsageAttributes, UsageClass, UsageCorrelation,
+    UsageDimension, UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome, UsageProducer,
+    UsageQuantity, UsageSource, UsageSubject,
 };
 use matric_db::{
     Chunker, ChunkerConfig, Database, SchemaContext, SemanticChunker, SkosRelationRepository,
@@ -29,6 +29,9 @@ use matric_jobs::adapters::exif::{
 };
 use matric_jobs::{JobContext, JobHandler, JobResult};
 use sqlx;
+
+#[cfg(test)]
+use matric_core::EmbeddingBackend;
 
 const AI_GENERATION_JOB_FAILURE: &str = "AI generation failed. Check server logs for diagnostics.";
 const MODEL_RESOLUTION_JOB_FAILURE: &str =
@@ -2387,22 +2390,117 @@ Output the revised note in clean markdown format. Do not add any labels, markers
 /// Handler for embedding generation jobs.
 pub struct EmbeddingHandler {
     db: Database,
-    backend: Arc<dyn EmbeddingBackend>,
+    registry: Arc<ProviderRegistry>,
     usage_meter: Arc<dyn UsageMeter>,
+    #[cfg(test)]
+    backend_override: Option<Arc<dyn EmbeddingBackend>>,
 }
 
 impl EmbeddingHandler {
     pub fn new(
         db: Database,
-        backend: Arc<dyn EmbeddingBackend>,
+        registry: Arc<ProviderRegistry>,
         usage_meter: Arc<dyn UsageMeter>,
     ) -> Self {
         Self {
             db,
-            backend,
+            registry,
             usage_meter,
+            #[cfg(test)]
+            backend_override: None,
         }
     }
+
+    #[cfg(test)]
+    fn with_backend_override(mut self, backend: Arc<dyn EmbeddingBackend>) -> Self {
+        self.backend_override = Some(backend);
+        self
+    }
+}
+
+fn embedding_profile_provider_id(profile: &EmbeddingConfigProfile) -> String {
+    profile
+        .provider_config
+        .get("provider_id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| profile.provider.to_string())
+}
+
+fn resolve_embedding_job_backend(
+    registry: &ProviderRegistry,
+    profile: Option<&EmbeddingConfigProfile>,
+    truncate_dimension: Option<i32>,
+    embedding_set_id: Option<uuid::Uuid>,
+) -> Result<matric_inference::ResolvedEmbeddingBackend, JobResult> {
+    let resolved = if let Some(profile) = profile {
+        let dimension = usize::try_from(profile.effective_dimension(truncate_dimension))
+            .ok()
+            .filter(|dimension| *dimension > 0)
+            .ok_or_else(|| {
+                warn!(
+                    provider_id_len = diagnostic_len(embedding_profile_provider_id(profile)),
+                    model_len = diagnostic_len(&profile.model),
+                    "Embedding job contract has an invalid configured dimension"
+                );
+                JobResult::Failed(EMBEDDING_JOB_FAILURE.to_string())
+            })?;
+        registry.resolve_embedding_contract_boxed(
+            &embedding_profile_provider_id(profile),
+            &profile.model,
+            dimension,
+            embedding_set_id,
+        )
+    } else {
+        registry.resolve_default_embedding_contract_boxed(embedding_set_id)
+    };
+
+    resolved.map_err(|error| {
+        warn!(
+            error_len = diagnostic_len(&error),
+            embedding_set_scoped = embedding_set_id.is_some(),
+            "Embedding job backend resolution failed"
+        );
+        JobResult::Failed(EMBEDDING_JOB_FAILURE.to_string())
+    })
+}
+
+fn validate_embedding_job_vectors(
+    contract: &EmbeddingContract,
+    chunk_count: usize,
+    vectors: &[matric_core::Vector],
+) -> Result<(), JobResult> {
+    if vectors.len() != chunk_count {
+        warn!(
+            expected_count = chunk_count,
+            actual_count = vectors.len(),
+            provider_id_len = diagnostic_len(contract.provider_id()),
+            model_len = diagnostic_len(contract.model()),
+            contract_fingerprint = contract.fingerprint(),
+            "Embedding response cardinality mismatch before storage"
+        );
+        return Err(JobResult::Failed(EMBEDDING_JOB_FAILURE.to_string()));
+    }
+
+    if let Some((index, actual_dimension)) = vectors
+        .iter()
+        .enumerate()
+        .map(|(index, vector)| (index, vector.as_slice().len()))
+        .find(|(_, dimension)| *dimension != contract.dimension())
+    {
+        warn!(
+            chunk_index = index,
+            expected_dimension = contract.dimension(),
+            actual_dimension,
+            provider_id_len = diagnostic_len(contract.provider_id()),
+            model_len = diagnostic_len(contract.model()),
+            contract_fingerprint = contract.fingerprint(),
+            "Embedding dimension mismatch before storage"
+        );
+        return Err(JobResult::Failed(EMBEDDING_JOB_FAILURE.to_string()));
+    }
+    Ok(())
 }
 
 struct EmbeddingUsageContext {
@@ -2535,20 +2633,11 @@ impl JobHandler for EmbeddingHandler {
             Ok(ctx) => ctx,
             Err(e) => return e,
         };
-
-        // Start provenance activity (#430)
-        let activity_id = self
-            .db
-            .provenance
-            .start_activity(
-                note_id,
-                "embedding",
-                Some(matric_core::EmbeddingBackend::model_name(
-                    self.backend.as_ref(),
-                )),
-            )
-            .await
-            .ok();
+        let embedding_set_id = ctx
+            .payload()
+            .and_then(|payload| payload.get("embedding_set_id"))
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| uuid::Uuid::parse_str(value).ok());
 
         ctx.report_progress(10, Some("Fetching note..."));
 
@@ -2559,6 +2648,43 @@ impl JobHandler for EmbeddingHandler {
         let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
             Err(e) => return embedding_job_failure(e, "fetch_note"),
+        };
+        let target_set = match embedding_set_id {
+            Some(set_id) => match self.db.embedding_sets.get_by_id_tx(&mut tx, set_id).await {
+                Ok(Some(set)) => Some(set),
+                Ok(None) => {
+                    warn!("Embedding job target set was not found");
+                    return JobResult::Failed(EMBEDDING_JOB_FAILURE.to_string());
+                }
+                Err(error) => return embedding_job_failure(error, "resolve_embedding_set"),
+            },
+            None => match self.db.embedding_sets.get_default_tx(&mut tx).await {
+                Ok(set) => set,
+                Err(error) => return embedding_job_failure(error, "resolve_default_embedding_set"),
+            },
+        };
+        let contract_embedding_set_id = target_set.as_ref().map(|set| set.id);
+        let embedding_truncate_dimension = target_set.as_ref().and_then(|set| set.truncate_dim);
+        let embed_config = match target_set.as_ref().and_then(|set| set.embedding_config_id) {
+            Some(config_id) => match self
+                .db
+                .embedding_sets
+                .get_config_tx(&mut tx, config_id)
+                .await
+            {
+                Ok(Some(config)) => Some(config),
+                Ok(None) => {
+                    warn!("Embedding job target config was not found");
+                    return JobResult::Failed(EMBEDDING_JOB_FAILURE.to_string());
+                }
+                Err(error) => return embedding_job_failure(error, "resolve_embedding_config"),
+            },
+            None => match self.db.embedding_sets.get_default_config_tx(&mut tx).await {
+                Ok(config) => config,
+                Err(error) => {
+                    return embedding_job_failure(error, "resolve_default_embedding_config")
+                }
+            },
         };
 
         // Fetch SKOS concept labels for embedding enrichment (#424, #475).
@@ -2607,7 +2733,6 @@ impl JobHandler for EmbeddingHandler {
         if let Err(e) = tx.commit().await {
             return embedding_job_failure(e, "fetch_note_commit");
         }
-
         // Use revised content if available, otherwise original
         let base_content: &str = if !note.revised.content.is_empty() {
             &note.revised.content
@@ -2618,6 +2743,25 @@ impl JobHandler for EmbeddingHandler {
         if base_content.trim().is_empty() {
             return JobResult::Success(Some(serde_json::json!({"chunks": 0})));
         }
+        let resolved_backend = match resolve_embedding_job_backend(
+            self.registry.as_ref(),
+            embed_config.as_ref(),
+            embedding_truncate_dimension,
+            contract_embedding_set_id,
+        ) {
+            Ok(resolved) => resolved,
+            Err(error) => return error,
+        };
+        let activity_id = self
+            .db
+            .provenance
+            .start_activity(
+                note_id,
+                "embedding",
+                Some(resolved_backend.contract.model()),
+            )
+            .await
+            .ok();
 
         // DOCUMENT COMPOSITION (#485):
         // Resolve embedding config to determine what properties go into the
@@ -2629,48 +2773,6 @@ impl JobHandler for EmbeddingHandler {
         // sharing tags clustered in vector space regardless of content similarity.
         // Tags influence linking via tag_boost_weight and FTS via BM25F weight-B.
         //
-        // Priority: set-specific config > default config > hardcoded defaults.
-        let embedding_set_id = ctx
-            .payload()
-            .and_then(|p| p.get("embedding_set_id"))
-            .and_then(|v| v.as_str())
-            .and_then(|s| uuid::Uuid::parse_str(s).ok());
-
-        let embed_config = if let Some(set_id) = embedding_set_id {
-            // Fetch config for the specific embedding set
-            if let Ok(Some(set)) = self.db.embedding_sets.get_by_id(set_id).await {
-                if let Some(config_id) = set.embedding_config_id {
-                    self.db
-                        .embedding_sets
-                        .get_config(config_id)
-                        .await
-                        .ok()
-                        .flatten()
-                } else {
-                    self.db
-                        .embedding_sets
-                        .get_default_config()
-                        .await
-                        .ok()
-                        .flatten()
-                }
-            } else {
-                self.db
-                    .embedding_sets
-                    .get_default_config()
-                    .await
-                    .ok()
-                    .flatten()
-            }
-        } else {
-            self.db
-                .embedding_sets
-                .get_default_config()
-                .await
-                .ok()
-                .flatten()
-        };
-
         let composition = embed_config
             .as_ref()
             .map(|c| c.document_composition.clone())
@@ -2731,7 +2833,14 @@ impl JobHandler for EmbeddingHandler {
                 );
             })
             .ok();
-        let vectors = match self.backend.embed_texts(&chunks).await {
+        #[cfg(test)]
+        let embedding_backend = self
+            .backend_override
+            .as_deref()
+            .unwrap_or(resolved_backend.backend.as_ref());
+        #[cfg(not(test))]
+        let embedding_backend = resolved_backend.backend.as_ref();
+        let vectors = match embedding_backend.embed_texts(&chunks).await {
             Ok(v) => v,
             Err(e) => {
                 if let Some(usage) = &usage {
@@ -2743,36 +2852,15 @@ impl JobHandler for EmbeddingHandler {
             }
         };
         let vector_count = vectors.len();
-
-        let expected_dim = embed_config
-            .as_ref()
-            .map(|config| config.dimension as usize)
-            .unwrap_or(matric_core::defaults::EMBED_DIMENSION);
-        if let Some((index, actual_dim)) = vectors
-            .iter()
-            .enumerate()
-            .map(|(index, vector)| (index, vector.as_slice().len()))
-            .find(|(_, dim)| *dim != expected_dim)
+        if let Err(error) =
+            validate_embedding_job_vectors(&resolved_backend.contract, chunks.len(), &vectors)
         {
-            warn!(
-                chunk_index = index,
-                expected_dim,
-                actual_dim,
-                model_len = EmbeddingBackend::model_name(self.backend.as_ref())
-                    .chars()
-                    .count(),
-                "Embedding dimension mismatch before storage"
-            );
             if let Some(usage) = &usage {
                 usage
                     .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
                     .await;
             }
-            return JobResult::Failed(format!(
-                "Embedding dimension mismatch before storage: configured dimension is {expected_dim}, \
-                 but provider returned {actual_dim} dimensions for chunk {index}. \
-                 Update the embedding config or regenerate storage for the selected model."
-            ));
+            return error;
         }
 
         ctx.report_progress(70, Some("Storing embeddings..."));
@@ -2782,9 +2870,8 @@ impl JobHandler for EmbeddingHandler {
             chunks.into_iter().zip(vectors).collect();
 
         let chunk_count = chunk_vectors.len();
-
-        // Store embeddings — use set-scoped storage if embedding_set_id is in payload
-        let model_name = EmbeddingBackend::model_name(self.backend.as_ref());
+        let model_name = resolved_backend.contract.model();
+        let contract_fingerprint = resolved_backend.contract.fingerprint();
 
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
@@ -2818,8 +2905,10 @@ impl JobHandler for EmbeddingHandler {
                 let now = chrono::Utc::now();
                 for (i, (text, vector)) in chunk_vectors.into_iter().enumerate() {
                     if let Err(e) = sqlx::query(
-                        "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at, embedding_set_id)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                        "INSERT INTO embedding (
+                            id, note_id, chunk_index, text, vector, model, created_at,
+                            embedding_set_id, contract_fingerprint
+                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
                     )
                     .bind(matric_db::new_v7())
                     .bind(note_id)
@@ -2829,16 +2918,14 @@ impl JobHandler for EmbeddingHandler {
                     .bind(model_name)
                     .bind(now)
                     .bind(set_id)
+                    .bind(&contract_fingerprint)
                     .execute(&mut *tx)
                     .await
                     .map_err(matric_core::Error::Database)
                     {
                         if let Some(usage) = &usage {
                             usage
-                                .record(
-                                    Some(vector_count),
-                                    UsageOutcome::FailedAfterPartialUsage,
-                                )
+                                .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
                                 .await;
                         }
                         return embedding_job_failure(e, "insert_embedding");
@@ -2849,7 +2936,13 @@ impl JobHandler for EmbeddingHandler {
         } else {
             self.db
                 .embeddings
-                .store_tx(&mut tx, note_id, chunk_vectors, model_name)
+                .store_tx_with_contract(
+                    &mut tx,
+                    note_id,
+                    chunk_vectors,
+                    model_name,
+                    &contract_fingerprint,
+                )
                 .await
         };
         if let Err(store_error) = store_result {
@@ -8038,6 +8131,86 @@ mod tests {
         }
     }
 
+    #[test]
+    fn embedding_job_rejects_partial_extra_and_wrong_dimension_batches() {
+        let contract =
+            EmbeddingContract::new("private-provider", "private-model", 3, None).unwrap();
+        let vector = || matric_core::Vector::from(vec![0.1_f32; 3]);
+
+        assert!(validate_embedding_job_vectors(&contract, 2, &[vector()]).is_err());
+        assert!(validate_embedding_job_vectors(&contract, 1, &[vector(), vector()]).is_err());
+        assert!(validate_embedding_job_vectors(
+            &contract,
+            1,
+            &[matric_core::Vector::from(vec![0.1_f32; 4])],
+        )
+        .is_err());
+        assert!(validate_embedding_job_vectors(&contract, 2, &[vector(), vector()]).is_ok());
+    }
+
+    #[test]
+    fn embedding_job_resolves_set_specific_openai_contracts() {
+        let mut registry = ProviderRegistry::new("ollama".to_string());
+        registry.register(matric_inference::ProviderConfig {
+            id: "openai".to_string(),
+            base_url: "http://127.0.0.1:9/v1".to_string(),
+            api_key: Some("private-key".to_string()),
+            capabilities: vec![matric_inference::ProviderCapability::Embedding],
+            timeout: std::time::Duration::from_secs(1),
+            is_default: false,
+            health: matric_inference::ProviderHealth::Unknown,
+            http_referer: None,
+            x_title: None,
+        });
+        let profile = |model: &str, dimension: i32| EmbeddingConfigProfile {
+            id: uuid::Uuid::now_v7(),
+            name: "config".to_string(),
+            description: None,
+            model: model.to_string(),
+            dimension,
+            chunk_size: 512,
+            chunk_overlap: 64,
+            hnsw_m: None,
+            hnsw_ef_construction: None,
+            ivfflat_lists: None,
+            is_default: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            supports_mrl: false,
+            matryoshka_dims: None,
+            default_truncate_dim: None,
+            provider: matric_core::EmbeddingProvider::OpenAI,
+            provider_config: serde_json::json!({
+                "provider_id": "openai",
+                "base_url": "https://must-not-be-used.example.test/?token=secret"
+            }),
+            content_types: vec!["text".to_string()],
+            document_composition: Default::default(),
+        };
+        let first_set = uuid::Uuid::now_v7();
+        let second_set = uuid::Uuid::now_v7();
+        let first = resolve_embedding_job_backend(
+            &registry,
+            Some(&profile("model-a", 3)),
+            None,
+            Some(first_set),
+        )
+        .unwrap();
+        let second = resolve_embedding_job_backend(
+            &registry,
+            Some(&profile("model-b", 4)),
+            None,
+            Some(second_set),
+        )
+        .unwrap();
+
+        assert_eq!(first.contract.provider_id(), "openai");
+        assert_eq!(first.contract.model(), "model-a");
+        assert_eq!(first.contract.dimension(), 3);
+        assert_eq!(first.contract.embedding_set_id(), Some(first_set));
+        assert_ne!(first.contract.fingerprint(), second.contract.fingerprint());
+    }
+
     #[tokio::test]
     async fn embedding_store_failure_rolls_back_existing_vectors() {
         let Ok(database_url) = std::env::var("DATABASE_URL") else {
@@ -8127,9 +8300,10 @@ mod tests {
         };
         let handler = EmbeddingHandler::new(
             db.clone(),
-            Arc::new(SuccessfulEmbeddingBackend { dimension: 768 }),
+            Arc::new(ProviderRegistry::from_env()),
             Arc::new(matric_core::InMemoryMeter::default()),
-        );
+        )
+        .with_backend_override(Arc::new(SuccessfulEmbeddingBackend { dimension: 768 }));
 
         let result = handler.execute(JobContext::new(job)).await;
         match result {

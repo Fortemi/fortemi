@@ -907,6 +907,13 @@ impl EmbeddingBackend for OllamaBackend {
             ))
         })?;
 
+        if result.embeddings.len() != texts.len() {
+            return Err(Error::Embedding(format!(
+                "Ollama embedding response count mismatch: requested_count={}, returned_count={}",
+                texts.len(),
+                result.embeddings.len()
+            )));
+        }
         let vectors: Vec<Vector> = result.embeddings.into_iter().map(Vector::from).collect();
         let elapsed = start.elapsed().as_millis() as u64;
 

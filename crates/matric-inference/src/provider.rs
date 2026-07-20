@@ -20,7 +20,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
-use matric_core::{Error, Result};
+use matric_core::{EmbeddingBackend, EmbeddingContract, Error, Result};
 
 fn string_lens<S: AsRef<str>>(values: &[S]) -> Vec<usize> {
     values
@@ -129,6 +129,21 @@ impl fmt::Debug for ProviderConfig {
                 "x_title_len",
                 &self.x_title.as_ref().map(|value| value.chars().count()),
             )
+            .finish()
+    }
+}
+
+/// Registry-selected backend paired with its canonical embedding-space identity.
+pub struct ResolvedEmbeddingBackend {
+    pub backend: Box<dyn EmbeddingBackend>,
+    pub contract: EmbeddingContract,
+}
+
+impl fmt::Debug for ResolvedEmbeddingBackend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ResolvedEmbeddingBackend")
+            .field("contract", &self.contract)
+            .field("backend_dimension", &self.backend.dimension())
             .finish()
     }
 }
@@ -470,6 +485,15 @@ impl ProviderRegistry {
     pub fn resolve_default_embedding_boxed(
         &self,
     ) -> Result<Box<dyn matric_core::EmbeddingBackend>> {
+        self.resolve_default_embedding_contract_boxed(None)
+            .map(|resolved| resolved.backend)
+    }
+
+    /// Resolve the default embedding backend and its canonical contract.
+    pub fn resolve_default_embedding_contract_boxed(
+        &self,
+        embedding_set_id: Option<uuid::Uuid>,
+    ) -> Result<ResolvedEmbeddingBackend> {
         let provider_id = self.embedding_provider();
         let (model, dimension) = match provider_id {
             "openai" => (
@@ -496,7 +520,7 @@ impl ProviderRegistry {
             ),
         };
 
-        self.resolve_embedding_boxed(provider_id, &model, dimension)
+        self.resolve_embedding_contract_boxed(provider_id, &model, dimension, embedding_set_id)
     }
 
     /// Resolve an embedding backend for an explicit provider/model/dimension contract.
@@ -510,6 +534,18 @@ impl ProviderRegistry {
         model: &str,
         dimension: usize,
     ) -> Result<Box<dyn matric_core::EmbeddingBackend>> {
+        self.resolve_embedding_contract_boxed(provider_id, model, dimension, None)
+            .map(|resolved| resolved.backend)
+    }
+
+    /// Resolve an explicit embedding contract through registry-owned credentials.
+    pub fn resolve_embedding_contract_boxed(
+        &self,
+        provider_id: &str,
+        model: &str,
+        dimension: usize,
+        embedding_set_id: Option<uuid::Uuid>,
+    ) -> Result<ResolvedEmbeddingBackend> {
         if model.trim().is_empty() {
             return Err(Error::Config(
                 "Embedding model must not be empty".to_string(),
@@ -533,17 +569,17 @@ impl ProviderRegistry {
             )));
         }
 
-        match provider_id {
+        let backend: Box<dyn EmbeddingBackend> = match provider_id {
             #[cfg(feature = "ollama")]
             "ollama" => {
                 let generation_model = std::env::var("OLLAMA_GEN_MODEL")
                     .unwrap_or_else(|_| matric_core::defaults::GEN_MODEL.to_string());
-                Ok(Box::new(crate::OllamaBackend::with_config(
+                Box::new(crate::OllamaBackend::with_config(
                     config.base_url.clone(),
                     model.to_string(),
                     generation_model,
                     dimension,
-                )))
+                ))
             }
             #[cfg(feature = "openai")]
             "openai" | "openrouter" | "llamacpp" => {
@@ -557,13 +593,23 @@ impl ProviderRegistry {
                     timeout_seconds: config.timeout.as_secs(),
                     ..Default::default()
                 };
-                Ok(Box::new(crate::OpenAIBackend::new(oai_config)?))
+                Box::new(crate::OpenAIBackend::new(oai_config)?)
             }
-            _ => Err(Error::Config(format!(
-                "Provider '{}' not compiled in (check feature flags)",
-                provider_id
-            ))),
+            _ => {
+                return Err(Error::Config(format!(
+                    "Provider '{}' not compiled in (check feature flags)",
+                    provider_id
+                )))
+            }
+        };
+        let contract = EmbeddingContract::new(provider_id, model, dimension, embedding_set_id)
+            .map_err(Error::Config)?;
+        if backend.dimension() != contract.dimension() {
+            return Err(Error::Config(
+                "Resolved embedding backend dimension does not match its contract".to_string(),
+            ));
         }
+        Ok(ResolvedEmbeddingBackend { backend, contract })
     }
 
     /// Resolve an optional model override to a boxed generation backend.

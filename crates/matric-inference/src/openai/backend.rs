@@ -190,6 +190,62 @@ impl OpenAIBackend {
     }
 }
 
+fn ordered_embedding_vectors(
+    result: EmbeddingResponse,
+    requested_count: usize,
+    requested_model: &str,
+) -> Result<Vec<Vector>> {
+    if result.model != requested_model {
+        return Err(Error::Embedding(format!(
+            "OpenAI embedding response model mismatch: requested_model_len={}, returned_model_len={}",
+            requested_model.chars().count(),
+            result.model.chars().count()
+        )));
+    }
+    if result.data.len() != requested_count {
+        return Err(Error::Embedding(format!(
+            "OpenAI embedding response count mismatch: requested_count={}, returned_count={}",
+            requested_count,
+            result.data.len()
+        )));
+    }
+
+    let mut seen = vec![false; requested_count];
+    for item in &result.data {
+        if item.index >= requested_count {
+            return Err(Error::Embedding(format!(
+                "OpenAI embedding response index out of range: requested_count={}, returned_count={}, index={}",
+                requested_count,
+                result.data.len(),
+                item.index
+            )));
+        }
+        if std::mem::replace(&mut seen[item.index], true) {
+            return Err(Error::Embedding(format!(
+                "OpenAI embedding response duplicate index: requested_count={}, returned_count={}, index={}",
+                requested_count,
+                result.data.len(),
+                item.index
+            )));
+        }
+    }
+    if let Some(index) = seen.iter().position(|present| !present) {
+        return Err(Error::Embedding(format!(
+            "OpenAI embedding response missing index: requested_count={}, returned_count={}, index={}",
+            requested_count,
+            result.data.len(),
+            index
+        )));
+    }
+
+    let mut data = result.data;
+    data.sort_by_key(|item| item.index);
+    Ok(data
+        .into_iter()
+        .map(|item| Vector::from(item.embedding))
+        .collect())
+}
+
 #[async_trait]
 impl EmbeddingBackend for OpenAIBackend {
     async fn embed_texts(&self, texts: &[String]) -> Result<Vec<Vector>> {
@@ -235,14 +291,7 @@ impl EmbeddingBackend for OpenAIBackend {
             ))
         })?;
 
-        // Sort by index to ensure correct ordering
-        let mut data = result.data;
-        data.sort_by_key(|d| d.index);
-
-        let vectors: Vec<Vector> = data
-            .into_iter()
-            .map(|d| Vector::from(d.embedding))
-            .collect();
+        let vectors = ordered_embedding_vectors(result, texts.len(), &self.config.embed_model)?;
 
         debug!("Generated {} embeddings", vectors.len());
         Ok(vectors)
@@ -505,6 +554,66 @@ impl StreamingGeneration for OpenAIBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn embedding_response(model: &str, indexes: &[usize]) -> EmbeddingResponse {
+        EmbeddingResponse {
+            data: indexes
+                .iter()
+                .map(|index| EmbeddingData {
+                    embedding: vec![*index as f32, 1.0],
+                    index: *index,
+                })
+                .collect(),
+            model: model.to_string(),
+            usage: EmbeddingUsage {
+                prompt_tokens: 1,
+                total_tokens: 1,
+            },
+        }
+    }
+
+    #[test]
+    fn embedding_response_indexes_are_complete_unique_and_ordered() {
+        let vectors =
+            ordered_embedding_vectors(embedding_response("model", &[1, 0]), 2, "model").unwrap();
+        assert_eq!(vectors[0].as_slice()[0], 0.0);
+        assert_eq!(vectors[1].as_slice()[0], 1.0);
+
+        for (response, requested_count, expected) in [
+            (embedding_response("model", &[0]), 2, "count mismatch"),
+            (embedding_response("model", &[0, 1, 2]), 2, "count mismatch"),
+            (embedding_response("model", &[0, 0]), 2, "duplicate index"),
+            (
+                embedding_response("model", &[0, 2]),
+                2,
+                "index out of range",
+            ),
+        ] {
+            let error = ordered_embedding_vectors(response, requested_count, "model").unwrap_err();
+            match error {
+                Error::Embedding(message) => assert!(message.contains(expected)),
+                other => panic!("expected embedding error, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn embedding_response_model_mismatch_is_redacted() {
+        let error = ordered_embedding_vectors(
+            embedding_response("returned-private-model", &[0]),
+            1,
+            "requested-private-model",
+        )
+        .unwrap_err();
+        match error {
+            Error::Embedding(message) => {
+                assert!(message.contains("model mismatch"));
+                assert!(!message.contains("returned-private-model"));
+                assert!(!message.contains("requested-private-model"));
+            }
+            other => panic!("expected embedding error, got {other:?}"),
+        }
+    }
 
     #[test]
     fn test_default_config() {

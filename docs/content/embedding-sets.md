@@ -501,6 +501,13 @@ If the provider is unavailable or returns a vector with the wrong dimension,
 the request executes FTS instead and returns `"degraded": true` with a stable
 `degradation.code`. It never silently labels the fallback as semantic.
 
+Background embedding jobs use the same effective contract. Each stored vector
+records a non-secret SHA-256 contract fingerprint covering provider, model,
+dimension, normalization policy, and embedding-set identity. Provider
+credentials and endpoints are not fingerprint inputs. A provider response with
+the wrong model, vector count, response indexes, or dimension is rejected
+before existing embeddings are replaced.
+
 ## MCP Tools
 
 The MCP server provides tools for AI agents to discover and use embedding sets.

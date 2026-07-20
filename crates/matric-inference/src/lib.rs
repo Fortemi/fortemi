@@ -114,6 +114,7 @@ pub use model_config::{
 pub use profiles::{ModelProfile, ModelRegistry, TaskRequirements, ThinkingType};
 pub use provider::{
     ParsedSlug, ProviderCapability, ProviderConfig, ProviderHealth, ProviderRegistry,
+    ResolvedEmbeddingBackend,
 };
 pub use provider_profiles::{
     iter as provider_profiles_iter, lookup as lookup_provider_profile,

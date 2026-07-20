@@ -439,6 +439,7 @@ pub struct Embedding {
     pub text: String,
     pub vector: Vector,
     pub model: String,
+    pub contract_fingerprint: Option<String>,
 }
 
 impl fmt::Debug for Embedding {
@@ -450,6 +451,10 @@ impl fmt::Debug for Embedding {
             .field("text_len", &debug_len(&self.text))
             .field("vector_dimensions", &self.vector.as_slice().len())
             .field("model_len", &debug_len(&self.model))
+            .field(
+                "contract_fingerprint_set",
+                &self.contract_fingerprint.is_some(),
+            )
             .finish()
     }
 }
@@ -5678,6 +5683,7 @@ mod tests {
             text: "éé".to_string(),
             vector: Vector::from(vec![0.12345, 0.67891, 0.22222]),
             model: "éé".to_string(),
+            contract_fingerprint: Some("a".repeat(64)),
         };
         let config = EmbeddingConfig {
             chunk_size: 2048,

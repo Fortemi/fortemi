@@ -781,6 +781,13 @@ embedding provider, the target set's embedding configuration, provider
 reachability, and vector dimensions. Degraded responses bypass the search
 cache, so provider recovery takes effect on the next request.
 
+Embedding jobs resolve their provider at execution time rather than retaining
+one startup backend. Stored embedding rows include `contract_fingerprint` for
+freshness and reindex decisions. Legacy rows may have a null fingerprint until
+they are regenerated. Cardinality, response-index, model, and dimension
+mismatches fail the job before the replacement transaction, preserving the
+previous vectors.
+
 ## Multi-Memory Operations
 
 Fortemi's multi-memory architecture provides isolated memory archives with independent schemas. All 91 API handlers route through schema-scoped transactions for complete data isolation.

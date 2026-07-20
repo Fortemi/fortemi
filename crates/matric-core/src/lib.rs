@@ -11,6 +11,7 @@ pub mod authorization;
 pub mod captions;
 pub mod collection_filter;
 pub mod defaults;
+pub mod embedding_contract;
 pub mod embedding_provider;
 pub mod error;
 pub mod events;
@@ -34,6 +35,7 @@ pub mod uuid_utils;
 pub use audit::*;
 pub use authorization::*;
 pub use collection_filter::{CollectionPathFilter, StrictCollectionFilter};
+pub use embedding_contract::*;
 pub use embedding_provider::*;
 pub use error::{Error, Result};
 pub use events::{

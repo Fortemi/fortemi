@@ -2264,6 +2264,7 @@ dependencies = [
  "bigdecimal",
  "chrono",
  "futures",
+ "hex",
  "infer",
  "kamadak-exif 0.6.1",
  "once_cell",
@@ -2273,6 +2274,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2 0.10.9",
  "sqlx",
  "thiserror 1.0.69",
  "tiktoken-rs",
@@ -2361,6 +2363,7 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
+ "uuid",
  "wiremock",
 ]
 

@@ -12,6 +12,8 @@ homepage.workspace = true
 # Serialization
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
 
 # Types
 uuid.workspace = true

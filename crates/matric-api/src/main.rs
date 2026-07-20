@@ -3467,24 +3467,13 @@ async fn main() -> anyhow::Result<()> {
                 provider_registry.clone(),
             ))
             .await;
-        match provider_registry.resolve_default_embedding_boxed() {
-            Ok(backend) => {
-                worker
-                    .register_handler(EmbeddingHandler::new(
-                        db.clone(),
-                        Arc::from(backend),
-                        usage_meter.clone(),
-                    ))
-                    .await;
-            }
-            Err(error) => {
-                warn!(
-                    error_len = telemetry_text_len(&error.to_string()),
-                    provider_len = telemetry_text_len(provider_registry.embedding_provider()),
-                    "Embedding handler not registered because the configured embedding provider could not be constructed"
-                );
-            }
-        }
+        worker
+            .register_handler(EmbeddingHandler::new(
+                db.clone(),
+                provider_registry.clone(),
+                usage_meter.clone(),
+            ))
+            .await;
         worker
             .register_handler(TitleGenerationHandler::new(
                 db.clone(),
@@ -18472,6 +18461,7 @@ struct SearchEmbeddingContract {
     provider_id: String,
     model: String,
     configured_dimension: usize,
+    contract_fingerprint: String,
 }
 
 impl fmt::Debug for SearchEmbeddingContract {
@@ -18481,6 +18471,7 @@ impl fmt::Debug for SearchEmbeddingContract {
             .field("model_len", &telemetry_text_len(&self.model))
             .field("configured_dimension", &self.configured_dimension)
             .field("backend_dimension", &self.backend.dimension())
+            .field("contract_fingerprint", &self.contract_fingerprint)
             .finish()
     }
 }
@@ -18489,7 +18480,7 @@ struct SearchEmbeddingFailure {
     code: &'static str,
     provider_id_len: usize,
     model_len: usize,
-    model_fingerprint: [u8; 32],
+    contract_fingerprint: String,
     configured_dimension: usize,
     backend_dimension: usize,
     actual_dimension: usize,
@@ -18516,7 +18507,7 @@ impl SearchEmbeddingFailure {
             code,
             provider_id_len: 0,
             model_len: 0,
-            model_fingerprint: search_embedding_model_fingerprint(""),
+            contract_fingerprint: search_embedding_model_fingerprint(""),
             configured_dimension: 0,
             backend_dimension: 0,
             actual_dimension: 0,
@@ -18534,7 +18525,7 @@ impl SearchEmbeddingFailure {
             code,
             provider_id_len: telemetry_text_len(&contract.provider_id),
             model_len: telemetry_text_len(&contract.model),
-            model_fingerprint: search_embedding_model_fingerprint(&contract.model),
+            contract_fingerprint: contract.contract_fingerprint.clone(),
             configured_dimension: contract.configured_dimension,
             backend_dimension: contract.backend.dimension(),
             actual_dimension: actual_dimension.unwrap_or(0),
@@ -18559,8 +18550,9 @@ fn search_embedding_contract(
     registry: &matric_inference::ProviderRegistry,
     profile: Option<&EmbeddingConfigProfile>,
     truncate_dimension: Option<i32>,
+    embedding_set_id: Option<Uuid>,
 ) -> Result<SearchEmbeddingContract, SearchEmbeddingFailure> {
-    let (provider_id, model, configured_dimension, backend) = if let Some(profile) = profile {
+    let resolved = if let Some(profile) = profile {
         let configured_dimension = profile.effective_dimension(truncate_dimension);
         let configured_dimension = usize::try_from(configured_dimension)
             .ok()
@@ -18570,7 +18562,7 @@ fn search_embedding_contract(
                 code: "embedding_contract_invalid",
                 provider_id_len: telemetry_text_len(&embedding_profile_provider_id(profile)),
                 model_len: telemetry_text_len(&profile.model),
-                model_fingerprint: search_embedding_model_fingerprint(&profile.model),
+                contract_fingerprint: search_embedding_model_fingerprint(&profile.model),
                 configured_dimension: 0,
                 backend_dimension: 0,
                 actual_dimension: 0,
@@ -18578,49 +18570,50 @@ fn search_embedding_contract(
             });
         };
         let provider_id = embedding_profile_provider_id(profile);
-        let backend = registry
-            .resolve_embedding_boxed(&provider_id, &profile.model, configured_dimension)
+        registry
+            .resolve_embedding_contract_boxed(
+                &provider_id,
+                &profile.model,
+                configured_dimension,
+                embedding_set_id,
+            )
             .map_err(|error| SearchEmbeddingFailure {
                 code: "embedding_backend_unavailable",
                 provider_id_len: telemetry_text_len(&provider_id),
                 model_len: telemetry_text_len(&profile.model),
-                model_fingerprint: search_embedding_model_fingerprint(&profile.model),
+                contract_fingerprint: search_embedding_model_fingerprint(&profile.model),
                 configured_dimension,
                 backend_dimension: 0,
                 actual_dimension: 0,
                 error_len: telemetry_text_len(&error.to_string()),
-            })?;
-        (
-            provider_id,
-            profile.model.clone(),
-            configured_dimension,
-            backend,
-        )
+            })?
     } else {
         let provider_id = registry.embedding_provider().to_string();
-        let backend = registry
-            .resolve_default_embedding_boxed()
+        registry
+            .resolve_default_embedding_contract_boxed(embedding_set_id)
             .map_err(|error| SearchEmbeddingFailure {
                 code: "embedding_backend_unavailable",
                 provider_id_len: telemetry_text_len(&provider_id),
                 model_len: 0,
-                model_fingerprint: search_embedding_model_fingerprint(""),
+                contract_fingerprint: search_embedding_model_fingerprint(""),
                 configured_dimension: 0,
                 backend_dimension: 0,
                 actual_dimension: 0,
                 error_len: telemetry_text_len(&error.to_string()),
-            })?;
-        let model = backend.model_name().to_string();
-        let configured_dimension = backend.dimension();
-        (provider_id, model, configured_dimension, backend)
+            })?
     };
+    let provider_id = resolved.contract.provider_id().to_string();
+    let model = resolved.contract.model().to_string();
+    let configured_dimension = resolved.contract.dimension();
+    let contract_fingerprint = resolved.contract.fingerprint();
+    let backend = resolved.backend;
 
     if backend.dimension() != configured_dimension {
         return Err(SearchEmbeddingFailure {
             code: "embedding_dimension_mismatch",
             provider_id_len: telemetry_text_len(&provider_id),
             model_len: telemetry_text_len(&model),
-            model_fingerprint: search_embedding_model_fingerprint(&model),
+            contract_fingerprint: contract_fingerprint.clone(),
             configured_dimension,
             backend_dimension: backend.dimension(),
             actual_dimension: 0,
@@ -18633,6 +18626,7 @@ fn search_embedding_contract(
         provider_id,
         model,
         configured_dimension,
+        contract_fingerprint,
     })
 }
 
@@ -18656,6 +18650,7 @@ async fn generate_search_query_embedding(
     registry: &matric_inference::ProviderRegistry,
     profile: Option<&EmbeddingConfigProfile>,
     truncate_dimension: Option<i32>,
+    embedding_set_id: Option<Uuid>,
     query: &str,
 ) -> Result<matric_core::Vector, SearchEmbeddingFailure> {
     if query.trim().is_empty() {
@@ -18665,7 +18660,8 @@ async fn generate_search_query_embedding(
         ));
     }
 
-    let contract = search_embedding_contract(registry, profile, truncate_dimension)?;
+    let contract =
+        search_embedding_contract(registry, profile, truncate_dimension, embedding_set_id)?;
     let mut vectors = contract
         .backend
         .embed_texts(&[query.to_string()])
@@ -18687,9 +18683,9 @@ async fn generate_search_query_embedding(
     Ok(vector)
 }
 
-fn search_embedding_model_fingerprint(model: &str) -> [u8; 32] {
+fn search_embedding_model_fingerprint(model: &str) -> String {
     use sha2::{Digest, Sha256};
-    Sha256::digest(model.as_bytes()).into()
+    hex::encode(Sha256::digest(model.as_bytes()))
 }
 
 fn search_degradation_audit_event(
@@ -18704,7 +18700,10 @@ fn search_degradation_audit_event(
         .with_attr("effective_mode", "fts")
         .with_attr("provider_id_len", failure.provider_id_len as u64)
         .with_attr("model_len", failure.model_len as u64)
-        .with_attr("model_fingerprint", hex::encode(failure.model_fingerprint))
+        .with_attr(
+            "embedding_contract_fingerprint",
+            failure.contract_fingerprint.clone(),
+        )
         .with_attr(
             "archive_schema_len",
             telemetry_text_len(archive_schema) as u64,
@@ -18879,6 +18878,7 @@ async fn search_notes(
         engine.db()
     };
     let mut embedding_set_id = None;
+    let mut embedding_contract_set_id = None;
     let mut embedding_profile = None;
     let mut embedding_truncate_dimension = None;
     let mut embedding_contract_failure = None;
@@ -18889,6 +18889,7 @@ async fn search_notes(
             .await?
             .ok_or_else(embedding_set_not_found)?;
         embedding_set_id = Some(set.id);
+        embedding_contract_set_id = Some(set.id);
         embedding_truncate_dimension = set.truncate_dim;
 
         let profile = match set.embedding_config_id {
@@ -18902,7 +18903,7 @@ async fn search_notes(
                 code: "embedding_contract_unavailable",
                 provider_id_len: 0,
                 model_len: 0,
-                model_fingerprint: search_embedding_model_fingerprint(""),
+                contract_fingerprint: search_embedding_model_fingerprint(""),
                 configured_dimension: embedding_truncate_dimension
                     .and_then(|dimension| usize::try_from(dimension).ok())
                     .unwrap_or(0),
@@ -18910,6 +18911,15 @@ async fn search_notes(
                 actual_dimension: 0,
                 error_len: 0,
             });
+        }
+    } else if config.semantic_weight > 0.0 {
+        if let Some(set) = search_db.embedding_sets.get_by_slug("default").await? {
+            embedding_contract_set_id = Some(set.id);
+            embedding_truncate_dimension = set.truncate_dim;
+            embedding_profile = match set.embedding_config_id {
+                Some(config_id) => search_db.embedding_sets.get_config(config_id).await?,
+                None => search_db.embedding_sets.get_default_config().await?,
+            };
         }
     }
 
@@ -18928,6 +18938,7 @@ async fn search_notes(
                 registry.as_ref(),
                 embedding_profile.as_ref(),
                 embedding_truncate_dimension,
+                embedding_contract_set_id,
                 &query.q,
             )
             .await
@@ -38539,7 +38550,7 @@ mod tests {
             document_composition: Default::default(),
         };
 
-        let contract = search_embedding_contract(&registry, Some(&profile), Some(3)).unwrap();
+        let contract = search_embedding_contract(&registry, Some(&profile), Some(3), None).unwrap();
 
         assert_eq!(contract.provider_id, "llamacpp");
         assert_eq!(contract.model, "private-compatible-model");
@@ -38569,6 +38580,7 @@ mod tests {
             provider_id: "private-provider@example.test".to_string(),
             model: "private-model@example.test".to_string(),
             configured_dimension: 3,
+            contract_fingerprint: search_embedding_model_fingerprint("private-model@example.test"),
         };
 
         let failure = validate_search_embedding_dimension(&contract, 4).unwrap_err();
@@ -38589,7 +38601,7 @@ mod tests {
         );
         let serialized = serde_json::to_string(&event).unwrap();
         assert!(serialized.contains("embedding_dimension_mismatch"));
-        assert!(serialized.contains("model_fingerprint"));
+        assert!(serialized.contains("embedding_contract_fingerprint"));
         assert!(!serialized.contains("private-provider@example.test"));
         assert!(!serialized.contains("private-model@example.test"));
         assert!(!serialized.contains("private_archive@example.test"));

@@ -31,7 +31,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
 
     async fn get_for_note(&self, note_id: Uuid) -> Result<Vec<Embedding>> {
         let rows = sqlx::query(
-            "SELECT id, note_id, chunk_index, text, vector, model
+            "SELECT id, note_id, chunk_index, text, vector, model, contract_fingerprint
              FROM embedding
              WHERE note_id = $1
              ORDER BY chunk_index",
@@ -50,6 +50,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
                 text: row.get("text"),
                 vector: row.get("vector"),
                 model: row.get("model"),
+                contract_fingerprint: row.get("contract_fingerprint"),
             })
             .collect();
 
@@ -211,7 +212,7 @@ impl PgEmbeddingRepository {
     /// List all embeddings with pagination (for export).
     pub async fn list_all(&self, limit: i64, offset: i64) -> Result<Vec<Embedding>> {
         let rows = sqlx::query(
-            "SELECT id, note_id, chunk_index, text, vector, model
+            "SELECT id, note_id, chunk_index, text, vector, model, contract_fingerprint
              FROM embedding
              ORDER BY note_id, chunk_index
              LIMIT $1 OFFSET $2",
@@ -231,6 +232,7 @@ impl PgEmbeddingRepository {
                 text: row.get("text"),
                 vector: row.get("vector"),
                 model: row.get("model"),
+                contract_fingerprint: row.get("contract_fingerprint"),
             })
             .collect();
 
@@ -245,7 +247,7 @@ impl PgEmbeddingRepository {
         offset: i64,
     ) -> Result<Vec<Embedding>> {
         let rows = sqlx::query(
-            "SELECT id, note_id, chunk_index, text, vector, model
+            "SELECT id, note_id, chunk_index, text, vector, model, contract_fingerprint
              FROM embedding
              ORDER BY note_id, chunk_index
              LIMIT $1 OFFSET $2",
@@ -265,6 +267,7 @@ impl PgEmbeddingRepository {
                 text: row.get("text"),
                 vector: row.get("vector"),
                 model: row.get("model"),
+                contract_fingerprint: row.get("contract_fingerprint"),
             })
             .collect();
 
@@ -573,6 +576,59 @@ impl PgEmbeddingRepository {
         Ok(())
     }
 
+    /// Store default-set embeddings with a canonical contract fingerprint.
+    pub async fn store_tx_with_contract(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        chunks: Vec<(String, Vector)>,
+        model: &str,
+        contract_fingerprint: &str,
+    ) -> Result<()> {
+        sqlx::query("DELETE FROM embedding WHERE note_id = $1")
+            .bind(note_id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        if chunks.is_empty() {
+            return Ok(());
+        }
+
+        let embedding_set_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT get_default_embedding_set_id()")
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+        let embedding_set_id = embedding_set_id.ok_or_else(|| {
+            Error::Internal(
+                "No default embedding set found. Run migrations to create default set.".to_string(),
+            )
+        })?;
+        let now = Utc::now();
+        for (i, (text, vector)) in chunks.into_iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO embedding (
+                    id, note_id, chunk_index, text, vector, model, created_at,
+                    embedding_set_id, contract_fingerprint
+                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            )
+            .bind(new_v7())
+            .bind(note_id)
+            .bind(i as i32)
+            .bind(&text)
+            .bind(&vector)
+            .bind(model)
+            .bind(now)
+            .bind(embedding_set_id)
+            .bind(contract_fingerprint)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+        }
+        Ok(())
+    }
+
     /// Get embeddings for a note within an existing transaction.
     pub async fn get_for_note_tx(
         &self,
@@ -580,7 +636,7 @@ impl PgEmbeddingRepository {
         note_id: Uuid,
     ) -> Result<Vec<Embedding>> {
         let rows = sqlx::query(
-            "SELECT id, note_id, chunk_index, text, vector, model
+            "SELECT id, note_id, chunk_index, text, vector, model, contract_fingerprint
              FROM embedding
              WHERE note_id = $1
              ORDER BY chunk_index",
@@ -599,6 +655,7 @@ impl PgEmbeddingRepository {
                 text: row.get("text"),
                 vector: row.get("vector"),
                 model: row.get("model"),
+                contract_fingerprint: row.get("contract_fingerprint"),
             })
             .collect();
 
