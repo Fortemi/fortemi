@@ -29,6 +29,13 @@ fn string_lens<S: AsRef<str>>(values: &[S]) -> Vec<usize> {
         .collect()
 }
 
+fn embedding_dimension_from_env(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(default)
+}
+
 // ---------------------------------------------------------------------------
 // Provider capability enum
 // ---------------------------------------------------------------------------
@@ -464,6 +471,56 @@ impl ProviderRegistry {
         &self,
     ) -> Result<Box<dyn matric_core::EmbeddingBackend>> {
         let provider_id = self.embedding_provider();
+        let (model, dimension) = match provider_id {
+            "openai" => (
+                std::env::var("OPENAI_EMBED_MODEL")
+                    .unwrap_or_else(|_| "text-embedding-3-small".to_string()),
+                embedding_dimension_from_env("OPENAI_EMBED_DIM", 1536),
+            ),
+            "openrouter" => (
+                std::env::var("OPENROUTER_EMBED_MODEL")
+                    .unwrap_or_else(|_| "text-embedding-3-small".to_string()),
+                embedding_dimension_from_env("OPENROUTER_EMBED_DIM", 1536),
+            ),
+            "llamacpp" => (
+                std::env::var("LLAMACPP_EMBED_MODEL").unwrap_or_else(|_| "default".to_string()),
+                embedding_dimension_from_env("LLAMACPP_EMBED_DIM", 1536),
+            ),
+            _ => (
+                std::env::var("OLLAMA_EMBED_MODEL")
+                    .unwrap_or_else(|_| matric_core::defaults::EMBED_MODEL.to_string()),
+                embedding_dimension_from_env(
+                    "OLLAMA_EMBED_DIM",
+                    matric_core::defaults::EMBED_DIMENSION,
+                ),
+            ),
+        };
+
+        self.resolve_embedding_boxed(provider_id, &model, dimension)
+    }
+
+    /// Resolve an embedding backend for an explicit provider/model/dimension contract.
+    ///
+    /// The provider registry remains the authority for endpoints and credentials.
+    /// Archive or embedding-set configuration may select the model and expected
+    /// dimension without injecting a credential-bearing URL into the request path.
+    pub fn resolve_embedding_boxed(
+        &self,
+        provider_id: &str,
+        model: &str,
+        dimension: usize,
+    ) -> Result<Box<dyn matric_core::EmbeddingBackend>> {
+        if model.trim().is_empty() {
+            return Err(Error::Config(
+                "Embedding model must not be empty".to_string(),
+            ));
+        }
+        if dimension == 0 {
+            return Err(Error::Config(
+                "Embedding dimension must be greater than zero".to_string(),
+            ));
+        }
+
         let config = self
             .providers
             .get(provider_id)
@@ -478,31 +535,23 @@ impl ProviderRegistry {
 
         match provider_id {
             #[cfg(feature = "ollama")]
-            "ollama" => Ok(Box::new(crate::OllamaBackend::from_env())),
+            "ollama" => {
+                let generation_model = std::env::var("OLLAMA_GEN_MODEL")
+                    .unwrap_or_else(|_| matric_core::defaults::GEN_MODEL.to_string());
+                Ok(Box::new(crate::OllamaBackend::with_config(
+                    config.base_url.clone(),
+                    model.to_string(),
+                    generation_model,
+                    dimension,
+                )))
+            }
             #[cfg(feature = "openai")]
             "openai" | "openrouter" | "llamacpp" => {
-                let embed_model = match provider_id {
-                    "openai" => std::env::var("OPENAI_EMBED_MODEL")
-                        .unwrap_or_else(|_| "text-embedding-3-small".to_string()),
-                    "openrouter" => std::env::var("OPENROUTER_EMBED_MODEL")
-                        .unwrap_or_else(|_| "text-embedding-3-small".to_string()),
-                    "llamacpp" => std::env::var("LLAMACPP_EMBED_MODEL")
-                        .unwrap_or_else(|_| "default".to_string()),
-                    _ => unreachable!(),
-                };
-                let embed_dim = match provider_id {
-                    "openai" => std::env::var("OPENAI_EMBED_DIM").ok(),
-                    "openrouter" => std::env::var("OPENROUTER_EMBED_DIM").ok(),
-                    "llamacpp" => std::env::var("LLAMACPP_EMBED_DIM").ok(),
-                    _ => None,
-                }
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(1536);
                 let oai_config = crate::OpenAIConfig {
                     base_url: config.base_url.clone(),
                     api_key: config.api_key.clone(),
-                    embed_model,
-                    embed_dimension: embed_dim,
+                    embed_model: model.to_string(),
+                    embed_dimension: dimension,
                     http_referer: config.http_referer.clone(),
                     x_title: config.x_title.clone(),
                     timeout_seconds: config.timeout.as_secs(),
@@ -1009,6 +1058,56 @@ mod tests {
                 "openrouter-token=secret",
             ],
         );
+    }
+
+    #[cfg(feature = "openai")]
+    #[tokio::test]
+    async fn explicit_embedding_contract_routes_openai_model_and_dimension() {
+        use mockito::Matcher;
+
+        let mut server = mockito::Server::new_async().await;
+        let request = server
+            .mock("POST", "/embeddings")
+            .match_header("authorization", "Bearer test-key")
+            .match_body(Matcher::Regex(
+                r#""model"\s*:\s*"archive-embedding-model""#.to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{
+                    "object": "list",
+                    "data": [{"object": "embedding", "index": 0, "embedding": [0.1, 0.2, 0.3]}],
+                    "model": "archive-embedding-model",
+                    "usage": {"prompt_tokens": 1, "total_tokens": 1}
+                }"#,
+            )
+            .create_async()
+            .await;
+
+        let mut registry = ProviderRegistry::new("openai".to_string());
+        registry.register(ProviderConfig {
+            id: "openai".to_string(),
+            base_url: server.url(),
+            api_key: Some("test-key".to_string()),
+            capabilities: vec![ProviderCapability::Embedding],
+            timeout: Duration::from_secs(10),
+            is_default: true,
+            health: ProviderHealth::Healthy,
+            http_referer: None,
+            x_title: None,
+        });
+
+        let backend = registry
+            .resolve_embedding_boxed("openai", "archive-embedding-model", 3)
+            .unwrap();
+        assert_eq!(backend.model_name(), "archive-embedding-model");
+        assert_eq!(backend.dimension(), 3);
+
+        let vectors = backend.embed_texts(&["query".to_string()]).await.unwrap();
+        assert_eq!(vectors.len(), 1);
+        assert_eq!(vectors[0].as_slice().len(), 3);
+        request.assert_async().await;
     }
 
     #[test]

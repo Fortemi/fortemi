@@ -757,6 +757,30 @@ docker compose -f docker-compose.bundle.yml down
 docker compose -f docker-compose.bundle.yml up -d
 ```
 
+## Search Degradation Monitoring
+
+Semantic and hybrid search preserves availability during an embedding-provider
+failure by executing FTS and returning `degraded=true`. Each fallback also
+emits a `search.embedding_degraded` audit event and a warning log with bounded,
+redacted metadata:
+
+- stable `reason_code`;
+- requested and effective search modes;
+- provider and model lengths plus a model fingerprint;
+- configured, backend-declared, and actual vector dimensions when known;
+- whether an embedding set was requested.
+
+The event does not contain query text, archive names, provider URLs, API keys,
+or raw model identifiers. Common reason codes are
+`embedding_backend_unavailable`, `embedding_request_failed`,
+`embedding_response_empty`, `embedding_dimension_mismatch`, and
+`embedding_contract_unavailable`.
+
+Treat sustained events as an inference-routing incident. Verify the active
+embedding provider, the target set's embedding configuration, provider
+reachability, and vector dimensions. Degraded responses bypass the search
+cache, so provider recovery takes effect on the next request.
+
 ## Multi-Memory Operations
 
 Fortemi's multi-memory architecture provides isolated memory archives with independent schemas. All 91 API handlers route through schema-scoped transactions for complete data isolation.

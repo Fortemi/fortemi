@@ -52,8 +52,8 @@ use matric_core::{
     AuditFailurePolicy, AuditOutcome, AuditSeverity, AuditSink, AuditSource, AuditVisibilityClass,
     AuthPrincipal, AuthorizationPolicy, AuthorizationServerMetadata, BatchTagNoteRequest,
     ClientRegistrationRequest, CollectionRepository, CreateApiKeyRequest, CreateNoteRequest,
-    Decision, DenyReason, DocumentTypeRepository, EventBus, EventContext, EventEnvelope,
-    ExtractionAdapter, ExtractionStrategy, Job, JobRepository, JobStatus, JobType,
+    Decision, DenyReason, DocumentTypeRepository, EmbeddingConfigProfile, EventBus, EventContext,
+    EventEnvelope, ExtractionAdapter, ExtractionStrategy, Job, JobRepository, JobStatus, JobType,
     ListNotesRequest, MeteringError, NoOpMeter, NoteRepository, OAuthError, ResourceKind,
     RevisionMode, RoleBasedPolicy, ServerEvent, StrictTagFilterInput, TagInput, TagRepository,
     TemplateRepository, TokenIntrospectionResponse, TokenRequest, TracingSink,
@@ -18434,6 +18434,10 @@ struct SearchResponse {
     results: Vec<EnhancedSearchHit>,
     query: String,
     total: usize,
+    #[serde(default)]
+    degraded: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    degradation: Option<SearchDegradation>,
 }
 
 impl fmt::Debug for SearchResponse {
@@ -18442,7 +18446,300 @@ impl fmt::Debug for SearchResponse {
             .field("results_count", &self.results.len())
             .field("query_len", &telemetry_text_len(&self.query))
             .field("total", &self.total)
+            .field("degraded", &self.degraded)
+            .field("degradation", &self.degradation)
             .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct SearchDegradation {
+    code: String,
+    effective_mode: String,
+}
+
+impl fmt::Debug for SearchDegradation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SearchDegradation")
+            .field("code", &self.code)
+            .field("effective_mode", &self.effective_mode)
+            .finish()
+    }
+}
+
+struct SearchEmbeddingContract {
+    backend: Box<dyn EmbeddingBackend>,
+    provider_id: String,
+    model: String,
+    configured_dimension: usize,
+}
+
+impl fmt::Debug for SearchEmbeddingContract {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SearchEmbeddingContract")
+            .field("provider_id_len", &telemetry_text_len(&self.provider_id))
+            .field("model_len", &telemetry_text_len(&self.model))
+            .field("configured_dimension", &self.configured_dimension)
+            .field("backend_dimension", &self.backend.dimension())
+            .finish()
+    }
+}
+
+struct SearchEmbeddingFailure {
+    code: &'static str,
+    provider_id_len: usize,
+    model_len: usize,
+    model_fingerprint: [u8; 32],
+    configured_dimension: usize,
+    backend_dimension: usize,
+    actual_dimension: usize,
+    error_len: usize,
+}
+
+impl fmt::Debug for SearchEmbeddingFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SearchEmbeddingFailure")
+            .field("code", &self.code)
+            .field("provider_id_len", &self.provider_id_len)
+            .field("model_len", &self.model_len)
+            .field("configured_dimension", &self.configured_dimension)
+            .field("backend_dimension", &self.backend_dimension)
+            .field("actual_dimension", &self.actual_dimension)
+            .field("error_len", &self.error_len)
+            .finish()
+    }
+}
+
+impl SearchEmbeddingFailure {
+    fn without_contract(code: &'static str, error: impl std::fmt::Display) -> Self {
+        Self {
+            code,
+            provider_id_len: 0,
+            model_len: 0,
+            model_fingerprint: search_embedding_model_fingerprint(""),
+            configured_dimension: 0,
+            backend_dimension: 0,
+            actual_dimension: 0,
+            error_len: telemetry_text_len(&error.to_string()),
+        }
+    }
+
+    fn from_contract(
+        code: &'static str,
+        contract: &SearchEmbeddingContract,
+        actual_dimension: Option<usize>,
+        error: Option<&dyn std::fmt::Display>,
+    ) -> Self {
+        Self {
+            code,
+            provider_id_len: telemetry_text_len(&contract.provider_id),
+            model_len: telemetry_text_len(&contract.model),
+            model_fingerprint: search_embedding_model_fingerprint(&contract.model),
+            configured_dimension: contract.configured_dimension,
+            backend_dimension: contract.backend.dimension(),
+            actual_dimension: actual_dimension.unwrap_or(0),
+            error_len: error
+                .map(|value| telemetry_text_len(&value.to_string()))
+                .unwrap_or(0),
+        }
+    }
+}
+
+fn embedding_profile_provider_id(profile: &EmbeddingConfigProfile) -> String {
+    profile
+        .provider_config
+        .get("provider_id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| profile.provider.to_string())
+}
+
+fn search_embedding_contract(
+    registry: &matric_inference::ProviderRegistry,
+    profile: Option<&EmbeddingConfigProfile>,
+    truncate_dimension: Option<i32>,
+) -> Result<SearchEmbeddingContract, SearchEmbeddingFailure> {
+    let (provider_id, model, configured_dimension, backend) = if let Some(profile) = profile {
+        let configured_dimension = profile.effective_dimension(truncate_dimension);
+        let configured_dimension = usize::try_from(configured_dimension)
+            .ok()
+            .filter(|dim| *dim > 0);
+        let Some(configured_dimension) = configured_dimension else {
+            return Err(SearchEmbeddingFailure {
+                code: "embedding_contract_invalid",
+                provider_id_len: telemetry_text_len(&embedding_profile_provider_id(profile)),
+                model_len: telemetry_text_len(&profile.model),
+                model_fingerprint: search_embedding_model_fingerprint(&profile.model),
+                configured_dimension: 0,
+                backend_dimension: 0,
+                actual_dimension: 0,
+                error_len: 0,
+            });
+        };
+        let provider_id = embedding_profile_provider_id(profile);
+        let backend = registry
+            .resolve_embedding_boxed(&provider_id, &profile.model, configured_dimension)
+            .map_err(|error| SearchEmbeddingFailure {
+                code: "embedding_backend_unavailable",
+                provider_id_len: telemetry_text_len(&provider_id),
+                model_len: telemetry_text_len(&profile.model),
+                model_fingerprint: search_embedding_model_fingerprint(&profile.model),
+                configured_dimension,
+                backend_dimension: 0,
+                actual_dimension: 0,
+                error_len: telemetry_text_len(&error.to_string()),
+            })?;
+        (
+            provider_id,
+            profile.model.clone(),
+            configured_dimension,
+            backend,
+        )
+    } else {
+        let provider_id = registry.embedding_provider().to_string();
+        let backend = registry
+            .resolve_default_embedding_boxed()
+            .map_err(|error| SearchEmbeddingFailure {
+                code: "embedding_backend_unavailable",
+                provider_id_len: telemetry_text_len(&provider_id),
+                model_len: 0,
+                model_fingerprint: search_embedding_model_fingerprint(""),
+                configured_dimension: 0,
+                backend_dimension: 0,
+                actual_dimension: 0,
+                error_len: telemetry_text_len(&error.to_string()),
+            })?;
+        let model = backend.model_name().to_string();
+        let configured_dimension = backend.dimension();
+        (provider_id, model, configured_dimension, backend)
+    };
+
+    if backend.dimension() != configured_dimension {
+        return Err(SearchEmbeddingFailure {
+            code: "embedding_dimension_mismatch",
+            provider_id_len: telemetry_text_len(&provider_id),
+            model_len: telemetry_text_len(&model),
+            model_fingerprint: search_embedding_model_fingerprint(&model),
+            configured_dimension,
+            backend_dimension: backend.dimension(),
+            actual_dimension: 0,
+            error_len: 0,
+        });
+    }
+
+    Ok(SearchEmbeddingContract {
+        backend,
+        provider_id,
+        model,
+        configured_dimension,
+    })
+}
+
+fn validate_search_embedding_dimension(
+    contract: &SearchEmbeddingContract,
+    actual_dimension: usize,
+) -> Result<(), SearchEmbeddingFailure> {
+    if actual_dimension == contract.configured_dimension {
+        Ok(())
+    } else {
+        Err(SearchEmbeddingFailure::from_contract(
+            "embedding_dimension_mismatch",
+            contract,
+            Some(actual_dimension),
+            None,
+        ))
+    }
+}
+
+async fn generate_search_query_embedding(
+    registry: &matric_inference::ProviderRegistry,
+    profile: Option<&EmbeddingConfigProfile>,
+    truncate_dimension: Option<i32>,
+    query: &str,
+) -> Result<matric_core::Vector, SearchEmbeddingFailure> {
+    if query.trim().is_empty() {
+        return Err(SearchEmbeddingFailure::without_contract(
+            "embedding_query_empty",
+            "query is empty",
+        ));
+    }
+
+    let contract = search_embedding_contract(registry, profile, truncate_dimension)?;
+    let mut vectors = contract
+        .backend
+        .embed_texts(&[query.to_string()])
+        .await
+        .map_err(|error| {
+            SearchEmbeddingFailure::from_contract(
+                "embedding_request_failed",
+                &contract,
+                None,
+                Some(&error),
+            )
+        })?;
+    let vector = vectors.pop().ok_or_else(|| {
+        SearchEmbeddingFailure::from_contract("embedding_response_empty", &contract, None, None)
+    })?;
+    let actual_dimension = vector.as_slice().len();
+    validate_search_embedding_dimension(&contract, actual_dimension)?;
+
+    Ok(vector)
+}
+
+fn search_embedding_model_fingerprint(model: &str) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(model.as_bytes()).into()
+}
+
+fn search_degradation_audit_event(
+    failure: &SearchEmbeddingFailure,
+    requested_mode: &str,
+    archive_schema: &str,
+    embedding_set_scoped: bool,
+) -> AuditEvent {
+    let mut event = AuditEvent::new("search", "embedding_degraded", AuditOutcome::Failure)
+        .with_attr("reason_code", failure.code)
+        .with_attr("requested_mode", requested_mode)
+        .with_attr("effective_mode", "fts")
+        .with_attr("provider_id_len", failure.provider_id_len as u64)
+        .with_attr("model_len", failure.model_len as u64)
+        .with_attr("model_fingerprint", hex::encode(failure.model_fingerprint))
+        .with_attr(
+            "archive_schema_len",
+            telemetry_text_len(archive_schema) as u64,
+        )
+        .with_attr("embedding_set_scoped", embedding_set_scoped);
+
+    if failure.configured_dimension > 0 {
+        event = event.with_attr("configured_dimension", failure.configured_dimension as u64);
+    }
+    if failure.backend_dimension > 0 {
+        event = event.with_attr("backend_dimension", failure.backend_dimension as u64);
+    }
+    if failure.actual_dimension > 0 {
+        event = event.with_attr("actual_dimension", failure.actual_dimension as u64);
+    }
+    if failure.error_len > 0 {
+        event = event.with_attr("error_len", failure.error_len as u64);
+    }
+
+    event.reason = Some(failure.code.to_string());
+    event.source = AuditSource::Api;
+    event.visibility = AuditVisibilityClass::SystemAudit;
+    event.failure_policy = AuditFailurePolicy::BestEffort;
+    event.severity = AuditSeverity::Warn;
+    event.sanitized()
+}
+
+async fn emit_search_degradation_audit_event(event: AuditEvent) {
+    if let Err(error) = TracingSink.emit(event).await {
+        warn!(
+            error_len = telemetry_text_len(&error.to_string()),
+            detail = API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "emit_search_degradation_audit_event",
+            "failed to emit search degradation audit event"
+        );
     }
 }
 
@@ -18571,21 +18868,99 @@ async fn search_notes(
         let strict_filter = tag_resolver.resolve_filter(filter_input).await?;
         config.strict_filter = Some(strict_filter);
     }
-    // Generate query embedding for semantic/hybrid search
-    let query_embedding = if config.semantic_weight > 0.0 && !query.q.trim().is_empty() {
-        match state.provider_registry().resolve_default_embedding_boxed() {
-            Ok(backend) => backend
-                .embed_texts(std::slice::from_ref(&query.q))
-                .await
-                .ok()
-                .and_then(|vecs| vecs.into_iter().next()),
-            Err(e) => {
+
+    // Resolve the target set before generating a query vector. Set-scoped
+    // searches must use the same model/dimension contract as their stored
+    // embeddings; unscoped searches retain the active global registry route
+    // until archive-aware provider credentials land in #666.
+    let search_db = if archive_ctx.schema == "public" {
+        &state.db
+    } else {
+        engine.db()
+    };
+    let mut embedding_set_id = None;
+    let mut embedding_profile = None;
+    let mut embedding_truncate_dimension = None;
+    let mut embedding_contract_failure = None;
+    if let Some(ref set_slug) = query.embedding_set {
+        let set = search_db
+            .embedding_sets
+            .get_by_slug(set_slug)
+            .await?
+            .ok_or_else(embedding_set_not_found)?;
+        embedding_set_id = Some(set.id);
+        embedding_truncate_dimension = set.truncate_dim;
+
+        let profile = match set.embedding_config_id {
+            Some(config_id) => search_db.embedding_sets.get_config(config_id).await?,
+            None => search_db.embedding_sets.get_default_config().await?,
+        };
+        if let Some(profile) = profile {
+            embedding_profile = Some(profile);
+        } else {
+            embedding_contract_failure = Some(SearchEmbeddingFailure {
+                code: "embedding_contract_unavailable",
+                provider_id_len: 0,
+                model_len: 0,
+                model_fingerprint: search_embedding_model_fingerprint(""),
+                configured_dimension: embedding_truncate_dimension
+                    .and_then(|dimension| usize::try_from(dimension).ok())
+                    .unwrap_or(0),
+                backend_dimension: 0,
+                actual_dimension: 0,
+                error_len: 0,
+            });
+        }
+    }
+
+    let requested_mode = match query.mode.as_deref() {
+        Some("fts") => "fts",
+        Some("semantic") => "semantic",
+        _ => "hybrid",
+    };
+    let mut degradation = None;
+    let query_embedding = if config.semantic_weight > 0.0 {
+        let result = if let Some(failure) = embedding_contract_failure {
+            Err(failure)
+        } else {
+            let registry = state.provider_registry();
+            generate_search_query_embedding(
+                registry.as_ref(),
+                embedding_profile.as_ref(),
+                embedding_truncate_dimension,
+                &query.q,
+            )
+            .await
+        };
+
+        match result {
+            Ok(vector) => Some(vector),
+            Err(failure) => {
                 warn!(
-                    error_len = telemetry_text_len(&e.to_string()),
-                    provider_len =
-                        telemetry_text_len(state.provider_registry().embedding_provider()),
-                    "Search query embedding backend could not be constructed"
+                    reason_code = failure.code,
+                    provider_id_len = failure.provider_id_len,
+                    model_len = failure.model_len,
+                    configured_dimension = failure.configured_dimension,
+                    backend_dimension = failure.backend_dimension,
+                    actual_dimension = failure.actual_dimension,
+                    error_len = failure.error_len,
+                    embedding_set_scoped = embedding_set_id.is_some(),
+                    archive_schema_len = telemetry_text_len(&archive_ctx.schema),
+                    "Search query embedding failed; executing explicit FTS degradation"
                 );
+                emit_search_degradation_audit_event(search_degradation_audit_event(
+                    &failure,
+                    requested_mode,
+                    &archive_ctx.schema,
+                    embedding_set_id.is_some(),
+                ))
+                .await;
+                config.fts_weight = 1.0;
+                config.semantic_weight = 0.0;
+                degradation = Some(SearchDegradation {
+                    code: failure.code.to_string(),
+                    effective_mode: "fts".to_string(),
+                });
                 None
             }
         }
@@ -18628,20 +19003,8 @@ async fn search_notes(
         request = request.with_filters(filters);
     }
 
-    // Resolve embedding set slug to UUID and apply filter (return 404 if slug is invalid)
-    // Use schema-scoped DB for non-default archives
-    if let Some(ref set_slug) = query.embedding_set {
-        let search_db = if archive_ctx.schema == "public" {
-            &state.db
-        } else {
-            engine.db()
-        };
-        let set = search_db
-            .embedding_sets
-            .get_by_slug(set_slug)
-            .await?
-            .ok_or_else(embedding_set_not_found)?;
-        request = request.with_embedding_set(set.id);
+    if let Some(set_id) = embedding_set_id {
+        request = request.with_embedding_set(set_id);
     }
 
     if let Some(vec) = query_embedding {
@@ -18669,6 +19032,8 @@ async fn search_notes(
         results,
         query: query.q,
         total,
+        degraded: degradation.is_some(),
+        degradation,
     };
 
     // Store in cache (non-blocking, fire-and-forget)
@@ -38133,6 +38498,105 @@ mod tests {
     }
 
     #[test]
+    fn set_embedding_contract_uses_configured_openai_compatible_route_and_dimension() {
+        let mut registry = matric_inference::ProviderRegistry::new("llamacpp".to_string());
+        registry.register(matric_inference::ProviderConfig {
+            id: "llamacpp".to_string(),
+            base_url: "http://127.0.0.1:8080/v1".to_string(),
+            api_key: Some("private-test-key".to_string()),
+            capabilities: vec![matric_inference::ProviderCapability::Embedding],
+            timeout: std::time::Duration::from_secs(10),
+            is_default: true,
+            health: matric_inference::ProviderHealth::Healthy,
+            http_referer: None,
+            x_title: None,
+        });
+        let now = chrono::Utc::now();
+        let profile = EmbeddingConfigProfile {
+            id: Uuid::new_v4(),
+            name: "private config".to_string(),
+            description: None,
+            model: "private-compatible-model".to_string(),
+            dimension: 8,
+            chunk_size: 512,
+            chunk_overlap: 64,
+            hnsw_m: None,
+            hnsw_ef_construction: None,
+            ivfflat_lists: None,
+            is_default: false,
+            created_at: now,
+            updated_at: now,
+            supports_mrl: true,
+            matryoshka_dims: Some(vec![8, 3]),
+            default_truncate_dim: Some(3),
+            provider: matric_core::EmbeddingProvider::Custom,
+            provider_config: serde_json::json!({
+                "provider_id": "llamacpp",
+                "base_url": "https://must-not-be-used.example.test/?token=secret",
+                "api_key": "must-not-be-used"
+            }),
+            content_types: vec!["text".to_string()],
+            document_composition: Default::default(),
+        };
+
+        let contract = search_embedding_contract(&registry, Some(&profile), Some(3)).unwrap();
+
+        assert_eq!(contract.provider_id, "llamacpp");
+        assert_eq!(contract.model, "private-compatible-model");
+        assert_eq!(contract.configured_dimension, 3);
+        assert_eq!(contract.backend.dimension(), 3);
+    }
+
+    #[test]
+    fn search_embedding_dimension_mismatch_is_explicit_and_redacted() {
+        let mut registry = matric_inference::ProviderRegistry::new("llamacpp".to_string());
+        registry.register(matric_inference::ProviderConfig {
+            id: "llamacpp".to_string(),
+            base_url: "http://127.0.0.1:8080/v1".to_string(),
+            api_key: Some("sk-private-key".to_string()),
+            capabilities: vec![matric_inference::ProviderCapability::Embedding],
+            timeout: std::time::Duration::from_secs(10),
+            is_default: true,
+            health: matric_inference::ProviderHealth::Healthy,
+            http_referer: None,
+            x_title: None,
+        });
+        let backend = registry
+            .resolve_embedding_boxed("llamacpp", "private-model@example.test", 3)
+            .unwrap();
+        let contract = SearchEmbeddingContract {
+            backend,
+            provider_id: "private-provider@example.test".to_string(),
+            model: "private-model@example.test".to_string(),
+            configured_dimension: 3,
+        };
+
+        let failure = validate_search_embedding_dimension(&contract, 4).unwrap_err();
+        assert_eq!(failure.code, "embedding_dimension_mismatch");
+        assert_eq!(failure.configured_dimension, 3);
+        assert_eq!(failure.backend_dimension, 3);
+        assert_eq!(failure.actual_dimension, 4);
+
+        let rendered = format!("{failure:?}");
+        assert!(!rendered.contains("private-provider@example.test"));
+        assert!(!rendered.contains("private-model@example.test"));
+
+        let event = search_degradation_audit_event(
+            &failure,
+            "semantic",
+            "private_archive@example.test",
+            true,
+        );
+        let serialized = serde_json::to_string(&event).unwrap();
+        assert!(serialized.contains("embedding_dimension_mismatch"));
+        assert!(serialized.contains("model_fingerprint"));
+        assert!(!serialized.contains("private-provider@example.test"));
+        assert!(!serialized.contains("private-model@example.test"));
+        assert!(!serialized.contains("private_archive@example.test"));
+        assert!(!serialized.contains("sk-private-key"));
+    }
+
+    #[test]
     fn search_response_debug_redacts_query_and_hit_content() {
         let response = SearchResponse {
             results: vec![EnhancedSearchHit {
@@ -38150,6 +38614,11 @@ mod tests {
             }],
             query: "find payroll café bearer token customer@example.com".to_string(),
             total: 1,
+            degraded: true,
+            degradation: Some(SearchDegradation {
+                code: "embedding_request_failed".to_string(),
+                effective_mode: "fts".to_string(),
+            }),
         };
 
         let rendered = format!("{response:?}");
@@ -38159,6 +38628,8 @@ mod tests {
         assert!(rendered.contains("query_len"));
         assert!(rendered.contains("query_len: 51"));
         assert!(rendered.contains("total"));
+        assert!(rendered.contains("degraded: true"));
+        assert!(rendered.contains("embedding_request_failed"));
         assert!(!rendered.contains("find payroll"));
         assert!(!rendered.contains("café"));
         assert!(!rendered.contains("bearer token"));
@@ -38167,6 +38638,14 @@ mod tests {
         assert!(!rendered.contains("Quarterly strategy"));
         assert!(!rendered.contains("customer-private"));
         assert!(!rendered.contains("mm_key_secret"));
+
+        let serialized = serde_json::to_value(&response).unwrap();
+        assert_eq!(serialized["degraded"], true);
+        assert_eq!(
+            serialized["degradation"]["code"],
+            "embedding_request_failed"
+        );
+        assert_eq!(serialized["degradation"]["effective_mode"], "fts");
     }
 
     #[test]

@@ -491,7 +491,15 @@ Performs semantic search restricted to a specific embedding set.
 
 **Response:**
 
-Same as standard search, but results only from the specified set.
+Same as standard search, but results only from the specified set. Fortémi
+generates the query vector with the set's embedding provider, model, and
+effective dimension. If the set uses an OpenAI-compatible registered route,
+set `provider_config.provider_id` to that registry ID. Provider endpoints and
+credentials remain registry-owned.
+
+If the provider is unavailable or returns a vector with the wrong dimension,
+the request executes FTS instead and returns `"degraded": true` with a stable
+`degradation.code`. It never silently labels the fallback as semantic.
 
 ## MCP Tools
 

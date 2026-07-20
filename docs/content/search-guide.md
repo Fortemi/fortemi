@@ -48,6 +48,42 @@ curl "http://localhost:3000/api/v1/search?q=how+to+build+neural+networks&mode=se
 
 **Best for:** Conceptual queries, finding related content with different terminology.
 
+### Query Embedding Provider
+
+Unscoped semantic and hybrid searches use the active embedding route from the
+provider registry (`MATRIC_EMBEDDING_PROVIDER`, or the default inference
+provider). The registry supplies the endpoint and credentials as well as the
+configured model and dimension.
+
+When `set=<slug>` is present, Fortémi first resolves that set's embedding
+configuration. The query uses the set's provider, model, and effective
+dimension, including its MRL truncation dimension. OpenAI-compatible set
+profiles can select a registered compatible route with
+`provider_config.provider_id`; endpoints and credentials still come from the
+provider registry and are never accepted from the search request.
+
+The returned query vector must match the effective configured dimension.
+Provider construction failures, request failures, empty responses, and
+dimension mismatches fall back to FTS so search remains available, but the
+fallback is explicit:
+
+```json
+{
+  "results": [],
+  "query": "how to build neural networks",
+  "total": 0,
+  "degraded": true,
+  "degradation": {
+    "code": "embedding_request_failed",
+    "effective_mode": "fts"
+  }
+}
+```
+
+Successful semantic and hybrid responses contain `"degraded": false` and omit
+`degradation`. Degraded responses emit a redacted `search.embedding_degraded`
+audit/telemetry event and are never written to the search cache.
+
 ## Understanding Results
 
 ### Score Interpretation
@@ -590,6 +626,7 @@ See the [Multi-Memory Guide](#/core-systems-multi-memory) for comprehensive docu
 | Possible Cause | Diagnosis | Fix |
 |----------------|-----------|-----|
 | No embeddings generated | Check `/api/v1/jobs` for pending embed jobs | Wait for jobs or trigger via `/api/v1/jobs` |
+| `degraded=true` | Query embedding provider failed or returned an incompatible vector | Inspect `search.embedding_degraded` logs and verify provider/model/dimension configuration |
 | Wrong search mode | FTS won't find semantic matches | Try `mode=hybrid` or `mode=semantic` |
 | Strict filter too narrow | Tag filter excludes all notes | Broaden filter or check tag spelling |
 | Language mismatch | Non-English content with English stemmer | Add `lang` parameter or enable `FTS_SCRIPT_DETECTION` |
