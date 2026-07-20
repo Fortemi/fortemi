@@ -4,7 +4,7 @@
   "matrixId": "fortemi.knowledge-shard.conformance-matrix.v1",
   "authority": {
     "repository": "Fortemi/fortemi",
-    "commit": "e62ee6bb7eb30f2ef68c0be0a1207ee687222c56",
+    "commit": "81fbeaf065df3818edd046ed8a744f10eeb00e6f",
     "contractPath": "contracts/knowledge-shard/contract.json",
     "contractSha256": "5debc14e0bc7eef403a75e8e063a10f53019e1d74857485d6eda3abaec9397e2",
     "contractRevision": "19",
@@ -41,7 +41,7 @@
     {
       "id": "fortemi",
       "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
-      "commit": "e62ee6bb7eb30f2ef68c0be0a1207ee687222c56",
+      "commit": "81fbeaf065df3818edd046ed8a744f10eeb00e6f",
       "package": null,
       "producerProfiles": [
         {
