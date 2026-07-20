@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.2.0/full-v1/provenance-activity.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 candidate provenance activity record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "note_id",
+    "revision_id",
+    "activity_type",
+    "model_name",
+    "started_at",
+    "ended_at",
+    "metadata"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "note_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "revision_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "activity_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model_name": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "started_at": {
+      "$ref": "#/$defs/dateTime"
+    },
+    "ended_at": {
+      "$ref": "#/$defs/nullableDateTime"
+    },
+    "metadata": {}
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nullableUuid": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableDateTime": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/dateTime"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

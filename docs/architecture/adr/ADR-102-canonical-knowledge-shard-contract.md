@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Versioned `core-v1` schemas through `1.1.0`, an authority-owned and cross-repository-proven `record-v1` profile, a supported complete-inventory `full-v1` server route with semantic/revision/mandatory-byte convergence and signed-fixture publisher-authentication proof, digest-pinned rich component boundaries with transactional apply paths, a registered `1.0.0 -> 1.1.0` tombstone transition, bounded archive and relationship preflight, identity-preserving structured import, signed-import verification, and disk-backed streaming preflight for verified attachment sidecars; final cross-repository `full-v1` producer and consumer receipts remain pending
+**Implementation status:** Versioned `core-v1` schemas through `1.2.0`, an authority-owned and cross-repository-proven `record-v1` profile, a supported complete-inventory `full-v1` server route with semantic/revision/embedding-lineage/mandatory-byte convergence and signed-fixture publisher-authentication proof, digest-pinned rich component boundaries with transactional apply paths, registered `1.0.0 -> 1.1.0` tombstone and `1.1.0 -> 1.2.0` embedding-lineage transitions, bounded archive and relationship preflight, identity-preserving structured import, signed-import verification, and disk-backed streaming preflight for verified attachment sidecars; final cross-repository `full-v1` producer and consumer receipts remain pending
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -57,15 +57,15 @@ migration output is a distinct representation and therefore repeats the full
 checksum, schema/count, relationship, and sidecar validation before staging or
 database mutation.
 
-The current normative schema root for `1.1.0` / `core-v1` is
-`contracts/knowledge-shard/1.1.0/core-v1/`. The immutable `1.0.0` authority
-remains at `contracts/knowledge-shard/1.0.0/core-v1/`. The machine-readable
+The current normative schema root for `1.2.0` / `core-v1` is
+`contracts/knowledge-shard/1.2.0/core-v1/`. The immutable `1.0.0` and `1.1.0`
+authorities remain at their original versioned roots. The machine-readable
 receipt at `contracts/knowledge-shard/contract.json` records exact current and
 historical digests, golden corpora, supported and reserved profiles, and
 current limitations.
 
 The supported `record-v1` root is
-`contracts/knowledge-shard/1.1.0/record-v1/`. It is limited to notes,
+`contracts/knowledge-shard/1.2.0/record-v1/`. It is limited to notes,
 collections, tags, note-to-note links, and attachment projections. Producers
 must report every omitted or lossy source concept through their
 machine-readable capability/loss result. The exact React producer artifact at
@@ -77,13 +77,13 @@ archive while preserving IDs, bodies, the empty revision, relationships,
 attachment reference, and tombstone instant. The durable receipt lives beside
 the integration fixture.
 
-Contract revision 18 supports the complete server `full-v1` route and
+Contract revision 19 supports the complete server `full-v1` route and
 publishes a reproducible signed integrated fixture
 that requires all 33 `full-v1` components, all 34 count fields, all 33
 component checksums, and one mandatory content-addressed attachment sidecar
 shared by two references. It unifies candidate embedding, note-revision,
 provenance, SKOS, graph, and community boundaries under
-`contracts/knowledge-shard/1.1.0/full-v1/`, with separately digest-pinned
+`contracts/knowledge-shard/1.2.0/full-v1/`, with separately digest-pinned
 corpora. The revision boundary covers current original state, original history,
 the current revised snapshot, and the complete revision chain. The provenance
 boundary preserves W3C-PROV edges and processing activities that reference
@@ -115,7 +115,12 @@ checksums, and blob bytes after re-export. Persisted embeddings are constrained
 to the server's 768-dimensional storage boundary. Replace mode reconciles
 provisioned embedding-set name/slug conflicts and restores source tag
 timestamps so clean-server and repeated imports converge.
-Embedding, revision, provenance, SKOS, graph, and community apply paths run
+Embedding records preserve a nullable contract fingerprint. Non-null values
+must be exactly 64 lowercase hexadecimal characters, and schema validation
+rejects malformed lineage before staging or database mutation. The registered
+`1.1.0 -> 1.2.0` migration maps legacy absence to `null` without inventing a
+producer identity. Embedding, revision, provenance, SKOS, graph, and community
+apply paths run
 inside the existing schema-scoped import transaction. Their database tests
 prove exact source-field restoration, repeated replace convergence, skip and
 dry-run accounting, and rollback after a late injected failure. Runtime
@@ -310,6 +315,13 @@ note. The registered `1.0.0 -> 1.1.0` migration validates source bytes and
 records first, maps the legacy field absence to the documented `null`
 active-state default, rebinds the component checksum and migration metadata,
 then validates the migrated current representation before writes.
+
+Schema `1.2.0` adds the optional nullable `contract_fingerprint` embedding
+field. Current exports always emit the property as an exact 64-character
+lowercase hexadecimal value or `null`; import restores it in the same
+transaction as the vector. The registered `1.1.0 -> 1.2.0` migration records
+legacy absence as `null`, recomputes the embedding component checksum, and
+revalidates the migrated representation before writes.
 
 Known gaps remain in complete absent-versus-null semantic preservation across
 all accepted current records, `full-v1`, current-minus-two historical migration

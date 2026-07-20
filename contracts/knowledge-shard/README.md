@@ -5,7 +5,7 @@ consumers. `contract.json` identifies the current schema/profile revision,
 stable schema paths, exact file digests, golden corpus, and demonstrated
 limitations.
 
-The current contract revision supports Knowledge Shard schema `1.1.0` under
+The current contract revision supports Knowledge Shard schema `1.2.0` under
 `core-v1`, `record-v1`, and `full-v1`:
 
 - `core-v1`: notes, collections, tags, templates, links, and attachment
@@ -15,13 +15,16 @@ The current contract revision supports Knowledge Shard schema `1.1.0` under
 - `full-v1`: the complete 33-component inventory and mandatory attachment
   bytes.
 
-Revision 18 supports the complete `full-v1` server route and publishes a
+Revision 19 supports the complete `full-v1` server route and publishes a
 reproducible signed integrated fixture
 with the complete 33-component inventory, 34 count fields, 33 component
 checksums, and one mandatory content-addressed attachment sidecar shared by
 two references. The archive unifies the digest-pinned embedding, note-revision,
 provenance, SKOS, graph, and community boundaries onto coherent note
-identities. Its strict Ed25519 envelope authenticates the exact manifest bytes
+identities. Embedding records carry a nullable, validated contract fingerprint
+that preserves the provider/model/dimension/normalization/set identity used to
+produce a vector without inventing lineage for legacy records. Its strict
+Ed25519 envelope authenticates the exact manifest bytes
 and sorted content-addressed blob inventory through the same verifier used by
 server import. The deterministic fixture key is public and test-only; operators
 must never add it to a production trust store.
@@ -50,16 +53,19 @@ validation requires the exact full inventory and rejects partial `full-v1`
 exports before archive or database mutation.
 
 Each profile has its own manifest and record schemas under
-`contracts/knowledge-shard/1.1.0/<profile>/`. Fortemi import selects and
+`contracts/knowledge-shard/1.2.0/<profile>/`. Fortemi import selects and
 applies those schemas by version and profile before component inventory/count
 validation and before normal persistent writes. Positive and negative fixtures
 live under `tests/fixtures/shards`.
 
-Schema `1.0.0` remains immutable under its original stable path and receipt
-hashes. The registered `1.0.0 -> 1.1.0` migration adds `deleted_at: null` to
-legacy note records, recording the legacy absence as the documented active
-state. Current exports always emit `deleted_at` as either `null` or an exact
-timestamp and include soft-deleted notes.
+Schemas `1.0.0` and `1.1.0` remain immutable under their original stable paths
+and receipt hashes. The registered `1.0.0 -> 1.1.0` migration adds
+`deleted_at: null` to legacy note records, recording the legacy absence as the
+documented active state. The registered `1.1.0 -> 1.2.0` migration adds
+`contract_fingerprint: null` to legacy embedding records. Current exports
+always emit `deleted_at` as either `null` or an exact timestamp, include
+soft-deleted notes, and emit an exact 64-character lowercase hexadecimal
+embedding contract fingerprint or `null`.
 
 Consumers must pin an immutable Fortemi commit, verify every digest in
 `contract.json`, and treat the schema files as upstream authority. Vendored

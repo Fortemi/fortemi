@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.2.0/full-v1/embedding-config.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 candidate embedding config record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "description",
+    "model",
+    "dimension",
+    "chunk_size",
+    "chunk_overlap",
+    "hnsw_m",
+    "hnsw_ef_construction",
+    "ivfflat_lists",
+    "is_default",
+    "supports_mrl",
+    "matryoshka_dims",
+    "default_truncate_dim",
+    "provider",
+    "provider_config",
+    "content_types",
+    "strengths",
+    "limitations",
+    "recommended_for",
+    "benchmark_scores",
+    "is_available",
+    "document_composition",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dimension": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "chunk_size": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "chunk_overlap": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "hnsw_m": {
+      "$ref": "#/$defs/nullableNonNegativeInteger"
+    },
+    "hnsw_ef_construction": {
+      "$ref": "#/$defs/nullableNonNegativeInteger"
+    },
+    "ivfflat_lists": {
+      "$ref": "#/$defs/nullableNonNegativeInteger"
+    },
+    "is_default": {
+      "$ref": "#/$defs/nullableBoolean"
+    },
+    "supports_mrl": {
+      "$ref": "#/$defs/nullableBoolean"
+    },
+    "matryoshka_dims": {
+      "oneOf": [
+        {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "default_truncate_dim": {
+      "$ref": "#/$defs/nullablePositiveInteger"
+    },
+    "provider": {
+      "enum": [
+        null,
+        "ollama",
+        "openai",
+        "voyage",
+        "cohere",
+        "custom"
+      ]
+    },
+    "provider_config": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "content_types": {
+      "$ref": "#/$defs/nullableStringArray"
+    },
+    "strengths": {
+      "$ref": "#/$defs/nullableStringArray"
+    },
+    "limitations": {
+      "$ref": "#/$defs/nullableStringArray"
+    },
+    "recommended_for": {
+      "$ref": "#/$defs/nullableStringArray"
+    },
+    "benchmark_scores": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "is_available": {
+      "$ref": "#/$defs/nullableBoolean"
+    },
+    "document_composition": {
+      "type": "object"
+    },
+    "created_at": {
+      "$ref": "#/$defs/dateTime"
+    },
+    "updated_at": {
+      "$ref": "#/$defs/dateTime"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nullableBoolean": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "nullableNonNegativeInteger": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "nullablePositiveInteger": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "nullableStringArray": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.2.0/full-v1/note-original.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 candidate note original record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "note_id",
+    "content",
+    "hash",
+    "user_created_at",
+    "user_last_edited_at",
+    "version_number"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "note_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "content": {
+      "type": "string"
+    },
+    "hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "user_created_at": {
+      "$ref": "#/$defs/nullableDateTime"
+    },
+    "user_last_edited_at": {
+      "$ref": "#/$defs/nullableDateTime"
+    },
+    "version_number": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nullableUuid": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableDateTime": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/dateTime"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

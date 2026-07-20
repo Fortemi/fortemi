@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.2.0/full-v1/graph-edge.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 graph edge",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "graph_source_id",
+    "from_note_id",
+    "to_note_id",
+    "weight",
+    "kind",
+    "rank",
+    "metadata"
+  ],
+  "properties": {
+    "graph_source_id": { "type": "string", "minLength": 1 },
+    "from_note_id": { "type": "string", "format": "uuid" },
+    "to_note_id": { "type": "string", "format": "uuid" },
+    "weight": { "type": "number" },
+    "kind": { "enum": ["link", "similarity", "manual"] },
+    "rank": { "type": ["integer", "null"], "minimum": 0 },
+    "metadata": { "type": ["object", "null"] }
+  }
+}

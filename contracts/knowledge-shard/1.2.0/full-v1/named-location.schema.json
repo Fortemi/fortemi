@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.2.0/full-v1/named-location.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 candidate named location record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "slug",
+    "display_name",
+    "location_type",
+    "point_ewkb_hex",
+    "boundary_ewkb_hex",
+    "radius_m",
+    "address_line",
+    "locality",
+    "admin_area",
+    "country",
+    "country_code",
+    "postal_code",
+    "timezone",
+    "altitude_m",
+    "owner_id",
+    "is_private",
+    "metadata",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "slug": {
+      "type": "string",
+      "minLength": 1
+    },
+    "display_name": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "location_type": {
+      "enum": [
+        "home",
+        "work",
+        "poi",
+        "city",
+        "region",
+        "country"
+      ]
+    },
+    "point_ewkb_hex": {
+      "$ref": "#/$defs/nullableEwkb"
+    },
+    "boundary_ewkb_hex": {
+      "$ref": "#/$defs/nullableEwkb"
+    },
+    "radius_m": {
+      "$ref": "#/$defs/nullableNumber"
+    },
+    "address_line": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "locality": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "admin_area": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "country": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "country_code": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 2
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "postal_code": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "timezone": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "altitude_m": {
+      "$ref": "#/$defs/nullableNumber"
+    },
+    "owner_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "is_private": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "metadata": {},
+    "created_at": {
+      "$ref": "#/$defs/dateTime"
+    },
+    "updated_at": {
+      "$ref": "#/$defs/dateTime"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ewkb": {
+      "type": "string",
+      "minLength": 2,
+      "pattern": "^[0-9a-f]+$"
+    },
+    "nullableEwkb": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ewkb"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableUuid": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "nullableNumber": {
+      "type": [
+        "number",
+        "null"
+      ]
+    }
+  }
+}

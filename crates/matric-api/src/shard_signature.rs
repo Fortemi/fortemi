@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 pub const SIGNATURE_ENTRY: &str = "signature.json";
 pub const MAX_SIGNATURE_ENVELOPE_BYTES: usize = 64 * 1024;
 pub const SIGNATURE_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/signature.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/signature.schema.json");
 const SIGNING_ENVELOPE_VERSION: &str = "1";
 const SIGNING_ALGORITHM: &str = "ed25519";
 const MAX_TRUST_STORE_BYTES: usize = 64 * 1024;

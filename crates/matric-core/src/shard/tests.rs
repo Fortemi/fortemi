@@ -314,7 +314,7 @@ fn test_compatibility_same_version() {
 
 #[test]
 fn test_compatibility_same_version_from_fixture() {
-    let manifest = fixtures::load_json("v1_1_0_forward_compat.json");
+    let manifest = fixtures::load_json("v1_2_0_current.json");
     let version = manifest["version"].as_str().unwrap();
     let result = check_shard_compatibility(version);
     assert_eq!(result, CompatibilityResult::Compatible);
@@ -322,13 +322,13 @@ fn test_compatibility_same_version_from_fixture() {
 
 #[test]
 fn test_compatibility_newer_minor() {
-    let result = check_shard_compatibility("1.2.0");
+    let result = check_shard_compatibility("1.3.0");
     match result {
         CompatibilityResult::NewerMinor {
             shard_version,
             warnings,
         } => {
-            assert_eq!(shard_version, "1.2.0");
+            assert_eq!(shard_version, "1.3.0");
             assert!(!warnings.is_empty());
             assert!(warnings[0].contains("newer version"));
         }
@@ -338,7 +338,7 @@ fn test_compatibility_newer_minor() {
 
 #[test]
 fn test_compatibility_current_minor_from_fixture() {
-    let manifest = fixtures::load_json("v1_1_0_forward_compat.json");
+    let manifest = fixtures::load_json("v1_2_0_current.json");
     let version = manifest["version"].as_str().unwrap();
     let result = check_shard_compatibility(version);
     assert_eq!(result, CompatibilityResult::Compatible);
@@ -346,9 +346,9 @@ fn test_compatibility_current_minor_from_fixture() {
 
 #[test]
 fn test_compatibility_newer_patch() {
-    // Current: 1.1.0, Shard: 1.1.1
+    // Current: 1.2.0, Shard: 1.2.1
     // Same major, same minor, newer patch = Compatible (standard semver)
-    let result = check_shard_compatibility("1.1.1");
+    let result = check_shard_compatibility("1.2.1");
     assert_eq!(result, CompatibilityResult::Compatible);
 }
 
@@ -763,7 +763,7 @@ fn test_warning_array_serialization() {
 #[test]
 fn test_scenario_import_same_version_shard() {
     // Scenario: Import a shard with the same version as current
-    let manifest = fixtures::load_json("v1_1_0_forward_compat.json");
+    let manifest = fixtures::load_json("v1_2_0_current.json");
     let version = manifest["version"].as_str().unwrap();
 
     let result = check_shard_compatibility(version);
@@ -772,8 +772,8 @@ fn test_scenario_import_same_version_shard() {
 
 #[test]
 fn test_scenario_import_newer_minor_shard() {
-    // Scenario: Import a shard from v1.2.0 into a v1.1.0 system.
-    let result = check_shard_compatibility("1.2.0");
+    // Scenario: Import a shard from v1.3.0 into a v1.2.0 system.
+    let result = check_shard_compatibility("1.3.0");
     match result {
         CompatibilityResult::NewerMinor { warnings, .. } => {
             assert!(!warnings.is_empty());
@@ -890,13 +890,13 @@ fn test_current_version_is_valid() {
 
     let v = current.unwrap();
     assert_eq!(v.major, 1);
-    assert_eq!(v.minor, 1);
+    assert_eq!(v.minor, 2);
     assert_eq!(v.patch, 0);
 }
 
 #[test]
 fn test_current_version_matches_fixtures() {
-    let manifest = fixtures::load_json("v1_1_0_forward_compat.json");
+    let manifest = fixtures::load_json("v1_2_0_current.json");
     let version = manifest["version"].as_str().unwrap();
     assert_eq!(version, CURRENT_SHARD_VERSION);
 }

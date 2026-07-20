@@ -24081,6 +24081,7 @@ struct ShardEmbeddingRecord {
     text: String,
     vector: Option<Vec<f32>>,
     model: String,
+    contract_fingerprint: Option<String>,
     created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -24260,94 +24261,102 @@ const LEGACY_CORE_V1_TEMPLATE_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.0.0/core-v1/template.schema.json");
 const LEGACY_CORE_V1_LINK_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.0.0/core-v1/link.schema.json");
-const CORE_V1_MANIFEST_SCHEMA: &str =
+const V1_1_CORE_V1_MANIFEST_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.1.0/core-v1/manifest.schema.json");
-const CORE_V1_NOTE_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/core-v1/note.schema.json");
-const CORE_V1_COLLECTION_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/core-v1/collection.schema.json");
-const CORE_V1_TAG_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/core-v1/tag.schema.json");
-const CORE_V1_TEMPLATE_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/core-v1/template.schema.json");
-const CORE_V1_LINK_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/core-v1/link.schema.json");
-const RECORD_V1_MANIFEST_SCHEMA: &str =
+const V1_1_RECORD_V1_MANIFEST_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.1.0/record-v1/manifest.schema.json");
-const RECORD_V1_NOTE_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/record-v1/note.schema.json");
-const RECORD_V1_COLLECTION_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/record-v1/collection.schema.json");
-const RECORD_V1_TAG_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/record-v1/tag.schema.json");
-const RECORD_V1_LINK_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/record-v1/link.schema.json");
-const FULL_V1_MANIFEST_SCHEMA: &str =
+const V1_1_FULL_V1_MANIFEST_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/manifest.schema.json");
+const V1_1_FULL_V1_EMBEDDING_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/embedding.schema.json");
+const CORE_V1_MANIFEST_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.2.0/core-v1/manifest.schema.json");
+const CORE_V1_NOTE_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.2.0/core-v1/note.schema.json");
+const CORE_V1_COLLECTION_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.2.0/core-v1/collection.schema.json");
+const CORE_V1_TAG_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.2.0/core-v1/tag.schema.json");
+const CORE_V1_TEMPLATE_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.2.0/core-v1/template.schema.json");
+const CORE_V1_LINK_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.2.0/core-v1/link.schema.json");
+const RECORD_V1_MANIFEST_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.2.0/record-v1/manifest.schema.json");
+const RECORD_V1_NOTE_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.2.0/record-v1/note.schema.json");
+const RECORD_V1_COLLECTION_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.2.0/record-v1/collection.schema.json");
+const RECORD_V1_TAG_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.2.0/record-v1/tag.schema.json");
+const RECORD_V1_LINK_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.2.0/record-v1/link.schema.json");
+const FULL_V1_MANIFEST_SCHEMA: &str =
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/manifest.schema.json");
 const FULL_V1_EMBEDDING_CONFIG_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/embedding-config.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/embedding-config.schema.json");
 const FULL_V1_EMBEDDING_SET_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/embedding-set.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/embedding-set.schema.json");
 const FULL_V1_EMBEDDING_SET_MEMBER_SCHEMA: &str = include_str!(
-    "../../../contracts/knowledge-shard/1.1.0/full-v1/embedding-set-member.schema.json"
+    "../../../contracts/knowledge-shard/1.2.0/full-v1/embedding-set-member.schema.json"
 );
 const FULL_V1_EMBEDDING_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/embedding.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/embedding.schema.json");
 const FULL_V1_NOTE_ORIGINAL_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/note-original.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/note-original.schema.json");
 const FULL_V1_NOTE_ORIGINAL_HISTORY_SCHEMA: &str = include_str!(
-    "../../../contracts/knowledge-shard/1.1.0/full-v1/note-original-history.schema.json"
+    "../../../contracts/knowledge-shard/1.2.0/full-v1/note-original-history.schema.json"
 );
 const FULL_V1_NOTE_REVISED_CURRENT_SCHEMA: &str = include_str!(
-    "../../../contracts/knowledge-shard/1.1.0/full-v1/note-revised-current.schema.json"
+    "../../../contracts/knowledge-shard/1.2.0/full-v1/note-revised-current.schema.json"
 );
 const FULL_V1_NOTE_REVISION_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/note-revision.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/note-revision.schema.json");
 const FULL_V1_PROVENANCE_EDGE_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/provenance-edge.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/provenance-edge.schema.json");
 const FULL_V1_PROVENANCE_ACTIVITY_SCHEMA: &str = include_str!(
-    "../../../contracts/knowledge-shard/1.1.0/full-v1/provenance-activity.schema.json"
+    "../../../contracts/knowledge-shard/1.2.0/full-v1/provenance-activity.schema.json"
 );
 const FULL_V1_NAMED_LOCATION_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/named-location.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/named-location.schema.json");
 const FULL_V1_PROVENANCE_LOCATION_SCHEMA: &str = include_str!(
-    "../../../contracts/knowledge-shard/1.1.0/full-v1/provenance-location.schema.json"
+    "../../../contracts/knowledge-shard/1.2.0/full-v1/provenance-location.schema.json"
 );
 const FULL_V1_PROVENANCE_DEVICE_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/provenance-device.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/provenance-device.schema.json");
 const FULL_V1_PROVENANCE_RECORD_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/provenance-record.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/provenance-record.schema.json");
 const FULL_V1_SKOS_SCHEME_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/skos-scheme.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/skos-scheme.schema.json");
 const FULL_V1_SKOS_CONCEPT_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/skos-concept.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/skos-concept.schema.json");
 const FULL_V1_SKOS_LABEL_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/skos-label.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/skos-label.schema.json");
 const FULL_V1_SKOS_NOTE_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/skos-note.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/skos-note.schema.json");
 const FULL_V1_SKOS_RELATION_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/skos-relation.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/skos-relation.schema.json");
 const FULL_V1_SKOS_MAPPING_RELATION_SCHEMA: &str = include_str!(
-    "../../../contracts/knowledge-shard/1.1.0/full-v1/skos-mapping-relation.schema.json"
+    "../../../contracts/knowledge-shard/1.2.0/full-v1/skos-mapping-relation.schema.json"
 );
 const FULL_V1_SKOS_SCHEME_MEMBERSHIP_SCHEMA: &str = include_str!(
-    "../../../contracts/knowledge-shard/1.1.0/full-v1/skos-scheme-membership.schema.json"
+    "../../../contracts/knowledge-shard/1.2.0/full-v1/skos-scheme-membership.schema.json"
 );
 const FULL_V1_NOTE_SKOS_TAG_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/note-skos-tag.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/note-skos-tag.schema.json");
 const FULL_V1_SKOS_COLLECTION_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/skos-collection.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/skos-collection.schema.json");
 const FULL_V1_SKOS_COLLECTION_MEMBER_SCHEMA: &str = include_str!(
-    "../../../contracts/knowledge-shard/1.1.0/full-v1/skos-collection-member.schema.json"
+    "../../../contracts/knowledge-shard/1.2.0/full-v1/skos-collection-member.schema.json"
 );
 const FULL_V1_GRAPH_SOURCE_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/graph-source.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/graph-source.schema.json");
 const FULL_V1_GRAPH_EDGE_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/graph-edge.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/graph-edge.schema.json");
 const FULL_V1_COMMUNITY_SET_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.1.0/full-v1/community-set.schema.json");
+    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/community-set.schema.json");
 const FULL_V1_COMMUNITY_ASSIGNMENT_SCHEMA: &str = include_str!(
-    "../../../contracts/knowledge-shard/1.1.0/full-v1/community-assignment.schema.json"
+    "../../../contracts/knowledge-shard/1.2.0/full-v1/community-assignment.schema.json"
 );
 
 #[derive(Clone, Copy)]
@@ -24766,6 +24775,14 @@ fn validate_shard_json_schema(
         LazyLock::new(|| compile_shard_json_schema(LEGACY_CORE_V1_TEMPLATE_SCHEMA));
     static LEGACY_LINK: LazyLock<Result<jsonschema::Validator, String>> =
         LazyLock::new(|| compile_shard_json_schema(LEGACY_CORE_V1_LINK_SCHEMA));
+    static V1_1_CORE_MANIFEST: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(V1_1_CORE_V1_MANIFEST_SCHEMA));
+    static V1_1_RECORD_MANIFEST: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(V1_1_RECORD_V1_MANIFEST_SCHEMA));
+    static V1_1_FULL_MANIFEST: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(V1_1_FULL_V1_MANIFEST_SCHEMA));
+    static V1_1_FULL_EMBEDDING: LazyLock<Result<jsonschema::Validator, String>> =
+        LazyLock::new(|| compile_shard_json_schema(V1_1_FULL_V1_EMBEDDING_SCHEMA));
     static MANIFEST: LazyLock<Result<jsonschema::Validator, String>> =
         LazyLock::new(|| compile_shard_json_schema(CORE_V1_MANIFEST_SCHEMA));
     static NOTE: LazyLock<Result<jsonschema::Validator, String>> =
@@ -24854,6 +24871,10 @@ fn validate_shard_json_schema(
         LEGACY_CORE_V1_TAG_SCHEMA => &*LEGACY_TAG,
         LEGACY_CORE_V1_TEMPLATE_SCHEMA => &*LEGACY_TEMPLATE,
         LEGACY_CORE_V1_LINK_SCHEMA => &*LEGACY_LINK,
+        V1_1_CORE_V1_MANIFEST_SCHEMA => &*V1_1_CORE_MANIFEST,
+        V1_1_RECORD_V1_MANIFEST_SCHEMA => &*V1_1_RECORD_MANIFEST,
+        V1_1_FULL_V1_MANIFEST_SCHEMA => &*V1_1_FULL_MANIFEST,
+        V1_1_FULL_V1_EMBEDDING_SCHEMA => &*V1_1_FULL_EMBEDDING,
         CORE_V1_MANIFEST_SCHEMA => &*MANIFEST,
         CORE_V1_NOTE_SCHEMA => &*NOTE,
         CORE_V1_COLLECTION_SCHEMA => &*COLLECTION,
@@ -24907,10 +24928,13 @@ fn validate_shard_json_schema(
 
 fn shard_manifest_schema(version: &str, profile: &str) -> Option<&'static str> {
     match (version, profile) {
-        ("1.1.0", "core-v1") => Some(CORE_V1_MANIFEST_SCHEMA),
+        ("1.1.0", "core-v1") => Some(V1_1_CORE_V1_MANIFEST_SCHEMA),
+        ("1.1.0", "record-v1") => Some(V1_1_RECORD_V1_MANIFEST_SCHEMA),
+        ("1.1.0", "full-v1") => Some(V1_1_FULL_V1_MANIFEST_SCHEMA),
+        ("1.2.0", "core-v1") => Some(CORE_V1_MANIFEST_SCHEMA),
+        ("1.2.0", "record-v1") => Some(RECORD_V1_MANIFEST_SCHEMA),
+        ("1.2.0", "full-v1") => Some(FULL_V1_MANIFEST_SCHEMA),
         (_, "core-v1") => Some(LEGACY_CORE_V1_MANIFEST_SCHEMA),
-        ("1.1.0", "record-v1") => Some(RECORD_V1_MANIFEST_SCHEMA),
-        ("1.1.0", "full-v1") => Some(FULL_V1_MANIFEST_SCHEMA),
         _ => None,
     }
 }
@@ -24943,6 +24967,10 @@ fn parse_and_validate_shard_manifest(data: &[u8]) -> Result<ShardManifest, Strin
 }
 
 fn shard_component_schema(version: &str, profile: &str, component: &str) -> Option<&'static str> {
+    if (version, profile, component) == ("1.1.0", "full-v1", "embeddings") {
+        return Some(V1_1_FULL_V1_EMBEDDING_SCHEMA);
+    }
+    let version = if version == "1.2.0" { "1.1.0" } else { version };
     match (version, profile, component) {
         ("1.0.0", "core-v1", "notes") => Some(LEGACY_CORE_V1_NOTE_SCHEMA),
         ("1.0.0", "core-v1", "collections") => Some(LEGACY_CORE_V1_COLLECTION_SCHEMA),
@@ -26921,7 +26949,7 @@ fn serialize_shard_component_records(
     records: &[serde_json::Value],
 ) -> Result<Vec<u8>, String> {
     match component {
-        "notes" | "links" => {
+        "notes" | "links" | "embeddings" => {
             let lines = records
                 .iter()
                 .map(serde_json::to_string)
@@ -26994,19 +27022,50 @@ fn migrate_shard_archive_to_current(
         files.insert("notes.jsonl".to_string(), migrated_data);
     }
 
+    let mut defaulted_embedding_fingerprints = 0usize;
+    if source_version == "1.1.0" {
+        if let Some(embeddings_data) = files.get("embeddings.jsonl") {
+            let mut records = parse_shard_component_records("embeddings", embeddings_data)?;
+            for record in &mut records {
+                let record = record.as_object_mut().ok_or_else(|| {
+                    "Knowledge shard embedding migration requires object records.".to_string()
+                })?;
+                if !record.contains_key("contract_fingerprint") {
+                    record.insert("contract_fingerprint".to_string(), serde_json::Value::Null);
+                    defaulted_embedding_fingerprints += 1;
+                }
+            }
+            let migrated_data = serialize_shard_component_records("embeddings", &records)?;
+            manifest.checksums.insert(
+                "embeddings.jsonl".to_string(),
+                hex::encode(Sha256::digest(&migrated_data)),
+            );
+            files.insert("embeddings.jsonl".to_string(), migrated_data);
+        }
+    }
+
     manifest.version = CURRENT_SHARD_VERSION.to_string();
     manifest.min_reader_version = Some(CURRENT_SHARD_VERSION.to_string());
     if manifest.migrated_from.is_none() {
         manifest.migrated_from = Some(source_version.clone());
+    }
+    let mut changes = Vec::new();
+    if defaulted_tombstones > 0 {
+        changes.push(
+            "defaulted legacy note deleted_at absence to explicit null active state".to_string(),
+        );
+    }
+    if defaulted_embedding_fingerprints > 0 {
+        changes.push(
+            "defaulted legacy embedding contract_fingerprint absence to explicit null".to_string(),
+        );
     }
     manifest.migration_history.push(MigrationHistoryEntry {
         from_version: source_version.clone(),
         to_version: CURRENT_SHARD_VERSION.to_string(),
         migrated_at: chrono::Utc::now(),
         migrated_by: format!("fortemi/{}", env!("CARGO_PKG_VERSION")),
-        changes: vec![
-            "defaulted legacy note deleted_at absence to explicit null active state".to_string(),
-        ],
+        changes,
     });
     let manifest_data = serde_json::to_vec_pretty(&manifest)
         .map_err(|_| "Knowledge shard migration serialization failed.".to_string())?;
@@ -27017,7 +27076,8 @@ fn migrate_shard_archive_to_current(
         files,
         warnings: vec![format!(
             "Migrated Knowledge Shard schema {source_version} to {CURRENT_SHARD_VERSION}; \
-             defaulted deleted_at to null for {defaulted_tombstones} legacy note records."
+             defaulted deleted_at to null for {defaulted_tombstones} legacy note records and \
+             contract_fingerprint to null for {defaulted_embedding_fingerprints} legacy embedding records."
         )],
         bytes_changed: true,
     })
@@ -28593,7 +28653,8 @@ async fn knowledge_shard(
         if components.contains(&"embeddings") {
             let rows = sqlx::query(
                 r#"
-                SELECT id, note_id, embedding_set_id, chunk_index, text, vector, model, created_at
+                SELECT id, note_id, embedding_set_id, chunk_index, text, vector, model,
+                       contract_fingerprint, created_at
                 FROM embedding
                 ORDER BY note_id, embedding_set_id, chunk_index
                 LIMIT $1
@@ -28616,6 +28677,7 @@ async fn knowledge_shard(
                     text: row.get("text"),
                     vector: vector.map(|value| value.as_slice().to_vec()),
                     model: row.get("model"),
+                    contract_fingerprint: row.get("contract_fingerprint"),
                     created_at: row.get("created_at"),
                 };
                 embeddings_jsonl.push(
@@ -35136,8 +35198,9 @@ async fn apply_shard_embedding_components_tx(
                 let vector = embedding.vector.map(pgvector::Vector::from);
                 let result = sqlx::query(
                     "INSERT INTO embedding
-                     (id, note_id, embedding_set_id, chunk_index, text, vector, model, created_at)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                     (id, note_id, embedding_set_id, chunk_index, text, vector, model,
+                      contract_fingerprint, created_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                      ON CONFLICT DO NOTHING",
                 )
                 .bind(embedding.id)
@@ -35147,6 +35210,7 @@ async fn apply_shard_embedding_components_tx(
                 .bind(embedding.text)
                 .bind(vector)
                 .bind(embedding.model)
+                .bind(embedding.contract_fingerprint)
                 .bind(embedding.created_at)
                 .execute(&mut **tx)
                 .await
@@ -45426,6 +45490,42 @@ not-json
     }
 
     #[test]
+    fn v1_1_migration_defaults_embedding_contract_fingerprint_to_null() {
+        use sha2::Digest;
+
+        let mut manifest = valid_core_shard_manifest();
+        manifest.version = "1.1.0".to_string();
+        manifest.min_reader_version = Some("1.1.0".to_string());
+        let embedding = serde_json::json!({
+            "id": Uuid::new_v4(),
+            "note_id": null,
+            "embedding_set_id": null,
+            "chunk_index": 0,
+            "text": "legacy",
+            "vector": null,
+            "model": "legacy-model",
+            "created_at": null
+        });
+        let legacy_bytes = serde_json::to_vec(&embedding).unwrap();
+        manifest.checksums.insert(
+            "embeddings.jsonl".to_string(),
+            hex::encode(sha2::Sha256::digest(&legacy_bytes)),
+        );
+        let mut files = valid_core_shard_files();
+        files.insert("embeddings.jsonl".to_string(), legacy_bytes);
+
+        let migrated = migrate_shard_archive_to_current(manifest, files)
+            .expect("1.1.0 embedding record migrates");
+        let record: serde_json::Value =
+            serde_json::from_slice(&migrated.files["embeddings.jsonl"]).unwrap();
+
+        assert_eq!(record["contract_fingerprint"], serde_json::Value::Null);
+        assert!(migrated.warnings.iter().any(|warning| {
+            warning.contains("contract_fingerprint to null for 1 legacy embedding records")
+        }));
+    }
+
+    #[test]
     fn test_shard_export_query_defaults() {
         let query: ShardExportQuery = serde_json::from_str("{}").unwrap();
         assert!(query.include.is_none());
@@ -45600,12 +45700,22 @@ not-json
 
     #[test]
     fn shard_canonical_manifest_fixtures_cover_current_and_next_major() {
-        let current = parse_and_validate_shard_manifest(include_bytes!(
-            "../../../tests/fixtures/shards/core-v1-v1.1-valid/manifest.json"
-        ))
-        .expect("current manifest fixture must match canonical schema");
+        let current_bytes =
+            include_bytes!("../../../tests/fixtures/shards/core-v1-v1.2-valid/manifest.json");
+        let current = parse_and_validate_shard_manifest(current_bytes)
+            .expect("current manifest fixture must match canonical schema");
         validate_shard_manifest_contract(&current)
             .expect("current core-v1 manifest fixture must be accepted");
+
+        let mut previous_value: serde_json::Value =
+            serde_json::from_slice(current_bytes).expect("current manifest must be JSON");
+        previous_value["version"] = serde_json::json!("1.1.0");
+        previous_value["min_reader_version"] = serde_json::json!("1.1.0");
+        let previous =
+            parse_and_validate_shard_manifest(&serde_json::to_vec(&previous_value).unwrap())
+                .expect("current-minus-one manifest must match its immutable schema");
+        validate_shard_manifest_contract(&previous)
+            .expect("current-minus-one manifest must have a registered migration");
 
         let next_major = parse_and_validate_shard_manifest(include_bytes!(
             "../../../tests/fixtures/shards/v2.0.0-future.json"
@@ -45639,7 +45749,7 @@ not-json
         }
 
         let manifest_data =
-            include_bytes!("../../../tests/fixtures/shards/core-v1-v1.1-valid/manifest.json");
+            include_bytes!("../../../tests/fixtures/shards/core-v1-v1.2-valid/manifest.json");
         let manifest = parse_and_validate_shard_manifest(manifest_data)
             .expect("golden manifest must match canonical schema");
         validate_shard_manifest_contract(&manifest)
@@ -45652,29 +45762,29 @@ not-json
             ),
             (
                 "notes.jsonl".to_string(),
-                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.1-valid/notes.jsonl")
+                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.2-valid/notes.jsonl")
                     .to_vec(),
             ),
             (
                 "collections.json".to_string(),
                 include_bytes!(
-                    "../../../tests/fixtures/shards/core-v1-v1.1-valid/collections.json"
+                    "../../../tests/fixtures/shards/core-v1-v1.2-valid/collections.json"
                 )
                 .to_vec(),
             ),
             (
                 "tags.json".to_string(),
-                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.1-valid/tags.json")
+                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.2-valid/tags.json")
                     .to_vec(),
             ),
             (
                 "templates.json".to_string(),
-                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.1-valid/templates.json")
+                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.2-valid/templates.json")
                     .to_vec(),
             ),
             (
                 "links.jsonl".to_string(),
-                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.1-valid/links.jsonl")
+                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.2-valid/links.jsonl")
                     .to_vec(),
             ),
         ]
@@ -47478,6 +47588,17 @@ not-json
         let exported_sidecars =
             validate_shard_sidecars(&exported_files, &exported_attachments, "full-v1").unwrap();
         assert_eq!(exported_sidecars.len(), 1);
+        let exported_embeddings =
+            parse_shard_component_records("embeddings", &exported_files["embeddings.jsonl"])
+                .unwrap();
+        assert_eq!(exported_embeddings.len(), 2);
+        assert!(exported_embeddings.iter().any(|record| {
+            record["contract_fingerprint"]
+                == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }));
+        assert!(exported_embeddings
+            .iter()
+            .any(|record| record["contract_fingerprint"].is_null()));
 
         for _ in 0..2 {
             knowledge_shard_import_internal(&state, &exported, &opts, &destination.schema_name)
@@ -47525,11 +47646,11 @@ not-json
         ))
         .expect("contract receipt must be valid JSON");
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert_eq!(receipt["contractRevision"], "18");
-        assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.1.0");
+        assert_eq!(receipt["contractRevision"], "19");
+        assert_eq!(receipt["knowledgeShard"]["schemaVersion"], "1.2.0");
         assert_eq!(
             receipt["profiles"]["core-v1"]["schemaRoot"],
-            "contracts/knowledge-shard/1.1.0/core-v1"
+            "contracts/knowledge-shard/1.2.0/core-v1"
         );
         assert_eq!(receipt["profiles"]["core-v1"]["supported"], true);
         assert_eq!(receipt["profiles"]["full-v1"]["supported"], true);
@@ -47538,7 +47659,7 @@ not-json
         assert_eq!(receipt["profiles"]["record-v1"]["status"], "supported");
         assert_eq!(
             receipt["profiles"]["record-v1"]["schemaRoot"],
-            "contracts/knowledge-shard/1.1.0/record-v1"
+            "contracts/knowledge-shard/1.2.0/record-v1"
         );
         assert_eq!(
             receipt["profiles"]["record-v1"]["conformanceReceipt"]["producerCommit"],
@@ -47583,12 +47704,12 @@ not-json
 
         let mut fixture_bundle = sha2::Sha256::new();
         for relative in [
-            "tests/fixtures/shards/core-v1-v1.1-valid/collections.json",
-            "tests/fixtures/shards/core-v1-v1.1-valid/links.jsonl",
-            "tests/fixtures/shards/core-v1-v1.1-valid/manifest.json",
-            "tests/fixtures/shards/core-v1-v1.1-valid/notes.jsonl",
-            "tests/fixtures/shards/core-v1-v1.1-valid/tags.json",
-            "tests/fixtures/shards/core-v1-v1.1-valid/templates.json",
+            "tests/fixtures/shards/core-v1-v1.2-valid/collections.json",
+            "tests/fixtures/shards/core-v1-v1.2-valid/links.jsonl",
+            "tests/fixtures/shards/core-v1-v1.2-valid/manifest.json",
+            "tests/fixtures/shards/core-v1-v1.2-valid/notes.jsonl",
+            "tests/fixtures/shards/core-v1-v1.2-valid/tags.json",
+            "tests/fixtures/shards/core-v1-v1.2-valid/templates.json",
         ] {
             fixture_bundle.update(
                 std::fs::read(workspace_root.join(relative))
@@ -47877,6 +47998,40 @@ not-json
                 "candidate component must validate: {component}"
             );
         }
+
+        let current: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../tests/fixtures/shards/full-v1-embedding-candidate/embeddings.jsonl"
+        ))
+        .unwrap();
+        assert_eq!(
+            current["contract_fingerprint"],
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
+
+        for malformed in ["A".repeat(64), "a".repeat(63), "g".repeat(64)] {
+            let mut invalid = current.clone();
+            invalid["contract_fingerprint"] = serde_json::Value::String(malformed);
+            assert!(validate_shard_component_schema_for_profile(
+                matric_core::shard::CURRENT_SHARD_VERSION,
+                "full-v1",
+                "embeddings",
+                &serde_json::to_vec(&invalid).unwrap(),
+            )
+            .is_err());
+        }
+
+        let mut legacy = current;
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("contract_fingerprint");
+        assert!(validate_shard_component_schema_for_profile(
+            "1.1.0",
+            "full-v1",
+            "embeddings",
+            &serde_json::to_vec(&legacy).unwrap(),
+        )
+        .is_ok());
     }
 
     #[test]
@@ -48167,7 +48322,7 @@ not-json
                 "1.1.0",
                 "full-v1",
                 "notes",
-                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.1-valid/notes.jsonl"),
+                include_bytes!("../../../tests/fixtures/shards/core-v1-v1.2-valid/notes.jsonl"),
             )
             .unwrap(),
             1
@@ -48226,7 +48381,7 @@ not-json
         assert_eq!(public_key, "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw");
         assert_eq!(
             signature,
-            "U36qQohGi5OnZZkWvmSWYQqDYXnwX8ceML_hAaTOOjGfZZBE65SzJtwh95AkYNh1qJtFpJxBxn2aNXaiG6nCDQ"
+            "emvBQs03PlgRxSbBKt7QcSdDjdIxZYC6kcGGCZKINAyQWqNScug62isWUYFhT-0uU8_KF4k2M9fD7nrvIhXiBg"
         );
     }
 
@@ -48381,7 +48536,7 @@ not-json
         );
 
         let valid_note: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../tests/fixtures/shards/core-v1-v1.1-valid/notes.jsonl"
+            "../../../tests/fixtures/shards/core-v1-v1.2-valid/notes.jsonl"
         ))
         .expect("golden note must parse");
         let mut tombstone_note = valid_note.clone();
@@ -48435,7 +48590,7 @@ not-json
         );
 
         let valid_manifest: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../tests/fixtures/shards/core-v1-v1.1-valid/manifest.json"
+            "../../../tests/fixtures/shards/core-v1-v1.2-valid/manifest.json"
         ))
         .expect("golden manifest must parse");
         for (pointer, value) in [
@@ -48672,11 +48827,16 @@ not-json
             "text": "bounded test text",
             "vector": [0.25, -0.5, 1.0],
             "model": "test-model",
+            "contract_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "created_at": timestamp
         }))
         .unwrap();
         let embedding_json = serde_json::to_value(embedding).unwrap();
         assert_eq!(embedding_json["id"], embedding_id.to_string());
+        assert_eq!(
+            embedding_json["contract_fingerprint"],
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
         assert_eq!(embedding_json["note_id"], note_id.to_string());
         assert_eq!(embedding_json["embedding_set_id"], set_id.to_string());
         assert_eq!(embedding_json["created_at"], timestamp);
@@ -51328,6 +51488,7 @@ not-json
             "text": "bounded test text",
             "vector": [0.25, -0.5, 1.0],
             "model": "test-model",
+            "contract_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "created_at": timestamp
         });
 
@@ -51663,9 +51824,15 @@ not-json
                     .map_err(matric_db::Error::Database)?;
                     let embedding = sqlx::query_as::<
                         _,
-                        (Uuid, i32, String, Option<chrono::DateTime<chrono::Utc>>),
+                        (
+                            Uuid,
+                            i32,
+                            String,
+                            Option<String>,
+                            Option<chrono::DateTime<chrono::Utc>>,
+                        ),
                     >(
-                        "SELECT id, vector_dims(vector), model, created_at
+                        "SELECT id, vector_dims(vector), model, contract_fingerprint, created_at
                          FROM embedding WHERE id = $1",
                     )
                     .bind(embedding_id)
@@ -51695,6 +51862,7 @@ not-json
                 embedding_id,
                 768,
                 "test-model".to_string(),
+                Some("a".repeat(64)),
                 Some(source_timestamp)
             )
         );

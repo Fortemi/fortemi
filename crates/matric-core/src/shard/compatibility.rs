@@ -152,13 +152,13 @@ mod tests {
 
     #[test]
     fn test_newer_minor_forward_compatible() {
-        let result = check_shard_compatibility("1.2.0");
+        let result = check_shard_compatibility("1.3.0");
         match result {
             CompatibilityResult::NewerMinor {
                 shard_version,
                 warnings,
             } => {
-                assert_eq!(shard_version, "1.2.0");
+                assert_eq!(shard_version, "1.3.0");
                 assert!(!warnings.is_empty());
             }
             _ => panic!("Expected NewerMinor, got {:?}", result),

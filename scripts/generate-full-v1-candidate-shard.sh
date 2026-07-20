@@ -12,19 +12,20 @@ first_note_id="018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a"
 second_note_id="018f2d2d-bc00-7cc8-8ad2-f147d6a2e778"
 first_attachment_id="018f2d2d-bc00-7cc8-8ad2-f147d6a2e77c"
 second_attachment_id="018f2d2d-bc00-7cc8-8ad2-f147d6a2e780"
+legacy_embedding_id="018f4c11-9f14-7d33-8a21-1c80f648f105"
 blob_digest="1098b345e8aacd29e640d3bf724368680c1bfd401b5a9105cb2dc924740c27ad"
 blob_checksum="blake3:$blob_digest"
 blob_bytes="Fortemi full-v1 attachment fixture"
 fixture_key_id="fortemi-fixture-1"
 fixture_public_key="6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
-fixture_signature="U36qQohGi5OnZZkWvmSWYQqDYXnwX8ceML_hAaTOOjGfZZBE65SzJtwh95AkYNh1qJtFpJxBxn2aNXaiG6nCDQ"
-signed_manifest_sha256="3b7f63211249e12e20d8a99bc724db03e4ab4e370f761695d9a391820b6caed1"
+fixture_signature="emvBQs03PlgRxSbBKt7QcSdDjdIxZYC6kcGGCZKINAyQWqNScug62isWUYFhT-0uU8_KF4k2M9fD7nrvIhXiBg"
+signed_manifest_sha256="0d489651d6f60585bd7a623395c89799e8396ee6487d2781e3a109dda618724f"
 
 mkdir -p "$stage/blobs"
 printf '%s\n' "$blob_bytes" >"$stage/blobs/$blob_digest"
 blob_size="$(wc -c <"$stage/blobs/$blob_digest" | tr -d ' ')"
 
-core="$fixture_root/core-v1-v1.1-valid"
+core="$fixture_root/core-v1-v1.2-valid"
 jq -c \
   --arg note_id "$first_note_id" \
   --arg attachment_id "$first_attachment_id" \
@@ -111,6 +112,17 @@ sed -i "s/018f4c11-9f14-7d33-8a21-1c80f648e001/$first_note_id/g" \
 sed -i "s/018f4c11-9f14-7d33-8a21-1c80f648f103/$first_note_id/g" \
   "$stage"/embedding_set_members.jsonl \
   "$stage"/embeddings.jsonl
+jq -c \
+  --arg id "$legacy_embedding_id" \
+  '
+    .id = $id
+    | .chunk_index = 1
+    | .text = "legacy embedding without contract lineage"
+    | .contract_fingerprint = null
+  ' "$stage/embeddings.jsonl" >>"$stage/embeddings.next.jsonl"
+cat "$stage/embeddings.jsonl" "$stage/embeddings.next.jsonl" >"$stage/embeddings.complete.jsonl"
+mv "$stage/embeddings.complete.jsonl" "$stage/embeddings.jsonl"
+rm "$stage/embeddings.next.jsonl"
 sed -i \
   -e "s/018f7d2d-bc00-7cc8-8ad2-f147d6a2e709/$first_note_id/g" \
   -e "s/018f7d2d-bc00-7cc8-8ad2-f147d6a2e711/$second_note_id/g" \
@@ -122,9 +134,10 @@ sed -i \
 manifest_source="$fixture_root/full-v1-manifest-candidate/manifest.json"
 jq \
   '
-    .producer.revision = "candidate-contract-revision-16"
+    .producer.revision = "candidate-contract-revision-19"
     | .created_at = "2026-07-18T18:30:00Z"
     | .counts.notes = 2
+    | .counts.embeddings = 2
     | .checksums = {}
   ' "$manifest_source" >"$stage/manifest.json"
 
@@ -221,6 +234,7 @@ jq -n \
       "all component schemas and cross-component relationships validate",
       "original and revised current content match the note projection",
       "revision parent chain and current revision identity are preserved",
+      "populated and null embedding contract fingerprints survive clean and repeated import",
       "two attachment references resolve to one byte-identical sidecar"
     ],
     conformanceClaim: false,

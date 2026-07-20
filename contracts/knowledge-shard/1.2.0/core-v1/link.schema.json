@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.2.0/core-v1/link.schema.json",
+  "title": "Fortemi Knowledge Shard core-v1 link record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "from_note_id",
+    "to_note_id",
+    "to_url",
+    "kind",
+    "score",
+    "created_at",
+    "metadata"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "from_note_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "to_note_id": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "to_url": {
+      "type": ["string", "null"],
+      "format": "uri"
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "score": {
+      "type": "number"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "metadata": true
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "to_note_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "to_url": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "properties": {
+        "to_note_id": {
+          "type": "null"
+        },
+        "to_url": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    }
+  }
+}

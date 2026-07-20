@@ -52,14 +52,21 @@ entries are metadata/reference projections and do not include bytes.
 
 ### core-v1-v1.1-valid/
 
-Current schema `1.1.0` `core-v1` golden corpus under
+Historical schema `1.1.0` `core-v1` golden corpus under
 `contracts/knowledge-shard/1.1.0/core-v1/`. Its note record carries explicit
 `deleted_at: null`; live database tests separately cover a non-null tombstone
 timestamp and repeated import convergence.
 
+### core-v1-v1.2-valid/
+
+Current schema `1.2.0` `core-v1` golden corpus under
+`contracts/knowledge-shard/1.2.0/core-v1/`. Core record semantics remain
+unchanged from 1.1.0; the minor release extends `full-v1` embedding records
+with nullable contract lineage.
+
 ### record-v1-v1.1-valid/
 
-Current schema `1.1.0` `record-v1` golden corpus under
+Pinned schema `1.1.0` `record-v1` conformance corpus under
 `contracts/knowledge-shard/1.1.0/record-v1/`. It covers the authority-owned
 RecordStore subset: active and tombstoned notes, attachment projections, one
 collection, one tag, and one note-to-note link. Templates and all richer

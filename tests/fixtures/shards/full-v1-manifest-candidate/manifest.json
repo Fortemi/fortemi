@@ -1,10 +1,10 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "profile": "full-v1",
   "producer": {
     "name": "fortemi-contract-fixture",
     "version": "2026.7.1",
-    "revision": "candidate-contract-revision-15"
+    "revision": "candidate-contract-revision-19"
   },
   "format": "matric-shard",
   "created_at": "2026-07-18T18:00:00Z",
@@ -114,6 +114,6 @@
     "communities.json": "082c4d9d7ede918414f1f0064846279ef08318ff1c2df86ecd48b45d3d4429c6",
     "community_assignments.jsonl": "10df403ec1d083b1629bb86112f718235c8bfaad3dd56e90b10b79ce1acfb2a0"
   },
-  "min_reader_version": "1.1.0",
+  "min_reader_version": "1.2.0",
   "migration_history": []
 }

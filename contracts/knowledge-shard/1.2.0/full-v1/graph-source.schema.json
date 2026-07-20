@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.2.0/full-v1/graph-source.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 graph source",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "kind",
+    "source_table",
+    "embedding_set_id",
+    "virtual_set_id",
+    "model",
+    "dimension",
+    "truncate_dimension",
+    "metric",
+    "algorithm",
+    "parameters",
+    "input_hash",
+    "freshness",
+    "created_at"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "kind": {
+      "enum": ["link", "similarity", "search", "manual", "imported"]
+    },
+    "source_table": {
+      "type": ["string", "null"],
+      "enum": ["link", "embedding", "manual", null]
+    },
+    "embedding_set_id": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "virtual_set_id": { "type": ["string", "null"], "minLength": 1 },
+    "model": { "type": ["string", "null"], "minLength": 1 },
+    "dimension": { "type": ["integer", "null"], "minimum": 1 },
+    "truncate_dimension": { "type": ["integer", "null"], "minimum": 1 },
+    "metric": {
+      "type": ["string", "null"],
+      "enum": ["cosine", "inner_product", "l2", null]
+    },
+    "algorithm": { "type": ["string", "null"], "minLength": 1 },
+    "parameters": { "type": ["object", "null"] },
+    "input_hash": { "type": "string", "minLength": 1 },
+    "freshness": { "type": "object" },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

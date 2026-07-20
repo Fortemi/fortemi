@@ -1,0 +1,351 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.2.0/full-v1/provenance-record.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 candidate unified provenance record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "attachment_id",
+    "note_id",
+    "capture_time",
+    "capture_timezone",
+    "capture_duration_seconds",
+    "time_source",
+    "time_confidence",
+    "location_id",
+    "device_id",
+    "activity_id",
+    "event_type",
+    "event_title",
+    "event_description",
+    "raw_metadata",
+    "ai_context",
+    "ai_processed_at",
+    "ai_model",
+    "user_corrected",
+    "original_capture_time",
+    "original_location_id",
+    "correction_note",
+    "created_at"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "attachment_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "note_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "capture_time": {
+      "$ref": "#/$defs/nullableTimestampRange"
+    },
+    "capture_timezone": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "capture_duration_seconds": {
+      "$ref": "#/$defs/nullableNumber"
+    },
+    "time_source": {
+      "oneOf": [
+        {
+          "enum": [
+            "exif",
+            "file_mtime",
+            "user_manual",
+            "ai_estimated",
+            "gps",
+            "network",
+            "manual",
+            "file_metadata",
+            "device_clock"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "time_confidence": {
+      "oneOf": [
+        {
+          "enum": [
+            "high",
+            "medium",
+            "low",
+            "unknown",
+            "exact",
+            "approximate",
+            "estimated"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "location_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "device_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "activity_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "event_type": {
+      "oneOf": [
+        {
+          "enum": [
+            "photo",
+            "video",
+            "audio",
+            "scan",
+            "screenshot",
+            "recording",
+            "unknown",
+            "created",
+            "modified",
+            "accessed",
+            "shared"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "event_title": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "event_description": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "raw_metadata": {},
+    "ai_context": {},
+    "ai_processed_at": {
+      "$ref": "#/$defs/nullableDateTime"
+    },
+    "ai_model": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "user_corrected": {
+      "$ref": "#/$defs/nullableBoolean"
+    },
+    "original_capture_time": {
+      "$ref": "#/$defs/nullableTimestampRange"
+    },
+    "original_location_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "correction_note": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "created_at": {
+      "$ref": "#/$defs/dateTime"
+    }
+  },
+  "anyOf": [
+    {
+      "properties": {
+        "attachment_id": {
+          "$ref": "#/$defs/uuid"
+        }
+      }
+    },
+    {
+      "properties": {
+        "note_id": {
+          "$ref": "#/$defs/uuid"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nullableUuid": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableDateTime": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/dateTime"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "nullableNumber": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "nullableBoolean": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "nullableTimestampRange": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/timestampRange"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "timestampRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "empty",
+        "lower",
+        "lower_inclusive",
+        "lower_infinite",
+        "upper",
+        "upper_inclusive",
+        "upper_infinite"
+      ],
+      "properties": {
+        "empty": {
+          "type": "boolean"
+        },
+        "lower": {
+          "$ref": "#/$defs/nullableDateTime"
+        },
+        "lower_inclusive": {
+          "type": "boolean"
+        },
+        "lower_infinite": {
+          "type": "boolean"
+        },
+        "upper": {
+          "$ref": "#/$defs/nullableDateTime"
+        },
+        "upper_inclusive": {
+          "type": "boolean"
+        },
+        "upper_infinite": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "empty": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "lower": {
+                "type": "null"
+              },
+              "lower_inclusive": {
+                "const": false
+              },
+              "lower_infinite": {
+                "const": false
+              },
+              "upper": {
+                "type": "null"
+              },
+              "upper_inclusive": {
+                "const": false
+              },
+              "upper_infinite": {
+                "const": false
+              }
+            }
+          },
+          "else": {
+            "allOf": [
+              {
+                "oneOf": [
+                  {
+                    "properties": {
+                      "lower": {
+                        "$ref": "#/$defs/dateTime"
+                      },
+                      "lower_infinite": {
+                        "const": false
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "lower": {
+                        "type": "null"
+                      },
+                      "lower_inclusive": {
+                        "const": false
+                      },
+                      "lower_infinite": {
+                        "const": true
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "oneOf": [
+                  {
+                    "properties": {
+                      "upper": {
+                        "$ref": "#/$defs/dateTime"
+                      },
+                      "upper_infinite": {
+                        "const": false
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "upper": {
+                        "type": "null"
+                      },
+                      "upper_inclusive": {
+                        "const": false
+                      },
+                      "upper_infinite": {
+                        "const": true
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

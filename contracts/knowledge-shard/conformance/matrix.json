@@ -6,10 +6,10 @@
     "repository": "Fortemi/fortemi",
     "commit": "e62ee6bb7eb30f2ef68c0be0a1207ee687222c56",
     "contractPath": "contracts/knowledge-shard/contract.json",
-    "contractSha256": "dbe9ce4999835b40af540c17fd543b18aafea1d5e73ec436d969d02343d2e4bd",
-    "contractRevision": "18",
-    "schemaVersion": "1.1.0",
-    "schemaBundleSha256": "7d3ebc4d1e1789ad0dc0e27ea3de58a16c3ffd0d8e19b92cbe23eb4f8b58dacb"
+    "contractSha256": "5debc14e0bc7eef403a75e8e063a10f53019e1d74857485d6eda3abaec9397e2",
+    "contractRevision": "19",
+    "schemaVersion": "1.2.0",
+    "schemaBundleSha256": "deec0cb66dc09865667256e29340d096c02dd9b0e55bdc1ae60b7effb68ac595"
   },
   "claimPolicy": {
     "mode": "all-required-cells-passed",
@@ -25,6 +25,7 @@
     "metadata",
     "attachment-bytes",
     "embeddings",
+    "embedding-contract-lineage",
     "skos",
     "provenance",
     "graph-community",
@@ -73,11 +74,11 @@
         {
           "kind": "local-file",
           "path": "contracts/knowledge-shard/contract.json",
-          "sha256": "dbe9ce4999835b40af540c17fd543b18aafea1d5e73ec436d969d02343d2e4bd",
+          "sha256": "5debc14e0bc7eef403a75e8e063a10f53019e1d74857485d6eda3abaec9397e2",
           "expect": {
-            "/contractRevision": "18",
-            "/knowledgeShard/schemaVersion": "1.1.0",
-            "/schemaBundle/sha256": "7d3ebc4d1e1789ad0dc0e27ea3de58a16c3ffd0d8e19b92cbe23eb4f8b58dacb"
+            "/contractRevision": "19",
+            "/knowledgeShard/schemaVersion": "1.2.0",
+            "/schemaBundle/sha256": "deec0cb66dc09865667256e29340d096c02dd9b0e55bdc1ae60b7effb68ac595"
           }
         }
       ]
@@ -244,6 +245,7 @@
         "metadata",
         "attachment-bytes",
         "embeddings",
+        "embedding-contract-lineage",
         "skos",
         "provenance",
         "graph-community",
@@ -257,15 +259,15 @@
         {
           "kind": "local-file",
           "path": "tests/fixtures/shards/full-v1-integrated-candidate.shard",
-          "sha256": "b6110221bc6c5a5ad5596f565c49141eaa3b58a17111c4f525d2310ed3fcd7ae"
+          "sha256": "c2e06eaa9802efd25ed70f5fe7e339548bd0b561ae86fb1a0f2d2fdf45305659"
         },
         {
           "kind": "local-file",
           "path": "tests/fixtures/shards/full-v1-integrated-candidate.shard.receipt.json",
-          "sha256": "bc0c068a0c6470b20e485eec1fe1d8f172c4a5eaeabdfd1c324b1534977d8375",
+          "sha256": "e993fd0e037e8ecc5677114b64c05959f93dcf0947b55a1df41f634c38160984",
           "expect": {
             "/profile": "full-v1",
-            "/archiveSha256": "b6110221bc6c5a5ad5596f565c49141eaa3b58a17111c4f525d2310ed3fcd7ae",
+            "/archiveSha256": "c2e06eaa9802efd25ed70f5fe7e339548bd0b561ae86fb1a0f2d2fdf45305659",
             "/conformanceClaim": false
           }
         }

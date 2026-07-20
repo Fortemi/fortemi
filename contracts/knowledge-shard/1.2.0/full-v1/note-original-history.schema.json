@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.2.0/full-v1/note-original-history.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 candidate note original history record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "note_id",
+    "version_number",
+    "content",
+    "hash",
+    "created_at_utc",
+    "created_by"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "note_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "version_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "content": {
+      "type": "string"
+    },
+    "hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at_utc": {
+      "$ref": "#/$defs/dateTime"
+    },
+    "created_by": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

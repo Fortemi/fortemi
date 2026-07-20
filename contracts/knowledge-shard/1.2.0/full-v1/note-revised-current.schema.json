@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/1.2.0/full-v1/note-revised-current.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 candidate current note revision record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "note_id",
+    "content",
+    "last_revision_id",
+    "ai_metadata"
+  ],
+  "properties": {
+    "note_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "content": {
+      "type": "string"
+    },
+    "last_revision_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "ai_metadata": {}
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "nullableUuid": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}
