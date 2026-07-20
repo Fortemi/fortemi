@@ -15,5 +15,5 @@ pub use idempotency_store::{IdempotencyRecord, IdempotencyStore};
 pub use ingest_cursor_store::IngestCursorStore;
 pub use ingest_token_store::IngestTokenStore;
 pub use reconstruction_service::ReconstructionService;
-pub use search_cache::SearchCache;
+pub use search_cache::{SearchCache, SearchCacheKeyInput};
 pub use tag_resolver::TagResolver;

@@ -18454,6 +18454,35 @@ fn search_operation_failed(context: &'static str, error: impl std::fmt::Display)
     }
 }
 
+fn eligible_fts_cache_key(
+    cache: &matric_api::services::SearchCache,
+    query: &SearchQuery,
+    archive_schema: &str,
+    limit: i64,
+) -> Option<String> {
+    if query.mode.as_deref() != Some("fts")
+        || query.embedding_set.is_some()
+        || query.strict_filter.is_some()
+        || query.tags.is_some()
+        || query.created_after.is_some()
+        || query.created_before.is_some()
+        || query.updated_after.is_some()
+        || query.updated_before.is_some()
+        || query.since.is_some()
+        || query.diversity.is_some()
+    {
+        return None;
+    }
+
+    let input = matric_api::services::SearchCacheKeyInput::fts(
+        archive_schema,
+        &query.q,
+        query.filters.as_deref(),
+        limit,
+    );
+    Some(cache.cache_key(&input))
+}
+
 /// Get or create a `HybridSearchEngine` for the given schema.
 ///
 /// For the `public` schema, returns the default engine from `AppState`.
@@ -18498,25 +18527,9 @@ async fn search_notes(
         .limit
         .unwrap_or(matric_core::defaults::PAGE_LIMIT_SEARCH);
 
-    // Generate cache key (before expensive operations)
-    // Only cache pure text queries without strict filters, temporal filters, or diversity
-    let cache_key = if query.strict_filter.is_none()
-        && query.tags.is_none()
-        && query.created_after.is_none()
-        && query.created_before.is_none()
-        && query.updated_after.is_none()
-        && query.updated_before.is_none()
-        && query.since.is_none()
-        && query.diversity.is_none()
-    {
-        Some(state.search_cache.cache_key(
-            &format!("{}:{}", archive_ctx.schema, query.q),
-            query.filters.as_ref().map(|f| vec![f.clone()]).as_deref(),
-            None,
-        ))
-    } else {
-        None
-    };
+    // Semantic and hybrid cache entries require an effective embedding lineage.
+    // Until that contract exists, cache only explicit, non-set FTS requests.
+    let cache_key = eligible_fts_cache_key(&state.search_cache, &query, &archive_ctx.schema, limit);
 
     // Check cache first
     if let Some(ref key) = cache_key {
@@ -38037,6 +38050,86 @@ mod tests {
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
+    }
+
+    fn cacheable_fts_query() -> SearchQuery {
+        SearchQuery {
+            q: "search terms".to_string(),
+            limit: Some(20),
+            filters: None,
+            mode: Some("fts".to_string()),
+            embedding_set: None,
+            created_after: None,
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+            since: None,
+            tags: None,
+            strict_filter: None,
+            diversity: None,
+        }
+    }
+
+    #[test]
+    fn search_cache_only_accepts_explicit_unscoped_fts() {
+        let cache = matric_api::services::SearchCache::disabled();
+        let query = cacheable_fts_query();
+        assert!(eligible_fts_cache_key(&cache, &query, "public", 20).is_some());
+
+        for mode in [None, Some("hybrid"), Some("semantic")] {
+            let mut query = cacheable_fts_query();
+            query.mode = mode.map(str::to_string);
+            assert!(eligible_fts_cache_key(&cache, &query, "public", 20).is_none());
+        }
+
+        for set in ["specialized-a", "specialized-b"] {
+            let mut set_scoped = cacheable_fts_query();
+            set_scoped.embedding_set = Some(set.to_string());
+            assert!(eligible_fts_cache_key(&cache, &set_scoped, "public", 20).is_none());
+        }
+    }
+
+    #[test]
+    fn search_cache_bypasses_complex_filters_time_and_ranking() {
+        let cache = matric_api::services::SearchCache::disabled();
+
+        let mut query = cacheable_fts_query();
+        query.tags = Some("security".to_string());
+        assert!(eligible_fts_cache_key(&cache, &query, "public", 20).is_none());
+
+        let mut query = cacheable_fts_query();
+        query.strict_filter = Some(r#"{"required_tags":["security"]}"#.to_string());
+        assert!(eligible_fts_cache_key(&cache, &query, "public", 20).is_none());
+
+        let mut query = cacheable_fts_query();
+        query.created_after = Some(chrono::Utc::now());
+        assert!(eligible_fts_cache_key(&cache, &query, "public", 20).is_none());
+
+        let mut query = cacheable_fts_query();
+        query.since = Some("7d".to_string());
+        assert!(eligible_fts_cache_key(&cache, &query, "public", 20).is_none());
+
+        let mut query = cacheable_fts_query();
+        query.diversity = Some(0.5);
+        assert!(eligible_fts_cache_key(&cache, &query, "public", 20).is_none());
+    }
+
+    #[test]
+    fn search_cache_key_separates_archive_filter_and_limit() {
+        let cache = matric_api::services::SearchCache::disabled();
+        let base = cacheable_fts_query();
+        let base_key = eligible_fts_cache_key(&cache, &base, "public", 20).unwrap();
+
+        let archive_key = eligible_fts_cache_key(&cache, &base, "tenant_archive", 20).unwrap();
+        assert_ne!(base_key, archive_key);
+
+        let mut filtered = cacheable_fts_query();
+        filtered.filters = Some("status:active".to_string());
+        let filtered_key = eligible_fts_cache_key(&cache, &filtered, "public", 20).unwrap();
+        assert_ne!(base_key, filtered_key);
+
+        let limit_key = eligible_fts_cache_key(&cache, &base, "public", 50).unwrap();
+        assert_ne!(base_key, limit_key);
     }
 
     #[test]

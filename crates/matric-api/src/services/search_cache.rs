@@ -1,7 +1,7 @@
 //! Redis-based search query cache for matric-memory.
 //!
-//! Provides caching for hybrid search results to reduce latency
-//! and compute load for repeated/similar queries.
+//! Provides caching for eligible full-text search results to reduce latency
+//! and compute load for repeated queries.
 //!
 //! ## Configuration
 //!
@@ -42,6 +42,38 @@ pub struct CacheStats {
     pub hits: u64,
     pub misses: u64,
     pub errors: u64,
+}
+
+/// Versioned inputs that determine the identity of an FTS cache entry.
+///
+/// Semantic and hybrid requests are intentionally excluded until their
+/// effective embedding provider lineage can be represented here.
+#[derive(Serialize)]
+pub struct SearchCacheKeyInput<'a> {
+    version: u8,
+    archive_schema: &'a str,
+    mode: &'static str,
+    query: &'a str,
+    filters: Option<&'a str>,
+    limit: i64,
+}
+
+impl<'a> SearchCacheKeyInput<'a> {
+    pub fn fts(
+        archive_schema: &'a str,
+        query: &'a str,
+        filters: Option<&'a str>,
+        limit: i64,
+    ) -> Self {
+        Self {
+            version: 2,
+            archive_schema,
+            mode: "fts",
+            query,
+            filters,
+            limit,
+        }
+    }
 }
 
 impl SearchCache {
@@ -145,34 +177,15 @@ impl SearchCache {
         self.inner.enabled && self.inner.connection.read().await.is_some()
     }
 
-    /// Generate a cache key from the search query parameters.
-    pub fn cache_key(
-        &self,
-        query: &str,
-        tags: Option<&[String]>,
-        collection_id: Option<&str>,
-    ) -> String {
+    /// Generate a cache key from a versioned, structured search identity.
+    pub fn cache_key(&self, input: &SearchCacheKeyInput<'_>) -> String {
         let mut hasher = Sha256::new();
-
-        // Normalize query (lowercase, trim whitespace)
-        hasher.update(query.to_lowercase().trim().as_bytes());
-
-        // Include tags in hash (sorted for consistency)
-        if let Some(tags) = tags {
-            let mut sorted_tags: Vec<_> = tags.iter().collect();
-            sorted_tags.sort();
-            for tag in sorted_tags {
-                hasher.update(tag.as_bytes());
-            }
-        }
-
-        // Include collection filter
-        if let Some(cid) = collection_id {
-            hasher.update(cid.as_bytes());
-        }
+        let payload =
+            serde_json::to_vec(input).expect("search cache key inputs are always serializable");
+        hasher.update(payload);
 
         let hash = hex::encode(hasher.finalize());
-        format!("{}{}", self.inner.prefix, &hash[..16]) // Use first 16 chars of hash
+        format!("{}v2:{}", self.inner.prefix, hash)
     }
 
     /// Get cached search results.
@@ -435,32 +448,80 @@ mod tests {
         let cache = SearchCache::disabled();
 
         // Same query should produce same key
-        let key1 = cache.cache_key("hello world", None, None);
-        let key2 = cache.cache_key("hello world", None, None);
+        let key1 = cache.cache_key(&SearchCacheKeyInput::fts("public", "hello world", None, 20));
+        let key2 = cache.cache_key(&SearchCacheKeyInput::fts("public", "hello world", None, 20));
         assert_eq!(key1, key2);
 
-        // Different queries should produce different keys
-        let key3 = cache.cache_key("different query", None, None);
+        // Every result-shaping field affects the key.
+        let key3 = cache.cache_key(&SearchCacheKeyInput::fts(
+            "public",
+            "different query",
+            None,
+            20,
+        ));
         assert_ne!(key1, key3);
 
-        // Case insensitive
-        let key4 = cache.cache_key("HELLO WORLD", None, None);
-        assert_eq!(key1, key4);
+        let other_archive = cache.cache_key(&SearchCacheKeyInput::fts(
+            "tenant_archive",
+            "hello world",
+            None,
+            20,
+        ));
+        assert_ne!(key1, other_archive);
 
-        // Tags affect key
-        let key5 = cache.cache_key("hello world", Some(&["tag1".to_string()]), None);
-        assert_ne!(key1, key5);
+        let filtered = cache.cache_key(&SearchCacheKeyInput::fts(
+            "public",
+            "hello world",
+            Some("status:active"),
+            20,
+        ));
+        assert_ne!(key1, filtered);
 
-        // Collection affects key
-        let key6 = cache.cache_key("hello world", None, Some("collection-id"));
-        assert_ne!(key1, key6);
+        let other_limit =
+            cache.cache_key(&SearchCacheKeyInput::fts("public", "hello world", None, 50));
+        assert_ne!(key1, other_limit);
     }
 
     #[test]
     fn test_cache_key_prefix() {
         let cache = SearchCache::disabled();
-        let key = cache.cache_key("test", None, None);
-        assert!(key.starts_with("mm:search:"));
+        let key = cache.cache_key(&SearchCacheKeyInput::fts("public", "test", None, 20));
+        assert!(key.starts_with("mm:search:v2:"));
+        assert_eq!(key.len(), "mm:search:v2:".len() + 64);
+    }
+
+    #[test]
+    fn cache_key_is_opaque_and_structurally_unambiguous() {
+        let cache = SearchCache::disabled();
+        let key = cache.cache_key(&SearchCacheKeyInput::fts(
+            "tenant_private",
+            "customer@example.com",
+            Some("token:sk-search-secret"),
+            20,
+        ));
+
+        for private_value in [
+            "tenant_private",
+            "customer@example.com",
+            "token",
+            "sk-search-secret",
+        ] {
+            assert!(!key.contains(private_value));
+        }
+
+        let delimiter_in_query = cache.cache_key(&SearchCacheKeyInput::fts(
+            "tenant",
+            "archive:query",
+            None,
+            20,
+        ));
+        let delimiter_in_archive = cache.cache_key(&SearchCacheKeyInput::fts(
+            "tenant:archive",
+            "query",
+            None,
+            20,
+        ));
+        assert_ne!(delimiter_in_query, delimiter_in_archive);
     }
 
     #[test]

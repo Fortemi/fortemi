@@ -653,9 +653,9 @@ treat verbose output as an ordinary hosted default.
 
 | Variable | Default | Description | Example |
 |----------|---------|-------------|---------|
-| `REDIS_ENABLED` | `true` | Enable Redis search result caching | `false` |
+| `REDIS_ENABLED` | `true` | Enable Redis caching for eligible explicit FTS searches | `false` |
 | `REDIS_URL` | `redis://localhost:6379` | Redis connection URL | `redis://redis:6379/0` |
-| `REDIS_CACHE_TTL` | `300` | Cache TTL in seconds (5 minutes) | `600` |
+| `REDIS_CACHE_TTL` | `300` | Eligible FTS result cache TTL in seconds (5 minutes) | `600` |
 
 #### Backup Operations
 

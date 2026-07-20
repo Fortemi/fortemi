@@ -201,6 +201,23 @@ The system handles this automatically, but you can override by selecting a speci
 
 The HNSW vector index provides logarithmic query complexity, so performance degrades slowly as the knowledge base grows.
 
+### Search Result Cache
+
+When Redis caching is enabled, Fortémi caches only requests that explicitly use
+`mode=fts`. The cache identity includes the archive, query, filter expression,
+and result limit. Requests using tags, strict filters, time constraints,
+diversity ranking, or an embedding set bypass the cache.
+
+Semantic, hybrid, and default-mode searches also bypass the cache. Their
+results depend on the effective embedding provider, model, dimensions, and
+configuration; caching remains disabled for those modes until that complete
+lineage is part of the cache identity. If semantic query embedding degrades to
+FTS, the degraded result is therefore never stored as a semantic or hybrid
+entry.
+
+Successful note and tag mutations invalidate all search entries. Remaining
+entries expire after `REDIS_CACHE_TTL` seconds, which defaults to 300.
+
 ### HNSW Tuning
 
 The system dynamically adjusts the HNSW `ef_search` parameter based on:
