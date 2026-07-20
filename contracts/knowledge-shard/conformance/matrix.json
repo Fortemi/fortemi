@@ -86,7 +86,7 @@
     {
       "id": "pglite",
       "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
-      "commit": "5a3517507622b4285436779afd5af9586a67e656",
+      "commit": "95e87770e257afe9913c9cfced050648c52e1e97",
       "package": {
         "name": "@fortemi/core",
         "version": "2026.7.9",
@@ -112,7 +112,7 @@
         {
           "kind": "git-file",
           "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
-          "commit": "5a3517507622b4285436779afd5af9586a67e656",
+          "commit": "95e87770e257afe9913c9cfced050648c52e1e97",
           "path": "packages/core/package.json",
           "sha256": "c3d0056148090967ae6f2d8e75a61029f4cf4ec538c231bf34383fb236f58e16",
           "expect": {
@@ -123,13 +123,13 @@
         {
           "kind": "git-file",
           "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
-          "commit": "5a3517507622b4285436779afd5af9586a67e656",
+          "commit": "95e87770e257afe9913c9cfced050648c52e1e97",
           "path": "packages/core/schemas/knowledge-shard.schema.receipt.json",
-          "sha256": "3aa2d863f56043b04d8a7bbae8db7a12b38882f55e003e33ee29416cbad54f2a",
+          "sha256": "1721c791ea67ac9169bb763035547e007fda48236f37f146450e60a7105fd9d7",
           "expect": {
-            "/source/commit": "e62ee6bb7eb30f2ef68c0be0a1207ee687222c56",
-            "/source/contractSha256": "dbe9ce4999835b40af540c17fd543b18aafea1d5e73ec436d969d02343d2e4bd",
-            "/schemaBundle/sha256": "7d3ebc4d1e1789ad0dc0e27ea3de58a16c3ffd0d8e19b92cbe23eb4f8b58dacb"
+            "/source/commit": "81fbeaf065df3818edd046ed8a744f10eeb00e6f",
+            "/source/contractSha256": "5debc14e0bc7eef403a75e8e063a10f53019e1d74857485d6eda3abaec9397e2",
+            "/schemaBundle/sha256": "deec0cb66dc09865667256e29340d096c02dd9b0e55bdc1ae60b7effb68ac595"
           }
         }
       ]
@@ -137,7 +137,7 @@
     {
       "id": "recordstore",
       "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
-      "commit": "5a3517507622b4285436779afd5af9586a67e656",
+      "commit": "95e87770e257afe9913c9cfced050648c52e1e97",
       "package": {
         "name": "@fortemi/core",
         "version": "2026.7.9",
@@ -163,9 +163,9 @@
         {
           "kind": "git-file",
           "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
-          "commit": "5a3517507622b4285436779afd5af9586a67e656",
+          "commit": "95e87770e257afe9913c9cfced050648c52e1e97",
           "path": "packages/core/schemas/knowledge-shard.schema.receipt.json",
-          "sha256": "3aa2d863f56043b04d8a7bbae8db7a12b38882f55e003e33ee29416cbad54f2a",
+          "sha256": "1721c791ea67ac9169bb763035547e007fda48236f37f146450e60a7105fd9d7",
           "expect": {
             "/recordV1GoldenCorpus/sha256": "76ad7cdeba3c5935ca39a32044609b0cc826862145910f8450b0d2b5fc128a19"
           }
