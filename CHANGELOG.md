@@ -7,6 +7,20 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.7.10] - 2026-07-21
+
+Data-portability and contract-hardening release. The registered Knowledge Shard
+topology now has immutable passing evidence for all nine required
+producer/consumer cells across Fortemi, Fortemi React, PGlite, RecordStore, and
+AIWG. Claims remain profile-scoped: the complete `full-v1` server self-route is
+supported, while external `full-v1` consumer evidence remains pending.
+
+### Security
+
+- Updated the MCP server's transitive dependency resolution to remove the
+  high-severity `fast-uri` host-confusion advisory and current Hono and
+  body-parser advisories covered by non-breaking dependency updates.
+
 ### Added
 
 - **Cross-layer shard conformance matrix:** release claims now require complete,
@@ -1799,7 +1813,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.7.1...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.7.10...HEAD
+[2026.7.10]: https://github.com/fortemi/fortemi/compare/v2026.7.1...v2026.7.10
 [2026.7.1]: https://github.com/fortemi/fortemi/compare/v2026.7.0...v2026.7.1
 [2026.7.0]: https://github.com/fortemi/fortemi/compare/v2026.6.1...v2026.7.0
 [2026.6.1]: https://github.com/fortemi/fortemi/compare/v2026.6.0...v2026.6.1
