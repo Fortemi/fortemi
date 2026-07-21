@@ -35,16 +35,16 @@ DB_USER="${SHARD_REBUILD_DB_USER:-matric}"
 DB_PASSWORD="${SHARD_REBUILD_DB_PASSWORD:-fortemi-shard-${RANDOM:-0}-$$}"
 DB_DATABASE="${SHARD_REBUILD_DB_NAME:-matric}"
 
-# Use a unique host port so reruns or other publication workflows cannot
-# collide with this transient stack. A fixed `-p 3000:3000` collided in CI
-# run #1509 ("Bind for 0.0.0.0:3000 failed: port is already allocated").
+# Use a randomized host port and retry the Docker bind atomically. Merely
+# checking a candidate before `docker run` leaves a race with concurrent jobs
+# on the shared daemon.
 RUN_ID="${GITHUB_RUN_ID:-0}"
 [[ "$RUN_ID" =~ ^[0-9]+$ ]] || RUN_ID=0
-HOST_PORT=$((30000 + ((RUN_ID + RANDOM + $$) % 5000)))
-API_URL="http://localhost:${HOST_PORT}"
+RUN_ERROR=""
 
 cleanup() {
     echo ">>> Tearing down shard-rebuild stack..."
+    rm -f "${RUN_ERROR:-}"
     docker rm -f "$API_NAME" "$DB_NAME" 2>/dev/null || true
     docker network rm "$NETWORK" 2>/dev/null || true
 }
@@ -96,20 +96,42 @@ done
 #   is a throwaway shard-build harness; explicitly opt into anonymous mode
 #   so the import calls succeed. Observed failing in CI run #1698 with
 #   "ERROR: Failed to create archive" (401 from the new fail-closed default).
-echo ">>> Starting API ($API_NAME) on host port ${HOST_PORT} from $API_IMAGE..."
-docker run -d --name "$API_NAME" --network "$NETWORK" \
-    -p "${HOST_PORT}:3000" \
-    -e DATABASE_URL="$(printf '%s%s:%s@%s:5432/%s' 'postgres://' "$DB_USER" "$DB_PASSWORD" "$DB_NAME" "$DB_DATABASE")" \
-    -e DISABLE_SUPPORT_MEMORY=true \
-    -e MATRIC_INFERENCE_DEFAULT=ollama \
-    -e OLLAMA_BASE=http://disabled.invalid:11434 \
-    -e RATE_LIMIT_ENABLED=false \
-    -e REQUIRE_AUTH=false \
-    -e I_UNDERSTAND_NO_AUTH=true \
-    -e MATRIC_ATTACHMENT_SCAN_MODE=disabled \
-    -e FORTEMI_ALLOW_LOCAL_ISSUER=true \
-    -e ISSUER_URL="${API_URL}" \
-    "$API_IMAGE"
+API_STARTED=0
+for attempt in $(seq 1 10); do
+    HOST_PORT=$((30000 + ((RUN_ID + RANDOM + $$ + attempt) % 5000)))
+    API_URL="http://localhost:${HOST_PORT}"
+    RUN_ERROR="$(mktemp)"
+    echo ">>> Starting API ($API_NAME) on host port ${HOST_PORT} from $API_IMAGE (attempt ${attempt}/10)..."
+    if docker run -d --name "$API_NAME" --network "$NETWORK" \
+        -p "${HOST_PORT}:3000" \
+        -e DATABASE_URL="$(printf '%s%s:%s@%s:5432/%s' 'postgres://' "$DB_USER" "$DB_PASSWORD" "$DB_NAME" "$DB_DATABASE")" \
+        -e DISABLE_SUPPORT_MEMORY=true \
+        -e MATRIC_INFERENCE_DEFAULT=ollama \
+        -e OLLAMA_BASE=http://disabled.invalid:11434 \
+        -e RATE_LIMIT_ENABLED=false \
+        -e REQUIRE_AUTH=false \
+        -e I_UNDERSTAND_NO_AUTH=true \
+        -e MATRIC_ATTACHMENT_SCAN_MODE=disabled \
+        -e FORTEMI_ALLOW_LOCAL_ISSUER=true \
+        -e ISSUER_URL="${API_URL}" \
+        "$API_IMAGE" 2>"$RUN_ERROR"; then
+        rm -f "$RUN_ERROR"
+        API_STARTED=1
+        break
+    fi
+
+    cat "$RUN_ERROR" >&2
+    if ! grep -Eq 'address already in use|port is already allocated|failed to bind host port' "$RUN_ERROR"; then
+        rm -f "$RUN_ERROR"
+        exit 1
+    fi
+    rm -f "$RUN_ERROR"
+    docker rm -f "$API_NAME" >/dev/null 2>&1 || true
+done
+[[ "$API_STARTED" == 1 ]] || {
+    echo "ERROR: unable to bind an API host port after 10 attempts" >&2
+    exit 1
+}
 
 # 5. Wait for /health (API runs sqlx migrations on startup — can take time
 #    on a fresh DB with 100+ migrations)
