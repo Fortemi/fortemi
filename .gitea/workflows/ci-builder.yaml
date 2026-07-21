@@ -266,7 +266,9 @@ jobs:
       - name: Check documentation shard freshness
         run: |
           python3 scripts/ci/verify-docs-shard-freshness.py
-          python3 -m unittest tests/test_rebuild_docs_shard.py
+          python3 -m unittest \
+            tests/test_rebuild_docs_shard.py \
+            tests/test_verify_docs_shard_freshness.py
 
       - name: Check migration immutability
         run: python3 scripts/ci/verify-migration-immutability.py

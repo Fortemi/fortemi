@@ -30,6 +30,13 @@ def workspace_version() -> str:
     raise ValueError("workspace package version not found")
 
 
+def manifest_server_version(manifest: dict[str, object]) -> object:
+    producer = manifest.get("producer")
+    if isinstance(producer, dict) and producer.get("version"):
+        return producer["version"]
+    return manifest.get("matric_version")
+
+
 def main() -> int:
     failures: list[str] = []
     shard_bytes = SHARD.read_bytes()
@@ -50,10 +57,11 @@ def main() -> int:
             manifest = json.load(manifest_file)
 
     expected_version = workspace_version()
-    if manifest.get("matric_version") != expected_version:
+    shard_server_version = manifest_server_version(manifest)
+    if shard_server_version != expected_version:
         failures.append(
             "shard manifest version "
-            f"{manifest.get('matric_version')!r} does not match workspace {expected_version!r}"
+            f"{shard_server_version!r} does not match workspace {expected_version!r}"
         )
     if receipt.get("server_version") != expected_version:
         failures.append(
