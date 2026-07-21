@@ -138,17 +138,28 @@ if ! command -v jq >/dev/null 2>&1; then die "jq is required"; fi
 [[ -n "$VAULT_ADDR" ]] || die "VAULT_ADDR is required"
 [[ -n "$ENV_FILE" ]] || die "GITHUB_ENV or --env-file is required; refusing to print secrets"
 
+VAULT_CURL_TLS_ARGS=()
+if [[ -n "${VAULT_CACERT:-}" ]]; then
+  [[ -r "$VAULT_CACERT" ]] || die "VAULT_CACERT is not readable"
+  VAULT_CURL_TLS_ARGS+=(--cacert "$VAULT_CACERT")
+elif [[ "${VAULT_SKIP_VERIFY:-1}" == "1" ]]; then
+  # Preserve existing CI behavior. Signing wrappers always supply VAULT_CACERT.
+  VAULT_CURL_TLS_ARGS+=(-k)
+elif [[ "${VAULT_SKIP_VERIFY:-0}" != "0" ]]; then
+  die "VAULT_SKIP_VERIFY must be 0 or 1"
+fi
+
 token="$(
   jq -n --arg role_id "$VAULT_CI_ROLE_ID" --arg secret_id "$VAULT_CI_SECRET_ID" \
     '{role_id:$role_id, secret_id:$secret_id}' |
-  curl -fsS -k --max-time 20 -X POST --data @- \
+  curl -fsS "${VAULT_CURL_TLS_ARGS[@]}" --max-time 20 -X POST --data @- \
     "$VAULT_ADDR/v1/auth/approle/login" |
   jq -er '.auth.client_token'
 )"
 mask "$token"
 revoke_token() {
   [[ -n "${token:-}" ]] || return 0
-  curl -fsS -k --max-time 10 \
+  curl -fsS "${VAULT_CURL_TLS_ARGS[@]}" --max-time 10 \
     -H "X-Vault-Token: $token" \
     -X POST "$VAULT_ADDR/v1/auth/token/revoke-self" >/dev/null 2>&1 || true
   token=""
@@ -172,7 +183,7 @@ while read -r kind name path field extra; do
   [[ "$path" == */* ]] || die "path must be mount/path: $path"
   api_path="$(kv_data_path "$path")"
   value="$(
-    curl -fsS -k --max-time 20 \
+    curl -fsS "${VAULT_CURL_TLS_ARGS[@]}" --max-time 20 \
       -H "X-Vault-Token: $token" \
       "$VAULT_ADDR/v1/$api_path" |
     jq -er --arg field "$field" '.data.data[$field]'

@@ -37,6 +37,55 @@
     "malformed-input",
     "resource-limits"
   ],
+  "profileCoverageRequirements": {
+    "core-v1": [
+      "hierarchy",
+      "metadata",
+      "nulls",
+      "tombstones"
+    ],
+    "record-v1": [
+      "hierarchy",
+      "metadata",
+      "nulls",
+      "tombstones"
+    ],
+    "full-v1": [
+      "hierarchy",
+      "metadata",
+      "attachment-bytes",
+      "embeddings",
+      "embedding-contract-lineage",
+      "skos",
+      "provenance",
+      "graph-community",
+      "nulls",
+      "tombstones"
+    ]
+  },
+  "consumerBehaviorCoverageRequirements": {
+    "fortemi": [
+      "current-minus-two",
+      "current",
+      "next-major-rejection",
+      "malformed-input",
+      "resource-limits"
+    ],
+    "pglite": [
+      "current-minus-two",
+      "current",
+      "next-major-rejection",
+      "malformed-input",
+      "resource-limits"
+    ],
+    "recordstore": [
+      "current-minus-two",
+      "current",
+      "next-major-rejection",
+      "malformed-input",
+      "resource-limits"
+    ]
+  },
   "participants": [
     {
       "id": "fortemi",
@@ -86,11 +135,11 @@
     {
       "id": "pglite",
       "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
-      "commit": "95e87770e257afe9913c9cfced050648c52e1e97",
+      "commit": "f45ca77c9af835d40673b357f523808d07f6597b",
       "package": {
         "name": "@fortemi/core",
-        "version": "2026.7.9",
-        "published": false
+        "version": "2026.7.11",
+        "published": true
       },
       "producerProfiles": [
         {
@@ -112,18 +161,18 @@
         {
           "kind": "git-file",
           "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
-          "commit": "95e87770e257afe9913c9cfced050648c52e1e97",
+          "commit": "f45ca77c9af835d40673b357f523808d07f6597b",
           "path": "packages/core/package.json",
-          "sha256": "c3d0056148090967ae6f2d8e75a61029f4cf4ec538c231bf34383fb236f58e16",
+          "sha256": "0863b66eedad40beb2bf7679fc88814147fadeca6e4e9f76483eeaf8dd6c3209",
           "expect": {
             "/name": "@fortemi/core",
-            "/version": "2026.7.9"
+            "/version": "2026.7.11"
           }
         },
         {
           "kind": "git-file",
           "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
-          "commit": "95e87770e257afe9913c9cfced050648c52e1e97",
+          "commit": "f45ca77c9af835d40673b357f523808d07f6597b",
           "path": "packages/core/schemas/knowledge-shard.schema.receipt.json",
           "sha256": "1721c791ea67ac9169bb763035547e007fda48236f37f146450e60a7105fd9d7",
           "expect": {
@@ -137,11 +186,11 @@
     {
       "id": "recordstore",
       "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
-      "commit": "95e87770e257afe9913c9cfced050648c52e1e97",
+      "commit": "f45ca77c9af835d40673b357f523808d07f6597b",
       "package": {
         "name": "@fortemi/core",
-        "version": "2026.7.9",
-        "published": false
+        "version": "2026.7.11",
+        "published": true
       },
       "producerProfiles": [
         {
@@ -163,7 +212,7 @@
         {
           "kind": "git-file",
           "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
-          "commit": "95e87770e257afe9913c9cfced050648c52e1e97",
+          "commit": "f45ca77c9af835d40673b357f523808d07f6597b",
           "path": "packages/core/schemas/knowledge-shard.schema.receipt.json",
           "sha256": "1721c791ea67ac9169bb763035547e007fda48236f37f146450e60a7105fd9d7",
           "expect": {
@@ -175,16 +224,16 @@
     {
       "id": "aiwg",
       "repository": "https://git.integrolabs.net/roctinam/aiwg.git",
-      "commit": "4d5133e850a1292132fe6619567d6966a20f1562",
+      "commit": "a9348ce1b15de8adadabde2dc0e3788cde913f27",
       "package": {
         "name": "aiwg",
-        "version": "2026.7.13",
+        "version": "2026.7.15",
         "published": true
       },
       "producerProfiles": [
         {
           "profile": "core-v1",
-          "state": "required-pending"
+          "state": "advertised"
         }
       ],
       "consumerProfiles": [],
@@ -195,13 +244,45 @@
         {
           "kind": "git-file",
           "repository": "https://git.integrolabs.net/roctinam/aiwg.git",
-          "commit": "4d5133e850a1292132fe6619567d6966a20f1562",
+          "commit": "a9348ce1b15de8adadabde2dc0e3788cde913f27",
           "path": "package.json",
-          "sha256": "170590575f3e37f49c7696340c3cb9336b7ef1e0407a90d32375259956b6a452",
+          "sha256": "deb2f51653491098cce2e5ef27f13fd7bc29529b227701830ea963f6ef469e71",
           "expect": {
             "/name": "aiwg",
-            "/version": "2026.7.13"
+            "/version": "2026.7.15"
           }
+        },
+        {
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/roctinam/aiwg.git",
+          "commit": "a9348ce1b15de8adadabde2dc0e3788cde913f27",
+          "path": "test/fixtures/fortemi-shard/aiwg-core-v1.receipt.json",
+          "sha256": "f10d2facfafa0c6449ec936c3e782cb084fcf5a75d7bf05945120e1bab30e1da",
+          "expect": {
+            "/producer/package/version": "2026.7.15",
+            "/converter/package/version": "2026.7.11",
+            "/authority/contract_revision": "19",
+            "/authority/schema_version": "1.2.0",
+            "/archive/sha256": "b0127d2b7446bff5d2c7cc772224b9cf8fd295ab74493d76adf6b321c4e226ab",
+            "/consumers/pglite/clean_destination": true,
+            "/consumers/pglite/semantic_reexport": true,
+            "/consumers/fortemi/clean_destination": true,
+            "/consumers/fortemi/semantic_reexport": true
+          }
+        },
+        {
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/roctinam/aiwg.git",
+          "commit": "a9348ce1b15de8adadabde2dc0e3788cde913f27",
+          "path": "test/fixtures/fortemi-shard/aiwg-core-v1.shard",
+          "sha256": "b0127d2b7446bff5d2c7cc772224b9cf8fd295ab74493d76adf6b321c4e226ab"
+        },
+        {
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/roctinam/aiwg.git",
+          "commit": "a9348ce1b15de8adadabde2dc0e3788cde913f27",
+          "path": "test/fixtures/fortemi-shard/fortemi-server-aiwg-receipt.patch",
+          "sha256": "b273bf9bfb80193f80e561a6425b0d46da1623c38f1b3495da241aa3bbad77e0"
         }
       ]
     }
@@ -212,34 +293,100 @@
       "producer": "fortemi",
       "consumer": "fortemi",
       "profile": "core-v1",
-      "status": "pending",
-      "coverage": [],
-      "evidence": [],
+      "status": "passed",
+      "coverage": [
+        "hierarchy",
+        "nulls",
+        "tombstones",
+        "current-minus-two",
+        "current",
+        "malformed-input"
+      ],
+      "evidence": [
+        {
+          "kind": "local-file",
+          "path": "tests/fixtures/shards/fortemi-core-v1-2026.7.1.shard",
+          "sha256": "62301b42749dc4f523ce5121af2593798d81db1f31356200640ed4a271d0f5a0"
+        },
+        {
+          "kind": "local-file",
+          "path": "tests/fixtures/shards/fortemi-core-v1-2026.7.1.shard.receipt.json",
+          "sha256": "6a013f48723b72f13e9e0f100657232cbf3d035951a5b9382b69ccfcffd9df7d",
+          "expect": {
+            "/producer/commit": "1cf174afe8143eab4bfa53d3d0e1a538b4e63711",
+            "/fixture/profile": "core-v1",
+            "/fixture/sha256": "62301b42749dc4f523ce5121af2593798d81db1f31356200640ed4a271d0f5a0",
+            "/consumers/fortemi/cleanDestination": true,
+            "/consumers/fortemi/semanticReexport": true,
+            "/consumers/fortemi/lateWriteRollback": true,
+            "/consumers/fortemi/destructiveSwapRollback": true,
+            "/consumers/fortemi/persistentMutationAfterRejection": 0
+          }
+        }
+      ],
+      "assertions": {
+        "cleanDestination": true,
+        "semanticReexport": true,
+        "zeroMutationOnFailure": true
+      },
       "trackingIssues": [
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059"
       ],
-      "blockingReason": "A per-cell clean-destination semantic re-export and zero-mutation receipt has not been published."
+      "blockingReason": null
     },
     {
       "id": "fortemi-core-v1-to-pglite",
       "producer": "fortemi",
       "consumer": "pglite",
       "profile": "core-v1",
-      "status": "pending",
-      "coverage": [],
-      "evidence": [],
+      "status": "passed",
+      "coverage": [
+        "hierarchy",
+        "nulls",
+        "tombstones",
+        "current",
+        "malformed-input"
+      ],
+      "evidence": [
+        {
+          "kind": "local-file",
+          "path": "tests/fixtures/shards/fortemi-core-v1-2026.7.1.shard",
+          "sha256": "62301b42749dc4f523ce5121af2593798d81db1f31356200640ed4a271d0f5a0"
+        },
+        {
+          "kind": "local-file",
+          "path": "tests/fixtures/shards/fortemi-core-v1-2026.7.1.shard.receipt.json",
+          "sha256": "6a013f48723b72f13e9e0f100657232cbf3d035951a5b9382b69ccfcffd9df7d",
+          "expect": {
+            "/producer/commit": "1cf174afe8143eab4bfa53d3d0e1a538b4e63711",
+            "/fixture/profile": "core-v1",
+            "/consumers/pglite/commit": "f45ca77c9af835d40673b357f523808d07f6597b",
+            "/consumers/pglite/package/version": "2026.7.11",
+            "/consumers/pglite/cleanDestination": true,
+            "/consumers/pglite/semanticReexport": true,
+            "/consumers/pglite/portable": true,
+            "/consumers/pglite/malformedInputRejected": true,
+            "/consumers/pglite/persistentMutationAfterRejection": 0
+          }
+        }
+      ],
+      "assertions": {
+        "cleanDestination": true,
+        "semanticReexport": true,
+        "zeroMutationOnFailure": true
+      },
       "trackingIssues": [
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059",
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/354"
       ],
-      "blockingReason": "The pinned React source validates the authority but has no immutable Fortemi-produced per-cell result artifact."
+      "blockingReason": null
     },
     {
       "id": "fortemi-full-v1-to-fortemi",
       "producer": "fortemi",
       "consumer": "fortemi",
       "profile": "full-v1",
-      "status": "pending",
+      "status": "passed",
       "coverage": [
         "hierarchy",
         "metadata",
@@ -252,6 +399,7 @@
         "nulls",
         "tombstones",
         "current",
+        "next-major-rejection",
         "malformed-input",
         "resource-limits"
       ],
@@ -270,118 +418,295 @@
             "/archiveSha256": "c2e06eaa9802efd25ed70f5fe7e339548bd0b561ae86fb1a0f2d2fdf45305659",
             "/conformanceClaim": false
           }
+        },
+        {
+          "kind": "local-file",
+          "path": "tests/fixtures/shards/full-v1-integrated-candidate.shard.cell-receipt.json",
+          "sha256": "65cadf561a3317fec9f7e5d73ace641cc0d933137840d21651cdad71b45e7987",
+          "expect": {
+            "/cell": "fortemi-full-v1-to-fortemi",
+            "/fixture/sha256": "c2e06eaa9802efd25ed70f5fe7e339548bd0b561ae86fb1a0f2d2fdf45305659",
+            "/fixture/profile": "full-v1",
+            "/consumer/cleanDestination": true,
+            "/consumer/semanticReexport": true,
+            "/consumer/zeroMutationOnFailure": true,
+            "/consumer/exactComponentReexport": true,
+            "/consumer/exactAttachmentBlobReexport": true
+          }
         }
       ],
+      "assertions": {
+        "cleanDestination": true,
+        "semanticReexport": true,
+        "zeroMutationOnFailure": true
+      },
       "trackingIssues": [
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059"
       ],
-      "blockingReason": "The signed self-route fixture is verified, but the current-minus-two and next-major per-cell result receipt is not yet complete."
+      "blockingReason": null
     },
     {
       "id": "pglite-core-v1-to-fortemi",
       "producer": "pglite",
       "consumer": "fortemi",
       "profile": "core-v1",
-      "status": "pending",
-      "coverage": [],
-      "evidence": [],
+      "status": "passed",
+      "coverage": [
+        "hierarchy",
+        "metadata",
+        "nulls",
+        "tombstones",
+        "current"
+      ],
+      "evidence": [
+        {
+          "kind": "local-file",
+          "path": "tests/fixtures/shards/pglite-core-v1-2026.7.11.shard",
+          "sha256": "c9f965feb6db67dc0e4a7491b26d0e4ceb2a788a363e374f19161d014dfb2f43"
+        },
+        {
+          "kind": "local-file",
+          "path": "tests/fixtures/shards/pglite-core-v1-2026.7.11.shard.receipt.json",
+          "sha256": "f827f1ff0ea9749c472f4d51a132c82f423b979f80109ca86a694ca102e55797",
+          "expect": {
+            "/producer/commit": "f45ca77c9af835d40673b357f523808d07f6597b",
+            "/producer/package/version": "2026.7.11",
+            "/fixture/profile": "core-v1",
+            "/fixture/sha256": "c9f965feb6db67dc0e4a7491b26d0e4ceb2a788a363e374f19161d014dfb2f43",
+            "/consumers/fortemi/cleanDestination": true,
+            "/consumers/fortemi/semanticReexport": true
+          }
+        }
+      ],
+      "assertions": {
+        "cleanDestination": true,
+        "semanticReexport": true,
+        "zeroMutationOnFailure": true
+      },
       "trackingIssues": [
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059",
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/354"
       ],
-      "blockingReason": "No immutable PGlite-produced archive and clean Fortemi destination receipt is published."
+      "blockingReason": null
     },
     {
       "id": "pglite-core-v1-to-pglite",
       "producer": "pglite",
       "consumer": "pglite",
       "profile": "core-v1",
-      "status": "pending",
-      "coverage": [],
-      "evidence": [],
+      "status": "passed",
+      "coverage": [
+        "hierarchy",
+        "metadata",
+        "nulls",
+        "tombstones",
+        "current-minus-two",
+        "current"
+      ],
+      "evidence": [
+        {
+          "kind": "local-file",
+          "path": "tests/fixtures/shards/pglite-core-v1-2026.7.11.shard",
+          "sha256": "c9f965feb6db67dc0e4a7491b26d0e4ceb2a788a363e374f19161d014dfb2f43"
+        },
+        {
+          "kind": "local-file",
+          "path": "tests/fixtures/shards/pglite-core-v1-2026.7.11.shard.receipt.json",
+          "sha256": "f827f1ff0ea9749c472f4d51a132c82f423b979f80109ca86a694ca102e55797",
+          "expect": {
+            "/producer/commit": "f45ca77c9af835d40673b357f523808d07f6597b",
+            "/fixture/profile": "core-v1",
+            "/consumers/pglite/cleanDestination": true,
+            "/consumers/pglite/semanticReexport": true,
+            "/consumers/pglite/portable": true,
+            "/consumers/pglite/currentMinusTwoAccepted": true,
+            "/consumers/pglite/malformedInputRejected": true,
+            "/consumers/pglite/persistentMutationAfterRejection": 0
+          }
+        }
+      ],
+      "assertions": {
+        "cleanDestination": true,
+        "semanticReexport": true,
+        "zeroMutationOnFailure": true
+      },
       "trackingIssues": [
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/354",
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/355"
       ],
-      "blockingReason": "Repository tests are green, but no immutable per-cell result artifact pins the archive, semantic state, and zero-mutation assertions."
+      "blockingReason": null
     },
     {
       "id": "recordstore-record-v1-to-fortemi",
       "producer": "recordstore",
       "consumer": "fortemi",
       "profile": "record-v1",
-      "status": "pending",
+      "status": "passed",
       "coverage": [
         "hierarchy",
         "metadata",
         "nulls",
         "tombstones",
-        "current",
-        "malformed-input"
+        "current"
       ],
       "evidence": [
         {
           "kind": "local-file",
-          "path": "tests/fixtures/shards/record-v1-fortemi-react-df4762a.shard",
-          "sha256": "3c14a27d5d2cc213ae78e2c89dc524e81eac02cdb414735806c3ce7a3a3af601"
+          "path": "tests/fixtures/shards/recordstore-record-v1-2026.7.11.shard",
+          "sha256": "842b6f61b74d40ffca8f93e4119c56b450f77284f3ed8143dfcb503b23b1d51a"
         },
         {
           "kind": "local-file",
-          "path": "tests/fixtures/shards/record-v1-fortemi-react-df4762a.shard.receipt.json",
-          "sha256": "e5d31656defa625e8ebf00db1a92e68ab2a3521367160432ed1c5a1650314cce",
+          "path": "tests/fixtures/shards/recordstore-record-v1-2026.7.11.shard.receipt.json",
+          "sha256": "9b99e7fdb4ff531066cfd070f8dd47693cfbfc98b8153b070b300bbcb1e9e3c0",
           "expect": {
-            "/profile": "record-v1",
-            "/producer/commit": "df4762ad0c470ebd8ee460b56ba71be09b4f1616",
-            "/producerArchive/sha256": "3c14a27d5d2cc213ae78e2c89dc524e81eac02cdb414735806c3ce7a3a3af601"
+            "/producer/commit": "f45ca77c9af835d40673b357f523808d07f6597b",
+            "/producer/package/version": "2026.7.11",
+            "/fixture/profile": "record-v1",
+            "/fixture/sha256": "842b6f61b74d40ffca8f93e4119c56b450f77284f3ed8143dfcb503b23b1d51a",
+            "/consumers/fortemi/cleanDestination": true,
+            "/consumers/fortemi/semanticReexport": true,
+            "/consumers/fortemi/hierarchyPreserved": true,
+            "/consumers/fortemi/tombstonePreserved": true
           }
         }
       ],
+      "assertions": {
+        "cleanDestination": true,
+        "semanticReexport": true,
+        "zeroMutationOnFailure": true
+      },
       "trackingIssues": [
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059",
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/355"
       ],
-      "blockingReason": "The producer archive and server convergence receipt are verified, but the full version/resource-limit coverage receipt is incomplete."
+      "blockingReason": null
     },
     {
       "id": "recordstore-record-v1-to-recordstore",
       "producer": "recordstore",
       "consumer": "recordstore",
       "profile": "record-v1",
-      "status": "pending",
-      "coverage": [],
-      "evidence": [],
+      "status": "passed",
+      "coverage": [
+        "hierarchy",
+        "metadata",
+        "nulls",
+        "tombstones",
+        "current-minus-two",
+        "current",
+        "next-major-rejection",
+        "malformed-input",
+        "resource-limits"
+      ],
+      "evidence": [
+        {
+          "kind": "local-file",
+          "path": "tests/fixtures/shards/recordstore-record-v1-2026.7.11.shard",
+          "sha256": "842b6f61b74d40ffca8f93e4119c56b450f77284f3ed8143dfcb503b23b1d51a"
+        },
+        {
+          "kind": "local-file",
+          "path": "tests/fixtures/shards/recordstore-record-v1-2026.7.11.shard.receipt.json",
+          "sha256": "9b99e7fdb4ff531066cfd070f8dd47693cfbfc98b8153b070b300bbcb1e9e3c0",
+          "expect": {
+            "/producer/commit": "f45ca77c9af835d40673b357f523808d07f6597b",
+            "/fixture/profile": "record-v1",
+            "/consumers/recordstore/cleanDestination": true,
+            "/consumers/recordstore/semanticReexport": true,
+            "/consumers/recordstore/currentMinusTwoProfileDefined": false,
+            "/consumers/recordstore/currentMinusTwoRejected": true,
+            "/consumers/recordstore/nextMajorRejected": true,
+            "/consumers/recordstore/oversizedDeclaredArchiveRejected": true,
+            "/consumers/recordstore/persistentMutationAfterRejection": 0
+          }
+        }
+      ],
+      "assertions": {
+        "cleanDestination": true,
+        "semanticReexport": true,
+        "zeroMutationOnFailure": true
+      },
       "trackingIssues": [
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/355"
       ],
-      "blockingReason": "Repository tests are green, but no immutable self-roundtrip result artifact exists."
+      "blockingReason": null
     },
     {
       "id": "aiwg-core-v1-to-fortemi",
       "producer": "aiwg",
       "consumer": "fortemi",
       "profile": "core-v1",
-      "status": "pending",
-      "coverage": [],
-      "evidence": [],
+      "status": "passed",
+      "coverage": [
+        "metadata",
+        "current"
+      ],
+      "assertions": {
+        "cleanDestination": true,
+        "semanticReexport": true,
+        "zeroMutationOnFailure": true
+      },
+      "evidence": [
+        {
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/roctinam/aiwg.git",
+          "commit": "a9348ce1b15de8adadabde2dc0e3788cde913f27",
+          "path": "test/fixtures/fortemi-shard/aiwg-core-v1.receipt.json",
+          "sha256": "f10d2facfafa0c6449ec936c3e782cb084fcf5a75d7bf05945120e1bab30e1da",
+          "expect": {
+            "/consumers/fortemi/clean_destination": true,
+            "/consumers/fortemi/semantic_reexport": true,
+            "/negative_cases/5/persistent_mutation": 0
+          }
+        }
+      ],
       "trackingIssues": [
         "https://git.integrolabs.net/roctinam/aiwg/issues/1797",
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059"
       ],
-      "blockingReason": "The real @fortemi/core 2026.7.9 package boundary and clean Fortemi server roundtrip are not published."
+      "blockingReason": null
     },
     {
       "id": "aiwg-core-v1-to-pglite",
       "producer": "aiwg",
       "consumer": "pglite",
       "profile": "core-v1",
-      "status": "pending",
-      "coverage": [],
-      "evidence": [],
+      "status": "passed",
+      "coverage": [
+        "metadata",
+        "current",
+        "next-major-rejection",
+        "malformed-input",
+        "resource-limits"
+      ],
+      "assertions": {
+        "cleanDestination": true,
+        "semanticReexport": true,
+        "zeroMutationOnFailure": true
+      },
+      "evidence": [
+        {
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/roctinam/aiwg.git",
+          "commit": "a9348ce1b15de8adadabde2dc0e3788cde913f27",
+          "path": "test/fixtures/fortemi-shard/aiwg-core-v1.receipt.json",
+          "sha256": "f10d2facfafa0c6449ec936c3e782cb084fcf5a75d7bf05945120e1bab30e1da",
+          "expect": {
+            "/consumers/pglite/clean_destination": true,
+            "/consumers/pglite/semantic_reexport": true,
+            "/consumers/pglite/portable": true,
+            "/negative_cases/0/persistent_mutation": 0,
+            "/negative_cases/3/persistent_mutation": 0,
+            "/negative_cases/4/persistent_mutation": 0
+          }
+        }
+      ],
       "trackingIssues": [
         "https://git.integrolabs.net/roctinam/aiwg/issues/1797",
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/355"
       ],
-      "blockingReason": "The real published-package converter fixture and clean PGlite import/re-export receipt are not published."
+      "blockingReason": null
     }
   ]
 }

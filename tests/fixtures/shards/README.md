@@ -75,12 +75,58 @@ incomplete-profile rejection, clean import, and repeated replace convergence.
 
 ### record-v1-fortemi-react-df4762a.shard
 
-Exact archive produced by Fortemi React commit
-`df4762ad0c470ebd8ee460b56ba71be09b4f1616` against the record-v1 authority
-candidate. The adjacent receipt pins the archive and component hashes, the
-machine-readable loss report, Fortemi dry-run/rejection/repeated-import
-assertions, the server re-export, and React's validated return import. The
-database integration test consumes these bytes by default.
+Permanent authority receipt produced by Fortemi React commit
+`df4762ad0c470ebd8ee460b56ba71be09b4f1616`. The adjacent receipt pins the
+archive and component hashes, machine-readable loss report, Fortemi
+dry-run/rejection/repeated-import assertions, server re-export, and React
+return import. `contract.json` binds this exact fixture as the original
+`record-v1` conformance receipt; newer published-package evidence supplements
+it rather than replacing it.
+
+### recordstore-record-v1-2026.7.11.shard
+
+Deterministic `record-v1` archive produced through the published
+`@fortemi/core@2026.7.11` RecordStore boundary. It covers nested collections,
+active and tombstoned notes, metadata, attachment references, tags, and links.
+The adjacent receipt pins the React commit, npm package integrity, authority
+revision, archive digest, generator, and lockfile. It also records current
+schema acceptance, oldest-defined `record-v1` `1.1.0` acceptance, undefined
+`1.0.0` rejection, next-major rejection, malformed-input rejection, resource
+limits, repeated imports, and exact component re-export without mutation on
+failure. The Fortemi database integration test consumes these bytes.
+
+### pglite-core-v1-2026.7.11.shard
+
+Deterministic `core-v1` archive produced through the published
+`@fortemi/core@2026.7.11` package boundary. It covers hierarchy, metadata,
+null link confidence, an active note, a tombstone, tags, and a template. The
+adjacent receipt pins the React commit, npm package integrity, authority
+revision, archive digest, generator, and lockfile. The generator first proves
+a clean PGlite import and semantic re-export plus schema `1.0.0`
+current-minus-two acceptance; the Fortemi API test then imports the same bytes
+into a clean archive schema and verifies the server re-export.
+
+Reproduce the fixture from the locked public packages with:
+
+```bash
+cd tests/conformance/pglite
+npm ci --ignore-scripts --min-release-age=0
+node generate-core-v1-fixture.mjs \
+  ../../fixtures/shards/pglite-core-v1-2026.7.11.shard --verify
+node generate-record-v1-fixture.mjs \
+  ../../fixtures/shards/recordstore-record-v1-2026.7.11.shard --verify
+```
+
+### fortemi-core-v1-2026.7.1.shard
+
+Live `core-v1` output from Fortemi `2026.7.1` at commit
+`1cf174afe8143eab4bfa53d3d0e1a538b4e63711`. The server self-route test seeds
+an isolated schema, exports this profile, proves rejected validation and late
+write failures leave no mutation, imports twice into a clean schema, compares
+hierarchy, null metadata, tombstones, attachments, and then compares every
+component after re-export. The published `@fortemi/core@2026.7.11` verifier in
+`tests/conformance/pglite/verify-fortemi-core-v1-fixture.mjs` independently
+imports the pinned bytes into clean PGlite and performs a semantic re-export.
 
 ### full-v1-manifest-candidate/
 
@@ -108,7 +154,10 @@ sidecar deduplication, and archive read/write/read equality. A database-backed
 route test also imports this fixture, exports `profile=full-v1`, imports the
 live artifact twice into a clean schema, and proves exact
 component/checksum/blob re-export convergence. The server profile is
-supported; cross-repository conformance receipts remain required.
+supported. The adjacent `.cell-receipt.json` binds the immutable candidate to
+the passing Fortemi self-route, zero-mutation rejection, version-compatibility,
+and archive resource-limit tests. Cross-repository consumers remain outside
+this self-route cell.
 
 ### full-v1-embedding-candidate/
 

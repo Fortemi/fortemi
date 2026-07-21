@@ -248,8 +248,13 @@ import_file() {
     #   2. Filepath-derived: basename, strip .md, swap separators for spaces
     # We never use revision_mode-driven AI title generation here — keeps the
     # rebuild path inference-free so it runs in CI without Ollama.
-    local json_payload
-    json_payload=$(python3 -c "
+    local response_file
+    response_file=$(mktemp)
+    IMPORT_RESPONSE_FILE="$response_file"
+
+    # Stream the generated payload. Linux limits each argv entry to roughly
+    # 128 KiB, so passing note JSON via -d breaks for large tracked sources.
+    if ! python3 -c "
 import json, re, os, sys
 filepath = sys.argv[1]
 content = open(filepath, 'r').read()
@@ -287,30 +292,54 @@ payload = {
     'revision_mode': 'none'
 }
 print(json.dumps(payload))
-" "$filepath" "$tags")
-
-    # Create note via API
-    curl -sf -X POST "$API_URL/api/v1/notes" \
+" "$filepath" "$tags" | curl --silent --show-error --fail-with-body \
+        -X POST "$API_URL/api/v1/notes" \
         -H "Content-Type: application/json" \
         -H "$MEMORY_HEADER" \
-        -d "$json_payload" >/dev/null 2>&1 || return 1
+        --data-binary @- \
+        -o "$response_file"; then
+        echo "  API response (first 4096 bytes):" >&2
+        head -c 4096 "$response_file" >&2 || true
+        echo >&2
+        rm -f "$response_file"
+        IMPORT_RESPONSE_FILE=""
+        return 1
+    fi
+
+    rm -f "$response_file"
+    IMPORT_RESPONSE_FILE=""
 
     return 0
 }
 
 # Collect all source files
 FILELIST=$(mktemp)
-trap "rm -f $FILELIST" EXIT
+IMPORT_RESPONSE_FILE=""
+EXPORT_TEMP_FILE=""
+EXPORT_HEADERS_FILE=""
+cleanup() {
+    rm -f "$FILELIST"
+    if [ -n "$IMPORT_RESPONSE_FILE" ]; then
+        rm -f "$IMPORT_RESPONSE_FILE"
+    fi
+    if [ -n "$EXPORT_TEMP_FILE" ]; then
+        rm -f "$EXPORT_TEMP_FILE"
+    fi
+    if [ -n "$EXPORT_HEADERS_FILE" ]; then
+        rm -f "$EXPORT_HEADERS_FILE"
+    fi
+}
+trap cleanup EXIT
 
 # docs/ — all markdown (include READMEs, exclude ADR template)
-find docs -name '*.md' -not -name 'ADR-TEMPLATE.md' | sort >> "$FILELIST"
+find docs -type f -size +0c -name '*.md' -not -name 'ADR-TEMPLATE.md' | sort >> "$FILELIST"
 
 # .aiwg/ — all markdown
-find .aiwg -name '*.md' -not -path '*/node_modules/*' | sort >> "$FILELIST"
+find .aiwg -type f -size +0c -name '*.md' -not -path '*/node_modules/*' | sort >> "$FILELIST"
 
 # Root files
-echo "CHANGELOG.md" >> "$FILELIST"
-echo "README.md" >> "$FILELIST"
+[ ! -s CHANGELOG.md ] || echo "CHANGELOG.md" >> "$FILELIST"
+[ ! -s README.md ] || echo "README.md" >> "$FILELIST"
 
 FILE_COUNT=$(wc -l < "$FILELIST")
 echo "  Found $FILE_COUNT files to import"
@@ -329,31 +358,14 @@ while IFS= read -r filepath; do
         FAILED=$((FAILED + 1))
         echo ""
         echo "  FAILED: $filepath"
+        echo "ERROR: Refusing to export a shard missing tracked source '$filepath'." >&2
+        exit 1
     fi
 done < "$FILELIST"
 
 echo ""
 echo ""
 echo "  Imported $SUCCESS/$TOTAL files ($FAILED failed)"
-
-# Fail-fast on partial import: if more than 5% failed, the produced shard is
-# definitionally broken (missing the docs the operator was trying to ship).
-# Better to abort the build than silently emit a half-empty .shard file.
-# 5% buffer accounts for stray empty/malformed input files.
-if [ "$TOTAL" -gt 0 ]; then
-    FAIL_PCT=$(( (FAILED * 100) / TOTAL ))
-    if [ "$FAIL_PCT" -gt 5 ]; then
-        echo ""
-        echo "ERROR: $FAILED/$TOTAL imports failed (${FAIL_PCT}%); aborting"
-        echo "       to avoid shipping an incomplete shard. Common causes:"
-        echo "       - Rate limit on the importing API (set RATE_LIMIT_ENABLED=false)"
-        echo "       - Job queue saturation against an unreachable inference"
-        echo "         provider (use revision_mode=none, set OLLAMA_BASE to an"
-        echo "         unreachable host)"
-        echo "       - Disk/connection exhaustion on the API container"
-        exit 1
-    fi
-fi
 
 # ----- Step 4: Export new shard -----
 echo ""
@@ -362,24 +374,51 @@ echo "Step 4: Exporting shard..."
 # Wait a moment for async processing (FTS indexing, etc.)
 sleep 2
 
-curl -sf "$API_URL/api/v1/backup/knowledge-shard" \
+EXPORT_TEMP_FILE=$(mktemp "${SHARD_OUTPUT}.tmp.XXXXXX")
+EXPORT_HEADERS_FILE=$(mktemp)
+if ! curl --silent --show-error --fail-with-body \
+    --dump-header "$EXPORT_HEADERS_FILE" \
+    "$API_URL/api/v1/backup/knowledge-shard" \
     -H "$MEMORY_HEADER" \
-    -o "$SHARD_OUTPUT" || {
+    -o "$EXPORT_TEMP_FILE"; then
     echo "ERROR: Failed to export shard"
+    head -c 4096 "$EXPORT_TEMP_FILE" >&2 || true
+    echo >&2
     exit 1
-}
+fi
 
-SHARD_SIZE=$(stat -c%s "$SHARD_OUTPUT" 2>/dev/null || stat -f%z "$SHARD_OUTPUT" 2>/dev/null)
+if [ ! -s "$EXPORT_TEMP_FILE" ]; then
+    echo "ERROR: Shard export returned an empty body; preserving $SHARD_OUTPUT" >&2
+    echo "Response headers:" >&2
+    head -40 "$EXPORT_HEADERS_FILE" >&2 || true
+    exit 1
+fi
+if ! tar -tzf "$EXPORT_TEMP_FILE" >/dev/null 2>&1; then
+    echo "ERROR: Shard export is not a readable gzip archive; preserving $SHARD_OUTPUT" >&2
+    exit 1
+fi
+
+SHARD_SIZE=$(stat -c%s "$EXPORT_TEMP_FILE" 2>/dev/null || stat -f%z "$EXPORT_TEMP_FILE" 2>/dev/null)
 SHARD_SIZE_KB=$((SHARD_SIZE / 1024))
-echo "  Shard exported: $SHARD_OUTPUT ($SHARD_SIZE_KB KB)"
+echo "  Shard candidate downloaded ($SHARD_SIZE_KB KB)"
 
 # ----- Step 5: Verify -----
 echo ""
 echo "Step 5: Verifying shard..."
-MANIFEST=$(tar -xzf "$SHARD_OUTPUT" manifest.json -O 2>/dev/null)
+MANIFEST=$(tar -xzf "$EXPORT_TEMP_FILE" manifest.json -O 2>/dev/null)
 NOTES_COUNT=$(echo "$MANIFEST" | python3 -c "import sys,json; print(json.load(sys.stdin)['counts']['notes'])" 2>/dev/null || echo "?")
 LINKS_COUNT=$(echo "$MANIFEST" | python3 -c "import sys,json; print(json.load(sys.stdin)['counts']['links'])" 2>/dev/null || echo "?")
 TAGS_COUNT=$(echo "$MANIFEST" | python3 -c "import sys,json; print(json.load(sys.stdin)['counts']['tags'])" 2>/dev/null || echo "?")
+
+python3 scripts/ci/verify-docs-shard-coverage.py \
+    --file-list "$FILELIST" \
+    --shard "$EXPORT_TEMP_FILE"
+
+mv "$EXPORT_TEMP_FILE" "$SHARD_OUTPUT"
+EXPORT_TEMP_FILE=""
+rm -f "$EXPORT_HEADERS_FILE"
+EXPORT_HEADERS_FILE=""
+echo "  Shard exported: $SHARD_OUTPUT ($SHARD_SIZE_KB KB)"
 
 echo "  Notes: $NOTES_COUNT"
 echo "  Links: $LINKS_COUNT"

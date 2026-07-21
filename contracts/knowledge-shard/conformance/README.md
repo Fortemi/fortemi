@@ -3,9 +3,14 @@
 `matrix.json` is the machine-readable producer/consumer inventory owned by
 Fortemi issue #1059. It derives required cells from every declared producer
 profile and every advertised consumer profile. A cell is not compatible merely
-because its repository tests pass: `passed` requires the complete coverage
-corpus, a clean destination, semantic re-export, version behavior, and
-zero-mutation failure evidence.
+because its repository tests pass: `passed` requires immutable evidence, a
+clean destination, semantic re-export, and zero-mutation failure evidence. The
+completed matrix additionally requires the feature inventory for each profile
+to be covered across that profile's passed cells, plus current-minus-two,
+current, next-major rejection, malformed-input, and resource-limit behavior
+across the passed cells for every advertised consumer. This lets deliberately
+narrow producers report only what their fixture exercises without weakening
+the profile-scoped or suite-wide gate.
 
 `scripts/ci/verify-knowledge-shard-matrix.py` validates the topology, pins the
 Fortemi authority, hashes local evidence, and can clone sibling repositories at
@@ -20,8 +25,15 @@ Run the local checks with:
 ```bash
 python3 -m unittest tests/test_verify_knowledge_shard_matrix.py
 python3 scripts/ci/verify-knowledge-shard-matrix.py --verify-remotes
+(cd tests/conformance/pglite && npm ci --ignore-scripts --min-release-age=0 && \
+  node generate-core-v1-fixture.mjs \
+    ../../fixtures/shards/pglite-core-v1-2026.7.11.shard --verify && \
+  node generate-record-v1-fixture.mjs \
+    ../../fixtures/shards/recordstore-record-v1-2026.7.11.shard --verify)
 ```
 
-The matrix currently records verified authority and fixture inputs without
-promoting incomplete cross-repository cells. Pending work stays linked to its
-own repository issue.
+The matrix records nine passed producer/consumer cells against published
+`@fortemi/core@2026.7.11` receipts. `record-v1` began at schema `1.1.0`, so its
+current-minus-two evidence explicitly proves that an undefined `1.0.0`
+record-v1 archive is rejected without mutation while the oldest defined
+`1.1.0` archive remains accepted.

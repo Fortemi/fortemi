@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "fortemi.knowledge-shard.cell-receipt.v1",
+  "cell": "fortemi-full-v1-to-fortemi",
+  "producer": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "commit": "1cf174afe8143eab4bfa53d3d0e1a538b4e63711",
+    "version": "2026.7.1"
+  },
+  "authority": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "commit": "81fbeaf065df3818edd046ed8a744f10eeb00e6f",
+    "contractRevision": "19",
+    "contractSha256": "5debc14e0bc7eef403a75e8e063a10f53019e1d74857485d6eda3abaec9397e2",
+    "schemaVersion": "1.2.0",
+    "schemaBundleSha256": "deec0cb66dc09865667256e29340d096c02dd9b0e55bdc1ae60b7effb68ac595"
+  },
+  "fixture": {
+    "path": "tests/fixtures/shards/full-v1-integrated-candidate.shard",
+    "sha256": "c2e06eaa9802efd25ed70f5fe7e339548bd0b561ae86fb1a0f2d2fdf45305659",
+    "receiptPath": "tests/fixtures/shards/full-v1-integrated-candidate.shard.receipt.json",
+    "receiptSha256": "e993fd0e037e8ecc5677114b64c05959f93dcf0947b55a1df41f634c38160984",
+    "profile": "full-v1",
+    "componentCount": 33,
+    "componentChecksumCount": 33,
+    "distinctBlobCount": 1,
+    "signatureAlgorithm": "ed25519",
+    "signerKeyId": "fortemi-fixture-1",
+    "signerTrust": "deterministic public test fixture; never trust this key in production"
+  },
+  "consumer": {
+    "id": "fortemi",
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "baseCommit": "1cf174afe8143eab4bfa53d3d0e1a538b4e63711",
+    "cleanDestination": true,
+    "semanticReexport": true,
+    "zeroMutationOnFailure": true,
+    "repeatedImports": 2,
+    "exactComponentReexport": true,
+    "exactAttachmentBlobReexport": true
+  },
+  "tests": {
+    "route": "tests::shard_full_v1_route_round_trip_preserves_every_component_and_required_blob",
+    "currentMinusTwo": "tests::shard_core_v1_server_export_clean_import_preserves_semantic_state",
+    "nextMajorRejection": "tests::shard_canonical_manifest_fixtures_cover_current_and_next_major",
+    "resourceLimits": "tests::shard_archive_reader_enforces_compressed_uncompressed_entry_and_count_limits"
+  },
+  "coverage": [
+    "hierarchy",
+    "metadata",
+    "attachment-bytes",
+    "embeddings",
+    "embedding-contract-lineage",
+    "skos",
+    "provenance",
+    "graph-community",
+    "nulls",
+    "tombstones",
+    "current-minus-two",
+    "current",
+    "next-major-rejection",
+    "malformed-input",
+    "resource-limits"
+  ]
+}

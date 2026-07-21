@@ -22,6 +22,7 @@ RELEASE_JOBS = {
     "create-release",
 }
 REQUIRED_PUBLISH_NEEDS = {
+    "verify-release-ref",
     "test-container",
     "integration-test",
     "audit",

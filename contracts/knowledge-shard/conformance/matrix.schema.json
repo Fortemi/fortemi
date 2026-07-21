@@ -10,6 +10,8 @@
     "authority",
     "claimPolicy",
     "coverageRequirements",
+    "profileCoverageRequirements",
+    "consumerBehaviorCoverageRequirements",
     "participants",
     "cells"
   ],
@@ -53,6 +55,38 @@
         "pattern": "^[a-z][a-z0-9-]+$"
       }
     },
+    "profileCoverageRequirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["core-v1", "record-v1", "full-v1"],
+      "properties": {
+        "core-v1": {
+          "$ref": "#/$defs/coverageList"
+        },
+        "record-v1": {
+          "$ref": "#/$defs/coverageList"
+        },
+        "full-v1": {
+          "$ref": "#/$defs/coverageList"
+        }
+      }
+    },
+    "consumerBehaviorCoverageRequirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fortemi", "pglite", "recordstore"],
+      "properties": {
+        "fortemi": {
+          "$ref": "#/$defs/coverageList"
+        },
+        "pglite": {
+          "$ref": "#/$defs/coverageList"
+        },
+        "recordstore": {
+          "$ref": "#/$defs/coverageList"
+        }
+      }
+    },
     "participants": {
       "type": "array",
       "minItems": 4,
@@ -69,6 +103,15 @@
     }
   },
   "$defs": {
+    "coverageList": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]+$"
+      }
+    },
     "commit": {
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
@@ -274,9 +317,6 @@
               "const": true
             },
             "zeroMutationOnFailure": {
-              "const": true
-            },
-            "versionMatrix": {
               "const": true
             }
           }

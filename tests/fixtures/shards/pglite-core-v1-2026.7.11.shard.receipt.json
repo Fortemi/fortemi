@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "fortemi.knowledge-shard.pglite-receipt.v1",
+  "producer": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+    "commit": "f45ca77c9af835d40673b357f523808d07f6597b",
+    "package": {
+      "name": "@fortemi/core",
+      "version": "2026.7.11",
+      "integrity": "sha512-0X+3KLhCwD19xASvxUbfeIbnq7lc/GqvQH66l8S1r+lBjz59WjkWiN/IjrZLeCSMe1B0ipOA3XoJQlzpYFLnLw=="
+    }
+  },
+  "authority": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "commit": "81fbeaf065df3818edd046ed8a744f10eeb00e6f",
+    "contractRevision": "19",
+    "contractSha256": "5debc14e0bc7eef403a75e8e063a10f53019e1d74857485d6eda3abaec9397e2",
+    "schemaVersion": "1.2.0",
+    "schemaBundleSha256": "deec0cb66dc09865667256e29340d096c02dd9b0e55bdc1ae60b7effb68ac595"
+  },
+  "fixture": {
+    "path": "tests/fixtures/shards/pglite-core-v1-2026.7.11.shard",
+    "sha256": "c9f965feb6db67dc0e4a7491b26d0e4ceb2a788a363e374f19161d014dfb2f43",
+    "bytes": 1266,
+    "profile": "core-v1",
+    "createdAt": "2026-07-21T12:00:00.000Z",
+    "components": [
+      "notes",
+      "collections",
+      "tags",
+      "templates",
+      "links"
+    ],
+    "counts": {
+      "notes": 2,
+      "collections": 2,
+      "tags": 2,
+      "templates": 1,
+      "links": 1
+    }
+  },
+  "reproducibility": {
+    "workingDirectory": "tests/conformance/pglite",
+    "packageJsonSha256": "5914c91a37bbc6ad916e2030ef6377c40664d3ed2c5507d7419956cf360acff5",
+    "packageLockSha256": "f4e648cc06d4ea0742097c50e29da300a460f2562de1bb20b9bf33de1a11c118",
+    "generatorSha256": "65b4f65785ca4e1a407c881a4033eeacbd504f699202af859ac605257408c9b8",
+    "command": "npm ci --ignore-scripts --min-release-age=0 && node generate-core-v1-fixture.mjs ../../fixtures/shards/pglite-core-v1-2026.7.11.shard --verify"
+  },
+  "consumers": {
+    "pglite": {
+      "cleanDestination": true,
+      "semanticReexport": true,
+      "portable": true,
+      "exportLosses": [
+        "null-revision-normalized"
+      ],
+      "currentMinusTwoSchema": "1.0.0",
+      "currentMinusTwoAccepted": true,
+      "malformedInputRejected": true,
+      "persistentMutationAfterRejection": 0
+    },
+    "fortemi": {
+      "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+      "baseCommit": "1cf174afe8143eab4bfa53d3d0e1a538b4e63711",
+      "test": "tests::pglite_core_v1_published_fixture_clean_import_reexport",
+      "cleanDestination": true,
+      "semanticReexport": true,
+      "zeroMutationOnFailureTest": "tests::shard_core_v1_server_export_clean_import_preserves_semantic_state"
+    }
+  },
+  "coverage": [
+    "hierarchy",
+    "metadata",
+    "nulls",
+    "tombstones",
+    "current-minus-two",
+    "current"
+  ]
+}

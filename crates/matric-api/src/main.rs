@@ -8243,12 +8243,7 @@ async fn cache_control_middleware(
     // ETag support for successful GET responses on API paths.
     // Skip for file downloads (streaming bodies) — collecting the body into memory
     // would either OOM or, when it exceeds the 2MB limit, destroy the stream.
-    let is_download = path.ends_with("/download")
-        || response
-            .headers()
-            .get(header::ACCEPT_RANGES)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v == "bytes");
+    let is_download = is_download_or_media_response(&path, &response);
 
     if is_get && path.starts_with("/api/v1/") && response.status().is_success() && !is_download {
         // Collect body bytes to compute hash (safe — non-download API responses are small)
@@ -42366,6 +42361,47 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn cache_control_preserves_large_attachment_response_body() {
+        let payload = vec![0x5a_u8; 2 * 1024 * 1024 + 17];
+        let expected = payload.clone();
+        let response = Router::new()
+            .fallback(|| async move {
+                (
+                    StatusCode::OK,
+                    [
+                        (header::CONTENT_TYPE, "application/gzip"),
+                        (
+                            header::CONTENT_DISPOSITION,
+                            "attachment; filename=\"knowledge.shard\"",
+                        ),
+                    ],
+                    payload,
+                )
+            })
+            .layer(axum::middleware::from_fn(cache_control_middleware))
+            .oneshot(
+                axum::http::Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/backup/knowledge-shard")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("large attachment response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(!response.headers().contains_key(header::ETAG));
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-cache"
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read preserved attachment body");
+        assert_eq!(body.as_ref(), expected.as_slice());
+    }
+
     #[test]
     fn security_headers_for_downloads_do_not_apply_document_csp() {
         let mut response = (
@@ -44998,7 +45034,7 @@ mod tests {
                 panic!("read record-v1 cross-repository shard {path}: {error}")
             });
         }
-        include_bytes!("../../../tests/fixtures/shards/record-v1-fortemi-react-df4762a.shard")
+        include_bytes!("../../../tests/fixtures/shards/recordstore-record-v1-2026.7.11.shard")
             .to_vec()
     }
 
@@ -46108,6 +46144,9 @@ not-json
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
+        db.migrate()
+            .await
+            .expect("migrate core-v1 self-route integration database");
         let source_name = format!("shard-source-{}", Uuid::new_v4().simple());
         let source = db
             .archives
@@ -46190,6 +46229,11 @@ not-json
         let exported_bytes = axum::body::to_bytes(export.into_body(), usize::MAX)
             .await
             .expect("read server export");
+        if let Ok(path) = std::env::var("FORTEMI_CORE_V1_SELF_SHARD") {
+            std::fs::write(&path, &exported_bytes).unwrap_or_else(|error| {
+                panic!("write Fortemi core-v1 self-route shard {path}: {error}")
+            });
+        }
         let exported_files =
             read_shard_archive(&exported_bytes, ShardArchiveLimits::default()).unwrap();
         let exported_manifest =
@@ -46775,6 +46819,41 @@ not-json
         }));
         assert_eq!(snapshot.7, (2, 2, 1, 1, 2, 1));
 
+        let reexport = knowledge_shard(
+            State(state.clone()),
+            Extension(ArchiveContext {
+                schema: destination.schema_name.clone(),
+                is_default: false,
+                name: Some(destination_name.clone()),
+            }),
+            Query(ShardExportQuery {
+                profile: Some("core-v1".to_string()),
+                include: None,
+                include_blobs: false,
+            }),
+        )
+        .await
+        .expect("re-export clean core-v1 destination")
+        .into_response();
+        assert_eq!(reexport.status(), StatusCode::OK);
+        let reexported_bytes = axum::body::to_bytes(reexport.into_body(), usize::MAX)
+            .await
+            .expect("read clean core-v1 destination re-export");
+        let reexported_files =
+            read_shard_archive(&reexported_bytes, ShardArchiveLimits::default()).unwrap();
+        let reexported_manifest =
+            parse_and_validate_shard_manifest(&reexported_files["manifest.json"]).unwrap();
+        assert_eq!(reexported_manifest.profile.as_deref(), Some("core-v1"));
+        assert_eq!(reexported_manifest.counts, exported_manifest.counts);
+        assert_eq!(reexported_manifest.checksums, exported_manifest.checksums);
+        for component in &exported_manifest.components {
+            let filename = shard_component_filename(component).unwrap();
+            assert_eq!(
+                reexported_files[filename], exported_files[filename],
+                "core-v1 component changed across clean self-route re-export: {component}"
+            );
+        }
+
         db.archives
             .drop_archive_schema(&destination_name)
             .await
@@ -46783,6 +46862,169 @@ not-json
             .drop_archive_schema(&source_name)
             .await
             .expect("drop isolated shard source");
+    }
+
+    #[tokio::test]
+    async fn pglite_core_v1_published_fixture_clean_import_reexport() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        db.migrate().await.expect("migrate integration database");
+        let archive_name = format!("pglite-shard-{}", Uuid::new_v4().simple());
+        let destination = db
+            .archives
+            .create_archive_schema(
+                &archive_name,
+                Some("Published @fortemi/core PGlite consumer receipt"),
+            )
+            .await
+            .expect("create isolated PGlite fixture destination");
+        let destination_ctx = db.for_schema(&destination.schema_name).unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let shard = include_bytes!("../../../tests/fixtures/shards/pglite-core-v1-2026.7.11.shard");
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+
+        let before = destination_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM collection),
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM note_template),
+                           (SELECT COUNT(*) FROM link)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read clean PGlite fixture destination");
+        assert_eq!(before, (0, 0, 0, 0));
+
+        let imported =
+            knowledge_shard_import_internal(&state, shard, &opts, &destination.schema_name)
+                .await
+                .expect("import published PGlite core-v1 fixture");
+        assert_eq!(imported.imported.collections, 2);
+        assert_eq!(imported.imported.notes, 2);
+        assert_eq!(imported.imported.templates, 1);
+        assert_eq!(imported.imported.links, 1);
+
+        let semantic = destination_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    let child = sqlx::query_as::<_, (Uuid, Option<Uuid>)>(
+                        "SELECT id, parent_id FROM collection
+                         WHERE id = '018f2d2d-bc00-7cc8-8ad2-f147d6a2e702'",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)?;
+                    let active = sqlx::query_as::<
+                        _,
+                        (
+                            Uuid,
+                            serde_json::Value,
+                            String,
+                            Option<chrono::DateTime<chrono::Utc>>,
+                        ),
+                    >(
+                        "SELECT n.id, n.metadata, nrc.content, n.deleted_at
+                         FROM note n
+                         JOIN note_revised_current nrc ON nrc.note_id = n.id
+                         WHERE n.id = '018f2d2d-bc00-7cc8-8ad2-f147d6a2e711'",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)?;
+                    let tombstone =
+                        sqlx::query_as::<_, (Uuid, Option<chrono::DateTime<chrono::Utc>>)>(
+                            "SELECT id, deleted_at FROM note
+                         WHERE id = '018f2d2d-bc00-7cc8-8ad2-f147d6a2e712'",
+                        )
+                        .fetch_one(&mut **tx)
+                        .await
+                        .map_err(matric_db::Error::Database)?;
+                    Ok((child, active, tombstone))
+                })
+            })
+            .await
+            .expect("read imported PGlite semantic state");
+        assert_eq!(
+            semantic.0,
+            (
+                Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e702").unwrap(),
+                Some(Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e701").unwrap()),
+            )
+        );
+        assert_eq!(
+            semantic.1 .1,
+            serde_json::json!({
+                "conformance": {
+                    "producer": "@fortemi/core",
+                    "version": "2026.7.11"
+                }
+            })
+        );
+        assert_eq!(semantic.1 .2, "# Revised");
+        assert!(semantic.1 .3.is_none());
+        assert_eq!(
+            semantic.2 .1,
+            Some(
+                chrono::DateTime::parse_from_rfc3339("2026-07-21T10:14:00Z")
+                    .unwrap()
+                    .with_timezone(&chrono::Utc)
+            )
+        );
+
+        let export = knowledge_shard(
+            State(state.clone()),
+            Extension(ArchiveContext {
+                schema: destination.schema_name.clone(),
+                is_default: false,
+                name: Some(archive_name.clone()),
+            }),
+            Query(ShardExportQuery {
+                profile: Some("core-v1".to_string()),
+                include: None,
+                include_blobs: false,
+            }),
+        )
+        .await
+        .expect("re-export imported PGlite shard")
+        .into_response();
+        assert_eq!(export.status(), StatusCode::OK);
+        let exported = axum::body::to_bytes(export.into_body(), usize::MAX)
+            .await
+            .expect("read PGlite fixture re-export");
+        let files = read_shard_archive(&exported, ShardArchiveLimits::default()).unwrap();
+        let manifest = parse_and_validate_shard_manifest(&files["manifest.json"]).unwrap();
+        assert_eq!(manifest.profile.as_deref(), Some("core-v1"));
+        let notes = parse_shard_component_records("notes", &files["notes.jsonl"]).unwrap();
+        assert!(notes.iter().any(|note| {
+            note["id"] == "018f2d2d-bc00-7cc8-8ad2-f147d6a2e711"
+                && note.pointer("/metadata/conformance/version")
+                    == Some(&serde_json::json!("2026.7.11"))
+        }));
+        assert!(notes.iter().any(|note| {
+            note["id"] == "018f2d2d-bc00-7cc8-8ad2-f147d6a2e712"
+                && note["deleted_at"] == "2026-07-21T10:14:00Z"
+        }));
+
+        db.archives
+            .drop_archive_schema(&archive_name)
+            .await
+            .expect("drop isolated PGlite fixture destination");
     }
 
     #[tokio::test]
@@ -46833,7 +47075,7 @@ not-json
             Some("record-v1")
         );
         assert_eq!(dry_run.imported.notes, 2);
-        assert_eq!(dry_run.imported.collections, 1);
+        assert_eq!(dry_run.imported.collections, 2);
         assert_eq!(dry_run.imported.links, 1);
 
         let destination_ctx = db.for_schema(&destination.schema_name).unwrap();
@@ -46893,7 +47135,29 @@ not-json
                 Some("record-v1")
             );
         }
-        assert_eq!(read_counts().await, (2, 1, 1, 0, 1, 1));
+        assert_eq!(read_counts().await, (2, 2, 1, 0, 1, 1));
+
+        let hierarchy = destination_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (Uuid, Option<Uuid>)>(
+                        "SELECT id, parent_id FROM collection
+                         WHERE id = '018f2d2d-bc00-7cc8-8ad2-f147d6a2e780'",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read record-v1 collection hierarchy");
+        assert_eq!(
+            hierarchy,
+            (
+                Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e780").unwrap(),
+                Some(Uuid::parse_str("018f2d2d-bc00-7cc8-8ad2-f147d6a2e77b").unwrap()),
+            )
+        );
 
         let tombstones = destination_ctx
             .query(|tx| {
@@ -47599,6 +47863,38 @@ not-json
         assert!(exported_embeddings
             .iter()
             .any(|record| record["contract_fingerprint"].is_null()));
+
+        let tampered = replace_shard_entry(&exported, "notes.jsonl", b"{}\n");
+        let error =
+            knowledge_shard_import_internal(&state, &tampered, &opts, &destination.schema_name)
+                .await
+                .expect_err("invalid full-v1 archive must fail before destination mutation");
+        assert!(matches!(
+            error,
+            ApiError::BadRequest(ref message)
+                if message == "Knowledge shard checksum validation failed."
+        ));
+        let clean_counts = db
+            .for_schema(&destination.schema_name)
+            .unwrap()
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM collection),
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM note_template),
+                           (SELECT COUNT(*) FROM link),
+                           (SELECT COUNT(*) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read clean full-v1 destination after rejected archive");
+        assert_eq!(clean_counts, (0, 0, 0, 0, 0));
 
         for _ in 0..2 {
             knowledge_shard_import_internal(&state, &exported, &opts, &destination.schema_name)

@@ -64,12 +64,31 @@ jobs:
           RUNNER_MIN_FREE_INODES: ${{ vars.RUNNER_MIN_FREE_INODES }}
         run: bash scripts/ci/check-runner-capacity.sh
 
+  verify-release-ref:
+    name: Verify Release Tag Authority
+    runs-on: matric-builder
+    needs: [runner-capacity]
+    steps:
+      - name: Verify tag when this is a release push
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != refs/tags/v* ]]; then
+            echo "Not a release tag; signature gate is a no-op."
+            exit 0
+          fi
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          git checkout --quiet --detach "${GITHUB_REF_NAME}^{commit}"
+          tools/ci/verify-signed-tag.sh "${GITHUB_REF_NAME}"
+
   # Keep the public source mirror aligned with authoritative Gitea refs. GHCR
   # and release API calls do not update repository refs themselves.
   sync-github-source:
     name: Sync Source to GitHub
     runs-on: matric-builder
-    needs: [runner-capacity]
+    needs: [runner-capacity, verify-release-ref]
     if: github.event_name == 'push'
     steps:
       - name: Checkout complete repository
@@ -245,7 +264,9 @@ jobs:
         run: python3 scripts/ci/verify-sidecar-publication.py
 
       - name: Check documentation shard freshness
-        run: python3 scripts/ci/verify-docs-shard-freshness.py
+        run: |
+          python3 scripts/ci/verify-docs-shard-freshness.py
+          python3 -m unittest tests/test_rebuild_docs_shard.py
 
       - name: Check migration immutability
         run: python3 scripts/ci/verify-migration-immutability.py
@@ -284,6 +305,19 @@ jobs:
       - name: Test fail-closed matrix verifier
         run: python3 -m unittest tests/test_verify_knowledge_shard_matrix.py
 
+      - name: Reproduce published React fixtures and self-roundtrips
+        working-directory: tests/conformance/pglite
+        run: |
+          npm ci --ignore-scripts --min-release-age=0
+          node generate-core-v1-fixture.mjs \
+            ../../fixtures/shards/pglite-core-v1-2026.7.11.shard \
+            --verify
+          node generate-record-v1-fixture.mjs \
+            ../../fixtures/shards/recordstore-record-v1-2026.7.11.shard \
+            --verify
+          node verify-fortemi-core-v1-fixture.mjs \
+            ../../fixtures/shards/fortemi-core-v1-2026.7.1.shard
+
       - name: Verify immutable matrix inputs
         run: |
           python3 scripts/ci/verify-knowledge-shard-matrix.py \
@@ -296,6 +330,10 @@ jobs:
           name: knowledge-shard-matrix
           path: |
             contracts/knowledge-shard/conformance/matrix.json
+            tests/fixtures/shards/fortemi-core-v1-2026.7.1.shard.receipt.json
+            tests/fixtures/shards/full-v1-integrated-candidate.shard.cell-receipt.json
+            tests/fixtures/shards/pglite-core-v1-2026.7.11.shard.receipt.json
+            tests/fixtures/shards/recordstore-record-v1-2026.7.11.shard.receipt.json
             knowledge-shard-matrix-results.json
 
   audit:
@@ -807,7 +845,7 @@ jobs:
   publish-dev:
     name: Publish Dev Image
     runs-on: matric-builder
-    needs: [test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
+    needs: [verify-release-ref, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
     # Belt-and-suspenders gating to exclude tag pushes. The branch-equality
     # check should be sufficient — `refs/tags/vX.Y.Z` is not equal to
     # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
@@ -924,7 +962,7 @@ jobs:
   publish-release:
     name: Publish Release Image
     runs-on: matric-builder
-    needs: [test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
+    needs: [verify-release-ref, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
@@ -1135,7 +1173,7 @@ jobs:
     runs-on: matric-builder
     # Promote the exact internal artifacts after their gated publication
     # instead of compiling the same source again for a second registry.
-    needs: [publish-dev, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
+    needs: [verify-release-ref, publish-dev, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
     # Belt-and-suspenders gating to exclude tag pushes. The branch-equality
     # check should be sufficient — `refs/tags/vX.Y.Z` is not equal to
     # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
@@ -1216,7 +1254,7 @@ jobs:
     name: Publish to GitHub (ghcr.io)
     runs-on: matric-builder
     # The internal release artifacts are the source of truth for GHCR.
-    needs: [publish-release, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
+    needs: [verify-release-ref, publish-release, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout

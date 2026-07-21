@@ -9,6 +9,12 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Added
 
+- **Cross-layer shard conformance matrix:** release claims now require complete,
+  digest-pinned producer and consumer evidence across Fortemi, Fortemi React,
+  PGlite, RecordStore, AIWG, and server round trips. Published-package fixtures
+  cover deterministic bytes, semantic re-export, repeated import convergence,
+  compatibility-window boundaries, malformed input, hierarchy cycles, resource
+  limits, and zero mutation on every rejection path.
 - **Knowledge Shard `record-v1` profile (#1057):** contract revision 4 enables
   the reduced RecordStore profile after an exact Fortemi React producer archive
   passed schema/checksum/relationship preflight, zero-mutation dry-run and
@@ -51,6 +57,11 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Security
 
+- **Vault-backed release authority:** ordinary commits and stable release tags
+  use distinct OpenBao-custodied GPG keys through TPM-sealed AppRoles. Signing
+  material exists only in tmpfs, exact fingerprints are checked before use,
+  and the release wrapper rejects prerelease versions, stale main, dirty trees,
+  missing release artifacts, or unpublished public authority.
 - **Bounded Knowledge Shard import (#923):** shard upload, base64 import, and
   on-disk swap now reject oversized compressed or expanded archives, unsafe or
   duplicate paths, non-regular tar entries, excessive entries, and oversized

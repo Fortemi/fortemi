@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "fortemi.knowledge-shard.fortemi-receipt.v1",
+  "producer": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "commit": "1cf174afe8143eab4bfa53d3d0e1a538b4e63711",
+    "version": "2026.7.1",
+    "test": "tests::shard_core_v1_server_export_clean_import_preserves_semantic_state"
+  },
+  "authority": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "commit": "81fbeaf065df3818edd046ed8a744f10eeb00e6f",
+    "contractRevision": "19",
+    "contractSha256": "5debc14e0bc7eef403a75e8e063a10f53019e1d74857485d6eda3abaec9397e2",
+    "schemaVersion": "1.2.0",
+    "schemaBundleSha256": "deec0cb66dc09865667256e29340d096c02dd9b0e55bdc1ae60b7effb68ac595"
+  },
+  "fixture": {
+    "path": "tests/fixtures/shards/fortemi-core-v1-2026.7.1.shard",
+    "sha256": "62301b42749dc4f523ce5121af2593798d81db1f31356200640ed4a271d0f5a0",
+    "bytes": 1319,
+    "profile": "core-v1",
+    "createdAt": "2026-07-21T05:06:49.180569718Z",
+    "components": [
+      "notes",
+      "collections",
+      "tags",
+      "templates",
+      "links"
+    ],
+    "counts": {
+      "notes": 2,
+      "collections": 2,
+      "tags": 1,
+      "templates": 1,
+      "links": 1
+    }
+  },
+  "generation": {
+    "environmentVariable": "FORTEMI_CORE_V1_SELF_SHARD",
+    "command": "cargo test -p matric-api --bin matric-api tests::shard_core_v1_server_export_clean_import_preserves_semantic_state -- --exact --nocapture --test-threads=1"
+  },
+  "consumers": {
+    "fortemi": {
+      "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+      "baseCommit": "1cf174afe8143eab4bfa53d3d0e1a538b4e63711",
+      "test": "tests::shard_core_v1_server_export_clean_import_preserves_semantic_state",
+      "cleanDestination": true,
+      "semanticReexport": true,
+      "repeatedImports": 2,
+      "currentMinusTwoMigration": {
+        "from": "1.0.0",
+        "to": "1.2.0"
+      },
+      "malformedInputRejected": true,
+      "lateWriteRollback": true,
+      "destructiveSwapRollback": true,
+      "persistentMutationAfterRejection": 0
+    },
+    "pglite": {
+      "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+      "commit": "f45ca77c9af835d40673b357f523808d07f6597b",
+      "package": {
+        "name": "@fortemi/core",
+        "version": "2026.7.11",
+        "integrity": "sha512-0X+3KLhCwD19xASvxUbfeIbnq7lc/GqvQH66l8S1r+lBjz59WjkWiN/IjrZLeCSMe1B0ipOA3XoJQlzpYFLnLw=="
+      },
+      "verifierSha256": "d4b4dcb7f02e4a29ccce41b7cec29e7f1aad65f3ef31a12de0e3a76192049ac6",
+      "cleanDestination": true,
+      "semanticReexport": true,
+      "portable": true,
+      "malformedInputRejected": true,
+      "persistentMutationAfterRejection": 0
+    }
+  },
+  "coverage": [
+    "hierarchy",
+    "nulls",
+    "tombstones",
+    "current-minus-two",
+    "current",
+    "malformed-input"
+  ]
+}

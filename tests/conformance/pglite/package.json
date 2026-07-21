@@ -1,0 +1,9 @@
+{
+  "name": "fortemi-pglite-shard-conformance",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@electric-sql/pglite": "0.4.1",
+    "@fortemi/core": "2026.7.11"
+  }
+}

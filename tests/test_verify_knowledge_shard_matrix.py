@@ -50,20 +50,27 @@ class MatrixVerifierTest(unittest.TestCase):
         return json.loads(MATRIX.read_text())
 
     def test_valid_pending_inventory_blocks_claims_without_failing_ci(self) -> None:
-        result, output = self.run_verifier(self.matrix())
+        matrix = self.matrix()
+        matrix["cells"][-1]["status"] = "pending"
+        matrix["cells"][-1]["blockingReason"] = "synthetic pending cell"
+        result, output = self.run_verifier(matrix)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIsNotNone(output)
         assert output is not None
         self.assertFalse(output["claimsAllowed"])
         self.assertEqual(output["summary"]["requiredCells"], 9)
-        self.assertEqual(output["summary"]["pending"], 9)
+        self.assertEqual(output["summary"]["passed"], 8)
+        self.assertEqual(output["summary"]["pending"], 1)
         self.assertEqual(
             set(output["blockedClaims"]),
             {"compatibility", "portability", "backup", "parity"},
         )
 
     def test_release_mode_fails_closed_while_cells_are_pending(self) -> None:
-        result, output = self.run_verifier(self.matrix(), "--require-complete")
+        matrix = self.matrix()
+        matrix["cells"][-1]["status"] = "pending"
+        matrix["cells"][-1]["blockingReason"] = "synthetic pending cell"
+        result, output = self.run_verifier(matrix, "--require-complete")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIsNotNone(output)
         assert output is not None
@@ -79,13 +86,61 @@ class MatrixVerifierTest(unittest.TestCase):
 
     def test_pending_cell_cannot_be_relabelled_passed(self) -> None:
         matrix = self.matrix()
-        cell = matrix["cells"][0]
-        cell["status"] = "passed"
-        cell["blockingReason"] = None
+        cell = matrix["cells"][-1]
+        del cell["assertions"]
         result, output = self.run_verifier(matrix)
         self.assertEqual(result.returncode, 2)
         self.assertIsNone(output)
-        self.assertIn("cannot pass without every coverage requirement", result.stderr)
+        self.assertIn("cannot pass without all fail-closed assertions", result.stderr)
+
+    def test_profile_coverage_policy_cannot_be_weakened(self) -> None:
+        matrix = self.matrix()
+        matrix["profileCoverageRequirements"]["full-v1"].remove("attachment-bytes")
+        result, output = self.run_verifier(matrix)
+        self.assertEqual(result.returncode, 2)
+        self.assertIsNone(output)
+        self.assertIn("canonical profile components", result.stderr)
+
+    def test_complete_matrix_requires_behavior_coverage_for_each_consumer(self) -> None:
+        matrix = self.matrix()
+        evidence = matrix["participants"][0]["immutableInputs"][0]
+        for cell in matrix["cells"]:
+            cell["status"] = "passed"
+            cell["blockingReason"] = None
+            cell["coverage"] = [
+                *matrix["profileCoverageRequirements"][cell["profile"]],
+                "current",
+            ]
+            cell["assertions"] = {
+                "cleanDestination": True,
+                "semanticReexport": True,
+                "zeroMutationOnFailure": True,
+            }
+            cell["evidence"] = [evidence]
+        result, output = self.run_verifier(matrix)
+        self.assertEqual(result.returncode, 2)
+        self.assertIsNone(output)
+        self.assertIn("consumer behavior coverage", result.stderr)
+
+    def test_complete_matrix_requires_profile_coverage_across_cells(self) -> None:
+        matrix = self.matrix()
+        evidence = matrix["participants"][0]["immutableInputs"][0]
+        for cell in matrix["cells"]:
+            cell["status"] = "passed"
+            cell["blockingReason"] = None
+            cell["coverage"] = matrix["consumerBehaviorCoverageRequirements"].get(
+                cell["consumer"], []
+            )
+            cell["assertions"] = {
+                "cleanDestination": True,
+                "semanticReexport": True,
+                "zeroMutationOnFailure": True,
+            }
+            cell["evidence"] = [evidence]
+        result, output = self.run_verifier(matrix)
+        self.assertEqual(result.returncode, 2)
+        self.assertIsNone(output)
+        self.assertIn("profile coverage", result.stderr)
 
     def test_local_receipt_digest_drift_is_rejected(self) -> None:
         matrix = copy.deepcopy(self.matrix())
@@ -102,7 +157,9 @@ class MatrixVerifierTest(unittest.TestCase):
 
     def test_failed_cell_fails_ordinary_ci(self) -> None:
         matrix = self.matrix()
-        matrix["cells"][0]["status"] = "failed"
+        cell = matrix["cells"][-1]
+        cell["status"] = "failed"
+        cell["blockingReason"] = "synthetic failed cell"
         result, output = self.run_verifier(matrix)
         self.assertEqual(result.returncode, 1)
         self.assertIsNotNone(output)

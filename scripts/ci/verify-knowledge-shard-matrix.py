@@ -26,7 +26,45 @@ REQUIRED_ASSERTIONS = {
     "cleanDestination",
     "semanticReexport",
     "zeroMutationOnFailure",
-    "versionMatrix",
+}
+REQUIRED_PROFILE_COVERAGE = {
+    "core-v1": {"hierarchy", "metadata", "nulls", "tombstones"},
+    "record-v1": {"hierarchy", "metadata", "nulls", "tombstones"},
+    "full-v1": {
+        "hierarchy",
+        "metadata",
+        "attachment-bytes",
+        "embeddings",
+        "embedding-contract-lineage",
+        "skos",
+        "provenance",
+        "graph-community",
+        "nulls",
+        "tombstones",
+    },
+}
+REQUIRED_CONSUMER_BEHAVIOR_COVERAGE = {
+    "fortemi": {
+        "current-minus-two",
+        "current",
+        "next-major-rejection",
+        "malformed-input",
+        "resource-limits",
+    },
+    "pglite": {
+        "current-minus-two",
+        "current",
+        "next-major-rejection",
+        "malformed-input",
+        "resource-limits",
+    },
+    "recordstore": {
+        "current-minus-two",
+        "current",
+        "next-major-rejection",
+        "malformed-input",
+        "resource-limits",
+    },
 }
 ALLOWED_REPOSITORIES = {
     "https://git.integrolabs.net/Fortemi/fortemi.git",
@@ -204,6 +242,8 @@ def validate_matrix_shape(matrix: Any) -> set[tuple[str, str, str]]:
             "authority",
             "claimPolicy",
             "coverageRequirements",
+            "profileCoverageRequirements",
+            "consumerBehaviorCoverageRequirements",
             "participants",
             "cells",
         },
@@ -215,6 +255,8 @@ def validate_matrix_shape(matrix: Any) -> set[tuple[str, str, str]]:
             "authority",
             "claimPolicy",
             "coverageRequirements",
+            "profileCoverageRequirements",
+            "consumerBehaviorCoverageRequirements",
             "participants",
             "cells",
         },
@@ -283,6 +325,54 @@ def validate_matrix_shape(matrix: Any) -> set[tuple[str, str, str]]:
         and len(coverage) == len(set(coverage))
         and all(isinstance(item, str) and item for item in coverage),
         "coverageRequirements must be a non-empty unique string array",
+    )
+    coverage_set = set(coverage)
+
+    profile_coverage = matrix["profileCoverageRequirements"]
+    require(
+        isinstance(profile_coverage, dict)
+        and set(profile_coverage) == PROFILES,
+        "profileCoverageRequirements must define every advertised profile",
+    )
+    normalized_profile_coverage: dict[str, set[str]] = {}
+    for profile, requirements in profile_coverage.items():
+        require(
+            isinstance(requirements, list)
+            and requirements
+            and len(requirements) == len(set(requirements))
+            and set(requirements) <= coverage_set,
+            f"profileCoverageRequirements.{profile} is invalid",
+        )
+        normalized_profile_coverage[profile] = set(requirements)
+    require(
+        normalized_profile_coverage == REQUIRED_PROFILE_COVERAGE,
+        "profile coverage policy does not match the canonical profile components",
+    )
+
+    consumer_behavior_coverage = matrix["consumerBehaviorCoverageRequirements"]
+    require(
+        isinstance(consumer_behavior_coverage, dict)
+        and set(consumer_behavior_coverage) == set(REQUIRED_CONSUMER_BEHAVIOR_COVERAGE),
+        "consumerBehaviorCoverageRequirements must define every advertised consumer",
+    )
+    normalized_consumer_behavior: dict[str, set[str]] = {}
+    for consumer, requirements in consumer_behavior_coverage.items():
+        require(
+            isinstance(requirements, list)
+            and requirements
+            and len(requirements) == len(set(requirements))
+            and set(requirements) <= coverage_set,
+            f"consumerBehaviorCoverageRequirements.{consumer} is invalid",
+        )
+        normalized_consumer_behavior[consumer] = set(requirements)
+    require(
+        normalized_consumer_behavior == REQUIRED_CONSUMER_BEHAVIOR_COVERAGE,
+        "consumer behavior coverage policy is incomplete",
+    )
+    require(
+        set().union(*normalized_profile_coverage.values(), *normalized_consumer_behavior.values())
+        == coverage_set,
+        "coverageRequirements must equal the profile and consumer behavior policy union",
     )
 
     participants = matrix["participants"]
@@ -383,7 +473,12 @@ def validate_matrix_shape(matrix: Any) -> set[tuple[str, str, str]]:
     require(isinstance(cells, list), "cells must be an array")
     actual_cells: set[tuple[str, str, str]] = set()
     ids: set[str] = set()
-    coverage_set = set(coverage)
+    passed_coverage_by_consumer: dict[str, set[str]] = {
+        consumer: set() for consumer in REQUIRED_CONSUMER_BEHAVIOR_COVERAGE
+    }
+    passed_coverage_by_profile: dict[str, set[str]] = {
+        profile: set() for profile in REQUIRED_PROFILE_COVERAGE
+    }
     for index, cell in enumerate(cells):
         label = f"cells[{index}]"
         require_keys(
@@ -434,10 +529,6 @@ def validate_matrix_shape(matrix: Any) -> set[tuple[str, str, str]]:
             f"{label}.trackingIssues must not be empty",
         )
         if cell["status"] == "passed":
-            require(
-                set(cell["coverage"]) == coverage_set,
-                f"{label} cannot pass without every coverage requirement",
-            )
             assertions = cell.get("assertions")
             require(
                 isinstance(assertions, dict)
@@ -447,6 +538,8 @@ def validate_matrix_shape(matrix: Any) -> set[tuple[str, str, str]]:
             )
             require(cell["evidence"], f"{label} cannot pass without immutable evidence")
             require(cell["blockingReason"] is None, f"{label} passed but remains blocked")
+            passed_coverage_by_consumer[cell["consumer"]].update(cell["coverage"])
+            passed_coverage_by_profile[cell["profile"]].update(cell["coverage"])
         else:
             require(
                 isinstance(cell["blockingReason"], str) and cell["blockingReason"].strip(),
@@ -457,6 +550,21 @@ def validate_matrix_shape(matrix: Any) -> set[tuple[str, str, str]]:
     extra = actual_cells - expected_cells
     require(not missing, f"matrix missing required cells: {sorted(missing)}")
     require(not extra, f"matrix contains unsupported cells: {sorted(extra)}")
+    if all(cell["status"] == "passed" for cell in cells):
+        for profile, required in normalized_profile_coverage.items():
+            require(
+                required <= passed_coverage_by_profile[profile],
+                f"passed matrix lacks required {profile} profile coverage",
+            )
+        for consumer, required in normalized_consumer_behavior.items():
+            require(
+                required <= passed_coverage_by_consumer[consumer],
+                f"passed matrix lacks required {consumer} consumer behavior coverage",
+            )
+        require(
+            set().union(*(set(cell["coverage"]) for cell in cells)) == coverage_set,
+            "passed matrix does not cover the complete corpus requirement inventory",
+        )
     return expected_cells
 
 
