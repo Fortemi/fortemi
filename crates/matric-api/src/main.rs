@@ -46144,9 +46144,6 @@ not-json
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
-        db.migrate()
-            .await
-            .expect("migrate core-v1 self-route integration database");
         let source_name = format!("shard-source-{}", Uuid::new_v4().simple());
         let source = db
             .archives
@@ -46872,7 +46869,6 @@ not-json
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
-        db.migrate().await.expect("migrate integration database");
         let archive_name = format!("pglite-shard-{}", Uuid::new_v4().simple());
         let destination = db
             .archives
