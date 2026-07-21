@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Fortemi knowledge receipt manifest diagram</title>
+  <desc id="desc">Professional architecture diagram showing a portable knowledge package carrying source, attachments, versions, provenance, integrity receipts, and an import path.</desc>
+  <defs>
+    <style>
+      .ui{font-family:Inter,Arial,sans-serif}
+      .mono{font-family:"SFMono-Regular","Cascadia Mono",Consolas,monospace}
+      .title{fill:#f8fafc;font-size:48px;font-weight:850}
+      .subtitle{fill:#a8b3c7;font-size:24px}
+      .head{font-size:28px;font-weight:850}
+      .body{font-size:20px}
+    </style>
+    <radialGradient id="bg" cx="50%" cy="22%" r="85%">
+      <stop offset="0%" stop-color="#0f3f46"/>
+      <stop offset="48%" stop-color="#081827"/>
+      <stop offset="100%" stop-color="#050b14"/>
+    </radialGradient>
+    <linearGradient id="shard" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#06342f"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="20" stdDeviation="18" flood-color="#000" flood-opacity=".38"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <path d="M150 730 C340 614 454 760 644 596 C805 456 948 288 1170 320 C1320 342 1402 430 1500 382" fill="none" stroke="#2dd4bf" stroke-width="2" opacity=".28"/>
+  <text x="100" y="102" class="ui title">Knowledge leaves with receipts</text>
+  <text x="100" y="148" class="ui subtitle">The useful export is the bundle plus the evidence trail that travels with it.</text>
+
+  <g class="ui" text-anchor="middle" filter="url(#shadow)">
+    <rect x="104" y="240" width="316" height="134" rx="24" fill="#10233a" stroke="#38bdf8" stroke-width="2"/>
+    <rect x="104" y="448" width="316" height="134" rx="24" fill="#10233a" stroke="#38bdf8" stroke-width="2"/>
+    <rect x="104" y="656" width="316" height="134" rx="24" fill="#10233a" stroke="#38bdf8" stroke-width="2"/>
+
+    <rect x="550" y="214" width="500" height="500" rx="38" fill="url(#shard)" stroke="#2dd4bf" stroke-width="3"/>
+
+    <rect x="1180" y="240" width="316" height="134" rx="24" fill="#2a1906" stroke="#f59e0b" stroke-width="2"/>
+    <rect x="1180" y="448" width="316" height="134" rx="24" fill="#2a1906" stroke="#f59e0b" stroke-width="2"/>
+    <rect x="1180" y="656" width="316" height="134" rx="24" fill="#2a1906" stroke="#f59e0b" stroke-width="2"/>
+  </g>
+
+  <g class="ui" text-anchor="middle">
+    <text x="262" y="292" class="head" fill="#e0f2fe">Source record</text>
+    <text x="262" y="334" class="body" fill="#bae6fd">
+      <tspan x="262">where the knowledge</tspan>
+      <tspan x="262" dy="28">came from</tspan>
+    </text>
+    <text x="262" y="500" class="head" fill="#e0f2fe">Attachments</text>
+    <text x="262" y="542" class="body" fill="#bae6fd">
+      <tspan x="262">stable IDs and</tspan>
+      <tspan x="262" dy="28">content checks</tspan>
+    </text>
+    <text x="262" y="708" class="head" fill="#e0f2fe">Versions</text>
+    <text x="262" y="750" class="body" fill="#bae6fd">original and revisions</text>
+
+    <text x="800" y="306" fill="#ccfbf1" font-size="42" font-weight="850">Knowledge Shard</text>
+    <text x="800" y="354" fill="#a7f3d0" font-size="24">portable package</text>
+
+    <text x="1338" y="292" class="head" fill="#fef3c7">Provenance</text>
+    <text x="1338" y="334" class="body" fill="#fde68a">
+      <tspan x="1338">source → extraction</tspan>
+      <tspan x="1338" dy="28">→ summary → decision</tspan>
+    </text>
+    <text x="1338" y="500" class="head" fill="#fef3c7">Integrity</text>
+    <text x="1338" y="542" class="body" fill="#fde68a">verify what left</text>
+    <text x="1338" y="708" class="head" fill="#fef3c7">Import path</text>
+    <text x="1338" y="750" class="body" fill="#fde68a">preserve the bundle</text>
+  </g>
+
+  <g class="mono" font-size="22" fill="#e6fffb" text-anchor="middle">
+    <rect x="626" y="422" width="348" height="60" rx="15" fill="#082d2a" stroke="#5eead4"/>
+    <text x="800" y="452" dominant-baseline="middle">manifest.json</text>
+    <rect x="626" y="518" width="348" height="60" rx="15" fill="#082d2a" stroke="#5eead4"/>
+    <text x="800" y="548" dominant-baseline="middle">provenance graph</text>
+    <rect x="626" y="614" width="348" height="60" rx="15" fill="#082d2a" stroke="#5eead4"/>
+    <text x="800" y="644" dominant-baseline="middle">hash receipts</text>
+  </g>
+
+  <path d="M420 307 C488 307 506 430 550 444" stroke="#67e8f9" stroke-width="3" fill="none"/>
+  <path d="M420 515 H550" stroke="#67e8f9" stroke-width="3" fill="none"/>
+  <path d="M420 723 C488 723 506 626 550 610" stroke="#67e8f9" stroke-width="3" fill="none"/>
+  <path d="M1050 444 C1094 430 1112 307 1180 307" stroke="#fbbf24" stroke-width="3" fill="none"/>
+  <path d="M1050 515 H1180" stroke="#fbbf24" stroke-width="3" fill="none"/>
+  <path d="M1050 610 C1094 626 1112 723 1180 723" stroke="#fbbf24" stroke-width="3" fill="none"/>
+</svg>

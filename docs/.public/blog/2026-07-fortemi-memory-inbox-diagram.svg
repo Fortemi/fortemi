@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Fortemi memory inbox lanes diagram</title>
+  <desc id="desc">Professional diagram showing live context sources entering a controlled memory inbox before stored memory and retrieval.</desc>
+  <defs>
+    <style>
+      .ui{font-family:Inter,Arial,sans-serif}
+      .title{fill:#f8fafc;font-size:48px;font-weight:850}
+      .subtitle{fill:#a8b3c7;font-size:24px}
+      .label{font-size:27px;font-weight:850}
+      .body{font-size:21px}
+    </style>
+    <radialGradient id="bg" cx="58%" cy="18%" r="88%">
+      <stop offset="0%" stop-color="#0f3f46"/>
+      <stop offset="48%" stop-color="#081827"/>
+      <stop offset="100%" stop-color="#050b14"/>
+    </radialGradient>
+    <linearGradient id="inbox" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#06342f"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="20" stdDeviation="18" flood-color="#000" flood-opacity=".38"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <text x="800" y="96" class="ui title" text-anchor="middle">Search is downstream of intake</text>
+  <text x="800" y="142" class="ui subtitle" text-anchor="middle">A memory inbox gives live context controlled arrival before retrieval quality matters.</text>
+
+  <g class="ui" text-anchor="middle" filter="url(#shadow)">
+    <rect x="112" y="232" width="318" height="96" rx="22" fill="#10233a" stroke="#38bdf8" stroke-width="2"/>
+    <rect x="112" y="374" width="318" height="96" rx="22" fill="#10233a" stroke="#38bdf8" stroke-width="2"/>
+    <rect x="112" y="516" width="318" height="96" rx="22" fill="#10233a" stroke="#38bdf8" stroke-width="2"/>
+    <rect x="112" y="658" width="318" height="96" rx="22" fill="#10233a" stroke="#38bdf8" stroke-width="2"/>
+
+    <rect x="618" y="244" width="414" height="500" rx="38" fill="url(#inbox)" stroke="#2dd4bf" stroke-width="3"/>
+
+    <rect x="1210" y="300" width="294" height="150" rx="26" fill="#2a1906" stroke="#f59e0b" stroke-width="2"/>
+    <rect x="1210" y="562" width="294" height="150" rx="26" fill="#2a1906" stroke="#f59e0b" stroke-width="2"/>
+  </g>
+
+  <g class="ui" text-anchor="middle">
+    <text x="271" y="280" class="label" fill="#e0f2fe" dominant-baseline="middle">Agent stream</text>
+    <text x="271" y="422" class="label" fill="#e0f2fe" dominant-baseline="middle">Signed event</text>
+    <text x="271" y="564" class="label" fill="#e0f2fe" dominant-baseline="middle">Large upload</text>
+    <text x="271" y="706" class="label" fill="#e0f2fe" dominant-baseline="middle">External feed</text>
+
+    <text x="825" y="324" fill="#ccfbf1" font-size="42" font-weight="850">Memory inbox</text>
+
+    <text x="1357" y="356" fill="#fef3c7" font-size="30" font-weight="850">Stored memory</text>
+    <text x="1357" y="402" class="body" fill="#fde68a">
+      <tspan x="1357">current, attributed,</tspan>
+      <tspan x="1357" dy="29">recoverable context</tspan>
+    </text>
+    <text x="1357" y="618" fill="#fef3c7" font-size="30" font-weight="850">Retrieval</text>
+    <text x="1357" y="664" class="body" fill="#fde68a">
+      <tspan x="1357">search and graph</tspan>
+      <tspan x="1357" dy="29">on accepted material</tspan>
+    </text>
+  </g>
+
+  <g class="ui" fill="#a7f3d0" font-size="25">
+    <circle cx="704" cy="400" r="6" fill="#5eead4"/>
+    <text x="734" y="400" dominant-baseline="middle">verify sender</text>
+    <circle cx="704" cy="454" r="6" fill="#5eead4"/>
+    <text x="734" y="454" dominant-baseline="middle">validate shape</text>
+    <circle cx="704" cy="508" r="6" fill="#5eead4"/>
+    <text x="734" y="508" dominant-baseline="middle">dedupe event</text>
+    <circle cx="704" cy="562" r="6" fill="#5eead4"/>
+    <text x="734" y="562" dominant-baseline="middle">pace / resume</text>
+    <circle cx="704" cy="616" r="6" fill="#5eead4"/>
+    <text x="734" y="616" dominant-baseline="middle">isolate failures</text>
+    <circle cx="704" cy="670" r="6" fill="#5eead4"/>
+    <text x="734" y="670" dominant-baseline="middle">audit acceptance</text>
+  </g>
+
+  <path d="M430 280 H618" stroke="#67e8f9" stroke-width="4"/>
+  <path d="M430 422 H618" stroke="#67e8f9" stroke-width="4"/>
+  <path d="M430 564 H618" stroke="#67e8f9" stroke-width="4"/>
+  <path d="M430 706 H618" stroke="#67e8f9" stroke-width="4"/>
+  <path d="M1032 375 H1210" stroke="#fbbf24" stroke-width="4"/>
+  <path d="M1357 450 V562" stroke="#fbbf24" stroke-width="4"/>
+</svg>

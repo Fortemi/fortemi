@@ -88,6 +88,28 @@ It ships static HTML plus root-level `sitemap.xml`, `robots.txt`, and
 `llms.txt` files that route bots and readers to the two published docsites:
 `/server/` and `/react/`.
 
+## Scheduled Post Releases
+
+Queued future posts live outside the live docs content tree so normal builds do
+not publish them early:
+
+```text
+scheduled-docs/posts/<slug>.md
+```
+
+Set a valid ISO-8601 `publish_at` timestamp when a post is ready to release:
+
+```yaml
+publish_at: "2026-07-28T14:00:00Z"
+```
+
+Blank, missing, or invalid `publish_at` values are ignored. The daily
+`.gitea/workflows/scheduled-docs-release.yml` job runs
+`scripts/docs/promote-scheduled-posts.mjs`, moves due posts into
+`docs/content/posts/`, validates with `npm run docs:build`, commits the
+promotion, and pushes to `main`. The existing docsite deploy workflow then
+publishes through the normal `/server` route.
+
 ## Update Procedure
 
 1. Check the published version:
