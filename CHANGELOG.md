@@ -7,6 +7,20 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.7.11] - 2026-07-21
+
+Stable publication recovery for the `2026.7.10` data-portability release. The
+Knowledge Shard formats, profiles, compatibility window, and conformance
+receipts are unchanged.
+
+### Fixed
+
+- Export the resolved release version to the GHCR promotion script so the
+  versioned API and multi-architecture bundle images can be published.
+- Attach checksum-covered in-toto provenance to versioned native sidecars and
+  mirror the complete five-asset release set from Gitea to GitHub, rejecting
+  checksum, provenance-subject, or existing-asset mismatches.
+
 ## [2026.7.10] - 2026-07-21
 
 Data-portability and contract-hardening release. The registered Knowledge Shard
@@ -1813,7 +1827,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.7.10...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.7.11...HEAD
+[2026.7.11]: https://github.com/fortemi/fortemi/compare/v2026.7.10...v2026.7.11
 [2026.7.10]: https://github.com/fortemi/fortemi/compare/v2026.7.1...v2026.7.10
 [2026.7.1]: https://github.com/fortemi/fortemi/compare/v2026.7.0...v2026.7.1
 [2026.7.0]: https://github.com/fortemi/fortemi/compare/v2026.6.1...v2026.7.0
