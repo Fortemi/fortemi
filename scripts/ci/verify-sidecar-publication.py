@@ -22,6 +22,7 @@ def main() -> int:
     publisher = PUBLISHER.read_text()
 
     for needle in (
+        "publish-sidecar-release.sh prepare",
         "publish-sidecar-release.sh immutable",
         "publish-sidecar-release.sh rolling",
     ):
@@ -42,6 +43,7 @@ def main() -> int:
         "sha256sum -c",
         '"_type": "https://in-toto.io/Statement/v1"',
         '"predicateType": "https://slsa.dev/provenance/v1"',
+        "prepare)",
     ):
         require(publisher, needle, PUBLISHER, failures)
 

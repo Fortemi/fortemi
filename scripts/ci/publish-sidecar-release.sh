@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:?usage: publish-sidecar-release.sh <immutable|rolling>}"
+MODE="${1:?usage: publish-sidecar-release.sh <prepare|immutable|rolling>}"
 : "${GITEA_API:?GITEA_API is required}"
 : "${REPO:?REPO is required}"
 : "${GITEA_TOKEN:?GITEA_TOKEN is required}"
@@ -204,6 +204,9 @@ upload_assets() {
 }
 
 case "${MODE}" in
+  prepare)
+    echo "prepared sidecar checksums and provenance"
+    ;;
   immutable)
     TAG="sidecar-${GITHUB_SHA:0:12}"
     EXISTING=$(release_by_tag "${TAG}")

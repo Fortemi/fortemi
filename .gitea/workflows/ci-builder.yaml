@@ -261,7 +261,9 @@ jobs:
           python3 -m unittest tests/test_verify_adr_rebaseline.py
 
       - name: Check sidecar publication policy
-        run: python3 scripts/ci/verify-sidecar-publication.py
+        run: |
+          python3 scripts/ci/verify-sidecar-publication.py
+          python3 scripts/ci/verify-release-asset-mirror.py
 
       - name: Check documentation shard freshness
         run: |
@@ -1442,3 +1444,8 @@ jobs:
             echo "$BODY" | jq .
             exit 1
           fi
+
+      - name: Mirror native release assets to GitHub
+        env:
+          GITEA_TOKEN: ${{ github.token }}
+        run: scripts/ci/mirror-release-assets-to-github.sh

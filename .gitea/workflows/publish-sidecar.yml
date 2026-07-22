@@ -336,6 +336,9 @@ jobs:
     needs: [build-linux, build-macos]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
+      - name: Checkout publication tooling
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
       - name: Download artifacts
         uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a  # v3
         with:
@@ -354,9 +357,12 @@ jobs:
           cp artifacts/matric-api-x86_64-apple-darwin/matric-api-x86_64-apple-darwin .
           chmod +x matric-api-*
 
+          GITEA_TOKEN="${{ github.token }}" \
+            scripts/ci/publish-sidecar-release.sh prepare
+
           echo "=== Binaries to publish for ${TAG} ==="
           ls -lh matric-api-*
-          sha256sum matric-api-*
+          cat SHA256SUMS.txt
 
           # Wait for the versioned release to exist (created by ci-builder.yaml)
           echo "Waiting for release ${TAG} to be created by CI pipeline..."
@@ -414,13 +420,19 @@ jobs:
           done
 
           # Upload checksums
-          sha256sum matric-api-* > SHA256SUMS.txt
           curl -sf -X POST \
             -H "Authorization: token ${TOKEN}" \
             -H "Content-Type: text/plain" \
             "${API}/releases/${RELEASE_ID}/assets?name=SHA256SUMS.txt" \
             --data-binary @SHA256SUMS.txt
           echo "  Uploaded SHA256SUMS.txt"
+
+          curl -sf -X POST \
+            -H "Authorization: token ${TOKEN}" \
+            -H "Content-Type: application/octet-stream" \
+            "${API}/releases/${RELEASE_ID}/assets?name=sidecar-provenance.intoto.json" \
+            --data-binary @sidecar-provenance.intoto.json
+          echo "  Uploaded sidecar-provenance.intoto.json"
 
           echo ""
           echo "=== Published sidecar binaries to ${TAG} ==="
