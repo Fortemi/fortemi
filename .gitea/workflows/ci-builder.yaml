@@ -1291,7 +1291,7 @@ jobs:
       - name: Promote release images to ghcr.io
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
+          export VERSION="${GITHUB_REF_NAME#v}"
           export SOURCE_IMAGE="${REGISTRY}/${IMAGE_NAME}"
           export TARGET_IMAGE="${GHCR_REGISTRY}/${GHCR_IMAGE_NAME}"
           export API_SOURCE_TAG="${VERSION}"

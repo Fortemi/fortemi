@@ -11,6 +11,7 @@ from pathlib import Path
 
 
 POLICY = Path("docker/container-release-evidence-policy.json")
+CI_WORKFLOW = Path(".gitea/workflows/ci-builder.yaml")
 CAPTURE = "scripts/ci/capture-container-release-evidence.py"
 EXPECTED_FAMILIES = {"api", "bundle", "gliner", "pyannote", "builder", "testdb"}
 EXPECTED_REGISTRIES = {"git.integrolabs.net", "ghcr.io"}
@@ -140,6 +141,13 @@ def main() -> int:
         provenance = controls.get("provenance", {})
         if provenance.get("status") != "deferred" or "OIDC" not in provenance.get("reason", ""):
             failures.append("disabled promotion provenance requires an explicit OIDC deferment")
+
+    ci_workflow = CI_WORKFLOW.read_text()
+    release_promotion = ci_workflow.split(
+        "- name: Promote release images to ghcr.io", 1
+    )[-1].split("- name: Upload GHCR release image evidence", 1)[0]
+    if 'export VERSION="${GITHUB_REF_NAME#v}"' not in release_promotion:
+        failures.append("GHCR release promotion must export VERSION to its publisher")
 
     if failures:
         print("container release evidence policy check failed", file=sys.stderr)

@@ -71,6 +71,18 @@ class VerifyContainerReleaseEvidenceTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must not claim OIDC", result.stderr)
 
+    def test_unexported_release_version_fails_closed(self) -> None:
+        workflow = self.root / ".gitea/workflows/ci-builder.yaml"
+        workflow.write_text(
+            workflow.read_text().replace(
+                'export VERSION="${GITHUB_REF_NAME#v}"',
+                'VERSION="${GITHUB_REF_NAME#v}"',
+            )
+        )
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must export VERSION", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
