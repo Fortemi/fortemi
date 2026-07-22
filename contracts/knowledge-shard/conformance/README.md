@@ -4,13 +4,14 @@
 Fortemi issue #1059. It derives required cells from every declared producer
 profile and every advertised consumer profile. A cell is not compatible merely
 because its repository tests pass: `passed` requires immutable evidence, a
-clean destination, semantic re-export, and zero-mutation failure evidence. The
-completed matrix additionally requires the feature inventory for each profile
-to be covered across that profile's passed cells, plus current-minus-two,
-current, next-major rejection, malformed-input, and resource-limit behavior
-across the passed cells for every advertised consumer. This lets deliberately
-narrow producers report only what their fixture exercises without weakening
-the profile-scoped or suite-wide gate.
+clean destination, semantic re-export, and zero-mutation failure evidence.
+Every passed cell must independently cover the complete feature inventory for
+its profile plus current-minus-two, current, next-major rejection,
+malformed-input, and resource-limit behavior for its consumer. Coverage cannot
+be borrowed from another producer, consumer, or cell, and a passed cell must
+bind its exact coverage array to a digest-pinned JSON receipt. Pending cells may
+record partial evidence, but their missing dimensions are emitted as false
+`coverageOutcomes` and keep suite claims blocked.
 
 `scripts/ci/verify-knowledge-shard-matrix.py` validates the topology, pins the
 Fortemi authority, hashes local evidence, and can clone sibling repositories at
@@ -32,8 +33,11 @@ python3 scripts/ci/verify-knowledge-shard-matrix.py --verify-remotes
     ../../fixtures/shards/recordstore-record-v1-2026.7.11.shard --verify)
 ```
 
-The matrix records nine passed producer/consumer cells against published
-`@fortemi/core@2026.7.11` receipts. `record-v1` began at schema `1.1.0`, so its
+The stricter per-cell gate currently records one passed cell and eight pending
+cells against the published `@fortemi/core@2026.7.11` receipts. The
+RecordStore self-cell is complete: `record-v1` began at schema `1.1.0`, so its
 current-minus-two evidence explicitly proves that an undefined `1.0.0`
 record-v1 archive is rejected without mutation while the oldest defined
-`1.1.0` archive remains accepted.
+`1.1.0` archive remains accepted. Every other cell remains present in the
+required topology with an exact missing-evidence reason; none can inherit that
+RecordStore receipt or another cell's semantic coverage.

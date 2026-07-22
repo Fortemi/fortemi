@@ -293,7 +293,7 @@
       "producer": "fortemi",
       "consumer": "fortemi",
       "profile": "core-v1",
-      "status": "passed",
+      "status": "pending",
       "coverage": [
         "hierarchy",
         "nulls",
@@ -332,14 +332,14 @@
       "trackingIssues": [
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059"
       ],
-      "blockingReason": null
+      "blockingReason": "Per-cell receipt is missing metadata, next-major-rejection, and resource-limits evidence."
     },
     {
       "id": "fortemi-core-v1-to-pglite",
       "producer": "fortemi",
       "consumer": "pglite",
       "profile": "core-v1",
-      "status": "passed",
+      "status": "pending",
       "coverage": [
         "hierarchy",
         "nulls",
@@ -379,14 +379,14 @@
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059",
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/354"
       ],
-      "blockingReason": null
+      "blockingReason": "Per-cell receipt is missing current-minus-two, metadata, next-major-rejection, and resource-limits evidence."
     },
     {
       "id": "fortemi-full-v1-to-fortemi",
       "producer": "fortemi",
       "consumer": "fortemi",
       "profile": "full-v1",
-      "status": "passed",
+      "status": "pending",
       "coverage": [
         "hierarchy",
         "metadata",
@@ -443,14 +443,14 @@
       "trackingIssues": [
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059"
       ],
-      "blockingReason": null
+      "blockingReason": "Per-cell receipt is missing current-minus-two evidence."
     },
     {
       "id": "pglite-core-v1-to-fortemi",
       "producer": "pglite",
       "consumer": "fortemi",
       "profile": "core-v1",
-      "status": "passed",
+      "status": "pending",
       "coverage": [
         "hierarchy",
         "metadata",
@@ -487,14 +487,14 @@
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059",
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/354"
       ],
-      "blockingReason": null
+      "blockingReason": "Per-cell receipt is missing current-minus-two, malformed-input, next-major-rejection, and resource-limits evidence."
     },
     {
       "id": "pglite-core-v1-to-pglite",
       "producer": "pglite",
       "consumer": "pglite",
       "profile": "core-v1",
-      "status": "passed",
+      "status": "pending",
       "coverage": [
         "hierarchy",
         "metadata",
@@ -534,14 +534,14 @@
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/354",
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/355"
       ],
-      "blockingReason": null
+      "blockingReason": "Per-cell receipt is missing malformed-input, next-major-rejection, and resource-limits evidence."
     },
     {
       "id": "recordstore-record-v1-to-fortemi",
       "producer": "recordstore",
       "consumer": "fortemi",
       "profile": "record-v1",
-      "status": "passed",
+      "status": "pending",
       "coverage": [
         "hierarchy",
         "metadata",
@@ -580,7 +580,7 @@
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059",
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/355"
       ],
-      "blockingReason": null
+      "blockingReason": "Per-cell receipt is missing current-minus-two, malformed-input, next-major-rejection, and resource-limits evidence."
     },
     {
       "id": "recordstore-record-v1-to-recordstore",
@@ -612,6 +612,17 @@
           "expect": {
             "/producer/commit": "f45ca77c9af835d40673b357f523808d07f6597b",
             "/fixture/profile": "record-v1",
+            "/coverage": [
+              "hierarchy",
+              "metadata",
+              "nulls",
+              "tombstones",
+              "current-minus-two",
+              "current",
+              "next-major-rejection",
+              "malformed-input",
+              "resource-limits"
+            ],
             "/consumers/recordstore/cleanDestination": true,
             "/consumers/recordstore/semanticReexport": true,
             "/consumers/recordstore/currentMinusTwoProfileDefined": false,
@@ -637,7 +648,7 @@
       "producer": "aiwg",
       "consumer": "fortemi",
       "profile": "core-v1",
-      "status": "passed",
+      "status": "pending",
       "coverage": [
         "metadata",
         "current"
@@ -665,14 +676,14 @@
         "https://git.integrolabs.net/roctinam/aiwg/issues/1797",
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059"
       ],
-      "blockingReason": null
+      "blockingReason": "Per-cell receipt is missing current-minus-two, hierarchy, malformed-input, next-major-rejection, nulls, resource-limits, and tombstones evidence."
     },
     {
       "id": "aiwg-core-v1-to-pglite",
       "producer": "aiwg",
       "consumer": "pglite",
       "profile": "core-v1",
-      "status": "passed",
+      "status": "pending",
       "coverage": [
         "metadata",
         "current",
@@ -706,7 +717,7 @@
         "https://git.integrolabs.net/roctinam/aiwg/issues/1797",
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/355"
       ],
-      "blockingReason": null
+      "blockingReason": "Per-cell receipt is missing current-minus-two, hierarchy, nulls, and tombstones evidence."
     }
   ]
 }

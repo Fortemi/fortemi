@@ -51,16 +51,14 @@ class MatrixVerifierTest(unittest.TestCase):
 
     def test_valid_pending_inventory_blocks_claims_without_failing_ci(self) -> None:
         matrix = self.matrix()
-        matrix["cells"][-1]["status"] = "pending"
-        matrix["cells"][-1]["blockingReason"] = "synthetic pending cell"
         result, output = self.run_verifier(matrix)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIsNotNone(output)
         assert output is not None
         self.assertFalse(output["claimsAllowed"])
         self.assertEqual(output["summary"]["requiredCells"], 9)
-        self.assertEqual(output["summary"]["passed"], 8)
-        self.assertEqual(output["summary"]["pending"], 1)
+        self.assertEqual(output["summary"]["passed"], 1)
+        self.assertEqual(output["summary"]["pending"], 8)
         self.assertEqual(
             set(output["blockedClaims"]),
             {"compatibility", "portability", "backup", "parity"},
@@ -68,8 +66,6 @@ class MatrixVerifierTest(unittest.TestCase):
 
     def test_release_mode_fails_closed_while_cells_are_pending(self) -> None:
         matrix = self.matrix()
-        matrix["cells"][-1]["status"] = "pending"
-        matrix["cells"][-1]["blockingReason"] = "synthetic pending cell"
         result, output = self.run_verifier(matrix, "--require-complete")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIsNotNone(output)
@@ -86,12 +82,13 @@ class MatrixVerifierTest(unittest.TestCase):
 
     def test_pending_cell_cannot_be_relabelled_passed(self) -> None:
         matrix = self.matrix()
-        cell = matrix["cells"][-1]
-        del cell["assertions"]
+        cell = matrix["cells"][0]
+        cell["status"] = "passed"
+        cell["blockingReason"] = None
         result, output = self.run_verifier(matrix)
         self.assertEqual(result.returncode, 2)
         self.assertIsNone(output)
-        self.assertIn("cannot pass without all fail-closed assertions", result.stderr)
+        self.assertIn("cannot pass without complete per-cell coverage", result.stderr)
 
     def test_profile_coverage_policy_cannot_be_weakened(self) -> None:
         matrix = self.matrix()
@@ -101,46 +98,64 @@ class MatrixVerifierTest(unittest.TestCase):
         self.assertIsNone(output)
         self.assertIn("canonical profile components", result.stderr)
 
-    def test_complete_matrix_requires_behavior_coverage_for_each_consumer(self) -> None:
+    def test_passed_cell_requires_every_consumer_behavior_dimension(self) -> None:
         matrix = self.matrix()
-        evidence = matrix["participants"][0]["immutableInputs"][0]
-        for cell in matrix["cells"]:
-            cell["status"] = "passed"
-            cell["blockingReason"] = None
-            cell["coverage"] = [
-                *matrix["profileCoverageRequirements"][cell["profile"]],
-                "current",
-            ]
-            cell["assertions"] = {
-                "cleanDestination": True,
-                "semanticReexport": True,
-                "zeroMutationOnFailure": True,
-            }
-            cell["evidence"] = [evidence]
+        cell = next(
+            cell
+            for cell in matrix["cells"]
+            if cell["id"] == "recordstore-record-v1-to-recordstore"
+        )
+        cell["coverage"].remove("resource-limits")
         result, output = self.run_verifier(matrix)
         self.assertEqual(result.returncode, 2)
         self.assertIsNone(output)
-        self.assertIn("consumer behavior coverage", result.stderr)
+        self.assertIn("complete per-cell coverage: resource-limits", result.stderr)
 
-    def test_complete_matrix_requires_profile_coverage_across_cells(self) -> None:
+    def test_passed_cell_requires_every_profile_semantic_dimension(self) -> None:
         matrix = self.matrix()
-        evidence = matrix["participants"][0]["immutableInputs"][0]
-        for cell in matrix["cells"]:
-            cell["status"] = "passed"
-            cell["blockingReason"] = None
-            cell["coverage"] = matrix["consumerBehaviorCoverageRequirements"].get(
-                cell["consumer"], []
-            )
-            cell["assertions"] = {
-                "cleanDestination": True,
-                "semanticReexport": True,
-                "zeroMutationOnFailure": True,
-            }
-            cell["evidence"] = [evidence]
+        cell = next(
+            cell
+            for cell in matrix["cells"]
+            if cell["id"] == "recordstore-record-v1-to-recordstore"
+        )
+        cell["coverage"].remove("metadata")
         result, output = self.run_verifier(matrix)
         self.assertEqual(result.returncode, 2)
         self.assertIsNone(output)
-        self.assertIn("profile coverage", result.stderr)
+        self.assertIn("complete per-cell coverage: metadata", result.stderr)
+
+    def test_result_reports_field_level_coverage_outcomes_per_cell(self) -> None:
+        result, output = self.run_verifier(self.matrix())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        assert output is not None
+        pending = next(
+            cell for cell in output["cells"] if cell["id"] == "aiwg-core-v1-to-fortemi"
+        )
+        self.assertFalse(pending["coverageComplete"])
+        self.assertTrue(pending["coverageOutcomes"]["metadata"])
+        self.assertFalse(pending["coverageOutcomes"]["hierarchy"])
+        self.assertIn("hierarchy", pending["missingCoverage"])
+        passed = next(
+            cell
+            for cell in output["cells"]
+            if cell["id"] == "recordstore-record-v1-to-recordstore"
+        )
+        self.assertTrue(passed["coverageComplete"])
+        self.assertTrue(all(passed["coverageOutcomes"].values()))
+        self.assertEqual(passed["missingCoverage"], [])
+
+    def test_passed_cell_requires_digest_pinned_coverage_binding(self) -> None:
+        matrix = self.matrix()
+        cell = next(
+            cell
+            for cell in matrix["cells"]
+            if cell["id"] == "recordstore-record-v1-to-recordstore"
+        )
+        del cell["evidence"][1]["expect"]["/coverage"]
+        result, output = self.run_verifier(matrix)
+        self.assertEqual(result.returncode, 2)
+        self.assertIsNone(output)
+        self.assertIn("digest-pinned receipt binding /coverage", result.stderr)
 
     def test_local_receipt_digest_drift_is_rejected(self) -> None:
         matrix = copy.deepcopy(self.matrix())

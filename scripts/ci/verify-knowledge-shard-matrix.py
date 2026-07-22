@@ -473,12 +473,6 @@ def validate_matrix_shape(matrix: Any) -> set[tuple[str, str, str]]:
     require(isinstance(cells, list), "cells must be an array")
     actual_cells: set[tuple[str, str, str]] = set()
     ids: set[str] = set()
-    passed_coverage_by_consumer: dict[str, set[str]] = {
-        consumer: set() for consumer in REQUIRED_CONSUMER_BEHAVIOR_COVERAGE
-    }
-    passed_coverage_by_profile: dict[str, set[str]] = {
-        profile: set() for profile in REQUIRED_PROFILE_COVERAGE
-    }
     for index, cell in enumerate(cells):
         label = f"cells[{index}]"
         require_keys(
@@ -514,12 +508,28 @@ def validate_matrix_shape(matrix: Any) -> set[tuple[str, str, str]]:
         key = (cell["producer"], cell["consumer"], cell["profile"])
         require(key not in actual_cells, f"duplicate cell: {key}")
         actual_cells.add(key)
-        require(cell["status"] in CELL_STATUSES, f"{label}.status is invalid")
+        require(cell["profile"] in PROFILES, f"{label}.profile is invalid")
         require(
-            isinstance(cell["coverage"], list)
-            and len(cell["coverage"]) == len(set(cell["coverage"]))
-            and set(cell["coverage"]) <= coverage_set,
+            cell["consumer"] in normalized_consumer_behavior,
+            f"{label}.consumer is not an advertised consumer",
+        )
+        require(cell["status"] in CELL_STATUSES, f"{label}.status is invalid")
+        require(isinstance(cell["coverage"], list), f"{label}.coverage must be an array")
+        cell_coverage = set(cell["coverage"])
+        require(
+            len(cell["coverage"]) == len(cell_coverage)
+            and cell_coverage <= coverage_set,
             f"{label}.coverage contains duplicates or unknown requirements",
+        )
+        required_cell_coverage = (
+            normalized_profile_coverage[cell["profile"]]
+            | normalized_consumer_behavior[cell["consumer"]]
+        )
+        unexpected_coverage = cell_coverage - required_cell_coverage
+        require(
+            not unexpected_coverage,
+            f"{label}.coverage contains requirements unrelated to this cell: "
+            f"{', '.join(sorted(unexpected_coverage))}",
         )
         require(isinstance(cell["evidence"], list), f"{label}.evidence must be an array")
         for evidence_index, evidence in enumerate(cell["evidence"]):
@@ -529,6 +539,12 @@ def validate_matrix_shape(matrix: Any) -> set[tuple[str, str, str]]:
             f"{label}.trackingIssues must not be empty",
         )
         if cell["status"] == "passed":
+            missing_coverage = required_cell_coverage - cell_coverage
+            require(
+                not missing_coverage,
+                f"{label} cannot pass without complete per-cell coverage: "
+                f"{', '.join(sorted(missing_coverage))}",
+            )
             assertions = cell.get("assertions")
             require(
                 isinstance(assertions, dict)
@@ -537,9 +553,14 @@ def validate_matrix_shape(matrix: Any) -> set[tuple[str, str, str]]:
                 f"{label} cannot pass without all fail-closed assertions",
             )
             require(cell["evidence"], f"{label} cannot pass without immutable evidence")
+            require(
+                any(
+                    evidence.get("expect", {}).get("/coverage") == cell["coverage"]
+                    for evidence in cell["evidence"]
+                ),
+                f"{label} cannot pass without a digest-pinned receipt binding /coverage",
+            )
             require(cell["blockingReason"] is None, f"{label} passed but remains blocked")
-            passed_coverage_by_consumer[cell["consumer"]].update(cell["coverage"])
-            passed_coverage_by_profile[cell["profile"]].update(cell["coverage"])
         else:
             require(
                 isinstance(cell["blockingReason"], str) and cell["blockingReason"].strip(),
@@ -550,21 +571,6 @@ def validate_matrix_shape(matrix: Any) -> set[tuple[str, str, str]]:
     extra = actual_cells - expected_cells
     require(not missing, f"matrix missing required cells: {sorted(missing)}")
     require(not extra, f"matrix contains unsupported cells: {sorted(extra)}")
-    if all(cell["status"] == "passed" for cell in cells):
-        for profile, required in normalized_profile_coverage.items():
-            require(
-                required <= passed_coverage_by_profile[profile],
-                f"passed matrix lacks required {profile} profile coverage",
-            )
-        for consumer, required in normalized_consumer_behavior.items():
-            require(
-                required <= passed_coverage_by_consumer[consumer],
-                f"passed matrix lacks required {consumer} consumer behavior coverage",
-            )
-        require(
-            set().union(*(set(cell["coverage"]) for cell in cells)) == coverage_set,
-            "passed matrix does not cover the complete corpus requirement inventory",
-        )
     return expected_cells
 
 
@@ -723,6 +729,11 @@ def result_document(
     cells = []
     for cell in matrix["cells"]:
         statuses[cell["status"]] += 1
+        required_coverage = sorted(
+            set(matrix["profileCoverageRequirements"][cell["profile"]])
+            | set(matrix["consumerBehaviorCoverageRequirements"][cell["consumer"]])
+        )
+        declared_coverage = set(cell["coverage"])
         cells.append(
             {
                 "id": cell["id"],
@@ -731,6 +742,17 @@ def result_document(
                 "profile": cell["profile"],
                 "status": cell["status"],
                 "coverage": cell["coverage"],
+                "requiredCoverage": required_coverage,
+                "coverageOutcomes": {
+                    requirement: requirement in declared_coverage
+                    for requirement in required_coverage
+                },
+                "coverageComplete": declared_coverage == set(required_coverage),
+                "missingCoverage": [
+                    requirement
+                    for requirement in required_coverage
+                    if requirement not in declared_coverage
+                ],
                 "blockingReason": cell["blockingReason"],
             }
         )
