@@ -4,6 +4,7 @@ title: "Agent memory needs an inbox, not just a search box"
 slug: "2026-07-fortemi-memory-inbox"
 date: 2026-07-21
 publish_at: ""
+scheduled_assets: ["blog/2026-07-fortemi-memory-inbox-hero.png", "blog/2026-07-fortemi-memory-inbox-diagram.svg"]
 author: Fortémi Team
 summary: "The first test for agent memory is intake: can a messy input be accepted, normalized, reviewed, routed, and made searchable without losing accountability?"
 hero: https://docs.fortemi.com/server/assets/blog/2026-07-fortemi-memory-inbox-hero.png

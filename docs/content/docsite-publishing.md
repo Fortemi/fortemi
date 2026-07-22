@@ -95,20 +95,23 @@ not publish them early:
 
 ```text
 scheduled-docs/posts/<slug>.md
+scheduled-docs/assets/blog/<asset>
 ```
 
 Set a valid ISO-8601 `publish_at` timestamp when a post is ready to release:
 
 ```yaml
 publish_at: "2026-07-28T14:00:00Z"
+scheduled_assets: ["blog/example-hero.png", "blog/example-diagram.svg"]
 ```
 
-Blank, missing, or invalid `publish_at` values are ignored. The daily
+Blank, missing, or invalid `publish_at` values are ignored. The scheduled
 `.gitea/workflows/scheduled-docs-release.yml` job runs
 `scripts/docs/promote-scheduled-posts.mjs`, moves due posts into
-`docs/content/posts/`, validates with `npm run docs:build`, commits the
-promotion, and pushes to `main`. The existing docsite deploy workflow then
-publishes through the normal `/server` route.
+`docs/content/posts/`, moves declared assets into `docs/.public/`, validates
+with `npm run docs:build`, commits the promotion, and pushes to `main`. If
+nothing is due, the job exits successfully without committing. The existing
+docsite deploy workflow then publishes through the normal `/server` route.
 
 ## Update Procedure
 

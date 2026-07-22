@@ -4,7 +4,9 @@ import { basename, dirname, resolve } from 'node:path';
 
 const ROOT = resolve(new URL('../..', import.meta.url).pathname);
 const SCHEDULED_DIR = resolve(ROOT, 'scheduled-docs/posts');
+const SCHEDULED_ASSET_DIR = resolve(ROOT, 'scheduled-docs/assets');
 const LIVE_DIR = resolve(ROOT, 'docs/content/posts');
+const LIVE_ASSET_DIR = resolve(ROOT, 'docs/.public');
 const args = new Set(process.argv.slice(2));
 const dryRun = args.has('--dry-run');
 const nowArg = process.argv.find((arg) => arg.startsWith('--now='));
@@ -25,6 +27,40 @@ function due(meta) {
   if (!meta.publish_at) return false;
   const at = new Date(meta.publish_at);
   return !Number.isNaN(at.valueOf()) && at <= now;
+}
+
+function scheduledAssets(meta) {
+  if (!meta.scheduled_assets) return [];
+  const raw = meta.scheduled_assets.trim();
+  if (!raw) return [];
+  if (raw.startsWith('[') && raw.endsWith(']')) {
+    return raw
+      .slice(1, -1)
+      .split(',')
+      .map((item) => item.trim().replace(/^["']|["']$/g, ''))
+      .filter(Boolean);
+  }
+  return raw
+    .split(/\s+/)
+    .map((item) => item.trim().replace(/^["']|["']$/g, ''))
+    .filter(Boolean);
+}
+
+function promoteAssets(post) {
+  for (const asset of scheduledAssets(post.meta)) {
+    if (asset.startsWith('/') || asset.includes('..')) {
+      throw new Error(`invalid scheduled asset path for ${post.slug}: ${asset}`);
+    }
+    const source = resolve(SCHEDULED_ASSET_DIR, asset);
+    const target = resolve(LIVE_ASSET_DIR, asset);
+    console.log(`[scheduled-docs] promote asset ${source} -> ${target}`);
+    if (!existsSync(source)) throw new Error(`scheduled asset missing: ${source}`);
+    if (existsSync(target)) throw new Error(`asset target already exists: ${target}`);
+    if (!dryRun) {
+      mkdirSync(dirname(target), { recursive: true });
+      renameSync(source, target);
+    }
+  }
 }
 
 if (!existsSync(SCHEDULED_DIR)) {
@@ -51,6 +87,7 @@ for (const post of posts) {
   const target = resolve(LIVE_DIR, `${post.slug}.md`);
   console.log(`[scheduled-docs] promote ${post.path} -> ${target}`);
   if (existsSync(target)) throw new Error(`target already exists: ${target}`);
+  promoteAssets(post);
   if (!dryRun) {
     mkdirSync(dirname(target), { recursive: true });
     renameSync(post.path, target);
