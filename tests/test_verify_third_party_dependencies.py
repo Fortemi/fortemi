@@ -39,6 +39,15 @@ class ThirdPartyDependencyTests(unittest.TestCase):
             self.assertIn("mutable or unreviewed", "\n".join(errors))
             self.assertIn("attacker/example:latest", "\n".join(errors))
 
+    def test_generated_dependency_trees_are_ignored(self) -> None:
+        with self.fixture_root() as root:
+            for directory in ("target/build/dependency", "node_modules/dependency"):
+                dockerfile = root / directory / "Dockerfile"
+                dockerfile.parent.mkdir(parents=True, exist_ok=True)
+                dockerfile.write_text("FROM attacker/example:latest\n", encoding="utf-8")
+
+            self.assertEqual(MODULE.verify(root, today=TODAY), [])
+
     def test_unknown_digest_is_rejected(self) -> None:
         with self.fixture_root() as root:
             compose = root / "docker-compose.bundle.yml"

@@ -48,6 +48,11 @@ REQUIRED_FEED_FIELDS = {
     "exception_owner",
     "exception_expires",
 }
+EXCLUDED_SCAN_PARTS = {".git", "node_modules", "target"}
+
+
+def is_scannable(path: Path) -> bool:
+    return not EXCLUDED_SCAN_PARTS.intersection(path.parts)
 
 
 def parse_date(value: Any, label: str, errors: list[str]) -> dt.date | None:
@@ -80,7 +85,7 @@ def dockerfiles(root: Path) -> list[Path]:
             path
             for pattern in ("Dockerfile*", "**/Dockerfile*")
             for path in root.glob(pattern)
-            if path.is_file() and ".git" not in path.parts
+            if path.is_file() and is_scannable(path.relative_to(root))
         }
     )
 
@@ -91,7 +96,7 @@ def compose_files(root: Path) -> list[Path]:
             path
             for pattern in ("*compose*.yml", "*compose*.yaml", "**/*compose*.yml", "**/*compose*.yaml")
             for path in root.glob(pattern)
-            if path.is_file() and ".git" not in path.parts
+            if path.is_file() and is_scannable(path.relative_to(root))
         }
     )
 
