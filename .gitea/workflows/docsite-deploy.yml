@@ -65,6 +65,9 @@ jobs:
         # subpath. tenants.json stays base-less. (pagenary#107 / fortemi#1009)
         run: npm run docs:build
 
+      - name: Check post asset links
+        run: npm run docs:check-assets
+
       - name: Verify build output
         run: |
           test -d dist/fortemi-docs || { echo "Missing build output directory"; exit 1; }
@@ -157,11 +160,16 @@ jobs:
             echo "Cloudflare purge skipped: CLOUDFLARE_ZONE_ID or CLOUDFLARE_API_TOKEN is not configured"
             exit 0
           fi
-          curl --fail --show-error --silent \
-            -X POST "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/purge_cache" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            --data '{"files":["https://docs.fortemi.com/","https://docs.fortemi.com/index.html","https://docs.fortemi.com/sitemap.xml","https://docs.fortemi.com/robots.txt","https://docs.fortemi.com/llms.txt","https://docs.fortemi.com/server/","https://docs.fortemi.com/server/index.html","https://docs.fortemi.com/server/sitemap.xml","https://docs.fortemi.com/server/robots.txt","https://docs.fortemi.com/server/llms.txt"]}'
+          node scripts/docs/cloudflare-purge-payload.mjs > /tmp/cloudflare-purge-payloads.jsonl
+          while IFS= read -r payload; do
+            [ -n "$payload" ] || continue
+            echo "Purging Cloudflare URLs: $payload"
+            curl --fail --show-error --silent \
+              -X POST "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/purge_cache" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data "$payload"
+          done < /tmp/cloudflare-purge-payloads.jsonl
 
       - name: Cleanup deploy secrets
         if: always()

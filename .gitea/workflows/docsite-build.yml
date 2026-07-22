@@ -13,10 +13,10 @@ name: Docsite Build
 on:
   push:
     branches: [main]
-    paths: ['docs/**', 'tenants.json', 'package.json', 'package-lock.json']
+    paths: ['docs/**', 'scheduled-docs/**', 'scripts/docs/**', 'tenants.json', 'package.json', 'package-lock.json']
   pull_request:
     branches: [main]
-    paths: ['docs/**', 'tenants.json', 'package.json', 'package-lock.json']
+    paths: ['docs/**', 'scheduled-docs/**', 'scripts/docs/**', 'tenants.json', 'package.json', 'package-lock.json']
 
 concurrency:
   group: docsite-build-${{ gitea.head_ref || gitea.ref }}
@@ -38,6 +38,9 @@ jobs:
 
       - name: Build doc site
         run: npm run docs:build
+
+      - name: Check post asset links
+        run: npm run docs:check-assets
 
       - name: Verify build output
         run: |

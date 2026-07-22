@@ -13,10 +13,6 @@ tags: [fortemi, agent-memory, provenance, portability]
 
 # Knowledge should leave with receipts
 
-![Knowledge should leave with receipts](/assets/blog/2026-07-fortemi-knowledge-receipts-hero.png)
-
-*Hero image: AI-generated with ChatGPT from a brand-specified prompt; no product screenshot, live UI state, or rendered text is represented as factual evidence.*
-
 Most knowledge tools have an export story.
 
 Download the notes. Export the database. Sync the files. Dump the markdown. Save the attachments.
@@ -28,7 +24,7 @@ The harder question is what happens after the export lands somewhere else. Can a
 If not, the organization may have the data but lose the receipts.
 
 
-![Feature visual for Knowledge should leave with receipts](/assets/blog/2026-07-fortemi-knowledge-receipts-diagram.svg)
+![Feature visual for Knowledge should leave with receipts](https://docs.fortemi.com/server/assets/blog/2026-07-fortemi-knowledge-receipts-diagram.svg)
 
 *Illustrative receipt structure: provenance, manifest, policy, and verification metadata travel beside the content so portability can be inspected.*
 

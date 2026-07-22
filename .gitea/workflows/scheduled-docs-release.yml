@@ -53,6 +53,7 @@ jobs:
           set -euo pipefail
           npm ci
           npm run docs:build
+          npm run docs:check-assets
 
       - name: Commit promotion
         if: steps.changes.outputs.changed == 'true' && github.event.inputs.dry_run != 'true'

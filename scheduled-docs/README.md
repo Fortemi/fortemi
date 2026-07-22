@@ -11,3 +11,17 @@ Future Fortémi server docs posts live here until the release workflow promotes 
 - Release workflow: `.gitea/workflows/scheduled-docs-release.yml`
 
 When a post is due, the workflow moves it to `docs/content/posts/`, moves its declared assets into `docs/.public/`, validates the docsite build, commits the promotion, and pushes to `main`.
+
+Put hero images in frontmatter only; Pagenary displays the hero at the top of
+the post. Do not repeat the same hero image in the Markdown body.
+
+For body images, link through the deployed server-docs path, not a root-relative
+path:
+
+```md
+![Diagram](https://docs.fortemi.com/server/assets/blog/example-diagram.svg)
+```
+
+Root-relative body links such as `/assets/blog/example-diagram.svg` resolve
+against `docs.fortemi.com/` instead of `docs.fortemi.com/server/` and will not
+survive the deployed subpath.

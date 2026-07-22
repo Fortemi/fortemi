@@ -113,6 +113,23 @@ with `npm run docs:build`, commits the promotion, and pushes to `main`. If
 nothing is due, the job exits successfully without committing. The existing
 docsite deploy workflow then publishes through the normal `/server` route.
 
+Post hero images belong in frontmatter only. Pagenary renders the hero at the
+top of the post page, so do not repeat the same image in the Markdown body.
+
+Inline post images must be safe for the deployed `/server` subpath. Store
+declared post assets under `scheduled-docs/assets/blog/` before promotion or
+`docs/.public/blog/` after promotion, and link body images with the production
+server-docs URL:
+
+```md
+![Receipt structure](https://docs.fortemi.com/server/assets/blog/example-diagram.svg)
+```
+
+Do not use root-relative body image links such as `/assets/blog/example.svg`;
+on `docs.fortemi.com/server/pages/...` those resolve against the docs root
+instead of the `/server` docsite and can show the portal fallback HTML rather
+than the image.
+
 ## Update Procedure
 
 1. Check the published version:

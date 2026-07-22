@@ -13,10 +13,6 @@ tags: [fortemi, agent-memory, ingest, knowledge-operations]
 
 # Agent memory needs an inbox, not just a search box
 
-![Agent memory needs an inbox, not just a search box](/assets/blog/2026-07-fortemi-memory-inbox-hero.png)
-
-*Hero image: AI-generated with ChatGPT from a brand-specified prompt; no product screenshot, live UI state, or rendered text is represented as factual evidence.*
-
 Most conversations about agent memory start at retrieval.
 
 Can the agent search notes? Can it find related ideas? Can it answer from past context? Can it remember what happened last week?
@@ -30,7 +26,7 @@ If the answer is “copy and paste it later,” the memory will drift behind rea
 An agent memory needs an inbox.
 
 
-![Feature visual for Agent memory needs an inbox, not just a search box](/assets/blog/2026-07-fortemi-memory-inbox-diagram.svg)
+![Feature visual for Agent memory needs an inbox, not just a search box](https://docs.fortemi.com/server/assets/blog/2026-07-fortemi-memory-inbox-diagram.svg)
 
 *Illustrative inbox lanes: capture, normalize, review, and commit are separate responsibilities, not one opaque search action.*
 
