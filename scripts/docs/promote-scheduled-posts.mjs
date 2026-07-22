@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 
 const ROOT = resolve(new URL('../..', import.meta.url).pathname);
@@ -63,6 +63,28 @@ function promoteAssets(post) {
   }
 }
 
+function publishedSource(src) {
+  const match = /^(---\n)([\s\S]*?)(\n---\n?)([\s\S]*)$/.exec(src);
+  if (!match) return src;
+  const publishedDate = now.toISOString().slice(0, 10);
+  const lines = [];
+  let sawDate = false;
+
+  for (const line of match[2].split('\n')) {
+    const key = /^([A-Za-z0-9_-]+):/.exec(line)?.[1];
+    if (key === 'publish_at' || key === 'scheduled_assets') continue;
+    if (key === 'date') {
+      lines.push(`date: ${publishedDate}`);
+      sawDate = true;
+      continue;
+    }
+    lines.push(line);
+  }
+
+  if (!sawDate) lines.push(`date: ${publishedDate}`);
+  return `${match[1]}${lines.join('\n')}${match[3]}${match[4]}`;
+}
+
 if (!existsSync(SCHEDULED_DIR)) {
   console.log(`[scheduled-docs] no scheduled directory: ${SCHEDULED_DIR}`);
   process.exit(0);
@@ -90,7 +112,8 @@ for (const post of posts) {
   promoteAssets(post);
   if (!dryRun) {
     mkdirSync(dirname(target), { recursive: true });
-    renameSync(post.path, target);
+    writeFileSync(target, publishedSource(readFileSync(post.path, 'utf8')));
+    unlinkSync(post.path);
   }
 }
 
