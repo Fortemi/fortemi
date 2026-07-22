@@ -7,6 +7,18 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.7.12] - 2026-07-22
+
+Corrective release for the `2026.7.11` publication. Knowledge Shard formats,
+profiles, compatibility windows, and conformance receipts are unchanged.
+
+### Fixed
+
+- Rebuild the tracked documentation shard and receipt against the matching
+  server release so bundle images cannot embed a stale v2026.7.10 artifact.
+- Exclude generated Rust and npm dependency trees from the reviewed
+  third-party surface scan, making lint results independent of runner caches.
+
 ## [2026.7.11] - 2026-07-21
 
 Stable publication recovery for the `2026.7.10` data-portability release. The
@@ -1827,7 +1839,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.7.11...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.7.12...HEAD
+[2026.7.12]: https://github.com/fortemi/fortemi/compare/v2026.7.11...v2026.7.12
 [2026.7.11]: https://github.com/fortemi/fortemi/compare/v2026.7.10...v2026.7.11
 [2026.7.10]: https://github.com/fortemi/fortemi/compare/v2026.7.1...v2026.7.10
 [2026.7.1]: https://github.com/fortemi/fortemi/compare/v2026.7.0...v2026.7.1
