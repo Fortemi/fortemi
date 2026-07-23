@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/2.0.0/record-v1/link.schema.json",
+  "title": "Fortemi Knowledge Shard record-v1 link record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "from_note_id",
+    "to_note_id",
+    "to_url",
+    "kind",
+    "score",
+    "created_at",
+    "metadata"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "from_note_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "to_note_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "to_url": {
+      "type": "null"
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "score": {
+      "type": "number"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "metadata": true
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    }
+  }
+}

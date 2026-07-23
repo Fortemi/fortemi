@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/2.0.0/full-v1/embedding-set-member.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 candidate embedding set member record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "embedding_set_id",
+    "note_id",
+    "membership_type",
+    "added_at",
+    "added_by"
+  ],
+  "properties": {
+    "embedding_set_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "note_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "membership_type": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "added_at": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/dateTime"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "added_by": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

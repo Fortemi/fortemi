@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/2.0.0/field-semantics.schema.json",
+  "title": "Knowledge Shard 2.0 presence-field inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "authoritySchemaVersion",
+    "profileIdentity",
+    "wireRepresentation",
+    "policy",
+    "fields"
+  ],
+  "properties": {
+    "$schema": { "const": "./field-semantics.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "authoritySchemaVersion": { "const": "2.0.0" },
+    "profileIdentity": { "const": "(manifest.version, manifest.profile)" },
+    "wireRepresentation": { "const": "direct-json-key-presence" },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["absent", "null", "empty", "value", "unsupported"],
+      "properties": {
+        "absent": { "type": "string", "minLength": 1 },
+        "null": { "type": "string", "minLength": 1 },
+        "empty": { "type": "string", "minLength": 1 },
+        "value": { "type": "string", "minLength": 1 },
+        "unsupported": { "type": "string", "minLength": 1 }
+      }
+    },
+    "fields": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/field" }
+    }
+  },
+  "$defs": {
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "component",
+        "schema",
+        "pointer",
+        "required",
+        "types",
+        "states",
+        "equality",
+        "mappings"
+      ],
+      "properties": {
+        "profile": { "enum": ["core-v1", "record-v1", "full-v1"] },
+        "component": { "type": "string", "minLength": 1 },
+        "schema": { "type": "string", "pattern": "^contracts/knowledge-shard/2\\.0\\.0/" },
+        "pointer": { "type": "string", "pattern": "^/" },
+        "required": { "type": "boolean" },
+        "types": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["array", "boolean", "integer", "number", "object", "string"] }
+        },
+        "states": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["absent", "null", "empty", "value", "unsupported"],
+          "properties": {
+            "absent": { "enum": ["preserve", "reject"] },
+            "null": { "enum": ["preserve", "reject"] },
+            "empty": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "enum": ["empty-array", "empty-object", "empty-string"] }
+            },
+            "value": { "enum": ["preserve", "reject"] },
+            "unsupported": { "const": "reject-before-write-or-report-profile-loss" }
+          }
+        },
+        "equality": { "const": "json-type-value-and-own-property" },
+        "mappings": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["server", "pglite", "recordstore", "aiwg"],
+          "properties": {
+            "server": { "$ref": "#/$defs/mapping" },
+            "pglite": { "$ref": "#/$defs/mapping" },
+            "recordstore": { "$ref": "#/$defs/mapping" },
+            "aiwg": { "$ref": "#/$defs/mapping" }
+          }
+        }
+      }
+    },
+    "mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "trackingIssue"],
+      "properties": {
+        "status": {
+          "enum": [
+            "authority-specified-runtime-pending",
+            "implementation-pending",
+            "converter-pending",
+            "not-profile-owner"
+          ]
+        },
+        "trackingIssue": { "type": "string", "format": "uri" }
+      }
+    }
+  }
+}

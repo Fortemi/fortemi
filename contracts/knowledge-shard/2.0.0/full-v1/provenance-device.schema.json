@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/2.0.0/full-v1/provenance-device.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 candidate provenance device record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "device_make",
+    "device_model",
+    "device_os",
+    "device_os_version",
+    "software",
+    "software_version",
+    "has_gps",
+    "has_accelerometer",
+    "sensor_metadata",
+    "owner_id",
+    "device_name",
+    "created_at"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "device_make": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "device_model": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "device_os": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "device_os_version": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "software": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "software_version": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "has_gps": {
+      "$ref": "#/$defs/nullableBoolean"
+    },
+    "has_accelerometer": {
+      "$ref": "#/$defs/nullableBoolean"
+    },
+    "sensor_metadata": {},
+    "owner_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "device_name": {
+      "$ref": "#/$defs/nullableString"
+    },
+    "created_at": {
+      "$ref": "#/$defs/dateTime"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nullableUuid": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "nullableBoolean": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    }
+  }
+}

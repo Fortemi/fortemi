@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/2.0.0/full-v1/provenance-location.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 candidate provenance location record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "point_ewkb_hex",
+    "horizontal_accuracy_m",
+    "altitude_m",
+    "vertical_accuracy_m",
+    "heading_degrees",
+    "speed_mps",
+    "named_location_id",
+    "source",
+    "confidence",
+    "created_at"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "point_ewkb_hex": {
+      "$ref": "#/$defs/ewkb"
+    },
+    "horizontal_accuracy_m": {
+      "$ref": "#/$defs/nullableNumber"
+    },
+    "altitude_m": {
+      "$ref": "#/$defs/nullableNumber"
+    },
+    "vertical_accuracy_m": {
+      "$ref": "#/$defs/nullableNumber"
+    },
+    "heading_degrees": {
+      "oneOf": [
+        {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 360
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "speed_mps": {
+      "oneOf": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "named_location_id": {
+      "$ref": "#/$defs/nullableUuid"
+    },
+    "source": {
+      "enum": [
+        "gps_exif",
+        "device_api",
+        "user_manual",
+        "geocoded",
+        "ai_estimated",
+        "unknown"
+      ]
+    },
+    "confidence": {
+      "enum": [
+        "high",
+        "medium",
+        "low",
+        "unknown"
+      ]
+    },
+    "created_at": {
+      "$ref": "#/$defs/dateTime"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ewkb": {
+      "type": "string",
+      "minLength": 2,
+      "pattern": "^[0-9a-f]+$"
+    },
+    "nullableUuid": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableNumber": {
+      "type": [
+        "number",
+        "null"
+      ]
+    }
+  }
+}

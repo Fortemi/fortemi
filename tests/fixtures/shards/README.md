@@ -233,6 +233,15 @@ Focused negative schema fixtures:
 - note record missing stable identity; and
 - link record declaring both a note and URL target.
 
+### presence-semantics-v2.0.json
+
+Canonical schema `2.0.0` direct-key presence vectors. The corpus applies
+absent, null, empty, populated, and unsupported operations to valid manifest,
+note, and embedding prototypes. Its verifier checks schema acceptance or
+rejection, own-property classification, exact JSON serialize/parse equality,
+the generated field inventory, and the digest-pinned 2.0 authority descriptor.
+This corpus specifies the contract; it is not a runtime-support receipt.
+
 ## Usage in Tests
 
 ### Loading Fixtures

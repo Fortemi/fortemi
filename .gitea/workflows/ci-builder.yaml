@@ -307,7 +307,9 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Test fail-closed matrix verifier
-        run: python3 -m unittest tests/test_verify_knowledge_shard_matrix.py
+        run: |
+          python3 -m unittest tests/test_verify_knowledge_shard_matrix.py
+          python3 -m unittest tests/test_verify_knowledge_shard_presence.py
 
       - name: Reproduce published React fixtures and self-roundtrips
         working-directory: tests/conformance/pglite

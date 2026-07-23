@@ -67,6 +67,22 @@ always emit `deleted_at` as either `null` or an exact timestamp, include
 soft-deleted notes, and emit an exact 64-character lowercase hexadecimal
 embedding contract fingerprint or `null`.
 
+## Schema 2.0 presence authority
+
+Schema `2.0.0` is published in `specified-implementation-pending` state under
+`contracts/knowledge-shard/2.0.0/`. It retains the `core-v1`, `record-v1`, and
+`full-v1` profile identifiers; consumers negotiate the complete
+`(manifest.version, manifest.profile)` tuple. It is not the current server
+default and no 2.0 profile is advertised yet.
+
+[ADR-103](../../docs/architecture/adr/ADR-103-lossless-knowledge-shard-presence-semantics.md)
+defines direct JSON key-presence semantics for absent, null, empty, value, and
+unsupported states. `2.0.0/field-semantics.json` inventories all nullable or
+optional fields across the server, PGlite, RecordStore, and AIWG mappings.
+`2.0.0/contract.json` pins the schema bundle and canonical presence corpus.
+Run `python3 scripts/ci/verify-knowledge-shard-presence.py` to verify schemas,
+digests, own-property state, and JSON round-trip equality.
+
 Consumers must pin an immutable Fortemi commit, verify every digest in
 `contract.json`, and treat the schema files as upstream authority. Vendored
 copies are receipts, not independent definitions.
@@ -85,6 +101,7 @@ receipt is stored at
 the exact producer archive is a permanent integration fixture. `full-v1`
 supports those same transactional boundaries through its complete route;
 cross-repository conformance remains tracked separately.
-Complete absent-versus-null preservation
-still requires a schema-major or new profile identifier because `deleted_at`
-is optional during the 1.1 transition.
+The 1.x runtime still has the documented absent-versus-null limitation. The
+2.0 authority resolves the contract decision, but runtime and cross-repository
+support remain blocked on Fortemi #1083, React #379-#381, HotM #272, and the
+per-cell evidence gate in Fortemi #1082.

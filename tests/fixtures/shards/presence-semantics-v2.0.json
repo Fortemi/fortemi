@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "authoritySchemaVersion": "2.0.0",
+  "description": "Canonical direct-key presence vectors. Cases are applied to prototypes before schema validation and exact JSON round-trip comparison.",
+  "prototypes": {
+    "core-manifest": {
+      "version": "2.0.0",
+      "profile": "core-v1",
+      "producer": {
+        "name": "fortemi-presence-fixture",
+        "version": "2026.7.12"
+      },
+      "format": "matric-shard",
+      "created_at": "2026-07-22T20:00:00Z",
+      "components": ["notes"],
+      "counts": {
+        "notes": 0,
+        "collections": 0,
+        "tags": 0,
+        "templates": 0,
+        "links": 0,
+        "embedding_sets": 0,
+        "embedding_set_members": 0,
+        "embeddings": 0,
+        "embedding_configs": 0
+      },
+      "checksums": {
+        "notes.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "min_reader_version": "2.0.0"
+    },
+    "core-note": {
+      "id": "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a",
+      "title": "Presence fixture",
+      "original_content": "Original",
+      "revised_content": "Revised",
+      "metadata": null,
+      "format": "markdown",
+      "source": "fixture",
+      "starred": false,
+      "archived": false,
+      "collection_id": null,
+      "created_at": "2026-07-22T20:00:00Z",
+      "updated_at": "2026-07-22T20:00:01Z",
+      "tags": [],
+      "attachments": []
+    },
+    "full-embedding": {
+      "id": "018f4c11-9f14-7d33-8a21-1c80f648f104",
+      "note_id": "018f4c11-9f14-7d33-8a21-1c80f648f103",
+      "embedding_set_id": "018f4c11-9f14-7d33-8a21-1c80f648f102",
+      "chunk_index": 0,
+      "text": "presence fixture",
+      "vector": null,
+      "model": "test-model",
+      "created_at": null
+    }
+  },
+  "cases": [
+    { "id": "deleted-at-absent", "prototype": "core-note", "schema": "contracts/knowledge-shard/2.0.0/core-v1/note.schema.json", "pointer": "/deleted_at", "operation": "delete", "state": "absent", "valid": true },
+    { "id": "deleted-at-null", "prototype": "core-note", "schema": "contracts/knowledge-shard/2.0.0/core-v1/note.schema.json", "pointer": "/deleted_at", "operation": "set", "value": null, "state": "null", "valid": true },
+    { "id": "deleted-at-value", "prototype": "core-note", "schema": "contracts/knowledge-shard/2.0.0/core-v1/note.schema.json", "pointer": "/deleted_at", "operation": "set", "value": "2026-07-22T19:59:00Z", "state": "value", "valid": true },
+    { "id": "deleted-at-empty-unsupported", "prototype": "core-note", "schema": "contracts/knowledge-shard/2.0.0/core-v1/note.schema.json", "pointer": "/deleted_at", "operation": "set", "value": "", "state": "empty", "valid": false },
+
+    { "id": "metadata-absent-unsupported", "prototype": "core-note", "schema": "contracts/knowledge-shard/2.0.0/core-v1/note.schema.json", "pointer": "/metadata", "operation": "delete", "state": "absent", "valid": false },
+    { "id": "metadata-null", "prototype": "core-note", "schema": "contracts/knowledge-shard/2.0.0/core-v1/note.schema.json", "pointer": "/metadata", "operation": "set", "value": null, "state": "null", "valid": true },
+    { "id": "metadata-empty-string", "prototype": "core-note", "schema": "contracts/knowledge-shard/2.0.0/core-v1/note.schema.json", "pointer": "/metadata", "operation": "set", "value": "", "state": "empty", "valid": true },
+    { "id": "metadata-empty-array", "prototype": "core-note", "schema": "contracts/knowledge-shard/2.0.0/core-v1/note.schema.json", "pointer": "/metadata", "operation": "set", "value": [], "state": "empty", "valid": true },
+    { "id": "metadata-empty-object", "prototype": "core-note", "schema": "contracts/knowledge-shard/2.0.0/core-v1/note.schema.json", "pointer": "/metadata", "operation": "set", "value": {}, "state": "empty", "valid": true },
+    { "id": "metadata-value-with-nested-absence", "prototype": "core-note", "schema": "contracts/knowledge-shard/2.0.0/core-v1/note.schema.json", "pointer": "/metadata", "operation": "set", "value": { "presentNull": null, "presentValue": "value" }, "state": "value", "valid": true },
+
+    { "id": "fingerprint-absent", "prototype": "full-embedding", "schema": "contracts/knowledge-shard/2.0.0/full-v1/embedding.schema.json", "pointer": "/contract_fingerprint", "operation": "delete", "state": "absent", "valid": true },
+    { "id": "fingerprint-null", "prototype": "full-embedding", "schema": "contracts/knowledge-shard/2.0.0/full-v1/embedding.schema.json", "pointer": "/contract_fingerprint", "operation": "set", "value": null, "state": "null", "valid": true },
+    { "id": "fingerprint-value", "prototype": "full-embedding", "schema": "contracts/knowledge-shard/2.0.0/full-v1/embedding.schema.json", "pointer": "/contract_fingerprint", "operation": "set", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "value", "valid": true },
+    { "id": "fingerprint-empty-unsupported", "prototype": "full-embedding", "schema": "contracts/knowledge-shard/2.0.0/full-v1/embedding.schema.json", "pointer": "/contract_fingerprint", "operation": "set", "value": "", "state": "empty", "valid": false },
+
+    { "id": "migration-history-absent", "prototype": "core-manifest", "schema": "contracts/knowledge-shard/2.0.0/core-v1/manifest.schema.json", "pointer": "/migration_history", "operation": "delete", "state": "absent", "valid": true },
+    { "id": "migration-history-empty", "prototype": "core-manifest", "schema": "contracts/knowledge-shard/2.0.0/core-v1/manifest.schema.json", "pointer": "/migration_history", "operation": "set", "value": [], "state": "empty", "valid": true },
+    { "id": "migration-history-value", "prototype": "core-manifest", "schema": "contracts/knowledge-shard/2.0.0/core-v1/manifest.schema.json", "pointer": "/migration_history", "operation": "set", "value": [{ "from_version": "1.2.0", "to_version": "2.0.0", "migrated_at": "2026-07-22T20:00:00Z", "migrated_by": "fortemi", "changes": ["preserve direct key presence"] }], "state": "value", "valid": true },
+    { "id": "migration-history-null-unsupported", "prototype": "core-manifest", "schema": "contracts/knowledge-shard/2.0.0/core-v1/manifest.schema.json", "pointer": "/migration_history", "operation": "set", "value": null, "state": "null", "valid": false },
+
+    { "id": "producer-revision-absent", "prototype": "core-manifest", "schema": "contracts/knowledge-shard/2.0.0/core-v1/manifest.schema.json", "pointer": "/producer/revision", "operation": "delete", "state": "absent", "valid": true },
+    { "id": "producer-revision-value", "prototype": "core-manifest", "schema": "contracts/knowledge-shard/2.0.0/core-v1/manifest.schema.json", "pointer": "/producer/revision", "operation": "set", "value": "fixture-revision", "state": "value", "valid": true },
+    { "id": "producer-revision-empty-unsupported", "prototype": "core-manifest", "schema": "contracts/knowledge-shard/2.0.0/core-v1/manifest.schema.json", "pointer": "/producer/revision", "operation": "set", "value": "", "state": "empty", "valid": false },
+    { "id": "producer-revision-null-unsupported", "prototype": "core-manifest", "schema": "contracts/knowledge-shard/2.0.0/core-v1/manifest.schema.json", "pointer": "/producer/revision", "operation": "set", "value": null, "state": "null", "valid": false }
+  ]
+}

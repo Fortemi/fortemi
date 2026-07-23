@@ -1,0 +1,120 @@
+{
+  "$schema": "https://schemas.fortemi.dev/knowledge-shard/2.0.0/contract.schema.json",
+  "schemaVersion": 1,
+  "contractRevision": "20",
+  "status": "specified-implementation-pending",
+  "authority": {
+    "repository": "Fortemi/fortemi",
+    "adr": "docs/architecture/adr/ADR-103-lossless-knowledge-shard-presence-semantics.md"
+  },
+  "knowledgeShard": {
+    "format": "matric-shard",
+    "schemaVersion": "2.0.0",
+    "minimumReaderVersion": "2.0.0",
+    "profileIdentity": "(manifest.version, manifest.profile)",
+    "wireRepresentation": "direct-json-key-presence"
+  },
+  "profiles": {
+    "core-v1": {
+      "schemaRoot": "contracts/knowledge-shard/2.0.0/core-v1",
+      "advertised": false
+    },
+    "record-v1": {
+      "schemaRoot": "contracts/knowledge-shard/2.0.0/record-v1",
+      "advertised": false
+    },
+    "full-v1": {
+      "schemaRoot": "contracts/knowledge-shard/2.0.0/full-v1",
+      "advertised": false
+    }
+  },
+  "presenceSemantics": {
+    "inventory": "contracts/knowledge-shard/2.0.0/field-semantics.json",
+    "inventorySchema": "contracts/knowledge-shard/2.0.0/field-semantics.schema.json",
+    "fieldCount": 220,
+    "states": [
+      "absent",
+      "null",
+      "empty",
+      "value",
+      "unsupported"
+    ]
+  },
+  "schemaBundle": {
+    "aggregateAlgorithm": "sha256(raw file bytes concatenated in lexicographic path order)",
+    "sha256": "66dee80876c73fdc8756541c72e96ae189c098113a831c849d619381c4121c02",
+    "files": {
+      "contracts/knowledge-shard/2.0.0/contract.schema.json": "7dc21c1d0efbad2aaa782c5c637c67268558a3822850eb3ac0c67e5a7baba427",
+      "contracts/knowledge-shard/2.0.0/core-v1/collection.schema.json": "ed28f395e4bea9ae235bc32e9e4167abec4f318dc5335cea6aa2f4d1bdcf9705",
+      "contracts/knowledge-shard/2.0.0/core-v1/link.schema.json": "7bc1531f785d8f5c0b442f09fd039adc0c170b65b9919e2f652b452f614071ea",
+      "contracts/knowledge-shard/2.0.0/core-v1/manifest.schema.json": "f35775e0532c9b2c9f7543c0aef1f0836233253e8f8c7abab62d20824809aad8",
+      "contracts/knowledge-shard/2.0.0/core-v1/note.schema.json": "c0c3c9fbd399b9f090eecd9477e5efcbe32fbff2278c38703075b8f0db9aa829",
+      "contracts/knowledge-shard/2.0.0/core-v1/tag.schema.json": "49612a9ac9332127ee88084a22c845646ba702d7fdcc3fe12d99a825add1b0c7",
+      "contracts/knowledge-shard/2.0.0/core-v1/template.schema.json": "cfd4b64b24e3690e9c97061c98809d3a9b75dc7d70a5bce19997f2eed5ac52a7",
+      "contracts/knowledge-shard/2.0.0/field-semantics.json": "43e5704bc8d805158aa67f33eef6d440fecfeb8385d4f622d79084be3424da09",
+      "contracts/knowledge-shard/2.0.0/field-semantics.schema.json": "3d244074067b57857efaa7ed8e027b47eb42855fc07a8abf1f389d232867cdd6",
+      "contracts/knowledge-shard/2.0.0/full-v1/community-assignment.schema.json": "285763d54e08ecc1ff1d7665dc8363f537c5aab222c2a31e4c4d75f8fa0441f5",
+      "contracts/knowledge-shard/2.0.0/full-v1/community-set.schema.json": "bd39af12cc1ae417cf4aa3e8b4b88defc7ffdd37cb77030bc451609d73907e38",
+      "contracts/knowledge-shard/2.0.0/full-v1/embedding-config.schema.json": "8e2291167f25676e2263d5a4f493e07b8c8822caedcbd2b28c7a44d57e724870",
+      "contracts/knowledge-shard/2.0.0/full-v1/embedding-set-member.schema.json": "73a4425a391666c604515daa4f71acc715a9ab5053f909bccca61717473a554b",
+      "contracts/knowledge-shard/2.0.0/full-v1/embedding-set.schema.json": "9f6042775732605d902103614f7b4c338e6cf44f81682e74e630df36db62d53c",
+      "contracts/knowledge-shard/2.0.0/full-v1/embedding.schema.json": "adab2243e811963aa55fbc51a1a73f5f2ee7258ebc87095b29d5c279cf7c79a8",
+      "contracts/knowledge-shard/2.0.0/full-v1/graph-edge.schema.json": "3a4ab64860f8b0b4405676382844ccc33284d5d4a00e40b7670ee9040770e63e",
+      "contracts/knowledge-shard/2.0.0/full-v1/graph-source.schema.json": "32ce0d400bc7bb753486691f6664bde82419a201e4d2726fbf933a41c9b5d501",
+      "contracts/knowledge-shard/2.0.0/full-v1/manifest.schema.json": "ffad2eb31832eb611bdaed60e3dc51fc4d70be65110e477a03e298ed1e9fd3a8",
+      "contracts/knowledge-shard/2.0.0/full-v1/named-location.schema.json": "6a8fa15c28a2cb652da3383545f0d4caa8fbd5b70bc0434a2c42f99b7973d1f1",
+      "contracts/knowledge-shard/2.0.0/full-v1/note-original-history.schema.json": "2695be759371a0bc1ec7365a748b1e640e8e6d0460d01bdfd219c8ddf860fb4a",
+      "contracts/knowledge-shard/2.0.0/full-v1/note-original.schema.json": "2f91b05391dde339e22bc5ef4b86cb3f65c175409ce197ad6ea95df3cd6b5080",
+      "contracts/knowledge-shard/2.0.0/full-v1/note-revised-current.schema.json": "e56370d6574123490347e61d2e76305b26de2764d9b2c2a840c5f6b2b0a5857b",
+      "contracts/knowledge-shard/2.0.0/full-v1/note-revision.schema.json": "21828d0d05f120387678a1f8c268373a2d336d48c98c77f86bd278ef7b88a8e8",
+      "contracts/knowledge-shard/2.0.0/full-v1/note-skos-tag.schema.json": "f0fd53d1926cb7ad816668c0d5a9eeecdaf78a8aa34c637e6535d75efde71008",
+      "contracts/knowledge-shard/2.0.0/full-v1/provenance-activity.schema.json": "cf2fe61eec8bb2e8a3a853aa4745921645b6dad275a8963c2b2d1b6fe7095abb",
+      "contracts/knowledge-shard/2.0.0/full-v1/provenance-device.schema.json": "64e73ef83c9075af9575acf55afe6585a46d515c8b8e8cda4b07132de931fa04",
+      "contracts/knowledge-shard/2.0.0/full-v1/provenance-edge.schema.json": "77e099b8cb550adca4f87675fecd46ddcb93a7f006b18fe29244a243baac70bc",
+      "contracts/knowledge-shard/2.0.0/full-v1/provenance-location.schema.json": "ef66f850e57b38f074361c9801954296d1053a4fad8fa6f29630d8ada4af60cc",
+      "contracts/knowledge-shard/2.0.0/full-v1/provenance-record.schema.json": "7e26dda2ec6d93adc943758a42cb9d59d5045c6a773e787bc056523b486957cb",
+      "contracts/knowledge-shard/2.0.0/full-v1/signature.schema.json": "0a9c6bec61202daac9496b97206eb144bccca5eb96cd25fee51c6bdf676d88bf",
+      "contracts/knowledge-shard/2.0.0/full-v1/skos-collection-member.schema.json": "868934af7206338d3b5d0ceee6004536d2556da673dfa27fb121397f92eaf90f",
+      "contracts/knowledge-shard/2.0.0/full-v1/skos-collection.schema.json": "b3b853831c0303100ff9e163581726123c0cb4c4faab4beae8a084e2e05d1fd7",
+      "contracts/knowledge-shard/2.0.0/full-v1/skos-concept.schema.json": "5bdc83d9105f272868e5ee4fa7cfcf62aec8abdfc7e37e5a039c4b452bad28a9",
+      "contracts/knowledge-shard/2.0.0/full-v1/skos-label.schema.json": "58fb972b57d53de61935f48899ba8dce7e24d423cc5a5c97ea52ad56d6f410ee",
+      "contracts/knowledge-shard/2.0.0/full-v1/skos-mapping-relation.schema.json": "f763a0a86312b3ae42ce4c0e1e899f0de074cf71f6c4d3fb6fe0483f8ef3772f",
+      "contracts/knowledge-shard/2.0.0/full-v1/skos-note.schema.json": "a7eb2c2d985bb8cdead580cabe461d65b2789e9f9a43c817c6ee606a98e4bf7d",
+      "contracts/knowledge-shard/2.0.0/full-v1/skos-relation.schema.json": "10673a317a05b20b00e2a7497f1d8c45801066c02958bfebc330e0b7dff37aa2",
+      "contracts/knowledge-shard/2.0.0/full-v1/skos-scheme-membership.schema.json": "0b7138ce6bff393e3f3a9ce6828e36f2f6f8a73b17d14b3f98a53145b903710f",
+      "contracts/knowledge-shard/2.0.0/full-v1/skos-scheme.schema.json": "0493f955db21746b42df64de993ef6fc1089a41280e097d6b3b24ffc760b9ac7",
+      "contracts/knowledge-shard/2.0.0/record-v1/collection.schema.json": "7669aa38a5cd11b96a241e965c0a1774ed28ca47df005570b0ed4a975620462b",
+      "contracts/knowledge-shard/2.0.0/record-v1/link.schema.json": "002faa3db2768add881324123aee7a8898883fd39697f4e1f14bcccf7a23c78c",
+      "contracts/knowledge-shard/2.0.0/record-v1/manifest.schema.json": "927aac403b1e9178ac251b812b1a1431d15d6f2c0d9c5a7db0642931e1c22f8b",
+      "contracts/knowledge-shard/2.0.0/record-v1/note.schema.json": "f1179454145737c5c7c1670c0ab04f4e809254f21a5a2e347987504db6a73b3c",
+      "contracts/knowledge-shard/2.0.0/record-v1/tag.schema.json": "391ba45fcf440afc83ba25bae3482887bcd9ffbfe1df77277f91c2c26e66b571"
+    }
+  },
+  "canonicalCorpus": {
+    "path": "tests/fixtures/shards/presence-semantics-v2.0.json",
+    "sha256": "cdb069819bee1bf89abad6aab012629c0fc2f40044ca2510ae73f7fdfa3d8552",
+    "verifier": "scripts/ci/verify-knowledge-shard-presence.py"
+  },
+  "compatibility": {
+    "upMigration": "1.2.0 -> 2.0.0 is registered only by a runtime implementation receipt; legacy defaults must be reported.",
+    "downgrade": "No implicit downgrade. full-v1 rejects any lossy projection; reduced profiles require deterministic field losses.",
+    "unknownTuple": "Reject before archive staging, database writes, or blob mutation.",
+    "rollback": "Disable production/default selection but retain released readers and stored presence metadata."
+  },
+  "previousAuthority": {
+    "contractPath": "contracts/knowledge-shard/contract.json",
+    "contractRevision": "19",
+    "schemaVersion": "1.2.0",
+    "schemaBundleSha256": "deec0cb66dc09865667256e29340d096c02dd9b0e55bdc1ae60b7effb68ac595",
+    "immutable": true
+  },
+  "tracking": {
+    "authority": "https://git.integrolabs.net/Fortemi/fortemi/issues/1083",
+    "matrix": "https://git.integrolabs.net/Fortemi/fortemi/issues/1082",
+    "reactPresence": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/379",
+    "reactPgliteFull": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/380",
+    "reactAiwg": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/381",
+    "hotm": "https://git.integrolabs.net/Fortemi/hotm/issues/272"
+  },
+  "claimPolicy": "This descriptor specifies the next authority contract and enables no support, portability, backup, or parity claim without matrix receipts."
+}

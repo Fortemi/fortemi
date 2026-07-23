@@ -117,7 +117,9 @@
         }
       ],
       "trackingIssues": [
-        "https://git.integrolabs.net/Fortemi/fortemi/issues/1059"
+        "https://git.integrolabs.net/Fortemi/fortemi/issues/1059",
+        "https://git.integrolabs.net/Fortemi/fortemi/issues/1082",
+        "https://git.integrolabs.net/Fortemi/fortemi/issues/1083"
       ],
       "immutableInputs": [
         {
@@ -155,7 +157,9 @@
       ],
       "trackingIssues": [
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/354",
-        "https://git.integrolabs.net/Fortemi/fortemi-react/issues/355"
+        "https://git.integrolabs.net/Fortemi/fortemi-react/issues/355",
+        "https://git.integrolabs.net/Fortemi/fortemi-react/issues/379",
+        "https://git.integrolabs.net/Fortemi/fortemi-react/issues/380"
       ],
       "immutableInputs": [
         {
@@ -206,7 +210,8 @@
       ],
       "trackingIssues": [
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/354",
-        "https://git.integrolabs.net/Fortemi/fortemi-react/issues/355"
+        "https://git.integrolabs.net/Fortemi/fortemi-react/issues/355",
+        "https://git.integrolabs.net/Fortemi/fortemi-react/issues/379"
       ],
       "immutableInputs": [
         {
@@ -238,7 +243,8 @@
       ],
       "consumerProfiles": [],
       "trackingIssues": [
-        "https://git.integrolabs.net/roctinam/aiwg/issues/1797"
+        "https://git.integrolabs.net/roctinam/aiwg/issues/1797",
+        "https://git.integrolabs.net/Fortemi/fortemi-react/issues/381"
       ],
       "immutableInputs": [
         {

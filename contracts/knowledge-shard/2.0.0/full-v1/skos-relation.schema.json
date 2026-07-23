@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/2.0.0/full-v1/skos-relation.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 SKOS semantic relation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id", "subject_id", "object_id", "relation_type", "inference_score",
+    "is_inferred", "is_validated", "created_at", "created_by"
+  ],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "subject_id": { "type": "string", "format": "uuid" },
+    "object_id": { "type": "string", "format": "uuid" },
+    "relation_type": { "enum": ["broader", "narrower", "related"] },
+    "inference_score": { "type": ["number", "null"] },
+    "is_inferred": { "type": "boolean" },
+    "is_validated": { "type": "boolean" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": { "type": ["string", "null"] }
+  }
+}

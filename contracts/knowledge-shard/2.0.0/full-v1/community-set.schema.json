@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/2.0.0/full-v1/community-set.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 community set",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "graph_source_id",
+    "name",
+    "source_type",
+    "algorithm",
+    "parameters",
+    "input_hash",
+    "freshness",
+    "communities",
+    "created_at"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "graph_source_id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "source_type": {
+      "enum": ["precomputed", "dynamic-snapshot", "user-authored", "imported"]
+    },
+    "algorithm": { "type": ["string", "null"], "minLength": 1 },
+    "parameters": { "type": ["object", "null"] },
+    "input_hash": { "type": "string", "minLength": 1 },
+    "freshness": { "type": "object" },
+    "communities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/community" }
+    },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "community": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "rank",
+        "size",
+        "confidence",
+        "representative_note_ids",
+        "metadata"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": ["string", "null"], "minLength": 1 },
+        "rank": { "type": ["integer", "null"], "minimum": 0 },
+        "size": { "type": ["integer", "null"], "minimum": 0 },
+        "confidence": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "representative_note_ids": {
+          "type": ["array", "null"],
+          "uniqueItems": true,
+          "items": { "type": "string", "format": "uuid" }
+        },
+        "metadata": { "type": ["object", "null"] }
+      }
+    }
+  }
+}

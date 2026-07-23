@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/2.0.0/record-v1/tag.schema.json",
+  "title": "Fortemi Knowledge Shard record-v1 tag record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "created_at"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

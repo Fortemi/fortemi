@@ -334,6 +334,11 @@ or attachment bytes. Making tombstone-field presence mandatory requires a
 schema-major or new profile identifier. Those gaps remain tracked release
 blockers, not implicit `core-v1` or `full-v1` claims.
 
+ADR-103 selects schema `2.0.0` with the existing profile identifiers and
+direct JSON key-presence semantics. That authority is specified but not yet a
+runtime-support claim; this 1.2 current-state description remains applicable
+until implementation and cross-repository receipts pass.
+
 The filesystem backend provides a bounded-memory staging primitive that streams
 bytes into an isolated `staging/shard-import/` namespace, verifies the declared
 byte length and canonical BLAKE3 digest, rechecks integrity before atomic

@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/2.0.0/core-v1/manifest.schema.json",
+  "title": "Fortemi Knowledge Shard core-v1 manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "profile",
+    "producer",
+    "format",
+    "created_at",
+    "components",
+    "counts",
+    "checksums",
+    "min_reader_version"
+  ],
+  "properties": {
+    "version": {
+      "const": "2.0.0"
+    },
+    "profile": {
+      "const": "core-v1"
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "matric_version": {
+      "type": "string",
+      "minLength": 1,
+      "deprecated": true
+    },
+    "format": {
+      "const": "matric-shard"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["notes", "collections", "tags", "templates", "links"]
+      }
+    },
+    "counts": {
+      "$ref": "#/$defs/counts"
+    },
+    "checksums": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "notes.jsonl",
+          "collections.json",
+          "tags.json",
+          "templates.json",
+          "links.jsonl"
+        ]
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/sha256"
+      }
+    },
+    "min_reader_version": {
+      "const": "2.0.0"
+    },
+    "migrated_from": {
+      "$ref": "#/$defs/strictSemVer"
+    },
+    "migration_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from_version",
+          "to_version",
+          "migrated_at",
+          "migrated_by",
+          "changes"
+        ],
+        "properties": {
+          "from_version": {
+            "$ref": "#/$defs/strictSemVer"
+          },
+          "to_version": {
+            "$ref": "#/$defs/strictSemVer"
+          },
+          "migrated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "migrated_by": {
+            "type": "string",
+            "minLength": 1
+          },
+          "changes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "strictSemVer": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "notes",
+        "collections",
+        "tags",
+        "templates",
+        "links",
+        "embedding_sets",
+        "embedding_set_members",
+        "embeddings",
+        "embedding_configs"
+      ],
+      "properties": {
+        "notes": {
+          "$ref": "#/$defs/count"
+        },
+        "collections": {
+          "$ref": "#/$defs/count"
+        },
+        "tags": {
+          "$ref": "#/$defs/count"
+        },
+        "templates": {
+          "$ref": "#/$defs/count"
+        },
+        "links": {
+          "$ref": "#/$defs/count"
+        },
+        "embedding_sets": {
+          "const": 0
+        },
+        "embedding_set_members": {
+          "const": 0
+        },
+        "embeddings": {
+          "const": 0
+        },
+        "embedding_configs": {
+          "const": 0
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,451 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/2.0.0/full-v1/manifest.schema.json",
+  "title": "Fortemi Knowledge Shard full-v1 candidate manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "profile",
+    "producer",
+    "format",
+    "created_at",
+    "components",
+    "counts",
+    "checksums",
+    "min_reader_version"
+  ],
+  "properties": {
+    "version": {
+      "const": "2.0.0"
+    },
+    "profile": {
+      "const": "full-v1"
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "matric_version": {
+      "type": "string",
+      "minLength": 1,
+      "deprecated": true
+    },
+    "format": {
+      "const": "matric-shard"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "components": {
+      "type": "array",
+      "minItems": 33,
+      "maxItems": 33,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "notes",
+          "collections",
+          "tags",
+          "templates",
+          "links",
+          "note_originals",
+          "note_original_history",
+          "note_revised_current",
+          "note_revisions",
+          "embedding_configs",
+          "embedding_sets",
+          "embedding_set_members",
+          "embeddings",
+          "provenance_edges",
+          "provenance_activities",
+          "named_locations",
+          "provenance_locations",
+          "provenance_devices",
+          "provenance_records",
+          "skos_schemes",
+          "skos_concepts",
+          "skos_labels",
+          "skos_notes",
+          "skos_relations",
+          "skos_mapping_relations",
+          "skos_scheme_memberships",
+          "note_skos_tags",
+          "skos_collections",
+          "skos_collection_members",
+          "graph_sources",
+          "graph_edges",
+          "communities",
+          "community_assignments"
+        ]
+      }
+    },
+    "counts": {
+      "$ref": "#/$defs/counts"
+    },
+    "checksums": {
+      "$ref": "#/$defs/checksums"
+    },
+    "min_reader_version": {
+      "const": "2.0.0"
+    },
+    "migrated_from": {
+      "$ref": "#/$defs/strictSemVer"
+    },
+    "migration_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from_version",
+          "to_version",
+          "migrated_at",
+          "migrated_by",
+          "changes"
+        ],
+        "properties": {
+          "from_version": {
+            "$ref": "#/$defs/strictSemVer"
+          },
+          "to_version": {
+            "$ref": "#/$defs/strictSemVer"
+          },
+          "migrated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "migrated_by": {
+            "type": "string",
+            "minLength": 1
+          },
+          "changes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "strictSemVer": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "notes",
+        "collections",
+        "tags",
+        "templates",
+        "links",
+        "note_originals",
+        "note_original_history",
+        "note_revised_current",
+        "note_revisions",
+        "embedding_configs",
+        "embedding_sets",
+        "embedding_set_members",
+        "embeddings",
+        "provenance_edges",
+        "provenance_activities",
+        "named_locations",
+        "provenance_locations",
+        "provenance_devices",
+        "provenance_records",
+        "skos_schemes",
+        "skos_concepts",
+        "skos_labels",
+        "skos_notes",
+        "skos_relations",
+        "skos_mapping_relations",
+        "skos_scheme_memberships",
+        "note_skos_tags",
+        "skos_collections",
+        "skos_collection_members",
+        "graph_sources",
+        "graph_edges",
+        "community_sets",
+        "communities",
+        "community_assignments"
+      ],
+      "properties": {
+        "notes": {
+          "$ref": "#/$defs/count"
+        },
+        "collections": {
+          "$ref": "#/$defs/count"
+        },
+        "tags": {
+          "$ref": "#/$defs/count"
+        },
+        "templates": {
+          "$ref": "#/$defs/count"
+        },
+        "links": {
+          "$ref": "#/$defs/count"
+        },
+        "note_originals": {
+          "$ref": "#/$defs/count"
+        },
+        "note_original_history": {
+          "$ref": "#/$defs/count"
+        },
+        "note_revised_current": {
+          "$ref": "#/$defs/count"
+        },
+        "note_revisions": {
+          "$ref": "#/$defs/count"
+        },
+        "embedding_configs": {
+          "$ref": "#/$defs/count"
+        },
+        "embedding_sets": {
+          "$ref": "#/$defs/count"
+        },
+        "embedding_set_members": {
+          "$ref": "#/$defs/count"
+        },
+        "embeddings": {
+          "$ref": "#/$defs/count"
+        },
+        "provenance_edges": {
+          "$ref": "#/$defs/count"
+        },
+        "provenance_activities": {
+          "$ref": "#/$defs/count"
+        },
+        "named_locations": {
+          "$ref": "#/$defs/count"
+        },
+        "provenance_locations": {
+          "$ref": "#/$defs/count"
+        },
+        "provenance_devices": {
+          "$ref": "#/$defs/count"
+        },
+        "provenance_records": {
+          "$ref": "#/$defs/count"
+        },
+        "skos_schemes": {
+          "$ref": "#/$defs/count"
+        },
+        "skos_concepts": {
+          "$ref": "#/$defs/count"
+        },
+        "skos_labels": {
+          "$ref": "#/$defs/count"
+        },
+        "skos_notes": {
+          "$ref": "#/$defs/count"
+        },
+        "skos_relations": {
+          "$ref": "#/$defs/count"
+        },
+        "skos_mapping_relations": {
+          "$ref": "#/$defs/count"
+        },
+        "skos_scheme_memberships": {
+          "$ref": "#/$defs/count"
+        },
+        "note_skos_tags": {
+          "$ref": "#/$defs/count"
+        },
+        "skos_collections": {
+          "$ref": "#/$defs/count"
+        },
+        "skos_collection_members": {
+          "$ref": "#/$defs/count"
+        },
+        "graph_sources": {
+          "$ref": "#/$defs/count"
+        },
+        "graph_edges": {
+          "$ref": "#/$defs/count"
+        },
+        "community_sets": {
+          "$ref": "#/$defs/count"
+        },
+        "communities": {
+          "$ref": "#/$defs/count"
+        },
+        "community_assignments": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "checksums": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "notes.jsonl",
+        "collections.json",
+        "tags.json",
+        "templates.json",
+        "links.jsonl",
+        "note_originals.jsonl",
+        "note_original_history.jsonl",
+        "note_revised_current.jsonl",
+        "note_revisions.jsonl",
+        "embedding_configs.json",
+        "embedding_sets.json",
+        "embedding_set_members.jsonl",
+        "embeddings.jsonl",
+        "provenance_edges.jsonl",
+        "provenance_activities.jsonl",
+        "named_locations.jsonl",
+        "provenance_locations.jsonl",
+        "provenance_devices.jsonl",
+        "provenance_records.jsonl",
+        "skos_schemes.json",
+        "skos_concepts.json",
+        "skos_labels.jsonl",
+        "skos_notes.jsonl",
+        "skos_relations.jsonl",
+        "skos_mapping_relations.jsonl",
+        "skos_scheme_memberships.jsonl",
+        "note_skos_tags.jsonl",
+        "skos_collections.json",
+        "skos_collection_members.jsonl",
+        "graph_sources.json",
+        "graph_edges.jsonl",
+        "communities.json",
+        "community_assignments.jsonl"
+      ],
+      "properties": {
+        "notes.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "collections.json": {
+          "$ref": "#/$defs/sha256"
+        },
+        "tags.json": {
+          "$ref": "#/$defs/sha256"
+        },
+        "templates.json": {
+          "$ref": "#/$defs/sha256"
+        },
+        "links.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "note_originals.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "note_original_history.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "note_revised_current.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "note_revisions.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "embedding_configs.json": {
+          "$ref": "#/$defs/sha256"
+        },
+        "embedding_sets.json": {
+          "$ref": "#/$defs/sha256"
+        },
+        "embedding_set_members.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "embeddings.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "provenance_edges.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "provenance_activities.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "named_locations.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "provenance_locations.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "provenance_devices.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "provenance_records.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "skos_schemes.json": {
+          "$ref": "#/$defs/sha256"
+        },
+        "skos_concepts.json": {
+          "$ref": "#/$defs/sha256"
+        },
+        "skos_labels.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "skos_notes.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "skos_relations.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "skos_mapping_relations.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "skos_scheme_memberships.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "note_skos_tags.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "skos_collections.json": {
+          "$ref": "#/$defs/sha256"
+        },
+        "skos_collection_members.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "graph_sources.json": {
+          "$ref": "#/$defs/sha256"
+        },
+        "graph_edges.jsonl": {
+          "$ref": "#/$defs/sha256"
+        },
+        "communities.json": {
+          "$ref": "#/$defs/sha256"
+        },
+        "community_assignments.jsonl": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}
