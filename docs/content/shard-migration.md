@@ -2,9 +2,12 @@
 
 ## Canonical Contract
 
-Fortemi owns the normative Knowledge Shard schemas. The current contract is
-schema `1.2.0`, with registered `core-v1`, reduced `record-v1`, and complete
-server `full-v1` profiles under `contracts/knowledge-shard/1.2.0/`. Immutable
+Fortemi owns the normative Knowledge Shard schemas. The default export
+contract is schema `1.2.0`, with registered `core-v1`, reduced `record-v1`, and
+complete server `full-v1` profiles under
+`contracts/knowledge-shard/1.2.0/`. Exact schema `2.0.0` tuples are available
+only through explicit reader/export selection and add direct JSON-key presence
+semantics. Immutable
 `1.0.0` and `1.1.0` schemas, current and historical file digests, profile
 corpora, and migration targets are recorded in
 `contracts/knowledge-shard/contract.json`.
@@ -18,9 +21,11 @@ revision 19 retains it after exact React producer archives passed Fortemi
 dry-run, zero-mutation rejection, repeated replace import, server re-export,
 and React return import. The `full-v1` server route requires the complete rich
 component inventory and every declared attachment byte; its signed fixture
-passes clean import, exact semantic re-export, and failure rollback. External
-`full-v1` producer and consumer receipts remain pending, so that server
-self-roundtrip must not be generalized into cross-product full-profile parity.
+passes clean import, exact semantic re-export, and failure rollback. The
+hardened nine-cell schema `1.2.0` matrix expresses only its individual
+producer/consumer cells. External `2.0.0/full-v1` producer and consumer
+receipts remain pending under Fortemi #1084 and fortemi-react #382, so the
+server self-roundtrip must not be generalized into a suite-wide claim.
 
 Schema validation is necessary but not a full recovery claim. The current
 `core-v1` REST route is reference-only by default and can opt into verified
@@ -31,10 +36,14 @@ nullable embedding contract lineage. The default remains `core-v1`; use an
 explicit `profile=full-v1` export for the complete server profile. A default
 export is not a disaster-recovery-complete archive.
 
+`min_reader_version` always names a Knowledge Shard schema reader floor. It is
+never a Fortemi application version; application identity belongs only in
+producer metadata.
+
 This guide explains how Fortémi handles versioned knowledge shards, including compatibility checking, automatic migration, and troubleshooting.
 
 > **Current implementation versus target contract:** This page documents the
-> current migration implementation.
+> current default and opt-in implementation.
 > [ADR-102](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md)
 > defines the cross-repository contract: named profiles, validation before
 > writes, atomic import, and fail-closed integrity checks. The server now passes
@@ -72,12 +81,15 @@ Fortémi uses **semantic versioning** for knowledge shards to ensure safe import
 | `1.1.0 → 1.2.0` | Minor | Added nullable embedding contract lineage |
 | `1.0.0 → 2.0.0` | Major | Changed embedding format (requires migration) |
 
-### Current Version
+### Supported versions
 
-The current shard format version is defined in `crates/matric-core/src/shard/version.rs`:
+The default shard format version is defined in
+`crates/matric-core/src/shard/version.rs`; the API's opt-in reader also accepts
+exact schema `2.0.0` tuples:
 
 ```rust
 pub const CURRENT_SHARD_VERSION: &str = "1.2.0";
+// API reader ceiling: 2.0.0; the default remains 1.2.0.
 ```
 
 ## Compatibility Matrix
@@ -91,7 +103,8 @@ When you import a knowledge shard, Fortémi checks version compatibility and tak
 | **Previous registered version** | 1.1.0 | 1.2.0 | Validate, migrate, revalidate, import | Existing records are preserved |
 | **Unregistered older version** | 1.0.1 | 1.2.0 | Reject before writes | No exact migration path |
 | **Newer minor** | 1.3.0 | 1.2.0 | Reject before writes | Explicit reader support required |
-| **Newer major** | 2.0.0 | 1.2.0 | Reject before writes | Upgrade Fortémi |
+| **Opt-in current major** | 2.0.0 | reader 2.0.0 | Import exact tuple | Preserve direct-key presence |
+| **Newer major** | 3.0.0 | reader 2.0.0 | Reject before writes | Upgrade the schema reader |
 
 ### Compatibility Rules
 
@@ -133,17 +146,17 @@ Shard: 1.0.0, Current: 1.2.0
 ✓ Migrated representation revalidated before writes
 ```
 
-#### 5. Newer Major Version (Incompatible)
+#### 5. Unsupported Newer Major Version
 ```
-Shard: 2.0.0, Current: 1.2.0
+Shard: 3.0.0, Maximum reader: 2.0.0
 ✗ Import fails
-✗ Upgrade required
+✗ A reader with explicit schema 3 support is required
 ```
 
 **Error message:**
 ```
-Shard major version 2 is incompatible with current major version 1
-Minimum required version: 2.0.0
+Shard major version 3 is incompatible with maximum reader major version 2
+Minimum required schema reader: 3.0.0
 ```
 
 ## Migration System

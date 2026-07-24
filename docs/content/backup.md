@@ -9,7 +9,7 @@ Fortémi provides multiple backup options:
 | Method | Use Case | Format | Includes |
 |--------|----------|--------|----------|
 | **JSON Export** | App-level backup | JSON | Notes, collections, tags, templates |
-| **Knowledge Shard** | Portable semantic-data backup | .shard | `core-v1`: notes, collections, tags, templates, links, attachment references; optional stored attachment bytes |
+| **Knowledge Shard** | Receipt-scoped data exchange | .shard | Only the components and byte policy of its exact `(schema, profile)` tuple |
 | **Knowledge Archive** | Backup + metadata bundle | .archive | Backup file + metadata.json |
 | **Database Snapshot** | Full database backup | pg_dump | Complete database with embeddings |
 | **Shell script** | Automated scheduled backups | pg_dump | Full database with compression |
@@ -27,18 +27,23 @@ See [Encryption Guide](#/security-encryption) for cryptographic details and [Sha
 ### Choosing a Backup Method
 
 - **JSON Export** (`/api/v1/backup/export`): Quick export of note content. Best for migration to other systems.
-- **Knowledge Shard** (`/api/v1/backup/knowledge-shard`): Portable semantic-data backup with links and attachment references. Exports are reference-only by default; `include_blobs=true` adds verified stored attachment bytes, and import restores valid referenced sidecars.
+- **Knowledge Shard** (`/api/v1/backup/knowledge-shard`): Named-profile
+  interchange. Default `1.2.0/core-v1` exports are reference-only unless
+  `include_blobs=true`; exact `2.0.0/full-v1` requires every declared byte.
+  Treat a shard as portable only for a receipt-backed producer/consumer cell.
 - **Knowledge Archive** (`/api/v1/backup/knowledge-archive`): Bundles any backup with its metadata sidecar. Best for transferring backups between systems.
 
 ## Shard Versioning
 
 Knowledge shards use **semantic versioning** (MAJOR.MINOR.PATCH) to ensure compatibility across different Fortémi versions.
 
-### Current Version
+### Supported versions
 
-- **Shard format version**: `1.1.0`
+- **Default export schema**: `1.2.0`
+- **Opt-in reader/export schema**: exact `2.0.0` tuples
 - **Default profile**: `core-v1`
-- **Defined in**: `crates/matric-core/src/shard/version.rs`
+- **Authority**: `contracts/knowledge-shard/contract.json` and the immutable
+  versioned schema roots
 
 ### Version Compatibility
 
@@ -46,20 +51,35 @@ When importing a shard, Fortémi automatically checks version compatibility:
 
 | Scenario | Behavior |
 |----------|----------|
-| Same schema version (`1.1.0`) | Import after profile and archive preflight |
-| Schema `1.0.0` | Validate source bytes, migrate notes to `1.1.0`, validate again, then import |
-| Newer minor or patch | Reject until this reader explicitly supports it |
-| Different major | Reject as incompatible |
-| Minimum reader newer than `1.1.0` | Reject before mutation |
+| Exact registered tuple | Import after schema, profile, integrity, relationship, byte, and limit preflight |
+| Historical registered tuple | Validate source, run only its registered migration path, revalidate, then import |
+| Exact `2.0.0` tuple | Opt-in import/export with direct JSON-key presence semantics |
+| Unregistered tuple or schema `3.x` | Reject before persistent or blob mutation |
+| `min_reader_version` newer than the supported schema reader | Reject before mutation |
 
 ### Migration Support
 
-The current contract is `1.1.0`. The registered `1.0.0 -> 1.1.0` migration
-maps the legacy absence of `deleted_at` to explicit JSON `null`, the documented
-active-note default. Current exports contain active and soft-deleted notes and
-emit either `deleted_at: null` or the exact tombstone timestamp. Application
-release versions belong in `producer.version` and do not participate in schema
-compatibility.
+The default contract is `1.2.0`. Its registered historical path records any
+legacy default instead of pretending the source carried that state. Schema
+`2.0.0` distinguishes absent, JSON `null`, empty, and non-empty values and
+persists those distinctions transactionally. `min_reader_version` is a schema
+compatibility floor. Application releases belong in `producer.version` and do
+not participate in compatibility.
+
+### Profiles and evidence boundaries
+
+| Profile | Portable surface |
+|---|---|
+| `core-v1` | Notes, collections, tags, templates, and links; attachment references with explicitly optional sidecars |
+| `record-v1` | The declared reduced RecordStore record set; every out-of-profile or lossy projection requires a machine-readable loss entry |
+| `full-v1` | All 33 declared components, 34 counts, required attachment bytes, signatures, embeddings and lineage, SKOS, provenance, graph, and community data |
+
+Fortemi's signed `1.2.0/full-v1` fixture and server self-import/re-export prove
+only the Fortemi-to-Fortemi boundary. The hardened nine-cell schema `1.2.0`
+matrix is a set of per-cell claims, not a suite-wide parity statement.
+Independent schema `2.0.0/full-v1` advertisement remains gated by Fortemi
+#1084 and fortemi-react #382. Gated claims—full portability, complete backup,
+and schema parity—remain blocked until those receipts close.
 
 For detailed information about versioning, compatibility, and troubleshooting, see the [Shard Migration Guide](#/core-systems-shard-migration).
 
@@ -101,8 +121,9 @@ knowledge_shard()
 // Create shard with specific components
 knowledge_shard({ include: "notes,links" })
 
-// Restore from shard (file_path triggers multipart upload)
-knowledge_shard_import({ file_path: "backup.shard", dry_run: true })
+// Validate/import bytes through the multipart REST boundary or an MCP client
+// that explicitly supports local file transfer; local server paths are not a
+// portable interchange contract.
 
 // Download backup as portable knowledge archive (.archive)
 knowledge_archive_download({ filename: "snapshot_database_20260117.sql.gz" })
@@ -296,7 +317,7 @@ Exports all notes as a complete JSON export.
 ```json
 {
   "manifest": {
-    "version": "1.0.0",
+    "version": "1.2.0",
     "format": "matric-backup",
     "created_at": "2026-01-17T12:00:00Z",
     "counts": {
@@ -428,22 +449,19 @@ This atomic database boundary does not make `core-v1` a complete
 disaster-recovery profile: attachment bytes and richer profile data remain
 outside its current preservation contract.
 
-### knowledge_shard_import
+### Knowledge Shard import
 
-Restore from a knowledge shard created by `knowledge_shard`.
-
-**Parameters:**
-- `file_path` - Path to the .tar.gz shard file on disk (required)
-- `include` - Components to import (default: all in shard)
-- `dry_run` - Validate without importing (default: false)
-- `on_conflict` - For existing notes: `skip`, `replace`, `merge` (default: skip)
+Upload archive bytes to the multipart
+`POST /api/v1/backup/knowledge-shard/import/upload` boundary. Validate the exact
+schema/profile tuple and use `dry_run=true` before a mutating import. Filesystem
+paths are client-local concerns and are not part of the portable wire contract.
 - `skip_embedding_regen` - Don't regenerate embeddings (default: false)
 
 **Returns:**
 ```json
 {
   "status": "success",
-  "manifest": { "version": "1.0.0", "counts": {...} },
+  "manifest": { "version": "1.2.0", "profile": "core-v1", "counts": {...} },
   "imported": { "notes": 4, "collections": 2, "links": 12 },
   "skipped": { "notes": 0 },
   "errors": [],
@@ -538,7 +556,7 @@ curl "http://localhost:3000/api/v1/backup/export?starred_only=true&created_after
 ```json
 {
   "manifest": {
-    "version": "1.0.0",
+    "version": "1.2.0",
     "format": "matric-backup",
     "created_at": "2026-01-17T12:00:00Z",
     "counts": { "notes": 150, "collections": 5, "tags": 30, "templates": 3 }
@@ -683,7 +701,7 @@ Import a knowledge shard via JSON body with base64-encoded data. Use the `/uploa
 ```json
 {
   "status": "success",
-  "manifest": { "version": "1.0.0", "counts": {...} },
+  "manifest": { "version": "1.2.0", "profile": "core-v1", "counts": {...} },
   "imported": { "notes": 4, "collections": 2 },
   "skipped": { "notes": 0 },
   "errors": [],

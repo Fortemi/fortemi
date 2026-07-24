@@ -16,6 +16,13 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   export remains the default, and schema-2 capability advertisement remains
   gated on the independent destination receipts.
 
+### Fixed
+
+- Reconcile legacy Knowledge Shard guidance with the schema `1.2.0` named
+  profiles and exact `2.0.0` opt-in tuples, explicitly supersede obsolete
+  ADR-028/029 statements, and block stale or unqualified parity claims in the
+  documentation contract scan.
+
 ## [2026.7.12] - 2026-07-22
 
 Corrective release for the `2026.7.11` publication. Knowledge Shard formats,

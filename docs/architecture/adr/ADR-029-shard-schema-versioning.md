@@ -1,15 +1,18 @@
 # ADR-029: Shard Schema Versioning Specification
 
-**Status:** Accepted
+**Status:** Partially superseded
 **Date:** 2026-02-01
 **Deciders:** Architecture team
 **Related:** ADR-008 (Magic Bytes Format Detection), docs/content/backup.md
-**Superseded in part by:** ADR-102
+**Superseded by:** ADR-102 and ADR-103 for canonical Knowledge Shards
 
-> **Contract update (2026-07-17):** ADR-102 is authoritative for canonical
-> profile semantics, fail-closed import, and reader-version metadata.
-> `min_reader_version` is a shard-schema SemVer value, not an application
-> release. Best-effort or partial reads do not constitute profile conformance.
+> **Supersession notice (2026-07-23):** ADR-102 is authoritative for schema
+> `1.2.0` profiles, fail-closed import, and version negotiation; ADR-103 is
+> authoritative for the exact schema `2.0.0` tuples. Statements below that name
+> `1.0.0` as current, compare `min_reader_version` with a Fortemi application
+> release, or permit best-effort/partial reads are historical. The field is the
+> minimum Knowledge Shard **schema** reader version. Application release
+> identity is producer metadata and never decides schema compatibility.
 
 ## Context
 
@@ -33,7 +36,8 @@ Adopt a formal shard schema versioning specification with the following componen
 **Manifest `version` Field:**
 - Represents the **shard format/schema version**, not the application version
 - Uses Semantic Versioning: `MAJOR.MINOR.PATCH`
-- Current baseline: `1.0.0`
+- Historical baseline: `1.0.0`; the default export is `1.2.0` and schema
+  `2.0.0` is an exact opt-in authority tuple
 
 **Manifest `matric_version` Field:**
 - Represents the **application version** that created the shard

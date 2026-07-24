@@ -60,8 +60,8 @@ This directory contains Architecture Decision Records (ADRs) documenting signifi
 
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
-| [ADR-028](ADR-028-shard-archive-migration-system.md) | Shard and Archive Migration System | Accepted | 2026-02-01 |
-| [ADR-029](ADR-029-shard-schema-versioning.md) | Shard Schema Versioning | Accepted | 2026-02-01 |
+| [ADR-028](ADR-028-shard-archive-migration-system.md) | Shard and Archive Migration System | Partially superseded by ADR-102/103 | 2026-02-01 |
+| [ADR-029](ADR-029-shard-schema-versioning.md) | Shard Schema Versioning | Partially superseded by ADR-102/103 | 2026-02-01 |
 | [ADR-030](ADR-030-migration-downgrade-upgrade-ux.md) | Migration Downgrade/Upgrade UX | Accepted | 2026-02-01 |
 
 ### Cross-Repository Data Contracts (ADR-102 to ADR-103)

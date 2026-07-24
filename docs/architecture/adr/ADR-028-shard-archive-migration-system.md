@@ -1,15 +1,19 @@
 # ADR-028: Shard and Archive Migration System
 
-**Status:** Accepted
+**Status:** Partially superseded
 **Date:** 2026-02-01
 **Deciders:** Architecture team
-**Superseded in part by:** ADR-102
+**Superseded by:** ADR-102 and ADR-103 for Knowledge Shards
 
-> **Contract update (2026-07-17):** ADR-102 supersedes the best-effort and
-> warning-only behavior in this ADR for canonical Knowledge Shard imports.
-> Profile, integrity, and referential validation must complete before writes;
-> checksum mismatch, malformed required records, and undeclared loss fail the
-> import. Archive migration policy remains unchanged unless separately revised.
+> **Supersession notice (2026-07-23):** The Knowledge Shard statements in this
+> ADR that name schema `1.0.0` as current, infer compatibility from an
+> application release, promise best-effort reads, or show path-based import are
+> historical and must not be used as implementation guidance. ADR-102 owns the
+> schema `1.2.0` named-profile model and ADR-103 owns exact schema `2.0.0`
+> presence semantics. Profile, integrity, and referential validation complete
+> before writes; checksum mismatch, malformed required records, unsupported
+> presence, and undeclared loss fail closed. The Knowledge Archive and database
+> migration discussion remains applicable unless separately revised.
 
 ## Context
 
@@ -19,7 +23,7 @@ Matric Memory uses two portable backup formats:
    - `manifest.json` with version, checksums, and counts
    - `notes.jsonl`, `collections.json`, `tags.json`, `templates.json`
    - `links.jsonl`, `embedding_sets.json`, `embedding_configs.json`
-   - Current manifest version: 1.0.0
+   - Historical manifest baseline: 1.0.0; see ADR-102/ADR-103 for current authority
 
 2. **Knowledge Archives** (`.archive`): Database backups wrapped in TAR with `metadata.json` sidecar
    - Full pg_dump backups with embeddings
