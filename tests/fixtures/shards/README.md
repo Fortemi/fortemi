@@ -242,6 +242,23 @@ rejection, own-property classification, exact JSON serialize/parse equality,
 the generated field inventory, and the digest-pinned 2.0 authority descriptor.
 This corpus specifies the contract; it is not a runtime-support receipt.
 
+### external/
+
+Immutable released-package archives used by the schema `2.0.0/full-v1`
+destination tests:
+
+- `react-2026.7.13/react-full-v1.shard` is the released React PGlite fixture
+  from source commit `45ee08e99dfb6fa0263aca2992aa6de91e2f1e98`.
+- `aiwg-2026.7.13/aiwg-full-v1.shard` is the byte-identical archive produced
+  through the released `@fortemi/core/aiwg-index-shard` entry point and consumed
+  by AIWG commit `7ebc5c23929650e9cc762b9f5831be113fffbae8`.
+- `schema-2-runtime.implementation-receipt.json` binds both archives, the
+  authority and package identities, the Fortemi implementation commit, the
+  delivered-main CI run, and the bounded non-advertisement decision.
+
+These fixtures prove the Fortemi runtime boundary only. Independent paired
+advertisement remains gated by Fortemi #1084 and React #382.
+
 ## Usage in Tests
 
 ### Loading Fixtures

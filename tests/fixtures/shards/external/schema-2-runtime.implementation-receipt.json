@@ -1,0 +1,135 @@
+{
+  "schemaVersion": "fortemi.knowledge-shard.schema-2-runtime-receipt.v1",
+  "status": "delivered-main-conformance-passed",
+  "tuple": {
+    "schemaVersion": "2.0.0",
+    "profiles": [
+      "core-v1",
+      "record-v1",
+      "full-v1"
+    ]
+  },
+  "authority": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "commit": "6343bd899958445bbc7e7e87b0dc92a8429d5a06",
+    "contractRevision": "20",
+    "contractSha256": "5bf8d2fd8147d8df92599b1a3ce6b405ce022c83893f37547aefa7ca659f0783",
+    "schemaBundleSha256": "66dee80876c73fdc8756541c72e96ae189c098113a831c849d619381c4121c02",
+    "fieldSemanticsSha256": "43e5704bc8d805158aa67f33eef6d440fecfeb8385d4f622d79084be3424da09",
+    "fieldInventoryCount": 220
+  },
+  "implementation": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "commit": "c93742d7c75b481621b821f4584304289eb364d5",
+    "packageVersion": "2026.7.12",
+    "releaseStatus": "unreleased-main-after-v2026.7.12",
+    "deliveredMain": {
+      "ref": "main",
+      "ciUrl": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/5427",
+      "testCiUrl": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/5430",
+      "conclusion": "success"
+    }
+  },
+  "reactProducer": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+    "commit": "45ee08e99dfb6fa0263aca2992aa6de91e2f1e98",
+    "tag": "v2026.7.13",
+    "releaseCiUrl": "https://git.integrolabs.net/Fortemi/fortemi-react/actions/runs/1024",
+    "package": {
+      "name": "@fortemi/core",
+      "version": "2026.7.13",
+      "shasum": "d829b24cca7bf50689b936417ce607b6f75e9966",
+      "integrity": "sha512-bFf77/wQhJ9M9m/0M3TM1S13EkmfrBM/O5sVaTkXJaeo1uyCuvP46T9ZVm3pGae30AkpWI3fDxuwo2AvEOBKOw==",
+      "releaseSigningFingerprint": "26CB074F65E89E5F4DFD7C71F410C8C763C90CC9"
+    },
+    "archive": {
+      "path": "tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard",
+      "bytes": 7088,
+      "sha256": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59",
+      "profile": "full-v1",
+      "componentCount": 33,
+      "countFieldCount": 34
+    }
+  },
+  "aiwgProducer": {
+    "repository": "https://git.integrolabs.net/roctinam/aiwg.git",
+    "fixtureCommit": "7ebc5c23929650e9cc762b9f5831be113fffbae8",
+    "deliveredMainCommit": "bebe053df4892d9ae5cced822aead3d9d7f19656",
+    "deliveredMainCiUrls": [
+      "https://git.integrolabs.net/roctinam/aiwg/actions/runs/4593",
+      "https://git.integrolabs.net/roctinam/aiwg/actions/runs/4594",
+      "https://git.integrolabs.net/roctinam/aiwg/actions/runs/4595",
+      "https://git.integrolabs.net/roctinam/aiwg/actions/runs/4596"
+    ],
+    "converterEntrypoint": "@fortemi/core/aiwg-index-shard",
+    "archive": {
+      "path": "tests/fixtures/shards/external/aiwg-2026.7.13/aiwg-full-v1.shard",
+      "bytes": 3941,
+      "sha256": "df87edc5725e3f0c8d95d8d4328c64a263e9b021520a127d9df5b7301c2afee5",
+      "profile": "full-v1",
+      "componentCount": 33,
+      "countFieldCount": 34
+    }
+  },
+  "consumer": {
+    "id": "fortemi",
+    "cleanDestination": true,
+    "semanticReexport": true,
+    "repeatedImports": 2,
+    "zeroMutationOnFailure": true,
+    "exactAttachmentBlobReexport": true,
+    "presenceStates": [
+      "absent",
+      "null",
+      "empty",
+      "value"
+    ]
+  },
+  "tests": {
+    "authorityDispatch": "tests::shard_schema_2_dispatch_covers_the_complete_authority_field_inventory",
+    "releasedArchives": "tests::shard_schema_2_accepts_independent_react_and_aiwg_full_v1_archives",
+    "cleanDestinations": "tests::shard_schema_2_clean_destinations_preserve_independent_full_v1_archives",
+    "currentMinusTwo": "tests::shard_core_v1_server_export_clean_import_preserves_semantic_state",
+    "nextMajorRejection": "tests::shard_canonical_manifest_fixtures_cover_current_and_next_major",
+    "malformedAndTampered": "tests::shard_inventory_rejects_missing_undeclared_and_count_mismatches",
+    "signatureFailure": "shard_signature::tests::rejects_unknown_revoked_substituted_and_corrupt_signatures",
+    "resourceLimits": "tests::shard_archive_reader_enforces_compressed_uncompressed_entry_and_count_limits",
+    "attachmentRollback": "tests::shard_optional_sidecars_round_trip_and_fail_without_partial_storage",
+    "presenceMatrix": "python3 -m unittest tests/test_verify_knowledge_shard_presence.py tests/test_verify_knowledge_shard_matrix.py"
+  },
+  "coverage": [
+    "all-33-components",
+    "all-34-count-fields",
+    "authority-field-inventory",
+    "absent-null-empty-value",
+    "attachment-bytes",
+    "signature-validation",
+    "relationships",
+    "timestamps",
+    "tombstones",
+    "768-dimensional-embeddings",
+    "embedding-contract-lineage",
+    "skos",
+    "provenance",
+    "graph-community",
+    "current-minus-two",
+    "current",
+    "next-major-rejection",
+    "malformed-input",
+    "resource-limits",
+    "repeated-imports",
+    "zero-mutation-on-rejection"
+  ],
+  "advertisement": {
+    "advertised": false,
+    "defaultSchemaVersion": "1.2.0",
+    "reason": "Independent paired destination receipts in Fortemi #1084 and React #382 remain open gates."
+  },
+  "coordination": {
+    "runtimeIssue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1087",
+    "destinationIssue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1084",
+    "reactProducerIssue": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/381",
+    "reactAdvertisementIssue": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/382",
+    "aiwgConsumerIssue": "https://git.integrolabs.net/roctinam/aiwg/issues/1870"
+  }
+}
