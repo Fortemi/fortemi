@@ -9,8 +9,9 @@ fn shard_schema_2_full_v1_interop_receipt_binds_the_paired_deliveries() {
     let runtime_receipt_bytes = include_bytes!(
         "../../../tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json"
     );
-    let react_archive =
-        include_bytes!("../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard");
+    let react_archive = include_bytes!(
+        "../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+    );
     let aiwg_archive =
         include_bytes!("../../../tests/fixtures/shards/external/aiwg-2026.7.13/aiwg-full-v1.shard");
 

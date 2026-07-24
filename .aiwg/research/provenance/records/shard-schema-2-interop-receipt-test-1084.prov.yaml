@@ -3,12 +3,12 @@ metadata:
   created_at: "2026-07-24T06:19:33Z"
   description: "Provenance for the Fortemi issue #1084 paired receipt drift verifier"
 entity:
-  id: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:b22e4972a05843c69ec9eb75d857f9e2b4e62f9b49a13a3f73a4402eee9e1c08"
+  id: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:438c95b26bff7aaedf4625777dd0e54d5dc469ae5a32b3f2bdf5c8e6478baca5"
   type: test_code
   created_at: "2026-07-24T06:19:33Z"
   updated_at: "2026-07-24T06:19:33Z"
-  checksum: "sha256:b22e4972a05843c69ec9eb75d857f9e2b4e62f9b49a13a3f73a4402eee9e1c08"
-  size_bytes: 2642
+  checksum: "sha256:438c95b26bff7aaedf4625777dd0e54d5dc469ae5a32b3f2bdf5c8e6478baca5"
+  size_bytes: 2648
   attributes:
     language: rust
     issue: "Fortemi/fortemi#1084"
@@ -30,7 +30,7 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:b22e4972a05843c69ec9eb75d857f9e2b4e62f9b49a13a3f73a4402eee9e1c08"
+    entity: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:438c95b26bff7aaedf4625777dd0e54d5dc469ae5a32b3f2bdf5c8e6478baca5"
     activity: "urn:aiwg:activity:creation:shard-schema-2-interop-receipt-test-1084:001"
     time: "2026-07-24T06:19:33Z"
   used:
@@ -41,7 +41,7 @@ relationships:
       entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json:sha256:e33f5898d780edfeacf6da7c0ca67b6e8649ea5bc2d571bfc120645cc59e16d6"
       role: verified_receipt
   wasDerivedFrom:
-    - entity: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:b22e4972a05843c69ec9eb75d857f9e2b4e62f9b49a13a3f73a4402eee9e1c08"
+    - entity: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:438c95b26bff7aaedf4625777dd0e54d5dc469ae5a32b3f2bdf5c8e6478baca5"
       source: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json:sha256:e33f5898d780edfeacf6da7c0ca67b6e8649ea5bc2d571bfc120645cc59e16d6"
       derivation_type: verifies
       activity: "urn:aiwg:activity:creation:shard-schema-2-interop-receipt-test-1084:001"
@@ -50,5 +50,5 @@ relationships:
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:b22e4972a05843c69ec9eb75d857f9e2b4e62f9b49a13a3f73a4402eee9e1c08"
+    entity: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:438c95b26bff7aaedf4625777dd0e54d5dc469ae5a32b3f2bdf5c8e6478baca5"
     agent: "urn:aiwg:agent:codex-gpt-5"
