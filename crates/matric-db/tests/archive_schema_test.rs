@@ -455,7 +455,7 @@ async fn test_schema_drift_detection() {
                 AND c.relname = $1
                 AND a.attnum > 0
                 AND NOT a.attisdropped
-            ORDER BY a.attnum
+            ORDER BY a.attname
             "#,
         )
         .bind(table)
@@ -473,7 +473,7 @@ async fn test_schema_drift_detection() {
                 AND c.relname = $2
                 AND a.attnum > 0
                 AND NOT a.attisdropped
-            ORDER BY a.attnum
+            ORDER BY a.attname
             "#,
         )
         .bind(archive_schema)
