@@ -55,6 +55,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Utilities
     git \
     jq \
+    openssh-client \
+    python3-jsonschema \
+    rsync \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
