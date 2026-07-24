@@ -913,6 +913,12 @@ paths:
         Respects X-Fortemi-Memory header for archive-scoped exports (#421).
       operationId: knowledge_shard
       parameters:
+      - name: schema_version
+        in: query
+        description: Exact shard schema version; defaults to the stable 1.x reader
+        required: false
+        schema:
+          type: string
       - name: profile
         in: query
         description: Conformance profile; defaults to core-v1
