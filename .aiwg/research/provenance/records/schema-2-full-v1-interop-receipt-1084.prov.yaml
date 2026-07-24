@@ -1,0 +1,63 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-24T06:19:33Z"
+  description: "Provenance for the Fortemi issue #1084 paired Knowledge Shard 2.0.0/full-v1 interoperability receipt"
+entity:
+  id: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json:sha256:e33f5898d780edfeacf6da7c0ca67b6e8649ea5bc2d571bfc120645cc59e16d6"
+  type: evidence_receipt
+  created_at: "2026-07-24T06:19:33Z"
+  updated_at: "2026-07-24T06:19:33Z"
+  checksum: "sha256:e33f5898d780edfeacf6da7c0ca67b6e8649ea5bc2d571bfc120645cc59e16d6"
+  size_bytes: 4885
+  attributes:
+    issue: "Fortemi/fortemi#1084"
+    tuple: "2.0.0/full-v1"
+    change_type: creation
+activity:
+  id: "urn:aiwg:activity:creation:schema-2-full-v1-interop-receipt-1084:001"
+  type: creation
+  started_at: "2026-07-24T05:50:45Z"
+  ended_at: "2026-07-24T06:19:33Z"
+  description: "Bind the released React and AIWG producers to clean PGlite and Fortemi destinations without widening suite claims"
+  attributes:
+    verification:
+      - "cargo test -p matric-api --test shard_schema_2_interop_receipt_test -- --nocapture"
+      - "React delivered-main Actions run 1156: success"
+      - "Fortemi implementation Actions runs 5427 and 5430: success"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json:sha256:e33f5898d780edfeacf6da7c0ca67b6e8649ea5bc2d571bfc120645cc59e16d6"
+    activity: "urn:aiwg:activity:creation:schema-2-full-v1-interop-receipt-1084:001"
+    time: "2026-07-24T06:19:33Z"
+  used:
+    - activity: "urn:aiwg:activity:creation:schema-2-full-v1-interop-receipt-1084:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1084"
+      role: requirement
+    - activity: "urn:aiwg:activity:creation:schema-2-full-v1-interop-receipt-1084:001"
+      entity: "urn:gitea:commit:Fortemi/fortemi-react:1c0d5dba05c3e675c01cf53e93b6d082f2174b54"
+      role: independent_implementation
+    - activity: "urn:aiwg:activity:creation:schema-2-full-v1-interop-receipt-1084:001"
+      entity: "urn:gitea:commit:Fortemi/fortemi:c93742d7c75b481621b821f4584304289eb364d5"
+      role: destination_implementation
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json:sha256:e33f5898d780edfeacf6da7c0ca67b6e8649ea5bc2d571bfc120645cc59e16d6"
+      source: "urn:gitea:commit:Fortemi/fortemi-react:1c0d5dba05c3e675c01cf53e93b6d082f2174b54"
+      derivation_type: binds
+      activity: "urn:aiwg:activity:creation:schema-2-full-v1-interop-receipt-1084:001"
+    - entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json:sha256:e33f5898d780edfeacf6da7c0ca67b6e8649ea5bc2d571bfc120645cc59e16d6"
+      source: "urn:gitea:commit:Fortemi/fortemi:c93742d7c75b481621b821f4584304289eb364d5"
+      derivation_type: binds
+      activity: "urn:aiwg:activity:creation:schema-2-full-v1-interop-receipt-1084:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:creation:schema-2-full-v1-interop-receipt-1084:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json:sha256:e33f5898d780edfeacf6da7c0ca67b6e8649ea5bc2d571bfc120645cc59e16d6"
+    agent: "urn:aiwg:agent:codex-gpt-5"

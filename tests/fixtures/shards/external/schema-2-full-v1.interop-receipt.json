@@ -1,0 +1,128 @@
+{
+  "schemaVersion": "fortemi.knowledge-shard.full-v1-interop-receipt.v1",
+  "status": "delivered-cross-repository-conformance-passed",
+  "tuple": {
+    "schemaVersion": "2.0.0",
+    "profile": "full-v1"
+  },
+  "authority": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "commit": "6343bd899958445bbc7e7e87b0dc92a8429d5a06",
+    "contractRevision": "20",
+    "contractSha256": "5bf8d2fd8147d8df92599b1a3ce6b405ce022c83893f37547aefa7ca659f0783",
+    "schemaBundleSha256": "66dee80876c73fdc8756541c72e96ae189c098113a831c849d619381c4121c02",
+    "fieldSemanticsSha256": "43e5704bc8d805158aa67f33eef6d440fecfeb8385d4f622d79084be3424da09",
+    "fieldInventoryCount": 220
+  },
+  "react": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+    "releasedProducerCommit": "45ee08e99dfb6fa0263aca2992aa6de91e2f1e98",
+    "advertisementCommit": "1c0d5dba05c3e675c01cf53e93b6d082f2174b54",
+    "pullRequest": "https://git.integrolabs.net/Fortemi/fortemi-react/pulls/387",
+    "package": {
+      "name": "@fortemi/core",
+      "version": "2026.7.13",
+      "shasum": "d829b24cca7bf50689b936417ce607b6f75e9966",
+      "integrity": "sha512-bFf77/wQhJ9M9m/0M3TM1S13EkmfrBM/O5sVaTkXJaeo1uyCuvP46T9ZVm3pGae30AkpWI3fDxuwo2AvEOBKOw=="
+    },
+    "crossRepositoryReceipt": {
+      "path": "packages/core/schemas/knowledge-shard-v2.cross-repository.receipt.json",
+      "sha256": "f9be3191bf0d7ce232cc2ea54e181d783e775111affb4f85f64873113b1ded5e"
+    },
+    "ci": {
+      "preMerge": "https://git.integrolabs.net/Fortemi/fortemi-react/actions/runs/1152",
+      "deliveredMain": "https://git.integrolabs.net/Fortemi/fortemi-react/actions/runs/1156",
+      "conclusion": "success"
+    }
+  },
+  "fortemi": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "implementationCommit": "c93742d7c75b481621b821f4584304289eb364d5",
+    "runtimeReceipt": {
+      "commit": "2e812aa66ba108a824475a97b1ddba4d1412dec7",
+      "path": "tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json",
+      "sha256": "29f5e7cca66aec38baba0d7e58da1f5f6cc8520995f290831bc949bde1de1647"
+    },
+    "deliveredMainCommit": "c93742d7c75b481621b821f4584304289eb364d5",
+    "ci": {
+      "main": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/5427",
+      "tests": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/5430",
+      "conclusion": "success"
+    }
+  },
+  "aiwg": {
+    "repository": "https://git.integrolabs.net/roctinam/aiwg.git",
+    "fixtureCommit": "7ebc5c23929650e9cc762b9f5831be113fffbae8",
+    "deliveredMainCommit": "bebe053df4892d9ae5cced822aead3d9d7f19656",
+    "packageEntrypoint": "@fortemi/core/aiwg-index-shard"
+  },
+  "archives": {
+    "react": {
+      "path": "tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard",
+      "bytes": 7088,
+      "sha256": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59"
+    },
+    "aiwg": {
+      "path": "tests/fixtures/shards/external/aiwg-2026.7.13/aiwg-full-v1.shard",
+      "bytes": 3941,
+      "sha256": "df87edc5725e3f0c8d95d8d4328c64a263e9b021520a127d9df5b7301c2afee5"
+    }
+  },
+  "cells": [
+    {
+      "id": "pglite-full-v1-to-pglite",
+      "status": "passed"
+    },
+    {
+      "id": "aiwg-full-v1-to-pglite",
+      "status": "passed"
+    },
+    {
+      "id": "pglite-full-v1-to-fortemi",
+      "status": "passed"
+    },
+    {
+      "id": "aiwg-full-v1-to-fortemi",
+      "status": "passed"
+    }
+  ],
+  "coverage": [
+    "all-33-components",
+    "all-34-count-fields",
+    "attachment-bytes",
+    "signatures",
+    "identities",
+    "relationships",
+    "timestamps",
+    "tombstones",
+    "absent-null-empty-value",
+    "768-dimensional-embeddings",
+    "embedding-contract-lineage",
+    "skos",
+    "provenance",
+    "graph-community",
+    "current-minus-two",
+    "current",
+    "next-major-rejection",
+    "malformed-input",
+    "tampered-input",
+    "resource-limits",
+    "repeated-imports",
+    "zero-mutation-on-rejection"
+  ],
+  "claims": {
+    "fullV1Interoperability": true,
+    "suiteWide": false,
+    "completeBackup": false,
+    "scope": "Exact 2.0.0/full-v1 interoperability among the named released React and AIWG producers and the clean PGlite and Fortemi destinations only."
+  },
+  "coordination": {
+    "fortemiIssue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1084",
+    "fortemiRuntimeIssue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1087",
+    "reactIssue": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/382",
+    "reactProducerIssue": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/381",
+    "reactProfileIssue": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/355",
+    "reactConvergenceIssue": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/356",
+    "aiwgIssue": "https://git.integrolabs.net/roctinam/aiwg/issues/1870"
+  }
+}
