@@ -1,9 +1,10 @@
 # ADR-103: Lossless Knowledge Shard Presence Semantics
 
-**Status:** Accepted (target)
+**Status:** Accepted
 **Date:** 2026-07-22
 **Decision owners:** Fortemi schema authority maintainers
-**Tracking:** [Fortemi #1083](https://git.integrolabs.net/Fortemi/fortemi/issues/1083)
+**Tracking:** [Fortemi #1083](https://git.integrolabs.net/Fortemi/fortemi/issues/1083),
+[Fortemi #1087](https://git.integrolabs.net/Fortemi/fortemi/issues/1087)
 
 ## Context
 
@@ -72,6 +73,15 @@ Readers classify own-property presence before any normalization:
 Storage metadata is an implementation detail. Export always reconstructs the
 direct-key wire representation and validates it against the authority schema.
 
+The Fortemi server stores direct-key presence for the two live coordinates
+whose authority states admit both absence and null:
+`notes.deleted_at` and `embeddings.contract_fingerprint`. It also marks
+live-required or seeded rows that were absent from an imported schema-2
+component so the live persistence model does not invent portable component
+records. Imported collection snapshot counts are retained separately from the
+derived live count and invalidated by later membership mutations. These values
+are updated inside the same database transaction as their typed records.
+
 ### Migration and downgrade
 
 The `1.0.0`, `1.1.0`, and `1.2.0` directories remain byte-for-byte immutable.
@@ -119,6 +129,7 @@ and attachment bytes/digests.
 - React [#379](https://git.integrolabs.net/Fortemi/fortemi-react/issues/379): shared presence model, PGlite/RecordStore storage, and mapper remediation.
 - React [#380](https://git.integrolabs.net/Fortemi/fortemi-react/issues/380): complete `2.0.0/full-v1` PGlite persistence and receipt.
 - React [#381](https://git.integrolabs.net/Fortemi/fortemi-react/issues/381): native AIWG conversion and explicit losses.
+- Fortemi [#1087](https://git.integrolabs.net/Fortemi/fortemi/issues/1087): exact schema-2 runtime dispatch, durable presence, and released-package clean-destination verification.
 - HotM [#272](https://git.integrolabs.net/Fortemi/hotm/issues/272): exact-tuple recovery validation and capability display.
 - Fortemi [#1082](https://git.integrolabs.net/Fortemi/fortemi/issues/1082): per-cell evidence gate and final cross-repository receipts.
 

@@ -7,6 +7,15 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Added
+
+- Add exact Knowledge Shard `2.0.0` readers and opt-in exporters for
+  `core-v1`, `record-v1`, and `full-v1`, with authority-schema validation,
+  durable absent/null component presence, and clean repeated import/re-export
+  coverage against the released React and AIWG full-v1 archives. Stable 1.x
+  export remains the default, and schema-2 capability advertisement remains
+  gated on the independent destination receipts.
+
 ## [2026.7.12] - 2026-07-22
 
 Corrective release for the `2026.7.11` publication. Knowledge Shard formats,

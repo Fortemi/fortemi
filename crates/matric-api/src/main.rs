@@ -23315,6 +23315,8 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
 
 #[derive(Deserialize)]
 struct ShardExportQuery {
+    /// Exact Knowledge Shard schema version to emit.
+    schema_version: Option<String>,
     /// Conformance profile to export.
     profile: Option<String>,
     /// Profile components to include (comma-separated).
@@ -23327,6 +23329,10 @@ struct ShardExportQuery {
 impl fmt::Debug for ShardExportQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ShardExportQuery")
+            .field(
+                "schema_version_len",
+                &self.schema_version.as_deref().map(telemetry_text_len),
+            )
             .field(
                 "profile_len",
                 &self.profile.as_deref().map(telemetry_text_len),
@@ -23520,6 +23526,7 @@ struct ShardCollectionRecord {
     description: Option<String>,
     parent_id: Option<Uuid>,
     created_at: chrono::DateTime<chrono::Utc>,
+    note_count: i32,
 }
 
 #[derive(Deserialize)]
@@ -24077,6 +24084,8 @@ struct ShardEmbeddingRecord {
     vector: Option<Vec<f32>>,
     model: String,
     contract_fingerprint: Option<String>,
+    #[serde(skip)]
+    contract_fingerprint_present: bool,
     created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -24208,6 +24217,7 @@ const FULL_V1_COUNT_FIELDS: &[&str] = &[
     "community_assignments",
 ];
 const DEFAULT_SHARD_PROFILE: &str = "core-v1";
+const SHARD_SCHEMA_2_VERSION: &str = "2.0.0";
 const REGISTERED_SHARD_PROFILES: &[&str] = &["core-v1", "full-v1", "record-v1"];
 const DEFAULT_SHARD_EXPORT_COMPONENTS: &str = "notes,collections,tags,templates,links";
 const SHARD_MAX_COMPRESSED_BYTES: usize = matric_core::defaults::MAX_UPLOAD_SIZE_BYTES;
@@ -24859,61 +24869,86 @@ fn validate_shard_json_schema(
     static FULL_COMMUNITY_ASSIGNMENT: LazyLock<Result<jsonschema::Validator, String>> =
         LazyLock::new(|| compile_shard_json_schema(FULL_V1_COMMUNITY_ASSIGNMENT_SCHEMA));
 
+    let dynamic_validator;
     let validator = match schema_json {
-        LEGACY_CORE_V1_MANIFEST_SCHEMA => &*LEGACY_MANIFEST,
-        LEGACY_CORE_V1_NOTE_SCHEMA => &*LEGACY_NOTE,
-        LEGACY_CORE_V1_COLLECTION_SCHEMA => &*LEGACY_COLLECTION,
-        LEGACY_CORE_V1_TAG_SCHEMA => &*LEGACY_TAG,
-        LEGACY_CORE_V1_TEMPLATE_SCHEMA => &*LEGACY_TEMPLATE,
-        LEGACY_CORE_V1_LINK_SCHEMA => &*LEGACY_LINK,
-        V1_1_CORE_V1_MANIFEST_SCHEMA => &*V1_1_CORE_MANIFEST,
-        V1_1_RECORD_V1_MANIFEST_SCHEMA => &*V1_1_RECORD_MANIFEST,
-        V1_1_FULL_V1_MANIFEST_SCHEMA => &*V1_1_FULL_MANIFEST,
-        V1_1_FULL_V1_EMBEDDING_SCHEMA => &*V1_1_FULL_EMBEDDING,
-        CORE_V1_MANIFEST_SCHEMA => &*MANIFEST,
-        CORE_V1_NOTE_SCHEMA => &*NOTE,
-        CORE_V1_COLLECTION_SCHEMA => &*COLLECTION,
-        CORE_V1_TAG_SCHEMA => &*TAG,
-        CORE_V1_TEMPLATE_SCHEMA => &*TEMPLATE,
-        CORE_V1_LINK_SCHEMA => &*LINK,
-        RECORD_V1_MANIFEST_SCHEMA => &*RECORD_MANIFEST,
-        RECORD_V1_NOTE_SCHEMA => &*RECORD_NOTE,
-        RECORD_V1_COLLECTION_SCHEMA => &*RECORD_COLLECTION,
-        RECORD_V1_TAG_SCHEMA => &*RECORD_TAG,
-        RECORD_V1_LINK_SCHEMA => &*RECORD_LINK,
-        FULL_V1_MANIFEST_SCHEMA => &*FULL_MANIFEST,
-        FULL_V1_EMBEDDING_CONFIG_SCHEMA => &*FULL_EMBEDDING_CONFIG,
-        FULL_V1_EMBEDDING_SET_SCHEMA => &*FULL_EMBEDDING_SET,
-        FULL_V1_EMBEDDING_SET_MEMBER_SCHEMA => &*FULL_EMBEDDING_SET_MEMBER,
-        FULL_V1_EMBEDDING_SCHEMA => &*FULL_EMBEDDING,
-        FULL_V1_NOTE_ORIGINAL_SCHEMA => &*FULL_NOTE_ORIGINAL,
-        FULL_V1_NOTE_ORIGINAL_HISTORY_SCHEMA => &*FULL_NOTE_ORIGINAL_HISTORY,
-        FULL_V1_NOTE_REVISED_CURRENT_SCHEMA => &*FULL_NOTE_REVISED_CURRENT,
-        FULL_V1_NOTE_REVISION_SCHEMA => &*FULL_NOTE_REVISION,
-        FULL_V1_PROVENANCE_EDGE_SCHEMA => &*FULL_PROVENANCE_EDGE,
-        FULL_V1_PROVENANCE_ACTIVITY_SCHEMA => &*FULL_PROVENANCE_ACTIVITY,
-        FULL_V1_NAMED_LOCATION_SCHEMA => &*FULL_NAMED_LOCATION,
-        FULL_V1_PROVENANCE_LOCATION_SCHEMA => &*FULL_PROVENANCE_LOCATION,
-        FULL_V1_PROVENANCE_DEVICE_SCHEMA => &*FULL_PROVENANCE_DEVICE,
-        FULL_V1_PROVENANCE_RECORD_SCHEMA => &*FULL_PROVENANCE_RECORD,
-        FULL_V1_SKOS_SCHEME_SCHEMA => &*FULL_SKOS_SCHEME,
-        FULL_V1_SKOS_CONCEPT_SCHEMA => &*FULL_SKOS_CONCEPT,
-        FULL_V1_SKOS_LABEL_SCHEMA => &*FULL_SKOS_LABEL,
-        FULL_V1_SKOS_NOTE_SCHEMA => &*FULL_SKOS_NOTE,
-        FULL_V1_SKOS_RELATION_SCHEMA => &*FULL_SKOS_RELATION,
-        FULL_V1_SKOS_MAPPING_RELATION_SCHEMA => &*FULL_SKOS_MAPPING_RELATION,
-        FULL_V1_SKOS_SCHEME_MEMBERSHIP_SCHEMA => &*FULL_SKOS_SCHEME_MEMBERSHIP,
-        FULL_V1_NOTE_SKOS_TAG_SCHEMA => &*FULL_NOTE_SKOS_TAG,
-        FULL_V1_SKOS_COLLECTION_SCHEMA => &*FULL_SKOS_COLLECTION,
-        FULL_V1_SKOS_COLLECTION_MEMBER_SCHEMA => &*FULL_SKOS_COLLECTION_MEMBER,
-        FULL_V1_GRAPH_SOURCE_SCHEMA => &*FULL_GRAPH_SOURCE,
-        FULL_V1_GRAPH_EDGE_SCHEMA => &*FULL_GRAPH_EDGE,
-        FULL_V1_COMMUNITY_SET_SCHEMA => &*FULL_COMMUNITY_SET,
-        FULL_V1_COMMUNITY_ASSIGNMENT_SCHEMA => &*FULL_COMMUNITY_ASSIGNMENT,
+        LEGACY_CORE_V1_MANIFEST_SCHEMA => LEGACY_MANIFEST.as_ref().map_err(Clone::clone)?,
+        LEGACY_CORE_V1_NOTE_SCHEMA => LEGACY_NOTE.as_ref().map_err(Clone::clone)?,
+        LEGACY_CORE_V1_COLLECTION_SCHEMA => LEGACY_COLLECTION.as_ref().map_err(Clone::clone)?,
+        LEGACY_CORE_V1_TAG_SCHEMA => LEGACY_TAG.as_ref().map_err(Clone::clone)?,
+        LEGACY_CORE_V1_TEMPLATE_SCHEMA => LEGACY_TEMPLATE.as_ref().map_err(Clone::clone)?,
+        LEGACY_CORE_V1_LINK_SCHEMA => LEGACY_LINK.as_ref().map_err(Clone::clone)?,
+        V1_1_CORE_V1_MANIFEST_SCHEMA => V1_1_CORE_MANIFEST.as_ref().map_err(Clone::clone)?,
+        V1_1_RECORD_V1_MANIFEST_SCHEMA => V1_1_RECORD_MANIFEST.as_ref().map_err(Clone::clone)?,
+        V1_1_FULL_V1_MANIFEST_SCHEMA => V1_1_FULL_MANIFEST.as_ref().map_err(Clone::clone)?,
+        V1_1_FULL_V1_EMBEDDING_SCHEMA => V1_1_FULL_EMBEDDING.as_ref().map_err(Clone::clone)?,
+        CORE_V1_MANIFEST_SCHEMA => MANIFEST.as_ref().map_err(Clone::clone)?,
+        CORE_V1_NOTE_SCHEMA => NOTE.as_ref().map_err(Clone::clone)?,
+        CORE_V1_COLLECTION_SCHEMA => COLLECTION.as_ref().map_err(Clone::clone)?,
+        CORE_V1_TAG_SCHEMA => TAG.as_ref().map_err(Clone::clone)?,
+        CORE_V1_TEMPLATE_SCHEMA => TEMPLATE.as_ref().map_err(Clone::clone)?,
+        CORE_V1_LINK_SCHEMA => LINK.as_ref().map_err(Clone::clone)?,
+        RECORD_V1_MANIFEST_SCHEMA => RECORD_MANIFEST.as_ref().map_err(Clone::clone)?,
+        RECORD_V1_NOTE_SCHEMA => RECORD_NOTE.as_ref().map_err(Clone::clone)?,
+        RECORD_V1_COLLECTION_SCHEMA => RECORD_COLLECTION.as_ref().map_err(Clone::clone)?,
+        RECORD_V1_TAG_SCHEMA => RECORD_TAG.as_ref().map_err(Clone::clone)?,
+        RECORD_V1_LINK_SCHEMA => RECORD_LINK.as_ref().map_err(Clone::clone)?,
+        FULL_V1_MANIFEST_SCHEMA => FULL_MANIFEST.as_ref().map_err(Clone::clone)?,
+        FULL_V1_EMBEDDING_CONFIG_SCHEMA => FULL_EMBEDDING_CONFIG.as_ref().map_err(Clone::clone)?,
+        FULL_V1_EMBEDDING_SET_SCHEMA => FULL_EMBEDDING_SET.as_ref().map_err(Clone::clone)?,
+        FULL_V1_EMBEDDING_SET_MEMBER_SCHEMA => {
+            FULL_EMBEDDING_SET_MEMBER.as_ref().map_err(Clone::clone)?
+        }
+        FULL_V1_EMBEDDING_SCHEMA => FULL_EMBEDDING.as_ref().map_err(Clone::clone)?,
+        FULL_V1_NOTE_ORIGINAL_SCHEMA => FULL_NOTE_ORIGINAL.as_ref().map_err(Clone::clone)?,
+        FULL_V1_NOTE_ORIGINAL_HISTORY_SCHEMA => {
+            FULL_NOTE_ORIGINAL_HISTORY.as_ref().map_err(Clone::clone)?
+        }
+        FULL_V1_NOTE_REVISED_CURRENT_SCHEMA => {
+            FULL_NOTE_REVISED_CURRENT.as_ref().map_err(Clone::clone)?
+        }
+        FULL_V1_NOTE_REVISION_SCHEMA => FULL_NOTE_REVISION.as_ref().map_err(Clone::clone)?,
+        FULL_V1_PROVENANCE_EDGE_SCHEMA => FULL_PROVENANCE_EDGE.as_ref().map_err(Clone::clone)?,
+        FULL_V1_PROVENANCE_ACTIVITY_SCHEMA => {
+            FULL_PROVENANCE_ACTIVITY.as_ref().map_err(Clone::clone)?
+        }
+        FULL_V1_NAMED_LOCATION_SCHEMA => FULL_NAMED_LOCATION.as_ref().map_err(Clone::clone)?,
+        FULL_V1_PROVENANCE_LOCATION_SCHEMA => {
+            FULL_PROVENANCE_LOCATION.as_ref().map_err(Clone::clone)?
+        }
+        FULL_V1_PROVENANCE_DEVICE_SCHEMA => {
+            FULL_PROVENANCE_DEVICE.as_ref().map_err(Clone::clone)?
+        }
+        FULL_V1_PROVENANCE_RECORD_SCHEMA => {
+            FULL_PROVENANCE_RECORD.as_ref().map_err(Clone::clone)?
+        }
+        FULL_V1_SKOS_SCHEME_SCHEMA => FULL_SKOS_SCHEME.as_ref().map_err(Clone::clone)?,
+        FULL_V1_SKOS_CONCEPT_SCHEMA => FULL_SKOS_CONCEPT.as_ref().map_err(Clone::clone)?,
+        FULL_V1_SKOS_LABEL_SCHEMA => FULL_SKOS_LABEL.as_ref().map_err(Clone::clone)?,
+        FULL_V1_SKOS_NOTE_SCHEMA => FULL_SKOS_NOTE.as_ref().map_err(Clone::clone)?,
+        FULL_V1_SKOS_RELATION_SCHEMA => FULL_SKOS_RELATION.as_ref().map_err(Clone::clone)?,
+        FULL_V1_SKOS_MAPPING_RELATION_SCHEMA => {
+            FULL_SKOS_MAPPING_RELATION.as_ref().map_err(Clone::clone)?
+        }
+        FULL_V1_SKOS_SCHEME_MEMBERSHIP_SCHEMA => {
+            FULL_SKOS_SCHEME_MEMBERSHIP.as_ref().map_err(Clone::clone)?
+        }
+        FULL_V1_NOTE_SKOS_TAG_SCHEMA => FULL_NOTE_SKOS_TAG.as_ref().map_err(Clone::clone)?,
+        FULL_V1_SKOS_COLLECTION_SCHEMA => FULL_SKOS_COLLECTION.as_ref().map_err(Clone::clone)?,
+        FULL_V1_SKOS_COLLECTION_MEMBER_SCHEMA => {
+            FULL_SKOS_COLLECTION_MEMBER.as_ref().map_err(Clone::clone)?
+        }
+        FULL_V1_GRAPH_SOURCE_SCHEMA => FULL_GRAPH_SOURCE.as_ref().map_err(Clone::clone)?,
+        FULL_V1_GRAPH_EDGE_SCHEMA => FULL_GRAPH_EDGE.as_ref().map_err(Clone::clone)?,
+        FULL_V1_COMMUNITY_SET_SCHEMA => FULL_COMMUNITY_SET.as_ref().map_err(Clone::clone)?,
+        FULL_V1_COMMUNITY_ASSIGNMENT_SCHEMA => {
+            FULL_COMMUNITY_ASSIGNMENT.as_ref().map_err(Clone::clone)?
+        }
+        _ if schema_json.contains("/knowledge-shard/2.0.0/") => {
+            dynamic_validator = compile_shard_json_schema(schema_json)?;
+            &dynamic_validator
+        }
         _ => return Err("Unknown canonical knowledge shard schema.".to_string()),
-    }
-    .as_ref()
-    .map_err(Clone::clone)?;
+    };
     if validator.is_valid(value) {
         Ok(())
     } else {
@@ -24923,6 +24958,15 @@ fn validate_shard_json_schema(
 
 fn shard_manifest_schema(version: &str, profile: &str) -> Option<&'static str> {
     match (version, profile) {
+        ("2.0.0", "core-v1") => Some(include_str!(
+            "../../../contracts/knowledge-shard/2.0.0/core-v1/manifest.schema.json"
+        )),
+        ("2.0.0", "record-v1") => Some(include_str!(
+            "../../../contracts/knowledge-shard/2.0.0/record-v1/manifest.schema.json"
+        )),
+        ("2.0.0", "full-v1") => Some(include_str!(
+            "../../../contracts/knowledge-shard/2.0.0/full-v1/manifest.schema.json"
+        )),
         ("1.1.0", "core-v1") => Some(V1_1_CORE_V1_MANIFEST_SCHEMA),
         ("1.1.0", "record-v1") => Some(V1_1_RECORD_V1_MANIFEST_SCHEMA),
         ("1.1.0", "full-v1") => Some(V1_1_FULL_V1_MANIFEST_SCHEMA),
@@ -24962,6 +25006,122 @@ fn parse_and_validate_shard_manifest(data: &[u8]) -> Result<ShardManifest, Strin
 }
 
 fn shard_component_schema(version: &str, profile: &str, component: &str) -> Option<&'static str> {
+    if version == SHARD_SCHEMA_2_VERSION {
+        return match (profile, component) {
+            ("core-v1", "notes") | ("full-v1", "notes") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/core-v1/note.schema.json"
+            )),
+            ("core-v1", "collections") | ("full-v1", "collections") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/core-v1/collection.schema.json"
+            )),
+            ("core-v1", "tags") | ("full-v1", "tags") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/core-v1/tag.schema.json"
+            )),
+            ("core-v1", "templates") | ("full-v1", "templates") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/core-v1/template.schema.json"
+            )),
+            ("core-v1", "links") | ("full-v1", "links") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/core-v1/link.schema.json"
+            )),
+            ("record-v1", "notes") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/record-v1/note.schema.json"
+            )),
+            ("record-v1", "collections") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/record-v1/collection.schema.json"
+            )),
+            ("record-v1", "tags") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/record-v1/tag.schema.json"
+            )),
+            ("record-v1", "links") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/record-v1/link.schema.json"
+            )),
+            ("full-v1", "embedding_configs") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/embedding-config.schema.json"
+            )),
+            ("full-v1", "embedding_sets") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/embedding-set.schema.json"
+            )),
+            ("full-v1", "embedding_set_members") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/embedding-set-member.schema.json"
+            )),
+            ("full-v1", "embeddings") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/embedding.schema.json"
+            )),
+            ("full-v1", "note_originals") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/note-original.schema.json"
+            )),
+            ("full-v1", "note_original_history") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/note-original-history.schema.json"
+            )),
+            ("full-v1", "note_revised_current") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/note-revised-current.schema.json"
+            )),
+            ("full-v1", "note_revisions") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/note-revision.schema.json"
+            )),
+            ("full-v1", "provenance_edges") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/provenance-edge.schema.json"
+            )),
+            ("full-v1", "provenance_activities") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/provenance-activity.schema.json"
+            )),
+            ("full-v1", "named_locations") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/named-location.schema.json"
+            )),
+            ("full-v1", "provenance_locations") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/provenance-location.schema.json"
+            )),
+            ("full-v1", "provenance_devices") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/provenance-device.schema.json"
+            )),
+            ("full-v1", "provenance_records") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/provenance-record.schema.json"
+            )),
+            ("full-v1", "skos_schemes") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/skos-scheme.schema.json"
+            )),
+            ("full-v1", "skos_concepts") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/skos-concept.schema.json"
+            )),
+            ("full-v1", "skos_labels") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/skos-label.schema.json"
+            )),
+            ("full-v1", "skos_notes") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/skos-note.schema.json"
+            )),
+            ("full-v1", "skos_relations") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/skos-relation.schema.json"
+            )),
+            ("full-v1", "skos_mapping_relations") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/skos-mapping-relation.schema.json"
+            )),
+            ("full-v1", "skos_scheme_memberships") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/skos-scheme-membership.schema.json"
+            )),
+            ("full-v1", "note_skos_tags") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/note-skos-tag.schema.json"
+            )),
+            ("full-v1", "skos_collections") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/skos-collection.schema.json"
+            )),
+            ("full-v1", "skos_collection_members") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/skos-collection-member.schema.json"
+            )),
+            ("full-v1", "graph_sources") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/graph-source.schema.json"
+            )),
+            ("full-v1", "graph_edges") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/graph-edge.schema.json"
+            )),
+            ("full-v1", "communities") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/community-set.schema.json"
+            )),
+            ("full-v1", "community_assignments") => Some(include_str!(
+                "../../../contracts/knowledge-shard/2.0.0/full-v1/community-assignment.schema.json"
+            )),
+            _ => None,
+        };
+    }
     if (version, profile, component) == ("1.1.0", "full-v1", "embeddings") {
         return Some(V1_1_FULL_V1_EMBEDDING_SCHEMA);
     }
@@ -26730,26 +26890,34 @@ fn validate_shard_manifest_contract(manifest: &ShardManifest) -> Result<(), Stri
                 "Knowledge shard minimum reader version must be strict SemVer.".to_string()
             })
         })?;
-    if !current.is_compatible_with(&min_reader) {
+    let schema_2 = manifest.version == SHARD_SCHEMA_2_VERSION;
+    if schema_2 && min_reader != Version::parse(SHARD_SCHEMA_2_VERSION).unwrap() {
+        return Err("Knowledge shard schema 2 requires exact minimum reader 2.0.0.".to_string());
+    }
+    if !schema_2 && !current.is_compatible_with(&min_reader) {
         return Err("Knowledge shard requires a newer reader contract.".to_string());
     }
 
-    match check_shard_compatibility(&manifest.version) {
-        CompatibilityResult::Compatible => {}
-        CompatibilityResult::RequiresMigration { from, to } => {
-            let mut registry = MigrationRegistry::new();
-            for migration in migrations::all_migrations() {
-                registry.register(migration);
+    if !schema_2 {
+        match check_shard_compatibility(&manifest.version) {
+            CompatibilityResult::Compatible => {}
+            CompatibilityResult::RequiresMigration { from, to } => {
+                let mut registry = MigrationRegistry::new();
+                for migration in migrations::all_migrations() {
+                    registry.register(migration);
+                }
+                if registry.find_path(&from, &to).is_none() {
+                    return Err(
+                        "No migration path exists for this shard schema version.".to_string()
+                    );
+                }
             }
-            if registry.find_path(&from, &to).is_none() {
-                return Err("No migration path exists for this shard schema version.".to_string());
+            CompatibilityResult::NewerMinor { .. } => {
+                return Err("Knowledge shard schema version is newer than this reader.".to_string());
             }
-        }
-        CompatibilityResult::NewerMinor { .. } => {
-            return Err("Knowledge shard schema version is newer than this reader.".to_string());
-        }
-        CompatibilityResult::Incompatible { .. } => {
-            return Err("Knowledge shard schema version is incompatible.".to_string());
+            CompatibilityResult::Incompatible { .. } => {
+                return Err("Knowledge shard schema version is incompatible.".to_string());
+            }
         }
     }
 
@@ -26965,7 +27133,7 @@ fn migrate_shard_archive_to_current(
     use matric_core::shard::{migrations, MigrationRegistry, CURRENT_SHARD_VERSION};
     use sha2::{Digest, Sha256};
 
-    if manifest.version == CURRENT_SHARD_VERSION {
+    if manifest.version == CURRENT_SHARD_VERSION || manifest.version == SHARD_SCHEMA_2_VERSION {
         return Ok(MigratedShardArchive {
             manifest,
             files,
@@ -27224,6 +27392,7 @@ async fn load_shard_blob_export_inventory_tx(
     path = "/api/v1/backup/knowledge-shard",
     tag = "Backup",
     params(
+        ("schema_version" = Option<String>, Query, description = "Exact shard schema version; defaults to the stable 1.x reader"),
         ("profile" = Option<String>, Query, description = "Conformance profile; defaults to core-v1"),
         ("include" = Option<String>, Query, description = "Comma-separated profile components"),
         ("include_blobs" = Option<bool>, Query, description = "Include verified content-addressed attachment byte sidecars"),
@@ -27242,6 +27411,19 @@ async fn knowledge_shard(
 
     use tar::Builder;
 
+    let schema_version = query
+        .schema_version
+        .as_deref()
+        .unwrap_or(matric_core::shard::CURRENT_SHARD_VERSION);
+    if !matches!(
+        schema_version,
+        matric_core::shard::CURRENT_SHARD_VERSION | SHARD_SCHEMA_2_VERSION
+    ) {
+        return Err(shard_validation_failed(
+            "Knowledge shard export schema version is not supported.",
+        ));
+    }
+    let include_live_only_component_rows = schema_version != SHARD_SCHEMA_2_VERSION;
     let profile = query.profile.as_deref().unwrap_or(DEFAULT_SHARD_PROFILE);
     let profile_components = shard_profile_components(profile).ok_or_else(|| {
         shard_validation_failed("Knowledge shard export profile is not supported.")
@@ -27338,7 +27520,7 @@ async fn knowledge_shard(
                             COALESCE(nrc.content, '') AS revised_content,
                             n.metadata, n.format, n.source, n.starred, n.archived,
                             n.collection_id, n.created_at_utc, n.updated_at_utc,
-                            n.deleted_at
+                            n.deleted_at, n.shard_deleted_at_present
                      FROM note n
                      JOIN note_original no ON no.note_id = n.id
                      LEFT JOIN note_revised_current nrc ON nrc.note_id = n.id
@@ -27367,7 +27549,7 @@ async fn knowledge_shard(
                         .map_err(|e| {
                             shard_operation_failed("load attachment export projections", e)
                         })?;
-                    let note_obj = serde_json::json!({
+                    let mut note_obj = serde_json::json!({
                         "id": note_id,
                         "title": row.get::<Option<String>, _>("title"),
                         "original_content": row.get::<String, _>("original_content"),
@@ -27384,6 +27566,14 @@ async fn knowledge_shard(
                         "tags": note_tags,
                         "attachments": attachments,
                     });
+                    if schema_version == SHARD_SCHEMA_2_VERSION
+                        && !row.get::<bool, _>("shard_deleted_at_present")
+                    {
+                        note_obj
+                            .as_object_mut()
+                            .expect("serialized shard note must be an object")
+                            .remove("deleted_at");
+                    }
                     notes_json.push(serde_json::to_string(&note_obj).unwrap_or_default());
                 }
 
@@ -27405,10 +27595,12 @@ async fn knowledge_shard(
                 SELECT id, note_id, content, hash, user_created_at, user_last_edited_at,
                        version_number
                 FROM note_original
+                WHERE ($1 OR shard_export_present)
                 ORDER BY note_id
-                LIMIT $1
+                LIMIT $2
                 "#,
             )
+            .bind(include_live_only_component_rows)
             .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
             .fetch_all(&mut *tx)
             .await
@@ -27472,10 +27664,12 @@ async fn knowledge_shard(
                        type, summary, rationale, created_at_utc, ai_generated_at,
                        user_last_edited_at, is_user_edited, generation_count, model
                 FROM note_revision
+                WHERE ($1 OR shard_export_present)
                 ORDER BY note_id, revision_number, id
-                LIMIT $1
+                LIMIT $2
                 "#,
             )
+            .bind(include_live_only_component_rows)
             .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
             .fetch_all(&mut *tx)
             .await
@@ -27511,10 +27705,12 @@ async fn knowledge_shard(
                 r#"
                 SELECT note_id, content, last_revision_id, ai_metadata
                 FROM note_revised_current
+                WHERE ($1 OR shard_export_present)
                 ORDER BY note_id
-                LIMIT $1
+                LIMIT $2
                 "#,
             )
+            .bind(include_live_only_component_rows)
             .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
             .fetch_all(&mut *tx)
             .await
@@ -28394,22 +28590,33 @@ async fn knowledge_shard(
 
         // Export collections
         if components.contains(&"collections") {
-            let collections_repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
-            let collections = collections_repo
-                .list_all_tx(&mut tx)
-                .await
-                .unwrap_or_default();
-            counts.collections = collections.len();
-            let collections_json: Vec<serde_json::Value> = collections
+            let collection_rows = sqlx::query(
+                "SELECT c.id, c.name, c.description, c.parent_id, c.created_at_utc,
+                        CASE
+                            WHEN $1 THEN COALESCE(
+                                c.shard_note_count::bigint,
+                                (SELECT COUNT(*) FROM note n WHERE n.collection_id = c.id)
+                            )
+                            ELSE (SELECT COUNT(*) FROM note n WHERE n.collection_id = c.id)
+                        END AS note_count
+                 FROM collection c
+                 ORDER BY c.created_at_utc, c.id",
+            )
+            .bind(schema_version == SHARD_SCHEMA_2_VERSION)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("read collections", error))?;
+            counts.collections = collection_rows.len();
+            let collections_json: Vec<serde_json::Value> = collection_rows
                 .iter()
-                .map(|c| {
+                .map(|row| {
                     serde_json::json!({
-                        "id": c.id,
-                        "name": c.name,
-                        "description": c.description,
-                        "parent_id": c.parent_id,
-                        "created_at": c.created_at_utc,
-                        "note_count": c.note_count,
+                        "id": row.get::<Uuid, _>("id"),
+                        "name": row.get::<String, _>("name"),
+                        "description": row.get::<Option<String>, _>("description"),
+                        "parent_id": row.get::<Option<Uuid>, _>("parent_id"),
+                        "created_at": row.get::<chrono::DateTime<chrono::Utc>, _>("created_at_utc"),
+                        "note_count": row.get::<i64, _>("note_count"),
                     })
                 })
                 .collect();
@@ -28503,10 +28710,12 @@ async fn knowledge_shard(
                     is_system, is_active, auto_refresh, refresh_interval::text AS refresh_interval,
                     last_refresh_at, agent_metadata, created_at, updated_at, created_by
                 FROM embedding_set
+                WHERE ($1 OR shard_export_present)
                 ORDER BY id
-                LIMIT $1
+                LIMIT $2
                 "#,
             )
+            .bind(include_live_only_component_rows)
             .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
             .fetch_all(&mut *tx)
             .await
@@ -28557,10 +28766,12 @@ async fn knowledge_shard(
                 r#"
                 SELECT embedding_set_id, note_id, membership_type, added_at, added_by
                 FROM embedding_set_member
+                WHERE ($1 OR shard_export_present)
                 ORDER BY embedding_set_id, note_id
-                LIMIT $1
+                LIMIT $2
                 "#,
             )
+            .bind(include_live_only_component_rows)
             .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
             .fetch_all(&mut *tx)
             .await
@@ -28598,10 +28809,12 @@ async fn knowledge_shard(
                     strengths, limitations, recommended_for, benchmark_scores,
                     is_available, document_composition, created_at, updated_at
                 FROM embedding_config
+                WHERE ($1 OR shard_export_present)
                 ORDER BY id
-                LIMIT $1
+                LIMIT $2
                 "#,
             )
+            .bind(include_live_only_component_rows)
             .bind((SHARD_MAX_RECORDS_PER_COMPONENT + 1) as i64)
             .fetch_all(&mut *tx)
             .await
@@ -28649,7 +28862,7 @@ async fn knowledge_shard(
             let rows = sqlx::query(
                 r#"
                 SELECT id, note_id, embedding_set_id, chunk_index, text, vector, model,
-                       contract_fingerprint, created_at
+                       contract_fingerprint, shard_contract_fingerprint_present, created_at
                 FROM embedding
                 ORDER BY note_id, embedding_set_id, chunk_index
                 LIMIT $1
@@ -28673,8 +28886,18 @@ async fn knowledge_shard(
                     vector: vector.map(|value| value.as_slice().to_vec()),
                     model: row.get("model"),
                     contract_fingerprint: row.get("contract_fingerprint"),
+                    contract_fingerprint_present: row.get("shard_contract_fingerprint_present"),
                     created_at: row.get("created_at"),
                 };
+                let contract_fingerprint_present = record.contract_fingerprint_present;
+                let mut record = serde_json::to_value(&record)
+                    .map_err(|error| shard_operation_failed("serialize embedding", error))?;
+                if schema_version == SHARD_SCHEMA_2_VERSION && !contract_fingerprint_present {
+                    record
+                        .as_object_mut()
+                        .expect("serialized shard embedding must be an object")
+                        .remove("contract_fingerprint");
+                }
                 embeddings_jsonl.push(
                     serde_json::to_string(&record)
                         .map_err(|error| shard_operation_failed("serialize embedding", error))?,
@@ -28781,7 +29004,7 @@ async fn knowledge_shard(
 
         // Create manifest (added last)
         let manifest = ShardManifest {
-            version: matric_core::shard::CURRENT_SHARD_VERSION.to_string(),
+            version: schema_version.to_string(),
             profile: Some(profile.to_string()),
             producer: Some(ShardProducer {
                 name: "fortemi".to_string(),
@@ -28794,7 +29017,7 @@ async fn knowledge_shard(
             components: components.iter().map(|s| s.to_string()).collect(),
             counts,
             checksums: checksums.clone(),
-            min_reader_version: Some(matric_core::shard::CURRENT_SHARD_VERSION.to_string()),
+            min_reader_version: Some(schema_version.to_string()),
             migrated_from: None,
             migration_history: vec![],
         };
@@ -33051,15 +33274,16 @@ async fn apply_shard_note_history_components_tx(
                              hash = EXCLUDED.hash,
                              user_created_at = EXCLUDED.user_created_at,
                              user_last_edited_at = EXCLUDED.user_last_edited_at,
-                             version_number = EXCLUDED.version_number"
+                             version_number = EXCLUDED.version_number,
+                             shard_export_present = TRUE"
                     } else {
                         "ON CONFLICT (note_id) DO NOTHING"
                     };
                     let result = sqlx::query(&format!(
                         "INSERT INTO note_original
                          (id, note_id, content, hash, user_created_at,
-                          user_last_edited_at, version_number)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7)
+                          user_last_edited_at, version_number, shard_export_present)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
                          {conflict}"
                     ))
                     .bind(original.id)
@@ -33200,7 +33424,8 @@ async fn apply_shard_note_history_components_tx(
                              user_last_edited_at = EXCLUDED.user_last_edited_at,
                              is_user_edited = EXCLUDED.is_user_edited,
                              generation_count = EXCLUDED.generation_count,
-                             model = EXCLUDED.model"
+                             model = EXCLUDED.model,
+                             shard_export_present = TRUE"
                     } else {
                         "ON CONFLICT DO NOTHING"
                     };
@@ -33208,8 +33433,10 @@ async fn apply_shard_note_history_components_tx(
                         "INSERT INTO note_revision
                          (id, note_id, parent_revision_id, revision_number, content, type,
                           summary, rationale, created_at_utc, ai_generated_at,
-                          user_last_edited_at, is_user_edited, generation_count, model)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                          user_last_edited_at, is_user_edited, generation_count, model,
+                          shard_export_present)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                                 TRUE)
                          {conflict}"
                     ))
                     .bind(revision.id)
@@ -33254,14 +33481,15 @@ async fn apply_shard_note_history_components_tx(
                         "ON CONFLICT (note_id) DO UPDATE SET
                              content = EXCLUDED.content,
                              last_revision_id = EXCLUDED.last_revision_id,
-                             ai_metadata = EXCLUDED.ai_metadata"
+                             ai_metadata = EXCLUDED.ai_metadata,
+                             shard_export_present = TRUE"
                     } else {
                         "ON CONFLICT (note_id) DO NOTHING"
                     };
                     let result = sqlx::query(&format!(
                         "INSERT INTO note_revised_current
-                         (note_id, content, last_revision_id, ai_metadata)
-                         VALUES ($1, $2, $3, $4)
+                         (note_id, content, last_revision_id, ai_metadata, shard_export_present)
+                         VALUES ($1, $2, $3, $4, TRUE)
                          {conflict}"
                     ))
                     .bind(record.note_id)
@@ -34555,6 +34783,26 @@ async fn apply_shard_skos_components_tx(
                 .execute(&mut **tx)
                 .await
                 .map_err(|error| shard_operation_failed("restore SKOS concept snapshot", error))?;
+                sqlx::query(
+                    "UPDATE skos_concept
+                     SET status = $2::tag_status,
+                         promoted_at = $3,
+                         deprecated_at = $4,
+                         deprecation_reason = $5,
+                         replaced_by_id = $6
+                     WHERE id = $1",
+                )
+                .bind(concept.id)
+                .bind(concept.status)
+                .bind(concept.promoted_at)
+                .bind(concept.deprecated_at)
+                .bind(concept.deprecation_reason)
+                .bind(concept.replaced_by_id)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("restore SKOS concept lifecycle snapshot", error)
+                })?;
             }
         }
     }
@@ -34883,14 +35131,15 @@ async fn apply_shard_embedding_components_tx(
                              supports_mrl, matryoshka_dims, default_truncate_dim,
                              provider, provider_config, content_types, strengths, limitations,
                              recommended_for, benchmark_scores, is_available,
-                             document_composition, created_at, updated_at
+                             document_composition, created_at, updated_at,
+                             shard_export_present
                          ) VALUES (
                              $1, $2, $3, $4, $5, $6, $7,
                              $8, $9, $10, $11,
                              $12, $13, $14,
                              $15::embedding_provider, $16, $17, $18, $19,
                              $20, $21, $22,
-                             $23, $24, $25
+                             $23, $24, $25, TRUE
                          )
                          ON CONFLICT (id) DO UPDATE SET
                              name = EXCLUDED.name,
@@ -34916,7 +35165,8 @@ async fn apply_shard_embedding_components_tx(
                              is_available = EXCLUDED.is_available,
                              document_composition = EXCLUDED.document_composition,
                              created_at = EXCLUDED.created_at,
-                             updated_at = EXCLUDED.updated_at",
+                             updated_at = EXCLUDED.updated_at,
+                             shard_export_present = TRUE",
                     )
                 } else {
                     sqlx::query(
@@ -34926,14 +35176,15 @@ async fn apply_shard_embedding_components_tx(
                              supports_mrl, matryoshka_dims, default_truncate_dim,
                              provider, provider_config, content_types, strengths, limitations,
                              recommended_for, benchmark_scores, is_available,
-                             document_composition, created_at, updated_at
+                             document_composition, created_at, updated_at,
+                             shard_export_present
                          ) VALUES (
                              $1, $2, $3, $4, $5, $6, $7,
                              $8, $9, $10, $11,
                              $12, $13, $14,
                              $15::embedding_provider, $16, $17, $18, $19,
                              $20, $21, $22,
-                             $23, $24, $25
+                             $23, $24, $25, TRUE
                          )
                          ON CONFLICT (id) DO NOTHING",
                     )
@@ -35009,14 +35260,15 @@ async fn apply_shard_embedding_components_tx(
                              auto_embed_rules, index_status, index_type, last_indexed_at,
                              document_count, embedding_count, embeddings_current, index_size_bytes,
                              is_system, is_active, auto_refresh, refresh_interval, last_refresh_at,
-                             agent_metadata, created_at, updated_at, created_by
+                             agent_metadata, created_at, updated_at, created_by,
+                             shard_export_present
                          ) VALUES (
                              $1, $2, $3, $4, $5, $6, $7,
                              $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
                              $13, $14::embedding_index_status, $15, $16,
                              $17, $18, $19, $20,
                              $21, $22, $23, $24::interval, $25,
-                             $26, $27, $28, $29
+                             $26, $27, $28, $29, TRUE
                          )
                          ON CONFLICT (id) DO UPDATE SET
                              name = EXCLUDED.name,
@@ -35046,7 +35298,8 @@ async fn apply_shard_embedding_components_tx(
                              agent_metadata = EXCLUDED.agent_metadata,
                              created_at = EXCLUDED.created_at,
                              updated_at = EXCLUDED.updated_at,
-                             created_by = EXCLUDED.created_by",
+                             created_by = EXCLUDED.created_by,
+                             shard_export_present = TRUE",
                     )
                 } else {
                     sqlx::query(
@@ -35056,14 +35309,15 @@ async fn apply_shard_embedding_components_tx(
                              auto_embed_rules, index_status, index_type, last_indexed_at,
                              document_count, embedding_count, embeddings_current, index_size_bytes,
                              is_system, is_active, auto_refresh, refresh_interval, last_refresh_at,
-                             agent_metadata, created_at, updated_at, created_by
+                             agent_metadata, created_at, updated_at, created_by,
+                             shard_export_present
                          ) VALUES (
                              $1, $2, $3, $4, $5, $6, $7,
                              $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
                              $13, $14::embedding_index_status, $15, $16,
                              $17, $18, $19, $20,
                              $21, $22, $23, $24::interval, $25,
-                             $26, $27, $28, $29
+                             $26, $27, $28, $29, TRUE
                          )
                          ON CONFLICT (id) DO NOTHING",
                     )
@@ -35124,18 +35378,21 @@ async fn apply_shard_embedding_components_tx(
                 let result = if replace {
                     sqlx::query(
                         "INSERT INTO embedding_set_member
-                         (embedding_set_id, note_id, membership_type, added_at, added_by)
-                         VALUES ($1, $2, $3, $4, $5)
+                         (embedding_set_id, note_id, membership_type, added_at, added_by,
+                          shard_export_present)
+                         VALUES ($1, $2, $3, $4, $5, TRUE)
                          ON CONFLICT (embedding_set_id, note_id) DO UPDATE SET
                              membership_type = EXCLUDED.membership_type,
                              added_at = EXCLUDED.added_at,
-                             added_by = EXCLUDED.added_by",
+                             added_by = EXCLUDED.added_by,
+                             shard_export_present = TRUE",
                     )
                 } else {
                     sqlx::query(
                         "INSERT INTO embedding_set_member
-                         (embedding_set_id, note_id, membership_type, added_at, added_by)
-                         VALUES ($1, $2, $3, $4, $5)
+                         (embedding_set_id, note_id, membership_type, added_at, added_by,
+                          shard_export_present)
+                         VALUES ($1, $2, $3, $4, $5, TRUE)
                          ON CONFLICT (embedding_set_id, note_id) DO NOTHING",
                     )
                 }
@@ -35160,12 +35417,17 @@ async fn apply_shard_embedding_components_tx(
 
     if should_import("embeddings") {
         if let Some(data) = files.get("embeddings.jsonl") {
-            let embeddings = shard_jsonl_records::<ShardEmbeddingRecord>(
-                data,
-                "Knowledge shard embeddings are invalid.",
-            )?;
-            for embedding in embeddings {
-                let embedding = embedding?;
+            let embeddings = parse_shard_component_records("embeddings", data)
+                .map_err(|_| shard_validation_failed("Knowledge shard embeddings are invalid."))?;
+            for embedding_value in embeddings {
+                let contract_fingerprint_present = embedding_value
+                    .as_object()
+                    .is_some_and(|record| record.contains_key("contract_fingerprint"));
+                let mut embedding = serde_json::from_value::<ShardEmbeddingRecord>(embedding_value)
+                    .map_err(|_| {
+                        shard_validation_failed("Knowledge shard embeddings are invalid.")
+                    })?;
+                embedding.contract_fingerprint_present = contract_fingerprint_present;
                 if opts.dry_run {
                     imported.embeddings += 1;
                     continue;
@@ -35194,8 +35456,8 @@ async fn apply_shard_embedding_components_tx(
                 let result = sqlx::query(
                     "INSERT INTO embedding
                      (id, note_id, embedding_set_id, chunk_index, text, vector, model,
-                      contract_fingerprint, created_at)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                      contract_fingerprint, shard_contract_fingerprint_present, created_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                      ON CONFLICT DO NOTHING",
                 )
                 .bind(embedding.id)
@@ -35206,6 +35468,7 @@ async fn apply_shard_embedding_components_tx(
                 .bind(vector)
                 .bind(embedding.model)
                 .bind(embedding.contract_fingerprint)
+                .bind(embedding.contract_fingerprint_present)
                 .bind(embedding.created_at)
                 .execute(&mut **tx)
                 .await
@@ -35264,6 +35527,7 @@ async fn apply_shard_embedding_components_tx(
 struct ValidatedShardApplyPolicy {
     wipe_before_apply: bool,
     preserve_empty_revisions: bool,
+    preserve_schema_2_component_presence: bool,
 }
 
 async fn apply_validated_shard_components(
@@ -35426,26 +35690,28 @@ async fn apply_validated_shard_components(
                 let result = if matches!(opts.on_conflict, ConflictStrategy::Replace) {
                     sqlx::query(
                         "INSERT INTO collection
-                         (id, name, description, parent_id, created_at_utc)
-                         VALUES ($1, $2, $3, $4, $5)
+                         (id, name, description, parent_id, created_at_utc, shard_note_count)
+                         VALUES ($1, $2, $3, $4, $5, $6)
                          ON CONFLICT (id) DO UPDATE SET
                              name = EXCLUDED.name,
                              description = EXCLUDED.description,
                              parent_id = EXCLUDED.parent_id,
-                             created_at_utc = EXCLUDED.created_at_utc",
+                             created_at_utc = EXCLUDED.created_at_utc,
+                             shard_note_count = EXCLUDED.shard_note_count",
                     )
                     .bind(collection.id)
                     .bind(collection.name)
                     .bind(collection.description)
                     .bind(collection.parent_id)
                     .bind(collection.created_at)
+                    .bind(collection.note_count)
                     .execute(&mut *tx)
                     .await
                 } else {
                     sqlx::query(
                         "INSERT INTO collection
-                         (id, name, description, parent_id, created_at_utc)
-                         VALUES ($1, $2, $3, $4, $5)
+                         (id, name, description, parent_id, created_at_utc, shard_note_count)
+                         VALUES ($1, $2, $3, $4, $5, $6)
                          ON CONFLICT (id) DO NOTHING",
                     )
                     .bind(collection.id)
@@ -35453,6 +35719,7 @@ async fn apply_validated_shard_components(
                     .bind(collection.description)
                     .bind(collection.parent_id)
                     .bind(collection.created_at)
+                    .bind(collection.note_count)
                     .execute(&mut *tx)
                     .await
                 }
@@ -35468,13 +35735,15 @@ async fn apply_validated_shard_components(
 
     if should_import("notes") {
         if let Some(notes_data) = files.get("notes.jsonl") {
-            let notes = shard_jsonl_records::<ShardNoteRecord>(
-                notes_data,
-                "Knowledge shard notes are invalid.",
-            )?;
+            let notes = parse_shard_component_records("notes", notes_data)
+                .map_err(|_| shard_validation_failed("Knowledge shard notes are invalid."))?;
             let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
-            for note in notes {
-                let note = note?;
+            for note_value in notes {
+                let deleted_at_present = note_value
+                    .as_object()
+                    .is_some_and(|record| record.contains_key("deleted_at"));
+                let note = serde_json::from_value::<ShardNoteRecord>(note_value)
+                    .map_err(|_| shard_validation_failed("Knowledge shard notes are invalid."))?;
                 let exists = notes_repo
                     .exists_tx(&mut tx, note.id)
                     .await
@@ -35562,13 +35831,15 @@ async fn apply_validated_shard_components(
                 }
                 sqlx::query(
                     "UPDATE note
-                     SET created_at_utc = $2, updated_at_utc = $3, deleted_at = $4
+                     SET created_at_utc = $2, updated_at_utc = $3, deleted_at = $4,
+                         shard_deleted_at_present = $5
                      WHERE id = $1",
                 )
                 .bind(note_id)
                 .bind(note.created_at)
                 .bind(note.updated_at)
                 .bind(note.deleted_at)
+                .bind(deleted_at_present)
                 .execute(&mut *tx)
                 .await
                 .map_err(|error| {
@@ -35589,6 +35860,68 @@ async fn apply_validated_shard_components(
                     queued_note_ids.push(note_id);
                 }
                 imported.notes += 1;
+            }
+        }
+    }
+
+    if policy.preserve_schema_2_component_presence && !opts.dry_run {
+        if should_import("collections") {
+            if let Some(data) = files.get("collections.json") {
+                for collection in ordered_shard_collections(data).map_err(ApiError::BadRequest)? {
+                    sqlx::query(
+                        "UPDATE collection
+                         SET shard_note_count = $2
+                         WHERE id = $1",
+                    )
+                    .bind(collection.id)
+                    .bind(collection.note_count)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed(
+                            "restore schema-2 collection snapshot note count",
+                            error,
+                        )
+                    })?;
+                }
+            }
+        }
+        if let Some(notes_data) = files.get("notes.jsonl") {
+            let note_ids = parse_shard_component_records("notes", notes_data)
+                .map_err(|_| shard_validation_failed("Knowledge shard notes are invalid."))?
+                .into_iter()
+                .map(|note| {
+                    note.get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .and_then(|id| Uuid::parse_str(id).ok())
+                        .ok_or_else(|| shard_validation_failed("Knowledge shard note is invalid."))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            for (statement, context) in [
+                (
+                    "UPDATE note_original
+                     SET shard_export_present = FALSE
+                     WHERE note_id = ANY($1)",
+                    "mark live-required note originals absent from schema-2 component state",
+                ),
+                (
+                    "UPDATE note_revised_current
+                     SET shard_export_present = FALSE
+                     WHERE note_id = ANY($1)",
+                    "mark live-required current revisions absent from schema-2 component state",
+                ),
+                (
+                    "UPDATE note_revision
+                     SET shard_export_present = FALSE
+                     WHERE note_id = ANY($1)",
+                    "mark live-generated revisions absent from schema-2 component state",
+                ),
+            ] {
+                sqlx::query(statement)
+                    .bind(&note_ids)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|error| shard_operation_failed(context, error))?;
             }
         }
     }
@@ -35652,6 +35985,33 @@ async fn apply_validated_shard_components(
         &mut skipped,
     )
     .await?;
+
+    if policy.preserve_schema_2_component_presence && !opts.dry_run {
+        for (component, statement, context) in [
+            (
+                "embedding_set_members",
+                "UPDATE embedding_set_member SET shard_export_present = FALSE",
+                "mark live embedding set members absent from schema-2 component state",
+            ),
+            (
+                "embedding_sets",
+                "UPDATE embedding_set SET shard_export_present = FALSE",
+                "mark live embedding sets absent from schema-2 component state",
+            ),
+            (
+                "embedding_configs",
+                "UPDATE embedding_config SET shard_export_present = FALSE",
+                "mark live embedding configs absent from schema-2 component state",
+            ),
+        ] {
+            if should_import(component) {
+                sqlx::query(statement)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|error| shard_operation_failed(context, error))?;
+            }
+        }
+    }
 
     apply_shard_embedding_components_tx(
         &mut tx,
@@ -36045,6 +36405,7 @@ where
         ValidatedShardApplyPolicy {
             wipe_before_apply,
             preserve_empty_revisions: manifest.profile.is_some(),
+            preserve_schema_2_component_presence: manifest.version == SHARD_SCHEMA_2_VERSION,
         },
     )
     .await;
@@ -42033,6 +42394,7 @@ mod tests {
             track: Some("revision /home/operator/private.md".to_string()),
         };
         let shard_export = ShardExportQuery {
+            schema_version: None,
             profile: None,
             include: Some("notes,templates,/srv/fortemi/private".to_string()),
             include_blobs: false,
@@ -45754,7 +46116,7 @@ not-json
             .expect("current-minus-one manifest must have a registered migration");
 
         let next_major = parse_and_validate_shard_manifest(include_bytes!(
-            "../../../tests/fixtures/shards/v2.0.0-future.json"
+            "../../../tests/fixtures/shards/v3.0.0-future.json"
         ))
         .expect("next-major manifest fixture must match structural schema");
         assert_eq!(
@@ -46214,6 +46576,7 @@ not-json
                 name: Some(source_name.clone()),
             }),
             Query(ShardExportQuery {
+                schema_version: None,
                 profile: None,
                 include: None,
                 include_blobs: false,
@@ -46824,6 +47187,7 @@ not-json
                 name: Some(destination_name.clone()),
             }),
             Query(ShardExportQuery {
+                schema_version: None,
                 profile: Some("core-v1".to_string()),
                 include: None,
                 include_blobs: false,
@@ -46991,6 +47355,7 @@ not-json
                 name: Some(archive_name.clone()),
             }),
             Query(ShardExportQuery {
+                schema_version: None,
                 profile: Some("core-v1".to_string()),
                 include: None,
                 include_blobs: false,
@@ -47189,6 +47554,7 @@ not-json
                 name: Some(destination_name.clone()),
             }),
             Query(ShardExportQuery {
+                schema_version: None,
                 profile: None,
                 include: None,
                 include_blobs: false,
@@ -47309,6 +47675,7 @@ not-json
                 name: Some(source_name.clone()),
             }),
             Query(ShardExportQuery {
+                schema_version: None,
                 profile: None,
                 include: None,
                 include_blobs: true,
@@ -47357,6 +47724,7 @@ not-json
                 name: Some(source_name.clone()),
             }),
             Query(ShardExportQuery {
+                schema_version: None,
                 profile: None,
                 include: None,
                 include_blobs: true,
@@ -47643,6 +48011,7 @@ not-json
                 name: Some(destination_name.clone()),
             }),
             Query(ShardExportQuery {
+                schema_version: None,
                 profile: None,
                 include: None,
                 include_blobs: true,
@@ -47765,6 +48134,7 @@ not-json
                     name: Some(name.to_string()),
                 }),
                 Query(ShardExportQuery {
+                    schema_version: None,
                     profile: Some("full-v1".to_string()),
                     include: None,
                     include_blobs: false,
@@ -47926,6 +48296,242 @@ not-json
                 .drop_archive_schema(&archive_name)
                 .await
                 .expect("drop isolated full-v1 route schema");
+        }
+    }
+
+    #[tokio::test]
+    async fn shard_schema_2_clean_destinations_preserve_independent_full_v1_archives() {
+        async fn export_schema_2_full_v1(state: &AppState, schema: &str, name: &str) -> Vec<u8> {
+            let response = knowledge_shard(
+                State(state.clone()),
+                Extension(ArchiveContext {
+                    schema: schema.to_string(),
+                    is_default: false,
+                    name: Some(name.to_string()),
+                }),
+                Query(ShardExportQuery {
+                    schema_version: Some(SHARD_SCHEMA_2_VERSION.to_string()),
+                    profile: Some("full-v1".to_string()),
+                    include: None,
+                    include_blobs: true,
+                }),
+            )
+            .await
+            .expect("schema-2 full-v1 export must succeed")
+            .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+            axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("read schema-2 full-v1 export")
+                .to_vec()
+        }
+
+        fn semantic_component_records(component: &str, bytes: &[u8]) -> Vec<serde_json::Value> {
+            fn normalize_temporal_strings(value: &mut serde_json::Value) {
+                match value {
+                    serde_json::Value::String(text) => {
+                        if let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(text) {
+                            *text = timestamp.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true);
+                        }
+                    }
+                    serde_json::Value::Array(values) => {
+                        for value in values {
+                            normalize_temporal_strings(value);
+                        }
+                    }
+                    serde_json::Value::Object(values) => {
+                        for value in values.values_mut() {
+                            normalize_temporal_strings(value);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let mut records = parse_shard_component_records(component, bytes)
+                .unwrap_or_else(|error| panic!("parse {component} semantic records: {error}"));
+            for record in &mut records {
+                normalize_temporal_strings(record);
+            }
+            records.sort_by_cached_key(|record| serde_json::to_string(record).unwrap());
+            records
+        }
+
+        fn schema_2_archive_with_absent_embedding_fingerprint(source: &[u8]) -> Vec<u8> {
+            use sha2::Digest;
+
+            let mut files = read_shard_archive(source, ShardArchiveLimits::default()).unwrap();
+            let mut embeddings =
+                parse_shard_component_records("embeddings", &files["embeddings.jsonl"]).unwrap();
+            embeddings[1]
+                .as_object_mut()
+                .unwrap()
+                .remove("contract_fingerprint");
+            let embeddings = embeddings
+                .iter()
+                .map(|record| serde_json::to_string(record).unwrap())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .into_bytes();
+            files.insert("embeddings.jsonl".to_string(), embeddings.clone());
+
+            let mut manifest: serde_json::Value =
+                serde_json::from_slice(&files["manifest.json"]).unwrap();
+            manifest["checksums"]["embeddings.jsonl"] =
+                serde_json::json!(hex::encode(sha2::Sha256::digest(&embeddings)));
+            files.insert(
+                "manifest.json".to_string(),
+                serde_json::to_vec_pretty(&manifest).unwrap(),
+            );
+            files.remove(shard_signature::SIGNATURE_ENTRY);
+
+            let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            let mut archive = tar::Builder::new(encoder);
+            let mut names = files.keys().cloned().collect::<Vec<_>>();
+            names.sort_by_key(|name| (name == "manifest.json", name.clone()));
+            for name in names {
+                let bytes = &files[&name];
+                let mut header = tar::Header::new_gnu();
+                header.set_size(bytes.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                archive
+                    .append_data(&mut header, name, bytes.as_slice())
+                    .unwrap();
+            }
+            archive.into_inner().unwrap().finish().unwrap()
+        }
+
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let storage = tempfile::tempdir().expect("create isolated schema-2 storage");
+        let storage_root = storage.path().to_string_lossy().to_string();
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database")
+            .with_filesystem_storage(&storage_root, 0);
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let react_archive = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+        )
+        .as_slice();
+        let react_absent_fingerprint =
+            schema_2_archive_with_absent_embedding_fingerprint(react_archive);
+        let fixtures = [
+            ("react", react_archive, true, (true, true)),
+            (
+                "aiwg",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/external/aiwg-2026.7.13/aiwg-full-v1.shard"
+                )
+                .as_slice(),
+                false,
+                (true, false),
+            ),
+            (
+                "react-absent-fingerprint",
+                react_absent_fingerprint.as_slice(),
+                true,
+                (false, true),
+            ),
+        ];
+
+        for (producer, archive, deleted_at_present, expected_embedding_presence) in fixtures {
+            let producer_slug = &producer[..producer.len().min(8)];
+            let destination_name = format!("s2-{producer_slug}-{}", Uuid::new_v4().simple());
+            let destination = db
+                .archives
+                .create_archive_schema(
+                    &destination_name,
+                    Some("schema-2 independent producer destination"),
+                )
+                .await
+                .expect("create clean schema-2 destination");
+
+            for _ in 0..2 {
+                knowledge_shard_import_internal(&state, archive, &opts, &destination.schema_name)
+                    .await
+                    .unwrap_or_else(|error| match error {
+                        ApiError::OperationFailed { detail, .. } => {
+                            panic!("{producer} schema-2 import failed: {detail}")
+                        }
+                        ApiError::BadRequest(detail) => {
+                            panic!("{producer} schema-2 import rejected: {detail}")
+                        }
+                        other => panic!("{producer} schema-2 import failed: {other:?}"),
+                    });
+            }
+
+            let source_files = read_shard_archive(archive, ShardArchiveLimits::default()).unwrap();
+            let source_manifest =
+                parse_and_validate_shard_manifest(&source_files["manifest.json"]).unwrap();
+            let exported =
+                export_schema_2_full_v1(&state, &destination.schema_name, &destination_name).await;
+            let exported_files =
+                read_shard_archive(&exported, ShardArchiveLimits::default()).unwrap();
+            let exported_manifest =
+                parse_and_validate_shard_manifest(&exported_files["manifest.json"]).unwrap();
+            assert_eq!(exported_manifest.version, SHARD_SCHEMA_2_VERSION);
+            assert_eq!(exported_manifest.profile.as_deref(), Some("full-v1"));
+            assert_eq!(exported_manifest.counts, source_manifest.counts);
+            assert_eq!(exported_manifest.components, source_manifest.components);
+
+            for component in &source_manifest.components {
+                let filename = shard_component_filename(component).unwrap();
+                assert_eq!(
+                    semantic_component_records(component, &exported_files[filename]),
+                    semantic_component_records(component, &source_files[filename]),
+                    "{producer} schema-2 component changed across clean-destination route: {component}"
+                );
+            }
+
+            let source_attachments = validate_shard_relationships(&source_files).unwrap();
+            let source_sidecars =
+                validate_shard_sidecars(&source_files, &source_attachments, "full-v1").unwrap();
+            let exported_attachments = validate_shard_relationships(&exported_files).unwrap();
+            let exported_sidecars =
+                validate_shard_sidecars(&exported_files, &exported_attachments, "full-v1").unwrap();
+            assert_eq!(exported_sidecars, source_sidecars);
+
+            let presence = db
+                .for_schema(&destination.schema_name)
+                .unwrap()
+                .query(|tx| {
+                    Box::pin(async move {
+                        let note_presence = sqlx::query_scalar::<_, bool>(
+                            "SELECT bool_and(shard_deleted_at_present) FROM note",
+                        )
+                        .fetch_one(&mut **tx)
+                        .await
+                        .map_err(matric_db::Error::Database)?;
+                        let embedding_presence = sqlx::query_as::<_, (bool, bool)>(
+                            "SELECT
+                               COALESCE(bool_and(shard_contract_fingerprint_present), true),
+                               COALESCE(bool_or(shard_contract_fingerprint_present), false)
+                             FROM embedding",
+                        )
+                        .fetch_one(&mut **tx)
+                        .await
+                        .map_err(matric_db::Error::Database)?;
+                        Ok((note_presence, embedding_presence))
+                    })
+                })
+                .await
+                .expect("read schema-2 presence metadata");
+            assert_eq!(presence.0, deleted_at_present);
+            assert_eq!(presence.1, expected_embedding_presence);
+
+            db.archives
+                .drop_archive_schema(&destination_name)
+                .await
+                .expect("drop schema-2 destination");
         }
     }
 
@@ -48941,7 +49547,7 @@ not-json
     }
 
     #[test]
-    fn shard_contract_rejects_invalid_and_incompatible_schema_versions() {
+    fn shard_contract_accepts_exact_schema_2_and_rejects_other_incompatible_versions() {
         let mut manifest = valid_core_shard_manifest();
         for version in ["1.0", "01.0.0", "1.0.0-beta"] {
             manifest.version = version.to_string();
@@ -48952,12 +49558,19 @@ not-json
         }
 
         manifest.version = "2.0.0".to_string();
+        manifest.min_reader_version = Some("2.0.0".to_string());
+        validate_shard_manifest_contract(&manifest)
+            .expect("released schema 2 authority must be accepted");
+
+        manifest.version = "3.0.0".to_string();
+        manifest.min_reader_version = Some("3.0.0".to_string());
         assert_eq!(
             validate_shard_manifest_contract(&manifest).unwrap_err(),
-            "Knowledge shard schema version is incompatible."
+            "Knowledge shard requires a newer reader contract."
         );
 
         manifest.version = "1.0.1".to_string();
+        manifest.min_reader_version = Some("1.0.0".to_string());
         assert_eq!(
             validate_shard_manifest_contract(&manifest).unwrap_err(),
             "No migration path exists for this shard schema version."
@@ -48966,6 +49579,124 @@ not-json
         manifest.version = "1.0.0".to_string();
         validate_shard_manifest_contract(&manifest)
             .expect("registered legacy schema version must have a migration path");
+    }
+
+    #[test]
+    fn shard_schema_2_dispatch_covers_the_complete_authority_field_inventory() {
+        let inventory: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../contracts/knowledge-shard/2.0.0/field-semantics.json"
+        ))
+        .unwrap();
+        let fields = inventory["fields"].as_array().unwrap();
+        assert_eq!(fields.len(), 220);
+
+        let mut ambiguous_storage_fields = std::collections::BTreeSet::new();
+        for field in fields {
+            let profile = field["profile"].as_str().unwrap();
+            let component = field["component"].as_str().unwrap();
+            let schema = if component == "manifest" {
+                shard_manifest_schema(SHARD_SCHEMA_2_VERSION, profile)
+            } else {
+                shard_component_schema(SHARD_SCHEMA_2_VERSION, profile, component)
+            }
+            .unwrap_or_else(|| panic!("missing schema-2 dispatch for {profile}/{component}"));
+            assert!(
+                schema.contains("/knowledge-shard/2.0.0/"),
+                "schema-2 dispatch fell back for {profile}/{component}"
+            );
+
+            if field["states"]["absent"] == "preserve"
+                && field["states"]["null"] == "preserve"
+                && component != "manifest"
+            {
+                ambiguous_storage_fields.insert((
+                    component.to_string(),
+                    field["pointer"].as_str().unwrap().to_string(),
+                ));
+            }
+        }
+
+        assert_eq!(
+            ambiguous_storage_fields,
+            std::collections::BTreeSet::from([
+                (
+                    "embeddings".to_string(),
+                    "/contract_fingerprint".to_string()
+                ),
+                ("notes".to_string(), "/deleted_at".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn shard_schema_2_accepts_independent_react_and_aiwg_full_v1_archives() {
+        use sha2::Digest;
+
+        let fixtures = [
+            (
+                "React",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+                )
+                .as_slice(),
+                "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59",
+            ),
+            (
+                "AIWG",
+                include_bytes!(
+                    "../../../tests/fixtures/shards/external/aiwg-2026.7.13/aiwg-full-v1.shard"
+                )
+                .as_slice(),
+                "df87edc5725e3f0c8d95d8d4328c64a263e9b021520a127d9df5b7301c2afee5",
+            ),
+        ];
+
+        for (producer, archive, expected_sha256) in fixtures {
+            assert_eq!(
+                hex::encode(sha2::Sha256::digest(archive)),
+                expected_sha256,
+                "{producer} fixture must remain immutable"
+            );
+            let files = read_shard_archive(archive, ShardArchiveLimits::default()).unwrap_or_else(
+                |error| {
+                    panic!("{producer} schema-2 archive must be structurally readable: {error}")
+                },
+            );
+            let manifest = parse_and_validate_shard_manifest(&files["manifest.json"])
+                .unwrap_or_else(|error| {
+                    panic!("{producer} schema-2 manifest must match authority: {error}")
+                });
+            let manifest_value: serde_json::Value =
+                serde_json::from_slice(&files["manifest.json"]).unwrap();
+            assert_eq!(manifest.version, SHARD_SCHEMA_2_VERSION);
+            assert_eq!(manifest.profile.as_deref(), Some("full-v1"));
+            assert_eq!(manifest.components.len(), FULL_V1_IMPORT_COMPONENTS.len());
+            assert_eq!(
+                manifest_value["counts"].as_object().unwrap().len(),
+                FULL_V1_COUNT_FIELDS.len()
+            );
+            validate_shard_manifest_contract(&manifest).unwrap_or_else(|error| {
+                panic!("{producer} schema-2 contract tuple must be supported: {error}")
+            });
+            validate_shard_component_inventory(&manifest, &files).unwrap_or_else(|error| {
+                panic!("{producer} schema-2 inventory must be complete: {error}")
+            });
+            for component in &manifest.components {
+                let filename = shard_component_filename(component).unwrap();
+                validate_shard_component_schema_for_profile(
+                    &manifest.version,
+                    "full-v1",
+                    component,
+                    &files[filename],
+                )
+                .unwrap_or_else(|error| {
+                    panic!("{producer} schema-2 component {component} must validate: {error}")
+                });
+            }
+            validate_shard_relationships(&files).unwrap_or_else(|error| {
+                panic!("{producer} schema-2 relationships must be coherent: {error}")
+            });
+        }
     }
 
     #[test]

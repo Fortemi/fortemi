@@ -25,7 +25,7 @@ Canonical minimal `core-v1` manifest for the current reader contract.
 migration tests. They are not current import-conformance fixtures and must not
 be used to claim `core-v1` or `full-v1` support.
 
-### v2.0.0-future.json
+### v3.0.0-future.json
 
 Canonical next-major `core-v1` manifest for incompatibility testing.
 
@@ -35,8 +35,8 @@ Canonical next-major `core-v1` manifest for incompatibility testing.
 - Testing version mismatch handling
 
 **Key features:**
-- Major version jump (1.x -> 2.x)
-- `min_reader_version` requires shard schema `2.0.0`
+- Major version jump from the released 2.x authority to 3.x
+- `min_reader_version` requires shard schema `3.0.0`
 - Producer application identity remains separate from schema versions
 - One empty, checksummed `notes.jsonl` component
 
@@ -283,7 +283,7 @@ v{MAJOR}.{MINOR}.{PATCH}-{descriptor}.json
 Examples:
 - `v1.0.0-minimal.json` - Minimal v1.0.0 manifest
 - `v1.1.0-with-mrl.json` - v1.1.0 with MRL features
-- `v2.0.0-future.json` - Future v2.0.0 format
+- `v3.0.0-future.json` - Future v3.0.0 format
 
 ## Validation
 
@@ -319,7 +319,7 @@ Example migration scenarios:
 | v1.0.0-minimal | v1.0.0-full | None (same version) | Data addition |
 | v1.0.0-full | v1.1.0-with-mrl | 1.0→1.1 migration | MRL upgrade |
 | v1.1.0-with-mrl | v1.0.0-full | Downgrade | Data loss analysis |
-| v1.0.0-minimal | v2.0.0-future | Incompatible | Upgrade required |
+| v1.0.0-minimal | v3.0.0-future | Incompatible | Upgrade required |
 
 ## Reference
 

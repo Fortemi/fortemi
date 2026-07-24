@@ -32,7 +32,7 @@ Located in `/tests/fixtures/shards/`:
 | `v1.0.0-full.json` | Complete manifest with all components |
 | `v1.0.0-with-embeddings.json` | Embedding-focused shard |
 | `v1.1.0-with-mrl.json` | MRL migration testing |
-| `v2.0.0-future.json` | Major version incompatibility |
+| `v3.0.0-future.json` | Major version incompatibility |
 
 ## Running Tests
 

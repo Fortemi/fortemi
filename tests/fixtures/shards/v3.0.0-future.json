@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
+  "version": "3.0.0",
   "profile": "core-v1",
   "producer": {
     "name": "fortemi",
@@ -8,7 +8,7 @@
   },
   "format": "matric-shard",
   "created_at": "2027-01-01T00:00:00Z",
-  "min_reader_version": "2.0.0",
+  "min_reader_version": "3.0.0",
   "components": ["notes"],
   "counts": {
     "notes": 0,

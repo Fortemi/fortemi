@@ -19,7 +19,7 @@ All fixtures located in `/tests/fixtures/shards/`:
 | `v1.0.0-full.json` | Complete manifest | All components, realistic counts |
 | `v1.0.0-with-embeddings.json` | Embedding-focused | 100 notes with standard embeddings |
 | `v1.1.0-with-mrl.json` | MRL migration test | Migration metadata, MRL features |
-| `v2.0.0-future.json` | Incompatibility testing | Major version jump |
+| `v3.0.0-future.json` | Incompatibility testing | Major version jump |
 | `README.md` | Fixture documentation | Usage guide and naming conventions |
 
 ### 3. Test Data Mocks
