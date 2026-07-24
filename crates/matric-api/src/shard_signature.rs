@@ -1,18 +1,26 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Read, path::Path};
 
 use base64::Engine;
+use ring::signature::KeyPair;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 pub const SIGNATURE_ENTRY: &str = "signature.json";
 pub const MAX_SIGNATURE_ENVELOPE_BYTES: usize = 64 * 1024;
 pub const SIGNATURE_SCHEMA: &str =
-    include_str!("../../../contracts/knowledge-shard/1.2.0/full-v1/signature.schema.json");
+    include_str!("../../../contracts/knowledge-shard/2.0.0/full-v1/signature.schema.json");
 const SIGNING_ENVELOPE_VERSION: &str = "1";
 const SIGNING_ALGORITHM: &str = "ed25519";
 const MAX_TRUST_STORE_BYTES: usize = 64 * 1024;
+const MAX_SIGNING_KEY_FILE_BYTES: usize = 16 * 1024;
 const MAX_TRUSTED_KEYS: usize = 256;
 const MAX_KEY_ID_BYTES: usize = 256;
+const MAX_SIGNED_BLOB_DIGESTS: usize = 64;
+const SIGNING_KEY_CONFIGURATION_ERROR: &str =
+    "Knowledge shard signing-key configuration is invalid.";
+const TRUST_STORE_CONFIGURATION_ERROR: &str =
+    "Knowledge shard trusted-key configuration is invalid.";
 
 #[derive(Clone, Copy, Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "kebab-case")]
@@ -22,7 +30,7 @@ pub enum ShardSignaturePolicy {
     TrustedLocalOnly,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ShardSigner {
     key_id: String,
@@ -30,7 +38,7 @@ struct ShardSigner {
     public_key: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ShardSignatureEnvelope {
     format_version: String,
@@ -73,6 +81,19 @@ pub struct ShardTrustStore {
     keys: HashMap<String, TrustedKey>,
 }
 
+#[derive(Deserialize, Zeroize, ZeroizeOnDrop)]
+#[serde(deny_unknown_fields)]
+struct SigningKeyConfig {
+    key_id: String,
+    private_key: String,
+}
+
+pub struct ShardSigningKey {
+    key_id: String,
+    public_key: String,
+    key_pair: ring::signature::Ed25519KeyPair,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ShardSignatureVerdict {
     Valid,
@@ -110,19 +131,19 @@ pub fn parse_trust_store(value: Option<&str>) -> Result<Option<ShardTrustStore>,
     let configs = serde_json::from_str::<Vec<TrustedKeyConfig>>(value)
         .map_err(|_| "Knowledge shard trusted-key configuration is invalid.".to_string())?;
     if configs.is_empty() || configs.len() > MAX_TRUSTED_KEYS {
-        return Err("Knowledge shard trusted-key configuration is invalid.".to_string());
+        return Err(TRUST_STORE_CONFIGURATION_ERROR.to_string());
     }
 
     let mut keys = HashMap::with_capacity(configs.len());
     for config in configs {
         if config.key_id.is_empty() || config.key_id.len() > MAX_KEY_ID_BYTES {
-            return Err("Knowledge shard trusted-key configuration is invalid.".to_string());
+            return Err(TRUST_STORE_CONFIGURATION_ERROR.to_string());
         }
         let decoded = decode_base64url(&config.public_key)
-            .ok_or_else(|| "Knowledge shard trusted-key configuration is invalid.".to_string())?;
+            .ok_or_else(|| TRUST_STORE_CONFIGURATION_ERROR.to_string())?;
         let public_key_bytes: [u8; 32] = decoded
             .try_into()
-            .map_err(|_| "Knowledge shard trusted-key configuration is invalid.".to_string())?;
+            .map_err(|_| TRUST_STORE_CONFIGURATION_ERROR.to_string())?;
         if keys
             .insert(
                 config.key_id,
@@ -134,10 +155,122 @@ pub fn parse_trust_store(value: Option<&str>) -> Result<Option<ShardTrustStore>,
             )
             .is_some()
         {
-            return Err("Knowledge shard trusted-key configuration is invalid.".to_string());
+            return Err(TRUST_STORE_CONFIGURATION_ERROR.to_string());
         }
     }
     Ok(Some(ShardTrustStore { keys }))
+}
+
+fn read_bounded_regular_file(
+    path: &Path,
+    max_bytes: usize,
+    private_permissions: bool,
+    error: &'static str,
+) -> Result<Vec<u8>, String> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = options.open(path).map_err(|_| error.to_string())?;
+    let metadata = file.metadata().map_err(|_| error.to_string())?;
+    if !metadata.file_type().is_file() || metadata.len() > max_bytes as u64 {
+        return Err(error.to_string());
+    }
+    #[cfg(unix)]
+    if private_permissions {
+        use std::os::unix::fs::PermissionsExt;
+
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(error.to_string());
+        }
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take((max_bytes + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| error.to_string())?;
+    if bytes.len() > max_bytes {
+        return Err(error.to_string());
+    }
+    Ok(bytes)
+}
+
+pub fn load_trust_store_from_environment() -> Result<Option<ShardTrustStore>, String> {
+    let file =
+        std::env::var_os("FORTEMI_SHARD_TRUSTED_KEYS_FILE").filter(|value| !value.is_empty());
+    let inline = match std::env::var("FORTEMI_SHARD_TRUSTED_KEYS_JSON") {
+        Ok(value) if !value.trim().is_empty() => Some(value),
+        Ok(_) | Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(TRUST_STORE_CONFIGURATION_ERROR.to_string());
+        }
+    };
+    if file.is_some() && inline.is_some() {
+        return Err(TRUST_STORE_CONFIGURATION_ERROR.to_string());
+    }
+    if let Some(file) = file {
+        load_trust_store_file(Path::new(&file)).map(Some)
+    } else {
+        parse_trust_store(inline.as_deref())
+    }
+}
+
+pub fn load_trust_store_file(path: &Path) -> Result<ShardTrustStore, String> {
+    let bytes = read_bounded_regular_file(
+        path,
+        MAX_TRUST_STORE_BYTES,
+        false,
+        TRUST_STORE_CONFIGURATION_ERROR,
+    )?;
+    let value =
+        std::str::from_utf8(&bytes).map_err(|_| TRUST_STORE_CONFIGURATION_ERROR.to_string())?;
+    parse_trust_store(Some(value))?.ok_or_else(|| TRUST_STORE_CONFIGURATION_ERROR.to_string())
+}
+
+pub fn load_signing_key(path: &Path) -> Result<ShardSigningKey, String> {
+    let bytes = Zeroizing::new(read_bounded_regular_file(
+        path,
+        MAX_SIGNING_KEY_FILE_BYTES,
+        true,
+        SIGNING_KEY_CONFIGURATION_ERROR,
+    )?);
+    let mut config = serde_json::from_slice::<SigningKeyConfig>(&bytes)
+        .map_err(|_| SIGNING_KEY_CONFIGURATION_ERROR.to_string())?;
+    if config.key_id.is_empty() || config.key_id.len() > MAX_KEY_ID_BYTES {
+        return Err(SIGNING_KEY_CONFIGURATION_ERROR.to_string());
+    }
+    let decoded = Zeroizing::new(
+        decode_base64url(&config.private_key)
+            .ok_or_else(|| SIGNING_KEY_CONFIGURATION_ERROR.to_string())?,
+    );
+    config.private_key.zeroize();
+    let mut seed: [u8; 32] = decoded
+        .as_slice()
+        .try_into()
+        .map_err(|_| SIGNING_KEY_CONFIGURATION_ERROR.to_string())?;
+    let key_pair = ring::signature::Ed25519KeyPair::from_seed_unchecked(&seed)
+        .map_err(|_| SIGNING_KEY_CONFIGURATION_ERROR.to_string());
+    seed.zeroize();
+    let key_pair = key_pair?;
+    let public_key =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key_pair.public_key().as_ref());
+    Ok(ShardSigningKey {
+        key_id: config.key_id.clone(),
+        public_key,
+        key_pair,
+    })
+}
+
+pub fn load_signing_key_from_environment() -> Result<Option<ShardSigningKey>, String> {
+    let Some(path) =
+        std::env::var_os("FORTEMI_SHARD_SIGNING_KEY_FILE").filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    load_signing_key(Path::new(&path)).map(Some)
 }
 
 fn decode_base64url(value: &str) -> Option<Vec<u8>> {
@@ -184,13 +317,68 @@ fn parse_signature_envelope(data: &[u8]) -> Result<ShardSignatureEnvelope, ()> {
     serde_json::from_value(value).map_err(|_| ())
 }
 
+pub fn create_signature_envelope(
+    manifest: &[u8],
+    blob_checksums: &[String],
+    signing_key: &ShardSigningKey,
+) -> Result<Vec<u8>, String> {
+    let mut blob_digests = blob_checksums
+        .iter()
+        .map(|checksum| {
+            checksum
+                .strip_prefix("blake3:")
+                .filter(|digest| {
+                    digest.len() == 64
+                        && digest
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                })
+                .ok_or_else(|| SIGNING_KEY_CONFIGURATION_ERROR.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    blob_digests.sort_unstable();
+    blob_digests.dedup();
+    if blob_digests.len() != blob_checksums.len() || blob_digests.len() > MAX_SIGNED_BLOB_DIGESTS {
+        return Err(SIGNING_KEY_CONFIGURATION_ERROR.to_string());
+    }
+
+    let manifest_digest = hex::encode(Sha256::digest(manifest));
+    let envelope_without_signature = ShardSignatureEnvelope {
+        format_version: SIGNING_ENVELOPE_VERSION.to_string(),
+        signer: ShardSigner {
+            key_id: signing_key.key_id.clone(),
+            algorithm: SIGNING_ALGORITHM.to_string(),
+            public_key: signing_key.public_key.clone(),
+        },
+        manifest_digest,
+        blob_digests: blob_digests
+            .iter()
+            .map(|digest| (*digest).to_string())
+            .collect(),
+        signature: String::new(),
+    };
+    let canonical = canonical_payload_bytes(&envelope_without_signature)
+        .map_err(|_| SIGNING_KEY_CONFIGURATION_ERROR.to_string())?;
+    let signed_digest = hex::encode(Sha256::digest(canonical));
+    let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(signing_key.key_pair.sign(signed_digest.as_bytes()).as_ref());
+    let envelope = ShardSignatureEnvelope {
+        signature,
+        ..envelope_without_signature
+    };
+    let bytes = serde_json::to_vec_pretty(&envelope)
+        .map_err(|_| SIGNING_KEY_CONFIGURATION_ERROR.to_string())?;
+    if bytes.len() > MAX_SIGNATURE_ENVELOPE_BYTES || parse_signature_envelope(&bytes).is_err() {
+        return Err(SIGNING_KEY_CONFIGURATION_ERROR.to_string());
+    }
+    Ok(bytes)
+}
+
 #[cfg(test)]
 pub(super) fn create_test_signature_envelope(
     manifest: &[u8],
     blob_digests: &[&str],
 ) -> (Vec<u8>, String, String) {
-    use ring::signature::KeyPair;
-
     let key_pair = ring::signature::Ed25519KeyPair::from_seed_unchecked(&[7_u8; 32]).unwrap();
     let public_key =
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key_pair.public_key().as_ref());
@@ -348,6 +536,28 @@ pub fn enforce_signature_policy<'a>(
 mod tests {
     use super::*;
     use ring::signature::KeyPair;
+    use std::io::Write;
+
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
+    fn write_signing_key_file(seed: [u8; 32], key_id: &str) -> tempfile::NamedTempFile {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        #[cfg(unix)]
+        file.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o600))
+            .unwrap();
+        serde_json::to_writer(
+            &mut file,
+            &serde_json::json!({
+                "key_id": key_id,
+                "private_key": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(seed),
+            }),
+        )
+        .unwrap();
+        file.flush().unwrap();
+        file
+    }
 
     fn signed_fixture(
         manifest: &[u8],
@@ -605,5 +815,148 @@ mod tests {
         ))
         .is_err());
         assert!(parse_trust_store(Some("[]")).is_err());
+    }
+
+    #[test]
+    fn signing_key_file_emits_verifiable_public_envelope_without_private_material() {
+        let private_seed = [9_u8; 32];
+        let private_seed_text =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(private_seed);
+        let key_file = write_signing_key_file(private_seed, "publisher-2026-07");
+        let signing_key = load_signing_key(key_file.path()).unwrap();
+        let manifest = br#"{"profile":"full-v1","version":"2.0.0"}"#;
+        let digest = format!("blake3:{}", "a".repeat(64));
+        let envelope =
+            create_signature_envelope(manifest, std::slice::from_ref(&digest), &signing_key)
+                .unwrap();
+        let envelope_text = std::str::from_utf8(&envelope).unwrap();
+        assert!(!envelope_text.contains(&private_seed_text));
+
+        let public_key = serde_json::from_slice::<serde_json::Value>(&envelope).unwrap()["signer"]
+            ["public_key"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let trust_file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(
+            trust_file.path(),
+            serde_json::to_vec(&serde_json::json!([{
+                "key_id": "publisher-2026-07",
+                "public_key": public_key,
+                "revoked": false,
+            }]))
+            .unwrap(),
+        )
+        .unwrap();
+        let trust_store = load_trust_store_file(trust_file.path()).unwrap();
+        let files = HashMap::from([
+            ("manifest.json".to_string(), manifest.to_vec()),
+            (SIGNATURE_ENTRY.to_string(), envelope),
+        ]);
+        assert_eq!(
+            verify_shard_signature(&files, std::slice::from_ref(&digest).iter(), &trust_store),
+            ShardSignatureVerdict::Valid
+        );
+    }
+
+    #[test]
+    fn rotating_signing_key_changes_identity_and_revocation_fails_closed() {
+        let manifest = br#"{"profile":"full-v1","version":"2.0.0"}"#;
+        let first =
+            load_signing_key(write_signing_key_file([1_u8; 32], "publisher-old").path()).unwrap();
+        let second =
+            load_signing_key(write_signing_key_file([2_u8; 32], "publisher-new").path()).unwrap();
+        assert_ne!(first.public_key, second.public_key);
+
+        let envelope = create_signature_envelope(manifest, &[], &first).unwrap();
+        let trust_store = parse_trust_store(Some(
+            &serde_json::json!([
+                {
+                    "key_id": "publisher-old",
+                    "public_key": first.public_key,
+                    "revoked": true,
+                },
+                {
+                    "key_id": "publisher-new",
+                    "public_key": second.public_key,
+                    "revoked": false,
+                }
+            ])
+            .to_string(),
+        ))
+        .unwrap()
+        .unwrap();
+        let files = HashMap::from([
+            ("manifest.json".to_string(), manifest.to_vec()),
+            (SIGNATURE_ENTRY.to_string(), envelope),
+        ]);
+        assert_eq!(
+            verify_shard_signature(&files, std::iter::empty(), &trust_store),
+            ShardSignatureVerdict::Revoked
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signing_key_file_rejects_group_or_world_permissions_and_symlinks() {
+        let key_file = write_signing_key_file([3_u8; 32], "publisher-insecure");
+        key_file
+            .as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o640))
+            .unwrap();
+        assert!(load_signing_key(key_file.path()).is_err());
+
+        let link_dir = tempfile::tempdir().unwrap();
+        let link = link_dir.path().join("signing-key.json");
+        std::os::unix::fs::symlink(key_file.path(), &link).unwrap();
+        assert!(load_signing_key(&link).is_err());
+    }
+
+    #[test]
+    fn operator_file_schemas_match_runtime_configuration_shapes() {
+        let signing_schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../contracts/knowledge-shard/operator/signing-key-file.schema.json"
+        ))
+        .unwrap();
+        let trust_schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../contracts/knowledge-shard/operator/trusted-keys-file.schema.json"
+        ))
+        .unwrap();
+        let signing_validator = jsonschema::options()
+            .with_draft(jsonschema::Draft::Draft202012)
+            .build(&signing_schema)
+            .unwrap();
+        let trust_validator = jsonschema::options()
+            .with_draft(jsonschema::Draft::Draft202012)
+            .build(&trust_schema)
+            .unwrap();
+        let private_key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([4_u8; 32]);
+        let public_key = ring::signature::Ed25519KeyPair::from_seed_unchecked(&[4_u8; 32])
+            .unwrap()
+            .public_key()
+            .as_ref()
+            .to_vec();
+        let public_key =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(public_key.as_slice());
+        let signing = serde_json::json!({
+            "key_id": "publisher-2026-07",
+            "private_key": private_key,
+        });
+        let trust = serde_json::json!([{
+            "key_id": "publisher-2026-07",
+            "public_key": public_key,
+            "revoked": false,
+        }]);
+        assert!(signing_validator.is_valid(&signing));
+        assert!(trust_validator.is_valid(&trust));
+        assert!(!signing_validator.is_valid(&serde_json::json!({
+            "key_id": "publisher-2026-07",
+            "private_key": "not-a-key",
+        })));
+        assert!(!trust_validator.is_valid(&serde_json::json!([{
+            "key_id": "publisher-2026-07",
+            "public_key": public_key,
+            "private_key": private_key,
+        }])));
     }
 }

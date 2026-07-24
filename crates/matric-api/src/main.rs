@@ -27397,7 +27397,7 @@ async fn load_shard_blob_export_inventory_tx(
         ("include" = Option<String>, Query, description = "Comma-separated profile components"),
         ("include_blobs" = Option<bool>, Query, description = "Include verified content-addressed attachment byte sidecars"),
     ),
-    responses((status = 200, description = "Success"))
+    responses((status = 200, description = "Knowledge Shard archive. When a full-v1 signing key file is configured, the archive includes a canonical Ed25519 signature.json envelope."))
 )]
 async fn knowledge_shard(
     State(state): State<AppState>,
@@ -27433,6 +27433,12 @@ async fn knowledge_shard(
             "Knowledge shard record-v1 is an import compatibility profile.",
         ));
     }
+    let signing_key = if profile == "full-v1" {
+        shard_signature::load_signing_key_from_environment()
+            .map_err(ApiError::ServiceUnavailable)?
+    } else {
+        None
+    };
     let include_str = query.include.unwrap_or_else(|| {
         if profile == "full-v1" {
             FULL_V1_IMPORT_COMPONENTS.join(",")
@@ -27462,6 +27468,7 @@ async fn knowledge_shard(
     let mut checksums: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let archive_limits = ShardArchiveLimits::for_compressed_limit(state.max_upload_size);
     let mut exported_note_ids = Vec::new();
+    let mut blob_checksums = Vec::new();
 
     // Schema-scoped transaction for the entire export
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
@@ -28911,7 +28918,10 @@ async fn knowledge_shard(
         #[allow(clippy::drop_non_drop)]
         drop(add_json_file);
         if include_blobs {
-            let reserved_entries = components.len().saturating_add(1);
+            let reserved_entries = components
+                .len()
+                .saturating_add(1)
+                .saturating_add(usize::from(signing_key.is_some()));
             let max_blob_entries = archive_limits.max_entries.saturating_sub(reserved_entries);
             let max_blob_bytes = archive_limits
                 .max_uncompressed_bytes
@@ -28925,6 +28935,7 @@ async fn knowledge_shard(
             )
             .await?;
             for sidecar in sidecars {
+                blob_checksums.push(sidecar.checksum.clone());
                 archive_bytes = archive_bytes
                     .checked_add(sidecar.size_bytes)
                     .ok_or_else(|| {
@@ -29044,6 +29055,34 @@ async fn knowledge_shard(
         header.set_cksum();
         tar.append_data(&mut header, "manifest.json", manifest_data.as_slice())
             .map_err(|e| shard_operation_failed("add manifest to shard", e))?;
+
+        if let Some(signing_key) = signing_key.as_ref() {
+            let signature = shard_signature::create_signature_envelope(
+                &manifest_data,
+                &blob_checksums,
+                signing_key,
+            )
+            .map_err(ApiError::ServiceUnavailable)?;
+            archive_bytes = archive_bytes.checked_add(signature.len()).ok_or_else(|| {
+                shard_validation_failed("Knowledge shard exceeds the uncompressed size limit.")
+            })?;
+            if archive_bytes > archive_limits.max_uncompressed_bytes {
+                return Err(shard_validation_failed(
+                    "Knowledge shard exceeds the uncompressed size limit.",
+                ));
+            }
+            let mut header = tar::Header::new_gnu();
+            header.set_size(signature.len() as u64);
+            header.set_mode(0o644);
+            header.set_mtime(chrono::Utc::now().timestamp() as u64);
+            header.set_cksum();
+            tar.append_data(
+                &mut header,
+                shard_signature::SIGNATURE_ENTRY,
+                signature.as_slice(),
+            )
+            .map_err(|error| shard_operation_failed("add publisher signature to shard", error))?;
+        }
 
         let encoder = tar
             .into_inner()
@@ -36287,16 +36326,7 @@ where
     let source_sidecars = source_archive.sidecars;
 
     let mut warnings: Vec<String> = Vec::new();
-    let trusted_keys_json = match std::env::var("FORTEMI_SHARD_TRUSTED_KEYS_JSON") {
-        Ok(value) => Some(value),
-        Err(std::env::VarError::NotPresent) => None,
-        Err(std::env::VarError::NotUnicode(_)) => {
-            return Err(ApiError::ServiceUnavailable(
-                "Knowledge shard trusted-key configuration is invalid.".to_string(),
-            ));
-        }
-    };
-    let trust_store = shard_signature::parse_trust_store(trusted_keys_json.as_deref())
+    let trust_store = shard_signature::load_trust_store_from_environment()
         .map_err(ApiError::ServiceUnavailable)?;
     shard_signature::enforce_signature_policy(
         &source_files,
@@ -38640,6 +38670,35 @@ mod tests {
     use tower::ServiceExt;
 
     static SHARD_INTEGRATION_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    struct ScopedEnvVar {
+        name: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl ScopedEnvVar {
+        fn set(name: &'static str, value: &std::ffi::OsStr) -> Self {
+            let previous = std::env::var_os(name);
+            std::env::set_var(name, value);
+            Self { name, previous }
+        }
+
+        fn remove(name: &'static str) -> Self {
+            let previous = std::env::var_os(name);
+            std::env::remove_var(name);
+            Self { name, previous }
+        }
+    }
+
+    impl Drop for ScopedEnvVar {
+        fn drop(&mut self) {
+            if let Some(value) = self.previous.as_ref() {
+                std::env::set_var(self.name, value);
+            } else {
+                std::env::remove_var(self.name);
+            }
+        }
+    }
 
     async fn cors_preflight(requested_headers: &str) -> axum::response::Response {
         Router::new()
@@ -48134,7 +48193,7 @@ not-json
                     name: Some(name.to_string()),
                 }),
                 Query(ShardExportQuery {
-                    schema_version: None,
+                    schema_version: Some(SHARD_SCHEMA_2_VERSION.to_string()),
                     profile: Some("full-v1".to_string()),
                     include: None,
                     include_blobs: false,
@@ -48179,16 +48238,17 @@ not-json
             skip_embedding_regen: true,
         };
 
-        let candidate =
-            include_bytes!("../../../tests/fixtures/shards/full-v1-integrated-candidate.shard");
+        let candidate = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+        );
         let source_import =
             knowledge_shard_import_internal(&state, candidate, &opts, &source.schema_name)
                 .await
                 .unwrap_or_else(|error| match error {
                     ApiError::OperationFailed { detail, .. } => {
-                        panic!("signed integrated candidate import failed: {detail}")
+                        panic!("schema-2 React fixture import failed: {detail}")
                     }
-                    other => panic!("signed integrated candidate import failed: {other:?}"),
+                    other => panic!("schema-2 React fixture import failed: {other:?}"),
                 });
         assert_eq!(
             source_import
@@ -48198,8 +48258,50 @@ not-json
             Some("full-v1")
         );
 
+        let signing_key_file = tempfile::NamedTempFile::new().unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            signing_key_file
+                .as_file()
+                .set_permissions(std::fs::Permissions::from_mode(0o600))
+                .unwrap();
+        }
+        std::fs::write(
+            signing_key_file.path(),
+            serde_json::to_vec(&serde_json::json!({
+                "key_id": "fortemi-route-test-1",
+                "private_key": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([11_u8; 32]),
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let _signing_key_guard = ScopedEnvVar::set(
+            "FORTEMI_SHARD_SIGNING_KEY_FILE",
+            signing_key_file.path().as_os_str(),
+        );
         let exported = export_full_v1(&state, &source.schema_name, &source_name).await;
         let exported_files = read_shard_archive(&exported, ShardArchiveLimits::default()).unwrap();
+        let signature: serde_json::Value =
+            serde_json::from_slice(&exported_files[shard_signature::SIGNATURE_ENTRY]).unwrap();
+        assert_eq!(signature["signer"]["key_id"], "fortemi-route-test-1");
+        let trust_file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(
+            trust_file.path(),
+            serde_json::to_vec(&serde_json::json!([{
+                "key_id": signature["signer"]["key_id"],
+                "public_key": signature["signer"]["public_key"],
+                "revoked": false,
+            }]))
+            .unwrap(),
+        )
+        .unwrap();
+        let _inline_trust_guard = ScopedEnvVar::remove("FORTEMI_SHARD_TRUSTED_KEYS_JSON");
+        let _trust_file_guard = ScopedEnvVar::set(
+            "FORTEMI_SHARD_TRUSTED_KEYS_FILE",
+            trust_file.path().as_os_str(),
+        );
         let exported_manifest_value: serde_json::Value =
             serde_json::from_slice(&exported_files["manifest.json"]).unwrap();
         assert_eq!(exported_manifest_value["profile"], "full-v1");
@@ -48212,6 +48314,7 @@ not-json
         );
         let exported_manifest =
             parse_and_validate_shard_manifest(&exported_files["manifest.json"]).unwrap();
+        assert_eq!(exported_manifest.version, SHARD_SCHEMA_2_VERSION);
         validate_shard_manifest_contract(&exported_manifest).unwrap();
         validate_shard_component_inventory(&exported_manifest, &exported_files).unwrap();
         let exported_attachments = validate_shard_relationships(&exported_files).unwrap();
@@ -48230,16 +48333,65 @@ not-json
             .iter()
             .any(|record| record["contract_fingerprint"].is_null()));
 
-        let tampered = replace_shard_entry(&exported, "notes.jsonl", b"{}\n");
-        let error =
-            knowledge_shard_import_internal(&state, &tampered, &opts, &destination.schema_name)
-                .await
-                .expect_err("invalid full-v1 archive must fail before destination mutation");
-        assert!(matches!(
-            error,
-            ApiError::BadRequest(ref message)
-                if message == "Knowledge shard checksum validation failed."
-        ));
+        let dry_run_opts = ShardImportOptions {
+            include: None,
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let dry_run = knowledge_shard_import_internal_from_reader_with_wipe(
+            &state,
+            std::io::Cursor::new(exported.as_slice()),
+            exported.len(),
+            &dry_run_opts,
+            Some(shard_signature::ShardSignaturePolicy::Require),
+            &destination.schema_name,
+            false,
+        )
+        .await
+        .expect("signed full-v1 export must pass explicit required-signature dry-run");
+        assert!(dry_run.dry_run);
+
+        let sidecar_name =
+            shard_blob_entry_name(exported_attachments.keys().next().unwrap()).unwrap();
+        let tampered_archives = [
+            (
+                "manifest",
+                replace_shard_entry(
+                    &exported,
+                    "manifest.json",
+                    &[exported_files["manifest.json"].as_slice(), b" "].concat(),
+                ),
+            ),
+            (
+                "component",
+                replace_shard_entry(&exported, "notes.jsonl", b"{}\n"),
+            ),
+            (
+                "signature",
+                replace_shard_entry(&exported, shard_signature::SIGNATURE_ENTRY, b"{}"),
+            ),
+            (
+                "attachment",
+                replace_shard_entry(&exported, &sidecar_name, b"tampered attachment bytes"),
+            ),
+        ];
+        for (kind, tampered) in tampered_archives {
+            let result = knowledge_shard_import_internal_from_reader_with_wipe(
+                &state,
+                std::io::Cursor::new(tampered.as_slice()),
+                tampered.len(),
+                &opts,
+                Some(shard_signature::ShardSignaturePolicy::Require),
+                &destination.schema_name,
+                false,
+            )
+            .await;
+            assert!(
+                result.is_err(),
+                "tampered {kind} must fail before destination mutation"
+            );
+        }
         let clean_counts = db
             .for_schema(&destination.schema_name)
             .unwrap()

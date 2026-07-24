@@ -59,7 +59,9 @@ DATABASE_URL=<DATABASE_URL>
 | `MATRIC_ATTACHMENT_CLAMD_ADDR` | IP socket | None | Numeric clamd TCP address used with `INSTREAM`, for example `127.0.0.1:3310`. Required in scan mode `required`. Keep this unauthenticated protocol on a trusted private boundary. |
 | `MATRIC_ATTACHMENT_SCAN_TIMEOUT_MS` | Integer | `30000` | Per-command and per-scan clamd timeout, from 100 through 300000 milliseconds. |
 | `MATRIC_ATTACHMENT_SCAN_MAX_BYTES` | Integer | Upload maximum | Maximum bytes presented to clamd. In required mode it must be at least `MATRIC_MAX_UPLOAD_SIZE_BYTES`; over-limit scanner verdicts fail closed as unsupported. |
-| `FORTEMI_SHARD_TRUSTED_KEYS_JSON` | JSON array | None | Allowlisted Knowledge Shard Ed25519 public keys as `{"key_id","public_key","revoked"}` records. `public_key` is an unpadded base64url-encoded 32-byte key. When configured, shard imports default to signature policy `require`. |
+| `FORTEMI_SHARD_SIGNING_KEY_FILE` | File path | None | Private Ed25519 signing-key file for `full-v1` exports. The file must be a regular, non-symlink file with no group/world permission bits and match `contracts/knowledge-shard/operator/signing-key-file.schema.json`. |
+| `FORTEMI_SHARD_TRUSTED_KEYS_FILE` | File path | None | Allowlisted Knowledge Shard publisher public keys. The file must match `contracts/knowledge-shard/operator/trusted-keys-file.schema.json`. Mutually exclusive with `FORTEMI_SHARD_TRUSTED_KEYS_JSON`. |
+| `FORTEMI_SHARD_TRUSTED_KEYS_JSON` | JSON array | None | Legacy inline form of the trusted publisher public-key allowlist. Mutually exclusive with `FORTEMI_SHARD_TRUSTED_KEYS_FILE`. When either trust-store form is configured, shard imports default to signature policy `require`. |
 
 **Example:**
 ```bash
@@ -100,6 +102,61 @@ clean verdict. `infected`, `error`, `unsupported`, `pending`, and legacy
 explicitly and emits a security warning; it never records those bytes as clean.
 Knowledge Shard attachment sidecars enter the same policy on import, and shard
 exports refuse sidecar bytes whose attachment verdict does not match the blob.
+
+### Knowledge Shard Publisher Keys
+
+`full-v1` exports contain `signature.json` when
+`FORTEMI_SHARD_SIGNING_KEY_FILE` is configured. The signature commits to the
+exact serialized manifest and every declared attachment digest. The public
+envelope never contains the private seed. If the signing-key file is absent,
+the exporter remains available but emits an unsigned archive; a consumer using
+the `require` signature policy rejects it before database or blob mutation.
+
+Provision the private file through the deployment's secret manager, mount it
+read-only, and set its mode to `0600` (or stricter). Its shape is:
+
+```json
+{
+  "key_id": "publisher-2026-07",
+  "private_key": "<UNPADDED_BASE64URL_32_BYTE_ED25519_SEED>"
+}
+```
+
+Set only its path in the environment:
+
+```bash
+FORTEMI_SHARD_SIGNING_KEY_FILE=/run/secrets/fortemi-shard-signing-key.json
+FORTEMI_SHARD_TRUSTED_KEYS_FILE=/etc/fortemi/shard-trusted-keys.json
+```
+
+For the Docker bundle, add read-only secret/config mounts for those paths in a
+Compose override. The bundle passes the path variables through but does not
+copy key material into the container.
+
+The public trust file contains one or more publisher keys:
+
+```json
+[
+  {
+    "key_id": "publisher-2026-07",
+    "public_key": "<UNPADDED_BASE64URL_32_BYTE_ED25519_PUBLIC_KEY>",
+    "revoked": false
+  }
+]
+```
+
+For planned rotation, deploy the new private key under a new `key_id`, add its
+public key to every consumer allowlist, restart the consumers, then restart the
+producer with the new signing-key path. Keep the prior public key trusted only
+for the required archive-retention window. For compromise response, mark the
+old allowlist entry `"revoked": true` and restart consumers before issuing a
+new signing key. A revoked key fails closed even when its signature is
+cryptographically valid.
+
+Never place the private file in `.env`, Compose YAML, an image layer, a
+Knowledge Shard, logs, fixtures, support bundles, or source control. Do not
+configure both trust-store environment variables; ambiguous configuration is
+rejected.
 
 ### Authentication
 

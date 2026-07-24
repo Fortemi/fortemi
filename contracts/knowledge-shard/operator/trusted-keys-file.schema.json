@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/operator/trusted-keys-file.schema.json",
+  "title": "Fortemi Knowledge Shard trusted publisher keys",
+  "type": "array",
+  "minItems": 1,
+  "maxItems": 256,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "key_id",
+      "public_key"
+    ],
+    "properties": {
+      "key_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "public_key": {
+        "description": "Unpadded base64url encoding of an Ed25519 32-byte public key.",
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{43}$"
+      },
+      "revoked": {
+        "type": "boolean",
+        "default": false
+      }
+    }
+  }
+}

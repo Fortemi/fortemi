@@ -61,6 +61,8 @@ tar = "0.4"
 flate2 = "1.0"
 blake3.workspace = true
 sha2 = "0.10"
+zeroize = { version = "1", features = ["derive"] }
+libc = "0.2"
 sha1 = "0.10"
 hmac = "0.12"
 hex = "0.4"

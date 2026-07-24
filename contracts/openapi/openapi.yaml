@@ -939,7 +939,7 @@ paths:
           type: boolean
       responses:
         '200':
-          description: Success
+          description: Knowledge Shard archive. When a full-v1 signing key file is configured, the archive includes a canonical Ed25519 signature.json envelope.
         '429':
           content:
             application/problem+json:

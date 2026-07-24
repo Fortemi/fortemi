@@ -1,7 +1,11 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-24T06:19:33Z"
+  updated_at: "2026-07-24T23:40:16Z"
 records:
+  - entity: "crates/matric-api/src/main.rs"
+    record: "records/matric-api-main-signed-full-v1-export-1088.prov.yaml"
+  - entity: "crates/matric-api/src/shard_signature.rs"
+    record: "records/matric-api-shard-signature-production-key-boundary-1088.prov.yaml"
   - entity: "tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json"
     record: "records/schema-2-full-v1-interop-receipt-1084.prov.yaml"
   - entity: "crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs"

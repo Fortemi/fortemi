@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Versioned `core-v1` schemas through `1.2.0`, an authority-owned and cross-repository-proven `record-v1` profile, a supported complete-inventory `full-v1` server route with semantic/revision/embedding-lineage/mandatory-byte convergence and signed-fixture publisher-authentication proof, digest-pinned rich component boundaries with transactional apply paths, registered `1.0.0 -> 1.1.0` tombstone and `1.1.0 -> 1.2.0` embedding-lineage transitions, bounded archive and relationship preflight, identity-preserving structured import, signed-import verification, and disk-backed streaming preflight for verified attachment sidecars; final cross-repository `full-v1` producer and consumer receipts remain pending
+**Implementation status:** Versioned `core-v1` schemas through `2.0.0`, an authority-owned and cross-repository-proven `record-v1` profile, a supported complete-inventory `full-v1` server route with semantic/revision/embedding-lineage/mandatory-byte convergence and production Ed25519 publisher signing, digest-pinned rich component boundaries with transactional apply paths, registered historical transitions, bounded archive and relationship preflight, identity-preserving structured import, signed-import verification, and disk-backed streaming preflight for verified attachment sidecars; final cross-repository `full-v1` producer and consumer receipts remain pending
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -106,7 +106,13 @@ exact bytes. A strict authority-owned signature-envelope schema and pinned
 Ed25519 fixture signature authenticate the exact manifest SHA-256 and sorted
 BLAKE3 sidecar inventory through the production import verifier. The
 deterministic fixture key is public compatibility-test material and is never a
-production trust anchor.
+production trust anchor. The production `full-v1` exporter can load an
+operator-provisioned Ed25519 seed from a private regular file, derive the
+public identity, and emit the same canonical envelope. Signing-key bytes are
+bounded, kept out of application responses and diagnostics, zeroized after
+loading where the runtime representation permits, and never enter an archive.
+Consumers load a public-key allowlist from a bounded file or the legacy inline
+environment form; ambiguous dual configuration is rejected.
 The `profile=full-v1` export selector always emits the exact complete component
 set and forces attachment sidecars on. A database-backed route test imports the
 signed fixture, exports it from an isolated schema, imports the live artifact
@@ -127,6 +133,12 @@ dry-run accounting, and rollback after a late injected failure. Runtime
 validation accepts only the complete `full-v1` manifest and rejects partial
 profile selections. The final cross-repository matrix remains pending under
 #1059.
+
+Production signing does not change the archive schema: `signature.json` was
+already an authority-owned `full-v1` entry in revisions 19 and 20. The
+operator file shapes are separately published at
+`contracts/knowledge-shard/operator/`; they configure producer and consumer
+trust and are not part of the portable archive schema bundle.
 
 ## Decision
 

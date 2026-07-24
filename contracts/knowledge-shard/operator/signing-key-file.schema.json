@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/knowledge-shard/operator/signing-key-file.schema.json",
+  "title": "Fortemi Knowledge Shard signing-key file",
+  "description": "Private operator configuration. This document must never be committed, logged, archived, or included in a Knowledge Shard.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "key_id",
+    "private_key"
+  ],
+  "properties": {
+    "key_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "private_key": {
+      "description": "Unpadded base64url encoding of an Ed25519 32-byte private seed.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  }
+}

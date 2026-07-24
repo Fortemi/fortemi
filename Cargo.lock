@@ -2219,6 +2219,7 @@ dependencies = [
  "ipnet",
  "jsonschema",
  "kamadak-exif 0.5.5",
+ "libc",
  "lru",
  "matric-core",
  "matric-crypto",
@@ -2254,6 +2255,7 @@ dependencies = [
  "utoipa",
  "utoipa-swagger-ui",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

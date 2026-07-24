@@ -28,6 +28,11 @@ Ed25519 envelope authenticates the exact manifest bytes
 and sorted content-addressed blob inventory through the same verifier used by
 server import. The deterministic fixture key is public and test-only; operators
 must never add it to a production trust store.
+When `FORTEMI_SHARD_SIGNING_KEY_FILE` is configured, the production
+`full-v1` route emits that same canonical envelope for both supported 1.x and
+explicit `2.0.0` exports. Private signing-key and public allowlist file shapes
+are published under `operator/`; those schemas configure trust and are not
+members of a portable archive or the versioned schema bundle.
 `GET /api/v1/backup/knowledge-shard?profile=full-v1` always includes every
 component and every referenced attachment byte. Database-backed tests import
 the signed fixture, export it through that route, import it twice into a clean

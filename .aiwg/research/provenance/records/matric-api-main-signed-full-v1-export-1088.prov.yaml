@@ -1,0 +1,59 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-24T23:40:16Z"
+  description: "Provenance for the Fortemi issue #1088 signed 2.0.0/full-v1 export route and clean-destination rejection tests"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:eddb17ef9812e6773d7addbf5cfd9c0bb0e268d4278c0306e900efda410fdef7"
+  type: source_code
+  created_at: "2026-07-24T23:40:16Z"
+  updated_at: "2026-07-24T23:40:16Z"
+  checksum: "sha256:eddb17ef9812e6773d7addbf5cfd9c0bb0e268d4278c0306e900efda410fdef7"
+  size_bytes: 2510210
+  attributes:
+    issue: "Fortemi/fortemi#1088"
+    tuple: "2.0.0/full-v1"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:matric-api-main-signed-full-v1-export-1088:001"
+  type: modification
+  started_at: "2026-07-24T22:55:00Z"
+  ended_at: "2026-07-24T23:40:16Z"
+  description: "Emit the public signature envelope from the production full-v1 route and prove required-signature dry-run plus tamper-before-mutation behavior"
+  attributes:
+    verification:
+      - "cargo test -p matric-api shard_full_v1_route_round_trip_preserves_every_component_and_required_blob -- --nocapture"
+      - "cargo clippy -p matric-api --tests -- -D warnings"
+      - "scripts/ci/openapi-contract.sh check"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:eddb17ef9812e6773d7addbf5cfd9c0bb0e268d4278c0306e900efda410fdef7"
+    activity: "urn:aiwg:activity:modification:matric-api-main-signed-full-v1-export-1088:001"
+    time: "2026-07-24T23:40:16Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:matric-api-main-signed-full-v1-export-1088:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1088"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:matric-api-main-signed-full-v1-export-1088:001"
+      entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
+      role: authority
+    - activity: "urn:aiwg:activity:modification:matric-api-main-signed-full-v1-export-1088:001"
+      entity: "urn:gitea:issue:Fortemi/HotM:272"
+      role: declared_consumer
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:eddb17ef9812e6773d7addbf5cfd9c0bb0e268d4278c0306e900efda410fdef7"
+      source: "urn:gitea:issue:Fortemi/fortemi:1088"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:matric-api-main-signed-full-v1-export-1088:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:matric-api-main-signed-full-v1-export-1088:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:eddb17ef9812e6773d7addbf5cfd9c0bb0e268d4278c0306e900efda410fdef7"
+    agent: "urn:aiwg:agent:codex-gpt-5"
