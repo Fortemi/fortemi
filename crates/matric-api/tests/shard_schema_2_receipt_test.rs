@@ -76,7 +76,10 @@ fn shard_schema_2_runtime_receipt_binds_delivered_main_and_external_producers() 
         receipt["implementation"]["immutableSidecar"]["assetSha256"],
         "db89a3e52323e67f66e0c6b446667dce88349228882c4919a8f821c75bbfaad6"
     );
-    assert_eq!(receipt["productionSigning"]["privateMaterialSerialized"], false);
+    assert_eq!(
+        receipt["productionSigning"]["privateMaterialSerialized"],
+        false
+    );
     assert_eq!(
         receipt["productionSigning"]["hotmLiveReceipt"]["commit"],
         "234215e6754b1bcc22c1a7449b6f6b498aee07c5"
@@ -85,6 +88,9 @@ fn shard_schema_2_runtime_receipt_binds_delivered_main_and_external_producers() 
         receipt["productionSigning"]["hotmLiveReceipt"]["sha256"],
         "efd8516925f7c5fea8d59d98644827ce5ca9a8a2ecd7bb3dd0700c26f8abe1f2"
     );
-    assert_eq!(receipt["productionSigning"]["hotmLiveReceipt"]["status"], "passed");
+    assert_eq!(
+        receipt["productionSigning"]["hotmLiveReceipt"]["status"],
+        "passed"
+    );
     assert_eq!(receipt["advertisement"]["advertised"], false);
 }

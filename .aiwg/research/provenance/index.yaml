@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-25T00:42:22Z"
+  updated_at: "2026-07-25T00:43:23Z"
 records:
   - entity: "build/Dockerfile.builder"
     record: "records/builder-https-package-source-1088.prov.yaml"
