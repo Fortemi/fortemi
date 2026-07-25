@@ -1,0 +1,47 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-25T00:08:00Z"
+  description: "Provenance for the Fortemi #1088 production signing and HotM live runtime receipt"
+entity:
+  id: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json"
+  type: evidence_receipt
+  created_at: "2026-07-25T00:08:00Z"
+  checksum: "sha256:88a11341f6cd120a937974babc83539d7837548fbceaf4bb2dd23c9e9f19fbca"
+  size_bytes: 6834
+  attributes:
+    issue: "Fortemi/fortemi#1088"
+    tuple: "2.0.0/full-v1"
+    producer_revision: "336df3ed834be581d1a0f0a3d252fb48e723b987"
+activity:
+  id: "urn:aiwg:activity:modification:schema-2-runtime-signing-receipt-1088:001"
+  type: modification
+  started_at: "2026-07-25T00:08:00Z"
+  ended_at: "2026-07-25T00:08:00Z"
+  description: "Bind production signing, immutable sidecar publication, public-key trust, and the passing released HotM clean-recovery cell"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json"
+    activity: "urn:aiwg:activity:modification:schema-2-runtime-signing-receipt-1088:001"
+    time: "2026-07-25T00:08:00Z"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json"
+      source: "urn:gitea:commit:Fortemi/fortemi:336df3ed834be581d1a0f0a3d252fb48e723b987"
+      derivation_type: "binds"
+      activity: "urn:aiwg:activity:modification:schema-2-runtime-signing-receipt-1088:001"
+    - entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json"
+      source: "urn:gitea:commit:Fortemi/HotM:234215e6754b1bcc22c1a7449b6f6b498aee07c5"
+      derivation_type: "binds"
+      activity: "urn:aiwg:activity:modification:schema-2-runtime-signing-receipt-1088:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:schema-2-runtime-signing-receipt-1088:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json"
+    agent: "urn:aiwg:agent:codex-gpt-5"

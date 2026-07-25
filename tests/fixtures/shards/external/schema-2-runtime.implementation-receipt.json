@@ -20,14 +20,20 @@
   },
   "implementation": {
     "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
-    "commit": "c93742d7c75b481621b821f4584304289eb364d5",
+    "commit": "336df3ed834be581d1a0f0a3d252fb48e723b987",
     "packageVersion": "2026.7.12",
-    "releaseStatus": "unreleased-main-after-v2026.7.12",
+    "releaseStatus": "immutable-sidecar-published-after-v2026.7.12",
     "deliveredMain": {
       "ref": "main",
-      "ciUrl": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/5427",
-      "testCiUrl": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/5430",
+      "ciUrl": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/5688",
+      "testCiUrl": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/5688",
       "conclusion": "success"
+    },
+    "immutableSidecar": {
+      "tag": "sidecar-336df3ed834b",
+      "target": "x86_64-unknown-linux-gnu",
+      "assetBytes": 69817696,
+      "assetSha256": "db89a3e52323e67f66e0c6b446667dce88349228882c4919a8f821c75bbfaad6"
     }
   },
   "reactProducer": {
@@ -85,6 +91,23 @@
       "value"
     ]
   },
+  "productionSigning": {
+    "keySource": "permission-checked regular file",
+    "trustSource": "public-key allowlist file",
+    "privateMaterialSerialized": false,
+    "signatureEnvelopeSchema": "contracts/knowledge-shard/2.0.0/full-v1/signature.schema.json",
+    "manifestDigest": "sha256",
+    "attachmentDigest": "blake3",
+    "rotationAndRevocationTested": true,
+    "hotmLiveReceipt": {
+      "repository": "https://git.integrolabs.net/Fortemi/HotM.git",
+      "commit": "234215e6754b1bcc22c1a7449b6f6b498aee07c5",
+      "issue": "https://git.integrolabs.net/Fortemi/HotM/issues/272",
+      "path": ".aiwg/evidence/hotm-full-v1-clean-recovery-receipt-2026-07-24.json",
+      "sha256": "efd8516925f7c5fea8d59d98644827ce5ca9a8a2ecd7bb3dd0700c26f8abe1f2",
+      "status": "passed"
+    }
+  },
   "tests": {
     "authorityDispatch": "tests::shard_schema_2_dispatch_covers_the_complete_authority_field_inventory",
     "releasedArchives": "tests::shard_schema_2_accepts_independent_react_and_aiwg_full_v1_archives",
@@ -93,6 +116,7 @@
     "nextMajorRejection": "tests::shard_canonical_manifest_fixtures_cover_current_and_next_major",
     "malformedAndTampered": "tests::shard_inventory_rejects_missing_undeclared_and_count_mismatches",
     "signatureFailure": "shard_signature::tests::rejects_unknown_revoked_substituted_and_corrupt_signatures",
+    "productionSigning": "tests::shard_full_v1_route_round_trip_preserves_every_component_and_required_blob",
     "resourceLimits": "tests::shard_archive_reader_enforces_compressed_uncompressed_entry_and_count_limits",
     "attachmentRollback": "tests::shard_optional_sidecars_round_trip_and_fail_without_partial_storage",
     "presenceMatrix": "python3 -m unittest tests/test_verify_knowledge_shard_presence.py tests/test_verify_knowledge_shard_matrix.py"
@@ -104,6 +128,9 @@
     "absent-null-empty-value",
     "attachment-bytes",
     "signature-validation",
+    "production-export-signing",
+    "public-key-trust",
+    "hotm-pass-through",
     "relationships",
     "timestamps",
     "tombstones",
