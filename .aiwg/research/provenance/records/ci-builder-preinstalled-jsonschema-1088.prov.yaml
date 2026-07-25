@@ -6,17 +6,19 @@ entity:
   id: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
   type: ci_workflow
   created_at: "2026-07-25T00:23:40Z"
-  checksum: "sha256:ff5a4e1ceeff4babbcebf0452971b0a3d51b01941e478794a375d036938e3432"
-  size_bytes: 61533
+  checksum: "sha256:3521a0958fe4ae097f452630c651e03ecb596c9b4bf231ef97d24acb36e003a8"
+  size_bytes: 61622
   attributes:
     issue: "Fortemi/fortemi#1088"
     contract_cell: "2.0.0/full-v1"
+    builder_digest: "sha256:b7c96e7d696145e7247e355f0f8ac0a7c87d339fa7ed771112071ba473c807aa"
+    runner_class: "ubuntu-latest"
 activity:
   id: "urn:aiwg:activity:modification:ci-builder-preinstalled-jsonschema-1088:001"
   type: modification
   started_at: "2026-07-25T00:23:40Z"
-  ended_at: "2026-07-25T00:23:40Z"
-  description: "Verify the builder-provided schema library before running the fail-closed matrix"
+  ended_at: "2026-07-25T00:42:22Z"
+  description: "Run the fail-closed matrix on the standard runner in the immutable tool-complete builder image"
 agent: &agent
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
