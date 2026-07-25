@@ -1,0 +1,41 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-25T00:23:40Z"
+  description: "Provenance for the Fortemi builder contract and deployment tool checks"
+entity:
+  id: "urn:aiwg:artifact:.gitea/workflows/build-builder.yaml"
+  type: ci_workflow
+  created_at: "2026-07-25T00:23:40Z"
+  checksum: "sha256:501e2bc50a99cba1f074bf4febc8e7bb8a9199673d3128a966a45f9f5f5f5932"
+  size_bytes: 13190
+  attributes:
+    issue: "Fortemi/fortemi#1088"
+activity:
+  id: "urn:aiwg:activity:modification:build-builder-tool-verification-1088:001"
+  type: modification
+  started_at: "2026-07-25T00:23:40Z"
+  ended_at: "2026-07-25T00:23:40Z"
+  description: "Fail the image build unless jsonschema, rsync, and SSH are present"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.gitea/workflows/build-builder.yaml"
+    activity: "urn:aiwg:activity:modification:build-builder-tool-verification-1088:001"
+    time: "2026-07-25T00:23:40Z"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.gitea/workflows/build-builder.yaml"
+      source: "urn:aiwg:artifact:build/Dockerfile.builder"
+      derivation_type: "verifies"
+      activity: "urn:aiwg:activity:modification:build-builder-tool-verification-1088:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:build-builder-tool-verification-1088:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.gitea/workflows/build-builder.yaml"
+    agent: "urn:aiwg:agent:codex-gpt-5"

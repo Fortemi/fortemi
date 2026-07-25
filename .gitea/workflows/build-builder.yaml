@@ -116,6 +116,11 @@ jobs:
           docker run --rm ${IMAGE}:latest node --version
           docker run --rm ${IMAGE}:latest npm --version
 
+          # Test contract and deployment tools used without per-job package installs
+          docker run --rm ${IMAGE}:latest python3 -c 'import jsonschema'
+          docker run --rm ${IMAGE}:latest rsync --version
+          docker run --rm ${IMAGE}:latest ssh -V
+
           # Test Docker CLI
           docker run --rm ${IMAGE}:latest docker --version
 

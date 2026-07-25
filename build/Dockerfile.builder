@@ -38,7 +38,11 @@ ENV RUSTFLAGS="-D warnings"
 # from Docker's official apt repo so we get a current client. Debian bookworm's
 # docker.io ships CLI 20.10 / API 1.41 which is too old to talk to host daemons
 # running Docker 25.0+ / API 1.44+. See issue #632.)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# HTTPS also avoids transparent HTTP proxies returning truncated InRelease files.
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g; s|http://security.debian.org|https://security.debian.org|g' \
+        /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
     # Build essentials
     build-essential \
     pkg-config \

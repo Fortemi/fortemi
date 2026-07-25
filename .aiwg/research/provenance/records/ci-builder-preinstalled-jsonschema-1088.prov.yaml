@@ -1,0 +1,42 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-25T00:23:40Z"
+  description: "Provenance for the Fortemi conformance job dependency hardening"
+entity:
+  id: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+  type: ci_workflow
+  created_at: "2026-07-25T00:23:40Z"
+  checksum: "sha256:ff5a4e1ceeff4babbcebf0452971b0a3d51b01941e478794a375d036938e3432"
+  size_bytes: 61533
+  attributes:
+    issue: "Fortemi/fortemi#1088"
+    contract_cell: "2.0.0/full-v1"
+activity:
+  id: "urn:aiwg:activity:modification:ci-builder-preinstalled-jsonschema-1088:001"
+  type: modification
+  started_at: "2026-07-25T00:23:40Z"
+  ended_at: "2026-07-25T00:23:40Z"
+  description: "Verify the builder-provided schema library before running the fail-closed matrix"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+    activity: "urn:aiwg:activity:modification:ci-builder-preinstalled-jsonschema-1088:001"
+    time: "2026-07-25T00:23:40Z"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+      source: "urn:aiwg:artifact:build/Dockerfile.builder"
+      derivation_type: "consumes"
+      activity: "urn:aiwg:activity:modification:ci-builder-preinstalled-jsonschema-1088:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:ci-builder-preinstalled-jsonschema-1088:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+    agent: "urn:aiwg:agent:codex-gpt-5"

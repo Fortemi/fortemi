@@ -1,7 +1,15 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-25T00:08:00Z"
+  updated_at: "2026-07-25T00:23:40Z"
 records:
+  - entity: "build/Dockerfile.builder"
+    record: "records/builder-https-package-source-1088.prov.yaml"
+  - entity: ".gitea/workflows/build-builder.yaml"
+    record: "records/build-builder-tool-verification-1088.prov.yaml"
+  - entity: ".gitea/workflows/ci-builder.yaml"
+    record: "records/ci-builder-preinstalled-jsonschema-1088.prov.yaml"
+  - entity: ".gitea/workflows/docsite-deploy.yml"
+    record: "records/docsite-https-package-source-1088.prov.yaml"
   - entity: "tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json"
     record: "records/schema-2-runtime-signing-receipt-1088.prov.yaml"
   - entity: "crates/matric-api/tests/shard_schema_2_receipt_test.rs"
