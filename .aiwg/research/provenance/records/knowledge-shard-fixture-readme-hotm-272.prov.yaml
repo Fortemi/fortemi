@@ -1,0 +1,42 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-25T00:12:00Z"
+  description: "Provenance for the Knowledge Shard fixture catalog HotM live-cell update"
+entity:
+  id: "urn:aiwg:artifact:tests/fixtures/shards/README.md"
+  type: document
+  created_at: "2026-07-25T00:12:00Z"
+  checksum: "sha256:3f3de71ef82419bdb18251897887627c9a95ec93e7cdb367ec561f0491a21c86"
+  size_bytes: 14792
+  attributes:
+    issue: "Fortemi/HotM#272"
+    tuple: "2.0.0/full-v1"
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-fixture-readme-hotm-272:001"
+  type: modification
+  started_at: "2026-07-25T00:12:00Z"
+  ended_at: "2026-07-25T00:12:00Z"
+  description: "Document the fifth exact interoperability cell and retained suite-wide claim boundaries"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:tests/fixtures/shards/README.md"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-fixture-readme-hotm-272:001"
+    time: "2026-07-25T00:12:00Z"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:tests/fixtures/shards/README.md"
+      source: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json:sha256:48f622afc02279b2360534af3aa542de96efea1e752f4a80a4cd6f3d6e2066cc"
+      derivation_type: "documents"
+      activity: "urn:aiwg:activity:modification:knowledge-shard-fixture-readme-hotm-272:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-fixture-readme-hotm-272:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:tests/fixtures/shards/README.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

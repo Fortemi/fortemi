@@ -1,14 +1,15 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-07-24T06:19:33Z"
-  description: "Provenance for the Fortemi issue #1084 paired receipt drift verifier"
+  updated_at: "2026-07-25T00:12:00Z"
+  description: "Provenance for the Fortemi #1084/#1088 paired receipt drift verifier"
 entity:
-  id: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:438c95b26bff7aaedf4625777dd0e54d5dc469ae5a32b3f2bdf5c8e6478baca5"
+  id: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:9bb9506e391804788e57d237f16c2fab2f7e6da383f5d0cc288ef60ad0c99470"
   type: test_code
   created_at: "2026-07-24T06:19:33Z"
-  updated_at: "2026-07-24T06:19:33Z"
-  checksum: "sha256:438c95b26bff7aaedf4625777dd0e54d5dc469ae5a32b3f2bdf5c8e6478baca5"
-  size_bytes: 2648
+  updated_at: "2026-07-25T00:12:00Z"
+  checksum: "sha256:9bb9506e391804788e57d237f16c2fab2f7e6da383f5d0cc288ef60ad0c99470"
+  size_bytes: 3153
   attributes:
     language: rust
     issue: "Fortemi/fortemi#1084"
@@ -17,8 +18,8 @@ activity:
   id: "urn:aiwg:activity:creation:shard-schema-2-interop-receipt-test-1084:001"
   type: creation
   started_at: "2026-07-24T05:50:45Z"
-  ended_at: "2026-07-24T06:19:33Z"
-  description: "Fail closed when the paired authority, implementation, archive, cell, coverage, CI, or claim boundary drifts"
+  ended_at: "2026-07-25T00:12:00Z"
+  description: "Fail closed when the paired authority, implementation, HotM receipt, archive, cell, coverage, CI, or claim boundary drifts"
   attributes:
     verification:
       - "cargo test -p matric-api --test shard_schema_2_interop_receipt_test -- --nocapture: 1 passed"
@@ -30,7 +31,7 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:438c95b26bff7aaedf4625777dd0e54d5dc469ae5a32b3f2bdf5c8e6478baca5"
+    entity: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:9bb9506e391804788e57d237f16c2fab2f7e6da383f5d0cc288ef60ad0c99470"
     activity: "urn:aiwg:activity:creation:shard-schema-2-interop-receipt-test-1084:001"
     time: "2026-07-24T06:19:33Z"
   used:
@@ -38,11 +39,11 @@ relationships:
       entity: "urn:gitea:issue:Fortemi/fortemi:1084"
       role: requirement
     - activity: "urn:aiwg:activity:creation:shard-schema-2-interop-receipt-test-1084:001"
-      entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json:sha256:e33f5898d780edfeacf6da7c0ca67b6e8649ea5bc2d571bfc120645cc59e16d6"
+      entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json:sha256:48f622afc02279b2360534af3aa542de96efea1e752f4a80a4cd6f3d6e2066cc"
       role: verified_receipt
   wasDerivedFrom:
-    - entity: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:438c95b26bff7aaedf4625777dd0e54d5dc469ae5a32b3f2bdf5c8e6478baca5"
-      source: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json:sha256:e33f5898d780edfeacf6da7c0ca67b6e8649ea5bc2d571bfc120645cc59e16d6"
+    - entity: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:9bb9506e391804788e57d237f16c2fab2f7e6da383f5d0cc288ef60ad0c99470"
+      source: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json:sha256:48f622afc02279b2360534af3aa542de96efea1e752f4a80a4cd6f3d6e2066cc"
       derivation_type: verifies
       activity: "urn:aiwg:activity:creation:shard-schema-2-interop-receipt-test-1084:001"
   wasAssociatedWith:
@@ -50,5 +51,5 @@ relationships:
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:438c95b26bff7aaedf4625777dd0e54d5dc469ae5a32b3f2bdf5c8e6478baca5"
+    entity: "urn:aiwg:artifact:crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs:sha256:9bb9506e391804788e57d237f16c2fab2f7e6da383f5d0cc288ef60ad0c99470"
     agent: "urn:aiwg:agent:codex-gpt-5"

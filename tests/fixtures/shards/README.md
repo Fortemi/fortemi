@@ -253,15 +253,18 @@ destination tests:
   through the released `@fortemi/core/aiwg-index-shard` entry point and consumed
   by AIWG commit `7ebc5c23929650e9cc762b9f5831be113fffbae8`.
 - `schema-2-runtime.implementation-receipt.json` binds both archives, the
-  authority and package identities, the Fortemi implementation commit, the
-  delivered-main CI run, and the bounded non-advertisement decision.
+  authority and package identities, the Fortemi production-signing commit and
+  immutable sidecar release, the released HotM live clean-recovery receipt,
+  and the bounded non-advertisement decision.
 - `schema-2-full-v1.interop-receipt.json` pairs that runtime receipt with the
-  delivered React advertisement receipt and its four exact producer/destination
-  cells. It enables only the named `2.0.0/full-v1` interoperability claim;
-  suite-wide portability and complete-backup claims remain false.
+  delivered React advertisement receipt and its five exact
+  producer/pass-through/destination cells. It enables only the named
+  `2.0.0/full-v1` interoperability claim; suite-wide portability and
+  complete-backup claims remain false.
 
 The runtime receipt proves the Fortemi boundary. The paired receipt separately
-proves the exact released React/AIWG-to-PGlite/Fortemi matrix.
+proves the exact released React/AIWG-to-PGlite/Fortemi matrix plus the released
+HotM pass-through clean-recovery cell.
 
 ## Usage in Tests
 

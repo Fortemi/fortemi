@@ -37,17 +37,32 @@
   },
   "fortemi": {
     "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
-    "implementationCommit": "c93742d7c75b481621b821f4584304289eb364d5",
+    "implementationCommit": "336df3ed834be581d1a0f0a3d252fb48e723b987",
     "runtimeReceipt": {
-      "commit": "2e812aa66ba108a824475a97b1ddba4d1412dec7",
+      "commit": "44db73dfeee8213972cbb43ada87fafe12615060",
       "path": "tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json",
-      "sha256": "29f5e7cca66aec38baba0d7e58da1f5f6cc8520995f290831bc949bde1de1647"
+      "sha256": "88a11341f6cd120a937974babc83539d7837548fbceaf4bb2dd23c9e9f19fbca"
     },
-    "deliveredMainCommit": "c93742d7c75b481621b821f4584304289eb364d5",
+    "deliveredMainCommit": "336df3ed834be581d1a0f0a3d252fb48e723b987",
     "ci": {
-      "main": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/5427",
-      "tests": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/5430",
+      "main": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/5688",
+      "tests": "local cargo check, shard-signature tests, database route round-trip, clippy, and OpenAPI contract verification",
       "conclusion": "success"
+    }
+  },
+  "hotm": {
+    "repository": "https://git.integrolabs.net/Fortemi/HotM.git",
+    "consumerCommit": "b43c65f044381e5af7e4131f2d96ad02173f2db9",
+    "consumerRelease": "v2026.7.0",
+    "receiptCommit": "234215e6754b1bcc22c1a7449b6f6b498aee07c5",
+    "receipt": {
+      "path": ".aiwg/evidence/hotm-full-v1-clean-recovery-receipt-2026-07-24.json",
+      "sha256": "efd8516925f7c5fea8d59d98644827ce5ca9a8a2ecd7bb3dd0700c26f8abe1f2",
+      "status": "passed"
+    },
+    "producerRelease": {
+      "tag": "sidecar-336df3ed834b",
+      "assetSha256": "db89a3e52323e67f66e0c6b446667dce88349228882c4919a8f821c75bbfaad6"
     }
   },
   "aiwg": {
@@ -84,6 +99,10 @@
     {
       "id": "aiwg-full-v1-to-fortemi",
       "status": "passed"
+    },
+    {
+      "id": "react-full-v1-to-fortemi-to-hotm-to-fortemi",
+      "status": "passed"
     }
   ],
   "coverage": [
@@ -91,6 +110,9 @@
     "all-34-count-fields",
     "attachment-bytes",
     "signatures",
+    "production-export-signing",
+    "public-key-trust",
+    "hotm-pass-through",
     "identities",
     "relationships",
     "timestamps",
@@ -114,7 +136,7 @@
     "fullV1Interoperability": true,
     "suiteWide": false,
     "completeBackup": false,
-    "scope": "Exact 2.0.0/full-v1 interoperability among the named released React and AIWG producers and the clean PGlite and Fortemi destinations only."
+    "scope": "Exact 2.0.0/full-v1 interoperability among the named released React and AIWG producers, clean PGlite and Fortemi destinations, and the released HotM pass-through cell only."
   },
   "coordination": {
     "fortemiIssue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1084",
@@ -123,6 +145,7 @@
     "reactProducerIssue": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/381",
     "reactProfileIssue": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/355",
     "reactConvergenceIssue": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/356",
-    "aiwgIssue": "https://git.integrolabs.net/roctinam/aiwg/issues/1870"
+    "aiwgIssue": "https://git.integrolabs.net/roctinam/aiwg/issues/1870",
+    "hotmIssue": "https://git.integrolabs.net/Fortemi/HotM/issues/272"
   }
 }

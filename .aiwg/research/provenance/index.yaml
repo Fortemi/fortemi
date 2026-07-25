@@ -6,6 +6,8 @@ records:
     record: "records/schema-2-runtime-signing-receipt-1088.prov.yaml"
   - entity: "crates/matric-api/tests/shard_schema_2_receipt_test.rs"
     record: "records/shard-schema-2-runtime-signing-receipt-test-1088.prov.yaml"
+  - entity: "tests/fixtures/shards/README.md"
+    record: "records/knowledge-shard-fixture-readme-hotm-272.prov.yaml"
   - entity: "crates/matric-api/src/main.rs"
     record: "records/matric-api-main-signed-full-v1-export-1088.prov.yaml"
   - entity: "crates/matric-api/src/shard_signature.rs"

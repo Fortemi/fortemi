@@ -57,6 +57,7 @@ fn shard_schema_2_full_v1_interop_receipt_binds_the_paired_deliveries() {
         "aiwg-full-v1-to-pglite",
         "pglite-full-v1-to-fortemi",
         "aiwg-full-v1-to-fortemi",
+        "react-full-v1-to-fortemi-to-hotm-to-fortemi",
     ];
     let cells = receipt["cells"].as_array().unwrap();
     assert_eq!(cells.len(), expected_cells.len());
@@ -64,7 +65,20 @@ fn shard_schema_2_full_v1_interop_receipt_binds_the_paired_deliveries() {
         assert_eq!(cell["id"], expected);
         assert_eq!(cell["status"], "passed");
     }
-    assert_eq!(receipt["coverage"].as_array().unwrap().len(), 22);
+    assert_eq!(receipt["coverage"].as_array().unwrap().len(), 25);
+    assert_eq!(
+        receipt["fortemi"]["implementationCommit"],
+        "336df3ed834be581d1a0f0a3d252fb48e723b987"
+    );
+    assert_eq!(
+        receipt["hotm"]["receiptCommit"],
+        "234215e6754b1bcc22c1a7449b6f6b498aee07c5"
+    );
+    assert_eq!(
+        receipt["hotm"]["receipt"]["sha256"],
+        "efd8516925f7c5fea8d59d98644827ce5ca9a8a2ecd7bb3dd0700c26f8abe1f2"
+    );
+    assert_eq!(receipt["hotm"]["receipt"]["status"], "passed");
     assert_eq!(receipt["claims"]["fullV1Interoperability"], true);
     assert_eq!(receipt["claims"]["suiteWide"], false);
     assert_eq!(receipt["claims"]["completeBackup"], false);
