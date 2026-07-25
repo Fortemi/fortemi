@@ -6,8 +6,8 @@ entity:
   id: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
   type: ci_workflow
   created_at: "2026-07-25T00:23:40Z"
-  checksum: "sha256:3521a0958fe4ae097f452630c651e03ecb596c9b4bf231ef97d24acb36e003a8"
-  size_bytes: 61622
+  checksum: "sha256:512885d20a7021755f02ffda6ff27f0887133978d6eafc83fc0c4a0b2565e2f0"
+  size_bytes: 61667
   attributes:
     issue: "Fortemi/fortemi#1088"
     contract_cell: "2.0.0/full-v1"
@@ -17,7 +17,7 @@ activity:
   id: "urn:aiwg:activity:modification:ci-builder-preinstalled-jsonschema-1088:001"
   type: modification
   started_at: "2026-07-25T00:23:40Z"
-  ended_at: "2026-07-25T00:42:22Z"
+  ended_at: "2026-07-25T00:45:10Z"
   description: "Run the fail-closed matrix on the standard runner in the immutable tool-complete builder image"
 agent: &agent
   id: "urn:aiwg:agent:codex-gpt-5"

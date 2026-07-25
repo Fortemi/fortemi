@@ -297,6 +297,9 @@ jobs:
     name: Knowledge Shard Conformance Matrix
     runs-on: ubuntu-latest
     container: ghcr.io/fortemi/fortemi-builder@sha256:b7c96e7d696145e7247e355f0f8ac0a7c87d339fa7ed771112071ba473c807aa
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         run: |
