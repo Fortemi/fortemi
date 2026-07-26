@@ -1,7 +1,11 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-26T01:01:10Z"
+  updated_at: "2026-07-26T15:34:55Z"
 records:
+  - entity: "crates/matric-api/src/main.rs"
+    record: "records/matric-api-main-core-v1-self-cell-1059.prov.yaml"
+  - entity: "tests/fixtures/shards/fortemi-core-v1-2026.7.12.shard"
+    record: "records/fortemi-core-v1-2026.7.12-shard-1059.prov.yaml"
   - entity: ".aiwg/security/working/ci-workflow-audit.md"
     record: "records/ci-workflow-audit-server-build-remediation.prov.yaml"
   - entity: "build/Dockerfile.builder"

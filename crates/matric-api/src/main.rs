@@ -45357,6 +45357,13 @@ mod tests {
         ))
         .unwrap();
         note["collection_id"] = serde_json::json!(child_id);
+        note["metadata"] = serde_json::json!({
+            "conformance": {
+                "producer": "fortemi",
+                "profile": "core-v1",
+                "presence": "value"
+            }
+        });
         note["attachments"][0]["extracted_text"] = serde_json::json!("Fixture attachment text");
         note["attachments"][0]["extraction_status"] = serde_json::json!("extracted");
         note["attachments"][0]["reason"] = serde_json::Value::Null;
@@ -45366,6 +45373,7 @@ mod tests {
         linked_note["collection_id"] = serde_json::json!(root_id);
         linked_note["created_at"] = serde_json::json!("2026-07-17T12:03:00Z");
         linked_note["updated_at"] = serde_json::json!("2026-07-17T12:04:00Z");
+        linked_note["metadata"] = serde_json::Value::Null;
         linked_note["attachments"][0]["attachment"]["id"] =
             serde_json::json!("018f2d2d-bc00-7cc8-8ad2-f147d6a2e780");
         linked_note["attachments"][0]["attachment"]["path"] =
@@ -46671,6 +46679,21 @@ not-json
             note["id"] == "018f2d2d-bc00-7cc8-8ad2-f147d6a2e778"
                 && note["deleted_at"] == "2026-07-17T12:30:00Z"
         }));
+        let pinned_bytes =
+            include_bytes!("../../../tests/fixtures/shards/fortemi-core-v1-2026.7.12.shard");
+        let pinned_files = read_shard_archive(pinned_bytes, ShardArchiveLimits::default()).unwrap();
+        let pinned_manifest =
+            parse_and_validate_shard_manifest(&pinned_files["manifest.json"]).unwrap();
+        assert_eq!(pinned_manifest.profile.as_deref(), Some("core-v1"));
+        assert_eq!(pinned_manifest.counts, exported_manifest.counts);
+        assert_eq!(pinned_manifest.checksums, exported_manifest.checksums);
+        for component in &exported_manifest.components {
+            let filename = shard_component_filename(component).unwrap();
+            assert_eq!(
+                pinned_files[filename], exported_files[filename],
+                "pinned core-v1 fixture differs from live server export: {component}"
+            );
+        }
 
         let destination_name = format!("shard-destination-{}", Uuid::new_v4().simple());
         let destination = db
@@ -47142,7 +47165,16 @@ not-json
                 .unwrap()
                 .with_timezone(&chrono::Utc)
         );
-        assert_eq!(snapshot.1 .4, serde_json::Value::Null);
+        assert_eq!(
+            snapshot.1 .4,
+            serde_json::json!({
+                "conformance": {
+                    "producer": "fortemi",
+                    "profile": "core-v1",
+                    "presence": "value"
+                }
+            })
+        );
         assert_eq!(snapshot.1 .5, "Revised fixture content");
         assert_eq!(
             snapshot.2 .0,
@@ -47266,6 +47298,16 @@ not-json
         assert_eq!(reexported_manifest.profile.as_deref(), Some("core-v1"));
         assert_eq!(reexported_manifest.counts, exported_manifest.counts);
         assert_eq!(reexported_manifest.checksums, exported_manifest.checksums);
+        let reexported_notes =
+            parse_shard_component_records("notes", &reexported_files["notes.jsonl"]).unwrap();
+        assert!(reexported_notes.iter().any(|note| {
+            note["id"] == "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a"
+                && note.pointer("/metadata/conformance/presence")
+                    == Some(&serde_json::json!("value"))
+        }));
+        assert!(reexported_notes.iter().any(|note| {
+            note["id"] == "018f2d2d-bc00-7cc8-8ad2-f147d6a2e778" && note["metadata"].is_null()
+        }));
         for component in &exported_manifest.components {
             let filename = shard_component_filename(component).unwrap();
             assert_eq!(

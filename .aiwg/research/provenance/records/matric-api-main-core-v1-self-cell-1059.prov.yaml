@@ -1,0 +1,58 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T15:34:55Z"
+  description: "Provenance for the Fortemi core-v1 self-cell metadata and immutable-fixture assertions"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:759498a942ee80a59a041598113ec715a9e7f819f3ec41a68d72dcaacc5139fc"
+  type: source_code
+  created_at: "2026-07-26T15:34:55Z"
+  updated_at: "2026-07-26T15:34:55Z"
+  checksum: "sha256:759498a942ee80a59a041598113ec715a9e7f819f3ec41a68d72dcaacc5139fc"
+  size_bytes: 2512136
+  attributes:
+    issue: "Fortemi/fortemi#1059"
+    tuple: "1.2.0/core-v1"
+    change_type: modification
+    base_revision: "04c4495d0e800f33090421c6e046075a8469cb32"
+activity:
+  id: "urn:aiwg:activity:modification:matric-api-main-core-v1-self-cell-1059:001"
+  type: modification
+  started_at: "2026-07-26T15:30:00Z"
+  ended_at: "2026-07-26T15:34:55Z"
+  description: "Preserve object and explicit null metadata and bind the committed core-v1 fixture to a live server export"
+  attributes:
+    verification:
+      - "DATABASE_URL=postgres://matric:matric@localhost/matric cargo test -p matric-api --bin matric-api tests::shard_core_v1_server_export_clean_import_preserves_semantic_state -- --exact --nocapture --test-threads=1"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:759498a942ee80a59a041598113ec715a9e7f819f3ec41a68d72dcaacc5139fc"
+    activity: "urn:aiwg:activity:modification:matric-api-main-core-v1-self-cell-1059:001"
+    time: "2026-07-26T15:34:55Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:matric-api-main-core-v1-self-cell-1059:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1059"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:matric-api-main-core-v1-self-cell-1059:001"
+      entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
+      role: authority
+    - activity: "urn:aiwg:activity:modification:matric-api-main-core-v1-self-cell-1059:001"
+      entity: "urn:gitea:commit:Fortemi/fortemi:04c4495d0e800f33090421c6e046075a8469cb32"
+      role: previous_revision
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:759498a942ee80a59a041598113ec715a9e7f819f3ec41a68d72dcaacc5139fc"
+      source: "urn:gitea:commit:Fortemi/fortemi:04c4495d0e800f33090421c6e046075a8469cb32"
+      derivation_type: modifies
+      activity: "urn:aiwg:activity:modification:matric-api-main-core-v1-self-cell-1059:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:matric-api-main-core-v1-self-cell-1059:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:759498a942ee80a59a041598113ec715a9e7f819f3ec41a68d72dcaacc5139fc"
+    agent: "urn:aiwg:agent:codex-gpt-5"
