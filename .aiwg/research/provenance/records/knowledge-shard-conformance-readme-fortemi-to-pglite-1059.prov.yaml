@@ -1,0 +1,38 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T17:32:56Z"
+  description: "Provenance for the six-passed three-pending matrix documentation"
+entity:
+  id: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md"
+  type: documentation
+  created_at: "2026-07-26T17:32:56Z"
+  checksum: "sha256:4b61cf23ae35f8247f093145b457940d48c20e42f565ed89582a6b4c658e46eb"
+  size_bytes: 3221
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-readme-fortemi-to-pglite-1059:001"
+  type: modification
+  started_at: "2026-07-26T17:30:00Z"
+  ended_at: "2026-07-26T17:32:56Z"
+  description: "Document the bidirectional Fortemi and PGlite core-v1 cells and three remaining directions"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-readme-fortemi-to-pglite-1059:001"
+    time: "2026-07-26T17:32:56Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-readme-fortemi-to-pglite-1059:001"
+      entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:bbf85a2a054bdd93e187740c72e35a23a7ed69aabf10da9d9d0afa420a8b2d2c"
+      role: documented_contract
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-readme-fortemi-to-pglite-1059:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

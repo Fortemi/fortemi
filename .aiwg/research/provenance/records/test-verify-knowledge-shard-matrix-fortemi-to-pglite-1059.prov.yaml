@@ -1,0 +1,41 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T17:32:56Z"
+  description: "Provenance for the six-passed matrix verifier regression expectations"
+entity:
+  id: "urn:aiwg:artifact:tests/test_verify_knowledge_shard_matrix.py"
+  type: test
+  created_at: "2026-07-26T17:32:56Z"
+  checksum: "sha256:e3459d922c509147da0d0d4ae2afc90c5b4e61f975b487ab9a6bfa92a14bc074"
+  size_bytes: 9683
+activity:
+  id: "urn:aiwg:activity:testing:verify-matrix-fortemi-to-pglite-1059:001"
+  type: testing
+  started_at: "2026-07-26T17:30:00Z"
+  ended_at: "2026-07-26T17:32:56Z"
+  description: "Assert the complete Fortemi-to-PGlite cell and fail-closed three-pending inventory"
+  attributes:
+    verification:
+      - "python3 -m unittest tests/test_verify_knowledge_shard_matrix.py: 13 passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:tests/test_verify_knowledge_shard_matrix.py"
+    activity: "urn:aiwg:activity:testing:verify-matrix-fortemi-to-pglite-1059:001"
+    time: "2026-07-26T17:32:56Z"
+  used:
+    - activity: "urn:aiwg:activity:testing:verify-matrix-fortemi-to-pglite-1059:001"
+      entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:bbf85a2a054bdd93e187740c72e35a23a7ed69aabf10da9d9d0afa420a8b2d2c"
+      role: test_subject
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:testing:verify-matrix-fortemi-to-pglite-1059:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: test_author
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:tests/test_verify_knowledge_shard_matrix.py"
+    agent: "urn:aiwg:agent:codex-gpt-5"

@@ -1,0 +1,38 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T17:32:56Z"
+  description: "Provenance for the ADR-102 bidirectional Fortemi and PGlite core-v1 amendment"
+entity:
+  id: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
+  type: architecture_decision_record
+  created_at: "2026-07-26T17:32:56Z"
+  checksum: "sha256:2af971d488681a5fbe326886827d83ebef47c3fa035b8fe7060f8a287fe54992"
+  size_bytes: 24411
+activity:
+  id: "urn:aiwg:activity:modification:adr-102-fortemi-to-pglite-1059:001"
+  type: modification
+  started_at: "2026-07-26T17:30:00Z"
+  ended_at: "2026-07-26T17:32:56Z"
+  description: "Record two passed cross-repository cells, three pending cells, and the unchanged broad-claim block"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
+    activity: "urn:aiwg:activity:modification:adr-102-fortemi-to-pglite-1059:001"
+    time: "2026-07-26T17:32:56Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:adr-102-fortemi-to-pglite-1059:001"
+      entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:bbf85a2a054bdd93e187740c72e35a23a7ed69aabf10da9d9d0afa420a8b2d2c"
+      role: authority_state
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:adr-102-fortemi-to-pglite-1059:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

@@ -33,7 +33,7 @@ python3 scripts/ci/verify-knowledge-shard-matrix.py --verify-remotes
     ../../fixtures/shards/recordstore-record-v1-2026.7.11.shard --verify)
 ```
 
-The stricter per-cell gate currently records five passed cells and four pending
+The stricter per-cell gate currently records six passed cells and three pending
 cells. The RecordStore `record-v1` self-cell is complete: `record-v1` began at
 schema `1.1.0`, so its current-minus-two evidence explicitly proves that an
 undefined `1.0.0` record-v1 archive is rejected without mutation while the
@@ -45,6 +45,10 @@ PGlite `core-v1` self-cell independently binds the same nine required
 dimensions to its current source fixture and package boundary. The
 `pglite-core-v1-to-fortemi` receipt separately binds that fixture to a clean
 Fortemi destination, semantic re-export, version and malformed rejection,
-resource limits, and zero-mutation evidence. The four remaining
+resource limits, and zero-mutation evidence. The
+`fortemi-core-v1-to-pglite` receipt independently binds the current Fortemi
+fixture to clean repeated PGlite import, all declared component and attachment
+projections, semantic re-export, version and malformed rejection, resource
+limits, and zero-mutation evidence. The three remaining
 cross-repository cells retain exact missing-evidence reasons; none can inherit
 coverage from any completed cell.

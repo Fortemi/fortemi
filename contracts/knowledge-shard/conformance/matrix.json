@@ -367,34 +367,68 @@
       "producer": "fortemi",
       "consumer": "pglite",
       "profile": "core-v1",
-      "status": "pending",
+      "status": "passed",
       "coverage": [
         "hierarchy",
+        "metadata",
         "nulls",
         "tombstones",
+        "current-minus-two",
         "current",
-        "malformed-input"
+        "next-major-rejection",
+        "malformed-input",
+        "resource-limits"
       ],
       "evidence": [
         {
-          "kind": "local-file",
-          "path": "tests/fixtures/shards/fortemi-core-v1-2026.7.1.shard",
-          "sha256": "62301b42749dc4f523ce5121af2593798d81db1f31356200640ed4a271d0f5a0"
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+          "commit": "8f76e630b3ebf0908630b221cc201d3fbbeaa236",
+          "path": "packages/core/src/__tests__/shard/fixtures/fortemi-core-v1-2026.7.12.shard",
+          "sha256": "154867e973ff104869c6320e2a6a39138e2a7e1c91f8fb8206cce4d479c0cd22"
         },
         {
-          "kind": "local-file",
-          "path": "tests/fixtures/shards/fortemi-core-v1-2026.7.1.shard.receipt.json",
-          "sha256": "6a013f48723b72f13e9e0f100657232cbf3d035951a5b9382b69ccfcffd9df7d",
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+          "commit": "8f76e630b3ebf0908630b221cc201d3fbbeaa236",
+          "path": "packages/core/schemas/knowledge-shard-core-v1-fortemi-to-pglite.receipt.json",
+          "sha256": "1b7991589bfbbf1213e2173206c644e62d2e46fbe84b5224cfca3d41dc99b4ab",
           "expect": {
-            "/producer/commit": "1cf174afe8143eab4bfa53d3d0e1a538b4e63711",
+            "/cell": "fortemi-core-v1-to-pglite",
+            "/producer/commit": "b53f1429e409ad02b6c9513218cb62adb9f19c71",
+            "/producer/version": "2026.7.12",
             "/fixture/profile": "core-v1",
-            "/consumers/pglite/commit": "f45ca77c9af835d40673b357f523808d07f6597b",
-            "/consumers/pglite/package/version": "2026.7.11",
-            "/consumers/pglite/cleanDestination": true,
-            "/consumers/pglite/semanticReexport": true,
-            "/consumers/pglite/portable": true,
-            "/consumers/pglite/malformedInputRejected": true,
-            "/consumers/pglite/persistentMutationAfterRejection": 0
+            "/fixture/sha256": "154867e973ff104869c6320e2a6a39138e2a7e1c91f8fb8206cce4d479c0cd22",
+            "/consumer/commit": "fb570b8503eb82bcb5509b652c234c9e8582a941",
+            "/consumer/package/version": "2026.7.13",
+            "/consumer/cleanDestination": true,
+            "/consumer/semanticReexport": true,
+            "/consumer/zeroMutationOnFailure": true,
+            "/consumer/hierarchyPreserved": true,
+            "/consumer/metadataValuePreserved": true,
+            "/consumer/explicitNullMetadataPreserved": true,
+            "/consumer/tombstonePreserved": true,
+            "/consumer/attachmentProjectionsPreserved": true,
+            "/consumer/currentMinusTwo/accepted": true,
+            "/consumer/nextMajor/rejected": true,
+            "/consumer/malformedInputRejected": true,
+            "/consumer/resourceLimits/rejectedBeforeMutation": true,
+            "/consumer/persistentMutationAfterRejection": 0,
+            "/tests/deliveredMain/conclusion": "success",
+            "/coverage": [
+              "hierarchy",
+              "metadata",
+              "nulls",
+              "tombstones",
+              "current-minus-two",
+              "current",
+              "next-major-rejection",
+              "malformed-input",
+              "resource-limits"
+            ],
+            "/claimBoundary/suiteWide": false,
+            "/claimBoundary/completeBackup": false,
+            "/claimBoundary/crossRepository": true
           }
         }
       ],
@@ -407,7 +441,7 @@
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059",
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/354"
       ],
-      "blockingReason": "Per-cell receipt is missing current-minus-two, metadata, next-major-rejection, and resource-limits evidence."
+      "blockingReason": null
     },
     {
       "id": "fortemi-full-v1-to-fortemi",
