@@ -31,10 +31,13 @@
     "claimPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "blockedClaims"],
+      "required": ["mode", "scope", "blockedClaims"],
       "properties": {
         "mode": {
           "const": "all-required-cells-passed"
+        },
+        "scope": {
+          "const": "registered-profile-cells-only"
         },
         "blockedClaims": {
           "type": "array",

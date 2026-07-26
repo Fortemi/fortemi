@@ -352,6 +352,8 @@ jobs:
             tests/fixtures/shards/pglite-core-v1-2026.7.11.shard.receipt.json
             tests/fixtures/shards/recordstore-record-v1-2026.7.11.shard.receipt.json
             tests/fixtures/shards/recordstore-record-v1-2026.7.13.shard.cell-receipt.json
+            tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard.producer-receipt.json
+            tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard.cell-receipt.json
             knowledge-shard-matrix-results.json
 
   audit:

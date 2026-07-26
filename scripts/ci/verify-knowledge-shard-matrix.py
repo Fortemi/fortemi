@@ -304,13 +304,17 @@ def validate_matrix_shape(matrix: Any) -> set[tuple[str, str, str]]:
     policy = matrix["claimPolicy"]
     require_keys(
         policy,
-        {"mode", "blockedClaims"},
+        {"mode", "scope", "blockedClaims"},
         "claimPolicy",
-        {"mode", "blockedClaims"},
+        {"mode", "scope", "blockedClaims"},
     )
     require(
         policy["mode"] == "all-required-cells-passed",
         "claimPolicy.mode must fail closed on every required cell",
+    )
+    require(
+        policy["scope"] == "registered-profile-cells-only",
+        "claimPolicy.scope must not authorize suite-wide claims",
     )
     require(
         isinstance(policy["blockedClaims"], list)
@@ -761,7 +765,9 @@ def result_document(
         for participant in matrix["participants"]
         for profile in participant["producerProfiles"] + participant["consumerProfiles"]
     )
-    complete = statuses["passed"] == len(matrix["cells"]) and capabilities_ready
+    registered_profile_complete = (
+        statuses["passed"] == len(matrix["cells"]) and capabilities_ready
+    )
     return {
         "schemaVersion": 1,
         "matrixId": matrix["matrixId"],
@@ -775,8 +781,10 @@ def result_document(
         },
         "summary": {"requiredCells": len(matrix["cells"]), **statuses},
         "capabilitiesReady": capabilities_ready,
-        "claimsAllowed": complete,
-        "blockedClaims": [] if complete else matrix["claimPolicy"]["blockedClaims"],
+        "registeredProfileClaimsAllowed": registered_profile_complete,
+        "claimScope": matrix["claimPolicy"]["scope"],
+        "claimsAllowed": False,
+        "blockedClaims": matrix["claimPolicy"]["blockedClaims"],
         "cells": cells,
     }
 
@@ -814,14 +822,18 @@ def main() -> int:
     print(
         "Knowledge Shard matrix inventory verified: "
         f"{summary['passed']} passed, {summary['pending']} pending, "
-        f"{summary['failed']} failed; claimsAllowed={str(result['claimsAllowed']).lower()}"
+        f"{summary['failed']} failed; "
+        "registeredProfileClaimsAllowed="
+        f"{str(result['registeredProfileClaimsAllowed']).lower()}; "
+        "suiteClaimsAllowed=false"
     )
     if summary["failed"]:
         print("Knowledge Shard matrix contains failed cells.", file=sys.stderr)
         return 1
-    if args.require_complete and not result["claimsAllowed"]:
+    if args.require_complete and not result["registeredProfileClaimsAllowed"]:
         print(
-            "Knowledge Shard release claims are blocked until every required cell passes.",
+            "Knowledge Shard registered-profile release claims are blocked until "
+            "every required cell passes.",
             file=sys.stderr,
         )
         return 1

@@ -1,0 +1,48 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T22:13:18Z"
+  description: "Provenance for canonical matrix claim-scope documentation"
+entity:
+  id: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md:sha256:6714da39106e570770a380a4bfc333a5ca7763c27f5e683ac292a432364f29e5"
+  type: documentation
+  created_at: "2026-07-26T22:13:18Z"
+  updated_at: "2026-07-26T22:13:18Z"
+  checksum: "sha256:6714da39106e570770a380a4bfc333a5ca7763c27f5e683ac292a432364f29e5"
+  size_bytes: 4421
+  attributes:
+    issue: "Fortemi/fortemi#1089"
+    change_type: modification
+    base_revision: "c8c13ce39ee026cf6985fdce7c3f2ef52cdd468b"
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-readme-aiwg-complete-1089:001"
+  type: modification
+  started_at: "2026-07-26T21:20:14Z"
+  ended_at: "2026-07-26T22:13:18Z"
+  description: "Document registered-profile completion without broadening suite claims"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md:sha256:6714da39106e570770a380a4bfc333a5ca7763c27f5e683ac292a432364f29e5"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-readme-aiwg-complete-1089:001"
+    time: "2026-07-26T22:13:18Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-readme-aiwg-complete-1089:001"
+      entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:cbc5cb6418d7eff44e82b99378cd17b2c2181e8dc48b1930bf52e077271b5416"
+      role: authority
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md:sha256:6714da39106e570770a380a4bfc333a5ca7763c27f5e683ac292a432364f29e5"
+      source: "urn:gitea:commit:Fortemi/fortemi:c8c13ce39ee026cf6985fdce7c3f2ef52cdd468b"
+      derivation_type: modifies
+      activity: "urn:aiwg:activity:modification:knowledge-shard-readme-aiwg-complete-1089:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-readme-aiwg-complete-1089:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_author
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md:sha256:6714da39106e570770a380a4bfc333a5ca7763c27f5e683ac292a432364f29e5"
+    agent: "urn:aiwg:agent:codex-gpt-5"

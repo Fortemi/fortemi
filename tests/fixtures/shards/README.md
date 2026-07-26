@@ -155,8 +155,8 @@ persistent mutation. Adjacent producer and cell receipts bind the exact
 producer, authority, package, consumer, and clean-checkout CI revisions.
 
 This evidence is limited to the named `core-v1` profile and the
-AIWG-to-Fortemi matrix cell. It does not establish `full-v1`, complete-backup,
-or suite-wide portability.
+AIWG-to-PGlite and AIWG-to-Fortemi matrix cells. It does not establish
+`full-v1`, complete-backup, or suite-wide portability.
 
 ### fortemi-core-v1-2026.7.1.shard
 

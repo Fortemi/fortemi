@@ -49,28 +49,35 @@ class MatrixVerifierTest(unittest.TestCase):
     def matrix(cls) -> dict[str, Any]:
         return json.loads(MATRIX.read_text())
 
-    def test_valid_pending_inventory_blocks_claims_without_failing_ci(self) -> None:
+    def test_complete_inventory_allows_only_registered_profile_claims(self) -> None:
         matrix = self.matrix()
         result, output = self.run_verifier(matrix)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIsNotNone(output)
         assert output is not None
         self.assertFalse(output["claimsAllowed"])
+        self.assertTrue(output["registeredProfileClaimsAllowed"])
+        self.assertEqual(output["claimScope"], "registered-profile-cells-only")
         self.assertEqual(output["summary"]["requiredCells"], 9)
-        self.assertEqual(output["summary"]["passed"], 7)
-        self.assertEqual(output["summary"]["pending"], 2)
+        self.assertEqual(output["summary"]["passed"], 9)
+        self.assertEqual(output["summary"]["pending"], 0)
         self.assertEqual(
             set(output["blockedClaims"]),
             {"compatibility", "portability", "backup", "parity"},
         )
 
-    def test_release_mode_fails_closed_while_cells_are_pending(self) -> None:
+    def test_release_mode_accepts_complete_registered_profile_matrix(self) -> None:
         matrix = self.matrix()
         result, output = self.run_verifier(matrix, "--require-complete")
-        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIsNotNone(output)
         assert output is not None
         self.assertFalse(output["claimsAllowed"])
+        self.assertTrue(output["registeredProfileClaimsAllowed"])
+        self.assertEqual(
+            set(output["blockedClaims"]),
+            {"compatibility", "portability", "backup", "parity"},
+        )
 
     def test_missing_required_cell_is_rejected(self) -> None:
         matrix = self.matrix()
@@ -80,11 +87,14 @@ class MatrixVerifierTest(unittest.TestCase):
         self.assertIsNone(output)
         self.assertIn("missing required cells", result.stderr)
 
-    def test_pending_cell_cannot_be_relabelled_passed(self) -> None:
+    def test_incomplete_cell_cannot_be_relabelled_passed(self) -> None:
         matrix = self.matrix()
-        cell = next(cell for cell in matrix["cells"] if cell["status"] == "pending")
-        cell["status"] = "passed"
-        cell["blockingReason"] = None
+        cell = next(
+            cell
+            for cell in matrix["cells"]
+            if cell["id"] == "aiwg-core-v1-to-pglite"
+        )
+        cell["coverage"].remove("hierarchy")
         result, output = self.run_verifier(matrix)
         self.assertEqual(result.returncode, 2)
         self.assertIsNone(output)
@@ -128,13 +138,18 @@ class MatrixVerifierTest(unittest.TestCase):
         result, output = self.run_verifier(self.matrix())
         self.assertEqual(result.returncode, 0, result.stderr)
         assert output is not None
-        pending = next(
+        aiwg_to_fortemi = next(
             cell for cell in output["cells"] if cell["id"] == "aiwg-core-v1-to-fortemi"
         )
-        self.assertFalse(pending["coverageComplete"])
-        self.assertTrue(pending["coverageOutcomes"]["metadata"])
-        self.assertFalse(pending["coverageOutcomes"]["hierarchy"])
-        self.assertIn("hierarchy", pending["missingCoverage"])
+        self.assertTrue(aiwg_to_fortemi["coverageComplete"])
+        self.assertTrue(all(aiwg_to_fortemi["coverageOutcomes"].values()))
+        self.assertEqual(aiwg_to_fortemi["missingCoverage"], [])
+        aiwg_to_pglite = next(
+            cell for cell in output["cells"] if cell["id"] == "aiwg-core-v1-to-pglite"
+        )
+        self.assertTrue(aiwg_to_pglite["coverageComplete"])
+        self.assertTrue(all(aiwg_to_pglite["coverageOutcomes"].values()))
+        self.assertEqual(aiwg_to_pglite["missingCoverage"], [])
         passed = next(
             cell
             for cell in output["cells"]
@@ -244,6 +259,14 @@ class MatrixVerifierTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIsNone(output)
         self.assertIn("producer profile topology", result.stderr)
+
+    def test_claim_scope_cannot_be_widened_to_suite_level(self) -> None:
+        matrix = self.matrix()
+        matrix["claimPolicy"]["scope"] = "suite-wide"
+        result, output = self.run_verifier(matrix)
+        self.assertEqual(result.returncode, 2)
+        self.assertIsNone(output)
+        self.assertIn("must not authorize suite-wide claims", result.stderr)
 
 
 if __name__ == "__main__":
