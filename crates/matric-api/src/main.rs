@@ -47410,14 +47410,20 @@ not-json
                     .fetch_one(&mut **tx)
                     .await
                     .map_err(matric_db::Error::Database)?;
-                    let tombstone =
-                        sqlx::query_as::<_, (Uuid, Option<chrono::DateTime<chrono::Utc>>)>(
-                            "SELECT id, deleted_at FROM note
+                    let tombstone = sqlx::query_as::<
+                        _,
+                        (
+                            Uuid,
+                            Option<chrono::DateTime<chrono::Utc>>,
+                            serde_json::Value,
+                        ),
+                    >(
+                        "SELECT id, deleted_at, metadata FROM note
                          WHERE id = '018f2d2d-bc00-7cc8-8ad2-f147d6a2e712'",
-                        )
-                        .fetch_one(&mut **tx)
-                        .await
-                        .map_err(matric_db::Error::Database)?;
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)?;
                     Ok((child, active, tombstone))
                 })
             })
@@ -47450,6 +47456,7 @@ not-json
                     .with_timezone(&chrono::Utc)
             )
         );
+        assert!(semantic.2 .2.is_null());
 
         let export = knowledge_shard(
             State(state.clone()),
@@ -47484,6 +47491,7 @@ not-json
         assert!(notes.iter().any(|note| {
             note["id"] == "018f2d2d-bc00-7cc8-8ad2-f147d6a2e712"
                 && note["deleted_at"] == "2026-07-26T14:14:00Z"
+                && note["metadata"].is_null()
         }));
 
         db.archives
