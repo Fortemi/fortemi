@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-26T21:14:12Z"
+  updated_at: "2026-07-26T21:20:14Z"
 records:
+  - entity: "tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard.cell-receipt.json"
+    record: "records/aiwg-core-v1-2026.7.20-cell-receipt-1089.prov.yaml"
   - entity: "tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard.producer-receipt.json"
     record: "records/aiwg-core-v1-2026.7.20-producer-receipt-1089.prov.yaml"
   - entity: "tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard"

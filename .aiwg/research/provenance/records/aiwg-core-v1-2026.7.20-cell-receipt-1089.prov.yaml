@@ -1,0 +1,55 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T21:20:14Z"
+  description: "Provenance for the current AIWG core-v1 to Fortemi cell receipt"
+entity:
+  id: "urn:aiwg:artifact:tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard.cell-receipt.json:sha256:fca9247b969414c135d383d756c770d73d733f89b9726833ce217235261cd563"
+  type: test_evidence
+  created_at: "2026-07-26T21:20:14Z"
+  checksum: "sha256:fca9247b969414c135d383d756c770d73d733f89b9726833ce217235261cd563"
+  size_bytes: 4816
+  attributes:
+    issue: "Fortemi/fortemi#1089"
+    producer_issue: "roctinam/aiwg#1892"
+    cell: "aiwg-core-v1-to-fortemi"
+    profile: "core-v1"
+    change_type: creation
+activity:
+  id: "urn:aiwg:activity:creation:aiwg-core-v1-to-fortemi-receipt-1089:001"
+  type: creation
+  started_at: "2026-07-26T21:19:04Z"
+  ended_at: "2026-07-26T21:20:14Z"
+  description: "Bind the current signed producer fixture to independent clean Fortemi import, semantic re-export, migration, rejection, and zero-mutation evidence"
+  attributes:
+    verification:
+      - "DATABASE_URL=postgres://matric:matric@localhost/matric cargo test -p matric-api --bin matric-api -- --nocapture: 916 passed"
+      - "AIWG Gitea run 5541 test job 101689 and build job 101690: success"
+      - "Fortemi Gitea run 6086 matrix job 101712: success"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard.cell-receipt.json:sha256:fca9247b969414c135d383d756c770d73d733f89b9726833ce217235261cd563"
+    activity: "urn:aiwg:activity:creation:aiwg-core-v1-to-fortemi-receipt-1089:001"
+    time: "2026-07-26T21:20:14Z"
+  used:
+    - activity: "urn:aiwg:activity:creation:aiwg-core-v1-to-fortemi-receipt-1089:001"
+      entity: "urn:git:roctinam/aiwg:9940bf64d4dcdac1486948b72fe67076a4dcec21"
+      role: producer
+    - activity: "urn:aiwg:activity:creation:aiwg-core-v1-to-fortemi-receipt-1089:001"
+      entity: "urn:git:Fortemi/fortemi:5cc246f748fabc1f9f2b2cb127179bd1137db8f1"
+      role: consumer
+    - activity: "urn:aiwg:activity:creation:aiwg-core-v1-to-fortemi-receipt-1089:001"
+      entity: "urn:ci:gitea:Fortemi/fortemi:6086:101712"
+      role: consumer_ci
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:creation:aiwg-core-v1-to-fortemi-receipt-1089:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard.cell-receipt.json:sha256:fca9247b969414c135d383d756c770d73d733f89b9726833ce217235261cd563"
+    agent: "urn:aiwg:agent:codex-gpt-5"

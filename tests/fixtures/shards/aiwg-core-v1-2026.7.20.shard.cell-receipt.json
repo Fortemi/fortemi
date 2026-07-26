@@ -1,0 +1,152 @@
+{
+  "schemaVersion": "fortemi.knowledge-shard.cell-receipt.v1",
+  "status": "consumer-conformance-passed",
+  "cell": "aiwg-core-v1-to-fortemi",
+  "producer": {
+    "repository": "https://git.integrolabs.net/roctinam/aiwg.git",
+    "commit": "9940bf64d4dcdac1486948b72fe67076a4dcec21",
+    "receiptCommit": "9940bf64d4dcdac1486948b72fe67076a4dcec21",
+    "package": {
+      "name": "aiwg",
+      "version": "2026.7.20"
+    },
+    "converter": {
+      "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+      "commit": "a08df8a6ece098d8bd5b2d27f3fbb7734b39e331",
+      "package": {
+        "name": "@fortemi/core",
+        "version": "2026.7.14",
+        "integrity": "sha512-GytXkWpuG/ygeYy0MbKGpqSKMQ8v+vHW+Btqloaky9fl+5eKRev3zBlQV22IlYWbb2Q7gd7lXrgtRcdFCmg5DQ=="
+      }
+    }
+  },
+  "authority": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "commit": "81fbeaf065df3818edd046ed8a744f10eeb00e6f",
+    "contractRevision": "19",
+    "contractSha256": "5debc14e0bc7eef403a75e8e063a10f53019e1d74857485d6eda3abaec9397e2",
+    "schemaVersion": "1.2.0",
+    "schemaBundleSha256": "deec0cb66dc09865667256e29340d096c02dd9b0e55bdc1ae60b7effb68ac595"
+  },
+  "fixture": {
+    "sourcePath": "test/fixtures/fortemi-shard/aiwg-core-v1.shard",
+    "path": "tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard",
+    "sha256": "789f05deeac77631e95c712387d1d25cad8245d06e8ba31483382c306c77d4a4",
+    "bytes": 2420,
+    "profile": "core-v1",
+    "producerReceiptPath": "tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard.producer-receipt.json",
+    "producerReceiptSha256": "0cf8f5dad3e719690833f3e4f67e69fed713c035217416a4642598b8d9007ae8",
+    "components": [
+      "notes",
+      "collections",
+      "tags",
+      "links"
+    ],
+    "counts": {
+      "notes": 2,
+      "collections": 3,
+      "tags": 1,
+      "templates": 0,
+      "links": 2
+    }
+  },
+  "consumer": {
+    "id": "fortemi",
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "baseCommit": "5cc246f748fabc1f9f2b2cb127179bd1137db8f1",
+    "cleanDestination": true,
+    "semanticReexport": true,
+    "zeroMutationOnFailure": true,
+    "repeatedImports": 2,
+    "hierarchyPreserved": true,
+    "embeddedRecordPreserved": true,
+    "operationalStatePreserved": true,
+    "explicitNullLifecyclePreserved": true,
+    "tombstonePreserved": true,
+    "foreignKeysReconstructed": true,
+    "checksumsValidated": true,
+    "currentMinusTwo": {
+      "schemaVersion": "1.0.0",
+      "profileDefined": true,
+      "accepted": true
+    },
+    "nextMajor": {
+      "schemaVersion": "3.0.0",
+      "rejected": true
+    },
+    "malformedInputRejected": true,
+    "checksumDriftRejected": true,
+    "unsupportedProfileRejected": true,
+    "resourceLimits": {
+      "compressedBytes": 2419,
+      "rejectedBeforeMutation": true
+    },
+    "semanticNormalization": [
+      "rfc3339-equivalent-instant",
+      "json-integral-number-representation"
+    ],
+    "persistentMutationAfterRejection": 0
+  },
+  "declaredLosses": [],
+  "tests": {
+    "cleanDestination": "tests::aiwg_core_v1_current_fixture_clean_import_is_repeatable_and_semantic",
+    "negativeCases": "tests::aiwg_core_v1_current_fixture_rejects_invalid_inputs_before_mutation",
+    "local": {
+      "command": "DATABASE_URL=postgres://matric:matric@localhost/matric cargo test -p matric-api --bin matric-api -- --nocapture",
+      "passed": 916,
+      "failed": 0
+    },
+    "producerCi": {
+      "commit": "9940bf64d4dcdac1486948b72fe67076a4dcec21",
+      "run": 5541,
+      "runId": 28898,
+      "url": "https://git.integrolabs.net/roctinam/aiwg/actions/runs/5541",
+      "status": "success",
+      "jobs": [
+        101689,
+        101690
+      ]
+    },
+    "consumerDeliveryCi": {
+      "commit": "5cc246f748fabc1f9f2b2cb127179bd1137db8f1",
+      "run": 6086,
+      "runId": 28914,
+      "job": 101712,
+      "url": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/6086/jobs/5",
+      "purpose": "clean-checkout Knowledge Shard matrix verification at the exact consumer implementation commit",
+      "status": "success"
+    }
+  },
+  "coverage": [
+    "hierarchy",
+    "metadata",
+    "nulls",
+    "tombstones",
+    "current-minus-two",
+    "current",
+    "next-major-rejection",
+    "malformed-input",
+    "resource-limits"
+  ],
+  "matrixDimensions": [
+    "profile-presence",
+    "clean-destination",
+    "field-mapping",
+    "foreign-key-reconstruction",
+    "tombstones",
+    "checksums",
+    "repeated-import",
+    "semantic-round-trip",
+    "zero-mutation-rejection"
+  ],
+  "claimBoundary": {
+    "profile": "core-v1",
+    "schemaVersion": "1.2.0",
+    "cell": "aiwg-core-v1-to-fortemi",
+    "lossy": false,
+    "suiteWide": false,
+    "completeBackup": false,
+    "crossRepository": true,
+    "persistencePlanesUnified": false
+  }
+}
