@@ -392,7 +392,7 @@
       "producer": "fortemi",
       "consumer": "fortemi",
       "profile": "full-v1",
-      "status": "pending",
+      "status": "passed",
       "coverage": [
         "hierarchy",
         "metadata",
@@ -404,6 +404,7 @@
         "graph-community",
         "nulls",
         "tombstones",
+        "current-minus-two",
         "current",
         "next-major-rejection",
         "malformed-input",
@@ -437,7 +438,24 @@
             "/consumer/semanticReexport": true,
             "/consumer/zeroMutationOnFailure": true,
             "/consumer/exactComponentReexport": true,
-            "/consumer/exactAttachmentBlobReexport": true
+            "/consumer/exactAttachmentBlobReexport": true,
+            "/coverage": [
+              "hierarchy",
+              "metadata",
+              "attachment-bytes",
+              "embeddings",
+              "embedding-contract-lineage",
+              "skos",
+              "provenance",
+              "graph-community",
+              "nulls",
+              "tombstones",
+              "current-minus-two",
+              "current",
+              "next-major-rejection",
+              "malformed-input",
+              "resource-limits"
+            ]
           }
         }
       ],
@@ -449,7 +467,7 @@
       "trackingIssues": [
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059"
       ],
-      "blockingReason": "Per-cell receipt is missing current-minus-two evidence."
+      "blockingReason": null
     },
     {
       "id": "pglite-core-v1-to-fortemi",

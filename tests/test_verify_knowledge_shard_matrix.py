@@ -57,8 +57,8 @@ class MatrixVerifierTest(unittest.TestCase):
         assert output is not None
         self.assertFalse(output["claimsAllowed"])
         self.assertEqual(output["summary"]["requiredCells"], 9)
-        self.assertEqual(output["summary"]["passed"], 1)
-        self.assertEqual(output["summary"]["pending"], 8)
+        self.assertEqual(output["summary"]["passed"], 2)
+        self.assertEqual(output["summary"]["pending"], 7)
         self.assertEqual(
             set(output["blockedClaims"]),
             {"compatibility", "portability", "backup", "parity"},
