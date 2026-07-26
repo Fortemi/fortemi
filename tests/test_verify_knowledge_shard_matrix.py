@@ -57,8 +57,8 @@ class MatrixVerifierTest(unittest.TestCase):
         assert output is not None
         self.assertFalse(output["claimsAllowed"])
         self.assertEqual(output["summary"]["requiredCells"], 9)
-        self.assertEqual(output["summary"]["passed"], 3)
-        self.assertEqual(output["summary"]["pending"], 6)
+        self.assertEqual(output["summary"]["passed"], 4)
+        self.assertEqual(output["summary"]["pending"], 5)
         self.assertEqual(
             set(output["blockedClaims"]),
             {"compatibility", "portability", "backup", "parity"},
@@ -151,6 +151,14 @@ class MatrixVerifierTest(unittest.TestCase):
         self.assertTrue(core_self["coverageComplete"])
         self.assertTrue(all(core_self["coverageOutcomes"].values()))
         self.assertEqual(core_self["missingCoverage"], [])
+        pglite_self = next(
+            cell
+            for cell in output["cells"]
+            if cell["id"] == "pglite-core-v1-to-pglite"
+        )
+        self.assertTrue(pglite_self["coverageComplete"])
+        self.assertTrue(all(pglite_self["coverageOutcomes"].values()))
+        self.assertEqual(pglite_self["missingCoverage"], [])
 
     def test_passed_cell_requires_digest_pinned_coverage_binding(self) -> None:
         matrix = self.matrix()

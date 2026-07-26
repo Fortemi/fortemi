@@ -1,7 +1,15 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-26T15:41:13Z"
+  updated_at: "2026-07-26T16:07:42Z"
 records:
+  - entity: "contracts/knowledge-shard/conformance/matrix.json"
+    record: "records/knowledge-shard-conformance-matrix-pglite-self-1059.prov.yaml"
+  - entity: "contracts/knowledge-shard/conformance/README.md"
+    record: "records/knowledge-shard-conformance-readme-pglite-self-1059.prov.yaml"
+  - entity: "tests/test_verify_knowledge_shard_matrix.py"
+    record: "records/test-verify-knowledge-shard-matrix-pglite-self-1059.prov.yaml"
+  - entity: "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
+    record: "records/adr-102-pglite-self-cell-1059.prov.yaml"
   - entity: "tests/fixtures/shards/fortemi-core-v1-2026.7.12.shard.cell-receipt.json"
     record: "records/fortemi-core-v1-2026.7.12-cell-receipt-1059.prov.yaml"
   - entity: "contracts/knowledge-shard/conformance/matrix.json"

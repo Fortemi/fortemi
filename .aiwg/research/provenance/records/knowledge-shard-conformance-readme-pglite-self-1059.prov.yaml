@@ -1,0 +1,48 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T16:07:42Z"
+  description: "Provenance for the four-to-five canonical matrix status documentation"
+entity:
+  id: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md:sha256:946a942f2d5915fbdb03ceb1b05a6e57392e4ce99ce28e221e11a13cc3b5bb20"
+  type: documentation
+  created_at: "2026-07-26T16:07:42Z"
+  updated_at: "2026-07-26T16:07:42Z"
+  checksum: "sha256:946a942f2d5915fbdb03ceb1b05a6e57392e4ce99ce28e221e11a13cc3b5bb20"
+  size_bytes: 2755
+  attributes:
+    issue: "Fortemi/fortemi#1059"
+    change_type: modification
+    base_revision: "6488cd890108b7eda20fa1366ec6bcebfd1e3684"
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-conformance-readme-pglite-self-1059:001"
+  type: modification
+  started_at: "2026-07-26T16:05:00Z"
+  ended_at: "2026-07-26T16:07:42Z"
+  description: "Document four passed self-cells and five pending cross-repository cells"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md:sha256:946a942f2d5915fbdb03ceb1b05a6e57392e4ce99ce28e221e11a13cc3b5bb20"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-conformance-readme-pglite-self-1059:001"
+    time: "2026-07-26T16:07:42Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-conformance-readme-pglite-self-1059:001"
+      entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:0f53c5e7a11419c210480e7e5afa5bf9bb32c8fc858ef378d7ab4a7bf1b3b5c7"
+      role: source
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md:sha256:946a942f2d5915fbdb03ceb1b05a6e57392e4ce99ce28e221e11a13cc3b5bb20"
+      source: "urn:gitea:issue:Fortemi/fortemi:1059"
+      derivation_type: documents
+      activity: "urn:aiwg:activity:modification:knowledge-shard-conformance-readme-pglite-self-1059:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-conformance-readme-pglite-self-1059:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md:sha256:946a942f2d5915fbdb03ceb1b05a6e57392e4ce99ce28e221e11a13cc3b5bb20"
+    agent: "urn:aiwg:agent:codex-gpt-5"

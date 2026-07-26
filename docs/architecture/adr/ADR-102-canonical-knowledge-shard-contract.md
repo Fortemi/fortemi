@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Versioned `core-v1` schemas through `2.0.0`, an authority-owned and cross-repository-proven `record-v1` profile, receipt-bound Fortemi `core-v1` and `full-v1` self-cells with clean-destination semantic re-export and zero-mutation failure evidence, a supported complete-inventory `full-v1` server route with semantic/revision/embedding-lineage/mandatory-byte convergence and production Ed25519 publisher signing, digest-pinned rich component boundaries with transactional apply paths, registered historical transitions, bounded archive and relationship preflight, identity-preserving structured import, signed-import verification, and disk-backed streaming preflight for verified attachment sidecars; six cross-repository matrix cells remain pending
+**Implementation status:** Versioned `core-v1` schemas through `2.0.0`, an authority-owned and cross-repository-proven `record-v1` profile, receipt-bound Fortemi `core-v1` and `full-v1` self-cells plus a receipt-bound PGlite `core-v1` self-cell with clean-destination semantic re-export and zero-mutation failure evidence, a supported complete-inventory `full-v1` server route with semantic/revision/embedding-lineage/mandatory-byte convergence and production Ed25519 publisher signing, digest-pinned rich component boundaries with transactional apply paths, registered historical transitions, bounded archive and relationship preflight, identity-preserving structured import, signed-import verification, and disk-backed streaming preflight for verified attachment sidecars; five cross-repository matrix cells remain pending
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -131,8 +131,8 @@ inside the existing schema-scoped import transaction. Their database tests
 prove exact source-field restoration, repeated replace convergence, skip and
 dry-run accounting, and rollback after a late injected failure. Runtime
 validation accepts only the complete `full-v1` manifest and rejects partial
-profile selections. The canonical matrix currently has three passed self-cells
-and six pending cross-repository cells under #1059. These self-cell receipts do
+profile selections. The canonical matrix currently has four passed self-cells
+and five pending cross-repository cells under #1059. These self-cell receipts do
 not establish suite-wide compatibility, portability, backup, or parity.
 
 Production signing does not change the archive schema: `signature.json` was
