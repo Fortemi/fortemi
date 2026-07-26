@@ -1,0 +1,47 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T21:11:09Z"
+  description: "Provenance for Fortemi clean-destination tests over the current AIWG core-v1 fixture"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:bd4269b9d298184c0fd55416f31d186a7bb4f2dab32dcac485d68a02814c1e0e"
+  type: test_implementation
+  created_at: "2026-07-26T21:11:09Z"
+  checksum: "sha256:bd4269b9d298184c0fd55416f31d186a7bb4f2dab32dcac485d68a02814c1e0e"
+  attributes:
+    issue: "Fortemi/fortemi#1089"
+    producer_issue: "roctinam/aiwg#1892"
+    cell: "aiwg-core-v1-to-fortemi"
+    profile: "core-v1"
+    change_type: modification
+    verification: "DATABASE_URL=postgres://matric:matric@localhost/matric cargo test -p matric-api --bin matric-api -- --nocapture: 916 passed"
+activity:
+  id: "urn:aiwg:activity:modification:aiwg-core-v1-fortemi-consumer-tests-1089:001"
+  type: modification
+  started_at: "2026-07-26T20:58:00Z"
+  ended_at: "2026-07-26T21:11:09Z"
+  description: "Add clean import, hierarchy, lifecycle, repeatability, semantic re-export, migration, and zero-mutation rejection evidence"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:bd4269b9d298184c0fd55416f31d186a7bb4f2dab32dcac485d68a02814c1e0e"
+    activity: "urn:aiwg:activity:modification:aiwg-core-v1-fortemi-consumer-tests-1089:001"
+    time: "2026-07-26T21:11:09Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:aiwg-core-v1-fortemi-consumer-tests-1089:001"
+      entity: "urn:aiwg:artifact:tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard:sha256:789f05deeac77631e95c712387d1d25cad8245d06e8ba31483382c306c77d4a4"
+      role: test_input
+    - activity: "urn:aiwg:activity:modification:aiwg-core-v1-fortemi-consumer-tests-1089:001"
+      entity: "urn:git:Fortemi/fortemi:ac58151c353e097ba09bc727506b9c0bf113ce1c"
+      role: base_revision
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:aiwg-core-v1-fortemi-consumer-tests-1089:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:bd4269b9d298184c0fd55416f31d186a7bb4f2dab32dcac485d68a02814c1e0e"
+    agent: "urn:aiwg:agent:codex-gpt-5"

@@ -47327,6 +47327,405 @@ not-json
     }
 
     #[tokio::test]
+    async fn aiwg_core_v1_current_fixture_clean_import_is_repeatable_and_semantic() {
+        use sha2::Digest;
+
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let destination_name = format!("aiwg-shard-{}", Uuid::new_v4().simple());
+        let destination = db
+            .archives
+            .create_archive_schema(
+                &destination_name,
+                Some("AIWG 2026.7.20 core-v1 clean consumer destination"),
+            )
+            .await
+            .expect("create isolated AIWG fixture destination");
+        let destination_ctx = db.for_schema(&destination.schema_name).unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let shard = include_bytes!("../../../tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard");
+        assert_eq!(
+            hex::encode(sha2::Sha256::digest(shard)),
+            "789f05deeac77631e95c712387d1d25cad8245d06e8ba31483382c306c77d4a4"
+        );
+
+        let source_files =
+            read_shard_archive(shard, ShardArchiveLimits::default()).expect("read AIWG fixture");
+        let source_manifest =
+            parse_and_validate_shard_manifest(&source_files["manifest.json"]).unwrap();
+        validate_shard_manifest_contract(&source_manifest).unwrap();
+        validate_shard_component_inventory(&source_manifest, &source_files).unwrap();
+        validate_shard_relationships(&source_files).unwrap();
+        assert_eq!(source_manifest.version, "1.2.0");
+        assert_eq!(source_manifest.profile.as_deref(), Some("core-v1"));
+        assert_eq!(
+            source_manifest.components,
+            vec!["notes", "collections", "tags", "links"]
+        );
+        assert_eq!(source_manifest.counts.notes, 2);
+        assert_eq!(source_manifest.counts.collections, 3);
+        assert_eq!(source_manifest.counts.tags, 1);
+        assert_eq!(source_manifest.counts.links, 2);
+
+        let read_snapshot = || {
+            let destination_ctx = destination_ctx.clone();
+            async move {
+                destination_ctx
+                    .query(|tx| {
+                        Box::pin(async move {
+                            let counts = sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                                "SELECT
+                                   (SELECT COUNT(*) FROM collection),
+                                   (SELECT COUNT(*) FROM note),
+                                   (SELECT COUNT(*) FROM tag),
+                                   (SELECT COUNT(*) FROM link)",
+                            )
+                            .fetch_one(&mut **tx)
+                            .await
+                            .map_err(matric_db::Error::Database)?;
+                            let collections = sqlx::query_as::<_, (String, Option<String>)>(
+                                "SELECT c.name, p.name
+                                     FROM collection c
+                                     LEFT JOIN collection p ON p.id = c.parent_id
+                                     ORDER BY c.name",
+                            )
+                            .fetch_all(&mut **tx)
+                            .await
+                            .map_err(matric_db::Error::Database)?;
+                            let notes = sqlx::query_as::<
+                                _,
+                                (
+                                    String,
+                                    String,
+                                    serde_json::Value,
+                                    Option<chrono::DateTime<chrono::Utc>>,
+                                ),
+                            >(
+                                "SELECT n.title, nrc.content, n.metadata, n.deleted_at
+                                 FROM note n
+                                 JOIN note_revised_current nrc ON nrc.note_id = n.id
+                                 ORDER BY n.title",
+                            )
+                            .fetch_all(&mut **tx)
+                            .await
+                            .map_err(matric_db::Error::Database)?;
+                            Ok((counts, collections, notes))
+                        })
+                    })
+                    .await
+                    .expect("read AIWG fixture destination")
+            }
+        };
+        assert_eq!(read_snapshot().await.0, (0, 0, 0, 0));
+
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let first = knowledge_shard_import_internal(&state, shard, &opts, &destination.schema_name)
+            .await
+            .expect("import current AIWG core-v1 fixture");
+        assert_eq!(first.imported.collections, 3);
+        assert_eq!(first.imported.notes, 2);
+        assert_eq!(first.imported.tags, 1);
+        assert_eq!(first.imported.links, 2);
+
+        let first_snapshot = read_snapshot().await;
+        assert_eq!(first_snapshot.0, (3, 2, 1, 2));
+        assert_eq!(
+            first_snapshot.1,
+            vec![
+                (".aiwg".to_string(), None),
+                ("design".to_string(), Some(".aiwg".to_string())),
+                ("requirements".to_string(), Some(".aiwg".to_string())),
+            ]
+        );
+        assert_eq!(first_snapshot.2[0].0, "Portable Fortemi transport");
+        assert!(first_snapshot.2[0].1.contains(".aiwg/design/ADR-001.md"));
+        assert_eq!(
+            first_snapshot.2[0]
+                .2
+                .pointer("/aiwg_fortemi_index/record/operational_state/observed_state"),
+            Some(&serde_json::json!("open"))
+        );
+        assert_eq!(
+            first_snapshot.2[0]
+                .2
+                .pointer("/aiwg_fortemi_index/record/state_transfer/deleted_at"),
+            Some(&serde_json::Value::Null)
+        );
+        assert!(first_snapshot.2[0].3.is_none());
+        assert_eq!(first_snapshot.2[1].0, "Shard import compatibility");
+        assert_eq!(
+            first_snapshot.2[1].3,
+            Some(
+                chrono::DateTime::parse_from_rfc3339("2026-07-25T09:30:00.000Z")
+                    .unwrap()
+                    .with_timezone(&chrono::Utc)
+            )
+        );
+
+        knowledge_shard_import_internal(&state, shard, &opts, &destination.schema_name)
+            .await
+            .expect("repeat current AIWG core-v1 fixture import");
+        assert_eq!(
+            read_snapshot().await,
+            first_snapshot,
+            "repeated import must converge without semantic duplication"
+        );
+
+        let export = knowledge_shard(
+            State(state.clone()),
+            Extension(ArchiveContext {
+                schema: destination.schema_name.clone(),
+                is_default: false,
+                name: Some(destination_name.clone()),
+            }),
+            Query(ShardExportQuery {
+                schema_version: None,
+                profile: Some("core-v1".to_string()),
+                include: None,
+                include_blobs: false,
+            }),
+        )
+        .await
+        .expect("re-export imported AIWG shard")
+        .into_response();
+        assert_eq!(export.status(), StatusCode::OK);
+        let exported = axum::body::to_bytes(export.into_body(), usize::MAX)
+            .await
+            .expect("read AIWG fixture re-export");
+        let exported_files = read_shard_archive(&exported, ShardArchiveLimits::default()).unwrap();
+        let exported_manifest =
+            parse_and_validate_shard_manifest(&exported_files["manifest.json"]).unwrap();
+        assert_eq!(exported_manifest.profile.as_deref(), Some("core-v1"));
+        assert_eq!(exported_manifest.counts, source_manifest.counts);
+
+        fn normalize_rfc3339_values(value: &mut serde_json::Value) {
+            match value {
+                serde_json::Value::String(text) => {
+                    if let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(text) {
+                        *text = timestamp.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+                    }
+                }
+                serde_json::Value::Array(values) => {
+                    for value in values {
+                        normalize_rfc3339_values(value);
+                    }
+                }
+                serde_json::Value::Object(values) => {
+                    for value in values.values_mut() {
+                        normalize_rfc3339_values(value);
+                    }
+                }
+                serde_json::Value::Number(number) => {
+                    if let Some(value) = number.as_f64() {
+                        if value.fract() == 0.0
+                            && value >= i64::MIN as f64
+                            && value <= i64::MAX as f64
+                        {
+                            *number = serde_json::Number::from(value as i64);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        for (component, format) in [
+            ("notes", "jsonl"),
+            ("collections", "json"),
+            ("tags", "json"),
+            ("links", "jsonl"),
+        ] {
+            let filename = shard_component_filename(component).unwrap();
+            let mut source =
+                parse_shard_component_records(component, &source_files[filename]).unwrap();
+            let mut reexported =
+                parse_shard_component_records(component, &exported_files[filename]).unwrap();
+            source.iter_mut().for_each(normalize_rfc3339_values);
+            reexported.iter_mut().for_each(normalize_rfc3339_values);
+            let sort_key = |value: &serde_json::Value| {
+                value["id"]
+                    .as_str()
+                    .or_else(|| value["name"].as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            source.sort_by_key(&sort_key);
+            reexported.sort_by_key(&sort_key);
+            assert_eq!(
+                reexported, source,
+                "{format} {component} semantics changed across Fortemi re-export"
+            );
+        }
+
+        let mut historical_files = source_files.clone();
+        let historical_notes =
+            parse_shard_component_records("notes", &historical_files["notes.jsonl"])
+                .unwrap()
+                .into_iter()
+                .map(|mut note| {
+                    note.as_object_mut().unwrap().remove("deleted_at");
+                    serde_json::to_string(&note).unwrap()
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+                .into_bytes();
+        historical_files.insert("notes.jsonl".to_string(), historical_notes.clone());
+        let mut historical_manifest: serde_json::Value =
+            serde_json::from_slice(&historical_files["manifest.json"]).unwrap();
+        historical_manifest["version"] = serde_json::json!("1.0.0");
+        historical_manifest["min_reader_version"] = serde_json::json!("1.0.0");
+        historical_manifest["checksums"]["notes.jsonl"] =
+            serde_json::json!(hex::encode(sha2::Sha256::digest(&historical_notes)));
+        let historical = replace_shard_entry(shard, "notes.jsonl", &historical_notes);
+        let historical = replace_shard_entry(
+            &historical,
+            "manifest.json",
+            &serde_json::to_vec_pretty(&historical_manifest).unwrap(),
+        );
+        let historical_name = format!("aiwg-historical-{}", Uuid::new_v4().simple());
+        let historical_destination = db
+            .archives
+            .create_archive_schema(
+                &historical_name,
+                Some("AIWG core-v1 current-minus-two destination"),
+            )
+            .await
+            .expect("create AIWG current-minus-two destination");
+        let historical_import = knowledge_shard_import_internal(
+            &state,
+            &historical,
+            &opts,
+            &historical_destination.schema_name,
+        )
+        .await
+        .expect("import AIWG core-v1 current-minus-two fixture");
+        assert_eq!(
+            historical_import
+                .manifest
+                .expect("historical import returns manifest")
+                .migrated_from
+                .as_deref(),
+            Some("1.0.0")
+        );
+
+        db.archives
+            .drop_archive_schema(&historical_name)
+            .await
+            .expect("drop AIWG historical destination");
+        db.archives
+            .drop_archive_schema(&destination_name)
+            .await
+            .expect("drop AIWG fixture destination");
+    }
+
+    #[tokio::test]
+    async fn aiwg_core_v1_current_fixture_rejects_invalid_inputs_before_mutation() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let destination_name = format!("aiwg-rejection-{}", Uuid::new_v4().simple());
+        let destination = db
+            .archives
+            .create_archive_schema(
+                &destination_name,
+                Some("AIWG core-v1 atomic rejection destination"),
+            )
+            .await
+            .expect("create isolated AIWG rejection destination");
+        let destination_ctx = db.for_schema(&destination.schema_name).unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let shard = include_bytes!("../../../tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard");
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let read_counts = || {
+            let destination_ctx = destination_ctx.clone();
+            async move {
+                destination_ctx
+                    .query(|tx| {
+                        Box::pin(async move {
+                            sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                                "SELECT
+                                   (SELECT COUNT(*) FROM collection),
+                                   (SELECT COUNT(*) FROM note),
+                                   (SELECT COUNT(*) FROM tag),
+                                   (SELECT COUNT(*) FROM link)",
+                            )
+                            .fetch_one(&mut **tx)
+                            .await
+                            .map_err(matric_db::Error::Database)
+                        })
+                    })
+                    .await
+                    .expect("read AIWG rejection destination counts")
+            }
+        };
+        assert_eq!(read_counts().await, (0, 0, 0, 0));
+
+        let files = read_shard_archive(shard, ShardArchiveLimits::default()).unwrap();
+        let checksum_drift = replace_shard_entry(shard, "notes.jsonl", b"{}\n");
+        let mut unsupported_manifest: serde_json::Value =
+            serde_json::from_slice(&files["manifest.json"]).unwrap();
+        unsupported_manifest["profile"] = serde_json::json!("unknown-v1");
+        let unsupported_profile = replace_shard_entry(
+            shard,
+            "manifest.json",
+            &serde_json::to_vec_pretty(&unsupported_manifest).unwrap(),
+        );
+        let mut future_manifest: serde_json::Value =
+            serde_json::from_slice(&files["manifest.json"]).unwrap();
+        future_manifest["version"] = serde_json::json!("3.0.0");
+        future_manifest["min_reader_version"] = serde_json::json!("3.0.0");
+        let future_version = replace_shard_entry(
+            shard,
+            "manifest.json",
+            &serde_json::to_vec_pretty(&future_manifest).unwrap(),
+        );
+
+        for (name, invalid) in [
+            ("malformed gzip", b"not-a-shard".as_slice()),
+            ("checksum drift", checksum_drift.as_slice()),
+            ("unsupported profile", unsupported_profile.as_slice()),
+            ("future version", future_version.as_slice()),
+        ] {
+            knowledge_shard_import_internal(&state, invalid, &opts, &destination.schema_name)
+                .await
+                .expect_err(name);
+            assert_eq!(
+                read_counts().await,
+                (0, 0, 0, 0),
+                "{name} mutated the clean destination"
+            );
+        }
+
+        let mut limited_state = state.clone();
+        limited_state.max_upload_size = shard.len() - 1;
+        knowledge_shard_import_internal(&limited_state, shard, &opts, &destination.schema_name)
+            .await
+            .expect_err("resource-limited AIWG fixture must be rejected");
+        assert_eq!(read_counts().await, (0, 0, 0, 0));
+
+        db.archives
+            .drop_archive_schema(&destination_name)
+            .await
+            .expect("drop AIWG rejection destination");
+    }
+
+    #[tokio::test]
     async fn pglite_core_v1_published_fixture_clean_import_reexport() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")

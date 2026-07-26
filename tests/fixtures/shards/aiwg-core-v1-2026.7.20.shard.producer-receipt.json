@@ -1,0 +1,154 @@
+{
+  "schemaVersion": "fortemi.knowledge-shard.cell-receipt.v1",
+  "status": "producer-self-conformance-passed",
+  "cell": "aiwg-core-v1-to-pglite",
+  "producer": {
+    "repository": "https://git.integrolabs.net/roctinam/aiwg.git",
+    "commit": "9940bf64d4dcdac1486948b72fe67076a4dcec21",
+    "package": {
+      "name": "aiwg",
+      "version": "2026.7.20"
+    },
+    "generator": "src/artifacts/fortemi-shard-export.ts",
+    "sourceContract": {
+      "schemaVersion": "aiwg.fortemi.index.export.v2",
+      "authorityCommit": "dbbfee78993365686f3c8283f93ba8ef7172e7d4",
+      "schemaSha256": "0f2c6e265e177c22fb1897899b42d197558334168ed6989b29bc7ae7bf896f92"
+    }
+  },
+  "converter": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+    "commit": "a08df8a6ece098d8bd5b2d27f3fbb7734b39e331",
+    "package": {
+      "name": "@fortemi/core",
+      "version": "2026.7.14",
+      "integrity": "sha512-GytXkWpuG/ygeYy0MbKGpqSKMQ8v+vHW+Btqloaky9fl+5eKRev3zBlQV22IlYWbb2Q7gd7lXrgtRcdFCmg5DQ=="
+    },
+    "provenance": {
+      "provider": "npm",
+      "workflowRun": "https://github.com/Fortemi/fortemi-react/actions/runs/30219659867",
+      "status": "success"
+    }
+  },
+  "authority": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "commit": "81fbeaf065df3818edd046ed8a744f10eeb00e6f",
+    "contractRevision": "19",
+    "contractSha256": "5debc14e0bc7eef403a75e8e063a10f53019e1d74857485d6eda3abaec9397e2",
+    "schemaVersion": "1.2.0",
+    "schemaBundleSha256": "deec0cb66dc09865667256e29340d096c02dd9b0e55bdc1ae60b7effb68ac595"
+  },
+  "fixture": {
+    "sourcePath": "test/fixtures/fortemi-shard/aiwg-core-v1.shard",
+    "path": "tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard",
+    "sha256": "789f05deeac77631e95c712387d1d25cad8245d06e8ba31483382c306c77d4a4",
+    "bytes": 2420,
+    "profile": "core-v1",
+    "schemaVersion": "1.2.0",
+    "components": [
+      "notes",
+      "collections",
+      "tags",
+      "links"
+    ],
+    "componentSha256": {
+      "notes.jsonl": "f8f503276806053b227748a27d9781656a9bdc363b427c2830acc46cdcab0c31",
+      "collections.json": "7a41a0325092fc9e2c72df7f2266cfb2f136bfbcf2e673d176754eeec95b4e28",
+      "tags.json": "7e8438151edfbece721d6c97b31e0c8f736674c36cb47bf122282477704ca5af",
+      "links.jsonl": "7b33c276970a67d28940bf1776a4434d5bcb31e53fb1921a5e023b199c8b866c"
+    },
+    "counts": {
+      "notes": 2,
+      "collections": 3,
+      "tags": 1,
+      "templates": 0,
+      "links": 2
+    }
+  },
+  "consumer": {
+    "id": "pglite",
+    "package": {
+      "name": "@fortemi/core",
+      "version": "2026.7.14"
+    },
+    "cleanDestination": true,
+    "semanticReexport": true,
+    "reverseConversion": true,
+    "zeroMutationOnFailure": true,
+    "repeatedImports": 2,
+    "hierarchyPreserved": true,
+    "embeddedRecordPreserved": true,
+    "operationalStatePreserved": true,
+    "tombstonePreserved": true,
+    "currentMinusTwo": {
+      "schemaVersion": "1.0.0",
+      "accepted": true
+    },
+    "nextMajor": {
+      "schemaVersion": "2.0.0",
+      "rejected": true
+    },
+    "malformedInputRejected": true,
+    "checksumDriftRejected": true,
+    "unsupportedProfileRejected": true,
+    "resourceLimitsRejected": true,
+    "persistentMutationAfterRejection": 0
+  },
+  "declaredLosses": [],
+  "tests": {
+    "focused": {
+      "command": "npx vitest run test/unit/artifacts/fortemi-shard-export.test.ts",
+      "files": 1,
+      "passed": 6,
+      "failed": 0
+    },
+    "localFull": {
+      "command": "npm test",
+      "files": 506,
+      "passed": 8191,
+      "failed": 0,
+      "skippedFiles": 2,
+      "skippedTests": 65
+    },
+    "producerCi": {
+      "commit": "9940bf64d4dcdac1486948b72fe67076a4dcec21",
+      "run": 5541,
+      "runId": 28898,
+      "url": "https://git.integrolabs.net/roctinam/aiwg/actions/runs/5541",
+      "status": "success",
+      "jobs": [
+        {
+          "id": 101689,
+          "name": "Test",
+          "status": "success"
+        },
+        {
+          "id": 101690,
+          "name": "Build",
+          "status": "success"
+        }
+      ]
+    }
+  },
+  "coverage": [
+    "profile-presence",
+    "clean-destination",
+    "field-mapping",
+    "foreign-key-reconstruction",
+    "tombstones",
+    "checksums",
+    "repeated-import",
+    "semantic-round-trip",
+    "zero-mutation-rejection"
+  ],
+  "claimBoundary": {
+    "profile": "core-v1",
+    "schemaVersion": "1.2.0",
+    "cell": "aiwg-core-v1-to-pglite",
+    "lossy": false,
+    "suiteWide": false,
+    "completeBackup": false,
+    "crossRepository": true,
+    "persistencePlanesUnified": false
+  }
+}

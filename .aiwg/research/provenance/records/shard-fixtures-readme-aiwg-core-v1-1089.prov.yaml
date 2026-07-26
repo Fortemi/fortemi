@@ -1,0 +1,42 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T21:11:09Z"
+  description: "Provenance for the current AIWG core-v1 consumer fixture documentation"
+entity:
+  id: "urn:aiwg:artifact:tests/fixtures/shards/README.md:sha256:2596ec0ce211d889741f22c5c944a1890be22c45f5f8ae4cf388a03bed9b24ea"
+  type: documentation
+  created_at: "2026-07-26T21:11:09Z"
+  checksum: "sha256:2596ec0ce211d889741f22c5c944a1890be22c45f5f8ae4cf388a03bed9b24ea"
+  attributes:
+    issue: "Fortemi/fortemi#1089"
+    producer_issue: "roctinam/aiwg#1892"
+    cell: "aiwg-core-v1-to-fortemi"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:shard-fixtures-readme-aiwg-core-v1-1089:001"
+  type: modification
+  started_at: "2026-07-26T21:09:00Z"
+  ended_at: "2026-07-26T21:11:09Z"
+  description: "Document the immutable producer, executable dimensions, normalization boundary, and scoped claims"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:tests/fixtures/shards/README.md:sha256:2596ec0ce211d889741f22c5c944a1890be22c45f5f8ae4cf388a03bed9b24ea"
+    activity: "urn:aiwg:activity:modification:shard-fixtures-readme-aiwg-core-v1-1089:001"
+    time: "2026-07-26T21:11:09Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:shard-fixtures-readme-aiwg-core-v1-1089:001"
+      entity: "urn:aiwg:artifact:tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard:sha256:789f05deeac77631e95c712387d1d25cad8245d06e8ba31483382c306c77d4a4"
+      role: documented_fixture
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:shard-fixtures-readme-aiwg-core-v1-1089:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:tests/fixtures/shards/README.md:sha256:2596ec0ce211d889741f22c5c944a1890be22c45f5f8ae4cf388a03bed9b24ea"
+    agent: "urn:aiwg:agent:codex-gpt-5"

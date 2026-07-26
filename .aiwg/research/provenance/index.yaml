@@ -1,7 +1,15 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-26T19:08:02Z"
+  updated_at: "2026-07-26T21:14:12Z"
 records:
+  - entity: "tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard.producer-receipt.json"
+    record: "records/aiwg-core-v1-2026.7.20-producer-receipt-1089.prov.yaml"
+  - entity: "tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard"
+    record: "records/aiwg-core-v1-2026.7.20-consumer-fixture-1089.prov.yaml"
+  - entity: "crates/matric-api/src/main.rs"
+    record: "records/aiwg-core-v1-fortemi-consumer-tests-1089.prov.yaml"
+  - entity: "tests/fixtures/shards/README.md"
+    record: "records/shard-fixtures-readme-aiwg-core-v1-1089.prov.yaml"
   - entity: "tests/fixtures/shards/recordstore-record-v1-2026.7.13.shard.cell-receipt.json"
     record: "records/recordstore-record-v1-2026.7.13-cell-receipt-1059.prov.yaml"
   - entity: "contracts/knowledge-shard/conformance/matrix.json"

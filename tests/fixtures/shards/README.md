@@ -136,6 +136,28 @@ node generate-record-v1-fixture.mjs \
   ../../fixtures/shards/recordstore-record-v1-2026.7.11.shard --verify
 ```
 
+### aiwg-core-v1-2026.7.20.shard
+
+Byte-identical `1.2.0/core-v1` output from the AIWG CLI producer at signed
+commit `9940bf64d4dcdac1486948b72fe67076a4dcec21`. The producer uses the
+provenance-published `@fortemi/core@2026.7.14` converter as an explicit bridge
+from the AIWG v2 static index; this archive is not a shared persistence schema.
+
+The fixture contains the native `.aiwg`, `design`, and `requirements`
+collection hierarchy, two complete embedded AIWG v2 records, one active
+operational-state record, one tombstone, one tag, and two reciprocal links.
+Database-backed tests consume these exact bytes into an empty Fortemi archive,
+repeat the import without duplication, compare semantic re-export after
+normalizing equivalent RFC3339 and JSON numeric representations, accept the
+defined `1.0.0` migration, and prove malformed, checksum-drifted,
+unsupported-profile, future-version, and resource-limited inputs leave zero
+persistent mutation. Adjacent producer and cell receipts bind the exact
+producer, authority, package, consumer, and clean-checkout CI revisions.
+
+This evidence is limited to the named `core-v1` profile and the
+AIWG-to-Fortemi matrix cell. It does not establish `full-v1`, complete-backup,
+or suite-wide portability.
+
 ### fortemi-core-v1-2026.7.1.shard
 
 Live `core-v1` output from Fortemi `2026.7.1` at commit
