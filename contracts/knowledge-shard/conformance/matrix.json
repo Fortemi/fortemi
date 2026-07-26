@@ -299,34 +299,55 @@
       "producer": "fortemi",
       "consumer": "fortemi",
       "profile": "core-v1",
-      "status": "pending",
+      "status": "passed",
       "coverage": [
         "hierarchy",
+        "metadata",
         "nulls",
         "tombstones",
         "current-minus-two",
         "current",
-        "malformed-input"
+        "next-major-rejection",
+        "malformed-input",
+        "resource-limits"
       ],
       "evidence": [
         {
           "kind": "local-file",
-          "path": "tests/fixtures/shards/fortemi-core-v1-2026.7.1.shard",
-          "sha256": "62301b42749dc4f523ce5121af2593798d81db1f31356200640ed4a271d0f5a0"
+          "path": "tests/fixtures/shards/fortemi-core-v1-2026.7.12.shard",
+          "sha256": "154867e973ff104869c6320e2a6a39138e2a7e1c91f8fb8206cce4d479c0cd22"
         },
         {
           "kind": "local-file",
-          "path": "tests/fixtures/shards/fortemi-core-v1-2026.7.1.shard.receipt.json",
-          "sha256": "6a013f48723b72f13e9e0f100657232cbf3d035951a5b9382b69ccfcffd9df7d",
+          "path": "tests/fixtures/shards/fortemi-core-v1-2026.7.12.shard.cell-receipt.json",
+          "sha256": "64a9f71f9560940db1f379f145cca4e893bc3e644b5f6421fc68b79245b2f4a8",
           "expect": {
-            "/producer/commit": "1cf174afe8143eab4bfa53d3d0e1a538b4e63711",
+            "/cell": "fortemi-core-v1-to-fortemi",
+            "/producer/commit": "b53f1429e409ad02b6c9513218cb62adb9f19c71",
             "/fixture/profile": "core-v1",
-            "/fixture/sha256": "62301b42749dc4f523ce5121af2593798d81db1f31356200640ed4a271d0f5a0",
-            "/consumers/fortemi/cleanDestination": true,
-            "/consumers/fortemi/semanticReexport": true,
-            "/consumers/fortemi/lateWriteRollback": true,
-            "/consumers/fortemi/destructiveSwapRollback": true,
-            "/consumers/fortemi/persistentMutationAfterRejection": 0
+            "/fixture/sha256": "154867e973ff104869c6320e2a6a39138e2a7e1c91f8fb8206cce4d479c0cd22",
+            "/consumer/cleanDestination": true,
+            "/consumer/semanticReexport": true,
+            "/consumer/zeroMutationOnFailure": true,
+            "/consumer/exactComponentReexport": true,
+            "/consumer/metadataValuePreserved": true,
+            "/consumer/explicitNullMetadataPreserved": true,
+            "/consumer/nextMajorRejected": true,
+            "/consumer/resourceLimitsRejectedBeforeMutation": true,
+            "/consumer/lateWriteRollback": true,
+            "/consumer/destructiveSwapRollback": true,
+            "/consumer/persistentMutationAfterRejection": 0,
+            "/coverage": [
+              "hierarchy",
+              "metadata",
+              "nulls",
+              "tombstones",
+              "current-minus-two",
+              "current",
+              "next-major-rejection",
+              "malformed-input",
+              "resource-limits"
+            ]
           }
         }
       ],
@@ -336,9 +357,10 @@
         "zeroMutationOnFailure": true
       },
       "trackingIssues": [
-        "https://git.integrolabs.net/Fortemi/fortemi/issues/1059"
+        "https://git.integrolabs.net/Fortemi/fortemi/issues/1059",
+        "https://git.integrolabs.net/Fortemi/fortemi/issues/1082"
       ],
-      "blockingReason": "Per-cell receipt is missing metadata, next-major-rejection, and resource-limits evidence."
+      "blockingReason": null
     },
     {
       "id": "fortemi-core-v1-to-pglite",

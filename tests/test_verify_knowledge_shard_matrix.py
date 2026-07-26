@@ -57,8 +57,8 @@ class MatrixVerifierTest(unittest.TestCase):
         assert output is not None
         self.assertFalse(output["claimsAllowed"])
         self.assertEqual(output["summary"]["requiredCells"], 9)
-        self.assertEqual(output["summary"]["passed"], 2)
-        self.assertEqual(output["summary"]["pending"], 7)
+        self.assertEqual(output["summary"]["passed"], 3)
+        self.assertEqual(output["summary"]["pending"], 6)
         self.assertEqual(
             set(output["blockedClaims"]),
             {"compatibility", "portability", "backup", "parity"},
@@ -82,7 +82,7 @@ class MatrixVerifierTest(unittest.TestCase):
 
     def test_pending_cell_cannot_be_relabelled_passed(self) -> None:
         matrix = self.matrix()
-        cell = matrix["cells"][0]
+        cell = next(cell for cell in matrix["cells"] if cell["status"] == "pending")
         cell["status"] = "passed"
         cell["blockingReason"] = None
         result, output = self.run_verifier(matrix)
@@ -143,6 +143,14 @@ class MatrixVerifierTest(unittest.TestCase):
         self.assertTrue(passed["coverageComplete"])
         self.assertTrue(all(passed["coverageOutcomes"].values()))
         self.assertEqual(passed["missingCoverage"], [])
+        core_self = next(
+            cell
+            for cell in output["cells"]
+            if cell["id"] == "fortemi-core-v1-to-fortemi"
+        )
+        self.assertTrue(core_self["coverageComplete"])
+        self.assertTrue(all(core_self["coverageOutcomes"].values()))
+        self.assertEqual(core_self["missingCoverage"], [])
 
     def test_passed_cell_requires_digest_pinned_coverage_binding(self) -> None:
         matrix = self.matrix()

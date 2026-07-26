@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "fortemi.knowledge-shard.cell-receipt.v1",
+  "cell": "fortemi-core-v1-to-fortemi",
+  "producer": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "commit": "b53f1429e409ad02b6c9513218cb62adb9f19c71",
+    "version": "2026.7.12",
+    "test": "tests::shard_core_v1_server_export_clean_import_preserves_semantic_state"
+  },
+  "authority": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "commit": "81fbeaf065df3818edd046ed8a744f10eeb00e6f",
+    "contractRevision": "19",
+    "contractSha256": "5debc14e0bc7eef403a75e8e063a10f53019e1d74857485d6eda3abaec9397e2",
+    "schemaVersion": "1.2.0",
+    "schemaBundleSha256": "deec0cb66dc09865667256e29340d096c02dd9b0e55bdc1ae60b7effb68ac595"
+  },
+  "fixture": {
+    "path": "tests/fixtures/shards/fortemi-core-v1-2026.7.12.shard",
+    "sha256": "154867e973ff104869c6320e2a6a39138e2a7e1c91f8fb8206cce4d479c0cd22",
+    "bytes": 1368,
+    "profile": "core-v1",
+    "createdAt": "2026-07-26T15:33:49.824506111Z",
+    "components": [
+      "notes",
+      "collections",
+      "tags",
+      "templates",
+      "links"
+    ],
+    "counts": {
+      "notes": 2,
+      "collections": 2,
+      "tags": 1,
+      "templates": 1,
+      "links": 1
+    }
+  },
+  "consumer": {
+    "id": "fortemi",
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "baseCommit": "b53f1429e409ad02b6c9513218cb62adb9f19c71",
+    "cleanDestination": true,
+    "semanticReexport": true,
+    "zeroMutationOnFailure": true,
+    "repeatedImports": 2,
+    "exactComponentReexport": true,
+    "metadataValuePreserved": true,
+    "explicitNullMetadataPreserved": true,
+    "currentMinusTwoMigration": {
+      "from": "1.0.0",
+      "to": "1.2.0"
+    },
+    "nextMajorRejected": true,
+    "malformedInputRejected": true,
+    "resourceLimitsRejectedBeforeMutation": true,
+    "lateWriteRollback": true,
+    "destructiveSwapRollback": true,
+    "persistentMutationAfterRejection": 0
+  },
+  "tests": {
+    "route": "tests::shard_core_v1_server_export_clean_import_preserves_semantic_state",
+    "nextMajorRejection": "tests::shard_canonical_manifest_fixtures_cover_current_and_next_major",
+    "resourceLimits": "tests::shard_archive_reader_enforces_compressed_uncompressed_entry_and_count_limits"
+  },
+  "coverage": [
+    "hierarchy",
+    "metadata",
+    "nulls",
+    "tombstones",
+    "current-minus-two",
+    "current",
+    "next-major-rejection",
+    "malformed-input",
+    "resource-limits"
+  ]
+}

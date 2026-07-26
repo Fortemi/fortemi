@@ -128,6 +128,19 @@ component after re-export. The published `@fortemi/core@2026.7.11` verifier in
 `tests/conformance/pglite/verify-fortemi-core-v1-fixture.mjs` independently
 imports the pinned bytes into clean PGlite and performs a semantic re-export.
 
+### fortemi-core-v1-2026.7.12.shard
+
+Current Fortemi `core-v1` self-cell fixture produced and verified at commit
+`b53f1429e409ad02b6c9513218cb62adb9f19c71`. It contains a nested collection,
+active and tombstoned notes, object and explicit-null metadata, a tag, a
+template, and a link. The database-backed route compares these committed bytes
+component by component with a fresh server export, imports twice into a clean
+schema, semantically re-exports the result, and proves failure rollback. The
+adjacent cell receipt independently binds all profile semantics plus
+current-minus-two, current, next-major rejection, malformed-input, and
+resource-limit behavior. The older `2026.7.1` archive remains the immutable
+input for the separate PGlite consumer cell.
+
 ### full-v1-manifest-candidate/
 
 A strict candidate manifest declaring all 33 required `full-v1` components,
