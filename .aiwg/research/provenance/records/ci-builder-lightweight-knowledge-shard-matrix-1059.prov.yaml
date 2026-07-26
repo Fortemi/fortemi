@@ -1,0 +1,59 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T17:54:42Z"
+  description: "Provenance for decoupling the Knowledge Shard matrix job from the oversized Rust builder image"
+entity:
+  id: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+  type: ci_workflow
+  created_at: "2026-07-26T17:54:42Z"
+  checksum: "sha256:4b1940047d2108db0ac4335128d8292c9607ec349c8ae088a547621a67349a4d"
+  size_bytes: 61893
+  attributes:
+    issue: "Fortemi/fortemi#1059"
+    change_type: modification
+    base_revision: "622ef6bb00c320dbe20f630f2e94dc1a11374cbc"
+activity:
+  id: "urn:aiwg:activity:modification:ci-builder-lightweight-knowledge-shard-matrix-1059:001"
+  type: modification
+  started_at: "2026-07-26T17:50:00Z"
+  ended_at: "2026-07-26T17:54:42Z"
+  description: "Use a pinned Node runtime plus packaged jsonschema while preserving every canonical matrix command"
+  attributes:
+    verification:
+      - "Pinned Node 20 container: 13 matrix tests passed"
+      - "Pinned Node 20 container: presence test and all fixture reproduction commands passed"
+      - "Pinned Node 20 container: remote matrix verification reported 6 passed and 3 pending"
+      - "Gitea runs 6066 and 6070 failed before checkout while pulling the 2.58 GB builder image: no space left on device"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+    activity: "urn:aiwg:activity:modification:ci-builder-lightweight-knowledge-shard-matrix-1059:001"
+    time: "2026-07-26T17:54:42Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:ci-builder-lightweight-knowledge-shard-matrix-1059:001"
+      entity: "urn:gitea:actions:Fortemi/fortemi:6066:101182"
+      role: "infrastructure_failure"
+    - activity: "urn:aiwg:activity:modification:ci-builder-lightweight-knowledge-shard-matrix-1059:001"
+      entity: "urn:gitea:actions:Fortemi/fortemi:6070:101219"
+      role: "repeated_infrastructure_failure"
+    - activity: "urn:aiwg:activity:modification:ci-builder-lightweight-knowledge-shard-matrix-1059:001"
+      entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:bbf85a2a054bdd93e187740c72e35a23a7ed69aabf10da9d9d0afa420a8b2d2c"
+      role: "verified_contract"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+      source: "urn:gitea:Fortemi/fortemi:issue:1059"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:ci-builder-lightweight-knowledge-shard-matrix-1059:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:ci-builder-lightweight-knowledge-shard-matrix-1059:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+    agent: "urn:aiwg:agent:codex-gpt-5"

@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-26T17:32:56Z"
+  updated_at: "2026-07-26T17:54:42Z"
 records:
+  - entity: ".gitea/workflows/ci-builder.yaml"
+    record: "records/ci-builder-lightweight-knowledge-shard-matrix-1059.prov.yaml"
   - entity: "contracts/knowledge-shard/conformance/matrix.json"
     record: "records/knowledge-shard-conformance-matrix-fortemi-to-pglite-1059.prov.yaml"
   - entity: "contracts/knowledge-shard/conformance/README.md"

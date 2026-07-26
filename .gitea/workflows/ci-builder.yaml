@@ -296,7 +296,7 @@ jobs:
   knowledge-shard-matrix:
     name: Knowledge Shard Conformance Matrix
     runs-on: ubuntu-latest
-    container: ghcr.io/fortemi/fortemi-builder@sha256:b7c96e7d696145e7247e355f0f8ac0a7c87d339fa7ed771112071ba473c807aa
+    container: node:20@sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5
     defaults:
       run:
         shell: bash
@@ -308,6 +308,13 @@ jobs:
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
           git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
+
+      - name: Install matrix verifier runtime
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            --no-install-recommends python3-jsonschema
+          rm -rf /var/lib/apt/lists/*
 
       - name: Test fail-closed matrix verifier
         run: |
