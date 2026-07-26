@@ -357,9 +357,12 @@ schema-major or new profile identifier. Those gaps remain tracked release
 blockers, not implicit `core-v1` or `full-v1` claims.
 
 ADR-103 selects schema `2.0.0` with the existing profile identifiers and
-direct JSON key-presence semantics. That authority is specified but not yet a
-runtime-support claim; this 1.2 current-state description remains applicable
-until implementation and cross-repository receipts pass.
+direct JSON key-presence semantics. Revision 21 advertises only exact
+`2.0.0/full-v1` as a receipt-bound opt-in after the runtime and paired
+cross-repository receipts passed. The default remains `1.2.0/core-v1`, and
+schema-2 `core-v1` and `record-v1` remain unadvertised. The receipt authorizes
+only its named cells, not suite-wide compatibility, portability, complete
+backup, or parity.
 
 The filesystem backend provides a bounded-memory staging primitive that streams
 bytes into an isolated `staging/shard-import/` namespace, verifies the declared

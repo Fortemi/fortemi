@@ -1,0 +1,53 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T23:52:36Z"
+  description: "Provenance for the Fortemi #1081 Knowledge Shard 2.0.0/full-v1 opt-in advertisement receipt"
+entity:
+  id: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-advertisement.receipt.json:sha256:1d5d94a46772b35c3ca900504770d61319c136159136f82ef32fc97f15c73ea6"
+  type: evidence_receipt
+  created_at: "2026-07-26T23:52:36Z"
+  checksum: "sha256:1d5d94a46772b35c3ca900504770d61319c136159136f82ef32fc97f15c73ea6"
+  size_bytes: 1768
+  attributes:
+    issue: "Fortemi/fortemi#1081"
+    tuple: "2.0.0/full-v1"
+    change_type: creation
+activity:
+  id: "urn:aiwg:activity:creation:schema-2-advertisement-receipt-1081:001"
+  type: creation
+  started_at: "2026-07-26T23:52:36Z"
+  ended_at: "2026-07-26T23:52:36Z"
+  description: "Bind authority revision 21 to the immutable runtime and five-cell interoperability receipts while retaining the 1.2.0/core-v1 default"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5.6"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-advertisement.receipt.json:sha256:1d5d94a46772b35c3ca900504770d61319c136159136f82ef32fc97f15c73ea6"
+    activity: "urn:aiwg:activity:creation:schema-2-advertisement-receipt-1081:001"
+    time: "2026-07-26T23:52:36Z"
+  used:
+    - activity: "urn:aiwg:activity:creation:schema-2-advertisement-receipt-1081:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1081"
+      role: requirement
+    - activity: "urn:aiwg:activity:creation:schema-2-advertisement-receipt-1081:001"
+      entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json:sha256:88a11341f6cd120a937974babc83539d7837548fbceaf4bb2dd23c9e9f19fbca"
+      role: runtime_evidence
+    - activity: "urn:aiwg:activity:creation:schema-2-advertisement-receipt-1081:001"
+      entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json:sha256:48f622afc02279b2360534af3aa542de96efea1e752f4a80a4cd6f3d6e2066cc"
+      role: interoperability_evidence
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-advertisement.receipt.json:sha256:1d5d94a46772b35c3ca900504770d61319c136159136f82ef32fc97f15c73ea6"
+      source: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json:sha256:48f622afc02279b2360534af3aa542de96efea1e752f4a80a4cd6f3d6e2066cc"
+      derivation_type: binds
+      activity: "urn:aiwg:activity:creation:schema-2-advertisement-receipt-1081:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:creation:schema-2-advertisement-receipt-1081:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:tests/fixtures/shards/external/schema-2-advertisement.receipt.json:sha256:1d5d94a46772b35c3ca900504770d61319c136159136f82ef32fc97f15c73ea6"
+    agent: "urn:aiwg:agent:codex-gpt-5"

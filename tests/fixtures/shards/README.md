@@ -315,10 +315,16 @@ destination tests:
   producer/pass-through/destination cells. It enables only the named
   `2.0.0/full-v1` interoperability claim; suite-wide portability and
   complete-backup claims remain false.
+- `schema-2-advertisement.receipt.json` binds authority revision 21, the
+  unchanged default tuple, the single advertised opt-in tuple, both source
+  receipt digests, and the blocked broad claims.
 
 The runtime receipt proves the Fortemi boundary. The paired receipt separately
 proves the exact released React/AIWG-to-PGlite/Fortemi matrix plus the released
-HotM pass-through clean-recovery cell.
+HotM pass-through clean-recovery cell. Authority revision 21 uses those pinned
+receipts to advertise exact `2.0.0/full-v1` as opt-in. It leaves
+`1.2.0/core-v1` as the default and leaves schema-2 `core-v1` and `record-v1`
+unadvertised.
 
 ## Usage in Tests
 

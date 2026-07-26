@@ -45,7 +45,9 @@ module.exports = {
           content.includes("### Profiles and evidence boundaries") &&
           content.includes("Fortemi-to-Fortemi boundary") &&
           content.includes("hardened nine-cell schema `1.2.0`") &&
-          /Fortemi\s+#1084 and fortemi-react #382/.test(content) &&
+          /Exact\s+`2\.0\.0\/full-v1` is now an advertised opt-in/.test(content) &&
+          /Fortemi\s+#1084 and fortemi-react #382 receipts/.test(content) &&
+          content.includes("Full portability, complete backup, and schema") &&
           content.includes("/api/v1/backup/knowledge-shard/import/upload") &&
           !content.includes("knowledge_shard_import({ file_path:")
         );
@@ -64,7 +66,8 @@ module.exports = {
           content.includes("Exact schema `2.0.0` tuples") &&
           content.includes("`min_reader_version` always names a Knowledge Shard schema reader floor") &&
           content.includes("hardened nine-cell schema `1.2.0` matrix") &&
-          content.includes("Fortemi #1084 and fortemi-react #382") &&
+          content.includes("Fortemi #1084 and fortemi-react #382 receipts") &&
+          content.includes("advertise exact `2.0.0/full-v1` as an opt-in") &&
           content.includes("Shard: 3.0.0, Maximum reader: 2.0.0")
         );
       },

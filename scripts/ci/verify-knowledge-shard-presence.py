@@ -143,6 +143,25 @@ def main() -> int:
     fixture_digest = hashlib.sha256(FIXTURES.read_bytes()).hexdigest()
     if fixture_digest != contract["canonicalCorpus"]["sha256"]:
         failures.append("canonical presence corpus digest mismatch")
+    for evidence_name in ("runtimeReceipt", "fullV1InteropReceipt"):
+        evidence = contract["evidence"][evidence_name]
+        evidence_digest = hashlib.sha256((ROOT / evidence["path"]).read_bytes()).hexdigest()
+        if evidence_digest != evidence["sha256"]:
+            failures.append(f"schema 2 advertisement evidence digest mismatch: {evidence_name}")
+    if contract["selection"]["default"] != {
+        "schemaVersion": "1.2.0",
+        "profile": "core-v1",
+    }:
+        failures.append("schema 2 advertisement changed the default tuple")
+    advertised = {
+        (item["schemaVersion"], item["profile"])
+        for item in contract["selection"]["advertisedOptIn"]
+    }
+    if advertised != {("2.0.0", "full-v1")}:
+        failures.append("schema 2 advertisement is not limited to exact 2.0.0/full-v1")
+    for profile in ("core-v1", "record-v1"):
+        if contract["profiles"][profile]["advertised"]:
+            failures.append(f"schema 2 reduced profile must remain unadvertised: {profile}")
 
     previous_aggregate = hashlib.sha256()
     for name in sorted(previous_contract["schemaBundle"]["files"]):

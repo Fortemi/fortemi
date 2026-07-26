@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "fortemi.knowledge-shard.schema-2-advertisement-receipt.v1",
+  "status": "receipt-bound-opt-in-advertised",
+  "decisionDate": "2026-07-26",
+  "trackingIssue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1081",
+  "authority": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "contractRevision": "21",
+    "contractPath": "contracts/knowledge-shard/2.0.0/contract.json",
+    "contractSha256": "ac417e23181ec80741d776b6b29fa38236091dfa649b01255aaac30ebb53969f",
+    "schemaBundleSha256": "731700868cc93ba95e2c1d9e896df265d0757438b06fa002d9b643ab05b5f74d"
+  },
+  "selection": {
+    "default": {
+      "schemaVersion": "1.2.0",
+      "profile": "core-v1"
+    },
+    "advertisedOptIn": [
+      {
+        "schemaVersion": "2.0.0",
+        "profile": "full-v1"
+      }
+    ],
+    "unadvertised": [
+      {
+        "schemaVersion": "2.0.0",
+        "profile": "core-v1"
+      },
+      {
+        "schemaVersion": "2.0.0",
+        "profile": "record-v1"
+      }
+    ]
+  },
+  "evidence": {
+    "runtimeReceipt": {
+      "path": "tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json",
+      "sha256": "88a11341f6cd120a937974babc83539d7837548fbceaf4bb2dd23c9e9f19fbca",
+      "status": "delivered-main-conformance-passed"
+    },
+    "fullV1InteropReceipt": {
+      "path": "tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json",
+      "sha256": "48f622afc02279b2360534af3aa542de96efea1e752f4a80a4cd6f3d6e2066cc",
+      "status": "delivered-cross-repository-conformance-passed",
+      "passedCellCount": 5
+    }
+  },
+  "claims": {
+    "exact2_0_0FullV1NamedCells": true,
+    "suiteWide": false,
+    "completeBackup": false,
+    "parity": false,
+    "persistencePlanesUnified": false
+  }
+}

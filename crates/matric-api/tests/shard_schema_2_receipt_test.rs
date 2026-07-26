@@ -18,9 +18,7 @@ fn shard_schema_2_runtime_receipt_binds_delivered_main_and_external_producers() 
     assert_eq!(receipt["authority"]["contractRevision"], "20");
     assert_eq!(
         receipt["authority"]["contractSha256"],
-        hex::encode(sha2::Sha256::digest(include_bytes!(
-            "../../../contracts/knowledge-shard/2.0.0/contract.json"
-        )))
+        "5bf8d2fd8147d8df92599b1a3ce6b405ce022c83893f37547aefa7ca659f0783"
     );
     assert_eq!(
         receipt["authority"]["fieldSemanticsSha256"],
@@ -93,4 +91,45 @@ fn shard_schema_2_runtime_receipt_binds_delivered_main_and_external_producers() 
         "passed"
     );
     assert_eq!(receipt["advertisement"]["advertised"], false);
+
+    let authority: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../contracts/knowledge-shard/2.0.0/contract.json"
+    ))
+    .unwrap();
+    assert_eq!(authority["contractRevision"], "21");
+    assert_eq!(authority["status"], "receipt-bound-opt-in");
+    assert_eq!(authority["profiles"]["core-v1"]["advertised"], false);
+    assert_eq!(authority["profiles"]["record-v1"]["advertised"], false);
+    assert_eq!(authority["profiles"]["full-v1"]["advertised"], true);
+    assert_eq!(authority["selection"]["default"]["schemaVersion"], "1.2.0");
+    assert_eq!(authority["selection"]["default"]["profile"], "core-v1");
+    assert_eq!(
+        authority["evidence"]["runtimeReceipt"]["sha256"],
+        hex::encode(sha2::Sha256::digest(include_bytes!(
+            "../../../tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json"
+        )))
+    );
+
+    let advertisement: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/shards/external/schema-2-advertisement.receipt.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        advertisement["status"],
+        "receipt-bound-opt-in-advertised"
+    );
+    assert_eq!(
+        advertisement["authority"]["contractSha256"],
+        hex::encode(sha2::Sha256::digest(include_bytes!(
+            "../../../contracts/knowledge-shard/2.0.0/contract.json"
+        )))
+    );
+    assert_eq!(
+        advertisement["selection"]["advertisedOptIn"],
+        authority["selection"]["advertisedOptIn"]
+    );
+    assert_eq!(advertisement["claims"]["suiteWide"], false);
+    assert_eq!(advertisement["claims"]["completeBackup"], false);
+    assert_eq!(advertisement["claims"]["parity"], false);
+    assert_eq!(advertisement["claims"]["persistencePlanesUnified"], false);
 }

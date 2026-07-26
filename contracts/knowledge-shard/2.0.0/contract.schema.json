@@ -11,6 +11,8 @@
     "authority",
     "knowledgeShard",
     "profiles",
+    "selection",
+    "evidence",
     "presenceSemantics",
     "schemaBundle",
     "canonicalCorpus",
@@ -22,11 +24,39 @@
   "properties": {
     "$schema": { "const": "https://schemas.fortemi.dev/knowledge-shard/2.0.0/contract.schema.json" },
     "schemaVersion": { "const": 1 },
-    "contractRevision": { "const": "20" },
-    "status": { "const": "specified-implementation-pending" },
+    "contractRevision": { "const": "21" },
+    "status": { "const": "receipt-bound-opt-in" },
     "authority": { "type": "object" },
     "knowledgeShard": { "type": "object" },
     "profiles": { "type": "object" },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default", "advertisedOptIn", "unadvertised"],
+      "properties": {
+        "default": {
+          "const": { "schemaVersion": "1.2.0", "profile": "core-v1" }
+        },
+        "advertisedOptIn": {
+          "const": [{ "schemaVersion": "2.0.0", "profile": "full-v1" }]
+        },
+        "unadvertised": {
+          "const": [
+            { "schemaVersion": "2.0.0", "profile": "core-v1" },
+            { "schemaVersion": "2.0.0", "profile": "record-v1" }
+          ]
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtimeReceipt", "fullV1InteropReceipt"],
+      "properties": {
+        "runtimeReceipt": { "$ref": "#/$defs/evidence" },
+        "fullV1InteropReceipt": { "$ref": "#/$defs/evidence" }
+      }
+    },
     "presenceSemantics": { "type": "object" },
     "schemaBundle": { "type": "object" },
     "canonicalCorpus": { "type": "object" },
@@ -34,6 +64,17 @@
     "previousAuthority": { "type": "object" },
     "tracking": { "type": "object" },
     "claimPolicy": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": true
+    }
   },
   "additionalProperties": false
 }

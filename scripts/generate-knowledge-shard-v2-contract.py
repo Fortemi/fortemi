@@ -14,6 +14,14 @@ CONTRACT_ROOT = ROOT / "contracts/knowledge-shard/2.0.0"
 OUTPUT = CONTRACT_ROOT / "contract.json"
 FIXTURE = ROOT / "tests/fixtures/shards/presence-semantics-v2.0.json"
 PREVIOUS = ROOT / "contracts/knowledge-shard/contract.json"
+RUNTIME_RECEIPT = (
+    ROOT
+    / "tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json"
+)
+INTEROP_RECEIPT = (
+    ROOT
+    / "tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json"
+)
 
 
 def relative(path: Path) -> str:
@@ -49,8 +57,8 @@ def main() -> int:
     document = {
         "$schema": "https://schemas.fortemi.dev/knowledge-shard/2.0.0/contract.schema.json",
         "schemaVersion": 1,
-        "contractRevision": "20",
-        "status": "specified-implementation-pending",
+        "contractRevision": "21",
+        "status": "receipt-bound-opt-in",
         "authority": {
             "repository": "Fortemi/fortemi",
             "adr": "docs/architecture/adr/ADR-103-lossless-knowledge-shard-presence-semantics.md",
@@ -65,7 +73,28 @@ def main() -> int:
         "profiles": {
             "core-v1": {"schemaRoot": "contracts/knowledge-shard/2.0.0/core-v1", "advertised": False},
             "record-v1": {"schemaRoot": "contracts/knowledge-shard/2.0.0/record-v1", "advertised": False},
-            "full-v1": {"schemaRoot": "contracts/knowledge-shard/2.0.0/full-v1", "advertised": False},
+            "full-v1": {"schemaRoot": "contracts/knowledge-shard/2.0.0/full-v1", "advertised": True},
+        },
+        "selection": {
+            "default": {"schemaVersion": "1.2.0", "profile": "core-v1"},
+            "advertisedOptIn": [{"schemaVersion": "2.0.0", "profile": "full-v1"}],
+            "unadvertised": [
+                {"schemaVersion": "2.0.0", "profile": "core-v1"},
+                {"schemaVersion": "2.0.0", "profile": "record-v1"},
+            ],
+        },
+        "evidence": {
+            "runtimeReceipt": {
+                "path": relative(RUNTIME_RECEIPT),
+                "sha256": sha256(RUNTIME_RECEIPT),
+                "authorityCommit": "6343bd899958445bbc7e7e87b0dc92a8429d5a06",
+                "authorityContractRevision": "20",
+            },
+            "fullV1InteropReceipt": {
+                "path": relative(INTEROP_RECEIPT),
+                "sha256": sha256(INTEROP_RECEIPT),
+                "tuple": {"schemaVersion": "2.0.0", "profile": "full-v1"},
+            },
         },
         "presenceSemantics": {
             "inventory": relative(CONTRACT_ROOT / "field-semantics.json"),
@@ -84,7 +113,7 @@ def main() -> int:
             "verifier": "scripts/ci/verify-knowledge-shard-presence.py",
         },
         "compatibility": {
-            "upMigration": "1.2.0 -> 2.0.0 is registered only by a runtime implementation receipt; legacy defaults must be reported.",
+            "upMigration": "1.2.0 -> 2.0.0 is registered by the pinned runtime implementation receipt; legacy defaults must be reported.",
             "downgrade": "No implicit downgrade. full-v1 rejects any lossy projection; reduced profiles require deterministic field losses.",
             "unknownTuple": "Reject before archive staging, database writes, or blob mutation.",
             "rollback": "Disable production/default selection but retain released readers and stored presence metadata.",
@@ -103,8 +132,11 @@ def main() -> int:
             "reactPgliteFull": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/380",
             "reactAiwg": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/381",
             "hotm": "https://git.integrolabs.net/Fortemi/hotm/issues/272",
+            "fortemiDestination": "https://git.integrolabs.net/Fortemi/fortemi/issues/1084",
+            "reactAdvertisement": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/382",
+            "suiteCloseout": "https://git.integrolabs.net/Fortemi/fortemi/issues/1081",
         },
-        "claimPolicy": "This descriptor specifies the next authority contract and enables no support, portability, backup, or parity claim without matrix receipts.",
+        "claimPolicy": "Advertisement authorizes only the exact 2.0.0/full-v1 cells named by the pinned interoperability receipt. It does not authorize suite-wide compatibility, portability, complete backup, or parity claims.",
     }
     rendered = json.dumps(document, indent=2) + "\n"
     if args.check:

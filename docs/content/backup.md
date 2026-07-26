@@ -76,10 +76,11 @@ not participate in compatibility.
 
 Fortemi's signed `1.2.0/full-v1` fixture and server self-import/re-export prove
 only the Fortemi-to-Fortemi boundary. The hardened nine-cell schema `1.2.0`
-matrix is a set of per-cell claims, not a suite-wide parity statement.
-Independent schema `2.0.0/full-v1` advertisement remains gated by Fortemi
-#1084 and fortemi-react #382. Gated claims—full portability, complete backup,
-and schema parity—remain blocked until those receipts close.
+matrix is a set of per-cell claims, not a suite-wide parity statement. Exact
+`2.0.0/full-v1` is now an advertised opt-in backed by the immutable Fortemi
+#1084 and fortemi-react #382 receipts. That receipt covers only its named
+React and AIWG producers, PGlite and Fortemi destinations, and HotM
+pass-through recovery cell. Full portability, complete backup, and schema parity claims remain blocked.
 
 For detailed information about versioning, compatibility, and troubleshooting, see the [Shard Migration Guide](#/core-systems-shard-migration).
 

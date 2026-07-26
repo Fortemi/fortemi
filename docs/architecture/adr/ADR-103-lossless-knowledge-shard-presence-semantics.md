@@ -1,6 +1,6 @@
 # ADR-103: Lossless Knowledge Shard Presence Semantics
 
-**Status:** Accepted
+**Status:** Accepted; `2.0.0/full-v1` receipt-bound opt-in advertised
 **Date:** 2026-07-22
 **Decision owners:** Fortemi schema authority maintainers
 **Tracking:** [Fortemi #1083](https://git.integrolabs.net/Fortemi/fortemi/issues/1083),
@@ -100,13 +100,18 @@ until all losses and rejection conditions are known.
 
 ### Rollout and rollback
 
-Schema publication starts in `specified-implementation-pending` state. The
-server and consumers retain 1.x readers and defaults during rollout. A rollback
-may disable 2.0 production and default selection, but must retain the 2.0
-reader and stored presence metadata once a released build has accepted 2.0
-archives. No profile advertises 2.0 support until its matrix cell binds the
-authority commit, bundle digest, fixture digest, implementation commit, and
-passing CI receipt.
+Schema publication started in `specified-implementation-pending` state.
+Revision 21 moves only exact `2.0.0/full-v1` to `receipt-bound-opt-in` after
+the released runtime and five-cell cross-repository receipt passed. Schema
+`1.2.0/core-v1` remains the default export tuple. Exact `2.0.0/core-v1` and
+`2.0.0/record-v1` remain unadvertised.
+
+The server and consumers retain 1.x readers and defaults during rollout. A
+rollback may disable the 2.0 opt-in selector, but must retain the 2.0 reader
+and stored presence metadata once a released build has accepted 2.0 archives.
+Advertisement does not authorize suite-wide compatibility, portability, complete
+backup, or parity claims; it authorizes only the producer, consumer, and HotM
+pass-through cells named by the immutable interoperability receipt.
 
 ## Conformance
 

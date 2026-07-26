@@ -1,8 +1,8 @@
 {
   "$schema": "https://schemas.fortemi.dev/knowledge-shard/2.0.0/contract.schema.json",
   "schemaVersion": 1,
-  "contractRevision": "20",
-  "status": "specified-implementation-pending",
+  "contractRevision": "21",
+  "status": "receipt-bound-opt-in",
   "authority": {
     "repository": "Fortemi/fortemi",
     "adr": "docs/architecture/adr/ADR-103-lossless-knowledge-shard-presence-semantics.md"
@@ -25,7 +25,45 @@
     },
     "full-v1": {
       "schemaRoot": "contracts/knowledge-shard/2.0.0/full-v1",
-      "advertised": false
+      "advertised": true
+    }
+  },
+  "selection": {
+    "default": {
+      "schemaVersion": "1.2.0",
+      "profile": "core-v1"
+    },
+    "advertisedOptIn": [
+      {
+        "schemaVersion": "2.0.0",
+        "profile": "full-v1"
+      }
+    ],
+    "unadvertised": [
+      {
+        "schemaVersion": "2.0.0",
+        "profile": "core-v1"
+      },
+      {
+        "schemaVersion": "2.0.0",
+        "profile": "record-v1"
+      }
+    ]
+  },
+  "evidence": {
+    "runtimeReceipt": {
+      "path": "tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json",
+      "sha256": "88a11341f6cd120a937974babc83539d7837548fbceaf4bb2dd23c9e9f19fbca",
+      "authorityCommit": "6343bd899958445bbc7e7e87b0dc92a8429d5a06",
+      "authorityContractRevision": "20"
+    },
+    "fullV1InteropReceipt": {
+      "path": "tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json",
+      "sha256": "48f622afc02279b2360534af3aa542de96efea1e752f4a80a4cd6f3d6e2066cc",
+      "tuple": {
+        "schemaVersion": "2.0.0",
+        "profile": "full-v1"
+      }
     }
   },
   "presenceSemantics": {
@@ -42,9 +80,9 @@
   },
   "schemaBundle": {
     "aggregateAlgorithm": "sha256(raw file bytes concatenated in lexicographic path order)",
-    "sha256": "66dee80876c73fdc8756541c72e96ae189c098113a831c849d619381c4121c02",
+    "sha256": "731700868cc93ba95e2c1d9e896df265d0757438b06fa002d9b643ab05b5f74d",
     "files": {
-      "contracts/knowledge-shard/2.0.0/contract.schema.json": "7dc21c1d0efbad2aaa782c5c637c67268558a3822850eb3ac0c67e5a7baba427",
+      "contracts/knowledge-shard/2.0.0/contract.schema.json": "4569bb5c4995dcdd3dfead3aadb38fb1230fe13b6fc6a2ecd49b2c1be8bde53f",
       "contracts/knowledge-shard/2.0.0/core-v1/collection.schema.json": "ed28f395e4bea9ae235bc32e9e4167abec4f318dc5335cea6aa2f4d1bdcf9705",
       "contracts/knowledge-shard/2.0.0/core-v1/link.schema.json": "7bc1531f785d8f5c0b442f09fd039adc0c170b65b9919e2f652b452f614071ea",
       "contracts/knowledge-shard/2.0.0/core-v1/manifest.schema.json": "f35775e0532c9b2c9f7543c0aef1f0836233253e8f8c7abab62d20824809aad8",
@@ -96,7 +134,7 @@
     "verifier": "scripts/ci/verify-knowledge-shard-presence.py"
   },
   "compatibility": {
-    "upMigration": "1.2.0 -> 2.0.0 is registered only by a runtime implementation receipt; legacy defaults must be reported.",
+    "upMigration": "1.2.0 -> 2.0.0 is registered by the pinned runtime implementation receipt; legacy defaults must be reported.",
     "downgrade": "No implicit downgrade. full-v1 rejects any lossy projection; reduced profiles require deterministic field losses.",
     "unknownTuple": "Reject before archive staging, database writes, or blob mutation.",
     "rollback": "Disable production/default selection but retain released readers and stored presence metadata."
@@ -114,7 +152,10 @@
     "reactPresence": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/379",
     "reactPgliteFull": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/380",
     "reactAiwg": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/381",
-    "hotm": "https://git.integrolabs.net/Fortemi/hotm/issues/272"
+    "hotm": "https://git.integrolabs.net/Fortemi/hotm/issues/272",
+    "fortemiDestination": "https://git.integrolabs.net/Fortemi/fortemi/issues/1084",
+    "reactAdvertisement": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/382",
+    "suiteCloseout": "https://git.integrolabs.net/Fortemi/fortemi/issues/1081"
   },
-  "claimPolicy": "This descriptor specifies the next authority contract and enables no support, portability, backup, or parity claim without matrix receipts."
+  "claimPolicy": "Advertisement authorizes only the exact 2.0.0/full-v1 cells named by the pinned interoperability receipt. It does not authorize suite-wide compatibility, portability, complete backup, or parity claims."
 }

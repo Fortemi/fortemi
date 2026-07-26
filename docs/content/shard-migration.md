@@ -23,9 +23,10 @@ and React return import. The `full-v1` server route requires the complete rich
 component inventory and every declared attachment byte; its signed fixture
 passes clean import, exact semantic re-export, and failure rollback. The
 hardened nine-cell schema `1.2.0` matrix expresses only its individual
-producer/consumer cells. External `2.0.0/full-v1` producer and consumer
-receipts remain pending under Fortemi #1084 and fortemi-react #382, so the
-server self-roundtrip must not be generalized into a suite-wide claim.
+producer/consumer cells. The Fortemi #1084 and fortemi-react #382 receipts
+advertise exact `2.0.0/full-v1` as an opt-in for their named React and AIWG
+producers, PGlite and Fortemi destinations, and HotM pass-through recovery
+cell. Neither matrix may be generalized into a suite-wide claim.
 
 Schema validation is necessary but not a full recovery claim. The current
 `core-v1` REST route is reference-only by default and can opt into verified
