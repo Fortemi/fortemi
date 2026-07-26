@@ -1,0 +1,56 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T16:28:52Z"
+  description: "Provenance for current PGlite core-v1 Fortemi consumer conformance coverage"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:db758d68aeffd5914e484af8443dc1950667cdeeee2be92fe0992e28b49d08db"
+  type: test_code
+  created_at: "2026-07-26T16:28:52Z"
+  updated_at: "2026-07-26T16:28:52Z"
+  checksum: "sha256:db758d68aeffd5914e484af8443dc1950667cdeeee2be92fe0992e28b49d08db"
+  size_bytes: 2518927
+  attributes:
+    issue: "Fortemi/fortemi#1059"
+    producer_issue: "Fortemi/fortemi-react#354"
+    cell: "pglite-core-v1-to-fortemi"
+    change_type: modification
+    base_revision: "9c609577ec3fff132c2fd7c8e4e253267494c606"
+activity:
+  id: "urn:aiwg:activity:modification:matric-api-main-pglite-core-v1-consumer-1059:001"
+  type: modification
+  started_at: "2026-07-26T16:24:00Z"
+  ended_at: "2026-07-26T16:28:52Z"
+  description: "Consume the current PGlite fixture twice and cover current-minus-two, malformed, next-major, and resource-limit behavior before mutation"
+  attributes:
+    verification:
+      - "cargo test -p matric-api pglite_core_v1 -- --nocapture: 2 passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:db758d68aeffd5914e484af8443dc1950667cdeeee2be92fe0992e28b49d08db"
+    activity: "urn:aiwg:activity:modification:matric-api-main-pglite-core-v1-consumer-1059:001"
+    time: "2026-07-26T16:28:52Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:matric-api-main-pglite-core-v1-consumer-1059:001"
+      entity: "urn:git:git@git.integrolabs.net:Fortemi/fortemi-react.git:1ba313d65cd92d5180c6dc563a4936a3a9582af5:packages/core/src/__tests__/shard/fixtures/pglite-core-v1-2026.7.13.shard"
+      role: producer_fixture
+    - activity: "urn:aiwg:activity:modification:matric-api-main-pglite-core-v1-consumer-1059:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1059"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:db758d68aeffd5914e484af8443dc1950667cdeeee2be92fe0992e28b49d08db"
+      source: "urn:gitea:commit:Fortemi/fortemi:9c609577ec3fff132c2fd7c8e4e253267494c606"
+      derivation_type: modifies
+      activity: "urn:aiwg:activity:modification:matric-api-main-pglite-core-v1-consumer-1059:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:matric-api-main-pglite-core-v1-consumer-1059:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:db758d68aeffd5914e484af8443dc1950667cdeeee2be92fe0992e28b49d08db"
+    agent: "urn:aiwg:agent:codex-gpt-5"

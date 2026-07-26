@@ -47345,7 +47345,7 @@ not-json
             .expect("create isolated PGlite fixture destination");
         let destination_ctx = db.for_schema(&destination.schema_name).unwrap();
         let state = build_call_api_test_state(db.clone(), &database_url).await;
-        let shard = include_bytes!("../../../tests/fixtures/shards/pglite-core-v1-2026.7.11.shard");
+        let shard = include_bytes!("../../../tests/fixtures/shards/pglite-core-v1-2026.7.13.shard");
         let opts = ShardImportOptions {
             include: None,
             dry_run: false,
@@ -47372,14 +47372,16 @@ not-json
             .expect("read clean PGlite fixture destination");
         assert_eq!(before, (0, 0, 0, 0));
 
-        let imported =
-            knowledge_shard_import_internal(&state, shard, &opts, &destination.schema_name)
-                .await
-                .expect("import published PGlite core-v1 fixture");
-        assert_eq!(imported.imported.collections, 2);
-        assert_eq!(imported.imported.notes, 2);
-        assert_eq!(imported.imported.templates, 1);
-        assert_eq!(imported.imported.links, 1);
+        for _ in 0..2 {
+            let imported =
+                knowledge_shard_import_internal(&state, shard, &opts, &destination.schema_name)
+                    .await
+                    .expect("import current PGlite core-v1 fixture");
+            assert_eq!(imported.imported.collections, 2);
+            assert_eq!(imported.imported.notes, 2);
+            assert_eq!(imported.imported.templates, 1);
+            assert_eq!(imported.imported.links, 1);
+        }
 
         let semantic = destination_ctx
             .query(|tx| {
@@ -47433,7 +47435,8 @@ not-json
             serde_json::json!({
                 "conformance": {
                     "producer": "@fortemi/core",
-                    "version": "2026.7.11"
+                    "profile": "core-v1",
+                    "version": "2026.7.13"
                 }
             })
         );
@@ -47442,7 +47445,7 @@ not-json
         assert_eq!(
             semantic.2 .1,
             Some(
-                chrono::DateTime::parse_from_rfc3339("2026-07-21T10:14:00Z")
+                chrono::DateTime::parse_from_rfc3339("2026-07-26T14:14:00.000Z")
                     .unwrap()
                     .with_timezone(&chrono::Utc)
             )
@@ -47476,17 +47479,168 @@ not-json
         assert!(notes.iter().any(|note| {
             note["id"] == "018f2d2d-bc00-7cc8-8ad2-f147d6a2e711"
                 && note.pointer("/metadata/conformance/version")
-                    == Some(&serde_json::json!("2026.7.11"))
+                    == Some(&serde_json::json!("2026.7.13"))
         }));
         assert!(notes.iter().any(|note| {
             note["id"] == "018f2d2d-bc00-7cc8-8ad2-f147d6a2e712"
-                && note["deleted_at"] == "2026-07-21T10:14:00Z"
+                && note["deleted_at"] == "2026-07-26T14:14:00Z"
         }));
 
         db.archives
             .drop_archive_schema(&archive_name)
             .await
             .expect("drop isolated PGlite fixture destination");
+    }
+
+    #[tokio::test]
+    async fn pglite_core_v1_fortemi_consumer_rejects_invalid_inputs_before_mutation() {
+        use sha2::Digest;
+
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let destination_name = format!("pglite-rejection-{}", Uuid::new_v4().simple());
+        let destination = db
+            .archives
+            .create_archive_schema(
+                &destination_name,
+                Some("Current PGlite core-v1 rejection destination"),
+            )
+            .await
+            .expect("create isolated PGlite rejection destination");
+        let destination_ctx = db.for_schema(&destination.schema_name).unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let shard = include_bytes!("../../../tests/fixtures/shards/pglite-core-v1-2026.7.13.shard");
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let read_counts = || {
+            let destination_ctx = destination_ctx.clone();
+            async move {
+                destination_ctx
+                    .query(|tx| {
+                        Box::pin(async move {
+                            sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
+                                "SELECT
+                                   (SELECT COUNT(*) FROM collection),
+                                   (SELECT COUNT(*) FROM note),
+                                   (SELECT COUNT(*) FROM tag),
+                                   (SELECT COUNT(*) FROM note_template),
+                                   (SELECT COUNT(*) FROM link)",
+                            )
+                            .fetch_one(&mut **tx)
+                            .await
+                            .map_err(matric_db::Error::Database)
+                        })
+                    })
+                    .await
+                    .expect("read PGlite rejection destination counts")
+            }
+        };
+        assert_eq!(read_counts().await, (0, 0, 0, 0, 0));
+
+        let files = read_shard_archive(shard, ShardArchiveLimits::default()).unwrap();
+        let mut malformed_notes =
+            parse_shard_component_records("notes", &files["notes.jsonl"]).unwrap();
+        malformed_notes[0]["id"] = serde_json::json!("not-a-uuid");
+        let malformed_notes = malformed_notes
+            .iter()
+            .map(|record| serde_json::to_string(record).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .into_bytes();
+        let mut malformed_manifest: serde_json::Value =
+            serde_json::from_slice(&files["manifest.json"]).unwrap();
+        malformed_manifest["checksums"]["notes.jsonl"] =
+            serde_json::json!(hex::encode(sha2::Sha256::digest(&malformed_notes)));
+        let malformed = replace_shard_entry(shard, "notes.jsonl", &malformed_notes);
+        let malformed = replace_shard_entry(
+            &malformed,
+            "manifest.json",
+            &serde_json::to_vec_pretty(&malformed_manifest).unwrap(),
+        );
+        let error =
+            knowledge_shard_import_internal(&state, &malformed, &opts, &destination.schema_name)
+                .await
+                .expect_err("malformed current PGlite fixture must be rejected");
+        assert!(matches!(error, ApiError::BadRequest(_)));
+        assert_eq!(read_counts().await, (0, 0, 0, 0, 0));
+
+        let mut next_major_manifest: serde_json::Value =
+            serde_json::from_slice(&files["manifest.json"]).unwrap();
+        next_major_manifest["version"] = serde_json::json!("3.0.0");
+        next_major_manifest["min_reader_version"] = serde_json::json!("3.0.0");
+        let next_major = replace_shard_entry(
+            shard,
+            "manifest.json",
+            &serde_json::to_vec_pretty(&next_major_manifest).unwrap(),
+        );
+        let error =
+            knowledge_shard_import_internal(&state, &next_major, &opts, &destination.schema_name)
+                .await
+                .expect_err("next-major PGlite fixture must be rejected");
+        assert!(matches!(
+            error,
+            ApiError::BadRequest(message)
+                if message == "Knowledge shard requires a newer reader contract."
+        ));
+        assert_eq!(read_counts().await, (0, 0, 0, 0, 0));
+
+        let mut limited_state = state.clone();
+        limited_state.max_upload_size = shard.len() - 1;
+        let error =
+            knowledge_shard_import_internal(&limited_state, shard, &opts, &destination.schema_name)
+                .await
+                .expect_err(
+                    "PGlite fixture above the configured compressed limit must be rejected",
+                );
+        assert!(matches!(
+            error,
+            ApiError::BadRequest(message)
+                if message == "Knowledge shard exceeds the compressed size limit."
+        ));
+        assert_eq!(read_counts().await, (0, 0, 0, 0, 0));
+
+        let historical_name = format!("pglite-historical-{}", Uuid::new_v4().simple());
+        let historical_destination = db
+            .archives
+            .create_archive_schema(
+                &historical_name,
+                Some("PGlite current-minus-two consumer destination"),
+            )
+            .await
+            .expect("create isolated current-minus-two destination");
+        let historical = knowledge_shard_import_internal(
+            &state,
+            &hierarchical_core_shard_bytes(),
+            &opts,
+            &historical_destination.schema_name,
+        )
+        .await
+        .expect("Fortemi must accept the registered core-v1 current-minus-two migration");
+        let historical_manifest = historical
+            .manifest
+            .expect("current-minus-two import returns migrated manifest");
+        assert_eq!(historical_manifest.migrated_from.as_deref(), Some("1.0.0"));
+        assert_eq!(
+            historical_manifest.version,
+            matric_core::shard::CURRENT_SHARD_VERSION
+        );
+
+        db.archives
+            .drop_archive_schema(&historical_name)
+            .await
+            .expect("drop isolated current-minus-two destination");
+        db.archives
+            .drop_archive_schema(&destination_name)
+            .await
+            .expect("drop isolated PGlite rejection destination");
     }
 
     #[tokio::test]
