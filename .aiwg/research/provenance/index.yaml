@@ -1,7 +1,15 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-26T17:54:42Z"
+  updated_at: "2026-07-26T18:18:04Z"
 records:
+  - entity: "crates/matric-api/src/main.rs"
+    record: "records/matric-api-main-recordstore-record-v1-consumer-1059.prov.yaml"
+  - entity: "tests/fixtures/shards/recordstore-record-v1-2026.7.13.shard"
+    record: "records/recordstore-record-v1-2026.7.13-consumer-fixture-1059.prov.yaml"
+  - entity: "tests/fixtures/shards/recordstore-record-v1-2026.7.13.shard.producer-receipt.json"
+    record: "records/recordstore-record-v1-2026.7.13-producer-receipt-1059.prov.yaml"
+  - entity: "tests/fixtures/shards/README.md"
+    record: "records/shard-fixtures-readme-recordstore-to-fortemi-1059.prov.yaml"
   - entity: ".gitea/workflows/ci-builder.yaml"
     record: "records/ci-builder-lightweight-knowledge-shard-matrix-1059.prov.yaml"
   - entity: "contracts/knowledge-shard/conformance/matrix.json"

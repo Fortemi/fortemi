@@ -45463,7 +45463,7 @@ mod tests {
                 panic!("read record-v1 cross-repository shard {path}: {error}")
             });
         }
-        include_bytes!("../../../tests/fixtures/shards/recordstore-record-v1-2026.7.11.shard")
+        include_bytes!("../../../tests/fixtures/shards/recordstore-record-v1-2026.7.13.shard")
             .to_vec()
     }
 
@@ -47803,11 +47803,52 @@ not-json
         assert_eq!(
             tombstones[1].1,
             Some(
-                chrono::DateTime::parse_from_rfc3339("2026-07-18T00:00:00Z")
+                chrono::DateTime::parse_from_rfc3339("2026-07-26T16:14:00Z")
                     .unwrap()
                     .with_timezone(&chrono::Utc)
             )
         );
+
+        let note_semantics = destination_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<
+                        _,
+                        (
+                            Uuid,
+                            serde_json::Value,
+                            String,
+                            Option<chrono::DateTime<chrono::Utc>>,
+                        ),
+                    >(
+                        "SELECT n.id, n.metadata, nrc.content, n.deleted_at
+                         FROM note n
+                         JOIN note_revised_current nrc ON nrc.note_id = n.id
+                         ORDER BY n.id",
+                    )
+                    .fetch_all(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read record-v1 note semantics");
+        assert_eq!(note_semantics.len(), 2);
+        assert_eq!(
+            note_semantics[0].1,
+            serde_json::json!({
+                "conformance": {
+                    "producer": "@fortemi/core",
+                    "profile": "record-v1",
+                    "version": "2026.7.13"
+                }
+            })
+        );
+        assert_eq!(note_semantics[0].2, "Revised active RecordStore content");
+        assert!(note_semantics[0].3.is_none());
+        assert!(note_semantics[1].1.is_null());
+        assert_eq!(note_semantics[1].2, "");
+        assert!(note_semantics[1].3.is_some());
 
         let reexport = knowledge_shard(
             State(state.clone()),
@@ -47835,6 +47876,26 @@ not-json
         let reexported_manifest =
             parse_and_validate_shard_manifest(&reexported_files["manifest.json"]).unwrap();
         assert_eq!(reexported_manifest.profile.as_deref(), Some("core-v1"));
+        let reexported_notes =
+            parse_shard_component_records("notes", &reexported_files["notes.jsonl"]).unwrap();
+        assert!(reexported_notes.iter().any(|note| {
+            note["id"] == "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a"
+                && note.pointer("/metadata/conformance/profile")
+                    == Some(&serde_json::json!("record-v1"))
+                && note["revised_content"] == "Revised active RecordStore content"
+        }));
+        assert!(reexported_notes.iter().any(|note| {
+            note["id"] == "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77f"
+                && note["metadata"].is_null()
+                && note["deleted_at"] == "2026-07-26T16:14:00Z"
+        }));
+        let reexported_collections =
+            parse_shard_component_records("collections", &reexported_files["collections.json"])
+                .unwrap();
+        assert!(reexported_collections.iter().any(|collection| {
+            collection["id"] == "018f2d2d-bc00-7cc8-8ad2-f147d6a2e780"
+                && collection["parent_id"] == "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77b"
+        }));
         if let Ok(path) = std::env::var("FORTEMI_RECORD_V1_CROSS_REPO_REEXPORT") {
             std::fs::write(&path, &reexported_bytes).unwrap_or_else(|error| {
                 panic!("write record-v1 cross-repository re-export {path}: {error}")
@@ -47845,6 +47906,140 @@ not-json
             .drop_archive_schema(&destination_name)
             .await
             .expect("drop isolated record-v1 destination");
+    }
+
+    #[tokio::test]
+    async fn recordstore_record_v1_rejects_invalid_inputs_before_fortemi_mutation() {
+        use sha2::Digest;
+
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let destination_name = format!("record-v1-rejection-{}", Uuid::new_v4().simple());
+        let destination = db
+            .archives
+            .create_archive_schema(
+                &destination_name,
+                Some("Current RecordStore record-v1 rejection destination"),
+            )
+            .await
+            .expect("create isolated RecordStore rejection destination");
+        let destination_ctx = db.for_schema(&destination.schema_name).unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let shard = record_v1_shard_bytes();
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let read_counts = || {
+            let destination_ctx = destination_ctx.clone();
+            async move {
+                destination_ctx
+                    .query(|tx| {
+                        Box::pin(async move {
+                            sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                                "SELECT
+                                   (SELECT COUNT(*) FROM collection),
+                                   (SELECT COUNT(*) FROM note),
+                                   (SELECT COUNT(*) FROM tag),
+                                   (SELECT COUNT(*) FROM link)",
+                            )
+                            .fetch_one(&mut **tx)
+                            .await
+                            .map_err(matric_db::Error::Database)
+                        })
+                    })
+                    .await
+                    .expect("read RecordStore rejection destination counts")
+            }
+        };
+        assert_eq!(read_counts().await, (0, 0, 0, 0));
+
+        let files = read_shard_archive(&shard, ShardArchiveLimits::default()).unwrap();
+        let mut malformed_notes =
+            parse_shard_component_records("notes", &files["notes.jsonl"]).unwrap();
+        malformed_notes[0]["id"] = serde_json::json!("not-a-uuid");
+        let malformed_notes = malformed_notes
+            .iter()
+            .map(|record| serde_json::to_string(record).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .into_bytes();
+        let mut malformed_manifest: serde_json::Value =
+            serde_json::from_slice(&files["manifest.json"]).unwrap();
+        malformed_manifest["checksums"]["notes.jsonl"] =
+            serde_json::json!(hex::encode(sha2::Sha256::digest(&malformed_notes)));
+        let malformed = replace_shard_entry(&shard, "notes.jsonl", &malformed_notes);
+        let malformed = replace_shard_entry(
+            &malformed,
+            "manifest.json",
+            &serde_json::to_vec_pretty(&malformed_manifest).unwrap(),
+        );
+        let error =
+            knowledge_shard_import_internal(&state, &malformed, &opts, &destination.schema_name)
+                .await
+                .expect_err("malformed RecordStore record must be rejected");
+        assert!(matches!(error, ApiError::BadRequest(_)));
+        assert_eq!(read_counts().await, (0, 0, 0, 0));
+
+        let mut next_major_manifest: serde_json::Value =
+            serde_json::from_slice(&files["manifest.json"]).unwrap();
+        next_major_manifest["version"] = serde_json::json!("3.0.0");
+        next_major_manifest["min_reader_version"] = serde_json::json!("3.0.0");
+        let next_major = replace_shard_entry(
+            &shard,
+            "manifest.json",
+            &serde_json::to_vec_pretty(&next_major_manifest).unwrap(),
+        );
+        let error =
+            knowledge_shard_import_internal(&state, &next_major, &opts, &destination.schema_name)
+                .await
+                .expect_err("next-major RecordStore fixture must be rejected");
+        assert!(matches!(error, ApiError::BadRequest(_)));
+        assert_eq!(read_counts().await, (0, 0, 0, 0));
+
+        let mut undefined_manifest: serde_json::Value =
+            serde_json::from_slice(&files["manifest.json"]).unwrap();
+        undefined_manifest["version"] = serde_json::json!("1.0.0");
+        undefined_manifest["min_reader_version"] = serde_json::json!("1.0.0");
+        let undefined = replace_shard_entry(
+            &shard,
+            "manifest.json",
+            &serde_json::to_vec_pretty(&undefined_manifest).unwrap(),
+        );
+        let error =
+            knowledge_shard_import_internal(&state, &undefined, &opts, &destination.schema_name)
+                .await
+                .expect_err("undefined current-minus-two record-v1 profile must be rejected");
+        assert!(matches!(error, ApiError::BadRequest(_)));
+        assert_eq!(read_counts().await, (0, 0, 0, 0));
+
+        let mut limited_state = state.clone();
+        limited_state.max_upload_size = shard.len() - 1;
+        let error = knowledge_shard_import_internal(
+            &limited_state,
+            &shard,
+            &opts,
+            &destination.schema_name,
+        )
+        .await
+        .expect_err("RecordStore fixture above the configured compressed limit must be rejected");
+        assert!(matches!(
+            error,
+            ApiError::BadRequest(message)
+                if message == "Knowledge shard exceeds the compressed size limit."
+        ));
+        assert_eq!(read_counts().await, (0, 0, 0, 0));
+
+        db.archives
+            .drop_archive_schema(&destination_name)
+            .await
+            .expect("drop isolated RecordStore rejection destination");
     }
 
     #[tokio::test]

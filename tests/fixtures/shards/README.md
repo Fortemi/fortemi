@@ -95,6 +95,23 @@ schema acceptance, oldest-defined `record-v1` `1.1.0` acceptance, undefined
 limits, repeated imports, and exact component re-export without mutation on
 failure. The Fortemi database integration test consumes these bytes.
 
+### recordstore-record-v1-2026.7.13.shard
+
+Current deterministic `1.2.0/record-v1` archive produced by the live
+`@fortemi/core@2026.7.13` RecordStore implementation at signed React commit
+`5b30af7394604ddb4832de9f61f8183e6169812e`. The vendored producer receipt
+binds the fixture digest, mandatory loss report, all nine matrix dimensions,
+repeat import, exact RecordStore component re-export, and zero mutation on
+rejection.
+
+Fortemi consumes these exact bytes in an isolated archive schema. Its focused
+tests prove hierarchy, metadata values, explicit-null metadata, tombstones,
+repeat import, semantic `core-v1` re-export, malformed and next-major
+rejection, undefined `1.0.0/record-v1` rejection, configured resource limits,
+and zero persistent mutation after every rejection. This evidence is scoped
+to the reduced, lossy `record-v1` profile and is not complete-backup or
+suite-wide portability evidence.
+
 ### pglite-core-v1-2026.7.11.shard
 
 Deterministic `core-v1` archive produced through the published
