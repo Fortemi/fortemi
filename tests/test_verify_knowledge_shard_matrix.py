@@ -57,8 +57,8 @@ class MatrixVerifierTest(unittest.TestCase):
         assert output is not None
         self.assertFalse(output["claimsAllowed"])
         self.assertEqual(output["summary"]["requiredCells"], 9)
-        self.assertEqual(output["summary"]["passed"], 6)
-        self.assertEqual(output["summary"]["pending"], 3)
+        self.assertEqual(output["summary"]["passed"], 7)
+        self.assertEqual(output["summary"]["pending"], 2)
         self.assertEqual(
             set(output["blockedClaims"]),
             {"compatibility", "portability", "backup", "parity"},
@@ -175,6 +175,14 @@ class MatrixVerifierTest(unittest.TestCase):
         self.assertTrue(fortemi_to_pglite["coverageComplete"])
         self.assertTrue(all(fortemi_to_pglite["coverageOutcomes"].values()))
         self.assertEqual(fortemi_to_pglite["missingCoverage"], [])
+        recordstore_to_fortemi = next(
+            cell
+            for cell in output["cells"]
+            if cell["id"] == "recordstore-record-v1-to-fortemi"
+        )
+        self.assertTrue(recordstore_to_fortemi["coverageComplete"])
+        self.assertTrue(all(recordstore_to_fortemi["coverageOutcomes"].values()))
+        self.assertEqual(recordstore_to_fortemi["missingCoverage"], [])
 
     def test_passed_cell_requires_digest_pinned_coverage_binding(self) -> None:
         matrix = self.matrix()

@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "fortemi.knowledge-shard.cell-receipt.v1",
+  "status": "consumer-conformance-passed",
+  "cell": "recordstore-record-v1-to-fortemi",
+  "producer": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+    "commit": "5b30af7394604ddb4832de9f61f8183e6169812e",
+    "receiptCommit": "6a37716ee823c19e67b6eb8fc4dbca230a6d2037",
+    "package": {
+      "name": "@fortemi/core",
+      "version": "2026.7.13"
+    },
+    "generator": "packages/core/scripts/generate-record-v1-self-fixture.mjs"
+  },
+  "authority": {
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "commit": "81fbeaf065df3818edd046ed8a744f10eeb00e6f",
+    "contractRevision": "19",
+    "contractSha256": "5debc14e0bc7eef403a75e8e063a10f53019e1d74857485d6eda3abaec9397e2",
+    "schemaVersion": "1.2.0",
+    "schemaBundleSha256": "deec0cb66dc09865667256e29340d096c02dd9b0e55bdc1ae60b7effb68ac595"
+  },
+  "fixture": {
+    "sourcePath": "packages/core/src/__tests__/shard/fixtures/recordstore-record-v1-2026.7.13.shard",
+    "path": "tests/fixtures/shards/recordstore-record-v1-2026.7.13.shard",
+    "sha256": "7730873c7f43c1333e12915a3899a2a712321538fb1f2e41055b77cd40307285",
+    "bytes": 1234,
+    "profile": "record-v1",
+    "producerReceiptPath": "packages/core/schemas/knowledge-shard-record-v1-recordstore-self.receipt.json",
+    "producerReceiptSha256": "64526dca39fd3607157d7fc18e02b3becc46dea7dfd094f1908085bcd3f0117f",
+    "components": [
+      "notes",
+      "collections",
+      "tags",
+      "links"
+    ],
+    "counts": {
+      "notes": 2,
+      "collections": 2,
+      "tags": 1,
+      "templates": 0,
+      "links": 1
+    }
+  },
+  "consumer": {
+    "id": "fortemi",
+    "repository": "https://git.integrolabs.net/Fortemi/fortemi.git",
+    "baseCommit": "18c53c6c1d6961b4aa31cb4b7b9b62fb62d801ab",
+    "cleanDestination": true,
+    "semanticReexport": true,
+    "zeroMutationOnFailure": true,
+    "repeatedImports": 2,
+    "hierarchyPreserved": true,
+    "metadataValuePreserved": true,
+    "explicitNullMetadataPreserved": true,
+    "tombstonePreserved": true,
+    "currentMinusTwo": {
+      "schemaVersion": "1.0.0",
+      "profileDefined": false,
+      "rejectedBeforeMutation": true
+    },
+    "nextMajor": {
+      "schemaVersion": "3.0.0",
+      "rejected": true
+    },
+    "malformedInputRejected": true,
+    "resourceLimits": {
+      "compressedBytes": 1233,
+      "rejectedBeforeMutation": true
+    },
+    "persistentMutationAfterRejection": 0
+  },
+  "declaredLosses": [
+    "null-revised-content-normalized",
+    "attachment-lifecycle-outside-profile",
+    "link-confidence-defaulted"
+  ],
+  "tests": {
+    "cleanDestination": "tests::shard_record_v1_clean_import_is_atomic_and_repeatable",
+    "negativeCases": "tests::recordstore_record_v1_rejects_invalid_inputs_before_fortemi_mutation",
+    "local": {
+      "command": "DATABASE_URL=postgres://matric:matric@localhost/matric cargo test -p matric-api --bin matric-api -- --nocapture",
+      "passed": 914,
+      "failed": 0
+    },
+    "producerCi": {
+      "commit": "6a37716ee823c19e67b6eb8fc4dbca230a6d2037",
+      "run": 1888,
+      "job": 101293,
+      "url": "https://git.integrolabs.net/Fortemi/fortemi-react/actions/runs/1888/jobs/3",
+      "status": "success",
+      "passed": 281,
+      "failed": 0
+    },
+    "consumerDeliveryCi": {
+      "commit": "18c53c6c1d6961b4aa31cb4b7b9b62fb62d801ab",
+      "run": 6075,
+      "job": 101322,
+      "url": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/6075/jobs/5",
+      "purpose": "clean-checkout delivery and immutable matrix verification at the exact consumer commit",
+      "status": "success"
+    }
+  },
+  "coverage": [
+    "hierarchy",
+    "metadata",
+    "nulls",
+    "tombstones",
+    "current-minus-two",
+    "current",
+    "next-major-rejection",
+    "malformed-input",
+    "resource-limits"
+  ],
+  "claimBoundary": {
+    "profile": "record-v1",
+    "schemaVersion": "1.2.0",
+    "cell": "recordstore-record-v1-to-fortemi",
+    "lossy": true,
+    "suiteWide": false,
+    "completeBackup": false,
+    "crossRepository": true
+  }
+}

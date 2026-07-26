@@ -108,9 +108,11 @@ Fortemi consumes these exact bytes in an isolated archive schema. Its focused
 tests prove hierarchy, metadata values, explicit-null metadata, tombstones,
 repeat import, semantic `core-v1` re-export, malformed and next-major
 rejection, undefined `1.0.0/record-v1` rejection, configured resource limits,
-and zero persistent mutation after every rejection. This evidence is scoped
-to the reduced, lossy `record-v1` profile and is not complete-backup or
-suite-wide portability evidence.
+and zero persistent mutation after every rejection. The adjacent
+`.cell-receipt.json` binds those results to exact producer, producer-receipt,
+authority, consumer, fixture, local database-test, and delivered CI revisions.
+This evidence is scoped to the reduced, lossy `record-v1` profile and is not
+complete-backup or suite-wide portability evidence.
 
 ### pglite-core-v1-2026.7.11.shard
 

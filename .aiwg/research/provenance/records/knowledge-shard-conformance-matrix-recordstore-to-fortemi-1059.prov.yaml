@@ -1,0 +1,55 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T19:08:02Z"
+  description: "Provenance for promoting the current RecordStore-to-Fortemi cell"
+entity:
+  id: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:e29b07457cbd324c232d0bd3ca36aea6733127e02114b8afe105557dc246f976"
+  type: contract
+  created_at: "2026-07-26T19:08:02Z"
+  updated_at: "2026-07-26T19:08:02Z"
+  checksum: "sha256:e29b07457cbd324c232d0bd3ca36aea6733127e02114b8afe105557dc246f976"
+  size_bytes: 34281
+  attributes:
+    issue: "Fortemi/fortemi#1059"
+    producer_issue: "Fortemi/fortemi-react#355"
+    cell: "recordstore-record-v1-to-fortemi"
+    change_type: modification
+    base_revision: "18c53c6c1d6961b4aa31cb4b7b9b62fb62d801ab"
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-matrix-recordstore-to-fortemi-1059:001"
+  type: modification
+  started_at: "2026-07-26T19:00:00Z"
+  ended_at: "2026-07-26T19:08:02Z"
+  description: "Refresh the current RecordStore participant and self-cell and promote only the independent Fortemi consumer cell"
+  attributes:
+    verification:
+      - "python3 -m unittest tests/test_verify_knowledge_shard_matrix.py: 13 passed"
+      - "python3 scripts/ci/verify-knowledge-shard-matrix.py --verify-remotes: 7 passed, 2 pending"
+      - "python3 scripts/ci/verify-knowledge-shard-matrix.py --verify-remotes --require-complete: blocked as expected"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:e29b07457cbd324c232d0bd3ca36aea6733127e02114b8afe105557dc246f976"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-matrix-recordstore-to-fortemi-1059:001"
+    time: "2026-07-26T19:08:02Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-matrix-recordstore-to-fortemi-1059:001"
+      entity: "urn:aiwg:artifact:tests/fixtures/shards/recordstore-record-v1-2026.7.13.shard.cell-receipt.json:sha256:297c779bcb45e92af7a8c7bbd7308011f04b9dfbe4402ed0efd31d848d9591a6"
+      role: evidence
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:e29b07457cbd324c232d0bd3ca36aea6733127e02114b8afe105557dc246f976"
+      source: "urn:gitea:commit:Fortemi/fortemi:18c53c6c1d6961b4aa31cb4b7b9b62fb62d801ab"
+      derivation_type: modifies
+      activity: "urn:aiwg:activity:modification:knowledge-shard-matrix-recordstore-to-fortemi-1059:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-matrix-recordstore-to-fortemi-1059:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:e29b07457cbd324c232d0bd3ca36aea6733127e02114b8afe105557dc246f976"
+    agent: "urn:aiwg:agent:codex-gpt-5"

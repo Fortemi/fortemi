@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-17
 **Deciders:** Architecture team
-**Implementation status:** Versioned `core-v1` schemas through `2.0.0`, an authority-owned and cross-repository-proven `record-v1` profile, receipt-bound Fortemi `core-v1` and `full-v1` self-cells plus receipt-bound PGlite `core-v1` self and bidirectional Fortemi/PGlite cells with clean-destination semantic re-export and zero-mutation failure evidence, a supported complete-inventory `full-v1` server route with semantic/revision/embedding-lineage/mandatory-byte convergence and production Ed25519 publisher signing, digest-pinned rich component boundaries with transactional apply paths, registered historical transitions, bounded archive and relationship preflight, identity-preserving structured import, signed-import verification, and disk-backed streaming preflight for verified attachment sidecars; three cross-repository matrix cells remain pending
+**Implementation status:** Versioned `core-v1` schemas through `2.0.0`, current receipt-bound RecordStore `record-v1` self and Fortemi consumer cells, receipt-bound Fortemi `core-v1` and `full-v1` self-cells plus receipt-bound PGlite `core-v1` self and bidirectional Fortemi/PGlite cells with clean-destination semantic re-export and zero-mutation failure evidence, a supported complete-inventory `full-v1` server route with semantic/revision/embedding-lineage/mandatory-byte convergence and production Ed25519 publisher signing, digest-pinned rich component boundaries with transactional apply paths, registered historical transitions, bounded archive and relationship preflight, identity-preserving structured import, signed-import verification, and disk-backed streaming preflight for verified attachment sidecars; two AIWG cross-repository matrix cells remain pending
 **Supersedes in part:** ADR-028, ADR-029
 
 ## Context
@@ -132,9 +132,13 @@ prove exact source-field restoration, repeated replace convergence, skip and
 dry-run accounting, and rollback after a late injected failure. Runtime
 validation accepts only the complete `full-v1` manifest and rejects partial
 profile selections. The canonical matrix currently has four passed self-cells,
-two passed bidirectional Fortemi/PGlite cross-repository cells, and three pending
-cross-repository cells under #1059. These exact-cell receipts do not establish
-suite-wide compatibility, portability, backup, or parity.
+three passed cross-repository cells, and two pending AIWG cross-repository
+cells under #1059. The third cross-repository pass is the reduced, lossy
+`recordstore-record-v1-to-fortemi` cell; it binds the current signed React
+fixture to independent clean Fortemi import, repeated convergence, semantic
+re-export, version/malformed/resource rejection, and zero-mutation evidence.
+These exact-cell receipts do not establish suite-wide compatibility,
+portability, backup, or parity.
 
 Production signing does not change the archive schema: `signature.json` was
 already an authority-owned `full-v1` entry in revisions 19 and 20. The

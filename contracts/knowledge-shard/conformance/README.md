@@ -33,22 +33,28 @@ python3 scripts/ci/verify-knowledge-shard-matrix.py --verify-remotes
     ../../fixtures/shards/recordstore-record-v1-2026.7.11.shard --verify)
 ```
 
-The stricter per-cell gate currently records six passed cells and three pending
-cells. The RecordStore `record-v1` self-cell is complete: `record-v1` began at
-schema `1.1.0`, so its current-minus-two evidence explicitly proves that an
+The stricter per-cell gate currently records seven passed cells and two pending
+cells. The current RecordStore `record-v1` self-cell and
+`recordstore-record-v1-to-fortemi` cell are complete: `record-v1` began at
+schema `1.1.0`, so their current-minus-two evidence explicitly proves that an
 undefined `1.0.0` record-v1 archive is rejected without mutation while the
-oldest defined `1.1.0` archive remains accepted. The Fortemi `core-v1` and
-`full-v1` self-cells are also complete, each through its own immutable fixture,
-digest-pinned receipt, clean destination, semantic re-export, failure
-rollback, version-policy, malformed-input, and resource-limit evidence. The
-PGlite `core-v1` self-cell independently binds the same nine required
-dimensions to its current source fixture and package boundary. The
+oldest defined `1.1.0` archive remains accepted by RecordStore. The
+cross-repository receipt independently binds the signed current producer
+fixture to a clean Fortemi destination, hierarchy, metadata values, explicit
+nulls, tombstones, repeated import, semantic re-export, malformed and
+next-major rejection, resource limits, and zero mutation. The profile remains
+reduced and explicitly lossy. The Fortemi `core-v1` and `full-v1` self-cells
+are also complete, each through its own immutable fixture, digest-pinned
+receipt, clean destination, semantic re-export, failure rollback,
+version-policy, malformed-input, and resource-limit evidence. The PGlite
+`core-v1` self-cell independently binds the same nine required dimensions to
+its current source fixture and package boundary. The
 `pglite-core-v1-to-fortemi` receipt separately binds that fixture to a clean
 Fortemi destination, semantic re-export, version and malformed rejection,
 resource limits, and zero-mutation evidence. The
 `fortemi-core-v1-to-pglite` receipt independently binds the current Fortemi
 fixture to clean repeated PGlite import, all declared component and attachment
 projections, semantic re-export, version and malformed rejection, resource
-limits, and zero-mutation evidence. The three remaining
-cross-repository cells retain exact missing-evidence reasons; none can inherit
-coverage from any completed cell.
+limits, and zero-mutation evidence. The two remaining AIWG cross-repository
+cells retain exact missing-evidence reasons; neither can inherit coverage from
+any completed cell.

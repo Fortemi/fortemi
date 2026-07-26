@@ -190,10 +190,10 @@
     {
       "id": "recordstore",
       "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
-      "commit": "f45ca77c9af835d40673b357f523808d07f6597b",
+      "commit": "6a37716ee823c19e67b6eb8fc4dbca230a6d2037",
       "package": {
         "name": "@fortemi/core",
-        "version": "2026.7.11",
+        "version": "2026.7.13",
         "published": true
       },
       "producerProfiles": [
@@ -217,11 +217,35 @@
         {
           "kind": "git-file",
           "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
-          "commit": "f45ca77c9af835d40673b357f523808d07f6597b",
+          "commit": "6a37716ee823c19e67b6eb8fc4dbca230a6d2037",
+          "path": "packages/core/package.json",
+          "sha256": "5695f194be57cf2c94c3ea4a9cbe078887cb434034da7ea4e55c6887afd641b2",
+          "expect": {
+            "/name": "@fortemi/core",
+            "/version": "2026.7.13"
+          }
+        },
+        {
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+          "commit": "6a37716ee823c19e67b6eb8fc4dbca230a6d2037",
           "path": "packages/core/schemas/knowledge-shard.schema.receipt.json",
           "sha256": "1721c791ea67ac9169bb763035547e007fda48236f37f146450e60a7105fd9d7",
           "expect": {
             "/recordV1GoldenCorpus/sha256": "76ad7cdeba3c5935ca39a32044609b0cc826862145910f8450b0d2b5fc128a19"
+          }
+        },
+        {
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+          "commit": "6a37716ee823c19e67b6eb8fc4dbca230a6d2037",
+          "path": "packages/core/schemas/knowledge-shard-record-v1-recordstore-self.receipt.json",
+          "sha256": "64526dca39fd3607157d7fc18e02b3becc46dea7dfd094f1908085bcd3f0117f",
+          "expect": {
+            "/cell": "recordstore-record-v1-to-recordstore",
+            "/producer/commit": "5b30af7394604ddb4832de9f61f8183e6169812e",
+            "/producer/package/version": "2026.7.13",
+            "/fixture/sha256": "7730873c7f43c1333e12915a3899a2a712321538fb1f2e41055b77cd40307285"
           }
         }
       ]
@@ -679,33 +703,82 @@
       "producer": "recordstore",
       "consumer": "fortemi",
       "profile": "record-v1",
-      "status": "pending",
+      "status": "passed",
       "coverage": [
         "hierarchy",
         "metadata",
         "nulls",
         "tombstones",
-        "current"
+        "current-minus-two",
+        "current",
+        "next-major-rejection",
+        "malformed-input",
+        "resource-limits"
       ],
       "evidence": [
         {
-          "kind": "local-file",
-          "path": "tests/fixtures/shards/recordstore-record-v1-2026.7.11.shard",
-          "sha256": "842b6f61b74d40ffca8f93e4119c56b450f77284f3ed8143dfcb503b23b1d51a"
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+          "commit": "5b30af7394604ddb4832de9f61f8183e6169812e",
+          "path": "packages/core/src/__tests__/shard/fixtures/recordstore-record-v1-2026.7.13.shard",
+          "sha256": "7730873c7f43c1333e12915a3899a2a712321538fb1f2e41055b77cd40307285"
+        },
+        {
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+          "commit": "6a37716ee823c19e67b6eb8fc4dbca230a6d2037",
+          "path": "packages/core/schemas/knowledge-shard-record-v1-recordstore-self.receipt.json",
+          "sha256": "64526dca39fd3607157d7fc18e02b3becc46dea7dfd094f1908085bcd3f0117f",
+          "expect": {
+            "/cell": "recordstore-record-v1-to-recordstore",
+            "/producer/commit": "5b30af7394604ddb4832de9f61f8183e6169812e",
+            "/producer/package/version": "2026.7.13",
+            "/fixture/profile": "record-v1",
+            "/fixture/sha256": "7730873c7f43c1333e12915a3899a2a712321538fb1f2e41055b77cd40307285"
+          }
         },
         {
           "kind": "local-file",
-          "path": "tests/fixtures/shards/recordstore-record-v1-2026.7.11.shard.receipt.json",
-          "sha256": "9b99e7fdb4ff531066cfd070f8dd47693cfbfc98b8153b070b300bbcb1e9e3c0",
+          "path": "tests/fixtures/shards/recordstore-record-v1-2026.7.13.shard.cell-receipt.json",
+          "sha256": "297c779bcb45e92af7a8c7bbd7308011f04b9dfbe4402ed0efd31d848d9591a6",
           "expect": {
-            "/producer/commit": "f45ca77c9af835d40673b357f523808d07f6597b",
-            "/producer/package/version": "2026.7.11",
+            "/status": "consumer-conformance-passed",
+            "/cell": "recordstore-record-v1-to-fortemi",
+            "/producer/commit": "5b30af7394604ddb4832de9f61f8183e6169812e",
+            "/producer/receiptCommit": "6a37716ee823c19e67b6eb8fc4dbca230a6d2037",
             "/fixture/profile": "record-v1",
-            "/fixture/sha256": "842b6f61b74d40ffca8f93e4119c56b450f77284f3ed8143dfcb503b23b1d51a",
-            "/consumers/fortemi/cleanDestination": true,
-            "/consumers/fortemi/semanticReexport": true,
-            "/consumers/fortemi/hierarchyPreserved": true,
-            "/consumers/fortemi/tombstonePreserved": true
+            "/fixture/sha256": "7730873c7f43c1333e12915a3899a2a712321538fb1f2e41055b77cd40307285",
+            "/consumer/baseCommit": "18c53c6c1d6961b4aa31cb4b7b9b62fb62d801ab",
+            "/consumer/cleanDestination": true,
+            "/consumer/semanticReexport": true,
+            "/consumer/zeroMutationOnFailure": true,
+            "/consumer/hierarchyPreserved": true,
+            "/consumer/metadataValuePreserved": true,
+            "/consumer/explicitNullMetadataPreserved": true,
+            "/consumer/tombstonePreserved": true,
+            "/consumer/currentMinusTwo/profileDefined": false,
+            "/consumer/currentMinusTwo/rejectedBeforeMutation": true,
+            "/consumer/nextMajor/rejected": true,
+            "/consumer/malformedInputRejected": true,
+            "/consumer/resourceLimits/rejectedBeforeMutation": true,
+            "/consumer/persistentMutationAfterRejection": 0,
+            "/tests/producerCi/status": "success",
+            "/tests/consumerDeliveryCi/status": "success",
+            "/claimBoundary/lossy": true,
+            "/claimBoundary/suiteWide": false,
+            "/claimBoundary/completeBackup": false,
+            "/claimBoundary/crossRepository": true,
+            "/coverage": [
+              "hierarchy",
+              "metadata",
+              "nulls",
+              "tombstones",
+              "current-minus-two",
+              "current",
+              "next-major-rejection",
+              "malformed-input",
+              "resource-limits"
+            ]
           }
         }
       ],
@@ -718,7 +791,7 @@
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059",
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/355"
       ],
-      "blockingReason": "Per-cell receipt is missing current-minus-two, malformed-input, next-major-rejection, and resource-limits evidence."
+      "blockingReason": null
     },
     {
       "id": "recordstore-record-v1-to-recordstore",
@@ -739,17 +812,25 @@
       ],
       "evidence": [
         {
-          "kind": "local-file",
-          "path": "tests/fixtures/shards/recordstore-record-v1-2026.7.11.shard",
-          "sha256": "842b6f61b74d40ffca8f93e4119c56b450f77284f3ed8143dfcb503b23b1d51a"
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+          "commit": "5b30af7394604ddb4832de9f61f8183e6169812e",
+          "path": "packages/core/src/__tests__/shard/fixtures/recordstore-record-v1-2026.7.13.shard",
+          "sha256": "7730873c7f43c1333e12915a3899a2a712321538fb1f2e41055b77cd40307285"
         },
         {
-          "kind": "local-file",
-          "path": "tests/fixtures/shards/recordstore-record-v1-2026.7.11.shard.receipt.json",
-          "sha256": "9b99e7fdb4ff531066cfd070f8dd47693cfbfc98b8153b070b300bbcb1e9e3c0",
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+          "commit": "6a37716ee823c19e67b6eb8fc4dbca230a6d2037",
+          "path": "packages/core/schemas/knowledge-shard-record-v1-recordstore-self.receipt.json",
+          "sha256": "64526dca39fd3607157d7fc18e02b3becc46dea7dfd094f1908085bcd3f0117f",
           "expect": {
-            "/producer/commit": "f45ca77c9af835d40673b357f523808d07f6597b",
+            "/status": "producer-self-conformance-passed",
+            "/cell": "recordstore-record-v1-to-recordstore",
+            "/producer/commit": "5b30af7394604ddb4832de9f61f8183e6169812e",
+            "/producer/package/version": "2026.7.13",
             "/fixture/profile": "record-v1",
+            "/fixture/sha256": "7730873c7f43c1333e12915a3899a2a712321538fb1f2e41055b77cd40307285",
             "/coverage": [
               "hierarchy",
               "metadata",
@@ -761,13 +842,14 @@
               "malformed-input",
               "resource-limits"
             ],
-            "/consumers/recordstore/cleanDestination": true,
-            "/consumers/recordstore/semanticReexport": true,
-            "/consumers/recordstore/currentMinusTwoProfileDefined": false,
-            "/consumers/recordstore/currentMinusTwoRejected": true,
-            "/consumers/recordstore/nextMajorRejected": true,
-            "/consumers/recordstore/oversizedDeclaredArchiveRejected": true,
-            "/consumers/recordstore/persistentMutationAfterRejection": 0
+            "/consumer/cleanDestination": true,
+            "/consumer/semanticReexport": true,
+            "/consumer/zeroMutationOnFailure": true,
+            "/consumer/currentMinusTwo/profileDefined": false,
+            "/consumer/currentMinusTwo/rejectedBeforeMutation": true,
+            "/consumer/nextMajor/rejected": true,
+            "/consumer/resourceLimits/rejectedBeforeMutation": true,
+            "/consumer/persistentMutationAfterRejection": 0
           }
         }
       ],
