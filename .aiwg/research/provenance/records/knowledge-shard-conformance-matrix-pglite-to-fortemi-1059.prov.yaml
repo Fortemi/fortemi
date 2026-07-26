@@ -1,0 +1,57 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T16:52:51Z"
+  description: "Provenance for completing the PGlite core-v1 to Fortemi cell in the canonical matrix"
+entity:
+  id: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:b60d22011952b90240872bcc7b22cf29fb23ba80e7a5c8533ec3883d4c7402da"
+  type: contract
+  created_at: "2026-07-26T16:52:51Z"
+  updated_at: "2026-07-26T16:52:51Z"
+  checksum: "sha256:b60d22011952b90240872bcc7b22cf29fb23ba80e7a5c8533ec3883d4c7402da"
+  size_bytes: 28872
+  attributes:
+    issue: "Fortemi/fortemi#1059"
+    producer_issue: "Fortemi/fortemi-react#354"
+    cell: "pglite-core-v1-to-fortemi"
+    change_type: modification
+    base_revision: "11125eb9ac97494745a834efbc0a865117d5f2b6"
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-matrix-pglite-to-fortemi-1059:001"
+  type: modification
+  started_at: "2026-07-26T16:50:00Z"
+  ended_at: "2026-07-26T16:52:51Z"
+  description: "Bind the signed producer receipt and all nine dimensions, promoting only the PGlite-to-Fortemi cell"
+  attributes:
+    verification:
+      - "python3 scripts/ci/verify-knowledge-shard-matrix.py --verify-remotes"
+      - "python3 scripts/ci/verify-knowledge-shard-matrix.py --require-complete: blocked at 5 passed and 4 pending"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:b60d22011952b90240872bcc7b22cf29fb23ba80e7a5c8533ec3883d4c7402da"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-matrix-pglite-to-fortemi-1059:001"
+    time: "2026-07-26T16:52:51Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-matrix-pglite-to-fortemi-1059:001"
+      entity: "urn:git:git@git.integrolabs.net:Fortemi/fortemi-react.git:5a34956cd91beedc50adfea80d6ca8be624cb749:packages/core/schemas/knowledge-shard-core-v1-pglite-to-fortemi.receipt.json"
+      role: evidence
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-matrix-pglite-to-fortemi-1059:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1059"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:b60d22011952b90240872bcc7b22cf29fb23ba80e7a5c8533ec3883d4c7402da"
+      source: "urn:gitea:commit:Fortemi/fortemi:11125eb9ac97494745a834efbc0a865117d5f2b6"
+      derivation_type: modifies
+      activity: "urn:aiwg:activity:modification:knowledge-shard-matrix-pglite-to-fortemi-1059:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-matrix-pglite-to-fortemi-1059:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:b60d22011952b90240872bcc7b22cf29fb23ba80e7a5c8533ec3883d4c7402da"
+    agent: "urn:aiwg:agent:codex-gpt-5"

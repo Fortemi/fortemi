@@ -496,31 +496,66 @@
       "producer": "pglite",
       "consumer": "fortemi",
       "profile": "core-v1",
-      "status": "pending",
+      "status": "passed",
       "coverage": [
         "hierarchy",
         "metadata",
         "nulls",
         "tombstones",
-        "current"
+        "current-minus-two",
+        "current",
+        "next-major-rejection",
+        "malformed-input",
+        "resource-limits"
       ],
       "evidence": [
         {
-          "kind": "local-file",
-          "path": "tests/fixtures/shards/pglite-core-v1-2026.7.11.shard",
-          "sha256": "c9f965feb6db67dc0e4a7491b26d0e4ceb2a788a363e374f19161d014dfb2f43"
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+          "commit": "5a34956cd91beedc50adfea80d6ca8be624cb749",
+          "path": "packages/core/src/__tests__/shard/fixtures/pglite-core-v1-2026.7.13.shard",
+          "sha256": "e9f7f52067646fc3f0c2921558d75e7bf686da760f2f6b665990775fa30ad06d"
         },
         {
-          "kind": "local-file",
-          "path": "tests/fixtures/shards/pglite-core-v1-2026.7.11.shard.receipt.json",
-          "sha256": "f827f1ff0ea9749c472f4d51a132c82f423b979f80109ca86a694ca102e55797",
+          "kind": "git-file",
+          "repository": "https://git.integrolabs.net/Fortemi/fortemi-react.git",
+          "commit": "5a34956cd91beedc50adfea80d6ca8be624cb749",
+          "path": "packages/core/schemas/knowledge-shard-core-v1-pglite-to-fortemi.receipt.json",
+          "sha256": "e2fcefea2211734764f0bb1290b5901ae1ce9622ab3b09ac5182bf0c8342617a",
           "expect": {
-            "/producer/commit": "f45ca77c9af835d40673b357f523808d07f6597b",
-            "/producer/package/version": "2026.7.11",
+            "/cell": "pglite-core-v1-to-fortemi",
+            "/producer/commit": "9fdaa61a8da05c7d45ac7ff555d158cbe3dc1d2d",
+            "/producer/package/version": "2026.7.13",
             "/fixture/profile": "core-v1",
-            "/fixture/sha256": "c9f965feb6db67dc0e4a7491b26d0e4ceb2a788a363e374f19161d014dfb2f43",
-            "/consumers/fortemi/cleanDestination": true,
-            "/consumers/fortemi/semanticReexport": true
+            "/fixture/sha256": "e9f7f52067646fc3f0c2921558d75e7bf686da760f2f6b665990775fa30ad06d",
+            "/consumer/commit": "11125eb9ac97494745a834efbc0a865117d5f2b6",
+            "/consumer/cleanDestination": true,
+            "/consumer/semanticReexport": true,
+            "/consumer/zeroMutationOnFailure": true,
+            "/consumer/hierarchyPreserved": true,
+            "/consumer/metadataValuePreserved": true,
+            "/consumer/explicitNullMetadataPreserved": true,
+            "/consumer/tombstonePreserved": true,
+            "/consumer/currentMinusTwo/accepted": true,
+            "/consumer/nextMajor/rejected": true,
+            "/consumer/malformedInputRejected": true,
+            "/consumer/resourceLimits/rejectedBeforeMutation": true,
+            "/consumer/persistentMutationAfterRejection": 0,
+            "/tests/deliveredMain/conclusion": "success",
+            "/coverage": [
+              "hierarchy",
+              "metadata",
+              "nulls",
+              "tombstones",
+              "current-minus-two",
+              "current",
+              "next-major-rejection",
+              "malformed-input",
+              "resource-limits"
+            ],
+            "/claimBoundary/suiteWide": false,
+            "/claimBoundary/completeBackup": false,
+            "/claimBoundary/crossRepository": true
           }
         }
       ],
@@ -533,7 +568,7 @@
         "https://git.integrolabs.net/Fortemi/fortemi/issues/1059",
         "https://git.integrolabs.net/Fortemi/fortemi-react/issues/354"
       ],
-      "blockingReason": "Per-cell receipt is missing current-minus-two, malformed-input, next-major-rejection, and resource-limits evidence."
+      "blockingReason": null
     },
     {
       "id": "pglite-core-v1-to-pglite",

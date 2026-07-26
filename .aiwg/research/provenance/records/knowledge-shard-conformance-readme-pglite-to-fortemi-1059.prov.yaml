@@ -1,0 +1,48 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T16:52:51Z"
+  description: "Provenance for the five-to-four Knowledge Shard matrix documentation"
+entity:
+  id: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md:sha256:50e4cce68f7f439f138c43ab9da4895419c0f246e5b6a1f088e5daf421b76fbd"
+  type: documentation
+  created_at: "2026-07-26T16:52:51Z"
+  updated_at: "2026-07-26T16:52:51Z"
+  checksum: "sha256:50e4cce68f7f439f138c43ab9da4895419c0f246e5b6a1f088e5daf421b76fbd"
+  size_bytes: 2950
+  attributes:
+    issue: "Fortemi/fortemi#1059"
+    change_type: modification
+    base_revision: "11125eb9ac97494745a834efbc0a865117d5f2b6"
+activity:
+  id: "urn:aiwg:activity:modification:knowledge-shard-readme-pglite-to-fortemi-1059:001"
+  type: modification
+  started_at: "2026-07-26T16:50:00Z"
+  ended_at: "2026-07-26T16:52:51Z"
+  description: "Document five passed cells, four pending cells, and the exact cross-repository evidence boundary"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md:sha256:50e4cce68f7f439f138c43ab9da4895419c0f246e5b6a1f088e5daf421b76fbd"
+    activity: "urn:aiwg:activity:modification:knowledge-shard-readme-pglite-to-fortemi-1059:001"
+    time: "2026-07-26T16:52:51Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:knowledge-shard-readme-pglite-to-fortemi-1059:001"
+      entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/matrix.json:sha256:b60d22011952b90240872bcc7b22cf29fb23ba80e7a5c8533ec3883d4c7402da"
+      role: documented_contract
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md:sha256:50e4cce68f7f439f138c43ab9da4895419c0f246e5b6a1f088e5daf421b76fbd"
+      source: "urn:gitea:commit:Fortemi/fortemi:11125eb9ac97494745a834efbc0a865117d5f2b6"
+      derivation_type: modifies
+      activity: "urn:aiwg:activity:modification:knowledge-shard-readme-pglite-to-fortemi-1059:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:knowledge-shard-readme-pglite-to-fortemi-1059:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:contracts/knowledge-shard/conformance/README.md:sha256:50e4cce68f7f439f138c43ab9da4895419c0f246e5b6a1f088e5daf421b76fbd"
+    agent: "urn:aiwg:agent:codex-gpt-5"
