@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-25T00:45:10Z"
+  updated_at: "2026-07-26T01:01:10Z"
 records:
+  - entity: ".aiwg/security/working/ci-workflow-audit.md"
+    record: "records/ci-workflow-audit-server-build-remediation.prov.yaml"
   - entity: "build/Dockerfile.builder"
     record: "records/builder-https-package-source-1088.prov.yaml"
   - entity: ".gitea/workflows/build-builder.yaml"

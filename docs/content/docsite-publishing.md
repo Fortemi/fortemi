@@ -105,7 +105,7 @@ publish_at: "2026-07-28T14:00:00Z"
 scheduled_assets: ["blog/example-hero.png", "blog/example-diagram.svg"]
 ```
 
-Blank, missing, or invalid `publish_at` values are ignored. The scheduled
+Blank, missing, or invalid `publish_at` values are ignored. The hourly scheduled
 `.gitea/workflows/scheduled-docs-release.yml` job runs
 `scripts/docs/promote-scheduled-posts.mjs`, moves due posts into
 `docs/content/posts/`, moves declared assets into `docs/.public/`, validates

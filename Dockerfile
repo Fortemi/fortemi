@@ -16,12 +16,28 @@ ARG BUILD_DATE=unknown
 
 WORKDIR /app
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config \
-    libssl-dev \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Install build dependencies. Retry the verified update/install transaction to
+# tolerate short-lived repository/proxy failures without disabling APT
+# signature or TLS validation.
+RUN set -eux; \
+    attempt=1; \
+    while true; do \
+        if apt-get -o Acquire::Retries=3 update && \
+            apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+                pkg-config \
+                libssl-dev \
+                curl; then \
+            break; \
+        fi; \
+        if [ "${attempt}" -ge 3 ]; then \
+            echo "APT build dependency installation failed after ${attempt} attempts" >&2; \
+            exit 1; \
+        fi; \
+        rm -rf /var/lib/apt/lists/*; \
+        sleep $((attempt * 5)); \
+        attempt=$((attempt + 1)); \
+    done; \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy workspace files
 COPY Cargo.toml Cargo.lock ./
@@ -55,17 +71,32 @@ LABEL org.opencontainers.image.vendor="fortemi"
 
 WORKDIR /app
 
-# Install runtime dependencies including extraction toolchain
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    libssl3 \
-    curl \
-    poppler-utils \
-    tesseract-ocr \
-    tesseract-ocr-eng \
-    pandoc \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+# Install runtime dependencies including extraction toolchain. Keep the same
+# bounded, fail-closed retry policy as the builder stage.
+RUN set -eux; \
+    attempt=1; \
+    while true; do \
+        if apt-get -o Acquire::Retries=3 update && \
+            apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+                ca-certificates \
+                libssl3 \
+                curl \
+                poppler-utils \
+                tesseract-ocr \
+                tesseract-ocr-eng \
+                pandoc \
+                ffmpeg; then \
+            break; \
+        fi; \
+        if [ "${attempt}" -ge 3 ]; then \
+            echo "APT runtime dependency installation failed after ${attempt} attempts" >&2; \
+            exit 1; \
+        fi; \
+        rm -rf /var/lib/apt/lists/*; \
+        sleep $((attempt * 5)); \
+        attempt=$((attempt + 1)); \
+    done; \
+    rm -rf /var/lib/apt/lists/*
 
 # Create non-root user and writable runtime directories
 RUN useradd --create-home --user-group matric && \

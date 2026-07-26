@@ -1,0 +1,51 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-26T01:01:10Z"
+  description: "Provenance for the Fortemi CI workflow and server build failure audit"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/security/working/ci-workflow-audit.md"
+  type: security_report
+  created_at: "2026-07-26T01:01:10Z"
+  checksum: "sha256:f0f26fe0b00b187dbc464f6ae48ab2d57b52df5d46e81ea9e2d163a124a061c0"
+  size_bytes: 2831
+  attributes:
+    repository: "Fortemi/fortemi"
+    failed_run: "5726"
+    verification_run: "5976"
+activity:
+  id: "urn:aiwg:activity:modification:ci-workflow-audit-server-build-remediation:001"
+  type: modification
+  started_at: "2026-07-26T00:59:18Z"
+  ended_at: "2026-07-26T01:01:10Z"
+  description: "Audit execution inputs and document the transient package repository failure and bounded retry remediation"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/security/working/ci-workflow-audit.md"
+    activity: "urn:aiwg:activity:modification:ci-workflow-audit-server-build-remediation:001"
+    time: "2026-07-26T01:01:10Z"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/security/working/ci-workflow-audit.md"
+      source: "urn:gitea:actions:Fortemi/fortemi:5726"
+      derivation_type: "diagnoses"
+      activity: "urn:aiwg:activity:modification:ci-workflow-audit-server-build-remediation:001"
+    - entity: "urn:aiwg:artifact:.aiwg/security/working/ci-workflow-audit.md"
+      source: "urn:gitea:actions:Fortemi/fortemi:5976"
+      derivation_type: "verifies"
+      activity: "urn:aiwg:activity:modification:ci-workflow-audit-server-build-remediation:001"
+    - entity: "urn:aiwg:artifact:.aiwg/security/working/ci-workflow-audit.md"
+      source: "urn:aiwg:artifact:Dockerfile"
+      derivation_type: "documents"
+      activity: "urn:aiwg:activity:modification:ci-workflow-audit-server-build-remediation:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:ci-workflow-audit-server-build-remediation:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/security/working/ci-workflow-audit.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"
