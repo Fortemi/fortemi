@@ -114,10 +114,7 @@ fn shard_schema_2_runtime_receipt_binds_delivered_main_and_external_producers() 
         "../../../tests/fixtures/shards/external/schema-2-advertisement.receipt.json"
     ))
     .unwrap();
-    assert_eq!(
-        advertisement["status"],
-        "receipt-bound-opt-in-advertised"
-    );
+    assert_eq!(advertisement["status"], "receipt-bound-opt-in-advertised");
     assert_eq!(
         advertisement["authority"]["contractSha256"],
         hex::encode(sha2::Sha256::digest(include_bytes!(
