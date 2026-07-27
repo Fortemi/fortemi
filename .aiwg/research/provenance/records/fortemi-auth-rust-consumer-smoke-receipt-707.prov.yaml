@@ -1,13 +1,13 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-07-27T00:41:58Z"
-  updated_at: "2026-07-27T01:23:32Z"
+  updated_at: "2026-07-27T01:37:25Z"
   description: "Provenance for the bounded matric-api auth consumer receipt"
 entity:
   id: "urn:aiwg:artifact:.aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md"
   type: test_evidence
-  checksum: "sha256:f238d26cdc7778562d2575b111dba07a31c79b2147969e0ac4f2f095be5c1ffc"
-  size_bytes: 2282
+  checksum: "sha256:f92d0ba038d9302ebae996f0aa363b8577dc0ecded549e7e0c8d0062735cfcfa"
+  size_bytes: 2421
   attributes:
     change_scope: "fortemi-707-auth-release-smoke"
     result: "passed"
@@ -15,7 +15,7 @@ activity:
   id: "urn:aiwg:activity:generation:fortemi-auth-consumer-receipt-707:001"
   type: generation
   started_at: "2026-07-27T00:34:00Z"
-  ended_at: "2026-07-27T01:23:32Z"
+  ended_at: "2026-07-27T01:37:25Z"
   description: "Record the immutable downstream auth smoke and its remaining hosted gates"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"

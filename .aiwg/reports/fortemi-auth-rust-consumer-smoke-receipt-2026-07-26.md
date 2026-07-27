@@ -32,6 +32,8 @@ smoke, not evidence that hosted middleware, RLS, `TenantScopedConn`, or
 
 - Cargo resolved both public crates from signed tag `v0.1.0`; `Cargo.lock`
   records its peeled immutable commit.
+- `cargo deny check` passed with unknown Git sources denied and only the public
+  `Fortemi/fortemi-auth` authority URL explicitly allowed.
 - The vendored manifest is byte-identical to the release authority at SHA-256
   `dbd7fff6370d8a0c55d2c7e4ad311d3ddd1796815e2caff6dc05501cdf417a38`.
 - Fortemi executed all 13 canonical cases through `ClerkProvider`, including

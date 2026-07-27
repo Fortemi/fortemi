@@ -18,7 +18,7 @@ provider crates remain private and retain this ADR's registry gate.
 - **Decision status:** Proposed; registry readiness no-go.
 - **Implementation phase:** Registry selection and publish/consume verification.
 - **Phase owner:** `Fortemi/fortemi#716`, with private-registry proof in `Fortemi-Enterprise/distribution#1`.
-- **Checkpoint decision date:** 2026-07-26.
+- **Checkpoint decision date:** 2026-07-14.
 
 ## Context
 
