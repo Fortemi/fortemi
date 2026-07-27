@@ -892,7 +892,13 @@ jobs:
           source ~/.cargo/env
           # Serial execution: parallel GPU requests can cause empty responses
           # when Ollama can't serve concurrent chat completions
-          cargo test --package matric-inference --features integration -- --test-threads=1
+          cargo test \
+            --package matric-inference \
+            --features integration \
+            --lib \
+            --locked \
+            -- \
+            --test-threads=1
 
   # Dev image - pushes on every main branch commit
   publish-dev:
