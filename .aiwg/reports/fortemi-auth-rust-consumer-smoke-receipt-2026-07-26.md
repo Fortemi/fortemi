@@ -23,14 +23,21 @@ related_issues:
 
 This receipt proves that `matric-api` can consume the public
 `fortemi-auth-core` and `fortemi-auth-axum` v0.1 API from the signed immutable
-`v0.1.0` authority release above. It is a downstream release smoke, not evidence that hosted
-middleware, RLS, `TenantScopedConn`, or `SET LOCAL app.current_tenant` is
-complete.
+`v0.1.0` authority release above and that Fortemi independently executes the
+canonical `rust-node-jwt-v1` corpus. It is a downstream release and corpus
+smoke, not evidence that hosted middleware, RLS, `TenantScopedConn`, or
+`SET LOCAL app.current_tenant` is complete.
 
 ## Executed controls
 
 - Cargo resolved both public crates from signed tag `v0.1.0`; `Cargo.lock`
   records its peeled immutable commit.
+- The vendored manifest is byte-identical to the release authority at SHA-256
+  `dbd7fff6370d8a0c55d2c7e4ad311d3ddd1796815e2caff6dc05501cdf417a38`.
+- Fortemi executed all 13 canonical cases through `ClerkProvider`, including
+  expiry, future and not-before timestamps, tampering, issuer/audience/algorithm
+  rejection, tenant validation, exact scope rejection, malformed input, and
+  signing-key rotation.
 - A downstream `OAuthProvider` implementation produced the shared
   `AuthContext`.
 - `fortemi_auth_axum::auth_layer` injected that context into a protected Axum

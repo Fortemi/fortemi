@@ -108,7 +108,10 @@ futures = { workspace = true }
 matric-core = { path = "../matric-core" }
 matric-db = { path = "../matric-db" }
 fortemi-auth-axum = { git = "https://git.integrolabs.net/Fortemi/fortemi-auth.git", tag = "v0.1.0" }
+fortemi-auth-clerk = { git = "https://git.integrolabs.net/Fortemi/fortemi-auth.git", tag = "v0.1.0" }
 fortemi-auth-core = { git = "https://git.integrolabs.net/Fortemi/fortemi-auth.git", tag = "v0.1.0" }
+fortemi-auth-mock = { git = "https://git.integrolabs.net/Fortemi/fortemi-auth.git", tag = "v0.1.0" }
+xjp-oidc = "=1.1.0"
 
 [features]
 mock-rtp = []

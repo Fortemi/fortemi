@@ -4,19 +4,25 @@
 //! #728 after its RLS and hardened-role prerequisites are complete.
 
 use std::convert::Infallible;
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{header::AUTHORIZATION, Request, StatusCode};
 use axum::routing::get;
 use axum::{Extension, Json, Router};
 use chrono::{Duration, Utc};
 use fortemi_auth_axum::{auth_layer, AuthState, NoApiKeys};
+use fortemi_auth_clerk::{ClerkConfig, ClerkProvider};
 use fortemi_auth_core::{
     AuthContext, AuthError, Credential, JwtToken, OAuthProvider, VerifiedClaims,
 };
+use fortemi_auth_mock::MemoryTenantStore;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
+use xjp_oidc::{HttpClient, HttpClientError, JwtVerifier, MemoryCache};
 
 const TENANT_ID: Uuid = Uuid::from_u128(0x00000000000040008000000000000001);
 
@@ -148,4 +154,160 @@ async fn public_axum_contract_fails_closed_with_redacted_codes() {
         body_json(invalid).await,
         json!({"error": "invalid_signature"})
     );
+}
+
+#[derive(Deserialize)]
+struct CorpusManifest {
+    config: CorpusConfig,
+    jwks: Value,
+    cases: Vec<CorpusCase>,
+}
+
+#[derive(Deserialize)]
+struct CorpusConfig {
+    issuer: String,
+    audience: String,
+    tenant_claim_name: String,
+    clock_skew_seconds: i64,
+}
+
+#[derive(Deserialize)]
+struct CorpusCase {
+    id: String,
+    token: String,
+    required_scope: Option<String>,
+    expected: CorpusExpected,
+}
+
+#[derive(Deserialize)]
+struct CorpusExpected {
+    outcome: String,
+    error: Option<String>,
+    tenant_id: Option<Uuid>,
+    principal_id: Option<String>,
+    scopes: Option<Vec<String>>,
+    key_id: Option<String>,
+}
+
+struct CorpusHttp {
+    issuer: String,
+    jwks: Value,
+}
+
+#[async_trait]
+impl HttpClient for CorpusHttp {
+    async fn get_value(&self, url: &str) -> Result<Value, HttpClientError> {
+        if url.ends_with("/jwks.json") {
+            return Ok(self.jwks.clone());
+        }
+
+        Ok(json!({
+            "issuer": self.issuer,
+            "authorization_endpoint": format!("{}/authorize", self.issuer),
+            "token_endpoint": format!("{}/token", self.issuer),
+            "jwks_uri": format!("{}/jwks.json", self.issuer),
+        }))
+    }
+
+    async fn post_form_value(
+        &self,
+        _url: &str,
+        _form: &[(String, String)],
+        _auth_header: Option<(&str, &str)>,
+    ) -> Result<Value, HttpClientError> {
+        Err(HttpClientError::NotSupported("fixture is GET-only".into()))
+    }
+
+    async fn post_json_value(
+        &self,
+        _url: &str,
+        _body: &Value,
+        _auth_header: Option<(&str, &str)>,
+    ) -> Result<Value, HttpClientError> {
+        Err(HttpClientError::NotSupported("fixture is GET-only".into()))
+    }
+}
+
+#[tokio::test]
+async fn fortemi_executes_the_canonical_v1_corpus() {
+    let manifest: CorpusManifest =
+        serde_json::from_str(include_str!("fixtures/auth/fortemi-auth-v1.json"))
+            .expect("canonical auth manifest must parse");
+    let config = ClerkConfig {
+        issuer: manifest.config.issuer.clone(),
+        audience: manifest.config.audience.clone(),
+        tenant_claim_name: manifest.config.tenant_claim_name,
+        clock_skew_seconds: manifest.config.clock_skew_seconds,
+        jwks_cache_capacity: 4,
+        http_timeout_seconds: 5,
+    };
+    let verifier: JwtVerifier<MemoryCache, CorpusHttp> = JwtVerifier::builder()
+        .default_issuer(config.issuer.clone())
+        .audience(config.audience.clone())
+        .http(Arc::new(CorpusHttp {
+            issuer: config.issuer.clone(),
+            jwks: manifest.jwks,
+        }))
+        .cache(Arc::new(MemoryCache))
+        .clock_skew(config.clock_skew_seconds)
+        .build()
+        .expect("fixture verifier must build");
+    let provider =
+        ClerkProvider::with_verifier(config, MemoryTenantStore::with_active(TENANT_ID), verifier)
+            .expect("fixture provider must build");
+
+    for case in manifest.cases {
+        let result = provider
+            .authenticate(&case.token)
+            .await
+            .and_then(|context| {
+                if let Some(scope) = &case.required_scope {
+                    context.require_scope(scope)?;
+                }
+                Ok(context)
+            });
+
+        if case.expected.outcome == "accepted" {
+            let context = result.unwrap_or_else(|error| {
+                panic!("case {} unexpectedly rejected as {}", case.id, error.code())
+            });
+            assert_eq!(
+                Some(context.tenant_id),
+                case.expected.tenant_id,
+                "{}",
+                case.id
+            );
+            assert_eq!(
+                Some(context.principal_id.as_str()),
+                case.expected.principal_id.as_deref(),
+                "{}",
+                case.id
+            );
+            assert_eq!(
+                Some(context.scopes.as_slice()),
+                case.expected.scopes.as_deref(),
+                "{}",
+                case.id
+            );
+            let Credential::Bearer(jwt) = context.credential else {
+                panic!("case {} did not return bearer context", case.id);
+            };
+            assert_eq!(
+                Some(jwt.key_id.as_str()),
+                case.expected.key_id.as_deref(),
+                "{}",
+                case.id
+            );
+        } else {
+            let error = result
+                .err()
+                .unwrap_or_else(|| panic!("case {} unexpectedly accepted", case.id));
+            assert_eq!(
+                Some(error.code()),
+                case.expected.error.as_deref(),
+                "{}",
+                case.id
+            );
+        }
+    }
 }
