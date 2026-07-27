@@ -231,7 +231,7 @@ impl HttpClient for CorpusHttp {
 #[tokio::test]
 async fn fortemi_executes_the_canonical_v1_corpus() {
     let manifest: CorpusManifest =
-        serde_json::from_str(include_str!("fixtures/auth/fortemi-auth-v1.json"))
+        serde_json::from_str(include_str!("../fixtures/fortemi-auth-v1.json"))
             .expect("canonical auth manifest must parse");
     let config = ClerkConfig {
         issuer: manifest.config.issuer.clone(),

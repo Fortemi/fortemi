@@ -21,7 +21,7 @@ related_issues:
 
 ## Scope
 
-This receipt proves that `matric-api` can consume the public
+This receipt proves that Fortemi's isolated consumer harness can consume the public
 `fortemi-auth-core` and `fortemi-auth-axum` v0.1 API from the signed immutable
 `v0.1.0` authority release above and that Fortemi independently executes the
 canonical `rust-node-jwt-v1` corpus. It is a downstream release and corpus
@@ -32,6 +32,8 @@ smoke, not evidence that hosted middleware, RLS, `TenantScopedConn`, or
 
 - Cargo resolved both public crates from signed tag `v0.1.0`; `Cargo.lock`
   records its peeled immutable commit.
+- The locked harness runs in `tests/fortemi-auth-consumer` so its JWT dependency
+  features cannot alter `matric-api` serialization or generated contracts.
 - `cargo deny check` passed with unknown Git sources denied and only the public
   `Fortemi/fortemi-auth` authority URL explicitly allowed.
 - The vendored manifest is byte-identical to the release authority at SHA-256

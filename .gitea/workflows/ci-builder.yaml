@@ -384,7 +384,9 @@ jobs:
         # Honors .cargo/audit.toml allowlist for accepted advisories
         # Yanked-package policy is enforced by cargo-deny, where unavoidable
         # transitive yanks can be accepted as exact package versions.
-        run: cargo audit
+        run: |
+          cargo audit
+          cargo audit --file tests/fortemi-auth-consumer/Cargo.lock
 
       - name: Audit mcp-server npm deps
         working-directory: mcp-server
@@ -417,7 +419,38 @@ jobs:
 
       - name: cargo deny check
         # check = advisories + licenses + bans + sources
-        run: cargo deny check
+        run: |
+          cargo deny check
+          cargo deny \
+            --manifest-path tests/fortemi-auth-consumer/Cargo.toml \
+            --config tests/fortemi-auth-consumer/deny.toml \
+            check
+
+  auth-consumer:
+    name: Fortemi Auth Consumer Conformance
+    runs-on: matric-builder
+    needs: [runner-capacity]
+    steps:
+      - name: Checkout
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Validate the isolated harness
+        run: |
+          cargo fmt --manifest-path tests/fortemi-auth-consumer/Cargo.toml --check
+          cargo clippy \
+            --manifest-path tests/fortemi-auth-consumer/Cargo.toml \
+            --all-targets \
+            --locked \
+            -- \
+            -D warnings
+
+      - name: Execute the locked public auth contract
+        run: cargo test --manifest-path tests/fortemi-auth-consumer/Cargo.toml --locked
 
   mcp-lockfile-sync:
     name: mcp-server Lockfile Sync
@@ -865,7 +898,7 @@ jobs:
   publish-dev:
     name: Publish Dev Image
     runs-on: matric-builder
-    needs: [verify-release-ref, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
+    needs: [verify-release-ref, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
     # Belt-and-suspenders gating to exclude tag pushes. The branch-equality
     # check should be sufficient — `refs/tags/vX.Y.Z` is not equal to
     # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
@@ -982,7 +1015,7 @@ jobs:
   publish-release:
     name: Publish Release Image
     runs-on: matric-builder
-    needs: [verify-release-ref, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
+    needs: [verify-release-ref, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
@@ -1193,7 +1226,7 @@ jobs:
     runs-on: matric-builder
     # Promote the exact internal artifacts after their gated publication
     # instead of compiling the same source again for a second registry.
-    needs: [verify-release-ref, publish-dev, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
+    needs: [verify-release-ref, publish-dev, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
     # Belt-and-suspenders gating to exclude tag pushes. The branch-equality
     # check should be sufficient — `refs/tags/vX.Y.Z` is not equal to
     # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
@@ -1274,7 +1307,7 @@ jobs:
     name: Publish to GitHub (ghcr.io)
     runs-on: matric-builder
     # The internal release artifacts are the source of truth for GHCR.
-    needs: [verify-release-ref, publish-release, test-container, integration-test, audit, deny, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
+    needs: [verify-release-ref, publish-release, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
