@@ -93,10 +93,13 @@ claim to execute the open live-client, restart, concurrency, or performance scen
 
 ## Required Issue Graph
 
-1. Fortemi owns the live test environment, restart/crash, refcount concurrency, and performance
-   instrumentation.
-2. HotM owns real desktop/browser upload/download journeys and TUS disconnect/resume behavior.
-3. Both issues must link each other, Fortemi #1081, this plan, the exact implementation commits,
-   and final immutable CI receipts.
-4. #1081 remains open until independent audit acceptance; issue closure alone does not authorize
+1. [Fortemi #1093](https://git.integrolabs.net/Fortemi/fortemi/issues/1093) owns the live test
+   environment, restart/crash recovery, and refcount concurrency gates.
+2. [Fortemi #1094](https://git.integrolabs.net/Fortemi/fortemi/issues/1094) owns lifecycle memory,
+   throughput, scale, reproducibility, and timed RPO/RTO receipts after #1093.
+3. [HotM #283](https://git.integrolabs.net/Fortemi/HotM/issues/283) owns real desktop/browser
+   upload/download journeys, reverse processing, and TUS disconnect/resume behavior after #1093.
+4. All three issues link each other, Fortemi #1081, this plan, the authority commit, and required
+   final immutable CI receipts.
+5. #1081 remains open until independent audit acceptance; issue closure alone does not authorize
    broad portability language.
