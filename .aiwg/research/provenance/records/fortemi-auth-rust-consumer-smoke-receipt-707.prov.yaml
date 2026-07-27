@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-27T00:41:58Z"
+  updated_at: "2026-07-27T01:16:43Z"
+  description: "Provenance for the bounded matric-api auth consumer receipt"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md"
+  type: test_evidence
+  checksum: "sha256:cfbb8a7bd3e4853748e524e0f93eb8e29724c3b98f37618c5d258494ad6e49c2"
+  size_bytes: 1785
+  attributes:
+    change_scope: "fortemi-707-auth-release-smoke"
+    result: "passed"
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-auth-consumer-receipt-707:001"
+  type: generation
+  started_at: "2026-07-27T00:34:00Z"
+  ended_at: "2026-07-27T01:16:43Z"
+  description: "Record the immutable downstream auth smoke and its remaining hosted gates"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md"
+    activity: "urn:aiwg:activity:generation:fortemi-auth-consumer-receipt-707:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md"
+      source: "urn:aiwg:artifact:crates/matric-api/tests/fortemi_auth_consumer_smoke_test.rs"
+      derivation_type: "records"
+      activity: "urn:aiwg:activity:generation:fortemi-auth-consumer-receipt-707:001"
+    - entity: "urn:aiwg:artifact:.aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md"
+      source: "urn:git:https://git.integrolabs.net/Fortemi/fortemi-auth.git:v0.1.0:e99f5378abdf416f443334d392e9d835a5a86212"
+      derivation_type: "verifies"
+      activity: "urn:aiwg:activity:generation:fortemi-auth-consumer-receipt-707:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-auth-consumer-receipt-707:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

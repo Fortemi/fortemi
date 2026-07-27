@@ -680,7 +680,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -1292,6 +1292,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "fortemi-auth-axum"
+version = "0.1.0"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v0.1.0#e99f5378abdf416f443334d392e9d835a5a86212"
+dependencies = [
+ "axum",
+ "fortemi-auth-core",
+ "http",
+ "serde",
+ "tower",
+]
+
+[[package]]
+name = "fortemi-auth-core"
+version = "0.1.0"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v0.1.0#e99f5378abdf416f443334d392e9d835a5a86212"
+dependencies = [
+ "chrono",
+ "uuid",
 ]
 
 [[package]]
@@ -2212,6 +2233,8 @@ dependencies = [
  "chrono",
  "dotenvy",
  "flate2",
+ "fortemi-auth-axum",
+ "fortemi-auth-core",
  "futures",
  "governor",
  "hex",
@@ -5163,7 +5186,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

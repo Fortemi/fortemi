@@ -1,6 +1,6 @@
 # ADR-096: Private Cargo Registry for EE Crates
 
-**Status:** Proposed
+**Status:** Proposed for private EE crates; superseded for public `fortemi-auth`
 **Date:** 2026-05-20
 **Deciders:** roctinam, devops/security review TBD
 **Related:** ADR-088 (plugin strategy), ADR-095 (CE/EE distribution)
@@ -8,22 +8,28 @@
 
 ## July 2026 checkpoint rebaseline
 
-This ADR remains proposed and its registry readiness is a current no-go. Private EE repos exist, but the July 8 registry preflight receipt found no registry tokens/config/worktree and no package publish/consume proof is attached to `Fortemi-Enterprise/distribution#1`. Do not claim private package distribution readiness until `.aiwg/testing/private-cargo-registry-verification-plan-2026-07-06.md` passes and the proof is recorded, or OP-2026-07-006 records an accepted fallback posture.
+The private registry remains proposed and its readiness is a current no-go for
+private EE crates. It is no longer the distribution authority for
+`fortemi-auth`: the core, Clerk, and Axum crates are public MIT artifacts in
+`Fortemi/fortemi-auth`. Public consumers may use a signed release tag with a
+locked commit until registry publication is available. Future enterprise-only
+provider crates remain private and retain this ADR's registry gate.
 
 - **Decision status:** Proposed; registry readiness no-go.
 - **Implementation phase:** Registry selection and publish/consume verification.
-- **Phase owner:** `Fortemi/fortemi#716`, with proof in `Fortemi-Enterprise/distribution#1` and consumer work in `Fortemi/fortemi-auth#26`.
-- **Checkpoint decision date:** 2026-07-14.
+- **Phase owner:** `Fortemi/fortemi#716`, with private-registry proof in `Fortemi-Enterprise/distribution#1`.
+- **Checkpoint decision date:** 2026-07-26.
 
 ## Context
 
-`fortemi-auth` is currently consumed via SSH git dependency:
+The historical design consumed `fortemi-auth` through a private SSH dependency:
 
 ```toml
 fortemi-auth-axum = { git = "ssh://git@git.integrolabs.net:Fortemi/fortemi-auth.git", branch = "main" }
 ```
 
-This works for one private dependency, but does not scale to the planned EE crate set (ADR-095 lists 8+ crates). Issues with SSH-git-deps at scale:
+That path is superseded for the public MIT auth crates. The scaling concerns
+below still apply to planned private EE crates.
 
 - **Deploy-key sprawl**: every CI runner needs SSH access; key rotation is manual
 - **Version drift**: branch refs can shift; `Cargo.lock` pinning helps but does not guarantee reproducibility against a moving branch
@@ -81,17 +87,20 @@ fortemi-enterprise-audit-splunk = { version = "^0.3", registry = "fortemi-ee" }
 
 Authentication via `cargo login --registry fortemi-ee <token>` or `CARGO_REGISTRIES_FORTEMI_EE_TOKEN` environment variable.
 
-### Migration path for `fortemi-auth`
+### Public `fortemi-auth` distribution
 
-Once the registry is operational:
-1. Publish `fortemi-auth-core`, `fortemi-auth-clerk`, `fortemi-auth-axum` to the registry (initial version 0.1.0)
-2. Update `fortemi`'s `Cargo.toml` to consume via registry, not git
-3. Remove the SSH-git allowlist exception from `dependency-source-policy`
-4. Keep the Gitea repo as the development home; CI publishes on tag
+1. Release `fortemi-auth-core`, `fortemi-auth-clerk`, and
+   `fortemi-auth-axum` together under signed tag `v0.1.0`.
+2. Consumers pin the signed tag and retain Cargo's exact source revision in
+   `Cargo.lock`; floating branch and local-path release dependencies are forbidden.
+3. Publication to a public Cargo registry may replace the git-tag path later,
+   after an independent publish/consume receipt.
+4. Private enterprise provider crates use this ADR's private registry only
+   after its no-go gates pass.
 
 ### What does NOT go in the private registry
 
-- CE crates remain in source form on github.com/Fortemi (public)
+- CE crates, including `fortemi-auth`, remain publicly auditable
 - Internal-only utility crates (e.g., test helpers) stay as path or git deps inside their workspace
 - Community Plugins (Tier 3 per ADR-095) publish wherever they choose; Fortemi does not host community plugin binaries
 
@@ -126,11 +135,10 @@ Per `.claude/rules/dependency-source-policy.md`:
 **Phases:**
 1. (separate issue) Evaluation of kellnr vs Cloudsmith vs Artifactory; recommendation in 2 weeks
 2. Stand up chosen registry; configure auth + access policies
-3. CI publish workflow for `fortemi-auth-*` crates (validates the pipeline)
-4. Migrate `fortemi`'s `Cargo.toml` to consume via registry
-5. Update `dependency-source-policy` allowlist (remove fortemi-auth exception, add registry policy)
-6. Add SBOM publication to publish workflow
-7. Document consumer setup in `docs/ee/registry-access.md`
+3. CI publish workflow for the first private EE crate
+4. Update `dependency-source-policy` with the selected private registry policy
+5. Add SBOM publication to the private publish workflow
+6. Document private consumer setup in `docs/ee/registry-access.md`
 
 ## References
 

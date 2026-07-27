@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-26T23:52:36Z"
+  updated_at: "2026-07-27T01:16:43Z"
 records:
   - entity: "tests/fixtures/shards/external/schema-2-advertisement.receipt.json"
     record: "records/schema-2-advertisement-receipt-1081.prov.yaml"
@@ -178,5 +178,9 @@ records:
     record: "records/matric-core-shard-v1-0-to-v1-1-1057.prov.yaml"
   - entity: "crates/matric-core/src/shard/tests.rs"
     record: "records/matric-core-shard-tests-tombstones-1057.prov.yaml"
+  - entity: "crates/matric-api/tests/fortemi_auth_consumer_smoke_test.rs"
+    record: "records/fortemi-auth-consumer-smoke-test-707.prov.yaml"
+  - entity: ".aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md"
+    record: "records/fortemi-auth-rust-consumer-smoke-receipt-707.prov.yaml"
   - entity: "contracts/knowledge-shard/contract.json"
     record: "records/knowledge-shard-contract-v1-1-1057.prov.yaml"

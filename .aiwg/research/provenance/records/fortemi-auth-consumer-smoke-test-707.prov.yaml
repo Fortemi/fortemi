@@ -1,0 +1,41 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-27T00:41:58Z"
+  updated_at: "2026-07-27T01:16:43Z"
+  description: "Provenance for the matric-api public auth downstream smoke"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/tests/fortemi_auth_consumer_smoke_test.rs"
+  type: test_code
+  checksum: "sha256:ce9fee34ebe5f998b5dfd78e90bc43710a2be814027ec768810d67e873a21afe"
+  size_bytes: 4490
+  attributes:
+    change_scope: "fortemi-707-auth-release-smoke"
+    authority_release: "v0.1.0"
+    authority_revision: "e99f5378abdf416f443334d392e9d835a5a86212"
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-auth-consumer-smoke-707:001"
+  type: generation
+  started_at: "2026-07-27T00:34:00Z"
+  ended_at: "2026-07-27T01:16:43Z"
+  description: "Compile and execute the public core and Axum authentication consumer boundary"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/tests/fortemi_auth_consumer_smoke_test.rs"
+    activity: "urn:aiwg:activity:generation:fortemi-auth-consumer-smoke-707:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/tests/fortemi_auth_consumer_smoke_test.rs"
+      source: "urn:git:https://git.integrolabs.net/Fortemi/fortemi-auth.git:e99f5378abdf416f443334d392e9d835a5a86212:crates/fortemi-auth-axum/src/lib.rs"
+      derivation_type: "tests"
+      activity: "urn:aiwg:activity:generation:fortemi-auth-consumer-smoke-707:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-auth-consumer-smoke-707:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/tests/fortemi_auth_consumer_smoke_test.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"
