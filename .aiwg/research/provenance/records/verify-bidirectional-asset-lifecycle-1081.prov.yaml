@@ -1,0 +1,43 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-27T17:31:47Z"
+  updated_at: "2026-07-27T17:31:47Z"
+  description: "Provenance for the focused cross-repository asset lifecycle verifier"
+entity:
+  id: "urn:aiwg:artifact:scripts/ci/verify-bidirectional-asset-lifecycle.sh"
+  type: test
+  created_at: "2026-07-27T17:31:47Z"
+  checksum: "sha256:033a5d355fed7617e4e75bd0fae50091b2a78d5ae256a24e5cb8ef82254d5b61"
+  size_bytes: 2389
+  attributes:
+    issue: "Fortemi/fortemi#1081"
+    expected_selected_tests: 135
+    mode: "focused"
+activity:
+  id: "urn:aiwg:activity:testing:verify-bidirectional-asset-lifecycle-1081:001"
+  type: testing
+  started_at: "2026-07-27T17:20:00Z"
+  ended_at: "2026-07-27T17:31:47Z"
+  description: "Compose Fortemi, React, AIWG, and HotM focused lifecycle evidence into one command"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-bidirectional-asset-lifecycle.sh"
+    activity: "urn:aiwg:activity:testing:verify-bidirectional-asset-lifecycle-1081:001"
+    time: "2026-07-27T17:31:47Z"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:scripts/ci/verify-bidirectional-asset-lifecycle.sh"
+      source: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
+      derivation_type: "implements"
+      activity: "urn:aiwg:activity:testing:verify-bidirectional-asset-lifecycle-1081:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:testing:verify-bidirectional-asset-lifecycle-1081:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-bidirectional-asset-lifecycle.sh"
+    agent: "urn:aiwg:agent:codex-gpt-5"

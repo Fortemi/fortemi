@@ -1,0 +1,47 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-27T17:31:47Z"
+  updated_at: "2026-07-27T17:31:47Z"
+  description: "Provenance for the bidirectional asset lifecycle audit plan"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
+  type: document
+  created_at: "2026-07-27T17:31:47Z"
+  checksum: "sha256:c63bc8206b1cd36529b5598c27ac8ac864e82e44315d285bbc2eeeb3b14c9887"
+  size_bytes: 5810
+  attributes:
+    issue: "Fortemi/fortemi#1081"
+    decision: "scoped-contract-cells-green-live-lifecycle-incomplete"
+    focused_result: "135/135"
+activity:
+  id: "urn:aiwg:activity:generation:bidirectional-asset-lifecycle-audit-plan-1081:001"
+  type: generation
+  started_at: "2026-07-27T17:20:00Z"
+  ended_at: "2026-07-27T17:31:47Z"
+  description: "Map current evidence and define six missing live-system and NFR validation cells"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
+    activity: "urn:aiwg:activity:generation:bidirectional-asset-lifecycle-audit-plan-1081:001"
+    time: "2026-07-27T17:31:47Z"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
+      source: "urn:aiwg:artifact:.aiwg/requirements/bidirectional-asset-lifecycle-requirements-2026-07.md"
+      derivation_type: "tests"
+      activity: "urn:aiwg:activity:generation:bidirectional-asset-lifecycle-audit-plan-1081:001"
+    - entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
+      source: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
+      derivation_type: "audits"
+      activity: "urn:aiwg:activity:generation:bidirectional-asset-lifecycle-audit-plan-1081:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:bidirectional-asset-lifecycle-audit-plan-1081:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"
