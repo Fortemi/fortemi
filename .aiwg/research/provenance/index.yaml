@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-27T01:28:28Z"
+  updated_at: "2026-07-27T12:53:00Z"
 records:
   - entity: "tests/fixtures/shards/external/schema-2-advertisement.receipt.json"
     record: "records/schema-2-advertisement-receipt-1081.prov.yaml"
@@ -184,5 +184,7 @@ records:
     record: "records/fortemi-auth-rust-consumer-smoke-receipt-707.prov.yaml"
   - entity: "tests/fortemi-auth-consumer/fixtures/fortemi-auth-v1.json"
     record: "records/fortemi-auth-v1-fixture-707.prov.yaml"
+  - entity: "tests/fortemi-auth-consumer/fixtures/fortemi-auth-release-policy-v1.json"
+    record: "records/fortemi-auth-release-policy-v1-fixture-1081.prov.yaml"
   - entity: "contracts/knowledge-shard/contract.json"
     record: "records/knowledge-shard-contract-v1-1-1057.prov.yaml"

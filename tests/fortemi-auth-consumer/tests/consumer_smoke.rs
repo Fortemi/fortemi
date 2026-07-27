@@ -20,11 +20,15 @@ use fortemi_auth_core::{
 use fortemi_auth_mock::MemoryTenantStore;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 use uuid::Uuid;
 use xjp_oidc::{HttpClient, HttpClientError, JwtVerifier, MemoryCache};
 
 const TENANT_ID: Uuid = Uuid::from_u128(0x00000000000040008000000000000001);
+const MANIFEST_SHA256: &str = "dbd7fff6370d8a0c55d2c7e4ad311d3ddd1796815e2caff6dc05501cdf417a38";
+const RELEASE_POLICY_SHA256: &str =
+    "c8c6e2fd9237ddf238f74376aad841c53fce86885f95c982befdcbcd24880e5b";
 
 struct FixtureClaims(AuthContext);
 
@@ -158,9 +162,43 @@ async fn public_axum_contract_fails_closed_with_redacted_codes() {
 
 #[derive(Deserialize)]
 struct CorpusManifest {
+    contract_id: String,
+    contract_version: String,
+    profile: String,
     config: CorpusConfig,
     jwks: Value,
     cases: Vec<CorpusCase>,
+}
+
+#[derive(Deserialize)]
+struct ReleasePolicy {
+    policy_id: String,
+    policy_version: String,
+    release_scheme: String,
+    current_release: ReleaseIdentity,
+    compatibility_cases: Vec<ReleaseCase>,
+}
+
+#[derive(Deserialize)]
+struct ReleaseIdentity {
+    version: String,
+    tag: Option<String>,
+    contract_version: String,
+    profile: String,
+    manifest_sha256: String,
+}
+
+#[derive(Deserialize)]
+struct ReleaseCase {
+    id: String,
+    candidate: ReleaseIdentity,
+    expected: ReleaseExpected,
+}
+
+#[derive(Deserialize)]
+struct ReleaseExpected {
+    outcome: String,
+    error: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -230,9 +268,13 @@ impl HttpClient for CorpusHttp {
 
 #[tokio::test]
 async fn fortemi_executes_the_canonical_v1_corpus() {
+    let manifest_bytes = include_bytes!("../fixtures/fortemi-auth-v1.json");
+    assert_eq!(sha256(manifest_bytes), MANIFEST_SHA256);
     let manifest: CorpusManifest =
-        serde_json::from_str(include_str!("../fixtures/fortemi-auth-v1.json"))
-            .expect("canonical auth manifest must parse");
+        serde_json::from_slice(manifest_bytes).expect("canonical auth manifest must parse");
+    assert_eq!(manifest.contract_id, "fortemi-auth-conformance");
+    assert_eq!(manifest.contract_version, "1.0.0");
+    assert_eq!(manifest.profile, "rust-node-jwt-v1");
     let config = ClerkConfig {
         issuer: manifest.config.issuer.clone(),
         audience: manifest.config.audience.clone(),
@@ -310,4 +352,71 @@ async fn fortemi_executes_the_canonical_v1_corpus() {
             );
         }
     }
+}
+
+#[test]
+fn fortemi_enforces_the_calver_release_policy() {
+    let policy_bytes = include_bytes!("../fixtures/fortemi-auth-release-policy-v1.json");
+    assert_eq!(sha256(policy_bytes), RELEASE_POLICY_SHA256);
+    let policy: ReleasePolicy =
+        serde_json::from_slice(policy_bytes).expect("release policy must parse");
+
+    assert_eq!(policy.policy_id, "fortemi-auth-release-compatibility");
+    assert_eq!(policy.policy_version, "1.0.0");
+    assert_eq!(policy.release_scheme, "calver-yyyy-m-patch");
+    assert_eq!(policy.current_release.version, "2026.7.0");
+    assert_eq!(policy.current_release.tag.as_deref(), Some("v2026.7.0"));
+    assert_calver(&policy.current_release.version);
+
+    for case in &policy.compatibility_cases {
+        let result = evaluate_release(&policy.current_release, &case.candidate);
+        if case.expected.outcome == "accepted" {
+            assert_eq!(result, Ok(()), "{}", case.id);
+        } else {
+            assert_eq!(
+                result,
+                Err(case.expected.error.as_deref().expect("rejection error")),
+                "{}",
+                case.id
+            );
+        }
+    }
+}
+
+fn evaluate_release<'a>(
+    current: &ReleaseIdentity,
+    candidate: &'a ReleaseIdentity,
+) -> Result<(), &'a str> {
+    if candidate.version != current.version {
+        return Err("unsupported_release");
+    }
+    if candidate.contract_version != current.contract_version
+        || candidate.profile != current.profile
+    {
+        return Err("contract_mismatch");
+    }
+    if candidate.manifest_sha256 != current.manifest_sha256 {
+        return Err("artifact_mismatch");
+    }
+    Ok(())
+}
+
+fn assert_calver(version: &str) {
+    let parts: Vec<_> = version.split('.').collect();
+    assert_eq!(parts.len(), 3, "CalVer must have YYYY.M.PATCH components");
+    assert_eq!(parts[0].len(), 4, "CalVer year must have four digits");
+    for part in parts {
+        assert!(
+            !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()),
+            "CalVer components must be numeric"
+        );
+        assert!(
+            part == "0" || !part.starts_with('0'),
+            "CalVer components must not have leading zeroes"
+        );
+    }
+}
+
+fn sha256(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
 }

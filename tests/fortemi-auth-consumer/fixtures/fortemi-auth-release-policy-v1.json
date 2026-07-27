@@ -1,0 +1,117 @@
+{
+  "policy_id": "fortemi-auth-release-compatibility",
+  "policy_version": "1.0.0",
+  "release_scheme": "calver-yyyy-m-patch",
+  "current_release": {
+    "version": "2026.7.0",
+    "tag": "v2026.7.0",
+    "contract_version": "1.0.0",
+    "profile": "rust-node-jwt-v1",
+    "manifest_sha256": "dbd7fff6370d8a0c55d2c7e4ad311d3ddd1796815e2caff6dc05501cdf417a38"
+  },
+  "compatibility_cases": [
+    {
+      "id": "previous-calendar-train",
+      "candidate": {
+        "version": "2026.6.0",
+        "contract_version": "1.0.0",
+        "profile": "rust-node-jwt-v1",
+        "manifest_sha256": "dbd7fff6370d8a0c55d2c7e4ad311d3ddd1796815e2caff6dc05501cdf417a38"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "unsupported_release"
+      }
+    },
+    {
+      "id": "bootstrap-pre-calver",
+      "candidate": {
+        "version": "0.1.0",
+        "contract_version": "1.0.0",
+        "profile": "rust-node-jwt-v1",
+        "manifest_sha256": "dbd7fff6370d8a0c55d2c7e4ad311d3ddd1796815e2caff6dc05501cdf417a38"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "unsupported_release"
+      }
+    },
+    {
+      "id": "current-exact",
+      "candidate": {
+        "version": "2026.7.0",
+        "contract_version": "1.0.0",
+        "profile": "rust-node-jwt-v1",
+        "manifest_sha256": "dbd7fff6370d8a0c55d2c7e4ad311d3ddd1796815e2caff6dc05501cdf417a38"
+      },
+      "expected": {
+        "outcome": "accepted"
+      }
+    },
+    {
+      "id": "current-contract-drift",
+      "candidate": {
+        "version": "2026.7.0",
+        "contract_version": "2.0.0",
+        "profile": "rust-node-jwt-v1",
+        "manifest_sha256": "dbd7fff6370d8a0c55d2c7e4ad311d3ddd1796815e2caff6dc05501cdf417a38"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "contract_mismatch"
+      }
+    },
+    {
+      "id": "current-profile-drift",
+      "candidate": {
+        "version": "2026.7.0",
+        "contract_version": "1.0.0",
+        "profile": "rust-node-jwt-v2",
+        "manifest_sha256": "dbd7fff6370d8a0c55d2c7e4ad311d3ddd1796815e2caff6dc05501cdf417a38"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "contract_mismatch"
+      }
+    },
+    {
+      "id": "current-manifest-drift",
+      "candidate": {
+        "version": "2026.7.0",
+        "contract_version": "1.0.0",
+        "profile": "rust-node-jwt-v1",
+        "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "artifact_mismatch"
+      }
+    },
+    {
+      "id": "next-calendar-train",
+      "candidate": {
+        "version": "2026.8.0",
+        "contract_version": "1.0.0",
+        "profile": "rust-node-jwt-v1",
+        "manifest_sha256": "dbd7fff6370d8a0c55d2c7e4ad311d3ddd1796815e2caff6dc05501cdf417a38"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "unsupported_release"
+      }
+    },
+    {
+      "id": "next-calendar-year",
+      "candidate": {
+        "version": "2027.1.0",
+        "contract_version": "1.0.0",
+        "profile": "rust-node-jwt-v1",
+        "manifest_sha256": "dbd7fff6370d8a0c55d2c7e4ad311d3ddd1796815e2caff6dc05501cdf417a38"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "unsupported_release"
+      }
+    }
+  ]
+}

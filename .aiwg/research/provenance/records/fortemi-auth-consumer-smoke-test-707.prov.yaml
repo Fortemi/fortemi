@@ -1,23 +1,23 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-07-27T00:41:58Z"
-  updated_at: "2026-07-27T01:55:02Z"
+  updated_at: "2026-07-27T12:53:00Z"
   description: "Provenance for the isolated Fortemi public auth downstream smoke"
 entity:
   id: "urn:aiwg:artifact:tests/fortemi-auth-consumer/tests/consumer_smoke.rs"
   type: test_code
-  checksum: "sha256:1c158d37169735ccf0beb8a3ec07ba864db7fb5d9eb21ee7c6a83cdecb7e2ce5"
-  size_bytes: 9392
+  checksum: "sha256:b3c55828f1bd75ff76ad52da67617790bdd6352a6b81cb40ffb656b5bd69b563"
+  size_bytes: 12869
   attributes:
     change_scope: "fortemi-707-auth-release-smoke"
-    authority_release: "v0.1.0"
-    authority_revision: "e99f5378abdf416f443334d392e9d835a5a86212"
+    authority_release: "v2026.7.0"
+    authority_revision: "130919cc01a29a1360c5f110ad8e2f8277e66c0a"
 activity:
   id: "urn:aiwg:activity:generation:fortemi-auth-consumer-smoke-707:001"
   type: generation
   started_at: "2026-07-27T00:34:00Z"
-  ended_at: "2026-07-27T01:55:02Z"
-  description: "Compile and execute the public auth boundary without changing matric-api's feature graph"
+  ended_at: "2026-07-27T12:53:00Z"
+  description: "Compile and execute the public auth boundary plus exact CalVer release policy"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -29,11 +29,15 @@ relationships:
     activity: "urn:aiwg:activity:generation:fortemi-auth-consumer-smoke-707:001"
   wasDerivedFrom:
     - entity: "urn:aiwg:artifact:tests/fortemi-auth-consumer/tests/consumer_smoke.rs"
-      source: "urn:git:https://git.integrolabs.net/Fortemi/fortemi-auth.git:e99f5378abdf416f443334d392e9d835a5a86212:crates/fortemi-auth-axum/src/lib.rs"
+      source: "urn:git:https://git.integrolabs.net/Fortemi/fortemi-auth.git:v2026.7.0:crates/fortemi-auth-axum/src/lib.rs"
       derivation_type: "tests"
       activity: "urn:aiwg:activity:generation:fortemi-auth-consumer-smoke-707:001"
     - entity: "urn:aiwg:artifact:tests/fortemi-auth-consumer/tests/consumer_smoke.rs"
       source: "urn:aiwg:artifact:tests/fortemi-auth-consumer/fixtures/fortemi-auth-v1.json"
+      derivation_type: "tests"
+      activity: "urn:aiwg:activity:generation:fortemi-auth-consumer-smoke-707:001"
+    - entity: "urn:aiwg:artifact:tests/fortemi-auth-consumer/tests/consumer_smoke.rs"
+      source: "urn:aiwg:artifact:tests/fortemi-auth-consumer/fixtures/fortemi-auth-release-policy-v1.json"
       derivation_type: "tests"
       activity: "urn:aiwg:activity:generation:fortemi-auth-consumer-smoke-707:001"
   wasAssociatedWith:

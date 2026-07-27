@@ -423,8 +423,8 @@ dependencies = [
 
 [[package]]
 name = "fortemi-auth-axum"
-version = "0.1.0"
-source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v0.1.0#e99f5378abdf416f443334d392e9d835a5a86212"
+version = "2026.7.0"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.7.0#130919cc01a29a1360c5f110ad8e2f8277e66c0a"
 dependencies = [
  "axum",
  "fortemi-auth-core",
@@ -435,8 +435,8 @@ dependencies = [
 
 [[package]]
 name = "fortemi-auth-clerk"
-version = "0.1.0"
-source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v0.1.0#e99f5378abdf416f443334d392e9d835a5a86212"
+version = "2026.7.0"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.7.0#130919cc01a29a1360c5f110ad8e2f8277e66c0a"
 dependencies = [
  "base64",
  "chrono",
@@ -449,7 +449,7 @@ dependencies = [
 
 [[package]]
 name = "fortemi-auth-consumer-conformance"
-version = "0.1.0"
+version = "2026.7.12"
 dependencies = [
  "async-trait",
  "axum",
@@ -460,6 +460,7 @@ dependencies = [
  "fortemi-auth-mock",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tower",
  "uuid",
@@ -468,8 +469,8 @@ dependencies = [
 
 [[package]]
 name = "fortemi-auth-core"
-version = "0.1.0"
-source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v0.1.0#e99f5378abdf416f443334d392e9d835a5a86212"
+version = "2026.7.0"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.7.0#130919cc01a29a1360c5f110ad8e2f8277e66c0a"
 dependencies = [
  "chrono",
  "uuid",
@@ -477,8 +478,8 @@ dependencies = [
 
 [[package]]
 name = "fortemi-auth-mock"
-version = "0.1.0"
-source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v0.1.0#e99f5378abdf416f443334d392e9d835a5a86212"
+version = "2026.7.0"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.7.0#130919cc01a29a1360c5f110ad8e2f8277e66c0a"
 dependencies = [
  "chrono",
  "fortemi-auth-core",
