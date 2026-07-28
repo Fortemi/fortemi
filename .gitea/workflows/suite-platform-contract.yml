@@ -21,6 +21,7 @@ env:
   VAULT_ADDR: ${{ vars.VAULT_ADDR }}
   MUTSU_SSH_KEY_VAULT_PATH: ${{ vars.MUTSU_SSH_KEY_VAULT_PATH }}
   MUTSU_SSH_KEY_VAULT_FIELD: ${{ vars.MUTSU_SSH_KEY_VAULT_FIELD }}
+  VAULT_CACERT: ${{ github.workspace }}/ci/trust/integro-labs-root-ca-g2.crt
   VAULT_SKIP_VERIFY: "0"
 
 jobs:
