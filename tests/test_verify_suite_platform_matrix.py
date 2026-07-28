@@ -338,6 +338,19 @@ class SuitePlatformMatrixTests(unittest.TestCase):
         self.assertIn("libwebkit2gtk-4.1-dev libgtk-3-dev", runner)
         self.assertIn("libsoup-3.0-dev libjavascriptcoregtk-4.1-dev", runner)
 
+    def test_runner_serializes_shared_database_authority_tests(self):
+        runner = (
+            ROOT / "scripts/ci/run-suite-platform-contract.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "cargo test --workspace --exclude matric-jobs -- --test-threads=1",
+            runner,
+        )
+        self.assertNotIn(
+            "\n  cargo test --workspace --exclude matric-jobs\n",
+            runner,
+        )
+
     def test_accepts_exact_manifest_and_both_platforms(self):
         value = manifest()
         MODULE.validate_manifest(value)

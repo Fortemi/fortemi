@@ -519,7 +519,9 @@ stop_authority_server
 (
   cd "$AUTHORITY_DIR"
   cargo test --package matric-jobs --test worker_integration_test -- --test-threads=1
-  cargo test --workspace --exclude matric-jobs
+  # The authority integration tests share one PostgreSQL instance. Preserve
+  # their database isolation while retaining dedicated concurrency coverage.
+  cargo test --workspace --exclude matric-jobs -- --test-threads=1
   cargo test --doc
   cargo test --manifest-path tests/fortemi-auth-consumer/Cargo.toml --locked
 )
