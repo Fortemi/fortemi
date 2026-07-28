@@ -24,6 +24,41 @@ PROHIBITED_TRUE_CLAIMS = (
     "one_universal_schema",
     "launched_gui",
 )
+HOTM_REQUIRED_TRUE_CLAIMS = (
+    "browserSetInputFilesAgainstLiveFortemiPassed",
+    "browserTusMultiOffsetResumePassed",
+    "browserTusExactlyOneAttachmentPassed",
+    "reuploadAndShardMetadataRelationshipsPassed",
+    "browserSavedDownloadPassed",
+    "tauriLocalFileCoreAgainstLiveFortemiPassed",
+    "sourceRetiredBeforeCleanRecoveryPassed",
+    "browserAndDesktopNormalizedContractPassed",
+    "signedFullV1CleanRecoveryPassed",
+    "exactBytesDigestAndLengthPassed",
+    "authenticatedBoundaryPassed",
+    "authorityContractGatesPassed",
+    "redactionScanPassed",
+    "productionShardConsumerPassed",
+)
+HOTM_FIXTURE_IDENTITY = {
+    "id": "hotm-live-assets-v1",
+    "browserTusBytes": 196608,
+    "browserTusSha256": "d6ab0c60a307941a1d9793753bf0cbbb90008e89812869453b25e236ef56231f",
+    "uiUploadBytes": 131072,
+    "uiUploadSha256": "7298685ff5a1933017d78acb3d5d42f2a872bd1a38e0b152c4fb8bceebd47ea4",
+}
+REQUIRED_GATES = (
+    "authority.release-build",
+    "authority.workspace-tests",
+    "authority.openapi",
+    "authority.asyncapi",
+    "authority.auth-consumer",
+    "authority.knowledge-shard",
+    "react-core.portable-contract",
+    "react-core.live-server",
+    "hotm.generated-contracts",
+    "hotm.authenticated-live",
+)
 
 
 class VerificationError(ValueError):
@@ -109,6 +144,7 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
             "contract_path",
             "contract_sha256",
             "contract_revision",
+            "server_compatibility_revision",
             "schema_bundle_sha256",
             "profile",
         },
@@ -129,18 +165,63 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
         raise VerificationError("manifest authority contract path mismatch")
     if authority.get("contract_revision") != "21":
         raise VerificationError("manifest authority contract revision must be 21")
+    if authority.get("server_compatibility_revision") != "2026-07-06":
+        raise VerificationError(
+            "manifest authority server compatibility revision must be 2026-07-06"
+        )
     if authority.get("profile") != "2.0.0/full-v1":
         raise VerificationError("manifest authority profile must be 2.0.0/full-v1")
 
-    for name, participant in (
-        ("fortemi_react", participants["fortemi_react"]),
-        ("hotm", participants["hotm"]),
-    ):
-        if not isinstance(participant, dict):
-            raise VerificationError(f"manifest {name} participant must be an object")
-        require_commit(participant.get("commit"), f"manifest.{name}.commit")
-        if not isinstance(participant.get("repository"), str) or not participant["repository"]:
-            raise VerificationError(f"manifest.{name}.repository is required")
+    react = participants["fortemi_react"]
+    if not isinstance(react, dict):
+        raise VerificationError("manifest fortemi_react participant must be an object")
+    exact_keys(
+        react,
+        {
+            "repository",
+            "commit",
+            "package",
+            "package_version",
+            "package_tarball_sha256",
+            "profile",
+        },
+        "manifest.participants.fortemi_react",
+    )
+    require_commit(react.get("commit"), "manifest.fortemi_react.commit")
+    if react.get("repository") != "Fortemi/fortemi-react":
+        raise VerificationError("manifest fortemi_react repository mismatch")
+    if react.get("package") != "@fortemi/core":
+        raise VerificationError("manifest fortemi_react package mismatch")
+    if not isinstance(react.get("package_version"), str) or not react["package_version"]:
+        raise VerificationError("manifest fortemi_react package version is required")
+    require_sha256(
+        react.get("package_tarball_sha256"),
+        "manifest.fortemi_react.package_tarball_sha256",
+    )
+    if react.get("profile") != "2.0.0/full-v1":
+        raise VerificationError("manifest fortemi_react profile mismatch")
+
+    hotm = participants["hotm"]
+    if not isinstance(hotm, dict):
+        raise VerificationError("manifest hotm participant must be an object")
+    exact_keys(
+        hotm,
+        {"repository", "commit", "profile", "sidecar_release", "sidecar_assets"},
+        "manifest.participants.hotm",
+    )
+    require_commit(hotm.get("commit"), "manifest.hotm.commit")
+    if hotm.get("repository") != "Fortemi/HotM":
+        raise VerificationError("manifest hotm repository mismatch")
+    if hotm.get("profile") != "2.0.0/full-v1":
+        raise VerificationError("manifest hotm profile mismatch")
+    if not isinstance(hotm.get("sidecar_release"), str) or not hotm["sidecar_release"]:
+        raise VerificationError("manifest hotm sidecar release is required")
+    assets = hotm.get("sidecar_assets")
+    if not isinstance(assets, dict):
+        raise VerificationError("manifest hotm sidecar assets must be an object")
+    exact_keys(assets, {"linux-x86_64", "macos-arm64"}, "manifest hotm assets")
+    for platform_id, digest in assets.items():
+        require_sha256(digest, f"manifest.hotm.sidecar_assets.{platform_id}")
 
     platforms = manifest["required_platforms"]
     expected_platforms = {
@@ -170,6 +251,8 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
         or len(gates) != len(set(gates))
     ):
         raise VerificationError("manifest.required_gates must be a unique non-empty string array")
+    if set(gates) != set(REQUIRED_GATES):
+        raise VerificationError("manifest.required_gates does not contain the exact suite gate set")
     deferred = manifest["deferred_platforms"]
     if not isinstance(deferred, list) or not deferred:
         raise VerificationError("manifest.deferred_platforms must not be empty")
@@ -191,6 +274,9 @@ def manifest_participant_commits(manifest: dict[str, Any]) -> dict[str, str]:
         "authority_schema": manifest["authority"]["schema_commit"],
         "authority_runtime": manifest["authority"]["runtime_commit"],
         "fortemi_react": manifest["participants"]["fortemi_react"]["commit"],
+        "fortemi_react_package": manifest["participants"]["fortemi_react"][
+            "package_tarball_sha256"
+        ],
         "hotm": manifest["participants"]["hotm"]["commit"],
     }
 
@@ -390,6 +476,12 @@ def validate_react_receipt(
         "fortemi_react"
     ]["commit"]:
         raise VerificationError("React receipt commit drift")
+    react = manifest["participants"]["fortemi_react"]
+    if receipt.get("package") != {
+        "name": react["package"],
+        "version": react["package_version"],
+    }:
+        raise VerificationError("React receipt package identity drift")
     expected_platform = {
         "linux-x86_64": "linux/x86_64",
         "macos-arm64": "darwin/arm64",
@@ -419,6 +511,19 @@ def validate_react_receipt(
         key: binding.get(key) for key in expected_binding
     } != expected_binding:
         raise VerificationError("React receipt schema-2 authority binding drift")
+    live_server = receipt.get("liveServer", {})
+    compatibility = live_server.get("server", {}).get("compatibility", {})
+    live_claims = live_server.get("claims", {})
+    if (
+        live_server.get("status") != "passed"
+        or compatibility.get("contractRevision")
+        != authority["server_compatibility_revision"]
+        or compatibility.get("authRequired") is not True
+        or live_claims.get("liveServerToCore") is not True
+        or live_claims.get("cleanDestination") is not True
+        or live_claims.get("zeroMutationOnRejection") is not True
+    ):
+        raise VerificationError("React receipt live authority-to-core gate drift")
     claims = receipt.get("claims", {})
     if (
         claims.get("suiteWide") is not False
@@ -436,18 +541,64 @@ def validate_hotm_receipt(
     if receipt.get("issue") != "Fortemi/HotM#284" or receipt.get("status") != "passed":
         raise VerificationError("HotM receipt issue/status mismatch")
     identity = receipt.get("identity", {})
-    if identity.get("hotmCommit") != manifest["participants"]["hotm"]["commit"]:
+    hotm = manifest["participants"]["hotm"]
+    if identity.get("hotmCommit") != hotm["commit"]:
         raise VerificationError("HotM receipt commit drift")
     if identity.get("fortemiCommit") != manifest["authority"]["runtime_commit"]:
         raise VerificationError("HotM receipt authority runtime drift")
+    if identity.get("fortemiHealthCommit") != manifest["authority"]["runtime_commit"]:
+        raise VerificationError("HotM receipt health authority runtime drift")
+    if identity.get("hotmWorktreeDirty") is not False:
+        raise VerificationError("HotM receipt checkout must be clean")
+    if identity.get("fixture") != HOTM_FIXTURE_IDENTITY:
+        raise VerificationError("HotM receipt deterministic fixture drift")
+    if identity.get("sidecarRelease") != hotm["sidecar_release"]:
+        raise VerificationError("HotM receipt sidecar release drift")
+    if identity.get("sidecarSha256") != hotm["sidecar_assets"][platform_id]:
+        raise VerificationError("HotM receipt sidecar asset drift")
+    if receipt.get("profile") != hotm["profile"]:
+        raise VerificationError("HotM receipt profile drift")
     expected_platform = {
-        "linux-x86_64": ("linux", "x86_64"),
-        "macos-arm64": ("darwin", "arm64"),
+        "linux-x86_64": (
+            "linux",
+            "x86_64",
+            "x86_64-unknown-linux-gnu",
+            "tauri-command-core-linux-x86_64",
+        ),
+        "macos-arm64": (
+            "darwin",
+            "arm64",
+            "aarch64-apple-darwin",
+            "tauri-command-core-darwin-arm64",
+        ),
     }[platform_id]
     execution = receipt.get("execution", {})
-    if (execution.get("os"), execution.get("arch")) != expected_platform:
+    if (
+        execution.get("os"),
+        execution.get("arch"),
+        execution.get("target"),
+        execution.get("desktopTarget"),
+    ) != expected_platform:
         raise VerificationError("HotM receipt platform drift")
+    if (
+        execution.get("headless") is not True
+        or execution.get("authenticationRequired") is not True
+        or execution.get("storageBackend") != "filesystem"
+        or execution.get("browserTarget") != "playwright-chromium"
+    ):
+        raise VerificationError("HotM receipt execution boundary drift")
+    children = receipt.get("children")
+    if not isinstance(children, dict):
+        raise VerificationError("HotM child receipts are missing")
+    for name in ("browser", "tauri", "authorityContracts"):
+        child = children.get(name, {})
+        if child.get("status") != "passed":
+            raise VerificationError(f"HotM {name} child did not pass")
+        require_sha256(child.get("sha256"), f"HotM receipt children.{name}.sha256")
     claims = receipt.get("claims", {})
+    for claim in HOTM_REQUIRED_TRUE_CLAIMS:
+        if claims.get(claim) is not True:
+            raise VerificationError(f"HotM required claim did not pass: {claim}")
     if (
         claims.get("launchedDesktopGui") is not False
         or claims.get("interactiveNativeDialogs") is not False
@@ -572,7 +723,23 @@ def aggregate_receipts(
         raise VerificationError("one receipt per required platform is required")
     receipts: dict[str, str] = {}
     for path in receipt_paths:
-        platform_id, canonical_sha256 = validate_platform_receipt(load_json(path), manifest)
+        receipt = load_json(path)
+        platform_id, canonical_sha256 = validate_platform_receipt(receipt, manifest)
+        child_files = {
+            "authority": "authority-receipt.json",
+            "fortemi_react": "react-receipt.json",
+            "hotm": "hotm-receipt.json",
+        }
+        for name, filename in child_files.items():
+            child_path = path.parent / filename
+            if not child_path.is_file():
+                raise VerificationError(
+                    f"aggregate child evidence is missing for {platform_id}: {filename}"
+                )
+            if sha256_file(child_path) != receipt["child_receipts"][name]:
+                raise VerificationError(
+                    f"aggregate child evidence digest drift for {platform_id}: {name}"
+                )
         if platform_id in receipts:
             raise VerificationError(f"duplicate platform receipt: {platform_id}")
         receipts[platform_id] = canonical_sha256

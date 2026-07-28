@@ -3,14 +3,21 @@
 This directory is the Fortemi-owned execution contract for the bounded
 authority-to-consumer platform claim in ADR-104.
 
-`platform-matrix.json` pins the authority and consumer revisions, the exact
-Linux x86_64 and macOS arm64 cells, required gates, deferred platforms, and
-prohibited claims. `platform-matrix.schema.json` defines its machine-readable
-shape.
+`platform-matrix.json` pins the separate Knowledge Shard and server
+compatibility authority revisions, consumer revisions,
+`@fortemi/core` source, version, profile, and reproducible packed-tarball
+digest, per-platform immutable sidecar digests, the exact Linux x86_64 and
+macOS arm64 cells, required gates, deferred platforms, and prohibited claims.
+`platform-matrix.schema.json` defines its machine-readable shape.
 
 The matrix does not redefine Knowledge Shard profiles, OpenAPI, AsyncAPI,
 authentication, or compatibility discovery. It composes their existing
 authority-owned receipts into a platform-qualified release gate.
+
+Each platform run owns its database container and recreates the database,
+including the image-provisioned extension baseline, between authority tests,
+React/core, and HotM. No participant inherits another participant's test data
+or background workers.
 
 Run:
 

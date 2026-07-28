@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "matrix_id": "fortemi.suite-conformance.2026-07-linux-mutsu-v1",
+  "issue": "Fortemi/fortemi#1095",
+  "authority": {
+    "repository": "Fortemi/fortemi",
+    "schema_commit": "0c59bc6cb06cca0b1e00eba4c0fa493f3ef3b90b",
+    "runtime_commit": "01df081bac0759363f7d6bff7e9a055ae929861f",
+    "contract_path": "contracts/knowledge-shard/2.0.0/contract.json",
+    "contract_sha256": "ac417e23181ec80741d776b6b29fa38236091dfa649b01255aaac30ebb53969f",
+    "contract_revision": "21",
+    "server_compatibility_revision": "2026-07-06",
+    "schema_bundle_sha256": "731700868cc93ba95e2c1d9e896df265d0757438b06fa002d9b643ab05b5f74d",
+    "profile": "2.0.0/full-v1"
+  },
+  "participants": {
+    "fortemi_react": {
+      "repository": "Fortemi/fortemi-react",
+      "commit": "e415d3730386993c418344205344a094127200e6",
+      "package": "@fortemi/core",
+      "package_version": "2026.7.14",
+      "package_tarball_sha256": "e282f504a842261c3f598a7f2ee0d6a85e03dc213ddf545a18daf5f603a742cc",
+      "profile": "2.0.0/full-v1"
+    },
+    "hotm": {
+      "repository": "Fortemi/HotM",
+      "commit": "9c19516f6cc1e0fe5f38d7db72643636eaaff818",
+      "profile": "2.0.0/full-v1",
+      "sidecar_release": "sidecar-01df081bac07",
+      "sidecar_assets": {
+        "linux-x86_64": "d67ec7e5524d1046f3d0e32a6c1a913f138c794cd2879a50d82ad76f9523582c",
+        "macos-arm64": "fc25475220f43140d9942f18963e74bed41810ab69575749b82c92091a5999e3"
+      }
+    }
+  },
+  "required_platforms": [
+    {
+      "id": "linux-x86_64",
+      "os": "linux",
+      "architecture": "x86_64",
+      "runner": "matric-builder"
+    },
+    {
+      "id": "macos-arm64",
+      "os": "macos",
+      "architecture": "arm64",
+      "runner": "mutsu"
+    }
+  ],
+  "required_gates": [
+    "authority.release-build",
+    "authority.workspace-tests",
+    "authority.openapi",
+    "authority.asyncapi",
+    "authority.auth-consumer",
+    "authority.knowledge-shard",
+    "react-core.portable-contract",
+    "react-core.live-server",
+    "hotm.generated-contracts",
+    "hotm.authenticated-live"
+  ],
+  "deferred_platforms": [
+    "linux-arm64",
+    "macos-x86_64",
+    "windows-x86_64",
+    "windows-arm64",
+    "ios",
+    "android"
+  ],
+  "claim_boundary": {
+    "supported_platforms_only": true,
+    "universal_portability": false,
+    "complete_backup": false,
+    "one_universal_schema": false,
+    "launched_gui": false
+  }
+}

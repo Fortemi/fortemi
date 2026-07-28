@@ -28,8 +28,8 @@
       "additionalProperties": false,
       "required": ["fortemi_react", "hotm"],
       "properties": {
-        "fortemi_react": { "$ref": "#/$defs/participant" },
-        "hotm": { "$ref": "#/$defs/participant" }
+        "fortemi_react": { "$ref": "#/$defs/react_participant" },
+        "hotm": { "$ref": "#/$defs/hotm_participant" }
       }
     },
     "required_platforms": {
@@ -81,17 +81,50 @@
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
     },
-    "participant": {
+    "react_participant": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "commit"],
+      "required": [
+        "repository",
+        "commit",
+        "package",
+        "package_version",
+        "package_tarball_sha256",
+        "profile"
+      ],
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
+        "repository": { "const": "Fortemi/fortemi-react" },
         "commit": { "$ref": "#/$defs/commit" },
-        "contract_sha256": { "$ref": "#/$defs/sha256" },
-        "package": { "type": "string", "minLength": 1 },
+        "package": { "const": "@fortemi/core" },
         "package_version": { "type": "string", "minLength": 1 },
+        "package_tarball_sha256": { "$ref": "#/$defs/sha256" },
         "profile": { "const": "2.0.0/full-v1" }
+      }
+    },
+    "hotm_participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "commit",
+        "profile",
+        "sidecar_release",
+        "sidecar_assets"
+      ],
+      "properties": {
+        "repository": { "const": "Fortemi/HotM" },
+        "commit": { "$ref": "#/$defs/commit" },
+        "profile": { "const": "2.0.0/full-v1" },
+        "sidecar_release": { "type": "string", "minLength": 1 },
+        "sidecar_assets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["linux-x86_64", "macos-arm64"],
+          "properties": {
+            "linux-x86_64": { "$ref": "#/$defs/sha256" },
+            "macos-arm64": { "$ref": "#/$defs/sha256" }
+          }
+        }
       }
     },
     "authority": {
@@ -104,6 +137,7 @@
         "contract_path",
         "contract_sha256",
         "contract_revision",
+        "server_compatibility_revision",
         "schema_bundle_sha256",
         "profile"
       ],
@@ -116,6 +150,7 @@
         },
         "contract_sha256": { "$ref": "#/$defs/sha256" },
         "contract_revision": { "const": "21" },
+        "server_compatibility_revision": { "const": "2026-07-06" },
         "schema_bundle_sha256": { "$ref": "#/$defs/sha256" },
         "profile": { "const": "2.0.0/full-v1" }
       }

@@ -98,6 +98,7 @@ must be identical.
 The authority repository publishes a machine-readable manifest that pins:
 
 - exact Fortemi authority/orchestrator, `fortemi-react`, and HotM commits;
+- separate Knowledge Shard and server compatibility contract revisions;
 - package and sidecar release identities;
 - schema/profile and generated-contract digests;
 - required platform cells and child gates;
@@ -115,6 +116,11 @@ hashes, and pass/fail results. An aggregate verifier fails closed when:
 - a checkout used for a clean-revision claim is dirty; or
 - any receipt claims universal portability, one universal schema, launched
   GUI/native dialogs, or complete backup without separate evidence.
+
+The runner owns an isolated PostgreSQL container. Authority tests, React/core,
+and HotM execute in separate database lifecycles with the same
+image-provisioned extension baseline. The authority process owns SQLx
+migrations and is stopped while database-backed authority tests run.
 
 Passing both cells authorizes only the phrase:
 

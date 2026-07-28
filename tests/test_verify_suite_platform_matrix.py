@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 import tempfile
 import unittest
@@ -30,6 +31,7 @@ def manifest():
             "contract_path": "contracts/knowledge-shard/2.0.0/contract.json",
             "contract_sha256": "1" * 64,
             "contract_revision": "21",
+            "server_compatibility_revision": "2026-07-06",
             "schema_bundle_sha256": "2" * 64,
             "profile": "2.0.0/full-v1",
         },
@@ -37,10 +39,20 @@ def manifest():
             "fortemi_react": {
                 "repository": "Fortemi/fortemi-react",
                 "commit": COMMIT_R,
+                "package": "@fortemi/core",
+                "package_version": "2026.7.14",
+                "package_tarball_sha256": "8" * 64,
+                "profile": "2.0.0/full-v1",
             },
             "hotm": {
                 "repository": "Fortemi/HotM",
                 "commit": COMMIT_H,
+                "profile": "2.0.0/full-v1",
+                "sidecar_release": "sidecar-test",
+                "sidecar_assets": {
+                    "linux-x86_64": "6" * 64,
+                    "macos-arm64": "7" * 64,
+                },
             },
         },
         "required_platforms": [
@@ -57,11 +69,7 @@ def manifest():
                 "runner": "mutsu",
             },
         ],
-        "required_gates": [
-            "authority.workspace-tests",
-            "react-core.portable-contract",
-            "hotm.consumer",
-        ],
+        "required_gates": list(MODULE.REQUIRED_GATES),
         "deferred_platforms": ["windows", "linux-arm64"],
         "claim_boundary": {
             "supported_platforms_only": True,
@@ -93,12 +101,11 @@ def platform_receipt(platform_id):
             "authority_schema": COMMIT_A,
             "authority_runtime": "9" * 40,
             "fortemi_react": COMMIT_R,
+            "fortemi_react_package": "8" * 64,
             "hotm": COMMIT_H,
         },
         "required_gates": {
-            "authority.workspace-tests": True,
-            "react-core.portable-contract": True,
-            "hotm.consumer": True,
+            gate: True for gate in MODULE.REQUIRED_GATES
         },
         "child_receipts": {
             "authority": "d" * 64,
@@ -140,9 +147,32 @@ def authority_receipt(platform_id):
             "openapi_sha256": "3" * 64,
             "asyncapi_sha256": "4" * 64,
         },
-        "required_gates": {"authority.workspace-tests": True},
+        "required_gates": {
+            gate: True
+            for gate in MODULE.REQUIRED_GATES
+            if gate.startswith("authority.")
+        },
         "claims": manifest()["claim_boundary"],
     }
+
+
+def write_platform_bundle(root, platform_id, name=None):
+    directory = root / (name or platform_id)
+    directory.mkdir()
+    receipt = platform_receipt(platform_id)
+    for child, filename in {
+        "authority": "authority-receipt.json",
+        "fortemi_react": "react-receipt.json",
+        "hotm": "hotm-receipt.json",
+    }.items():
+        child_path = directory / filename
+        child_path.write_text(f"{platform_id}:{child}\n")
+        receipt["child_receipts"][child] = hashlib.sha256(
+            child_path.read_bytes()
+        ).hexdigest()
+    receipt_path = directory / "platform-receipt.json"
+    receipt_path.write_text(json.dumps(receipt))
+    return receipt_path
 
 
 def react_receipt(platform_id):
@@ -150,6 +180,7 @@ def react_receipt(platform_id):
         "schemaVersion": "fortemi.platform-contract-receipt.v1",
         "status": "passed",
         "repository": {"commit": COMMIT_R},
+        "package": {"name": "@fortemi/core", "version": "2026.7.14"},
         "platform": {
             "id": {
                 "linux-x86_64": "linux/x86_64",
@@ -165,6 +196,20 @@ def react_receipt(platform_id):
                 "schemaBundleSha256": "2" * 64,
             }
         ],
+        "liveServer": {
+            "status": "passed",
+            "server": {
+                "compatibility": {
+                    "contractRevision": "2026-07-06",
+                    "authRequired": True,
+                }
+            },
+            "claims": {
+                "liveServerToCore": True,
+                "cleanDestination": True,
+                "zeroMutationOnRejection": True,
+            },
+        },
         "claims": {
             "suiteWide": False,
             "completeBackup": False,
@@ -174,20 +219,54 @@ def react_receipt(platform_id):
 
 
 def hotm_receipt(platform_id):
-    os_name, arch = {
-        "linux-x86_64": ("linux", "x86_64"),
-        "macos-arm64": ("darwin", "arm64"),
+    os_name, arch, target, desktop_target = {
+        "linux-x86_64": (
+            "linux",
+            "x86_64",
+            "x86_64-unknown-linux-gnu",
+            "tauri-command-core-linux-x86_64",
+        ),
+        "macos-arm64": (
+            "darwin",
+            "arm64",
+            "aarch64-apple-darwin",
+            "tauri-command-core-darwin-arm64",
+        ),
     }[platform_id]
     return {
         "schemaVersion": "hotm.live-asset-ci-receipt.v1",
         "issue": "Fortemi/HotM#284",
         "status": "passed",
+        "profile": "2.0.0/full-v1",
         "identity": {
             "hotmCommit": COMMIT_H,
+            "hotmWorktreeDirty": False,
             "fortemiCommit": "9" * 40,
+            "fortemiHealthCommit": "9" * 40,
+            "sidecarRelease": "sidecar-test",
+            "sidecarSha256": {
+                "linux-x86_64": "6" * 64,
+                "macos-arm64": "7" * 64,
+            }[platform_id],
+            "fixture": MODULE.HOTM_FIXTURE_IDENTITY,
         },
-        "execution": {"os": os_name, "arch": arch},
+        "execution": {
+            "os": os_name,
+            "arch": arch,
+            "target": target,
+            "desktopTarget": desktop_target,
+            "headless": True,
+            "authenticationRequired": True,
+            "storageBackend": "filesystem",
+            "browserTarget": "playwright-chromium",
+        },
+        "children": {
+            "browser": {"status": "passed", "sha256": "3" * 64},
+            "tauri": {"status": "passed", "sha256": "4" * 64},
+            "authorityContracts": {"status": "passed", "sha256": "5" * 64},
+        },
         "claims": {
+            **{claim: True for claim in MODULE.HOTM_REQUIRED_TRUE_CLAIMS},
             "launchedDesktopGui": False,
             "interactiveNativeDialogs": False,
             "suiteWidePortability": False,
@@ -196,6 +275,13 @@ def hotm_receipt(platform_id):
 
 
 class SuitePlatformMatrixTests(unittest.TestCase):
+    def test_runner_defines_portable_package_digest_helper(self):
+        runner = (
+            ROOT / "scripts/ci/run-suite-platform-contract.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("sha256_file() {", runner)
+        self.assertIn('hashlib.file_digest(handle, "sha256")', runner)
+
     def test_accepts_exact_manifest_and_both_platforms(self):
         value = manifest()
         MODULE.validate_manifest(value)
@@ -207,11 +293,6 @@ class SuitePlatformMatrixTests(unittest.TestCase):
 
     def test_accepts_bounded_authority_receipts(self):
         value = manifest()
-        value["required_gates"] = [
-            "authority.workspace-tests",
-            "react-core.portable-contract",
-            "hotm.consumer",
-        ]
         MODULE.validate_authority_receipt(
             authority_receipt("linux-x86_64"), value
         )
@@ -225,6 +306,12 @@ class SuitePlatformMatrixTests(unittest.TestCase):
         receipt["claims"]["universal_portability"] = True
         with self.assertRaisesRegex(MODULE.VerificationError, "claim boundary drift"):
             MODULE.validate_platform_receipt(receipt, value)
+
+    def test_rejects_manifest_that_omits_a_required_gate(self):
+        value = manifest()
+        value["required_gates"].remove("react-core.live-server")
+        with self.assertRaisesRegex(MODULE.VerificationError, "exact suite gate set"):
+            MODULE.validate_manifest(value)
 
     def test_rejects_participant_revision_drift(self):
         value = manifest()
@@ -248,20 +335,33 @@ class SuitePlatformMatrixTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.VerificationError, "authority binding"):
             MODULE.validate_react_receipt(stale, value, "linux-x86_64")
 
+        stale_live = react_receipt("linux-x86_64")
+        stale_live["liveServer"]["server"]["compatibility"]["contractRevision"] = "20"
+        with self.assertRaisesRegex(MODULE.VerificationError, "live authority-to-core"):
+            MODULE.validate_react_receipt(stale_live, value, "linux-x86_64")
+
+        wrong_package = react_receipt("linux-x86_64")
+        wrong_package["package"]["version"] = "2026.7.13"
+        with self.assertRaisesRegex(MODULE.VerificationError, "package identity"):
+            MODULE.validate_react_receipt(wrong_package, value, "linux-x86_64")
+
         wrong_authority = hotm_receipt("macos-arm64")
         wrong_authority["identity"]["fortemiCommit"] = "8" * 40
         with self.assertRaisesRegex(MODULE.VerificationError, "runtime drift"):
             MODULE.validate_hotm_receipt(wrong_authority, value, "macos-arm64")
 
+        wrong_sidecar = hotm_receipt("macos-arm64")
+        wrong_sidecar["identity"]["sidecarSha256"] = "6" * 64
+        with self.assertRaisesRegex(MODULE.VerificationError, "sidecar asset drift"):
+            MODULE.validate_hotm_receipt(wrong_sidecar, value, "macos-arm64")
+
     def test_aggregate_requires_both_distinct_platforms(self):
         value = manifest()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            linux = root / "linux.json"
-            duplicate = root / "duplicate.json"
+            linux = write_platform_bundle(root, "linux-x86_64", "linux")
+            duplicate = write_platform_bundle(root, "linux-x86_64", "duplicate")
             output = root / "aggregate.json"
-            linux.write_text(json.dumps(platform_receipt("linux-x86_64")))
-            duplicate.write_text(json.dumps(platform_receipt("linux-x86_64")))
             with self.assertRaisesRegex(MODULE.VerificationError, "duplicate platform"):
                 MODULE.aggregate_receipts([linux, duplicate], value, output)
 
@@ -269,11 +369,9 @@ class SuitePlatformMatrixTests(unittest.TestCase):
         value = manifest()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            linux = root / "linux.json"
-            macos = root / "macos.json"
+            linux = write_platform_bundle(root, "linux-x86_64")
+            macos = write_platform_bundle(root, "macos-arm64")
             output = root / "aggregate.json"
-            linux.write_text(json.dumps(platform_receipt("linux-x86_64")))
-            macos.write_text(json.dumps(platform_receipt("macos-arm64")))
             MODULE.aggregate_receipts([linux, macos], value, output)
             aggregate = json.loads(output.read_text())
             self.assertEqual(aggregate["status"], "passed")
