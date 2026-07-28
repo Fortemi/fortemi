@@ -3,12 +3,12 @@ metadata:
   created_at: "2026-07-28T21:43:26Z"
   description: "Provenance for portable suite dependency tool invocation"
 entity:
-  id: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:d75397746fd3909c4955d9803e4d7e6e73483d8a635b2f2dc53f7f0c5d2c91d8"
+  id: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:9555c446f09230714e80c7d8c28c87b47958883328f6346af4750282035247f6"
   type: code
   created_at: "2026-07-28T21:43:26Z"
-  updated_at: "2026-07-28T21:43:26Z"
-  checksum: "sha256:d75397746fd3909c4955d9803e4d7e6e73483d8a635b2f2dc53f7f0c5d2c91d8"
-  size_bytes: 19923
+  updated_at: "2026-07-28T21:57:06Z"
+  checksum: "sha256:9555c446f09230714e80c7d8c28c87b47958883328f6346af4750282035247f6"
+  size_bytes: 20740
   attributes:
     language: shell
     issue: "Fortemi/fortemi#1095"
@@ -17,8 +17,8 @@ activity:
   id: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
   type: modification
   started_at: "2026-07-28T21:38:00Z"
-  ended_at: "2026-07-28T21:43:26Z"
-  description: "Use trusted Git CLI transport for Cargo dependencies and select pnpm without mutating global Corepack shims"
+  ended_at: "2026-07-28T21:57:06Z"
+  description: "Use trusted Git CLI transport and provision the React-declared exact pnpm version without global mutations"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -27,17 +27,20 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:d75397746fd3909c4955d9803e4d7e6e73483d8a635b2f2dc53f7f0c5d2c91d8"
+    entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:9555c446f09230714e80c7d8c28c87b47958883328f6346af4750282035247f6"
     activity: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
-    time: "2026-07-28T21:43:26Z"
+    time: "2026-07-28T21:57:06Z"
   used:
     - activity: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
       entity: "urn:gitea:run:Fortemi/fortemi:6292"
       role: failing_cross_platform_evidence
+    - activity: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
+      entity: "urn:gitea:run:Fortemi/fortemi:6296"
+      role: failing_linux_dependency_tool_evidence
   wasAssociatedWith:
     activity: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:d75397746fd3909c4955d9803e4d7e6e73483d8a635b2f2dc53f7f0c5d2c91d8"
+    entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:9555c446f09230714e80c7d8c28c87b47958883328f6346af4750282035247f6"
     agent: "urn:aiwg:agent:codex-gpt-5"

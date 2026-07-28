@@ -527,14 +527,33 @@ start_authority_server
 seed_authority_fixture
 (
   cd "$REACT_DIR"
-  if command -v pnpm >/dev/null 2>&1; then
-    pnpm_command=(pnpm)
-  elif command -v corepack >/dev/null 2>&1; then
-    pnpm_command=(corepack pnpm)
+  package_manager="$(node -p "require('./package.json').packageManager")"
+  if [[ "$package_manager" =~ ^pnpm@([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+    pnpm_version="${BASH_REMATCH[1]}"
   else
-    echo "pnpm or corepack is required for the React/core contract" >&2
+    printf 'Expected an exact pnpm packageManager declaration, got %s\n' \
+      "$package_manager" >&2
     exit 2
   fi
+
+  if command -v pnpm >/dev/null 2>&1 \
+    && [[ "$(pnpm --version)" == "$pnpm_version" ]]; then
+    pnpm_command=(pnpm)
+  elif command -v corepack >/dev/null 2>&1 \
+    && [[ "$(COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm --version 2>/dev/null)" \
+      == "$pnpm_version" ]]; then
+    pnpm_command=(corepack pnpm)
+  else
+    command -v npm >/dev/null 2>&1 || {
+      echo "npm is required to provision the pinned React/core pnpm version" >&2
+      exit 2
+    }
+    npm install --prefix "${WORK_DIR}/pnpm-tools" \
+      --no-save --ignore-scripts --no-audit --no-fund \
+      "pnpm@${pnpm_version}" >/dev/null
+    pnpm_command=("${WORK_DIR}/pnpm-tools/node_modules/.bin/pnpm")
+  fi
+  [[ "$("${pnpm_command[@]}" --version)" == "$pnpm_version" ]]
   "${pnpm_command[@]}" install --frozen-lockfile
   VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-2}" \
     node packages/core/scripts/run-platform-contract.mjs \
