@@ -3,11 +3,11 @@ metadata:
   created_at: "2026-07-28T21:16:35Z"
   description: "Provenance for the exact Linux and mutsu suite platform matrix"
 entity:
-  id: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:db6c55ffb4322cfba06bfe69d73c6a9751551e4ad8a08857765d9e1a01399486"
+  id: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:6206cc2a1fb7f84a6ab73a1e068e8ef6fd828818da109509cb17f544cdfa5c9e"
   type: test_fixture
   created_at: "2026-07-28T21:16:35Z"
-  updated_at: "2026-07-28T22:38:59Z"
-  checksum: "sha256:db6c55ffb4322cfba06bfe69d73c6a9751551e4ad8a08857765d9e1a01399486"
+  updated_at: "2026-07-28T23:04:18Z"
+  checksum: "sha256:6206cc2a1fb7f84a6ab73a1e068e8ef6fd828818da109509cb17f544cdfa5c9e"
   size_bytes: 2501
   attributes:
     issue: "Fortemi/fortemi#1095"
@@ -17,8 +17,8 @@ activity:
   id: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
   type: modification
   started_at: "2026-07-28T21:12:17Z"
-  ended_at: "2026-07-28T22:38:59Z"
-  description: "Bind raw Linux package release bytes separately from the identical cross-platform npm tar payload"
+  ended_at: "2026-07-28T23:04:18Z"
+  description: "Pin the HotM consumer revision that tracks the deterministic macOS Tauri schema while preserving the bounded Linux and mutsu matrix"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -27,9 +27,9 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:db6c55ffb4322cfba06bfe69d73c6a9751551e4ad8a08857765d9e1a01399486"
+    entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:6206cc2a1fb7f84a6ab73a1e068e8ef6fd828818da109509cb17f544cdfa5c9e"
     activity: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
-    time: "2026-07-28T22:38:59Z"
+    time: "2026-07-28T23:04:18Z"
   used:
     - activity: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
       entity: "urn:gitea:issue:Fortemi/fortemi:1095"
@@ -38,7 +38,7 @@ relationships:
       entity: "urn:gitea:run:Fortemi/fortemi:6287"
       role: sidecar_publication_evidence
     - activity: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
-      entity: "urn:git:Fortemi/HotM:d9b33459f95d12a49e19dd2fd16fee180f49e74b"
+      entity: "urn:git:Fortemi/HotM:3c32c2f94e0e6bb277b630e2c7ddd2b065ada8a1"
       role: consumer_revision
     - activity: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
       entity: "urn:gitea:run:Fortemi/fortemi:6309"
@@ -48,5 +48,5 @@ relationships:
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:db6c55ffb4322cfba06bfe69d73c6a9751551e4ad8a08857765d9e1a01399486"
+    entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:6206cc2a1fb7f84a6ab73a1e068e8ef6fd828818da109509cb17f544cdfa5c9e"
     agent: "urn:aiwg:agent:codex-gpt-5"

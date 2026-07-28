@@ -25,7 +25,7 @@
     },
     "hotm": {
       "repository": "Fortemi/HotM",
-      "commit": "d9b33459f95d12a49e19dd2fd16fee180f49e74b",
+      "commit": "3c32c2f94e0e6bb277b630e2c7ddd2b065ada8a1",
       "profile": "2.0.0/full-v1",
       "sidecar_release": "sidecar-447fd5148fb9",
       "sidecar_assets": {
