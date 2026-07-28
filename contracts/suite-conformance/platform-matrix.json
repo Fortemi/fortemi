@@ -5,7 +5,7 @@
   "authority": {
     "repository": "Fortemi/fortemi",
     "schema_commit": "0c59bc6cb06cca0b1e00eba4c0fa493f3ef3b90b",
-    "runtime_commit": "01df081bac0759363f7d6bff7e9a055ae929861f",
+    "runtime_commit": "447fd5148fb97dc35b7b160fb1e7f15914c84d7a",
     "contract_path": "contracts/knowledge-shard/2.0.0/contract.json",
     "contract_sha256": "ac417e23181ec80741d776b6b29fa38236091dfa649b01255aaac30ebb53969f",
     "contract_revision": "21",
@@ -24,12 +24,12 @@
     },
     "hotm": {
       "repository": "Fortemi/HotM",
-      "commit": "9c19516f6cc1e0fe5f38d7db72643636eaaff818",
+      "commit": "d9b33459f95d12a49e19dd2fd16fee180f49e74b",
       "profile": "2.0.0/full-v1",
-      "sidecar_release": "sidecar-01df081bac07",
+      "sidecar_release": "sidecar-447fd5148fb9",
       "sidecar_assets": {
-        "linux-x86_64": "d67ec7e5524d1046f3d0e32a6c1a913f138c794cd2879a50d82ad76f9523582c",
-        "macos-arm64": "fc25475220f43140d9942f18963e74bed41810ab69575749b82c92091a5999e3"
+        "linux-x86_64": "9eb47cca070ec39d0a87871167d45ff40017a0c94e073ce30065cd05b34aeb10",
+        "macos-arm64": "c0dbea1c097b5272cde353278ce9b483b1eb8877453f80476d0b6316ecfb0b3b"
       }
     }
   },
