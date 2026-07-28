@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.fortemi.dev/suite-conformance/platform-matrix.v1.schema.json",
+  "title": "Fortemi supported-platform suite conformance matrix",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "matrix_id",
+    "issue",
+    "authority",
+    "participants",
+    "required_platforms",
+    "required_gates",
+    "deferred_platforms",
+    "claim_boundary"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "matrix_id": {
+      "type": "string",
+      "pattern": "^fortemi\\.suite-conformance\\.[a-z0-9._-]+$"
+    },
+    "issue": { "const": "Fortemi/fortemi#1095" },
+    "authority": { "$ref": "#/$defs/authority" },
+    "participants": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fortemi_react", "hotm"],
+      "properties": {
+        "fortemi_react": { "$ref": "#/$defs/participant" },
+        "hotm": { "$ref": "#/$defs/participant" }
+      }
+    },
+    "required_platforms": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/platform" }
+    },
+    "required_gates": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9._-]+$"
+      }
+    },
+    "deferred_platforms": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "claim_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supported_platforms_only",
+        "universal_portability",
+        "complete_backup",
+        "one_universal_schema",
+        "launched_gui"
+      ],
+      "properties": {
+        "supported_platforms_only": { "const": true },
+        "universal_portability": { "const": false },
+        "complete_backup": { "const": false },
+        "one_universal_schema": { "const": false },
+        "launched_gui": { "const": false }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "commit": { "$ref": "#/$defs/commit" },
+        "contract_sha256": { "$ref": "#/$defs/sha256" },
+        "package": { "type": "string", "minLength": 1 },
+        "package_version": { "type": "string", "minLength": 1 },
+        "profile": { "const": "2.0.0/full-v1" }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "schema_commit",
+        "runtime_commit",
+        "contract_path",
+        "contract_sha256",
+        "contract_revision",
+        "schema_bundle_sha256",
+        "profile"
+      ],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "schema_commit": { "$ref": "#/$defs/commit" },
+        "runtime_commit": { "$ref": "#/$defs/commit" },
+        "contract_path": {
+          "const": "contracts/knowledge-shard/2.0.0/contract.json"
+        },
+        "contract_sha256": { "$ref": "#/$defs/sha256" },
+        "contract_revision": { "const": "21" },
+        "schema_bundle_sha256": { "$ref": "#/$defs/sha256" },
+        "profile": { "const": "2.0.0/full-v1" }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "os", "architecture", "runner"],
+      "properties": {
+        "id": { "enum": ["linux-x86_64", "macos-arm64"] },
+        "os": { "enum": ["linux", "macos"] },
+        "architecture": { "enum": ["x86_64", "arm64"] },
+        "runner": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

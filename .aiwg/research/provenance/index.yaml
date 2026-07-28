@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-28T08:19:55Z"
+  updated_at: "2026-07-28T16:20:11Z"
 records:
+  - entity: "docs/architecture/adr/ADR-104-supported-platform-suite-conformance.md"
+    record: "records/adr-104-supported-platform-suite-conformance-1095.prov.yaml"
   - entity: "crates/matric-api/src/main.rs"
     record: "records/matric-api-main-al-perf01-monotonic-high-water-1094.prov.yaml"
   - entity: "crates/matric-db/src/file_storage.rs"

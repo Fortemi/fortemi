@@ -897,12 +897,15 @@ jobs:
             openapi-runtime.yaml \
             openapi-contract-receipt.json
 
-      - name: Export AsyncAPI spec
+      - name: Verify published AsyncAPI contract
         run: |
           TEST_API="matric-test-api-${GITHUB_RUN_ID}"
           docker exec ${TEST_API} sh -c \
             'curl -sf -H "Authorization: Bearer $(cat /tmp/fortemi-ci-contract-key)" http://localhost:3000/api/v1/operator/asyncapi.yaml' \
-            >asyncapi.yaml
+            >asyncapi-runtime.yaml
+          scripts/ci/asyncapi-contract.sh receipt \
+            asyncapi-runtime.yaml \
+            asyncapi-contract-receipt.json
 
       - name: Upload OpenAPI contract artifact
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
@@ -913,11 +916,14 @@ jobs:
             contracts/openapi/openapi.sha256
             openapi-contract-receipt.json
 
-      - name: Upload AsyncAPI spec artifact
+      - name: Upload AsyncAPI contract artifact
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
         with:
-          name: asyncapi-spec
-          path: asyncapi.yaml
+          name: asyncapi-contract
+          path: |
+            contracts/asyncapi/asyncapi.yaml
+            contracts/asyncapi/asyncapi.sha256
+            asyncapi-contract-receipt.json
 
       - name: Teardown test environment
         if: always()

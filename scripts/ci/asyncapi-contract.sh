@@ -2,34 +2,29 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-artifact_dir="$root/contracts/openapi"
-artifact="$artifact_dir/openapi.yaml"
-checksum="$artifact_dir/openapi.sha256"
+artifact_dir="$root/contracts/asyncapi"
+artifact="$artifact_dir/asyncapi.yaml"
+checksum="$artifact_dir/asyncapi.sha256"
 
 usage() {
   echo "usage: $0 generate|check|check-file <candidate>|receipt <candidate> <output>" >&2
   exit 2
 }
 
-verify_checksum() {
-  local expected actual
-  expected="$(cut -d ' ' -f 1 "$checksum")"
+file_sha256() {
   if command -v sha256sum >/dev/null 2>&1; then
-    actual="$(sha256sum "$artifact" | cut -d ' ' -f 1)"
+    sha256sum "$1" | cut -d ' ' -f 1
   else
-    actual="$(shasum -a 256 "$artifact" | cut -d ' ' -f 1)"
+    shasum -a 256 "$1" | cut -d ' ' -f 1
   fi
-  [[ "$actual" == "$expected" ]]
+}
+
+verify_checksum() {
+  [[ "$(file_sha256 "$artifact")" == "$(cut -d ' ' -f 1 "$checksum")" ]]
 }
 
 write_checksum() {
-  local digest
-  if command -v sha256sum >/dev/null 2>&1; then
-    digest="$(sha256sum "$artifact" | cut -d ' ' -f 1)"
-  else
-    digest="$(shasum -a 256 "$artifact" | cut -d ' ' -f 1)"
-  fi
-  printf '%s  openapi.yaml\n' "$digest" >"$checksum"
+  printf '%s  asyncapi.yaml\n' "$(file_sha256 "$artifact")" >"$checksum"
 }
 
 check_candidate() {
@@ -42,14 +37,14 @@ case "${1:-}" in
   generate)
     mkdir -p "$artifact_dir"
     cargo run --quiet --manifest-path "$root/Cargo.toml" -p matric-api -- \
-      --export-openapi "$artifact"
+      --export-asyncapi "$artifact"
     write_checksum
     ;;
   check)
     tmp="$(mktemp)"
     trap 'rm -f "$tmp"' EXIT
     cargo run --quiet --manifest-path "$root/Cargo.toml" -p matric-api -- \
-      --export-openapi "$tmp"
+      --export-asyncapi "$tmp"
     check_candidate "$tmp"
     ;;
   check-file)
@@ -63,16 +58,14 @@ case "${1:-}" in
       exit 1
     }
     check_candidate "$2"
-    sha256="$(cut -d ' ' -f 1 "$checksum")"
     cat >"$3" <<EOF
 {
   "schema_version": 1,
-  "producer_repository": "Fortemi/Fortemi",
+  "producer_repository": "Fortemi/fortemi",
   "producer_commit": "$GITHUB_SHA",
   "contract_revision": "1",
-  "contract_version": "2026.2.9",
-  "artifact_path": "contracts/openapi/openapi.yaml",
-  "sha256": "$sha256"
+  "artifact_path": "contracts/asyncapi/asyncapi.yaml",
+  "sha256": "$(file_sha256 "$artifact")"
 }
 EOF
     ;;

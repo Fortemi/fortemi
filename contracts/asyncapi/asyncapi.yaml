@@ -1,0 +1,1488 @@
+asyncapi: 3.0.0
+channels:
+  events:
+    address: /api/v1/events
+    description: Server-Sent Events stream delivering real-time domain events. Supports reconnection via `Last-Event-ID` header.
+    messages:
+      ArchiveCreated:
+        contentType: application/json
+        name: archive.created
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A memory archive was created
+        title: ArchiveCreated
+        x-entity-type: archive
+        x-event-type: archive.created
+        x-priority: Critical
+      ArchiveDefaultChanged:
+        contentType: application/json
+        name: archive.default.changed
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: The default memory archive was changed
+        title: ArchiveDefaultChanged
+        x-entity-type: archive
+        x-event-type: archive.default.changed
+        x-priority: Critical
+      ArchiveDeleted:
+        contentType: application/json
+        name: archive.deleted
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A memory archive was deleted
+        title: ArchiveDeleted
+        x-entity-type: archive
+        x-event-type: archive.deleted
+        x-priority: Critical
+      ArchiveUpdated:
+        contentType: application/json
+        name: archive.updated
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A memory archive was updated
+        title: ArchiveUpdated
+        x-entity-type: archive
+        x-event-type: archive.updated
+        x-priority: Critical
+      AttachmentCreated:
+        contentType: application/json
+        name: attachment.created
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A file attachment was uploaded to a note
+        title: AttachmentCreated
+        x-entity-type: attachment
+        x-event-type: attachment.created
+        x-priority: Critical
+      AttachmentDeleted:
+        contentType: application/json
+        name: attachment.deleted
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A file attachment was deleted
+        title: AttachmentDeleted
+        x-entity-type: attachment
+        x-event-type: attachment.deleted
+        x-priority: Critical
+      AttachmentExtractionUpdated:
+        contentType: application/json
+        name: attachment.extraction.updated
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Extraction metadata for an attachment was updated
+        title: AttachmentExtractionUpdated
+        x-entity-type: attachment
+        x-event-type: attachment.extraction.updated
+        x-priority: Critical
+      CollectionCreated:
+        contentType: application/json
+        name: collection.created
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A collection was created
+        title: CollectionCreated
+        x-entity-type: collection
+        x-event-type: collection.created
+        x-priority: Critical
+      CollectionDeleted:
+        contentType: application/json
+        name: collection.deleted
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A collection was deleted
+        title: CollectionDeleted
+        x-entity-type: collection
+        x-event-type: collection.deleted
+        x-priority: Critical
+      CollectionMembershipChanged:
+        contentType: application/json
+        name: collection.membership.changed
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A note was moved into or out of a collection
+        title: CollectionMembershipChanged
+        x-entity-type: collection
+        x-event-type: collection.membership.changed
+        x-priority: Critical
+      CollectionUpdated:
+        contentType: application/json
+        name: collection.updated
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A collection was updated
+        title: CollectionUpdated
+        x-entity-type: collection
+        x-event-type: collection.updated
+        x-priority: Critical
+      ConceptCollectionMembershipChanged:
+        contentType: application/json
+        name: concept.collection.membership.changed
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A concept's membership in a SKOS collection was changed
+        title: ConceptCollectionMembershipChanged
+        x-entity-type: concept
+        x-event-type: concept.collection.membership.changed
+        x-priority: Critical
+      ConceptCreated:
+        contentType: application/json
+        name: concept.created
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A SKOS concept was created
+        title: ConceptCreated
+        x-entity-type: concept
+        x-event-type: concept.created
+        x-priority: Critical
+      ConceptDeleted:
+        contentType: application/json
+        name: concept.deleted
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A SKOS concept was deleted
+        title: ConceptDeleted
+        x-entity-type: concept
+        x-event-type: concept.deleted
+        x-priority: Critical
+      ConceptRelationsUpdated:
+        contentType: application/json
+        name: concept.relations.updated
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Semantic relations on a concept were updated
+        title: ConceptRelationsUpdated
+        x-entity-type: concept
+        x-event-type: concept.relations.updated
+        x-priority: Critical
+      ConceptSchemeChanged:
+        contentType: application/json
+        name: concept.scheme.changed
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A concept's scheme membership was changed
+        title: ConceptSchemeChanged
+        x-entity-type: concept
+        x-event-type: concept.scheme.changed
+        x-priority: Critical
+      ConceptSchemeCreated:
+        contentType: application/json
+        name: concept_scheme.created
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A SKOS concept scheme was created
+        title: ConceptSchemeCreated
+        x-entity-type: concept_scheme
+        x-event-type: concept_scheme.created
+        x-priority: Critical
+      ConceptSchemeDeleted:
+        contentType: application/json
+        name: concept_scheme.deleted
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A SKOS concept scheme was deleted
+        title: ConceptSchemeDeleted
+        x-entity-type: concept_scheme
+        x-event-type: concept_scheme.deleted
+        x-priority: Critical
+      ConceptSchemeUpdated:
+        contentType: application/json
+        name: concept_scheme.updated
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A SKOS concept scheme was updated
+        title: ConceptSchemeUpdated
+        x-entity-type: concept_scheme
+        x-event-type: concept_scheme.updated
+        x-priority: Critical
+      ConceptUpdated:
+        contentType: application/json
+        name: concept.updated
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A SKOS concept was updated
+        title: ConceptUpdated
+        x-entity-type: concept
+        x-event-type: concept.updated
+        x-priority: Critical
+      IndexEmbeddingUpdated:
+        contentType: application/json
+        name: index.embedding.updated
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Embeddings for a note were updated
+        title: IndexEmbeddingUpdated
+        x-entity-type: index
+        x-event-type: index.embedding.updated
+        x-priority: Normal
+      IndexFtsUpdated:
+        contentType: application/json
+        name: index.fts.updated
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Full-text search index for a note was updated
+        title: IndexFtsUpdated
+        x-entity-type: index
+        x-event-type: index.fts.updated
+        x-priority: Normal
+      IndexLinkingUpdated:
+        contentType: application/json
+        name: index.linking.updated
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Semantic links for a note were updated by the linking pipeline
+        title: IndexLinkingUpdated
+        x-entity-type: index
+        x-event-type: index.linking.updated
+        x-priority: Normal
+      InferenceAvailabilityChanged:
+        contentType: application/json
+        name: inference.availability.changed
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Inference provider reachability transitioned (online/offline)
+        title: InferenceAvailabilityChanged
+        x-entity-type: inference
+        x-event-type: inference.availability.changed
+        x-priority: Normal
+      InferenceConfigChanged:
+        contentType: application/json
+        name: inference.config.changed
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Inference configuration was changed by an operator (hot-swap)
+        title: InferenceConfigChanged
+        x-entity-type: inference
+        x-event-type: inference.config.changed
+        x-priority: Normal
+      JobCompleted:
+        contentType: application/json
+        name: job.completed
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A job completed successfully
+        title: JobCompleted
+        x-entity-type: job
+        x-event-type: job.completed
+        x-priority: Normal
+      JobFailed:
+        contentType: application/json
+        name: job.failed
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A job failed
+        title: JobFailed
+        x-entity-type: job
+        x-event-type: job.failed
+        x-priority: Normal
+      JobProgress:
+        contentType: application/json
+        name: job.progress
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Job progress update
+        title: JobProgress
+        x-entity-type: job
+        x-event-type: job.progress
+        x-priority: Low
+      JobQueued:
+        contentType: application/json
+        name: job.queued
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A job was added to the queue
+        title: JobQueued
+        x-entity-type: job
+        x-event-type: job.queued
+        x-priority: Normal
+      JobStarted:
+        contentType: application/json
+        name: job.started
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A job started processing
+        title: JobStarted
+        x-entity-type: job
+        x-event-type: job.started
+        x-priority: Normal
+      JobsPaused:
+        contentType: application/json
+        name: jobs.paused
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Job processing was paused
+        title: JobsPaused
+        x-entity-type: job
+        x-event-type: jobs.paused
+        x-priority: Normal
+      JobsResumed:
+        contentType: application/json
+        name: jobs.resumed
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Job processing was resumed
+        title: JobsResumed
+        x-entity-type: job
+        x-event-type: jobs.resumed
+        x-priority: Normal
+      NoteArchived:
+        contentType: application/json
+        name: note.archived
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A note was archived
+        title: NoteArchived
+        x-entity-type: note
+        x-event-type: note.archived
+        x-priority: Critical
+      NoteCreated:
+        contentType: application/json
+        name: note.created
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A new note was created
+        title: NoteCreated
+        x-entity-type: note
+        x-event-type: note.created
+        x-priority: Critical
+      NoteDeleted:
+        contentType: application/json
+        name: note.deleted
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A note was soft-deleted
+        title: NoteDeleted
+        x-entity-type: note
+        x-event-type: note.deleted
+        x-priority: Critical
+      NoteLinksUpdated:
+        contentType: application/json
+        name: note.links.updated
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Semantic links on a note were updated
+        title: NoteLinksUpdated
+        x-entity-type: note
+        x-event-type: note.links.updated
+        x-priority: Critical
+      NoteRestored:
+        contentType: application/json
+        name: note.restored
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A note was restored from archive or soft-deletion
+        title: NoteRestored
+        x-entity-type: note
+        x-event-type: note.restored
+        x-priority: Critical
+      NoteRevisionCreated:
+        contentType: application/json
+        name: note.revision.created
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: An AI revision was created for a note
+        title: NoteRevisionCreated
+        x-entity-type: note
+        x-event-type: note.revision.created
+        x-priority: Critical
+      NoteTagsUpdated:
+        contentType: application/json
+        name: note.tags.updated
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Tags on a note were changed
+        title: NoteTagsUpdated
+        x-entity-type: note
+        x-event-type: note.tags.updated
+        x-priority: Critical
+      NoteUpdated:
+        contentType: application/json
+        name: note.updated
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A note was created, updated, or had its AI content refreshed
+        title: NoteUpdated
+        x-entity-type: note
+        x-event-type: note.updated
+        x-priority: Critical
+      QueueStatus:
+        contentType: application/json
+        name: queue.status
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Periodic queue statistics broadcast
+        title: QueueStatus
+        x-entity-type: null
+        x-event-type: queue.status
+        x-priority: Low
+      ReadmodelGraphUpdated:
+        contentType: application/json
+        name: readmodel.graph.updated
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: The knowledge graph read model was updated
+        title: ReadmodelGraphUpdated
+        x-entity-type: index
+        x-event-type: readmodel.graph.updated
+        x-priority: Normal
+      ReadmodelSearchReady:
+        contentType: application/json
+        name: readmodel.search.ready
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: All derived views for a note are ready for search
+        title: ReadmodelSearchReady
+        x-entity-type: index
+        x-event-type: readmodel.search.ready
+        x-priority: Normal
+      TagCreated:
+        contentType: application/json
+        name: tag.created
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A global tag was created
+        title: TagCreated
+        x-entity-type: tag
+        x-event-type: tag.created
+        x-priority: Critical
+      TagDeleted:
+        contentType: application/json
+        name: tag.deleted
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A global tag was deleted
+        title: TagDeleted
+        x-entity-type: tag
+        x-event-type: tag.deleted
+        x-priority: Critical
+      TagMerged:
+        contentType: application/json
+        name: tag.merged
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Two tags were merged
+        title: TagMerged
+        x-entity-type: tag
+        x-event-type: tag.merged
+        x-priority: Critical
+      TagRenamed:
+        contentType: application/json
+        name: tag.renamed
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: A global tag was renamed
+        title: TagRenamed
+        x-entity-type: tag
+        x-event-type: tag.renamed
+        x-priority: Critical
+      TagStatsUpdated:
+        contentType: application/json
+        name: tag.stats.updated
+        payload:
+          $ref: '#/components/schemas/EventEnvelope'
+        summary: Tag usage statistics were updated
+        title: TagStatsUpdated
+        x-entity-type: tag
+        x-event-type: tag.stats.updated
+        x-priority: Low
+    parameters:
+      entity_id:
+        description: Filter events to a specific entity ID
+      memory:
+        description: 'Memory archive to scope events to (default: all archives)'
+      token:
+        description: Bearer token for authentication (alternative to Authorization header)
+      types:
+        description: Comma-separated list of event types to subscribe to (e.g., `note.created,note.updated`)
+components:
+  schemas:
+    EventActor:
+      description: |-
+        Actor metadata for event attribution.
+
+        Identifies who or what caused an event — system processes, authenticated users, or AI agents.
+      properties:
+        id:
+          description: Optional actor identifier (user ID, API key ID, agent name).
+          type:
+          - string
+          - 'null'
+        kind:
+          description: 'Actor type: `"system"`, `"user"`, or `"agent"`.'
+          type: string
+        name:
+          description: Optional display name.
+          type:
+          - string
+          - 'null'
+      required:
+      - kind
+      title: EventActor
+      type: object
+    EventEnvelope:
+      description: |-
+        Versioned server event envelope conforming to the Fortemi SSE contract.
+
+        All SSE emissions use this envelope. The `event_type` field uses dot-namespaced names (e.g., `"note.updated"`, `"job.started"`). The `payload` contains the domain-specific event data.
+
+        ## Wire Format (SSE)
+
+        ```text event: note.updated id: 019508a0-1234-7def-8000-abcdef123456 data: {"event_id":"...","event_type":"note.updated","occurred_at":"...","actor":{...},"payload":{...}} ```
+
+        ## Schema Evolution
+
+        - `payload_version` starts at `1` and increments on breaking payload changes. - New optional fields may be added to the envelope without version bump. - Consumers should ignore unknown fields (forward compatibility). - Breaking changes require a new `payload_version` with deprecation window.
+      properties:
+        actor:
+          allOf:
+          - $ref: '#/components/schemas/EventActor'
+          description: Who/what caused this event.
+        causation_id:
+          description: ID of the event that caused this event.
+          format: uuid
+          type:
+          - string
+          - 'null'
+        correlation_id:
+          description: Correlation ID for tracing related events.
+          format: uuid
+          type:
+          - string
+          - 'null'
+        entity_id:
+          description: ID of the entity this event relates to.
+          type:
+          - string
+          - 'null'
+        entity_type:
+          description: Type of entity this event relates to (e.g., `"note"`, `"job"`).
+          type:
+          - string
+          - 'null'
+        event_id:
+          description: Unique event identifier (UUIDv7 for temporal ordering).
+          format: uuid
+          type: string
+        event_type:
+          description: Namespaced event type (e.g., `"note.updated"`, `"job.started"`).
+          type: string
+        memory:
+          description: Memory/archive scope. None for system-wide events.
+          type:
+          - string
+          - 'null'
+        occurred_at:
+          description: When the event occurred (UTC).
+          format: date-time
+          type: string
+        payload:
+          allOf:
+          - $ref: '#/components/schemas/ServerEvent'
+          description: Domain-specific event data.
+        payload_version:
+          description: Payload schema version (for forward/backward compatibility).
+          format: uint32
+          minimum: 0.0
+          type: integer
+        tenant_id:
+          description: Tenant identifier (if multi-tenant).
+          type:
+          - string
+          - 'null'
+      required:
+      - actor
+      - event_id
+      - event_type
+      - occurred_at
+      - payload
+      - payload_version
+      title: EventEnvelope
+      type: object
+    EventPriority:
+      description: |-
+        Event priority for backpressure decisions (Issue #458).
+
+        Critical events (domain mutations) are never coalesced or dropped. Normal events (job lifecycle) are delivered in order but may be dropped under lag. Low events (telemetry, progress) may be coalesced or dropped to protect stream stability.
+      oneOf:
+      - description: Domain mutations — never coalesced or dropped.
+        enum:
+        - Critical
+        type: string
+      - description: Job lifecycle — delivered in order, dropped only under severe lag.
+        enum:
+        - Normal
+        type: string
+      - description: Telemetry and progress — may be coalesced within time windows.
+        enum:
+        - Low
+        type: string
+      title: EventPriority
+    ServerEvent:
+      description: |-
+        Unified server event type matching the HotM WebSocket client protocol.
+
+        These events are serialized as JSON with a `type` tag field, e.g.: `{"type":"JobStarted","job_id":"...","job_type":"Embedding"}`
+
+        When wrapped in an [`EventEnvelope`], these become the `payload` field.
+      oneOf:
+      - description: Periodic queue statistics broadcast.
+        properties:
+          pending:
+            format: int64
+            type: integer
+          running:
+            format: int64
+            type: integer
+          total_jobs:
+            format: int64
+            type: integer
+          type:
+            enum:
+            - QueueStatus
+            type: string
+        required:
+        - pending
+        - running
+        - total_jobs
+        - type
+        type: object
+      - description: A job was added to the queue.
+        properties:
+          job_id:
+            format: uuid
+            type: string
+          job_type:
+            type: string
+          note_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          type:
+            enum:
+            - JobQueued
+            type: string
+        required:
+        - job_id
+        - job_type
+        - type
+        type: object
+      - description: A job started processing.
+        properties:
+          job_id:
+            format: uuid
+            type: string
+          job_type:
+            type: string
+          note_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          type:
+            enum:
+            - JobStarted
+            type: string
+        required:
+        - job_id
+        - job_type
+        - type
+        type: object
+      - description: Job progress update.
+        properties:
+          job_id:
+            format: uuid
+            type: string
+          message:
+            type:
+            - string
+            - 'null'
+          note_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          progress:
+            format: int32
+            type: integer
+          type:
+            enum:
+            - JobProgress
+            type: string
+        required:
+        - job_id
+        - progress
+        - type
+        type: object
+      - description: A job completed successfully.
+        properties:
+          duration_ms:
+            format: int64
+            type:
+            - integer
+            - 'null'
+          job_id:
+            format: uuid
+            type: string
+          job_type:
+            type: string
+          note_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          type:
+            enum:
+            - JobCompleted
+            type: string
+        required:
+        - job_id
+        - job_type
+        - type
+        type: object
+      - description: A job failed.
+        properties:
+          error:
+            type: string
+          job_id:
+            format: uuid
+            type: string
+          job_type:
+            type: string
+          note_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          type:
+            enum:
+            - JobFailed
+            type: string
+        required:
+        - error
+        - job_id
+        - job_type
+        - type
+        type: object
+      - description: A note was created, updated, or had its AI content refreshed.
+        properties:
+          has_ai_content:
+            type: boolean
+          has_links:
+            type: boolean
+          note_id:
+            format: uuid
+            type: string
+          tags:
+            items:
+              type: string
+            type: array
+          title:
+            type:
+            - string
+            - 'null'
+          type:
+            enum:
+            - NoteUpdated
+            type: string
+        required:
+        - has_ai_content
+        - has_links
+        - note_id
+        - tags
+        - type
+        type: object
+      - description: A new note was created.
+        properties:
+          note_id:
+            format: uuid
+            type: string
+          tags:
+            items:
+              type: string
+            type: array
+          title:
+            type:
+            - string
+            - 'null'
+          type:
+            enum:
+            - NoteCreated
+            type: string
+        required:
+        - note_id
+        - tags
+        - type
+        type: object
+      - description: A note was soft-deleted.
+        properties:
+          note_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - NoteDeleted
+            type: string
+        required:
+        - note_id
+        - type
+        type: object
+      - description: A note was archived.
+        properties:
+          note_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - NoteArchived
+            type: string
+        required:
+        - note_id
+        - type
+        type: object
+      - description: A note was restored from archive or soft-deletion.
+        properties:
+          note_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - NoteRestored
+            type: string
+        required:
+        - note_id
+        - type
+        type: object
+      - description: Tags on a note were changed (added, removed, or replaced).
+        properties:
+          note_id:
+            format: uuid
+            type: string
+          tags:
+            items:
+              type: string
+            type: array
+          type:
+            enum:
+            - NoteTagsUpdated
+            type: string
+        required:
+        - note_id
+        - tags
+        - type
+        type: object
+      - description: Semantic links on a note were updated (by background linking job).
+        properties:
+          note_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - NoteLinksUpdated
+            type: string
+        required:
+        - note_id
+        - type
+        type: object
+      - description: An AI revision was created for a note.
+        properties:
+          note_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - NoteRevisionCreated
+            type: string
+        required:
+        - note_id
+        - type
+        type: object
+      - description: A file attachment was uploaded to a note.
+        properties:
+          attachment_id:
+            format: uuid
+            type: string
+          filename:
+            type:
+            - string
+            - 'null'
+          note_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - AttachmentCreated
+            type: string
+        required:
+        - attachment_id
+        - note_id
+        - type
+        type: object
+      - description: A file attachment was deleted.
+        properties:
+          attachment_id:
+            format: uuid
+            type: string
+          note_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          type:
+            enum:
+            - AttachmentDeleted
+            type: string
+        required:
+        - attachment_id
+        - type
+        type: object
+      - description: Extraction metadata for an attachment was updated (content, document type, EXIF).
+        properties:
+          attachment_id:
+            format: uuid
+            type: string
+          note_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - AttachmentExtractionUpdated
+            type: string
+        required:
+        - attachment_id
+        - note_id
+        - type
+        type: object
+      - description: A collection was created.
+        properties:
+          collection_id:
+            format: uuid
+            type: string
+          name:
+            type: string
+          type:
+            enum:
+            - CollectionCreated
+            type: string
+        required:
+        - collection_id
+        - name
+        - type
+        type: object
+      - description: A collection was updated (name or description changed).
+        properties:
+          collection_id:
+            format: uuid
+            type: string
+          name:
+            type: string
+          type:
+            enum:
+            - CollectionUpdated
+            type: string
+        required:
+        - collection_id
+        - name
+        - type
+        type: object
+      - description: A collection was deleted.
+        properties:
+          collection_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - CollectionDeleted
+            type: string
+        required:
+        - collection_id
+        - type
+        type: object
+      - description: A note was moved into or out of a collection.
+        properties:
+          collection_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          note_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - CollectionMembershipChanged
+            type: string
+        required:
+        - note_id
+        - type
+        type: object
+      - description: A memory archive was created.
+        properties:
+          archive_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          name:
+            type: string
+          type:
+            enum:
+            - ArchiveCreated
+            type: string
+        required:
+        - name
+        - type
+        type: object
+      - description: A memory archive was updated.
+        properties:
+          name:
+            type: string
+          type:
+            enum:
+            - ArchiveUpdated
+            type: string
+        required:
+        - name
+        - type
+        type: object
+      - description: A memory archive was deleted.
+        properties:
+          name:
+            type: string
+          type:
+            enum:
+            - ArchiveDeleted
+            type: string
+        required:
+        - name
+        - type
+        type: object
+      - description: The default memory archive was changed.
+        properties:
+          name:
+            type: string
+          type:
+            enum:
+            - ArchiveDefaultChanged
+            type: string
+        required:
+        - name
+        - type
+        type: object
+      - description: A SKOS concept scheme was created.
+        properties:
+          scheme_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - ConceptSchemeCreated
+            type: string
+        required:
+        - scheme_id
+        - type
+        type: object
+      - description: A SKOS concept scheme was updated.
+        properties:
+          scheme_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - ConceptSchemeUpdated
+            type: string
+        required:
+        - scheme_id
+        - type
+        type: object
+      - description: A SKOS concept scheme was deleted.
+        properties:
+          scheme_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - ConceptSchemeDeleted
+            type: string
+        required:
+        - scheme_id
+        - type
+        type: object
+      - description: A SKOS concept was created.
+        properties:
+          concept_id:
+            format: uuid
+            type: string
+          scheme_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          type:
+            enum:
+            - ConceptCreated
+            type: string
+        required:
+        - concept_id
+        - type
+        type: object
+      - description: A SKOS concept was updated.
+        properties:
+          concept_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - ConceptUpdated
+            type: string
+        required:
+        - concept_id
+        - type
+        type: object
+      - description: A SKOS concept was deleted.
+        properties:
+          concept_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - ConceptDeleted
+            type: string
+        required:
+        - concept_id
+        - type
+        type: object
+      - description: Semantic relations on a concept were updated (broader/narrower/related).
+        properties:
+          concept_id:
+            format: uuid
+            type: string
+          relation_type:
+            type: string
+          type:
+            enum:
+            - ConceptRelationsUpdated
+            type: string
+        required:
+        - concept_id
+        - relation_type
+        - type
+        type: object
+      - description: A concept's scheme membership was changed.
+        properties:
+          concept_id:
+            format: uuid
+            type: string
+          scheme_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          type:
+            enum:
+            - ConceptSchemeChanged
+            type: string
+        required:
+        - concept_id
+        - type
+        type: object
+      - description: A concept's membership in a SKOS collection was changed.
+        properties:
+          collection_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          concept_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - ConceptCollectionMembershipChanged
+            type: string
+        required:
+        - concept_id
+        - type
+        type: object
+      - description: A global tag was created.
+        properties:
+          tag:
+            type: string
+          type:
+            enum:
+            - TagCreated
+            type: string
+        required:
+        - tag
+        - type
+        type: object
+      - description: A global tag was renamed.
+        properties:
+          new_name:
+            type: string
+          old_name:
+            type: string
+          type:
+            enum:
+            - TagRenamed
+            type: string
+        required:
+        - new_name
+        - old_name
+        - type
+        type: object
+      - description: A global tag was deleted.
+        properties:
+          tag:
+            type: string
+          type:
+            enum:
+            - TagDeleted
+            type: string
+        required:
+        - tag
+        - type
+        type: object
+      - description: Two tags were merged.
+        properties:
+          affected_count:
+            format: int64
+            type:
+            - integer
+            - 'null'
+          source_tag:
+            type: string
+          target_tag:
+            type: string
+          type:
+            enum:
+            - TagMerged
+            type: string
+        required:
+        - source_tag
+        - target_tag
+        - type
+        type: object
+      - description: Tag usage statistics were updated.
+        properties:
+          type:
+            enum:
+            - TagStatsUpdated
+            type: string
+        required:
+        - type
+        type: object
+      - description: Job processing was paused (globally or for a specific archive).
+        properties:
+          scope:
+            description: '`"global"` or the archive name that was paused.'
+            type: string
+          type:
+            enum:
+            - JobsPaused
+            type: string
+        required:
+        - scope
+        - type
+        type: object
+      - description: Job processing was resumed (globally or for a specific archive).
+        properties:
+          scope:
+            description: '`"global"` or the archive name that was resumed.'
+            type: string
+          type:
+            enum:
+            - JobsResumed
+            type: string
+        required:
+        - scope
+        - type
+        type: object
+      - description: Embeddings for a note were updated.
+        properties:
+          job_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          note_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - IndexEmbeddingUpdated
+            type: string
+        required:
+        - note_id
+        - type
+        type: object
+      - description: Semantic links for a note were updated by the linking pipeline.
+        properties:
+          job_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          note_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - IndexLinkingUpdated
+            type: string
+        required:
+        - note_id
+        - type
+        type: object
+      - description: Full-text search index for a note was updated.
+        properties:
+          job_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          note_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - IndexFtsUpdated
+            type: string
+        required:
+        - note_id
+        - type
+        type: object
+      - description: The knowledge graph read model was updated.
+        properties:
+          note_id:
+            format: uuid
+            type:
+            - string
+            - 'null'
+          type:
+            enum:
+            - ReadmodelGraphUpdated
+            type: string
+        required:
+        - type
+        type: object
+      - description: All derived views for a note are ready for search.
+        properties:
+          note_id:
+            format: uuid
+            type: string
+          type:
+            enum:
+            - ReadmodelSearchReady
+            type: string
+        required:
+        - note_id
+        - type
+        type: object
+      - description: The inference provider's reachability state changed (e.g. Ollama came online or went offline). Emitted by the periodic reachability probe so clients can clear or raise an "offline mode" indicator without polling `/health`.
+        properties:
+          available:
+            type: boolean
+          type:
+            enum:
+            - InferenceAvailabilityChanged
+            type: string
+        required:
+        - available
+        - type
+        type: object
+      - description: |-
+          An operator changed the inference configuration via `POST /api/v1/inference/config` or `DELETE /api/v1/inference/config`. Lets reactive UIs (HotM provider pill, MCP-tool clients, dashboards) update their picture of the active provider without polling `GET /api/v1/inference/config`.
+
+          The payload deliberately excludes API keys and any field that could leak credentials. `changed_fields` carries dotted field names like `"openrouter.api_key"` so clients can render targeted UI without receiving the value itself.
+        properties:
+          changed_fields:
+            description: 'Dotted field names that changed in this config update. Examples: `["openrouter.api_key", "openrouter.generation_model"]`, `["embedding_backend"]`, `["__reset__"]` for `DELETE` events.'
+            items:
+              type: string
+            type: array
+          default_backend:
+            description: Active default backend id after the change (e.g. `"ollama"`).
+            type: string
+          embedding_backend:
+            description: Active embedding-route override id, when set independently of the default. `None` means embeddings flow through `default_backend`.
+            type:
+            - string
+            - 'null'
+          type:
+            enum:
+            - InferenceConfigChanged
+            type: string
+        required:
+        - changed_fields
+        - default_backend
+        - type
+        type: object
+      title: ServerEvent
+info:
+  description: Real-time server-sent events (SSE) for the Fortemi knowledge base. Connect to `/api/v1/events` to receive domain events as they occur.
+  license:
+    name: BSL-1.1
+    url: https://github.com/fortemi/fortemi/blob/main/LICENSE
+  title: Fortemi Event Stream
+  version: 2026.7.12
+operations:
+  receiveEvents:
+    action: receive
+    channel:
+      $ref: '#/channels/events'
+    description: Subscribe to the event stream. Events are delivered as SSE `data:` frames with JSON payloads wrapped in an EventEnvelope.
+    messages:
+    - $ref: '#/channels/events/messages/QueueStatus'
+    - $ref: '#/channels/events/messages/JobQueued'
+    - $ref: '#/channels/events/messages/JobStarted'
+    - $ref: '#/channels/events/messages/JobProgress'
+    - $ref: '#/channels/events/messages/JobCompleted'
+    - $ref: '#/channels/events/messages/JobFailed'
+    - $ref: '#/channels/events/messages/NoteUpdated'
+    - $ref: '#/channels/events/messages/NoteCreated'
+    - $ref: '#/channels/events/messages/NoteDeleted'
+    - $ref: '#/channels/events/messages/NoteArchived'
+    - $ref: '#/channels/events/messages/NoteRestored'
+    - $ref: '#/channels/events/messages/NoteTagsUpdated'
+    - $ref: '#/channels/events/messages/NoteLinksUpdated'
+    - $ref: '#/channels/events/messages/NoteRevisionCreated'
+    - $ref: '#/channels/events/messages/AttachmentCreated'
+    - $ref: '#/channels/events/messages/AttachmentDeleted'
+    - $ref: '#/channels/events/messages/AttachmentExtractionUpdated'
+    - $ref: '#/channels/events/messages/CollectionCreated'
+    - $ref: '#/channels/events/messages/CollectionUpdated'
+    - $ref: '#/channels/events/messages/CollectionDeleted'
+    - $ref: '#/channels/events/messages/CollectionMembershipChanged'
+    - $ref: '#/channels/events/messages/ArchiveCreated'
+    - $ref: '#/channels/events/messages/ArchiveUpdated'
+    - $ref: '#/channels/events/messages/ArchiveDeleted'
+    - $ref: '#/channels/events/messages/ArchiveDefaultChanged'
+    - $ref: '#/channels/events/messages/ConceptSchemeCreated'
+    - $ref: '#/channels/events/messages/ConceptSchemeUpdated'
+    - $ref: '#/channels/events/messages/ConceptSchemeDeleted'
+    - $ref: '#/channels/events/messages/ConceptCreated'
+    - $ref: '#/channels/events/messages/ConceptUpdated'
+    - $ref: '#/channels/events/messages/ConceptDeleted'
+    - $ref: '#/channels/events/messages/ConceptRelationsUpdated'
+    - $ref: '#/channels/events/messages/ConceptSchemeChanged'
+    - $ref: '#/channels/events/messages/ConceptCollectionMembershipChanged'
+    - $ref: '#/channels/events/messages/TagCreated'
+    - $ref: '#/channels/events/messages/TagRenamed'
+    - $ref: '#/channels/events/messages/TagDeleted'
+    - $ref: '#/channels/events/messages/TagMerged'
+    - $ref: '#/channels/events/messages/TagStatsUpdated'
+    - $ref: '#/channels/events/messages/JobsPaused'
+    - $ref: '#/channels/events/messages/JobsResumed'
+    - $ref: '#/channels/events/messages/IndexEmbeddingUpdated'
+    - $ref: '#/channels/events/messages/IndexLinkingUpdated'
+    - $ref: '#/channels/events/messages/IndexFtsUpdated'
+    - $ref: '#/channels/events/messages/ReadmodelGraphUpdated'
+    - $ref: '#/channels/events/messages/ReadmodelSearchReady'
+    - $ref: '#/channels/events/messages/InferenceAvailabilityChanged'
+    - $ref: '#/channels/events/messages/InferenceConfigChanged'
+    summary: Receive real-time domain events via SSE
+servers:
+  production:
+    description: Fortemi API server (SSE over HTTPS)
+    host: http://localhost:3000
+    protocol: https

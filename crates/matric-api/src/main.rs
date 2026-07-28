@@ -1910,23 +1910,32 @@ fn validate_generated_openapi(yaml: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn export_openapi_if_requested() -> anyhow::Result<bool> {
+fn export_contract_if_requested() -> anyhow::Result<bool> {
     let mut args = std::env::args_os().skip(1);
     let Some(command) = args.next() else {
         return Ok(false);
     };
-    if command != "--export-openapi" {
+    if command != "--export-openapi" && command != "--export-asyncapi" {
         return Ok(false);
     }
-    let output = args
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("usage: matric-api --export-openapi <output-path>"))?;
+    let output = args.next().ok_or_else(|| {
+        anyhow::anyhow!("usage: matric-api --export-openapi|--export-asyncapi <output-path>")
+    })?;
     if args.next().is_some() {
-        anyhow::bail!("usage: matric-api --export-openapi <output-path>");
+        anyhow::bail!("usage: matric-api --export-openapi|--export-asyncapi <output-path>");
     }
 
-    let yaml = openapi_yaml_with_problem_contract();
-    validate_generated_openapi(&yaml).map_err(anyhow::Error::msg)?;
+    let yaml = if command == "--export-openapi" {
+        let yaml = openapi_yaml_with_problem_contract();
+        validate_generated_openapi(&yaml).map_err(anyhow::Error::msg)?;
+        yaml
+    } else {
+        let spec = matric_core::asyncapi::build_asyncapi_spec(
+            env!("CARGO_PKG_VERSION"),
+            "http://localhost:3000",
+        );
+        serde_yaml::to_string(&spec)?
+    };
     std::fs::write(output, yaml)?;
     Ok(true)
 }
@@ -2803,7 +2812,7 @@ async fn serve_api(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    if export_openapi_if_requested()? {
+    if export_contract_if_requested()? {
         return Ok(());
     }
 

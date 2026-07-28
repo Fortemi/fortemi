@@ -1,0 +1,193 @@
+name: Suite Platform Contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'contracts/suite-conformance/platform-matrix.json'
+  workflow_dispatch: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  VAULT_ADDR: ${{ vars.VAULT_ADDR }}
+  MUTSU_SSH_KEY_VAULT_PATH: ${{ vars.MUTSU_SSH_KEY_VAULT_PATH }}
+  MUTSU_SSH_KEY_VAULT_FIELD: ${{ vars.MUTSU_SSH_KEY_VAULT_FIELD }}
+
+jobs:
+  linux-x86_64:
+    name: Linux x86_64 authority-to-consumer contract
+    runs-on: matric-builder
+    steps:
+      - name: Checkout exact orchestrator revision
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin "https://git.integrolabs.net/${GITHUB_REPOSITORY}.git"
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Execute complete headless platform contract
+        run: |
+          set -euo pipefail
+          scripts/ci/run-suite-platform-contract.sh \
+            "$PWD/suite-platform-output/linux-x86_64"
+
+      - name: Upload Linux receipt bundle
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        with:
+          name: suite-platform-linux-x86_64
+          path: suite-platform-output/linux-x86_64
+
+  macos-arm64:
+    name: mutsu macOS arm64 authority-to-consumer contract
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout coordinator tooling
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Fetch mutsu SSH key from Vault
+        env:
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.mutsu.spec
+
+      - name: Configure pinned mutsu host identity
+        run: |
+          set -euo pipefail
+          test -s "${MUTSU_SSH_KEY_FILE:?MUTSU_SSH_KEY_FILE is required}"
+          install -d -m 700 "$HOME/.ssh"
+          tr -d '\r' <"$MUTSU_SSH_KEY_FILE" >"$HOME/.ssh/mutsu_key"
+          chmod 600 "$HOME/.ssh/mutsu_key"
+          ssh-keygen -y -f "$HOME/.ssh/mutsu_key" >/dev/null
+
+          host_key="$(mktemp)"
+          ssh-keyscan -t ed25519 10.0.42.41 >"$host_key" 2>/dev/null
+          fingerprint="$(ssh-keygen -lf "$host_key" | awk '{print $2}')"
+          test "$fingerprint" = "SHA256:5g0PgPko1v4soAco1TrwF7uLOMoctLuNKTwGt29PTFk"
+          cat "$host_key" >"$HOME/.ssh/known_hosts"
+          rm -f "$host_key"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          cat >"$HOME/.ssh/config" <<'SSH_CONFIG'
+          Host mutsu-suite
+            HostName 10.0.42.41
+            User manitcor
+            IdentityFile ~/.ssh/mutsu_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ServerAliveInterval 30
+            ServerAliveCountMax 20
+          SSH_CONFIG
+          chmod 600 "$HOME/.ssh/config"
+
+      - name: Execute complete headless contract natively on mutsu
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_dir="/Volumes/build/fortemi/builds/suite-${GITHUB_RUN_ID}"
+          output_tar="/Volumes/build/tmp/suite-${GITHUB_RUN_ID}.tar.gz"
+          repo_url="https://git.integrolabs.net/${GITHUB_REPOSITORY}.git"
+
+          ssh mutsu-suite bash -s -- \
+            "$build_dir" "$output_tar" "$repo_url" "$GITHUB_SHA" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          build_dir="$1"
+          output_tar="$2"
+          repo_url="$3"
+          revision="$4"
+
+          export PATH="/Volumes/build/bt6/cargo/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+          export CARGO_HOME="/Volumes/build/bt6/cargo"
+          export RUSTUP_HOME="/Volumes/build/bt6/cargo/rustup"
+          export TMPDIR="/Volumes/build/tmp"
+          mkdir -p "$TMPDIR" "$(dirname "$build_dir")"
+          cleanup() {
+            docker rm -f "fortemi-suite-db-${GITHUB_RUN_ID:-remote}" >/dev/null 2>&1 || true
+            rm -rf "$build_dir"
+          }
+          trap cleanup EXIT INT TERM
+
+          if ! docker info >/dev/null 2>&1; then
+            command -v colima >/dev/null 2>&1
+            colima start --cpu 6 --memory 12 --disk 100
+          fi
+          docker info >/dev/null
+          command -v git >/dev/null
+          command -v node >/dev/null
+          command -v npm >/dev/null
+          command -v cargo >/dev/null
+
+          rm -rf "$build_dir" "$output_tar"
+          git init -q "$build_dir"
+          git -C "$build_dir" remote add origin "$repo_url"
+          git -C "$build_dir" fetch --quiet --no-tags --depth=1 origin "$revision"
+          git -C "$build_dir" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$build_dir" rev-parse HEAD)" = "$revision"
+
+          "$build_dir/scripts/ci/run-suite-platform-contract.sh" \
+            "$build_dir/suite-platform-output/macos-arm64"
+          tar -C "$build_dir/suite-platform-output" \
+            -czf "$output_tar" macos-arm64
+          REMOTE_SCRIPT
+
+          mkdir -p suite-platform-output
+          scp "mutsu-suite:${output_tar}" suite-platform-output/macos-arm64.tar.gz
+          tar -C suite-platform-output \
+            -xzf suite-platform-output/macos-arm64.tar.gz
+          rm suite-platform-output/macos-arm64.tar.gz
+
+      - name: Cleanup mutsu credential
+        if: always()
+        run: |
+          rm -f "$HOME/.ssh/mutsu_key" "$HOME/.ssh/config" "$HOME/.ssh/known_hosts"
+          ci/vault-fetch.sh --cleanup
+
+      - name: Upload macOS receipt bundle
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        with:
+          name: suite-platform-macos-arm64
+          path: suite-platform-output/macos-arm64
+
+  aggregate:
+    name: Required Linux and mutsu aggregate
+    runs-on: matric-builder
+    needs: [linux-x86_64, macos-arm64]
+    steps:
+      - name: Checkout exact verifier
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin "https://git.integrolabs.net/${GITHUB_REPOSITORY}.git"
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Download platform receipts
+        uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with:
+          path: suite-platform-artifacts
+
+      - name: Verify exact two-platform aggregate
+        run: |
+          set -euo pipefail
+          linux_receipt="$(
+            find suite-platform-artifacts -path '*/linux-x86_64/platform-receipt.json' \
+              -print -quit
+          )"
+          macos_receipt="$(
+            find suite-platform-artifacts -path '*/macos-arm64/platform-receipt.json' \
+              -print -quit
+          )"
+          test -n "$linux_receipt"
+          test -n "$macos_receipt"
+          python3 scripts/ci/verify-suite-platform-matrix.py aggregate \
+            --platform-receipt "$linux_receipt" \
+            --platform-receipt "$macos_receipt" \
+            --output suite-platform-aggregate.json
+
+      - name: Upload bounded aggregate receipt
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        with:
+          name: suite-platform-linux-mutsu-aggregate
+          path: suite-platform-aggregate.json
