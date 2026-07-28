@@ -3,12 +3,12 @@ metadata:
   created_at: "2026-07-28T21:43:26Z"
   description: "Provenance for suite dependency tool regression assertions"
 entity:
-  id: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:480d3b49e9309f7ed79dca89404ff57ad89b8d9ea8c07008ae3f8f57194bb4b9"
+  id: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:35ab09940ba1944d482a3344e5eaff4ee9225d58ad255df9de2a71d30a44b59b"
   type: test
   created_at: "2026-07-28T21:43:26Z"
-  updated_at: "2026-07-28T21:57:06Z"
-  checksum: "sha256:480d3b49e9309f7ed79dca89404ff57ad89b8d9ea8c07008ae3f8f57194bb4b9"
-  size_bytes: 14644
+  updated_at: "2026-07-28T22:06:46Z"
+  checksum: "sha256:35ab09940ba1944d482a3344e5eaff4ee9225d58ad255df9de2a71d30a44b59b"
+  size_bytes: 14647
   attributes:
     language: python
     issue: "Fortemi/fortemi#1095"
@@ -16,8 +16,8 @@ activity:
   id: "urn:aiwg:activity:test:suite-platform-toolchain-1095:001"
   type: modification
   started_at: "2026-07-28T21:42:00Z"
-  ended_at: "2026-07-28T21:57:06Z"
-  description: "Fail if the suite drops exact work-local pnpm provisioning, Git CLI transport, or restores global Corepack mutation"
+  ended_at: "2026-07-28T22:06:46Z"
+  description: "Fail if the suite stops exposing exact work-local pnpm to nested processes, drops Git CLI transport, or restores Corepack mutation"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -26,17 +26,17 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:480d3b49e9309f7ed79dca89404ff57ad89b8d9ea8c07008ae3f8f57194bb4b9"
+    entity: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:35ab09940ba1944d482a3344e5eaff4ee9225d58ad255df9de2a71d30a44b59b"
     activity: "urn:aiwg:activity:test:suite-platform-toolchain-1095:001"
-    time: "2026-07-28T21:57:06Z"
+    time: "2026-07-28T22:06:46Z"
   used:
     - activity: "urn:aiwg:activity:test:suite-platform-toolchain-1095:001"
-      entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:9555c446f09230714e80c7d8c28c87b47958883328f6346af4750282035247f6"
+      entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:91a969dd30f2891b7a2fe70977a40ce9c37ec0888f860d13145cd3f5db66ac20"
       role: tested_artifact
   wasAssociatedWith:
     activity: "urn:aiwg:activity:test:suite-platform-toolchain-1095:001"
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:480d3b49e9309f7ed79dca89404ff57ad89b8d9ea8c07008ae3f8f57194bb4b9"
+    entity: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:35ab09940ba1944d482a3344e5eaff4ee9225d58ad255df9de2a71d30a44b59b"
     agent: "urn:aiwg:agent:codex-gpt-5"

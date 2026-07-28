@@ -3,12 +3,12 @@ metadata:
   created_at: "2026-07-28T21:43:26Z"
   description: "Provenance for portable suite dependency tool invocation"
 entity:
-  id: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:9555c446f09230714e80c7d8c28c87b47958883328f6346af4750282035247f6"
+  id: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:91a969dd30f2891b7a2fe70977a40ce9c37ec0888f860d13145cd3f5db66ac20"
   type: code
   created_at: "2026-07-28T21:43:26Z"
-  updated_at: "2026-07-28T21:57:06Z"
-  checksum: "sha256:9555c446f09230714e80c7d8c28c87b47958883328f6346af4750282035247f6"
-  size_bytes: 20740
+  updated_at: "2026-07-28T22:06:46Z"
+  checksum: "sha256:91a969dd30f2891b7a2fe70977a40ce9c37ec0888f860d13145cd3f5db66ac20"
+  size_bytes: 20565
   attributes:
     language: shell
     issue: "Fortemi/fortemi#1095"
@@ -17,8 +17,8 @@ activity:
   id: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
   type: modification
   started_at: "2026-07-28T21:38:00Z"
-  ended_at: "2026-07-28T21:57:06Z"
-  description: "Use trusted Git CLI transport and provision the React-declared exact pnpm version without global mutations"
+  ended_at: "2026-07-28T22:06:46Z"
+  description: "Use trusted Git CLI transport and expose the React-declared exact work-local pnpm to nested contract processes"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -27,9 +27,9 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:9555c446f09230714e80c7d8c28c87b47958883328f6346af4750282035247f6"
+    entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:91a969dd30f2891b7a2fe70977a40ce9c37ec0888f860d13145cd3f5db66ac20"
     activity: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
-    time: "2026-07-28T21:57:06Z"
+    time: "2026-07-28T22:06:46Z"
   used:
     - activity: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
       entity: "urn:gitea:run:Fortemi/fortemi:6292"
@@ -37,10 +37,13 @@ relationships:
     - activity: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
       entity: "urn:gitea:run:Fortemi/fortemi:6296"
       role: failing_linux_dependency_tool_evidence
+    - activity: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
+      entity: "urn:gitea:run:Fortemi/fortemi:6300"
+      role: failing_nested_pnpm_resolution_evidence
   wasAssociatedWith:
     activity: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:9555c446f09230714e80c7d8c28c87b47958883328f6346af4750282035247f6"
+    entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:91a969dd30f2891b7a2fe70977a40ce9c37ec0888f860d13145cd3f5db66ac20"
     agent: "urn:aiwg:agent:codex-gpt-5"

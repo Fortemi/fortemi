@@ -291,7 +291,6 @@ class SuitePlatformMatrixTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("CARGO_NET_GIT_FETCH_WITH_CLI", runner)
         self.assertIn("pnpm_command=(pnpm)", runner)
-        self.assertIn("pnpm_command=(corepack pnpm)", runner)
         self.assertIn(
             'package_manager="$(node -p "require(\'./package.json\').packageManager")"',
             runner,
@@ -301,9 +300,10 @@ class SuitePlatformMatrixTests(unittest.TestCase):
             runner,
         )
         self.assertIn(
-            'pnpm_command=("${WORK_DIR}/pnpm-tools/node_modules/.bin/pnpm")',
+            'export PATH="${WORK_DIR}/pnpm-tools/node_modules/.bin:${PATH}"',
             runner,
         )
+        self.assertNotIn("pnpm_command=(corepack pnpm)", runner)
         self.assertNotIn("corepack enable", runner)
 
     def test_accepts_exact_manifest_and_both_platforms(self):

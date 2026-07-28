@@ -539,10 +539,6 @@ seed_authority_fixture
   if command -v pnpm >/dev/null 2>&1 \
     && [[ "$(pnpm --version)" == "$pnpm_version" ]]; then
     pnpm_command=(pnpm)
-  elif command -v corepack >/dev/null 2>&1 \
-    && [[ "$(COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm --version 2>/dev/null)" \
-      == "$pnpm_version" ]]; then
-    pnpm_command=(corepack pnpm)
   else
     command -v npm >/dev/null 2>&1 || {
       echo "npm is required to provision the pinned React/core pnpm version" >&2
@@ -551,7 +547,8 @@ seed_authority_fixture
     npm install --prefix "${WORK_DIR}/pnpm-tools" \
       --no-save --ignore-scripts --no-audit --no-fund \
       "pnpm@${pnpm_version}" >/dev/null
-    pnpm_command=("${WORK_DIR}/pnpm-tools/node_modules/.bin/pnpm")
+    export PATH="${WORK_DIR}/pnpm-tools/node_modules/.bin:${PATH}"
+    pnpm_command=(pnpm)
   fi
   [[ "$("${pnpm_command[@]}" --version)" == "$pnpm_version" ]]
   "${pnpm_command[@]}" install --frozen-lockfile
