@@ -305,6 +305,7 @@ class SuitePlatformMatrixTests(unittest.TestCase):
         )
         self.assertNotIn("pnpm_command=(corepack pnpm)", runner)
         self.assertNotIn("corepack enable", runner)
+        self.assertIn("npx playwright install chromium --with-deps", runner)
 
     def test_accepts_exact_manifest_and_both_platforms(self):
         value = manifest()

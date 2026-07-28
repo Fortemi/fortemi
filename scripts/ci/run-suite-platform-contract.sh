@@ -581,7 +581,11 @@ reset_database
 (
   cd "$HOTM_DIR/ui"
   npm ci
-  npx playwright install chromium
+  if [[ "$PLATFORM_OS" == "linux" ]]; then
+    npx playwright install chromium --with-deps
+  else
+    npx playwright install chromium
+  fi
 )
 CI=true \
 HOTM_LIVE_EXPECT_CLEAN=1 \
