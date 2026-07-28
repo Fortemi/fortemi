@@ -1000,6 +1000,7 @@ impl FilesystemBackend {
             hasher.update(&buffer[..read]);
             destination.write_all(&buffer[..read]).await?;
             if abort_after_bytes.is_some_and(|threshold| size_bytes >= threshold) {
+                destination.flush().await?;
                 std::process::abort();
             }
         }

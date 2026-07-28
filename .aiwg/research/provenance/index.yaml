@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-28T05:14:54Z"
+  updated_at: "2026-07-28T05:34:59Z"
 records:
+  - entity: "crates/matric-db/src/file_storage.rs"
+    record: "records/matric-db-file-storage-copy-abort-flush-1093.prov.yaml"
   - entity: ".aiwg/testing/asset-lifecycle-performance-policy-v1.json"
     record: "records/asset-lifecycle-performance-policy-v1-1094.prov.yaml"
   - entity: ".aiwg/testing/receipts/al-perf01-baseline-0ef4eccc.json"

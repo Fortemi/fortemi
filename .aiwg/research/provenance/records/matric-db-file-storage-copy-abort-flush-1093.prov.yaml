@@ -1,0 +1,46 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T05:34:59Z"
+  description: "Provenance for deterministic sidecar copy-abort prefix visibility"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:f7cfa83f99ec90f3c3126e4af212b26ac9e8ce9ca51f40cc1bd1046b6539c4b7"
+  type: code
+  created_at: "2026-07-28T05:34:59Z"
+  updated_at: "2026-07-28T05:34:59Z"
+  checksum: "sha256:f7cfa83f99ec90f3c3126e4af212b26ac9e8ce9ca51f40cc1bd1046b6539c4b7"
+  size_bytes: 157293
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1093"
+    boundary: "completed async write before process abort; no fsync claim"
+activity:
+  id: "urn:aiwg:activity:fix:sidecar-copy-abort-flush-1093:001"
+  type: modification
+  started_at: "2026-07-28T05:32:30Z"
+  ended_at: "2026-07-28T05:34:59Z"
+  description: "Flush the Tokio file before the test fault abort so the completed seven-byte prefix is deterministically metadata-visible"
+  attributes:
+    verification:
+      - "focused sidecar process-abort test: 5 consecutive passes"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:f7cfa83f99ec90f3c3126e4af212b26ac9e8ce9ca51f40cc1bd1046b6539c4b7"
+    activity: "urn:aiwg:activity:fix:sidecar-copy-abort-flush-1093:001"
+    time: "2026-07-28T05:34:59Z"
+  used:
+    - activity: "urn:aiwg:activity:fix:sidecar-copy-abort-flush-1093:001"
+      entity: "urn:gitea:run:Fortemi/fortemi:6202:job:104610"
+      role: failing_ci_evidence
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:fix:sidecar-copy-abort-flush-1093:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:f7cfa83f99ec90f3c3126e4af212b26ac9e8ce9ca51f40cc1bd1046b6539c4b7"
+    agent: "urn:aiwg:agent:codex-gpt-5"
