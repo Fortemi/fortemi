@@ -51614,11 +51614,13 @@ not-json
             .iter()
             .map(|segment| matric_db::compute_content_hash(segment))
             .collect();
-        let phase_snapshot = || {
+        let mut observed_rss_high_water = 0_u64;
+        let mut phase_snapshot = || {
             let storage_disk_bytes = directory_size_bytes(storage.path());
             let tus_staging_disk_bytes = directory_size_bytes(tus.path());
+            observed_rss_high_water = observed_rss_high_water.max(current_rss_high_water_bytes());
             serde_json::json!({
-                "rssHighWaterBytes": current_rss_high_water_bytes(),
+                "rssHighWaterBytes": observed_rss_high_water,
                 "storageDiskBytes": storage_disk_bytes,
                 "tusStagingDiskBytes": tus_staging_disk_bytes,
                 "combinedStorageAndTusDiskBytes": storage_disk_bytes + tus_staging_disk_bytes,

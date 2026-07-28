@@ -1,0 +1,52 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T08:19:55Z"
+  description: "Provenance for monotonic AL-PERF01 sampled RSS high-water evidence"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:58f788c0f3092e934a97787d8eec9fd5e4a1b9c2f5be882a67490b916630440e"
+  type: code
+  created_at: "2026-07-28T08:19:55Z"
+  updated_at: "2026-07-28T08:19:55Z"
+  checksum: "sha256:58f788c0f3092e934a97787d8eec9fd5e4a1b9c2f5be882a67490b916630440e"
+  size_bytes: 2690261
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1094"
+    profile: "2.0.0/full-v1"
+    boundary: "maximum of in-process phase samples; not a whole-lifecycle memory claim"
+activity:
+  id: "urn:aiwg:activity:fix:al-perf01-monotonic-high-water-1094:001"
+  type: modification
+  started_at: "2026-07-28T08:13:20Z"
+  ended_at: "2026-07-28T08:19:55Z"
+  description: "Retain the maximum sampled process RSS high-water across receipt phases so a transient lower proc-status read cannot understate the metric or violate high-water semantics"
+  attributes:
+    verification:
+      - "cargo fmt --check"
+      - "matric-api AL-PERF01 focused test compiled"
+      - "tests.test_verify_al_perf01_receipt_bundle: 23 passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:58f788c0f3092e934a97787d8eec9fd5e4a1b9c2f5be882a67490b916630440e"
+    activity: "urn:aiwg:activity:fix:al-perf01-monotonic-high-water-1094:001"
+    time: "2026-07-28T08:19:55Z"
+  used:
+    - activity: "urn:aiwg:activity:fix:al-perf01-monotonic-high-water-1094:001"
+      entity: "urn:gitea:run:Fortemi/fortemi:6213:job:104860"
+      role: failing_ci_evidence
+    - activity: "urn:aiwg:activity:fix:al-perf01-monotonic-high-water-1094:001"
+      entity: "urn:aiwg:artifact:.aiwg/testing/asset-lifecycle-performance-policy-v1.json:sha256:52d2f5215bac61e8e6d1a61a4d133d48858ae830b964ee6feb5e87718b220d84"
+      role: policy
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:fix:al-perf01-monotonic-high-water-1094:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:58f788c0f3092e934a97787d8eec9fd5e4a1b9c2f5be882a67490b916630440e"
+    agent: "urn:aiwg:agent:codex-gpt-5"

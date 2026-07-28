@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-28T08:17:37Z"
+  updated_at: "2026-07-28T08:19:55Z"
 records:
+  - entity: "crates/matric-api/src/main.rs"
+    record: "records/matric-api-main-al-perf01-monotonic-high-water-1094.prov.yaml"
   - entity: "crates/matric-db/src/file_storage.rs"
     record: "records/matric-db-file-storage-journal-temp-flush-1093.prov.yaml"
   - entity: ".aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
