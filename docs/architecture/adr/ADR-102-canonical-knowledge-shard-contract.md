@@ -428,17 +428,20 @@ initial journal temporary write, temporary-file sync, atomic rename, and
 parent-directory sync. All four boundaries retain zero component rows, two
 verified staged sidecars, one complete journal candidate, and the dead
 process's lock. Post-rename restart recovery consumes the authoritative journal
-directly. Pre-rename restart refuses the orphan temporary candidate; the test
-models an explicit operator salvage that parses the complete candidate, syncs
-it, atomically promotes it to the authoritative filename, syncs the directory,
-and only then runs normal recovery. Every boundary returns to the exact
-pre-abort filesystem baseline and converges under clean retry. This is evidence
-for process death immediately after completed operations, not death in the
-middle of a write or kernel syscall and not power-loss durability. Termination
-in the middle of sidecar read/write syscalls, mid-operation journal
-persistence, kernel-level write/fsync failure or power loss, an in-flight
-commit acknowledgement ambiguity, and the complete platform/filesystem matrix
-remain separate acceptance gates.
+directly. Pre-rename restart now acquires the dead operation's lock, parses and
+validates the complete candidate identity and canonical staged-blob paths,
+requires every entry to remain in the initial `pending` state, syncs the
+candidate, atomically promotes it to the authoritative filename, syncs the
+directory, and then runs normal recovery. A live lock, malformed candidate, or
+candidate containing any post-promotion state remains fail-closed and
+untouched. Every process-abort boundary returns to the exact pre-abort
+filesystem baseline and converges under clean retry. This is evidence for
+process death immediately after completed operations, not death in the middle
+of a write or kernel syscall and not power-loss durability. Termination in the
+middle of sidecar read/write syscalls, mid-operation journal persistence,
+kernel-level write/fsync failure or power loss, an in-flight commit
+acknowledgement ambiguity, and the complete platform/filesystem matrix remain
+separate acceptance gates.
 
 Until the release gates pass:
 

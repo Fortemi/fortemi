@@ -3,12 +3,12 @@ metadata:
   created_at: "2026-07-27T22:59:55Z"
   description: "Provenance for Fortemi #1093 process-abort sidecar recovery integration"
 entity:
-  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:76560e40e0e209abe4ce8535a12fdcdd8f2d323df45397e77127848d1b4f1178"
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:a1c95b3a82b91ecd87e59290299d81bc3eca4f43de99c69b4396036f5f6fe943"
   type: code
   created_at: "2026-07-27T22:59:55Z"
-  updated_at: "2026-07-28T02:26:11Z"
-  checksum: "sha256:76560e40e0e209abe4ce8535a12fdcdd8f2d323df45397e77127848d1b4f1178"
-  size_bytes: 2689292
+  updated_at: "2026-07-28T02:47:56Z"
+  checksum: "sha256:a1c95b3a82b91ecd87e59290299d81bc3eca4f43de99c69b4396036f5f6fe943"
+  size_bytes: 2688235
   attributes:
     language: rust
     issue: "Fortemi/fortemi#1093"
@@ -18,13 +18,12 @@ activity:
   id: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
   type: modification
   started_at: "2026-07-27T22:30:00Z"
-  ended_at: "2026-07-27T23:50:33Z"
-  description: "Integrate locked schema-scoped sidecar journals, startup reconciliation, ten real child-process termination boundaries spanning exact-prefix sidecar copy, staging, four journal persistence operations, promotion, receipts, and commit, explicit complete-candidate salvage, and fail-closed suppression of stale staging cleanup"
+  ended_at: "2026-07-28T02:47:56Z"
+  description: "Integrate locked schema-scoped sidecar journals, startup reconciliation, ten real child-process termination boundaries spanning exact-prefix sidecar copy, staging, four journal persistence operations, promotion, receipts, and commit, lock-guarded automatic complete-candidate salvage, and fail-closed suppression of stale staging cleanup"
   attributes:
     verification:
-      - "cargo test -p matric-api shard_optional_sidecars_round_trip_and_fail_without_partial_storage -- --nocapture: passed"
-      - "cargo check -p matric-api --all-targets: passed"
-      - "cargo clippy --all-targets --all-features -- -D warnings: passed"
+      - "cargo test -p matric-api --all-features shard_optional_sidecars_round_trip_and_fail_without_partial_storage -- --nocapture --test-threads=1: 1 passed"
+      - "cargo clippy --workspace --all-targets --all-features -- -D warnings: passed"
       - "cargo tree -p matric-api -e features,no-dev excludes test-fault-injection: passed"
       - "scripts/ci/verify-bidirectional-asset-lifecycle.sh: passed"
 agent:
@@ -35,9 +34,9 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:76560e40e0e209abe4ce8535a12fdcdd8f2d323df45397e77127848d1b4f1178"
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:a1c95b3a82b91ecd87e59290299d81bc3eca4f43de99c69b4396036f5f6fe943"
     activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
-    time: "2026-07-28T02:26:11Z"
+    time: "2026-07-28T02:47:56Z"
   used:
     - activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
       entity: "urn:gitea:issue:Fortemi/fortemi:1093"
@@ -46,7 +45,7 @@ relationships:
       entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
       role: architecture_authority
   wasDerivedFrom:
-    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:76560e40e0e209abe4ce8535a12fdcdd8f2d323df45397e77127848d1b4f1178"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:a1c95b3a82b91ecd87e59290299d81bc3eca4f43de99c69b4396036f5f6fe943"
       source: "urn:gitea:issue:Fortemi/fortemi:1093"
       derivation_type: implements
       activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
@@ -55,5 +54,5 @@ relationships:
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:76560e40e0e209abe4ce8535a12fdcdd8f2d323df45397e77127848d1b4f1178"
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:a1c95b3a82b91ecd87e59290299d81bc3eca4f43de99c69b4396036f5f6fe943"
     agent: "urn:aiwg:agent:codex-gpt-5"

@@ -3,12 +3,12 @@ metadata:
   created_at: "2026-07-27T22:59:55Z"
   description: "Provenance for Fortemi #1093 durable sidecar import journal and ownership lock"
 entity:
-  id: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:997daf0e8c76485c3e108cf20b74c0e033791e5a1b626765793da86b1e390873"
+  id: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:afd0abd1b4e5590bcf97e0657db8c6f3dad357804f0fbc19233d3ffa465864f4"
   type: code
   created_at: "2026-07-27T22:59:55Z"
-  updated_at: "2026-07-28T02:26:11Z"
-  checksum: "sha256:997daf0e8c76485c3e108cf20b74c0e033791e5a1b626765793da86b1e390873"
-  size_bytes: 149636
+  updated_at: "2026-07-28T02:47:56Z"
+  checksum: "sha256:afd0abd1b4e5590bcf97e0657db8c6f3dad357804f0fbc19233d3ffa465864f4"
+  size_bytes: 157249
   attributes:
     language: rust
     issue: "Fortemi/fortemi#1093"
@@ -17,13 +17,13 @@ activity:
   id: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
   type: modification
   started_at: "2026-07-27T22:30:00Z"
-  ended_at: "2026-07-27T23:50:33Z"
-  description: "Persist private atomic sidecar journals, propagate Unix directory-sync failures, expose only complete prior or renamed authority at four deterministic checkpoints, provide dev-only process-abort hooks after an exact sidecar-copy prefix and each journal persistence operation, reject orphan temporary rewrites, exclude live recovery, and provide exact compensation and verification helpers"
+  ended_at: "2026-07-28T02:47:56Z"
+  description: "Persist private atomic sidecar journals, propagate Unix directory-sync failures, expose only complete prior or renamed authority at four deterministic checkpoints, automatically salvage complete inactive all-pending initial candidates, reject malformed or ambiguous orphan state, exclude live recovery, and provide exact compensation and verification helpers"
   attributes:
     verification:
-      - "cargo test -p matric-db shard_import_journal -- --nocapture: passed"
-      - "cargo test -p matric-db shard_ -- --nocapture: 12 passed"
-      - "cargo clippy --all-targets --all-features -- -D warnings: passed"
+      - "cargo test -p matric-db shard_import_journal_ -- --nocapture: 5 passed"
+      - "cargo test -p matric-db shard_ -- --nocapture: 14 passed"
+      - "cargo clippy --workspace --all-targets --all-features -- -D warnings: passed"
       - "scripts/ci/verify-bidirectional-asset-lifecycle.sh: passed"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
@@ -33,15 +33,15 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:997daf0e8c76485c3e108cf20b74c0e033791e5a1b626765793da86b1e390873"
+    entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:afd0abd1b4e5590bcf97e0657db8c6f3dad357804f0fbc19233d3ffa465864f4"
     activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
-    time: "2026-07-28T02:26:11Z"
+    time: "2026-07-28T02:47:56Z"
   used:
     - activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
       entity: "urn:gitea:issue:Fortemi/fortemi:1093"
       role: requirement
   wasDerivedFrom:
-    - entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:997daf0e8c76485c3e108cf20b74c0e033791e5a1b626765793da86b1e390873"
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:afd0abd1b4e5590bcf97e0657db8c6f3dad357804f0fbc19233d3ffa465864f4"
       source: "urn:gitea:issue:Fortemi/fortemi:1093"
       derivation_type: implements
       activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
@@ -50,5 +50,5 @@ relationships:
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:997daf0e8c76485c3e108cf20b74c0e033791e5a1b626765793da86b1e390873"
+    entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:afd0abd1b4e5590bcf97e0657db8c6f3dad357804f0fbc19233d3ffa465864f4"
     agent: "urn:aiwg:agent:codex-gpt-5"

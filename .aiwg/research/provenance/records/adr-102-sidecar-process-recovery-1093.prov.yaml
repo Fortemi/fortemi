@@ -3,12 +3,12 @@ metadata:
   created_at: "2026-07-27T22:59:55Z"
   description: "Provenance for ADR-102 sidecar process-recovery clarification"
 entity:
-  id: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:8b67e5c1d5ef6f7c910e695547e9c98c6e62e108e8c0f64ffa5486e1bc97cd73"
+  id: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:8b7ce24a5a4979167004f17ae5b66f4586ac581c7fcfc3e70b59e9dcbce691de"
   type: adr
   created_at: "2026-07-27T22:59:55Z"
-  updated_at: "2026-07-27T23:50:33Z"
-  checksum: "sha256:8b67e5c1d5ef6f7c910e695547e9c98c6e62e108e8c0f64ffa5486e1bc97cd73"
-  size_bytes: 29252
+  updated_at: "2026-07-28T02:47:56Z"
+  checksum: "sha256:8b7ce24a5a4979167004f17ae5b66f4586ac581c7fcfc3e70b59e9dcbce691de"
+  size_bytes: 29458
   attributes:
     issue: "Fortemi/fortemi#1093"
     change_type: modification
@@ -16,8 +16,8 @@ activity:
   id: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
   type: modification
   started_at: "2026-07-27T22:30:00Z"
-  ended_at: "2026-07-27T23:50:33Z"
-  description: "Document the exact-prefix sidecar-copy abort, private locked journal, four real journal-operation aborts, four real promotion/commit aborts, explicit complete-candidate salvage, deterministic persistence checkpoints, fail-closed orphan handling, and remaining mid-syscall/power-loss/platform limits"
+  ended_at: "2026-07-28T02:47:56Z"
+  description: "Document the exact-prefix sidecar-copy abort, private locked journal, four real journal-operation aborts, four real promotion/commit aborts, automatic lock-guarded complete-candidate salvage, deterministic persistence checkpoints, fail-closed orphan handling, and remaining mid-syscall/power-loss/platform limits"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -26,16 +26,16 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:8b67e5c1d5ef6f7c910e695547e9c98c6e62e108e8c0f64ffa5486e1bc97cd73"
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:8b7ce24a5a4979167004f17ae5b66f4586ac581c7fcfc3e70b59e9dcbce691de"
     activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
-    time: "2026-07-27T23:50:33Z"
+    time: "2026-07-28T02:47:56Z"
   used:
     - activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
       entity: "urn:gitea:issue:Fortemi/fortemi:1093"
       role: requirement
   wasDerivedFrom:
-    - entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:8b67e5c1d5ef6f7c910e695547e9c98c6e62e108e8c0f64ffa5486e1bc97cd73"
-      source: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:f61b6c734c84c8bf8dd4f4efeb7c045741d1e6a1f869f91e163fd900a078ea82"
+    - entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:8b7ce24a5a4979167004f17ae5b66f4586ac581c7fcfc3e70b59e9dcbce691de"
+      source: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:afd0abd1b4e5590bcf97e0657db8c6f3dad357804f0fbc19233d3ffa465864f4"
       derivation_type: documents
       activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
   wasAssociatedWith:
@@ -43,5 +43,5 @@ relationships:
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: architecture_documenter
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:8b67e5c1d5ef6f7c910e695547e9c98c6e62e108e8c0f64ffa5486e1bc97cd73"
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:8b7ce24a5a4979167004f17ae5b66f4586ac581c7fcfc3e70b59e9dcbce691de"
     agent: "urn:aiwg:agent:codex-gpt-5"

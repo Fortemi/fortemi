@@ -677,6 +677,109 @@ impl FilesystemBackend {
         self.persist_shard_import_journal(&journal).await
     }
 
+    fn validate_shard_import_journal(
+        journal: &ShardImportJournal,
+        operation_id: Uuid,
+    ) -> Result<()> {
+        if journal.version != SHARD_IMPORT_JOURNAL_VERSION || journal.operation_id != operation_id {
+            return Err(Error::InvalidInput(
+                "Shard import journal identity is invalid".to_string(),
+            ));
+        }
+        for blob in &journal.blobs {
+            let staged = blob.staged_blob()?;
+            if blob.storage_path != staged.storage_path() {
+                return Err(Error::InvalidInput(
+                    "Shard import journal storage path is invalid".to_string(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Promote complete initial journal candidates left by a pre-rename process abort.
+    ///
+    /// Recovery owns a candidate only after acquiring its operation lock. A candidate
+    /// containing any post-promotion state is ambiguous without prior authority and
+    /// remains untouched for operator inspection.
+    pub async fn salvage_shard_import_journal_candidates(&self) -> Result<usize> {
+        let root = self.base_path.join(SHARD_IMPORT_JOURNAL_ROOT);
+        if !fs::try_exists(&root).await? {
+            return Ok(0);
+        }
+
+        let mut entries = fs::read_dir(&root).await?;
+        let mut operation_ids = Vec::new();
+        while let Some(entry) = entries.next_entry().await? {
+            if !entry.file_type().await?.is_file() {
+                continue;
+            }
+            let path = entry.path();
+            let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let Some(id) = file_name.strip_suffix(".json.tmp") else {
+                continue;
+            };
+            let operation_id = Uuid::parse_str(id).map_err(|_| {
+                Error::InvalidInput(
+                    "Shard import journal temporary filename is invalid".to_string(),
+                )
+            })?;
+            if !fs::try_exists(self.shard_import_journal_path(&operation_id)).await? {
+                operation_ids.push(operation_id);
+            }
+        }
+        operation_ids.sort_unstable();
+
+        let mut salvaged = 0_usize;
+        for operation_id in operation_ids {
+            let Some(lease) = self.try_lock_shard_import_journal(operation_id).await? else {
+                return Err(Error::InvalidInput(
+                    "Shard import journal candidate is owned by a live importer".to_string(),
+                ));
+            };
+            let temp_path = self.shard_import_journal_temp_path(&operation_id);
+            let authority_path = self.shard_import_journal_path(&operation_id);
+            let salvage_result = async {
+                if fs::try_exists(&authority_path).await? {
+                    return Ok(false);
+                }
+                let contents = fs::read(&temp_path).await?;
+                let journal = serde_json::from_slice::<ShardImportJournal>(&contents)?;
+                Self::validate_shard_import_journal(&journal, operation_id)?;
+                if journal.blobs.is_empty()
+                    || journal
+                        .blobs
+                        .iter()
+                        .any(|blob| blob.state != ShardImportJournalBlobState::Pending)
+                {
+                    return Err(Error::InvalidInput(
+                        "Orphan shard import journal candidate has ambiguous promotion state"
+                            .to_string(),
+                    ));
+                }
+
+                let candidate = fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&temp_path)
+                    .await?;
+                candidate.sync_all().await?;
+                drop(candidate);
+                fs::rename(&temp_path, &authority_path).await?;
+                Self::sync_shard_import_journal_directory(&root).await?;
+                Ok(true)
+            }
+            .await;
+            self.finish_shard_import_journal_lease(lease).await?;
+            if salvage_result? {
+                salvaged += 1;
+            }
+        }
+        Ok(salvaged)
+    }
+
     /// Persist rollback ownership before entering the filesystem promotion helper.
     ///
     /// If exact final bytes preexist, recovery records `AlreadyPromoted` and
@@ -736,19 +839,7 @@ impl FilesystemBackend {
             })?;
             let contents = fs::read(&path).await?;
             let journal = serde_json::from_slice::<ShardImportJournal>(&contents)?;
-            if journal.version != SHARD_IMPORT_JOURNAL_VERSION || journal.operation_id != id {
-                return Err(Error::InvalidInput(
-                    "Shard import journal identity is invalid".to_string(),
-                ));
-            }
-            for blob in &journal.blobs {
-                let staged = blob.staged_blob()?;
-                if blob.storage_path != staged.storage_path() {
-                    return Err(Error::InvalidInput(
-                        "Shard import journal storage path is invalid".to_string(),
-                    ));
-                }
-            }
+            Self::validate_shard_import_journal(&journal, id)?;
             journals.push(journal);
         }
         journals.sort_by_key(ShardImportJournal::operation_id);
@@ -3649,10 +3740,107 @@ mod sweep_tests {
 
         let result = backend.load_shard_import_journals().await;
         assert!(matches!(result, Err(Error::InvalidInput(_))));
+        let result = backend.salvage_shard_import_journal_candidates().await;
+        assert!(result.is_err());
         assert!(
             temp_path.exists(),
             "unknown recovery state must remain available for inspection"
         );
+    }
+
+    #[tokio::test]
+    async fn shard_import_journal_salvages_complete_inactive_initial_candidate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let staged = stage_bytes(&backend, Uuid::now_v7(), b"salvage candidate").await;
+        let operation_id = Uuid::now_v7();
+        let candidate = ShardImportJournal {
+            version: SHARD_IMPORT_JOURNAL_VERSION,
+            operation_id,
+            schema: "archive_salvage".to_string(),
+            blobs: vec![ShardImportJournalBlob {
+                blob_id: staged.blob_id(),
+                content_hash: staged.content_hash(),
+                size_bytes: staged.size_bytes(),
+                storage_path: staged.storage_path(),
+                state: ShardImportJournalBlobState::Pending,
+            }],
+        };
+        let temp_path = backend.shard_import_journal_temp_path(&operation_id);
+        let authority_path = backend.shard_import_journal_path(&operation_id);
+        tokio::fs::create_dir_all(temp_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&temp_path, serde_json::to_vec(&candidate).unwrap())
+            .await
+            .unwrap();
+
+        let live_lease = backend
+            .try_lock_shard_import_journal(operation_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let result = backend.salvage_shard_import_journal_candidates().await;
+        assert!(matches!(result, Err(Error::InvalidInput(_))));
+        assert!(temp_path.exists(), "live candidate must remain untouched");
+        assert!(!authority_path.exists());
+        backend
+            .finish_shard_import_journal_lease(live_lease)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            backend
+                .salvage_shard_import_journal_candidates()
+                .await
+                .unwrap(),
+            1
+        );
+        assert!(!temp_path.exists());
+        assert!(authority_path.exists());
+        assert_eq!(
+            backend.load_shard_import_journals().await.unwrap(),
+            vec![candidate]
+        );
+
+        backend
+            .finish_shard_import_journal(operation_id)
+            .await
+            .unwrap();
+        backend.discard_staged_shard_blob(&staged).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_import_journal_salvage_rejects_ambiguous_promotion_state() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let staged = stage_bytes(&backend, Uuid::now_v7(), b"ambiguous candidate").await;
+        let operation_id = Uuid::now_v7();
+        let candidate = ShardImportJournal {
+            version: SHARD_IMPORT_JOURNAL_VERSION,
+            operation_id,
+            schema: "archive_ambiguous".to_string(),
+            blobs: vec![ShardImportJournalBlob {
+                blob_id: staged.blob_id(),
+                content_hash: staged.content_hash(),
+                size_bytes: staged.size_bytes(),
+                storage_path: staged.storage_path(),
+                state: ShardImportJournalBlobState::Promoting,
+            }],
+        };
+        let temp_path = backend.shard_import_journal_temp_path(&operation_id);
+        tokio::fs::create_dir_all(temp_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&temp_path, serde_json::to_vec(&candidate).unwrap())
+            .await
+            .unwrap();
+
+        let result = backend.salvage_shard_import_journal_candidates().await;
+        assert!(matches!(result, Err(Error::InvalidInput(_))));
+        assert!(temp_path.exists());
+        assert!(!backend.shard_import_journal_path(&operation_id).exists());
+        backend.discard_staged_shard_blob(&staged).await.unwrap();
     }
 
     #[tokio::test]

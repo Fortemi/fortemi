@@ -33342,6 +33342,12 @@ async fn recover_shard_sidecar_import_journals(
     schema: Option<&str>,
     operation_id: Option<Uuid>,
 ) -> Result<usize, ApiError> {
+    backend
+        .salvage_shard_import_journal_candidates()
+        .await
+        .map_err(|error| {
+            shard_operation_failed("salvage sidecar import recovery journals", error)
+        })?;
     let journals = backend
         .load_shard_import_journals()
         .await
@@ -50131,7 +50137,7 @@ not-json
                     "{phase} orphan temporary journal must fail closed"
                 );
                 let journal_root = storage.path().join("staging/shard-import/journals");
-                let (temp_path, candidate) = std::fs::read_dir(&journal_root)
+                let candidate = std::fs::read_dir(&journal_root)
                     .expect("read journal persistence directory")
                     .filter_map(|entry| entry.ok().map(|entry| entry.path()))
                     .filter(|path| {
@@ -50143,8 +50149,7 @@ not-json
                         let contents = std::fs::read(&path).ok()?;
                         let journal =
                             serde_json::from_slice::<ShardImportJournal>(&contents).ok()?;
-                        (journal.schema() == journal_process_abort.schema_name)
-                            .then_some((path, journal))
+                        (journal.schema() == journal_process_abort.schema_name).then_some(journal)
                     })
                     .expect("complete orphan temporary journal for interrupted import");
                 assert!(
@@ -50155,51 +50160,24 @@ not-json
                             == matric_db::ShardImportJournalBlobState::Pending),
                     "{phase} candidate must retain only pre-promotion pending state"
                 );
-
-                let temp_file = std::fs::OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .open(&temp_path)
-                    .expect("open orphan temporary journal for salvage");
-                temp_file
-                    .sync_all()
-                    .expect("sync complete orphan temporary journal for salvage");
-                drop(temp_file);
-                let authoritative_path = temp_path.parent().expect("journal parent").join(
-                    temp_path
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .expect("UTF-8 journal filename")
-                        .strip_suffix(".tmp")
-                        .expect("temporary journal suffix"),
-                );
-                std::fs::rename(&temp_path, &authoritative_path)
-                    .expect("promote complete temporary journal during explicit salvage");
-                std::fs::File::open(
-                    authoritative_path
-                        .parent()
-                        .expect("authoritative journal parent"),
-                )
-                .expect("open journal directory for salvage sync")
-                .sync_all()
-                .expect("sync salvaged journal directory");
-            }
-
-            let journals = backend
-                .load_shard_import_journals()
-                .await
-                .expect("load complete journal after restart or explicit salvage");
-            let journal = journals
-                .iter()
-                .find(|journal| journal.schema() == journal_process_abort.schema_name)
-                .expect("authoritative journal for interrupted import");
-            assert!(
-                journal
-                    .blobs()
+            } else {
+                let journals = backend
+                    .load_shard_import_journals()
+                    .await
+                    .expect("load authoritative journal after rename checkpoint");
+                let journal = journals
                     .iter()
-                    .all(|blob| blob.state() == matric_db::ShardImportJournalBlobState::Pending),
-                "{phase} authoritative journal must precede every promotion"
-            );
+                    .find(|journal| journal.schema() == journal_process_abort.schema_name)
+                    .expect("authoritative journal for interrupted import");
+                assert!(
+                    journal
+                        .blobs()
+                        .iter()
+                        .all(|blob| blob.state()
+                            == matric_db::ShardImportJournalBlobState::Pending),
+                    "{phase} authoritative journal must precede every promotion"
+                );
+            }
 
             let restarted_db = Database::connect(&database_url)
                 .await
