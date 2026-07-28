@@ -135,8 +135,12 @@ jobs:
             ! command -v npm >/dev/null 2>&1; then
             brew install node
           fi
+          if ! command -v python3 >/dev/null 2>&1; then
+            brew install python
+          fi
           printf 'node: %s\n' "$(node --version)"
           printf 'npm: %s\n' "$(npm --version)"
+          printf 'python: %s\n' "$(python3 --version)"
           printf 'cargo: %s\n' "$(cargo --version)"
 
           rm -rf "$build_dir" "$output_tar"
@@ -144,10 +148,13 @@ jobs:
           git -C "$build_dir" remote add origin "$repo_url"
           git -c credential.helper= -c credential.interactive=never \
             -C "$build_dir" fetch --no-tags --depth=1 origin "$revision"
-          git -C "$build_dir" checkout --quiet --detach FETCH_HEAD
-          test "$(git -C "$build_dir" rev-parse HEAD)" = "$revision"
+          git -C "$build_dir" checkout --detach FETCH_HEAD
+          actual_revision="$(git -C "$build_dir" rev-parse HEAD)"
+          printf 'orchestrator: %s\n' "$actual_revision"
+          test "$actual_revision" = "$revision"
 
           run_status=0
+          printf 'starting suite platform runner\n'
           "$build_dir/scripts/ci/run-suite-platform-contract.sh" \
             "$build_dir/suite-platform-output/macos-arm64" || run_status=$?
           if [[ -d "$build_dir/suite-platform-output/macos-arm64" ]]; then
