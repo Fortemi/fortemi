@@ -106,7 +106,7 @@ hex = "0.4"
 reqwest = { workspace = true }
 futures = { workspace = true }
 matric-core = { path = "../matric-core" }
-matric-db = { path = "../matric-db" }
+matric-db = { path = "../matric-db", features = ["test-fault-injection"] }
 
 [features]
 mock-rtp = []

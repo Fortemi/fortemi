@@ -1,0 +1,53 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T00:12:45Z"
+  description: "Provenance for Fortemi #1094 AL-PERF01 bundle verifier tests"
+entity:
+  id: "urn:aiwg:artifact:tests/test_verify_al_perf01_receipt_bundle.py:sha256:83bedc92e58f9221ddb49297e77a194449de7006b8d2467b71a5344de44021ce"
+  type: test
+  created_at: "2026-07-28T00:12:45Z"
+  updated_at: "2026-07-28T00:32:36Z"
+  checksum: "sha256:83bedc92e58f9221ddb49297e77a194449de7006b8d2467b71a5344de44021ce"
+  size_bytes: 18779
+  attributes:
+    language: python
+    issue: "Fortemi/fortemi#1094"
+activity:
+  id: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+  type: testing
+  started_at: "2026-07-27T23:50:34Z"
+  ended_at: "2026-07-28T00:12:45Z"
+  description: "Exercise valid max-count and TUS-memory bundles and reject understated bounded-I/O, max-count, or process-memory claims"
+  attributes:
+    verification:
+      - "python3 -m unittest tests/test_verify_al_perf01_receipt_bundle.py: 16 passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:tests/test_verify_al_perf01_receipt_bundle.py:sha256:83bedc92e58f9221ddb49297e77a194449de7006b8d2467b71a5344de44021ce"
+    activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+    time: "2026-07-28T00:32:36Z"
+  used:
+    - activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1094"
+      role: requirement
+    - activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+      entity: "urn:aiwg:artifact:scripts/ci/verify-al-perf01-receipt-bundle.py"
+      role: test_subject
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:tests/test_verify_al_perf01_receipt_bundle.py:sha256:83bedc92e58f9221ddb49297e77a194449de7006b8d2467b71a5344de44021ce"
+      source: "urn:gitea:issue:Fortemi/fortemi:1094"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: test_maintainer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:tests/test_verify_al_perf01_receipt_bundle.py:sha256:83bedc92e58f9221ddb49297e77a194449de7006b8d2467b71a5344de44021ce"
+    agent: "urn:aiwg:agent:codex-gpt-5"

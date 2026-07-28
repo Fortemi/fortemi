@@ -1,0 +1,52 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T00:12:45Z"
+  description: "Provenance for Fortemi #1094 bounded-I/O aggregate coverage"
+entity:
+  id: "urn:aiwg:artifact:scripts/ci/verify-bidirectional-asset-lifecycle.sh:sha256:03d09c3cdbba134771f66df1daba86e22960e43e85eb9690d294c9001e4fde7f"
+  type: test
+  created_at: "2026-07-28T00:12:45Z"
+  updated_at: "2026-07-28T00:32:36Z"
+  checksum: "sha256:03d09c3cdbba134771f66df1daba86e22960e43e85eb9690d294c9001e4fde7f"
+  size_bytes: 4320
+  attributes:
+    language: bash
+    issue: "Fortemi/fortemi#1094"
+    mode: focused
+activity:
+  id: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+  type: testing
+  started_at: "2026-07-27T23:50:34Z"
+  ended_at: "2026-07-28T00:12:45Z"
+  description: "Compose bounded TUS prefix, streamed rollback, verified filesystem copy, process-isolated TUS memory receipt, and cross-repository lifecycle checks"
+  attributes:
+    verification:
+      - "scripts/ci/verify-bidirectional-asset-lifecycle.sh: passed"
+      - "Open claims remain explicit in final output"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-bidirectional-asset-lifecycle.sh:sha256:03d09c3cdbba134771f66df1daba86e22960e43e85eb9690d294c9001e4fde7f"
+    activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+    time: "2026-07-28T00:32:36Z"
+  used:
+    - activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1094"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:scripts/ci/verify-bidirectional-asset-lifecycle.sh:sha256:03d09c3cdbba134771f66df1daba86e22960e43e85eb9690d294c9001e4fde7f"
+      source: "urn:gitea:issue:Fortemi/fortemi:1094"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: test_maintainer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-bidirectional-asset-lifecycle.sh:sha256:03d09c3cdbba134771f66df1daba86e22960e43e85eb9690d294c9001e4fde7f"
+    agent: "urn:aiwg:agent:codex-gpt-5"

@@ -1,0 +1,48 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-27T22:59:55Z"
+  description: "Provenance for Fortemi #1093 sidecar recovery type exports"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:14630d41b04f070a870a789365c938031bdb99f208bf58a928ab2b147b1540fc"
+  type: code
+  created_at: "2026-07-27T22:59:55Z"
+  updated_at: "2026-07-28T00:12:45Z"
+  checksum: "sha256:14630d41b04f070a870a789365c938031bdb99f208bf58a928ab2b147b1540fc"
+  size_bytes: 28622
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1093"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+  type: modification
+  started_at: "2026-07-27T22:30:00Z"
+  ended_at: "2026-07-27T22:59:55Z"
+  description: "Expose validated journal, blob-state, and lease types to the API recovery coordinator"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:14630d41b04f070a870a789365c938031bdb99f208bf58a928ab2b147b1540fc"
+    activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+    time: "2026-07-28T00:12:45Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1093"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:14630d41b04f070a870a789365c938031bdb99f208bf58a928ab2b147b1540fc"
+      source: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:bb3b24bf70f53196cfb2756379267d876a620f822e0ed0f1aaa5e4248aa0d65c"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:14630d41b04f070a870a789365c938031bdb99f208bf58a928ab2b147b1540fc"
+    agent: "urn:aiwg:agent:codex-gpt-5"

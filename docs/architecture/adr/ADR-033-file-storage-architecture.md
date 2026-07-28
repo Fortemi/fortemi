@@ -3,7 +3,7 @@
 **Status:** Implemented
 **Date:** 2026-02-02
 **Deciders:** Architecture team
-**Related:** ADR-031 (Intelligent Attachment Processing), Epic #430
+**Related:** ADR-031 (Intelligent Attachment Processing), Epic #430, Fortemi #1094
 
 ## Context
 
@@ -209,12 +209,44 @@ s3://matric-storage/blobs/01/94/019477e8-94ab-7xxx.bin
 #[async_trait]
 pub trait StorageBackend: Send + Sync {
     async fn write(&self, path: &str, data: &[u8]) -> Result<()>;
+    async fn write_file(
+        &self,
+        path: &str,
+        source: &Path,
+        expected_content_hash: &str,
+        expected_size: u64,
+    ) -> Result<()>;
     async fn read(&self, path: &str) -> Result<Vec<u8>>;
     async fn delete(&self, path: &str) -> Result<()>;
     async fn exists(&self, path: &str) -> Result<bool>;
     async fn presigned_url(&self, path: &str, expires_in_secs: u64) -> Result<Option<String>>;
 }
 ```
+
+The filesystem backend implements `write_file` as an atomic 64 KiB buffered
+copy that verifies the declared BLAKE3 identity and byte count before rename.
+Backends without bounded local-file copy support reject this operation; they do
+not silently read the complete source into memory.
+
+TUS PATCH request bodies stream frame by frame into the upload staging file.
+Any body, limit, write, offset-update, or intermediate commit failure truncates
+the file back to the last committed server offset. Finalization validates
+declared and actual size, reads at most an 8 KiB safety/content-detection
+prefix, hashes the staging file with a 64 KiB buffer, and invokes the verified
+filesystem copy without retaining the whole payload. The staging file is
+removed only after attachment and finalized-TUS metadata commit. This
+bounded-I/O claim covers the filesystem TUS upload/finalization path; scanner
+jobs, non-filesystem backends, and whole-process peak RSS retain separate
+acceptance gates.
+
+The Linux AL-PERF01 process-isolated TUS receipt complements those structural
+bounds with a 1 MiB versus 100 MiB child-process comparison. Each child
+generates 64 KiB request frames on demand and verifies database identity,
+final-file identity, and staging cleanup. The local guard permits at most a
+64 MiB high-water RSS delta for the 100 MiB case and at most 32 MiB growth over
+the 1 MiB control. These are executable regression guards, not approved
+peak-RSS policy values, and do not cover the full export/import lifecycle,
+scanner jobs, or non-filesystem backends.
 
 ### 7. Shard/Backup Integration
 

@@ -1,0 +1,47 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T00:12:45Z"
+  description: "Provenance for the Fortemi #1094 bounded filesystem copy API export"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:14630d41b04f070a870a789365c938031bdb99f208bf58a928ab2b147b1540fc"
+  type: code
+  created_at: "2026-07-28T00:12:45Z"
+  updated_at: "2026-07-28T00:12:45Z"
+  checksum: "sha256:14630d41b04f070a870a789365c938031bdb99f208bf58a928ab2b147b1540fc"
+  size_bytes: 28622
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1094"
+activity:
+  id: "urn:aiwg:activity:implementation:bounded-io-scale-1094:001"
+  type: modification
+  started_at: "2026-07-27T23:50:34Z"
+  ended_at: "2026-07-28T00:12:45Z"
+  description: "Export the fixed filesystem copy buffer authority for server receipt reporting"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:14630d41b04f070a870a789365c938031bdb99f208bf58a928ab2b147b1540fc"
+    activity: "urn:aiwg:activity:implementation:bounded-io-scale-1094:001"
+    time: "2026-07-28T00:12:45Z"
+  used:
+    - activity: "urn:aiwg:activity:implementation:bounded-io-scale-1094:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1094"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:14630d41b04f070a870a789365c938031bdb99f208bf58a928ab2b147b1540fc"
+      source: "urn:gitea:issue:Fortemi/fortemi:1094"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:implementation:bounded-io-scale-1094:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:implementation:bounded-io-scale-1094:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/lib.rs:sha256:14630d41b04f070a870a789365c938031bdb99f208bf58a928ab2b147b1540fc"
+    agent: "urn:aiwg:agent:codex-gpt-5"

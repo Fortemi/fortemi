@@ -1,0 +1,59 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T00:32:36Z"
+  description: "Provenance for the Fortemi #1094 process-isolated filesystem TUS memory receipt"
+entity:
+  id: "urn:aiwg:artifact:scripts/ci/verify-tus-bounded-memory-receipt.sh:sha256:bdc2f6ad21938fc0b4fdda1cfed946e8860ee1d339ae5d9026a5b3629829b6dd"
+  type: test
+  created_at: "2026-07-28T00:32:36Z"
+  updated_at: "2026-07-28T00:32:36Z"
+  checksum: "sha256:bdc2f6ad21938fc0b4fdda1cfed946e8860ee1d339ae5d9026a5b3629829b6dd"
+  size_bytes: 5340
+  attributes:
+    language: bash
+    issue: "Fortemi/fortemi#1094"
+    profile: "filesystem-tus-v1"
+    platform: linux
+    claim_scope: "process-isolated filesystem TUS PATCH and finalization"
+activity:
+  id: "urn:aiwg:activity:testing:tus-memory-1094:001"
+  type: testing
+  started_at: "2026-07-28T00:19:06Z"
+  ended_at: "2026-07-28T00:32:36Z"
+  description: "Compare 1 MiB and 100 MiB streamed TUS child processes with fail-closed RSS, identity, refcount, and staging-cleanup oracles"
+  attributes:
+    verification:
+      - "scripts/ci/verify-tus-bounded-memory-receipt.sh: passed"
+      - "100 MiB RSS high-water delta: 3,096,576 bytes in aggregate run"
+      - "RSS high-water growth over 1 MiB control: 573,440 bytes in aggregate run"
+      - "scripts/ci/verify-bidirectional-asset-lifecycle.sh: passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-tus-bounded-memory-receipt.sh:sha256:bdc2f6ad21938fc0b4fdda1cfed946e8860ee1d339ae5d9026a5b3629829b6dd"
+    activity: "urn:aiwg:activity:testing:tus-memory-1094:001"
+    time: "2026-07-28T00:32:36Z"
+  used:
+    - activity: "urn:aiwg:activity:testing:tus-memory-1094:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1094"
+      role: requirement
+    - activity: "urn:aiwg:activity:testing:tus-memory-1094:001"
+      entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-033-file-storage-architecture.md"
+      role: architecture_authority
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:scripts/ci/verify-tus-bounded-memory-receipt.sh:sha256:bdc2f6ad21938fc0b4fdda1cfed946e8860ee1d339ae5d9026a5b3629829b6dd"
+      source: "urn:gitea:issue:Fortemi/fortemi:1094"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:testing:tus-memory-1094:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:testing:tus-memory-1094:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: test_maintainer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-tus-bounded-memory-receipt.sh:sha256:bdc2f6ad21938fc0b4fdda1cfed946e8860ee1d339ae5d9026a5b3629829b6dd"
+    agent: "urn:aiwg:agent:codex-gpt-5"

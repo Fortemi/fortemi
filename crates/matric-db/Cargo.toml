@@ -74,6 +74,8 @@ tempfile = "3"
 default = ["tree-sitter"]
 # Enable migrations (optional for consumers who manage schema externally)
 migrations = []
+# Exposes process-abort checkpoints only to dependent integration-test binaries.
+test-fault-injection = []
 # Enable tree-sitter for code-aware chunking
 tree-sitter = [
     "dep:tree-sitter",

@@ -1,0 +1,48 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T00:12:45Z"
+  description: "Provenance for Fortemi #1094 bounded filesystem and TUS architecture"
+entity:
+  id: "urn:aiwg:artifact:docs/architecture/adr/ADR-033-file-storage-architecture.md:sha256:37fa0e991934e9c2068c4af0507311a651c70a93dd4f40f5be0e42cd149be2bf"
+  type: architecture
+  created_at: "2026-07-28T00:12:45Z"
+  updated_at: "2026-07-28T00:32:36Z"
+  checksum: "sha256:37fa0e991934e9c2068c4af0507311a651c70a93dd4f40f5be0e42cd149be2bf"
+  size_bytes: 11931
+  attributes:
+    issue: "Fortemi/fortemi#1094"
+    status: accepted
+    claim_scope: "filesystem backend and TUS route"
+activity:
+  id: "urn:aiwg:activity:architecture:bounded-io-scale-1094:001"
+  type: modification
+  started_at: "2026-07-27T23:50:34Z"
+  ended_at: "2026-07-28T00:12:45Z"
+  description: "Document bounded local-file storage, streamed TUS finalization, process-isolated Linux memory guards, and exclusions for scanners, non-filesystem backends, and whole-lifecycle RSS"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-033-file-storage-architecture.md:sha256:37fa0e991934e9c2068c4af0507311a651c70a93dd4f40f5be0e42cd149be2bf"
+    activity: "urn:aiwg:activity:architecture:bounded-io-scale-1094:001"
+    time: "2026-07-28T00:32:36Z"
+  used:
+    - activity: "urn:aiwg:activity:architecture:bounded-io-scale-1094:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1094"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-033-file-storage-architecture.md:sha256:37fa0e991934e9c2068c4af0507311a651c70a93dd4f40f5be0e42cd149be2bf"
+      source: "urn:gitea:issue:Fortemi/fortemi:1094"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:architecture:bounded-io-scale-1094:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:architecture:bounded-io-scale-1094:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: architecture_editor
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-033-file-storage-architecture.md:sha256:37fa0e991934e9c2068c4af0507311a651c70a93dd4f40f5be0e42cd149be2bf"
+    agent: "urn:aiwg:agent:codex-gpt-5"

@@ -382,6 +382,64 @@ stream owns its temporary-file cleanup. This satisfies only the opt-in
 `core-v1` attachment-byte transport prerequisites, not single-pass end-to-end
 streaming or the `full-v1` attachment gate.
 
+The later `2.0.0/full-v1` runtime uses the same staging primitive with a
+schema-scoped durable import journal to bridge the filesystem/database commit
+boundary. Before promotion, the journal records each verified blob identity,
+canonical digest, size, final storage path, and whether recovery owns a new
+final link or must preserve pre-existing exact bytes. Journal writes use
+file-sync, atomic rename, parent-directory sync, and private permissions. A
+process-held lock excludes startup recovery while an importer is live. After
+process death, startup obtains that lock, compares the journal with the
+schema-scoped `attachment_blob` rows, verifies and preserves committed final
+bytes, compensates only uncommitted links owned by the interrupted import,
+discards remaining stages, and removes the journal and lock. This is runtime
+crash consistency for attachment sidecars; it does not change the Knowledge
+Shard wire schema, profile identity, or producer/consumer authority.
+
+Fortemi #1093 exercises the two-sidecar promotion boundary with real child
+process aborts after the first final link and before its promotion receipt,
+after the first persisted receipt, and after both persisted receipts but before
+database commit. A fourth real child abort runs immediately after successful
+database commit. The pre-commit restart oracles prove zero committed rows,
+the exact `pending`/`promoting`/`promoted` journal state, exact compensation
+and staging cleanup, and clean retry convergence. The post-commit oracle proves
+that startup reads the committed schema state, verifies and preserves both
+final blobs, removes only journal/lock state, and converges under idempotent
+retry. Deterministic tests also cover live-journal exclusion and interruption
+immediately after temporary-record write, temporary-file sync, atomic rename,
+and parent-directory sync. Before rename, startup consumes only the complete
+prior record; after rename, it consumes only the complete new record. An
+orphan temporary rewrite without a complete authority fails recovery without
+deletion, and startup suppresses the stale sidecar-staging sweep after any
+recovery failure. Parent-directory sync failures propagate on Unix; non-Unix
+directory durability remains best effort.
+
+The same route harness terminates a real child after exactly a 7-byte prefix of
+the first sidecar has been written. The parent observes zero component rows,
+exactly one 7-byte unverified `.blob.stage.tmp`, and no journal, verified stage,
+or final blob. An explicit startup-equivalent sweep restores the exact
+pre-abort filesystem baseline, and a normal retry converges to two notes, three
+attachment references, two blobs, and refcount sum 3. This demonstrates process
+death after a completed partial write, before integrity verification or journal
+ownership; it is not evidence for death inside an unresolved read/write syscall.
+
+The process-abort harness also terminates a real child immediately after the
+initial journal temporary write, temporary-file sync, atomic rename, and
+parent-directory sync. All four boundaries retain zero component rows, two
+verified staged sidecars, one complete journal candidate, and the dead
+process's lock. Post-rename restart recovery consumes the authoritative journal
+directly. Pre-rename restart refuses the orphan temporary candidate; the test
+models an explicit operator salvage that parses the complete candidate, syncs
+it, atomically promotes it to the authoritative filename, syncs the directory,
+and only then runs normal recovery. Every boundary returns to the exact
+pre-abort filesystem baseline and converges under clean retry. This is evidence
+for process death immediately after completed operations, not death in the
+middle of a write or kernel syscall and not power-loss durability. Termination
+in the middle of sidecar read/write syscalls, mid-operation journal
+persistence, kernel-level write/fsync failure or power loss, an in-flight
+commit acknowledgement ambiguity, and the complete platform/filesystem matrix
+remain separate acceptance gates.
+
 Until the release gates pass:
 
 - user documentation must label lossless/full-profile behavior as a target;

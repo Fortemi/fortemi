@@ -1,0 +1,48 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-27T22:59:55Z"
+  description: "Provenance for ADR-103 presence/journal boundary clarification"
+entity:
+  id: "urn:aiwg:artifact:docs/architecture/adr/ADR-103-lossless-knowledge-shard-presence-semantics.md:sha256:3f15646142c8796302f02308710678c22b832d84895e95cf5e9164ce886c56b6"
+  type: adr
+  created_at: "2026-07-27T22:59:55Z"
+  updated_at: "2026-07-27T22:59:55Z"
+  checksum: "sha256:3f15646142c8796302f02308710678c22b832d84895e95cf5e9164ce886c56b6"
+  size_bytes: 9699
+  attributes:
+    issue: "Fortemi/fortemi#1093"
+    profile: "2.0.0/full-v1"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+  type: modification
+  started_at: "2026-07-27T22:30:00Z"
+  ended_at: "2026-07-27T22:59:55Z"
+  description: "Clarify that runtime sidecar recovery is private persistence metadata and does not alter schema-2 key-presence semantics or authority identity"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-103-lossless-knowledge-shard-presence-semantics.md:sha256:3f15646142c8796302f02308710678c22b832d84895e95cf5e9164ce886c56b6"
+    activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+    time: "2026-07-27T22:59:55Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1093"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-103-lossless-knowledge-shard-presence-semantics.md:sha256:3f15646142c8796302f02308710678c22b832d84895e95cf5e9164ce886c56b6"
+      source: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:3b9bc23480961f9aa5ed77ca41466a8508d378b3023c967326a40651490142e1"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: architecture_documenter
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-103-lossless-knowledge-shard-presence-semantics.md:sha256:3f15646142c8796302f02308710678c22b832d84895e95cf5e9164ce886c56b6"
+    agent: "urn:aiwg:agent:codex-gpt-5"

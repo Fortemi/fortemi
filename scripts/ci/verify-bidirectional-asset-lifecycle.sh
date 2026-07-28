@@ -50,6 +50,33 @@ run "Fortemi sidecar rollback" "fortemi" \
 run "Fortemi filesystem refcounts" "fortemi" \
   cargo test -p matric-db --test file_storage_blob_refcount_test -- --nocapture
 
+run "Fortemi bounded TUS finalization prefix" "fortemi" \
+  cargo test -p matric-api --bin matric-api \
+  tus_finalization_inspection_enforces_caps_and_bounds_prefix_memory -- --nocapture
+
+run "Fortemi streamed TUS request rollback" "fortemi" \
+  cargo test -p matric-api --bin matric-api \
+  tus_request_body_streams_frames_and_rolls_back_overrun_residue -- --nocapture
+
+run "Fortemi bounded verified filesystem copy" "fortemi" \
+  cargo test -p matric-db \
+  filesystem_write_file_copies_with_bounded_identity_verification -- --nocapture
+
+run "Fortemi sidecar staging/promotion/journal storage crash windows" "fortemi" \
+  cargo test -p matric-db shard_ -- --nocapture
+
+run "Fortemi live restart/crash/concurrency" "fortemi" \
+  cargo test -p matric-api --bin matric-api al_sys -- --nocapture
+
+run "Fortemi AL-PERF01 receipt scaffold" "fortemi" \
+  scripts/ci/verify-asset-lifecycle-perf-receipt.sh target/al-perf01-receipt.json
+
+run "Fortemi process-isolated TUS memory receipt" "fortemi" \
+  scripts/ci/verify-tus-bounded-memory-receipt.sh target/al-tus-bounded-memory-receipt.json
+
+run "Fortemi AL-PERF01 receipt bundle verifier" "fortemi" \
+  python3 -m unittest tests/test_verify_al_perf01_receipt_bundle.py
+
 run "React/PGlite recovery cells" "fortemi-react" \
   pnpm --filter @fortemi/core exec vitest run \
   src/__tests__/shard/blob-roundtrip.test.ts \
@@ -70,5 +97,22 @@ run "HotM asset clients" "HotM/ui" \
   src/services/__tests__/uploadStore.test.ts \
   src/services/__tests__/tusUploader.test.ts
 
-printf '\nFocused lifecycle validation passed: 135 selected tests.\n'
-printf 'Open: live desktop/browser, restart, concurrency, resumability, and performance scenarios.\n'
+run "HotM receipt verifiers" "HotM/ui" \
+  npm exec vitest run -- \
+  scripts/verify-live-asset-metrics.test.js \
+  scripts/write-receipt-artifact-manifest.test.js \
+  scripts/verify-tauri-command-core-receipt.test.js
+
+run "HotM Tauri local-file command core" "HotM/ui/src-tauri" \
+  env TAURI_CONFIG='{"bundle":{"externalBin":[]}}' \
+  cargo test local_file_ -- --nocapture
+
+run "HotM Tauri native dialog command boundaries" "HotM/ui/src-tauri" \
+  env TAURI_CONFIG='{"bundle":{"externalBin":[]}}' \
+  cargo test native_ -- --nocapture
+
+run "HotM live-assets default schema guard" "HotM/ui" \
+  npm run test:e2e:live-assets
+
+printf '\nFocused lifecycle validation passed.\n'
+printf 'Open: launched native desktop GUI artifacts, mid-syscall/power-loss crash matrix, approved policy budgets/RPO-RTO/max-size, whole asset-lifecycle process RSS proof, and immutable receipt publication.\n'

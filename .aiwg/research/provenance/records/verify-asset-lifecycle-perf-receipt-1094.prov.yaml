@@ -1,0 +1,56 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T00:12:45Z"
+  description: "Provenance for the Fortemi #1094 AL-PERF01 receipt runner"
+entity:
+  id: "urn:aiwg:artifact:scripts/ci/verify-asset-lifecycle-perf-receipt.sh:sha256:b1aefe8521ffa1bdbc0eec2045841b1d6f7acba131cc938816bb430ec1d94bbe"
+  type: test
+  created_at: "2026-07-28T00:12:45Z"
+  updated_at: "2026-07-28T00:12:45Z"
+  checksum: "sha256:b1aefe8521ffa1bdbc0eec2045841b1d6f7acba131cc938816bb430ec1d94bbe"
+  size_bytes: 11595
+  attributes:
+    language: bash
+    issue: "Fortemi/fortemi#1094"
+    profile: "2.0.0/full-v1"
+activity:
+  id: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+  type: testing
+  started_at: "2026-07-27T23:50:34Z"
+  ended_at: "2026-07-28T00:12:45Z"
+  description: "Validate bounded-I/O receipt fields, exact maximum sidecar count, archive entry limits, and stable repeatability fields"
+  attributes:
+    verification:
+      - "1 MiB receipt: passed"
+      - "100 MiB receipt: passed"
+      - "28 sidecar and 64 archive-entry receipt: passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-asset-lifecycle-perf-receipt.sh:sha256:b1aefe8521ffa1bdbc0eec2045841b1d6f7acba131cc938816bb430ec1d94bbe"
+    activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+    time: "2026-07-28T00:12:45Z"
+  used:
+    - activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1094"
+      role: requirement
+    - activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+      entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
+      role: test_plan
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:scripts/ci/verify-asset-lifecycle-perf-receipt.sh:sha256:b1aefe8521ffa1bdbc0eec2045841b1d6f7acba131cc938816bb430ec1d94bbe"
+      source: "urn:gitea:issue:Fortemi/fortemi:1094"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: test_maintainer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-asset-lifecycle-perf-receipt.sh:sha256:b1aefe8521ffa1bdbc0eec2045841b1d6f7acba131cc938816bb430ec1d94bbe"
+    agent: "urn:aiwg:agent:codex-gpt-5"

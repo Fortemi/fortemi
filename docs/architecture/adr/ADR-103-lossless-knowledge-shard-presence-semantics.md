@@ -82,6 +82,15 @@ records. Imported collection snapshot counts are retained separately from the
 derived live count and invalidated by later membership mutations. These values
 are updated inside the same database transaction as their typed records.
 
+Attachment sidecar bytes remain outside PostgreSQL, so schema-2 import uses the
+ADR-102 durable sidecar journal around the schema-scoped transaction. Recovery
+uses exact blob identity, digest, size, storage path, promotion ownership, and
+the committed `attachment_blob` row to decide whether to preserve or
+compensate final bytes. It never infers presence semantics from filesystem
+state and never rewrites imported JSON key-presence metadata. The journal is a
+private runtime recovery artifact, not a Knowledge Shard component or a change
+to the `(2.0.0, full-v1)` authority tuple.
+
 ### Migration and downgrade
 
 The `1.0.0`, `1.1.0`, and `1.2.0` directories remain byte-for-byte immutable.

@@ -1,0 +1,57 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T00:12:45Z"
+  description: "Provenance for Fortemi #1094 bounded TUS and full-v1 sidecar server I/O"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:01d7fa5b923d7b6c15d853bb757a084fb540dd0ef95910b997820afd058a5d5e"
+  type: code
+  created_at: "2026-07-28T00:12:45Z"
+  updated_at: "2026-07-28T00:32:36Z"
+  checksum: "sha256:01d7fa5b923d7b6c15d853bb757a084fb540dd0ef95910b997820afd058a5d5e"
+  size_bytes: 2689298
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1094"
+    profile: "2.0.0/full-v1"
+    claim_scope: "filesystem TUS and full-v1 sidecar server I/O"
+activity:
+  id: "urn:aiwg:activity:implementation:bounded-io-scale-1094:001"
+  type: modification
+  started_at: "2026-07-27T23:50:34Z"
+  ended_at: "2026-07-28T00:12:45Z"
+  description: "Stream TUS request bodies to staging, bound finalization inspection, reuse streamed hashes, emit fail-closed bounded-I/O and max-count receipt fields, and compare process-isolated 1 MiB/100 MiB TUS memory"
+  attributes:
+    verification:
+      - "cargo check -p matric-api --all-targets: passed"
+      - "cargo test -p matric-api --bin matric-api al_sys: 3 passed"
+      - "scripts/ci/verify-bidirectional-asset-lifecycle.sh: passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:01d7fa5b923d7b6c15d853bb757a084fb540dd0ef95910b997820afd058a5d5e"
+    activity: "urn:aiwg:activity:implementation:bounded-io-scale-1094:001"
+    time: "2026-07-28T00:32:36Z"
+  used:
+    - activity: "urn:aiwg:activity:implementation:bounded-io-scale-1094:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1094"
+      role: requirement
+    - activity: "urn:aiwg:activity:implementation:bounded-io-scale-1094:001"
+      entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-033-file-storage-architecture.md"
+      role: architecture_authority
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:01d7fa5b923d7b6c15d853bb757a084fb540dd0ef95910b997820afd058a5d5e"
+      source: "urn:gitea:issue:Fortemi/fortemi:1094"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:implementation:bounded-io-scale-1094:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:implementation:bounded-io-scale-1094:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:01d7fa5b923d7b6c15d853bb757a084fb540dd0ef95910b997820afd058a5d5e"
+    agent: "urn:aiwg:agent:codex-gpt-5"

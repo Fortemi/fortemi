@@ -63,8 +63,9 @@ use matric_core::{
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_db::{
-    Database, FileSource, FilesystemBackend, SkosCollectionRepository, SkosConceptRepository,
-    SkosConceptSchemeRepository, StagedShardBlob, StagedShardBlobPromotion, StorageBackend,
+    Database, FileSource, FilesystemBackend, ShardImportJournal, ShardImportJournalLease,
+    SkosCollectionRepository, SkosConceptRepository, SkosConceptSchemeRepository, StagedShardBlob,
+    StagedShardBlobPromotion, StorageBackend,
 };
 use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
@@ -521,8 +522,17 @@ async fn apply_attachment_scan_policy_tx(
     attachment: &mut matric_core::Attachment,
     data: &[u8],
 ) -> Result<(), ApiError> {
+    let content_hash = matric_db::compute_content_hash(data);
+    apply_attachment_scan_policy_with_hash_tx(state, tx, attachment, &content_hash).await
+}
+
+async fn apply_attachment_scan_policy_with_hash_tx(
+    state: &AppState,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    attachment: &mut matric_core::Attachment,
+    content_hash: &str,
+) -> Result<(), ApiError> {
     if state.attachment_scan_mode == AttachmentScanMode::Disabled {
-        let content_hash = matric_db::compute_content_hash(data);
         state
             .db
             .file_storage
@@ -536,14 +546,14 @@ async fn apply_attachment_scan_policy_tx(
                 None,
                 None,
                 Some("explicit_local_bypass"),
-                Some(&content_hash),
+                Some(content_hash),
             )
             .await?;
         attachment.virus_scan_status = AttachmentScanStatus::Bypassed;
         attachment.virus_scan_at = Some(Utc::now());
         attachment.virus_scan_backend = Some("fortemi-policy".to_string());
         attachment.virus_scan_reason_code = Some("explicit_local_bypass".to_string());
-        attachment.virus_scan_blob_hash = Some(content_hash);
+        attachment.virus_scan_blob_hash = Some(content_hash.to_string());
         state.attachment_scan_metrics.record_bypass();
     }
     Ok(())
@@ -2667,6 +2677,10 @@ fn cors_layer(allowed_origins: Vec<HeaderValue>) -> CorsLayer {
             header::RANGE,
             header::CACHE_CONTROL,
             "X-Fortemi-Memory".parse().unwrap(),
+            "Tus-Resumable".parse().unwrap(),
+            "Upload-Length".parse().unwrap(),
+            "Upload-Metadata".parse().unwrap(),
+            "Upload-Offset".parse().unwrap(),
         ])
         .expose_headers([
             header::ACCEPT_RANGES,
@@ -2674,8 +2688,11 @@ fn cors_layer(allowed_origins: Vec<HeaderValue>) -> CorsLayer {
             header::CONTENT_LENGTH,
             header::CONTENT_DISPOSITION,
             header::ETAG,
+            header::LOCATION,
             header::RETRY_AFTER,
             "x-request-id".parse().unwrap(),
+            "Tus-Resumable".parse().unwrap(),
+            "Upload-Offset".parse().unwrap(),
         ])
         .allow_credentials(true)
         .max_age(std::time::Duration::from_secs(
@@ -3058,16 +3075,47 @@ async fn main() -> anyhow::Result<()> {
                 "file_storage: swept stale .bin.tmp files at startup"
             );
         }
-        // The 24-hour threshold protects staging files owned by another
-        // process sharing this storage root while bounding crash leftovers.
-        let swept = backend
-            .sweep_staged_shard_blobs(std::time::Duration::from_secs(24 * 60 * 60))
-            .await;
-        if swept > 0 {
-            info!(
-                count = swept,
+        let shard_recovery_succeeded = match recover_shard_sidecar_import_journals(
+            &db, &backend, None, None,
+        )
+        .await
+        {
+            Ok(recovered) => {
+                if recovered > 0 {
+                    info!(
+                            count = recovered,
+                            base_path_len = file_storage_path_meta.path_len,
+                            "file_storage: recovered interrupted Knowledge Shard sidecar imports at startup"
+                        );
+                }
+                true
+            }
+            Err(error) => {
+                error!(
+                    error_len = telemetry_text_len(&format!("{error:?}")),
+                    base_path_len = file_storage_path_meta.path_len,
+                    "file_storage: interrupted Knowledge Shard sidecar recovery failed"
+                );
+                false
+            }
+        };
+        if shard_recovery_succeeded {
+            // The 24-hour threshold protects staging files owned by another
+            // process sharing this storage root while bounding crash leftovers.
+            let swept = backend
+                .sweep_staged_shard_blobs(std::time::Duration::from_secs(24 * 60 * 60))
+                .await;
+            if swept > 0 {
+                info!(
+                    count = swept,
+                    base_path_len = file_storage_path_meta.path_len,
+                    "file_storage: swept stale Knowledge Shard blob staging files at startup"
+                );
+            }
+        } else {
+            warn!(
                 base_path_len = file_storage_path_meta.path_len,
-                "file_storage: swept stale Knowledge Shard blob staging files at startup"
+                "file_storage: skipped Knowledge Shard staging sweep after recovery failure"
             );
         }
     }
@@ -24228,6 +24276,7 @@ const SHARD_MAX_ENTRIES: usize = 64;
 const SHARD_MAX_ENTRY_NAME_BYTES: usize = 255;
 const SHARD_MAX_RECORDS_PER_COMPONENT: usize = 250_000;
 const SHARD_MAX_RECORD_BYTES: usize = 4 * 1024 * 1024;
+const SHARD_STREAM_BUFFER_BYTES: usize = 64 * 1024;
 const SHARD_REQUEST_OVERHEAD_BYTES: usize = 1024 * 1024;
 const SHARD_BLOB_ENTRY_PREFIX: &str = "blobs/";
 
@@ -24420,7 +24469,7 @@ fn decode_shard_base64_to_tempfile(
         &base64::engine::general_purpose::STANDARD,
     );
     let mut decoded_bytes = 0usize;
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = [0_u8; SHARD_STREAM_BUFFER_BYTES];
 
     loop {
         let read = decoder.read(&mut buffer).map_err(|error| {
@@ -24641,7 +24690,7 @@ fn read_shard_archive_streaming_sidecars_from_reader<R: std::io::Read>(
             .map_err(|_| "Knowledge shard sidecar staging is unavailable.".to_string())?;
         let mut hasher = blake3::Hasher::new();
         let mut copied = 0usize;
-        let mut buffer = [0_u8; 64 * 1024];
+        let mut buffer = [0_u8; SHARD_STREAM_BUFFER_BYTES];
         loop {
             let read = entry
                 .read(&mut buffer)
@@ -28771,10 +28820,13 @@ async fn knowledge_shard(
             // Export set members
             let member_rows = sqlx::query(
                 r#"
-                SELECT embedding_set_id, note_id, membership_type, added_at, added_by
-                FROM embedding_set_member
-                WHERE ($1 OR shard_export_present)
-                ORDER BY embedding_set_id, note_id
+                SELECT esm.embedding_set_id, esm.note_id, esm.membership_type, esm.added_at,
+                       esm.added_by
+                FROM embedding_set_member esm
+                JOIN embedding_set es ON es.id = esm.embedding_set_id
+                WHERE ($1 OR esm.shard_export_present)
+                  AND ($1 OR es.shard_export_present)
+                ORDER BY esm.embedding_set_id, esm.note_id
                 LIMIT $2
                 "#,
             )
@@ -28815,8 +28867,17 @@ async fn knowledge_shard(
                     provider::text AS provider, provider_config, content_types,
                     strengths, limitations, recommended_for, benchmark_scores,
                     is_available, document_composition, created_at, updated_at
-                FROM embedding_config
-                WHERE ($1 OR shard_export_present)
+                FROM embedding_config ec
+                WHERE (
+                    $1
+                    OR ec.shard_export_present
+                    OR EXISTS (
+                        SELECT 1
+                        FROM embedding_set es
+                        WHERE es.embedding_config_id = ec.id
+                          AND es.shard_export_present
+                    )
+                )
                 ORDER BY id
                 LIMIT $2
                 "#,
@@ -29138,7 +29199,7 @@ async fn knowledge_shard(
         |(mut file, temporary_path)| async move {
             use tokio::io::AsyncReadExt;
 
-            let mut buffer = vec![0_u8; 64 * 1024];
+            let mut buffer = vec![0_u8; SHARD_STREAM_BUFFER_BYTES];
             let read = file.read(&mut buffer).await?;
             if read == 0 {
                 Ok::<_, std::io::Error>(None)
@@ -29197,6 +29258,73 @@ struct ShardImportOptions {
     dry_run: bool,
     on_conflict: ConflictStrategy,
     skip_embedding_regen: bool,
+}
+
+#[cfg(test)]
+static FAIL_NEXT_SHARD_IMPORT_AFTER_SIDECAR_PROMOTION: AtomicBool = AtomicBool::new(false);
+
+#[cfg(test)]
+static FAIL_NEXT_SHARD_IMPORT_DURING_SIDECAR_PROMOTION_AFTER: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(test)]
+static FAIL_NEXT_SHARD_IMPORT_AFTER_SIDECAR_STAGING: AtomicBool = AtomicBool::new(false);
+
+#[cfg(test)]
+static FAIL_NEXT_SHARD_IMPORT_DURING_SIDECAR_STAGING: AtomicBool = AtomicBool::new(false);
+
+#[cfg(test)]
+static FAIL_NEXT_SHARD_IMPORT_AFTER_COMPONENT_APPLY_BEFORE_STAGED_DISCARD: AtomicBool =
+    AtomicBool::new(false);
+
+#[cfg(test)]
+const ABORT_SHARD_IMPORT_AFTER_SIDECAR_STAGING_ENV: &str =
+    "FORTEMI_TEST_ABORT_SHARD_IMPORT_AFTER_SIDECAR_STAGING";
+
+#[cfg(test)]
+const ABORT_SHARD_IMPORT_DURING_SIDECAR_PROMOTION_AFTER_ENV: &str =
+    "FORTEMI_TEST_ABORT_SHARD_IMPORT_DURING_SIDECAR_PROMOTION_AFTER";
+
+#[cfg(test)]
+const ABORT_SHARD_IMPORT_AFTER_SIDECAR_PROMOTION_RECEIPT_AFTER_ENV: &str =
+    "FORTEMI_TEST_ABORT_SHARD_IMPORT_AFTER_SIDECAR_PROMOTION_RECEIPT_AFTER";
+
+#[cfg(test)]
+const ABORT_SHARD_IMPORT_AFTER_TRANSACTION_COMMIT_ENV: &str =
+    "FORTEMI_TEST_ABORT_SHARD_IMPORT_AFTER_TRANSACTION_COMMIT";
+
+#[cfg(test)]
+const ABORT_SHARD_IMPORT_JOURNAL_PERSIST_AT_ENV: &str =
+    "FORTEMI_TEST_ABORT_SHARD_IMPORT_JOURNAL_PERSIST_AT";
+
+#[cfg(test)]
+const ABORT_SHARD_IMPORT_SIDECAR_COPY_AFTER_BYTES_ENV: &str =
+    "FORTEMI_TEST_ABORT_SHARD_IMPORT_SIDECAR_COPY_AFTER_BYTES";
+
+#[cfg(test)]
+fn fail_next_shard_import_after_sidecar_promotion() {
+    FAIL_NEXT_SHARD_IMPORT_AFTER_SIDECAR_PROMOTION.store(true, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+fn fail_next_shard_import_during_sidecar_promotion_after(promotions: u64) {
+    FAIL_NEXT_SHARD_IMPORT_DURING_SIDECAR_PROMOTION_AFTER.store(promotions, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+fn fail_next_shard_import_after_sidecar_staging() {
+    FAIL_NEXT_SHARD_IMPORT_AFTER_SIDECAR_STAGING.store(true, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+fn fail_next_shard_import_during_sidecar_staging() {
+    FAIL_NEXT_SHARD_IMPORT_DURING_SIDECAR_STAGING.store(true, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+fn fail_next_shard_import_after_component_apply_before_staged_discard() {
+    FAIL_NEXT_SHARD_IMPORT_AFTER_COMPONENT_APPLY_BEFORE_STAGED_DISCARD
+        .store(true, Ordering::SeqCst);
 }
 
 #[derive(Serialize)]
@@ -31133,11 +31261,18 @@ fn tus_operation_failed(context: &'static str, error: impl std::fmt::Display) ->
     }
 }
 
-async fn read_tus_staging_file_bounded(
+const TUS_FINALIZATION_PREFIX_BYTES: usize = 8 * 1024;
+
+struct TusStagingInspection {
+    prefix: Vec<u8>,
+    size_bytes: u64,
+}
+
+async fn inspect_tus_staging_file_bounded(
     path: &str,
     expected_bytes: i64,
     max_bytes: usize,
-) -> Result<Vec<u8>, ApiError> {
+) -> Result<TusStagingInspection, ApiError> {
     use tokio::io::AsyncReadExt;
 
     let expected_bytes =
@@ -31165,21 +31300,95 @@ async fn read_tus_staging_file_bounded(
         ));
     }
 
-    let mut file = file.take(max_bytes_u64.saturating_add(1));
-    let mut data = Vec::with_capacity(expected_bytes);
-    file.read_to_end(&mut data)
+    let prefix_limit = expected_bytes.min(TUS_FINALIZATION_PREFIX_BYTES);
+    let mut prefix = vec![0_u8; prefix_limit];
+    file.take(prefix_limit as u64)
+        .read_exact(&mut prefix)
         .await
-        .map_err(|error| tus_operation_failed("read staging file", error))?;
-    if data.len() > max_bytes {
-        return Err(upload_length_exceeds_max_size());
+        .map_err(|error| tus_operation_failed("read staging file prefix", error))?;
+    Ok(TusStagingInspection {
+        prefix,
+        size_bytes: metadata_bytes,
+    })
+}
+
+async fn truncate_tus_staging_file(path: &str, offset: i64) {
+    let Ok(offset) = u64::try_from(offset) else {
+        return;
+    };
+    if let Ok(file) = tokio::fs::OpenOptions::new().write(true).open(path).await {
+        let _ = file.set_len(offset).await;
+        let _ = file.sync_data().await;
     }
-    if data.len() != expected_bytes {
+}
+
+async fn append_tus_request_body(
+    path: &str,
+    body: Body,
+    current_offset: i64,
+    total_size: i64,
+) -> Result<i64, ApiError> {
+    use futures::StreamExt;
+    use tokio::io::AsyncWriteExt;
+
+    let current_offset_u64 =
+        u64::try_from(current_offset).map_err(|_| upload_chunk_exceeds_total_size())?;
+    let mut file = tokio::fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .await
+        .map_err(|error| tus_operation_failed("open staging file", error))?;
+    let actual_size = file
+        .metadata()
+        .await
+        .map_err(|error| tus_operation_failed("read staging file metadata", error))?
+        .len();
+    if actual_size != current_offset_u64 {
         return Err(tus_operation_failed(
-            "verify staging file length",
-            "staging file changed during finalization",
+            "verify staging file offset",
+            "staging file length does not match Upload-Offset",
         ));
     }
-    Ok(data)
+
+    let mut new_offset = current_offset;
+    let mut stream = body.into_data_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(error) => {
+                drop(file);
+                truncate_tus_staging_file(path, current_offset).await;
+                return Err(tus_operation_failed("read upload chunk", error));
+            }
+        };
+        let chunk_bytes = match i64::try_from(chunk.len()) {
+            Ok(chunk_bytes) => chunk_bytes,
+            Err(_) => {
+                drop(file);
+                truncate_tus_staging_file(path, current_offset).await;
+                return Err(upload_chunk_exceeds_total_size());
+            }
+        };
+        new_offset = match new_offset.checked_add(chunk_bytes) {
+            Some(offset) if offset <= total_size => offset,
+            _ => {
+                drop(file);
+                truncate_tus_staging_file(path, current_offset).await;
+                return Err(upload_chunk_exceeds_total_size());
+            }
+        };
+        if let Err(error) = file.write_all(&chunk).await {
+            drop(file);
+            truncate_tus_staging_file(path, current_offset).await;
+            return Err(tus_operation_failed("write upload chunk", error));
+        }
+    }
+    if let Err(error) = file.sync_data().await {
+        drop(file);
+        truncate_tus_staging_file(path, current_offset).await;
+        return Err(tus_operation_failed("sync upload chunk", error));
+    }
+    Ok(new_offset)
 }
 
 /// Query parameters for tus upload creation.
@@ -31484,7 +31693,7 @@ async fn tus_patch_upload(
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path((note_id, upload_id)): Path<(Uuid, Uuid)>,
     headers: axum::http::HeaderMap,
-    body: axum::body::Bytes,
+    body: Body,
 ) -> Result<impl IntoResponse, ApiError> {
     // Validate Tus-Resumable
     let tus_version = headers
@@ -31542,50 +31751,52 @@ async fn tus_patch_upload(
         return Err(upload_offset_mismatch());
     }
 
-    // Validate chunk doesn't exceed total size
-    let new_offset = upload.current_offset + body.len() as i64;
-    if new_offset > upload.total_size {
-        drop(tx);
-        return Err(upload_chunk_exceeds_total_size());
-    }
-
-    // Append chunk to staging file
-    use tokio::io::AsyncWriteExt;
-    let mut file = tokio::fs::OpenOptions::new()
-        .append(true)
-        .open(&upload.storage_path)
-        .await
-        .map_err(|e| tus_operation_failed("open staging file", e))?;
-    file.write_all(&body)
-        .await
-        .map_err(|e| tus_operation_failed("write upload chunk", e))?;
-    drop(file);
+    // Stream the request into staging. Any body/read/write/limit failure restores
+    // the exact durable offset so the client can resume without hidden residue.
+    let new_offset = append_tus_request_body(
+        &upload.storage_path,
+        body,
+        upload.current_offset,
+        upload.total_size,
+    )
+    .await?;
 
     // Update offset in DB
-    let updated = state
+    let updated = match state
         .db
         .tus
         .update_offset(&mut tx, upload_id, new_offset)
         .await
-        .map_err(|e| tus_operation_failed("update upload offset", e))?;
+    {
+        Ok(updated) => updated,
+        Err(error) => {
+            truncate_tus_staging_file(&upload.storage_path, upload.current_offset).await;
+            return Err(tus_operation_failed("update upload offset", error));
+        }
+    };
 
     // Check if upload is complete
     if new_offset == upload.total_size {
-        // Finalization retains a full in-memory buffer for validation and storage, but only
-        // after both declared and actual staging sizes have passed the upload cap.
-        let file_data = read_tus_staging_file_bounded(
+        let inspection = match inspect_tus_staging_file_bounded(
             &upload.storage_path,
             upload.total_size,
             state.max_upload_size,
         )
-        .await?;
+        .await
+        {
+            Ok(inspection) => inspection,
+            Err(error) => {
+                truncate_tus_staging_file(&upload.storage_path, upload.current_offset).await;
+                return Err(error);
+            }
+        };
+        let file_size = usize::try_from(inspection.size_bytes).unwrap_or(usize::MAX);
 
         // Commit offset update before finalization
-        tx.commit()
-            .await
-            .map_err(|e| tus_operation_failed("commit upload offset", e))?;
-        // Remove staging file (pipeline takes ownership of the data)
-        let _ = tokio::fs::remove_file(&upload.storage_path).await;
+        if let Err(error) = tx.commit().await {
+            truncate_tus_staging_file(&upload.storage_path, upload.current_offset).await;
+            return Err(tus_operation_failed("commit upload offset", error));
+        }
 
         // Store via standard attachment pipeline
         let file_storage = state
@@ -31600,7 +31811,7 @@ async fn tus_patch_upload(
                 None,
                 &upload.filename,
                 &upload.content_type,
-                file_data.len(),
+                file_size,
                 AuditOutcome::Denied,
                 "tus",
                 Some("invalid_content_type"),
@@ -31610,15 +31821,18 @@ async fn tus_patch_upload(
             .await;
             return Err(invalid_attachment_content_type());
         }
-        let validation =
-            matric_core::validate_file(&upload.filename, &file_data, state.max_upload_size as u64);
+        let validation = matric_core::validate_file(
+            &upload.filename,
+            &inspection.prefix,
+            state.max_upload_size as u64,
+        );
         if !validation.allowed {
             emit_attachment_upload_audit_event(attachment_upload_audit_event(
                 note_id,
                 None,
                 &upload.filename,
                 &upload.content_type,
-                file_data.len(),
+                file_size,
                 AuditOutcome::Denied,
                 "tus",
                 Some(attachment_validation_reason(&validation)),
@@ -31633,17 +31847,21 @@ async fn tus_patch_upload(
             ));
         }
 
-        let content_type =
-            matric_core::detect_content_type(&upload.filename, &file_data, &upload.content_type);
+        let content_type = matric_core::detect_content_type(
+            &upload.filename,
+            &inspection.prefix,
+            &upload.content_type,
+        );
         let ctx2 = state.db.for_schema(&archive_ctx.schema)?;
         let mut tx2 = ctx2.begin_tx().await?;
-        let mut attachment = file_storage
-            .store_file_tx(
+        let (mut attachment, content_hash) = file_storage
+            .store_file_from_path_tx(
                 &mut tx2,
                 note_id,
                 &upload.filename,
                 &content_type,
-                &file_data,
+                std::path::Path::new(&upload.storage_path),
+                inspection.size_bytes,
             )
             .await?;
 
@@ -31668,11 +31886,22 @@ async fn tus_patch_upload(
                     .await?;
             }
         }
-        apply_attachment_scan_policy_tx(&state, &mut tx2, &mut attachment, &file_data).await?;
+        apply_attachment_scan_policy_with_hash_tx(&state, &mut tx2, &mut attachment, &content_hash)
+            .await?;
+
+        state
+            .db
+            .tus
+            .mark_finalized(&mut tx2, upload_id, attachment.id)
+            .await
+            .map_err(|e| tus_operation_failed("mark upload finalized", e))?;
 
         tx2.commit()
             .await
             .map_err(|e| tus_operation_failed("commit finalized attachment", e))?;
+
+        // Remove staging only after the attachment row and finalized tus metadata are durable.
+        let _ = tokio::fs::remove_file(&upload.storage_path).await;
 
         // Emit event and queue extraction
         state.event_bus.emit_with_context(
@@ -31688,7 +31917,7 @@ async fn tus_patch_upload(
             Some(attachment.id),
             &upload.filename,
             &content_type,
-            file_data.len(),
+            file_size,
             AuditOutcome::Success,
             "tus",
             Some("accepted"),
@@ -31761,16 +31990,6 @@ async fn tus_patch_upload(
             }
         }
 
-        // Mark TUS record as finalized (keeps it for the client GET window)
-        let ctx3 = state.db.for_schema(&archive_ctx.schema)?;
-        let mut tx3 = ctx3.begin_tx().await?;
-        let _ = state
-            .db
-            .tus
-            .mark_finalized(&mut tx3, upload_id, attachment.id)
-            .await;
-        let _ = tx3.commit().await;
-
         // Return 200 with attachment info in body
         let mut resp_headers = tus_headers();
         resp_headers.insert("Upload-Offset", new_offset.to_string().parse().unwrap());
@@ -31782,9 +32001,10 @@ async fn tus_patch_upload(
             .into_response());
     }
 
-    tx.commit()
-        .await
-        .map_err(|e| tus_operation_failed("commit upload offset", e))?;
+    if let Err(error) = tx.commit().await {
+        truncate_tus_staging_file(&upload.storage_path, upload.current_offset).await;
+        return Err(tus_operation_failed("commit upload offset", error));
+    }
 
     let mut resp_headers = tus_headers();
     resp_headers.insert("Upload-Offset", new_offset.to_string().parse().unwrap());
@@ -33039,6 +33259,147 @@ async fn compensate_shard_sidecar_promotions(
     }
 }
 
+async fn recover_shard_sidecar_import_journal(
+    db: &Database,
+    backend: &FilesystemBackend,
+    journal: &ShardImportJournal,
+) -> Result<(), ApiError> {
+    let ctx = db
+        .for_schema(journal.schema())
+        .map_err(|error| shard_operation_failed("open sidecar import recovery schema", error))?;
+    let blob_ids = journal
+        .blobs()
+        .iter()
+        .map(|blob| blob.blob_id())
+        .collect::<Vec<_>>();
+    let rows = ctx
+        .query(|tx| {
+            Box::pin(async move {
+                sqlx::query_as::<_, (Uuid, String, i64, String, Option<String>)>(
+                    "SELECT id, content_hash, size_bytes, storage_backend, storage_path
+                     FROM attachment_blob
+                     WHERE id = ANY($1)",
+                )
+                .bind(&blob_ids)
+                .fetch_all(&mut **tx)
+                .await
+                .map_err(matric_db::Error::Database)
+            })
+        })
+        .await
+        .map_err(|error| shard_operation_failed("read sidecar import recovery state", error))?;
+    let rows = rows
+        .into_iter()
+        .map(|row| (row.0, row))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    for blob in journal.blobs() {
+        if let Some((_, content_hash, size_bytes, storage_backend, storage_path)) =
+            rows.get(&blob.blob_id())
+        {
+            let committed_size = u64::try_from(*size_bytes).map_err(|_| {
+                shard_validation_failed("Committed sidecar recovery size is invalid.")
+            })?;
+            if content_hash != blob.content_hash()
+                || committed_size != blob.size_bytes()
+                || storage_backend != "filesystem"
+                || storage_path.as_deref() != Some(blob.storage_path())
+            {
+                return Err(shard_validation_failed(
+                    "Committed sidecar recovery state does not match its durable journal.",
+                ));
+            }
+            backend
+                .verify_shard_import_journal_blob(blob)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("verify committed sidecar recovery bytes", error)
+                })?;
+        } else {
+            backend
+                .compensate_shard_import_journal_blob(blob)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("compensate uncommitted sidecar recovery bytes", error)
+                })?;
+        }
+        backend
+            .discard_shard_import_journal_blob(blob)
+            .await
+            .map_err(|error| {
+                shard_operation_failed("discard recovered sidecar staging bytes", error)
+            })?;
+    }
+    backend
+        .finish_shard_import_journal(journal.operation_id())
+        .await
+        .map_err(|error| shard_operation_failed("finish sidecar import recovery", error))
+}
+
+async fn recover_shard_sidecar_import_journals(
+    db: &Database,
+    backend: &FilesystemBackend,
+    schema: Option<&str>,
+    operation_id: Option<Uuid>,
+) -> Result<usize, ApiError> {
+    let journals = backend
+        .load_shard_import_journals()
+        .await
+        .map_err(|error| shard_operation_failed("load sidecar import recovery journals", error))?;
+    let mut recovered = 0_usize;
+    for journal in journals {
+        if schema.is_some_and(|expected| journal.schema() != expected)
+            || operation_id.is_some_and(|expected| journal.operation_id() != expected)
+        {
+            continue;
+        }
+        let Some(lease) = backend
+            .try_lock_shard_import_journal(journal.operation_id())
+            .await
+            .map_err(|error| {
+                shard_operation_failed("lock sidecar import recovery journal", error)
+            })?
+        else {
+            continue;
+        };
+        recover_shard_sidecar_import_journal(db, backend, &journal).await?;
+        backend
+            .finish_shard_import_journal_lease(lease)
+            .await
+            .map_err(|error| {
+                shard_operation_failed("release sidecar import recovery journal", error)
+            })?;
+        recovered += 1;
+    }
+    Ok(recovered)
+}
+
+async fn finish_owned_shard_sidecar_import_journal(
+    db: &Database,
+    backend: &FilesystemBackend,
+    lease: ShardImportJournalLease,
+) -> Result<(), ApiError> {
+    let operation_id = lease.operation_id();
+    let journals = backend
+        .load_shard_import_journals()
+        .await
+        .map_err(|error| shard_operation_failed("load owned sidecar import journal", error))?;
+    let journal = journals
+        .iter()
+        .find(|journal| journal.operation_id() == operation_id)
+        .ok_or_else(|| {
+            shard_operation_failed(
+                "finish sidecar import recovery journal",
+                "sidecar import recovery journal is missing",
+            )
+        })?;
+    recover_shard_sidecar_import_journal(db, backend, journal).await?;
+    backend
+        .finish_shard_import_journal_lease(lease)
+        .await
+        .map_err(|error| shard_operation_failed("release sidecar import recovery journal", error))
+}
+
 async fn stage_streamed_shard_sidecars(
     state: &AppState,
     schema: &str,
@@ -33101,6 +33462,14 @@ async fn stage_streamed_shard_sidecars(
         {
             Ok(staged) => {
                 staged_blobs.insert(checksum, staged);
+                #[cfg(test)]
+                if FAIL_NEXT_SHARD_IMPORT_DURING_SIDECAR_STAGING.swap(false, Ordering::SeqCst) {
+                    discard_staged_shard_sidecars(&backend, &staged_blobs).await;
+                    return Err(shard_operation_failed(
+                        "stage verified attachment sidecar",
+                        "injected during-staging crash window",
+                    ));
+                }
             }
             Err(error) => {
                 discard_staged_shard_sidecars(&backend, &staged_blobs).await;
@@ -35576,6 +35945,7 @@ async fn apply_validated_shard_components(
     opts: &ShardImportOptions,
     schema: &str,
     staged_blobs: &std::collections::HashMap<String, StagedShardBlob>,
+    sidecar_journal_id: Option<Uuid>,
     policy: ValidatedShardApplyPolicy,
 ) -> Result<
     (
@@ -36228,8 +36598,74 @@ async fn apply_validated_shard_components(
         used_checksums.sort();
         for checksum in used_checksums {
             let staged = &staged_blobs[&checksum];
+            if let Some(operation_id) = sidecar_journal_id {
+                if let Err(error) = backend
+                    .prepare_shard_import_promotion(operation_id, staged)
+                    .await
+                {
+                    let _ = tx.rollback().await;
+                    compensate_shard_sidecar_promotions(backend, &promotions).await;
+                    return Err(shard_operation_failed(
+                        "prepare sidecar promotion recovery receipt",
+                        error,
+                    ));
+                }
+            }
             match backend.promote_staged_shard_blob(staged).await {
-                Ok(promotion) => promotions.push((staged.clone(), promotion)),
+                Ok(promotion) => {
+                    promotions.push((staged.clone(), promotion));
+                    #[cfg(test)]
+                    {
+                        let abort_after =
+                            std::env::var(ABORT_SHARD_IMPORT_DURING_SIDECAR_PROMOTION_AFTER_ENV)
+                                .ok()
+                                .and_then(|value| value.parse::<usize>().ok())
+                                .unwrap_or(0);
+                        if abort_after > 0 && promotions.len() >= abort_after {
+                            std::process::abort();
+                        }
+                    }
+                    if let Some(operation_id) = sidecar_journal_id {
+                        if let Err(error) = backend
+                            .record_shard_import_promotion(operation_id, staged, promotion)
+                            .await
+                        {
+                            let _ = tx.rollback().await;
+                            compensate_shard_sidecar_promotions(backend, &promotions).await;
+                            return Err(shard_operation_failed(
+                                "persist sidecar promotion recovery receipt",
+                                error,
+                            ));
+                        }
+                    }
+                    #[cfg(test)]
+                    {
+                        let abort_after = std::env::var(
+                            ABORT_SHARD_IMPORT_AFTER_SIDECAR_PROMOTION_RECEIPT_AFTER_ENV,
+                        )
+                        .ok()
+                        .and_then(|value| value.parse::<usize>().ok())
+                        .unwrap_or(0);
+                        if abort_after > 0 && promotions.len() >= abort_after {
+                            std::process::abort();
+                        }
+                    }
+                    #[cfg(test)]
+                    {
+                        let fail_after = FAIL_NEXT_SHARD_IMPORT_DURING_SIDECAR_PROMOTION_AFTER
+                            .load(Ordering::SeqCst);
+                        if fail_after > 0 && promotions.len() as u64 >= fail_after {
+                            FAIL_NEXT_SHARD_IMPORT_DURING_SIDECAR_PROMOTION_AFTER
+                                .store(0, Ordering::SeqCst);
+                            let _ = tx.rollback().await;
+                            compensate_shard_sidecar_promotions(backend, &promotions).await;
+                            return Err(shard_operation_failed(
+                                "promote verified attachment sidecar",
+                                "injected mid-promotion crash window",
+                            ));
+                        }
+                    }
+                }
                 Err(error) => {
                     let _ = tx.rollback().await;
                     compensate_shard_sidecar_promotions(backend, &promotions).await;
@@ -36242,6 +36678,20 @@ async fn apply_validated_shard_components(
         }
     }
 
+    #[cfg(test)]
+    if !promotions.is_empty()
+        && FAIL_NEXT_SHARD_IMPORT_AFTER_SIDECAR_PROMOTION.swap(false, Ordering::SeqCst)
+    {
+        let _ = tx.rollback().await;
+        if let Some(backend) = storage_backend.as_ref() {
+            compensate_shard_sidecar_promotions(backend, &promotions).await;
+        }
+        return Err(shard_operation_failed(
+            "commit import transaction after sidecar promotion",
+            "injected post-promotion crash window",
+        ));
+    }
+
     if opts.dry_run {
         tx.rollback()
             .await
@@ -36251,6 +36701,13 @@ async fn apply_validated_shard_components(
             compensate_shard_sidecar_promotions(backend, &promotions).await;
         }
         return Err(shard_operation_failed("commit import transaction", error));
+    }
+    #[cfg(test)]
+    if !opts.dry_run
+        && !promotions.is_empty()
+        && std::env::var(ABORT_SHARD_IMPORT_AFTER_TRANSACTION_COMMIT_ENV).as_deref() == Ok("1")
+    {
+        std::process::abort();
     }
 
     Ok((
@@ -36425,6 +36882,49 @@ where
     } else {
         stage_streamed_shard_sidecars(state, schema, &sidecars).await?
     };
+    #[cfg(test)]
+    if !staged_blobs.is_empty()
+        && std::env::var(ABORT_SHARD_IMPORT_AFTER_SIDECAR_STAGING_ENV).as_deref() == Ok("1")
+    {
+        std::process::abort();
+    }
+    #[cfg(test)]
+    if !staged_blobs.is_empty()
+        && FAIL_NEXT_SHARD_IMPORT_AFTER_SIDECAR_STAGING.swap(false, Ordering::SeqCst)
+    {
+        if let Some(backend) = state.db.filesystem_storage_backend() {
+            discard_staged_shard_sidecars(&backend, &staged_blobs).await;
+        }
+        return Err(shard_operation_failed(
+            "apply import transaction after sidecar staging",
+            "injected post-staging crash window",
+        ));
+    }
+    let sidecar_journal_lease = if staged_blobs.is_empty() {
+        None
+    } else {
+        let backend = state.db.filesystem_storage_backend().ok_or_else(|| {
+            shard_validation_failed(
+                "Knowledge shard attachment sidecars require configured filesystem storage.",
+            )
+        })?;
+        match backend
+            .begin_shard_import_journal(schema, staged_blobs.values())
+            .await
+        {
+            Ok(lease) => Some(lease),
+            Err(error) => {
+                discard_staged_shard_sidecars(&backend, &staged_blobs).await;
+                return Err(shard_operation_failed(
+                    "begin sidecar import recovery journal",
+                    error,
+                ));
+            }
+        }
+    };
+    let sidecar_journal_id = sidecar_journal_lease
+        .as_ref()
+        .map(ShardImportJournalLease::operation_id);
     let apply_result = apply_validated_shard_components(
         state,
         &files,
@@ -36432,6 +36932,7 @@ where
         opts,
         schema,
         &staged_blobs,
+        sidecar_journal_id,
         ValidatedShardApplyPolicy {
             wipe_before_apply,
             preserve_empty_revisions: manifest.profile.is_some(),
@@ -36439,7 +36940,22 @@ where
         },
     )
     .await;
-    if let Some(backend) = state.db.filesystem_storage_backend() {
+    #[cfg(test)]
+    if !staged_blobs.is_empty()
+        && apply_result.is_ok()
+        && FAIL_NEXT_SHARD_IMPORT_AFTER_COMPONENT_APPLY_BEFORE_STAGED_DISCARD
+            .swap(false, Ordering::SeqCst)
+    {
+        return Err(shard_operation_failed(
+            "discard staged sidecars after committed import",
+            "injected post-commit staged-discard crash window",
+        ));
+    }
+    if let (Some(backend), Some(lease)) =
+        (state.db.filesystem_storage_backend(), sidecar_journal_lease)
+    {
+        finish_owned_shard_sidecar_import_journal(&state.db, &backend, lease).await?;
+    } else if let Some(backend) = state.db.filesystem_storage_backend() {
         discard_staged_shard_sidecars(&backend, &staged_blobs).await;
     }
     let (imported, skipped, queued_note_ids, pending_attachment_scans, bypassed_attachments) =
@@ -38670,6 +39186,14 @@ mod tests {
     use tower::ServiceExt;
 
     static SHARD_INTEGRATION_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    const TUS_MEMORY_CHILD_BYTES_ENV: &str = "FORTEMI_TEST_TUS_MEMORY_CHILD_BYTES";
+    const TUS_MEMORY_CHILD_RECEIPT_ENV: &str = "FORTEMI_TEST_TUS_MEMORY_CHILD_RECEIPT";
+    const TUS_MEMORY_RECEIPT_ENV: &str = "FORTEMI_AL_TUS_MEMORY_RECEIPT_PATH";
+    const TUS_MEMORY_REQUEST_CHUNK_BYTES: usize = 64 * 1024;
+    const TUS_MEMORY_SMALL_CORPUS_BYTES: usize = 1024 * 1024;
+    const TUS_MEMORY_LARGE_CORPUS_BYTES: usize = 100 * 1024 * 1024;
+    const TUS_MEMORY_MAX_LARGE_HWM_DELTA_BYTES: u64 = 64 * 1024 * 1024;
+    const TUS_MEMORY_MAX_GROWTH_OVER_SMALL_BYTES: u64 = 32 * 1024 * 1024;
 
     struct ScopedEnvVar {
         name: &'static str,
@@ -43980,32 +44504,76 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tus_finalization_reader_enforces_declared_and_actual_file_caps() {
+    async fn tus_finalization_inspection_enforces_caps_and_bounds_prefix_memory() {
         let staging = tempfile::tempdir().expect("create tus staging directory");
         let path = staging.path().join("upload.part");
         tokio::fs::write(&path, b"abcde").await.unwrap();
-        assert_eq!(
-            read_tus_staging_file_bounded(path.to_str().unwrap(), 5, 5)
-                .await
-                .unwrap(),
-            b"abcde"
-        );
+        let inspection = inspect_tus_staging_file_bounded(path.to_str().unwrap(), 5, 5)
+            .await
+            .unwrap();
+        assert_eq!(inspection.prefix, b"abcde");
+        assert_eq!(inspection.size_bytes, 5);
 
         tokio::fs::write(&path, b"abcdef").await.unwrap();
         assert!(matches!(
-            read_tus_staging_file_bounded(path.to_str().unwrap(), 5, 5).await,
+            inspect_tus_staging_file_bounded(path.to_str().unwrap(), 5, 5).await,
             Err(ApiError::BadRequest(_))
         ));
 
         tokio::fs::write(&path, b"abcd").await.unwrap();
         assert!(matches!(
-            read_tus_staging_file_bounded(path.to_str().unwrap(), 5, 5).await,
+            inspect_tus_staging_file_bounded(path.to_str().unwrap(), 5, 5).await,
             Err(ApiError::OperationFailed { .. })
         ));
         assert!(matches!(
-            read_tus_staging_file_bounded(path.to_str().unwrap(), 6, 5).await,
+            inspect_tus_staging_file_bounded(path.to_str().unwrap(), 6, 5).await,
             Err(ApiError::BadRequest(_))
         ));
+
+        let large = vec![0x5a; TUS_FINALIZATION_PREFIX_BYTES * 3];
+        tokio::fs::write(&path, &large).await.unwrap();
+        let inspection = inspect_tus_staging_file_bounded(
+            path.to_str().unwrap(),
+            large.len() as i64,
+            large.len(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(inspection.size_bytes, large.len() as u64);
+        assert_eq!(inspection.prefix.len(), TUS_FINALIZATION_PREFIX_BYTES);
+        assert_eq!(inspection.prefix, large[..TUS_FINALIZATION_PREFIX_BYTES]);
+    }
+
+    #[tokio::test]
+    async fn tus_request_body_streams_frames_and_rolls_back_overrun_residue() {
+        let staging = tempfile::tempdir().expect("create tus staging directory");
+        let path = staging.path().join("upload.part");
+        tokio::fs::write(&path, b"").await.unwrap();
+        let body = Body::from_stream(futures::stream::iter([
+            Ok::<_, std::io::Error>(Bytes::from_static(b"ab")),
+            Ok::<_, std::io::Error>(Bytes::from_static(b"cde")),
+        ]));
+        assert_eq!(
+            append_tus_request_body(path.to_str().unwrap(), body, 0, 5)
+                .await
+                .unwrap(),
+            5
+        );
+        assert_eq!(tokio::fs::read(&path).await.unwrap(), b"abcde");
+
+        let overrun = Body::from_stream(futures::stream::iter([
+            Ok::<_, std::io::Error>(Bytes::from_static(b"fg")),
+            Ok::<_, std::io::Error>(Bytes::from_static(b"h")),
+        ]));
+        assert!(matches!(
+            append_tus_request_body(path.to_str().unwrap(), overrun, 5, 7).await,
+            Err(ApiError::BadRequest(_))
+        ));
+        assert_eq!(
+            tokio::fs::read(&path).await.unwrap(),
+            b"abcde",
+            "an over-limit streamed request must restore the committed staging offset"
+        );
     }
 
     #[tokio::test]
@@ -48524,6 +49092,66 @@ not-json
             .await
             .expect("materialize seeded source blob metadata");
 
+        let extra_attachment_bytes = b"portable filesystem attachment bytes, second blob".to_vec();
+        let extra_attachment_checksum = matric_db::compute_content_hash(&extra_attachment_bytes);
+        let extra_blob_id = Uuid::now_v7();
+        let extra_attachment_id = Uuid::now_v7();
+        let extra_storage_path = matric_db::generate_storage_path(&extra_blob_id);
+        backend
+            .write(&extra_storage_path, &extra_attachment_bytes)
+            .await
+            .expect("write extra source attachment bytes");
+        let source_note_id = source_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_scalar::<_, Uuid>(
+                        "SELECT id FROM note ORDER BY created_at_utc LIMIT 1",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("load seeded source note id");
+        let extra_checksum_for_insert = extra_attachment_checksum.clone();
+        let extra_storage_path_for_insert = extra_storage_path.clone();
+        let extra_size = extra_attachment_bytes.len() as i64;
+        source_ctx
+            .execute(move |tx| {
+                Box::pin(async move {
+                    sqlx::query(
+                        "INSERT INTO attachment_blob
+                         (id, content_hash, content_type, size_bytes, storage_type,
+                          storage_backend, storage_path, verification_status)
+                         VALUES ($1, $2, 'application/octet-stream', $3,
+                                 'filesystem', 'filesystem', $4, 'verified')",
+                    )
+                    .bind(extra_blob_id)
+                    .bind(&extra_checksum_for_insert)
+                    .bind(extra_size)
+                    .bind(&extra_storage_path_for_insert)
+                    .execute(&mut **tx)
+                    .await?;
+                    sqlx::query(
+                        "INSERT INTO attachment
+                         (id, note_id, blob_id, filename, original_filename, display_order,
+                          status, extracted_text, extracted_metadata, virus_scan_status)
+                         VALUES ($1, $2, $3, 'zz-extra-fixture.bin',
+                                 'zz-extra-fixture.bin', 99, 'completed',
+                                 'Extra fixture attachment text', '{}'::jsonb, 'pending')",
+                    )
+                    .bind(extra_attachment_id)
+                    .bind(source_note_id)
+                    .bind(extra_blob_id)
+                    .execute(&mut **tx)
+                    .await?;
+                    Ok(())
+                })
+            })
+            .await
+            .expect("insert extra filesystem-backed source attachment");
+
         let blocked_export = match knowledge_shard(
             State(state.clone()),
             Extension(ArchiveContext {
@@ -48550,6 +49178,7 @@ not-json
         ));
 
         let checksum_for_verdict = attachment_checksum.clone();
+        let extra_checksum_for_verdict = extra_attachment_checksum.clone();
         source_ctx
             .execute(move |tx| {
                 Box::pin(async move {
@@ -48560,10 +49189,23 @@ not-json
                              virus_scan_backend = 'fortemi-policy',
                              virus_scan_reason_code = 'explicit_local_bypass',
                              virus_scan_blob_hash = $2
-                         WHERE blob_id = $1",
+                        WHERE blob_id = $1",
                     )
                     .bind(source_blob_id)
                     .bind(checksum_for_verdict)
+                    .execute(&mut **tx)
+                    .await?;
+                    sqlx::query(
+                        "UPDATE attachment
+                         SET virus_scan_status = 'bypassed',
+                             virus_scan_at = NOW(),
+                             virus_scan_backend = 'fortemi-policy',
+                             virus_scan_reason_code = 'explicit_local_bypass',
+                             virus_scan_blob_hash = $2
+                         WHERE blob_id = $1",
+                    )
+                    .bind(extra_blob_id)
+                    .bind(extra_checksum_for_verdict)
                     .execute(&mut **tx)
                     .await
                     .map(|_| ())
@@ -48604,7 +49246,9 @@ not-json
         let exported_files =
             read_shard_archive(&exported_bytes, ShardArchiveLimits::default()).unwrap();
         let sidecar_name = shard_blob_entry_name(&attachment_checksum).unwrap();
+        let extra_sidecar_name = shard_blob_entry_name(&extra_attachment_checksum).unwrap();
         assert_eq!(exported_files[&sidecar_name], attachment_bytes);
+        assert_eq!(exported_files[&extra_sidecar_name], extra_attachment_bytes);
 
         let required_name = format!("shard-sidecar-required-{}", Uuid::new_v4().simple());
         let required_destination = db
@@ -48764,32 +49408,62 @@ not-json
             .expect("verified sidecar import must be repeatable");
         }
         let destination_ctx = db.for_schema(&destination.schema_name).unwrap();
-        let imported_blob = destination_ctx
+        let imported_blobs = destination_ctx
             .query(|tx| {
                 Box::pin(async move {
                     sqlx::query_as::<_, (String, String, i64, String, Option<String>, i32)>(
                         "SELECT content_hash, content_type, size_bytes, storage_backend,
                                 storage_path, reference_count
-                         FROM attachment_blob",
+                         FROM attachment_blob
+                         ORDER BY content_hash",
                     )
-                    .fetch_one(&mut **tx)
+                    .fetch_all(&mut **tx)
                     .await
                     .map_err(matric_db::Error::Database)
                 })
             })
             .await
             .expect("read imported sidecar metadata");
-        assert_eq!(imported_blob.0, attachment_checksum);
+        assert_eq!(imported_blobs.len(), 2);
+        let imported_blob = imported_blobs
+            .iter()
+            .find(|blob| blob.0 == attachment_checksum)
+            .expect("imported primary sidecar blob");
+        let extra_imported_blob = imported_blobs
+            .iter()
+            .find(|blob| blob.0 == extra_attachment_checksum)
+            .expect("imported extra sidecar blob");
         assert_eq!(imported_blob.1, "application/octet-stream");
         assert_eq!(imported_blob.2, attachment_bytes.len() as i64);
         assert_eq!(imported_blob.3, "filesystem");
         assert_eq!(imported_blob.5, 2);
+        assert_eq!(extra_imported_blob.1, "application/octet-stream");
+        assert_eq!(extra_imported_blob.2, extra_attachment_bytes.len() as i64);
+        assert_eq!(extra_imported_blob.3, "filesystem");
+        assert_eq!(extra_imported_blob.5, 1);
+        let imported_blob_path = imported_blob
+            .4
+            .as_deref()
+            .expect("primary filesystem path")
+            .to_string();
+        let extra_imported_blob_path = extra_imported_blob
+            .4
+            .as_deref()
+            .expect("extra filesystem path")
+            .to_string();
         assert_eq!(
             backend
-                .read(imported_blob.4.as_deref().expect("filesystem path"))
+                .read(&imported_blob_path)
                 .await
                 .expect("read imported sidecar bytes"),
             attachment_bytes
+        );
+        assert_eq!(
+            backend
+                .read(&extra_imported_blob_path)
+                .await
+                .expect("read extra imported sidecar bytes"),
+            extra_attachment_bytes
         );
         let imported_scan_policy = destination_ctx
             .query(|tx| {
@@ -48855,10 +49529,22 @@ not-json
                         }
                     }),
                 ),
+                (
+                    "zz-extra-fixture.bin".to_string(),
+                    "completed".to_string(),
+                    Some("Extra fixture attachment text".to_string()),
+                    serde_json::json!({
+                        "knowledge_shard": {
+                            "reference_only": false,
+                            "extraction_status": "extracted",
+                            "reason": null
+                        }
+                    }),
+                ),
             ]
         );
         let files_after_success = regular_file_count(storage.path());
-        assert_eq!(files_after_success, files_before_tamper + 1);
+        assert_eq!(files_after_success, files_before_tamper + 2);
 
         let reexport = knowledge_shard(
             State(state.clone()),
@@ -48888,9 +49574,13 @@ not-json
                 .keys()
                 .filter(|name| shard_blob_entry_checksum(name).is_some())
                 .count(),
-            1
+            2
         );
         assert_eq!(reexported_files[&sidecar_name], attachment_bytes);
+        assert_eq!(
+            reexported_files[&extra_sidecar_name],
+            extra_attachment_bytes
+        );
         let reexported_notes =
             parse_shard_component_records("notes", &reexported_files["notes.jsonl"]).unwrap();
         let linked_projection = reexported_notes
@@ -48972,12 +49662,1180 @@ not-json
             0
         );
 
-        for archive_name in [rollback_name, destination_name, tamper_name, source_name] {
+        let during_staging_crash_name = format!("shard-sc-stage-{}", Uuid::new_v4().simple());
+        let during_staging_crash = db
+            .archives
+            .create_archive_schema(
+                &during_staging_crash_name,
+                Some("Knowledge Shard sidecar during-staging crash test"),
+            )
+            .await
+            .expect("create isolated during-staging crash destination");
+        let during_staging_crash_ctx = db.for_schema(&during_staging_crash.schema_name).unwrap();
+        let files_before_during_staging_crash = regular_file_count(storage.path());
+        fail_next_shard_import_during_sidecar_staging();
+        let error = knowledge_shard_import_internal(
+            &state,
+            &exported_bytes,
+            &opts,
+            &during_staging_crash.schema_name,
+        )
+        .await
+        .expect_err("during-staging crash must abort and discard staged sidecars");
+        assert!(matches!(error, ApiError::OperationFailed { .. }));
+        let during_staging_crash_counts = during_staging_crash_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read during-staging crash destination");
+        assert_eq!(during_staging_crash_counts, (0, 0, 0));
+        assert_eq!(
+            regular_file_count(storage.path()),
+            files_before_during_staging_crash,
+            "sidecar staged before injected staging abort must be discarded"
+        );
+        assert_eq!(
+            regular_file_count(&storage.path().join("staging/shard-import")),
+            0,
+            "verified staging bytes must be discarded after during-staging abort"
+        );
+
+        knowledge_shard_import_internal(
+            &state,
+            &exported_bytes,
+            &opts,
+            &during_staging_crash.schema_name,
+        )
+        .await
+        .expect("retry after during-staging abort must import cleanly");
+        let during_staging_retry_counts = during_staging_crash_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob),
+                           (SELECT COALESCE(SUM(reference_count), 0) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read retry destination after during-staging crash");
+        assert_eq!(during_staging_retry_counts, (2, 3, 2, 3));
+
+        let staging_crash_name = format!("shard-sc-poststage-{}", Uuid::new_v4().simple());
+        let staging_crash = db
+            .archives
+            .create_archive_schema(
+                &staging_crash_name,
+                Some("Knowledge Shard sidecar post-staging crash test"),
+            )
+            .await
+            .expect("create isolated post-staging crash destination");
+        let staging_crash_ctx = db.for_schema(&staging_crash.schema_name).unwrap();
+        let files_before_staging_crash = regular_file_count(storage.path());
+        fail_next_shard_import_after_sidecar_staging();
+        let error = knowledge_shard_import_internal(
+            &state,
+            &exported_bytes,
+            &opts,
+            &staging_crash.schema_name,
+        )
+        .await
+        .expect_err("post-staging crash must abort and discard staged sidecars");
+        assert!(matches!(error, ApiError::OperationFailed { .. }));
+        let staging_crash_counts = staging_crash_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read post-staging crash destination");
+        assert_eq!(staging_crash_counts, (0, 0, 0));
+        assert_eq!(
+            regular_file_count(storage.path()),
+            files_before_staging_crash,
+            "staged sidecar must be discarded before component apply starts"
+        );
+        assert_eq!(
+            regular_file_count(&storage.path().join("staging/shard-import")),
+            0,
+            "verified staging bytes must be discarded after post-staging abort"
+        );
+
+        knowledge_shard_import_internal(&state, &exported_bytes, &opts, &staging_crash.schema_name)
+            .await
+            .expect("retry after discarded post-staging abort must import cleanly");
+        let staging_retry_counts = staging_crash_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob),
+                           (SELECT COALESCE(SUM(reference_count), 0) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read retry destination after post-staging crash");
+        assert_eq!(staging_retry_counts, (2, 3, 2, 3));
+
+        let process_abort_name = format!("shard-sc-procabort-{}", Uuid::new_v4().simple());
+        let process_abort = db
+            .archives
+            .create_archive_schema(
+                &process_abort_name,
+                Some("Knowledge Shard sidecar real process abort after staging test"),
+            )
+            .await
+            .expect("create isolated post-staging process abort destination");
+        let process_abort_ctx = db.for_schema(&process_abort.schema_name).unwrap();
+        let process_abort_shard =
+            tempfile::NamedTempFile::new().expect("create process-abort shard file");
+        std::fs::write(process_abort_shard.path(), &exported_bytes)
+            .expect("write process-abort shard bytes");
+        let files_before_process_abort = regular_file_count(storage.path());
+        let process_abort_status = std::process::Command::new(
+            std::env::current_exe().expect("locate current test binary"),
+        )
+        .arg("--exact")
+        .arg("tests::shard_sidecar_process_abort_child")
+        .arg("--nocapture")
+        .env("DATABASE_URL", &database_url)
+        .env(
+            "FORTEMI_TEST_SHARD_PROCESS_ABORT_SHARD_PATH",
+            process_abort_shard.path(),
+        )
+        .env(
+            "FORTEMI_TEST_SHARD_PROCESS_ABORT_SCHEMA",
+            &process_abort.schema_name,
+        )
+        .env("FORTEMI_TEST_SHARD_PROCESS_ABORT_STORAGE", storage.path())
+        .env(ABORT_SHARD_IMPORT_AFTER_SIDECAR_STAGING_ENV, "1")
+        .status()
+        .expect("run process-abort shard import child");
+        assert!(
+            !process_abort_status.success(),
+            "child process must terminate before component apply"
+        );
+        let process_abort_counts = process_abort_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read process-abort destination");
+        assert_eq!(
+            process_abort_counts,
+            (0, 0, 0),
+            "process abort after staging must not commit component rows"
+        );
+        assert_eq!(
+            regular_file_count(&storage.path().join("staging/shard-import")),
+            2,
+            "real process abort leaves exactly the verified staged sidecars"
+        );
+        knowledge_shard_import_internal(&state, &exported_bytes, &opts, &process_abort.schema_name)
+            .await
+            .expect("retry after process abort must import cleanly");
+        let process_abort_retry_counts = process_abort_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob),
+                           (SELECT COALESCE(SUM(reference_count), 0) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read retry destination after process-abort crash");
+        assert_eq!(process_abort_retry_counts, (2, 3, 2, 3));
+        assert_eq!(
+            regular_file_count(&storage.path().join("staging/shard-import")),
+            2,
+            "retry succeeds and discards its own staged files while the original process-abort staged files remain isolated"
+        );
+        let swept_process_abort_staging = backend
+            .sweep_staged_shard_blobs(std::time::Duration::ZERO)
+            .await;
+        assert_eq!(
+            swept_process_abort_staging, 2,
+            "staged sidecars abandoned by process death are startup-sweep eligible"
+        );
+        assert_eq!(
+            regular_file_count(&storage.path().join("staging/shard-import")),
+            0,
+            "explicit sweep removes process-abort staging leftovers"
+        );
+        assert_eq!(
+            regular_file_count(storage.path()),
+            files_before_process_abort + 2,
+            "only the retried import's final sidecar blobs remain after sweeping staged leftovers"
+        );
+
+        let copy_process_abort_name = format!("sc-copy-{}", Uuid::new_v4().simple());
+        let copy_process_abort = db
+            .archives
+            .create_archive_schema(
+                &copy_process_abort_name,
+                Some("Knowledge Shard sidecar partial-copy process-abort test"),
+            )
+            .await
+            .expect("create isolated sidecar copy process-abort destination");
+        let copy_process_abort_ctx = db.for_schema(&copy_process_abort.schema_name).unwrap();
+        let files_before_copy_process_abort = regular_file_count(storage.path());
+        let copy_process_abort_status = std::process::Command::new(
+            std::env::current_exe().expect("locate current test binary"),
+        )
+        .arg("--exact")
+        .arg("tests::shard_sidecar_process_abort_child")
+        .arg("--nocapture")
+        .env("DATABASE_URL", &database_url)
+        .env(
+            "FORTEMI_TEST_SHARD_PROCESS_ABORT_SHARD_PATH",
+            process_abort_shard.path(),
+        )
+        .env(
+            "FORTEMI_TEST_SHARD_PROCESS_ABORT_SCHEMA",
+            &copy_process_abort.schema_name,
+        )
+        .env("FORTEMI_TEST_SHARD_PROCESS_ABORT_STORAGE", storage.path())
+        .env(ABORT_SHARD_IMPORT_SIDECAR_COPY_AFTER_BYTES_ENV, "7")
+        .status()
+        .expect("run sidecar copy process-abort shard import child");
+        assert!(
+            !copy_process_abort_status.success(),
+            "child process must terminate after writing a partial sidecar prefix"
+        );
+        let copy_process_abort_counts = copy_process_abort_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read sidecar copy process-abort destination");
+        assert_eq!(
+            copy_process_abort_counts,
+            (0, 0, 0),
+            "partial sidecar copy process abort must precede all component mutation"
+        );
+        let staging_root = storage.path().join("staging/shard-import");
+        let partial_staging_files = std::fs::read_dir(&staging_root)
+            .expect("read sidecar copy process-abort staging root")
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+            .map(|entry| entry.path())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            partial_staging_files.len(),
+            1,
+            "copy abort must leave exactly one unverified temporary sidecar"
+        );
+        assert!(
+            partial_staging_files[0]
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".blob.stage.tmp")),
+            "copy abort residue must remain outside the verified staging namespace"
+        );
+        assert_eq!(
+            std::fs::metadata(&partial_staging_files[0])
+                .expect("read partial sidecar metadata")
+                .len(),
+            7,
+            "copy abort hook must stop after the deterministic byte prefix"
+        );
+        assert_eq!(
+            regular_file_count(storage.path()),
+            files_before_copy_process_abort + 1,
+            "partial copy must not create a journal, verified stage, or final blob"
+        );
+        assert!(
+            backend
+                .load_shard_import_journals()
+                .await
+                .unwrap()
+                .is_empty(),
+            "partial copy abort must occur before journal ownership begins"
+        );
+        assert_eq!(
+            backend
+                .sweep_staged_shard_blobs(std::time::Duration::ZERO)
+                .await,
+            1,
+            "explicit startup-equivalent sweep must remove the partial copy"
+        );
+        assert_eq!(
+            regular_file_count(storage.path()),
+            files_before_copy_process_abort,
+            "partial-copy cleanup must restore the exact pre-abort filesystem baseline"
+        );
+
+        knowledge_shard_import_internal(
+            &state,
+            &exported_bytes,
+            &opts,
+            &copy_process_abort.schema_name,
+        )
+        .await
+        .expect("retry after partial sidecar copy cleanup must import cleanly");
+        let copy_process_abort_retry_counts = copy_process_abort_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob),
+                           (SELECT COALESCE(SUM(reference_count), 0) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read retry destination after sidecar copy process abort");
+        assert_eq!(
+            copy_process_abort_retry_counts,
+            (2, 3, 2, 3),
+            "clean retry must converge after partial sidecar copy process abort"
+        );
+
+        let mut journal_process_abort_names = Vec::new();
+        for (phase, phase_code, pre_rename) in [
+            ("after-temp-write", "jw", true),
+            ("after-file-sync", "js", true),
+            ("after-rename", "jr", false),
+            ("after-directory-sync", "jd", false),
+        ] {
+            let journal_process_abort_name =
+                format!("scja-{phase_code}-{}", Uuid::new_v4().simple());
+            let journal_process_abort = db
+                .archives
+                .create_archive_schema(
+                    &journal_process_abort_name,
+                    Some("Knowledge Shard sidecar journal persistence process-abort test"),
+                )
+                .await
+                .expect("create isolated journal persistence process-abort destination");
+            let journal_process_abort_ctx =
+                db.for_schema(&journal_process_abort.schema_name).unwrap();
+            let files_before_journal_process_abort = regular_file_count(storage.path());
+            let journal_process_abort_status = std::process::Command::new(
+                std::env::current_exe().expect("locate current test binary"),
+            )
+            .arg("--exact")
+            .arg("tests::shard_sidecar_process_abort_child")
+            .arg("--nocapture")
+            .env("DATABASE_URL", &database_url)
+            .env(
+                "FORTEMI_TEST_SHARD_PROCESS_ABORT_SHARD_PATH",
+                process_abort_shard.path(),
+            )
+            .env(
+                "FORTEMI_TEST_SHARD_PROCESS_ABORT_SCHEMA",
+                &journal_process_abort.schema_name,
+            )
+            .env("FORTEMI_TEST_SHARD_PROCESS_ABORT_STORAGE", storage.path())
+            .env(ABORT_SHARD_IMPORT_JOURNAL_PERSIST_AT_ENV, phase)
+            .status()
+            .expect("run journal persistence process-abort shard import child");
+            assert!(
+                !journal_process_abort_status.success(),
+                "child process must terminate at journal persistence checkpoint {phase}"
+            );
+            let journal_process_abort_counts = journal_process_abort_ctx
+                .query(|tx| {
+                    Box::pin(async move {
+                        sqlx::query_as::<_, (i64, i64, i64)>(
+                            "SELECT
+                               (SELECT COUNT(*) FROM note),
+                               (SELECT COUNT(*) FROM attachment),
+                               (SELECT COUNT(*) FROM attachment_blob)",
+                        )
+                        .fetch_one(&mut **tx)
+                        .await
+                        .map_err(matric_db::Error::Database)
+                    })
+                })
+                .await
+                .expect("read journal persistence process-abort destination");
+            assert_eq!(
+                journal_process_abort_counts,
+                (0, 0, 0),
+                "{phase} process abort must precede component transaction commit"
+            );
+            assert_eq!(
+                regular_file_count(storage.path()),
+                files_before_journal_process_abort + 4,
+                "two staged sidecars plus journal candidate and lock must survive {phase}"
+            );
+
+            if pre_rename {
+                assert!(
+                    backend.load_shard_import_journals().await.is_err(),
+                    "{phase} orphan temporary journal must fail closed"
+                );
+                let journal_root = storage.path().join("staging/shard-import/journals");
+                let (temp_path, candidate) = std::fs::read_dir(&journal_root)
+                    .expect("read journal persistence directory")
+                    .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+                    .filter(|path| {
+                        path.file_name()
+                            .and_then(|name| name.to_str())
+                            .is_some_and(|name| name.ends_with(".json.tmp"))
+                    })
+                    .find_map(|path| {
+                        let contents = std::fs::read(&path).ok()?;
+                        let journal =
+                            serde_json::from_slice::<ShardImportJournal>(&contents).ok()?;
+                        (journal.schema() == journal_process_abort.schema_name)
+                            .then_some((path, journal))
+                    })
+                    .expect("complete orphan temporary journal for interrupted import");
+                assert!(
+                    candidate
+                        .blobs()
+                        .iter()
+                        .all(|blob| blob.state()
+                            == matric_db::ShardImportJournalBlobState::Pending),
+                    "{phase} candidate must retain only pre-promotion pending state"
+                );
+
+                let temp_file = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&temp_path)
+                    .expect("open orphan temporary journal for salvage");
+                temp_file
+                    .sync_all()
+                    .expect("sync complete orphan temporary journal for salvage");
+                drop(temp_file);
+                let authoritative_path = temp_path.parent().expect("journal parent").join(
+                    temp_path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .expect("UTF-8 journal filename")
+                        .strip_suffix(".tmp")
+                        .expect("temporary journal suffix"),
+                );
+                std::fs::rename(&temp_path, &authoritative_path)
+                    .expect("promote complete temporary journal during explicit salvage");
+                std::fs::File::open(
+                    authoritative_path
+                        .parent()
+                        .expect("authoritative journal parent"),
+                )
+                .expect("open journal directory for salvage sync")
+                .sync_all()
+                .expect("sync salvaged journal directory");
+            }
+
+            let journals = backend
+                .load_shard_import_journals()
+                .await
+                .expect("load complete journal after restart or explicit salvage");
+            let journal = journals
+                .iter()
+                .find(|journal| journal.schema() == journal_process_abort.schema_name)
+                .expect("authoritative journal for interrupted import");
+            assert!(
+                journal
+                    .blobs()
+                    .iter()
+                    .all(|blob| blob.state() == matric_db::ShardImportJournalBlobState::Pending),
+                "{phase} authoritative journal must precede every promotion"
+            );
+
+            let restarted_db = Database::connect(&database_url)
+                .await
+                .expect("reconnect after journal persistence process abort")
+                .with_filesystem_storage(
+                    storage.path().to_str().expect("UTF-8 test storage path"),
+                    0,
+                );
+            assert_eq!(
+                recover_shard_sidecar_import_journals(
+                    &restarted_db,
+                    &backend,
+                    Some(&journal_process_abort.schema_name),
+                    None,
+                )
+                .await
+                .expect("recover journal persistence process-abort journal"),
+                1
+            );
+            assert_eq!(
+                regular_file_count(storage.path()),
+                files_before_journal_process_abort,
+                "restart recovery must discard pending staging and journal state at {phase}"
+            );
+
+            knowledge_shard_import_internal(
+                &state,
+                &exported_bytes,
+                &opts,
+                &journal_process_abort.schema_name,
+            )
+            .await
+            .expect("retry after journal persistence process-abort recovery must import cleanly");
+            let journal_process_abort_retry_counts = journal_process_abort_ctx
+                .query(|tx| {
+                    Box::pin(async move {
+                        sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                            "SELECT
+                               (SELECT COUNT(*) FROM note),
+                               (SELECT COUNT(*) FROM attachment),
+                               (SELECT COUNT(*) FROM attachment_blob),
+                               (SELECT COALESCE(SUM(reference_count), 0) FROM attachment_blob)",
+                        )
+                        .fetch_one(&mut **tx)
+                        .await
+                        .map_err(matric_db::Error::Database)
+                    })
+                })
+                .await
+                .expect("read retry destination after journal persistence process abort");
+            assert_eq!(
+                journal_process_abort_retry_counts,
+                (2, 3, 2, 3),
+                "clean retry must converge after {phase}"
+            );
+            journal_process_abort_names.push(journal_process_abort_name);
+        }
+
+        let mut promotion_process_abort_names = Vec::new();
+        for (
+            phase,
+            phase_code,
+            abort_env,
+            abort_after,
+            expected_pending,
+            expected_promoting,
+            expected_promoted,
+            expected_database_counts,
+            expected_recovery_file_delta,
+        ) in [
+            (
+                "link-pre-receipt",
+                "pre",
+                ABORT_SHARD_IMPORT_DURING_SIDECAR_PROMOTION_AFTER_ENV,
+                1,
+                1,
+                1,
+                0,
+                (0, 0, 0),
+                0,
+            ),
+            (
+                "first-receipt",
+                "r1",
+                ABORT_SHARD_IMPORT_AFTER_SIDECAR_PROMOTION_RECEIPT_AFTER_ENV,
+                1,
+                1,
+                0,
+                1,
+                (0, 0, 0),
+                0,
+            ),
+            (
+                "all-receipts-pre-commit",
+                "r2",
+                ABORT_SHARD_IMPORT_AFTER_SIDECAR_PROMOTION_RECEIPT_AFTER_ENV,
+                2,
+                0,
+                0,
+                2,
+                (0, 0, 0),
+                0,
+            ),
+            (
+                "commit-won",
+                "cw",
+                ABORT_SHARD_IMPORT_AFTER_TRANSACTION_COMMIT_ENV,
+                1,
+                0,
+                0,
+                2,
+                (2, 3, 2),
+                2,
+            ),
+        ] {
+            let promotion_process_abort_name =
+                format!("scpa-{phase_code}-{}", Uuid::new_v4().simple());
+            let promotion_process_abort = db
+                .archives
+                .create_archive_schema(
+                    &promotion_process_abort_name,
+                    Some("Knowledge Shard sidecar real promotion process-abort test"),
+                )
+                .await
+                .expect("create isolated promotion process-abort destination");
+            let promotion_process_abort_ctx =
+                db.for_schema(&promotion_process_abort.schema_name).unwrap();
+            let files_before_promotion_process_abort = regular_file_count(storage.path());
+            let promotion_process_abort_status = std::process::Command::new(
+                std::env::current_exe().expect("locate current test binary"),
+            )
+            .arg("--exact")
+            .arg("tests::shard_sidecar_process_abort_child")
+            .arg("--nocapture")
+            .env("DATABASE_URL", &database_url)
+            .env(
+                "FORTEMI_TEST_SHARD_PROCESS_ABORT_SHARD_PATH",
+                process_abort_shard.path(),
+            )
+            .env(
+                "FORTEMI_TEST_SHARD_PROCESS_ABORT_SCHEMA",
+                &promotion_process_abort.schema_name,
+            )
+            .env("FORTEMI_TEST_SHARD_PROCESS_ABORT_STORAGE", storage.path())
+            .env(abort_env, abort_after.to_string())
+            .status()
+            .expect("run promotion process-abort shard import child");
+            assert!(
+                !promotion_process_abort_status.success(),
+                "child process must terminate at the {phase} promotion boundary"
+            );
+            let promotion_process_abort_counts = promotion_process_abort_ctx
+                .query(|tx| {
+                    Box::pin(async move {
+                        sqlx::query_as::<_, (i64, i64, i64)>(
+                            "SELECT
+                               (SELECT COUNT(*) FROM note),
+                               (SELECT COUNT(*) FROM attachment),
+                               (SELECT COUNT(*) FROM attachment_blob)",
+                        )
+                        .fetch_one(&mut **tx)
+                        .await
+                        .map_err(matric_db::Error::Database)
+                    })
+                })
+                .await
+                .expect("read promotion process-abort destination");
+            assert_eq!(
+                promotion_process_abort_counts, expected_database_counts,
+                "{phase} process abort must expose the expected transaction outcome"
+            );
+            let promotion_abort_journals = backend.load_shard_import_journals().await.unwrap();
+            let promotion_abort_journal = promotion_abort_journals
+                .iter()
+                .find(|journal| journal.schema() == promotion_process_abort.schema_name)
+                .expect("durable promotion process-abort journal");
+            for (state, expected) in [
+                (
+                    matric_db::ShardImportJournalBlobState::Pending,
+                    expected_pending,
+                ),
+                (
+                    matric_db::ShardImportJournalBlobState::Promoting,
+                    expected_promoting,
+                ),
+                (
+                    matric_db::ShardImportJournalBlobState::Promoted,
+                    expected_promoted,
+                ),
+                (matric_db::ShardImportJournalBlobState::AlreadyPromoted, 0),
+            ] {
+                assert_eq!(
+                    promotion_abort_journal
+                        .blobs()
+                        .iter()
+                        .filter(|blob| blob.state() == state)
+                        .count(),
+                    expected,
+                    "unexpected {state:?} journal count at {phase}"
+                );
+            }
+            assert_eq!(
+                regular_file_count(storage.path()),
+                files_before_promotion_process_abort + 4,
+                "two sidecar files plus journal and lock must describe {phase}"
+            );
+
+            let restarted_db = Database::connect(&database_url)
+                .await
+                .expect("reconnect after promotion process abort")
+                .with_filesystem_storage(
+                    storage.path().to_str().expect("UTF-8 test storage path"),
+                    0,
+                );
+            assert_eq!(
+                recover_shard_sidecar_import_journals(
+                    &restarted_db,
+                    &backend,
+                    Some(&promotion_process_abort.schema_name),
+                    None,
+                )
+                .await
+                .expect("recover promotion process-abort journal"),
+                1
+            );
+            assert_eq!(
+                regular_file_count(storage.path()),
+                files_before_promotion_process_abort + expected_recovery_file_delta,
+                "restart recovery must retain exactly the committed files at {phase}"
+            );
+            assert_eq!(
+                regular_file_count(&storage.path().join("staging/shard-import")),
+                0,
+                "restart recovery must remove the {phase} journal and interrupted staging"
+            );
+
+            knowledge_shard_import_internal(
+                &state,
+                &exported_bytes,
+                &opts,
+                &promotion_process_abort.schema_name,
+            )
+            .await
+            .expect("retry after promotion process-abort recovery must import cleanly");
+            let promotion_process_abort_retry_counts = promotion_process_abort_ctx
+                .query(|tx| {
+                    Box::pin(async move {
+                        sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                            "SELECT
+                               (SELECT COUNT(*) FROM note),
+                               (SELECT COUNT(*) FROM attachment),
+                               (SELECT COUNT(*) FROM attachment_blob),
+                               (SELECT COALESCE(SUM(reference_count), 0) FROM attachment_blob)",
+                        )
+                        .fetch_one(&mut **tx)
+                        .await
+                        .map_err(matric_db::Error::Database)
+                    })
+                })
+                .await
+                .expect("read retry destination after promotion process abort");
+            assert_eq!(
+                promotion_process_abort_retry_counts,
+                (2, 3, 2, 3),
+                "clean retry must converge after {phase}"
+            );
+            promotion_process_abort_names.push(promotion_process_abort_name);
+        }
+
+        let mid_promotion_crash_name = format!("shard-sc-midpromo-{}", Uuid::new_v4().simple());
+        let mid_promotion_crash = db
+            .archives
+            .create_archive_schema(
+                &mid_promotion_crash_name,
+                Some("Knowledge Shard sidecar mid-promotion crash test"),
+            )
+            .await
+            .expect("create isolated mid-promotion crash destination");
+        let mid_promotion_crash_ctx = db.for_schema(&mid_promotion_crash.schema_name).unwrap();
+        let files_before_mid_promotion_crash = regular_file_count(storage.path());
+        fail_next_shard_import_during_sidecar_promotion_after(1);
+        let error = knowledge_shard_import_internal(
+            &state,
+            &exported_bytes,
+            &opts,
+            &mid_promotion_crash.schema_name,
+        )
+        .await
+        .expect_err("mid-promotion crash must abort and compensate promoted sidecars");
+        assert!(matches!(error, ApiError::OperationFailed { .. }));
+        let mid_promotion_crash_counts = mid_promotion_crash_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read mid-promotion crash destination");
+        assert_eq!(mid_promotion_crash_counts, (0, 0, 0));
+        assert_eq!(
+            regular_file_count(storage.path()),
+            files_before_mid_promotion_crash,
+            "partially promoted sidecar must be compensated after mid-promotion abort"
+        );
+        assert_eq!(
+            regular_file_count(&storage.path().join("staging/shard-import")),
+            0,
+            "staging must be empty after mid-promotion abort"
+        );
+
+        knowledge_shard_import_internal(
+            &state,
+            &exported_bytes,
+            &opts,
+            &mid_promotion_crash.schema_name,
+        )
+        .await
+        .expect("retry after compensated mid-promotion abort must import cleanly");
+        let mid_promotion_retry_counts = mid_promotion_crash_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob),
+                           (SELECT COALESCE(SUM(reference_count), 0) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read retry destination after mid-promotion crash");
+        assert_eq!(mid_promotion_retry_counts, (2, 3, 2, 3));
+
+        let promotion_crash_name = format!("shard-sc-promo-{}", Uuid::new_v4().simple());
+        let promotion_crash = db
+            .archives
+            .create_archive_schema(
+                &promotion_crash_name,
+                Some("Knowledge Shard sidecar post-promotion crash test"),
+            )
+            .await
+            .expect("create isolated post-promotion crash destination");
+        let promotion_crash_ctx = db.for_schema(&promotion_crash.schema_name).unwrap();
+        let files_before_promotion_crash = regular_file_count(storage.path());
+        fail_next_shard_import_after_sidecar_promotion();
+        let error = knowledge_shard_import_internal(
+            &state,
+            &exported_bytes,
+            &opts,
+            &promotion_crash.schema_name,
+        )
+        .await
+        .expect_err("post-promotion crash must abort and compensate sidecar import");
+        assert!(matches!(error, ApiError::OperationFailed { .. }));
+        let promotion_crash_counts = promotion_crash_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read post-promotion crash destination");
+        assert_eq!(promotion_crash_counts, (0, 0, 0));
+        assert_eq!(
+            regular_file_count(storage.path()),
+            files_before_promotion_crash,
+            "promoted final sidecar must be compensated after transaction abort"
+        );
+        assert_eq!(
+            regular_file_count(&storage.path().join("staging/shard-import")),
+            0,
+            "verified staging bytes must be discarded after post-promotion abort"
+        );
+
+        knowledge_shard_import_internal(
+            &state,
+            &exported_bytes,
+            &opts,
+            &promotion_crash.schema_name,
+        )
+        .await
+        .expect("retry after compensated post-promotion abort must import cleanly");
+        let retry_counts = promotion_crash_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob),
+                           (SELECT COALESCE(SUM(reference_count), 0) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read retry destination after post-promotion crash");
+        assert_eq!(retry_counts, (2, 3, 2, 3));
+        assert_eq!(
+            backend
+                .read(&imported_blob_path)
+                .await
+                .expect("read original imported sidecar bytes after retry"),
+            attachment_bytes,
+            "compensated retry must not disturb preexisting imported bytes"
+        );
+
+        let post_commit_crash_name = format!("shard-sc-postcommit-{}", Uuid::new_v4().simple());
+        let post_commit_crash = db
+            .archives
+            .create_archive_schema(
+                &post_commit_crash_name,
+                Some("Knowledge Shard sidecar post-commit staged-discard crash test"),
+            )
+            .await
+            .expect("create isolated post-commit crash destination");
+        let post_commit_crash_ctx = db.for_schema(&post_commit_crash.schema_name).unwrap();
+        let files_before_post_commit_crash = regular_file_count(storage.path());
+        fail_next_shard_import_after_component_apply_before_staged_discard();
+        let error = knowledge_shard_import_internal(
+            &state,
+            &exported_bytes,
+            &opts,
+            &post_commit_crash.schema_name,
+        )
+        .await
+        .expect_err("post-commit staged-discard crash must report the interrupted boundary");
+        assert!(matches!(error, ApiError::OperationFailed { .. }));
+        let post_commit_crash_counts = post_commit_crash_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob),
+                           (SELECT COALESCE(SUM(reference_count), 0) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read post-commit crash destination");
+        assert_eq!(
+            post_commit_crash_counts,
+            (2, 3, 2, 3),
+            "component apply is durable once the import transaction has committed"
+        );
+        assert_eq!(
+            regular_file_count(storage.path()),
+            files_before_post_commit_crash + 4,
+            "committed sidecars and their interrupted recovery journal plus lock must remain durable"
+        );
+        assert_eq!(
+            regular_file_count(&storage.path().join("staging/shard-import")),
+            2,
+            "post-commit interruption must retain exactly one durable recovery journal and lock"
+        );
+        let post_commit_blob_paths = post_commit_crash_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (String, String)>(
+                        "SELECT content_hash, storage_path
+                         FROM attachment_blob
+                         WHERE storage_backend <> 'reference'
+                         ORDER BY content_hash",
+                    )
+                    .fetch_all(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read post-commit blob paths");
+        let post_commit_primary_path = post_commit_blob_paths
+            .iter()
+            .find(|(checksum, _)| checksum == &attachment_checksum)
+            .map(|(_, storage_path)| storage_path)
+            .expect("post-commit primary sidecar path");
+        let post_commit_extra_path = post_commit_blob_paths
+            .iter()
+            .find(|(checksum, _)| checksum == &extra_attachment_checksum)
+            .map(|(_, storage_path)| storage_path)
+            .expect("post-commit extra sidecar path");
+        assert_eq!(
+            backend
+                .read(post_commit_primary_path)
+                .await
+                .expect("read post-commit primary sidecar bytes"),
+            attachment_bytes
+        );
+        assert_eq!(
+            backend
+                .read(post_commit_extra_path)
+                .await
+                .expect("read post-commit extra sidecar bytes"),
+            extra_attachment_bytes
+        );
+        assert_eq!(
+            recover_shard_sidecar_import_journals(
+                &state.db,
+                &backend,
+                Some(&post_commit_crash.schema_name),
+                None,
+            )
+            .await
+            .expect("recover committed post-commit journal"),
+            1
+        );
+        assert_eq!(
+            regular_file_count(storage.path()),
+            files_before_post_commit_crash + 2,
+            "recovery must preserve committed final sidecars and remove only its journal"
+        );
+        assert_eq!(
+            regular_file_count(&storage.path().join("staging/shard-import")),
+            0,
+            "recovery must remove the committed import journal"
+        );
+        knowledge_shard_import_internal(
+            &state,
+            &exported_bytes,
+            &opts,
+            &post_commit_crash.schema_name,
+        )
+        .await
+        .expect("retry after post-commit crash must be idempotent");
+        let post_commit_retry_counts = post_commit_crash_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                        "SELECT
+                           (SELECT COUNT(*) FROM note),
+                           (SELECT COUNT(*) FROM attachment),
+                           (SELECT COUNT(*) FROM attachment_blob),
+                           (SELECT COALESCE(SUM(reference_count), 0) FROM attachment_blob)",
+                    )
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read retry destination after post-commit crash");
+        assert_eq!(post_commit_retry_counts, (2, 3, 2, 3));
+        assert_eq!(
+            regular_file_count(&storage.path().join("staging/shard-import")),
+            0,
+            "retry must not require abandoned staging cleanup after committed import"
+        );
+
+        for archive_name in promotion_process_abort_names {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .expect("drop isolated promotion process-abort test schema");
+        }
+        for archive_name in journal_process_abort_names {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .expect("drop isolated journal persistence process-abort test schema");
+        }
+        for archive_name in [
+            post_commit_crash_name,
+            promotion_crash_name,
+            mid_promotion_crash_name,
+            copy_process_abort_name,
+            process_abort_name,
+            staging_crash_name,
+            during_staging_crash_name,
+            rollback_name,
+            destination_name,
+            tamper_name,
+            source_name,
+        ] {
             db.archives
                 .drop_archive_schema(&archive_name)
                 .await
                 .expect("drop isolated sidecar test schema");
         }
+    }
+
+    #[tokio::test]
+    async fn shard_sidecar_process_abort_child() {
+        let Some(shard_path) = std::env::var_os("FORTEMI_TEST_SHARD_PROCESS_ABORT_SHARD_PATH")
+        else {
+            return;
+        };
+        let schema = std::env::var("FORTEMI_TEST_SHARD_PROCESS_ABORT_SCHEMA")
+            .expect("process-abort child schema");
+        let storage_root = std::env::var("FORTEMI_TEST_SHARD_PROCESS_ABORT_STORAGE")
+            .expect("process-abort child storage root");
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect process-abort child database")
+            .with_filesystem_storage(&storage_root, 0);
+        let state = build_call_api_test_state(db, &database_url).await;
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let shard_bytes = tokio::fs::read(&shard_path)
+            .await
+            .expect("read process-abort shard bytes");
+
+        let _ = knowledge_shard_import_internal(&state, &shard_bytes, &opts, &schema).await;
+        panic!("process-abort child import returned instead of aborting");
     }
 
     #[tokio::test]
@@ -49247,6 +51105,959 @@ not-json
                 .await
                 .expect("drop isolated full-v1 route schema");
         }
+    }
+
+    #[tokio::test]
+    async fn al_sys04_live_tus_restart_and_clean_full_v1_recovery_preserves_asset_bytes() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let storage = tempfile::tempdir().expect("create isolated asset lifecycle storage");
+        let tus = tempfile::tempdir().expect("create isolated tus lifecycle storage");
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database")
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        let source_name = format!("al-sys04-source-{}", Uuid::new_v4().simple());
+        let destination_name = format!("al-sys04-destination-{}", Uuid::new_v4().simple());
+        let source = db
+            .archives
+            .create_archive_schema(&source_name, Some("AL-SYS04 source"))
+            .await
+            .expect("create AL-SYS04 source");
+        let destination = db
+            .archives
+            .create_archive_schema(&destination_name, Some("AL-SYS04 destination"))
+            .await
+            .expect("create AL-SYS04 destination");
+        let source_ctx = ArchiveContext {
+            schema: source.schema_name.clone(),
+            is_default: false,
+            name: Some(source_name.clone()),
+        };
+        let destination_ctx = ArchiveContext {
+            schema: destination.schema_name.clone(),
+            is_default: false,
+            name: Some(destination_name.clone()),
+        };
+        let client = reqwest::Client::new();
+        let note_id =
+            create_asset_lifecycle_note(&db, &source.schema_name, "AL-SYS04 filesystem origin")
+                .await;
+        let bytes = b"AL-SYS04 deterministic asset bytes; not empty; restart-safe.\n".to_vec();
+        let expected_hash = matric_db::compute_content_hash(&bytes);
+
+        let source_state =
+            create_asset_lifecycle_test_state(db.clone(), &database_url, tus.path()).await;
+        seed_asset_lifecycle_full_v1_baseline(&source_state, &source.schema_name).await;
+        let source_base = spawn_asset_lifecycle_test_server(source_state, source_ctx.clone()).await;
+        let attachment_id = upload_asset_over_tus(
+            &client,
+            &source_base,
+            note_id,
+            "al-sys04.bin",
+            "application/octet-stream",
+            &bytes,
+        )
+        .await;
+
+        let restarted_tus = tempfile::tempdir().expect("create restarted tus staging storage");
+        let restarted_state =
+            create_asset_lifecycle_test_state(db.clone(), &database_url, restarted_tus.path())
+                .await;
+        let restarted_base = spawn_asset_lifecycle_test_server(restarted_state, source_ctx).await;
+        assert_eq!(
+            download_asset_bytes(&client, &restarted_base, attachment_id).await,
+            bytes
+        );
+
+        let (archive, signature, _signing_key_file) =
+            signed_full_v1_export(&client, &restarted_base, "al-sys04-route-test").await;
+        let files = read_shard_archive(&archive, ShardArchiveLimits::default()).unwrap();
+        let sidecar_name = shard_blob_entry_name(&expected_hash).expect("sidecar entry name");
+        assert_eq!(files[&sidecar_name], bytes);
+
+        let destination_state =
+            create_asset_lifecycle_test_state(db.clone(), &database_url, tus.path()).await;
+        let destination_base =
+            spawn_asset_lifecycle_test_server(destination_state, destination_ctx).await;
+        let import = import_signed_full_v1(&client, &destination_base, &archive, &signature).await;
+        assert_eq!(import["status"], "success");
+
+        let destination_attachment_id: Uuid = db
+            .for_schema(&destination.schema_name)
+            .unwrap()
+            .query(|tx| {
+                let expected_hash = expected_hash.clone();
+                Box::pin(async move {
+                    sqlx::query_scalar(
+                        "SELECT a.id
+                         FROM attachment a
+                         JOIN attachment_blob ab ON ab.id = a.blob_id
+                         WHERE ab.content_hash = $1
+                         ORDER BY a.created_at
+                         LIMIT 1",
+                    )
+                    .bind(expected_hash)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("find destination attachment by digest");
+        assert_eq!(
+            download_asset_bytes(&client, &destination_base, destination_attachment_id).await,
+            bytes
+        );
+
+        let source_tus_count = db
+            .for_schema(&source.schema_name)
+            .unwrap()
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tus_upload")
+                        .fetch_one(&mut **tx)
+                        .await
+                        .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read AL-SYS04 source tus count");
+        assert_eq!(source_tus_count, 1_i64);
+        let live_blob = db
+            .for_schema(&source.schema_name)
+            .unwrap()
+            .query(|tx| {
+                let expected_hash = expected_hash.clone();
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i32)>(
+                        "SELECT COUNT(*), MAX(reference_count)
+                         FROM attachment_blob
+                         WHERE content_hash = $1",
+                    )
+                    .bind(expected_hash)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read AL-SYS04 live blob refcount");
+        assert_eq!(live_blob, (1, 1));
+        assert!(
+            std::fs::read_dir(tus.path())
+                .expect("read tus staging")
+                .next()
+                .is_none(),
+            "committed tus upload must not leave staging files"
+        );
+
+        for archive_name in [destination_name, source_name] {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .expect("drop AL-SYS04 archive");
+        }
+    }
+
+    #[tokio::test]
+    async fn al_sys04_tus_crash_after_offset_commit_retries_finalization_without_partial_state() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let storage = tempfile::tempdir().expect("create isolated AL-SYS04 crash storage");
+        let tus = tempfile::tempdir().expect("create isolated AL-SYS04 crash tus storage");
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database")
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        let source_name = format!("al-sys04-crash-source-{}", Uuid::new_v4().simple());
+        let source = db
+            .archives
+            .create_archive_schema(&source_name, Some("AL-SYS04 crash source"))
+            .await
+            .expect("create AL-SYS04 crash source");
+        let source_ctx = ArchiveContext {
+            schema: source.schema_name.clone(),
+            is_default: false,
+            name: Some(source_name.clone()),
+        };
+        let note_id =
+            create_asset_lifecycle_note(&db, &source.schema_name, "AL-SYS04 crash retry").await;
+        let bytes = b"AL-SYS04 crash-window retry bytes survive finalization.\n".to_vec();
+        let expected_hash = matric_db::compute_content_hash(&bytes);
+        let upload_id = Uuid::now_v7();
+        let staging_path = tus.path().join(format!("{upload_id}.part"));
+        tokio::fs::write(&staging_path, &bytes)
+            .await
+            .expect("seed crash-window staging bytes");
+        let total_size = bytes.len() as i64;
+
+        db.for_schema(&source.schema_name)
+            .unwrap()
+            .execute(|tx| {
+                let staging_path = staging_path.to_string_lossy().to_string();
+                Box::pin(async move {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO tus_upload
+                            (id, note_id, filename, content_type, total_size, current_offset,
+                             storage_path, expires_at, metadata)
+                        VALUES ($1, $2, 'al-sys04-crash.bin', 'application/octet-stream',
+                                $3, $3, $4, NOW() + INTERVAL '1 hour', '{}'::jsonb)
+                        "#,
+                    )
+                    .bind(upload_id)
+                    .bind(note_id)
+                    .bind(total_size)
+                    .bind(staging_path)
+                    .execute(&mut **tx)
+                    .await
+                    .map(|_| ())
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("seed crash-window tus row");
+
+        let state = create_asset_lifecycle_test_state(db.clone(), &database_url, tus.path()).await;
+        let base = spawn_asset_lifecycle_test_server(state, source_ctx).await;
+        let client = reqwest::Client::new();
+        let response = client
+            .patch(format!(
+                "{base}/api/v1/notes/{note_id}/attachments/tus/{upload_id}"
+            ))
+            .header("Tus-Resumable", "1.0.0")
+            .header("Content-Type", "application/offset+octet-stream")
+            .header("Upload-Offset", bytes.len().to_string())
+            .body(Vec::new())
+            .send()
+            .await
+            .expect("retry finalization after crash window");
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            response.headers()["Upload-Offset"].to_str().unwrap(),
+            bytes.len().to_string()
+        );
+        let attachment: serde_json::Value = response.json().await.expect("attachment json");
+        let attachment_id = attachment["id"]
+            .as_str()
+            .expect("attachment id")
+            .parse::<Uuid>()
+            .expect("valid attachment id");
+        assert_eq!(
+            download_asset_bytes(&client, &base, attachment_id).await,
+            bytes
+        );
+        assert!(
+            tokio::fs::try_exists(&staging_path)
+                .await
+                .expect("stat staging path")
+                == false,
+            "successful retry finalization must remove durable staging bytes"
+        );
+
+        let (attachment_count, blob_count, max_refcount, finalized_id): (
+            i64,
+            i64,
+            i32,
+            Option<String>,
+        ) = db
+            .for_schema(&source.schema_name)
+            .unwrap()
+            .query(|tx| {
+                let expected_hash = expected_hash.clone();
+                Box::pin(async move {
+                    sqlx::query_as(
+                        r#"
+                        SELECT
+                            (SELECT COUNT(*)
+                             FROM attachment a
+                             JOIN attachment_blob ab ON ab.id = a.blob_id
+                             WHERE ab.content_hash = $1) AS attachment_count,
+                            (SELECT COUNT(*)
+                             FROM attachment_blob
+                             WHERE content_hash = $1) AS blob_count,
+                            (SELECT COALESCE(MAX(reference_count), 0)
+                             FROM attachment_blob
+                             WHERE content_hash = $1) AS max_refcount,
+                            (SELECT metadata->>'attachment_id'
+                             FROM tus_upload
+                             WHERE id = $2) AS finalized_id
+                        "#,
+                    )
+                    .bind(expected_hash)
+                    .bind(upload_id)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read crash-window finalization state");
+        assert_eq!(attachment_count, 1);
+        assert_eq!(blob_count, 1);
+        assert_eq!(max_refcount, 1);
+        assert_eq!(finalized_id, Some(attachment_id.to_string()));
+
+        let finalized = client
+            .get(format!(
+                "{base}/api/v1/notes/{note_id}/attachments/tus/{upload_id}"
+            ))
+            .send()
+            .await
+            .expect("get finalized crash-window upload");
+        assert_eq!(finalized.status(), reqwest::StatusCode::OK);
+        let finalized: serde_json::Value = finalized.json().await.expect("finalized json");
+        assert_eq!(finalized["id"].as_str().unwrap(), attachment_id.to_string());
+
+        db.archives
+            .drop_archive_schema(&source_name)
+            .await
+            .expect("drop AL-SYS04 crash archive");
+    }
+
+    #[tokio::test]
+    async fn al_sys05_same_byte_upload_import_and_reference_delete_preserve_refcounts() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let storage = tempfile::tempdir().expect("create isolated AL-SYS05 storage");
+        let tus = tempfile::tempdir().expect("create isolated AL-SYS05 tus storage");
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database")
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        let source_name = format!("al-sys05-source-{}", Uuid::new_v4().simple());
+        let destination_name = format!("al-sys05-destination-{}", Uuid::new_v4().simple());
+        let source = db
+            .archives
+            .create_archive_schema(&source_name, Some("AL-SYS05 source"))
+            .await
+            .expect("create AL-SYS05 source");
+        let destination = db
+            .archives
+            .create_archive_schema(&destination_name, Some("AL-SYS05 destination"))
+            .await
+            .expect("create AL-SYS05 destination");
+        let client = reqwest::Client::new();
+        let source_ctx = ArchiveContext {
+            schema: source.schema_name.clone(),
+            is_default: false,
+            name: Some(source_name.clone()),
+        };
+        let destination_ctx = ArchiveContext {
+            schema: destination.schema_name.clone(),
+            is_default: false,
+            name: Some(destination_name.clone()),
+        };
+        let state = create_asset_lifecycle_test_state(db.clone(), &database_url, tus.path()).await;
+        seed_asset_lifecycle_full_v1_baseline(&state, &source.schema_name).await;
+        let source_base = spawn_asset_lifecycle_test_server(state, source_ctx).await;
+        let note_a = create_asset_lifecycle_note(&db, &source.schema_name, "AL-SYS05 A").await;
+        let note_b = create_asset_lifecycle_note(&db, &source.schema_name, "AL-SYS05 B").await;
+        let bytes = b"AL-SYS05 shared attachment bytes for dedup and refcount.\n".to_vec();
+        let expected_hash = matric_db::compute_content_hash(&bytes);
+
+        let upload_a = upload_asset_over_tus(
+            &client,
+            &source_base,
+            note_a,
+            "same-a.bin",
+            "application/octet-stream",
+            &bytes,
+        );
+        let upload_b = upload_asset_over_tus(
+            &client,
+            &source_base,
+            note_b,
+            "same-b.bin",
+            "application/octet-stream",
+            &bytes,
+        );
+        let (attachment_a, attachment_b) = tokio::join!(upload_a, upload_b);
+        assert_ne!(attachment_a, attachment_b);
+
+        let (archive, signature, _signing_key_file) =
+            signed_full_v1_export(&client, &source_base, "al-sys05-route-test").await;
+        let destination_state =
+            create_asset_lifecycle_test_state(db.clone(), &database_url, tus.path()).await;
+        let destination_base =
+            spawn_asset_lifecycle_test_server(destination_state, destination_ctx).await;
+
+        let delete_source_ref = client
+            .delete(format!("{source_base}/api/v1/attachments/{attachment_a}"))
+            .send();
+        let import_destination =
+            import_signed_full_v1(&client, &destination_base, &archive, &signature);
+        let (delete_result, import_result) = tokio::join!(delete_source_ref, import_destination);
+        assert_eq!(
+            delete_result
+                .expect("delete selected source reference")
+                .status(),
+            reqwest::StatusCode::OK
+        );
+        assert_eq!(import_result["status"], "success");
+
+        let source_blob = db
+            .for_schema(&source.schema_name)
+            .unwrap()
+            .query(|tx| {
+                let expected_hash = expected_hash.clone();
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i32)>(
+                        "SELECT COUNT(*), MAX(reference_count)
+                         FROM attachment_blob
+                         WHERE content_hash = $1",
+                    )
+                    .bind(expected_hash)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read source blob refcount");
+        assert_eq!(source_blob, (1, 1));
+        assert_eq!(
+            download_asset_bytes(&client, &source_base, attachment_b).await,
+            bytes
+        );
+
+        let destination_blob = db
+            .for_schema(&destination.schema_name)
+            .unwrap()
+            .query(|tx| {
+                let expected_hash = expected_hash.clone();
+                Box::pin(async move {
+                    sqlx::query_as::<_, (i64, i32)>(
+                        "SELECT COUNT(*), MAX(reference_count)
+                         FROM attachment_blob
+                         WHERE content_hash = $1",
+                    )
+                    .bind(expected_hash)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read destination blob refcount");
+        assert_eq!(destination_blob, (1, 2));
+
+        let destination_attachment: Uuid = db
+            .for_schema(&destination.schema_name)
+            .unwrap()
+            .query(|tx| {
+                let expected_hash = expected_hash.clone();
+                Box::pin(async move {
+                    sqlx::query_scalar(
+                        "SELECT a.id
+                         FROM attachment a
+                         JOIN attachment_blob ab ON ab.id = a.blob_id
+                         WHERE ab.content_hash = $1
+                         ORDER BY a.created_at
+                         LIMIT 1",
+                    )
+                    .bind(expected_hash)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read destination attachment");
+        assert_eq!(
+            download_asset_bytes(&client, &destination_base, destination_attachment).await,
+            bytes
+        );
+
+        for archive_name in [destination_name, source_name] {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .expect("drop AL-SYS05 archive");
+        }
+    }
+
+    #[tokio::test]
+    async fn al_perf01_configurable_corpus_records_receipt_and_limit_plus_one_gate() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let corpus_bytes = std::env::var("FORTEMI_AL_PERF_CORPUS_BYTES")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(1024 * 1024);
+        assert!(
+            corpus_bytes > 0,
+            "FORTEMI_AL_PERF_CORPUS_BYTES must be positive"
+        );
+        let storage = tempfile::tempdir().expect("create isolated AL-PERF01 storage");
+        let tus = tempfile::tempdir().expect("create isolated AL-PERF01 tus storage");
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database")
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        let source_name = format!("al-perf01-source-{}", Uuid::new_v4().simple());
+        let destination_name = format!("al-perf01-destination-{}", Uuid::new_v4().simple());
+        let source = db
+            .archives
+            .create_archive_schema(&source_name, Some("AL-PERF01 source"))
+            .await
+            .expect("create AL-PERF01 source");
+        let destination = db
+            .archives
+            .create_archive_schema(&destination_name, Some("AL-PERF01 destination"))
+            .await
+            .expect("create AL-PERF01 destination");
+        let source_ctx = ArchiveContext {
+            schema: source.schema_name.clone(),
+            is_default: false,
+            name: Some(source_name.clone()),
+        };
+        let destination_ctx = ArchiveContext {
+            schema: destination.schema_name.clone(),
+            is_default: false,
+            name: Some(destination_name.clone()),
+        };
+        let client = reqwest::Client::new();
+        let note_id =
+            create_asset_lifecycle_note(&db, &source.schema_name, "AL-PERF01 corpus").await;
+        let bytes = deterministic_asset_lifecycle_bytes(corpus_bytes);
+        let segment_max_bytes = std::env::var("FORTEMI_AL_PERF_SEGMENT_BYTES")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(SHARD_MAX_ENTRY_BYTES)
+            .clamp(1, SHARD_MAX_ENTRY_BYTES);
+        let segments: Vec<&[u8]> = bytes.chunks(segment_max_bytes).collect();
+        assert!(!segments.is_empty(), "AL-PERF01 corpus must have segments");
+        let expected_hashes: Vec<String> = segments
+            .iter()
+            .map(|segment| matric_db::compute_content_hash(segment))
+            .collect();
+        let rss_before = current_rss_high_water_bytes();
+        let disk_before = directory_size_bytes(storage.path()) + directory_size_bytes(tus.path());
+
+        let mut source_state =
+            create_asset_lifecycle_test_state(db.clone(), &database_url, tus.path()).await;
+        source_state.max_upload_size = corpus_bytes;
+        seed_asset_lifecycle_full_v1_baseline(&source_state, &source.schema_name).await;
+        let source_base = spawn_asset_lifecycle_test_server(source_state, source_ctx).await;
+
+        let limit_plus_one = client
+            .post(format!(
+                "{source_base}/api/v1/notes/{note_id}/attachments/tus"
+            ))
+            .header("Tus-Resumable", "1.0.0")
+            .header("Upload-Length", (corpus_bytes + 1).to_string())
+            .header(
+                "Upload-Metadata",
+                format!(
+                    "filename {},content_type {}",
+                    base64::engine::general_purpose::STANDARD.encode("al-perf01-limit.bin"),
+                    base64::engine::general_purpose::STANDARD.encode("application/octet-stream")
+                ),
+            )
+            .send()
+            .await
+            .expect("send limit-plus-one TUS create");
+        assert_eq!(limit_plus_one.status(), reqwest::StatusCode::BAD_REQUEST);
+        let tus_count_after_reject = db
+            .for_schema(&source.schema_name)
+            .unwrap()
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tus_upload")
+                        .fetch_one(&mut **tx)
+                        .await
+                        .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read TUS count after limit rejection");
+        assert_eq!(
+            tus_count_after_reject, 0,
+            "limit-plus-one create must fail before mutating tus_upload"
+        );
+
+        let upload_started = std::time::Instant::now();
+        let mut source_attachment_ids = Vec::with_capacity(segments.len());
+        for (index, segment) in segments.iter().enumerate() {
+            let attachment_id = upload_asset_over_tus(
+                &client,
+                &source_base,
+                note_id,
+                &format!("al-perf01-{index:04}.bin"),
+                "application/octet-stream",
+                segment,
+            )
+            .await;
+            source_attachment_ids.push(attachment_id);
+        }
+        let upload_elapsed = upload_started.elapsed();
+
+        let download_started = std::time::Instant::now();
+        let mut source_downloaded = Vec::with_capacity(corpus_bytes);
+        for attachment_id in source_attachment_ids {
+            source_downloaded
+                .extend(download_asset_bytes(&client, &source_base, attachment_id).await);
+        }
+        assert_eq!(source_downloaded, bytes);
+        let download_elapsed = download_started.elapsed();
+
+        let export_started = std::time::Instant::now();
+        let (archive, signature, _signing_key_file) =
+            signed_full_v1_export(&client, &source_base, "al-perf01-route-test").await;
+        let export_elapsed = export_started.elapsed();
+        let files = read_shard_archive(&archive, ShardArchiveLimits::default()).unwrap();
+        assert!(
+            files.len() <= SHARD_MAX_ENTRIES,
+            "producer archive entry count must remain inside the consumer limit"
+        );
+        for (expected_hash, segment) in expected_hashes.iter().zip(&segments) {
+            let sidecar_name = shard_blob_entry_name(expected_hash).expect("sidecar entry name");
+            assert_eq!(files[&sidecar_name], *segment);
+        }
+
+        let mut destination_state =
+            create_asset_lifecycle_test_state(db.clone(), &database_url, tus.path()).await;
+        destination_state.max_upload_size = corpus_bytes.max(archive.len());
+        let destination_base =
+            spawn_asset_lifecycle_test_server(destination_state, destination_ctx).await;
+        let import_started = std::time::Instant::now();
+        let import = import_signed_full_v1(&client, &destination_base, &archive, &signature).await;
+        let import_elapsed = import_started.elapsed();
+        assert_eq!(import["status"], "success");
+
+        let destination_attachments: Vec<(String, Uuid)> = db
+            .for_schema(&destination.schema_name)
+            .unwrap()
+            .query(|tx| {
+                let expected_hashes = expected_hashes.clone();
+                Box::pin(async move {
+                    sqlx::query_as(
+                        "SELECT ab.content_hash, a.id
+                         FROM attachment a
+                         JOIN attachment_blob ab ON ab.id = a.blob_id
+                         WHERE ab.content_hash = ANY($1)
+                         ORDER BY a.filename",
+                    )
+                    .bind(&expected_hashes)
+                    .fetch_all(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read destination AL-PERF01 attachment");
+        assert_eq!(destination_attachments.len(), segments.len());
+        let recovery_download_started = std::time::Instant::now();
+        let mut destination_downloaded = Vec::with_capacity(corpus_bytes);
+        for (_hash, attachment_id) in destination_attachments {
+            destination_downloaded
+                .extend(download_asset_bytes(&client, &destination_base, attachment_id).await);
+        }
+        assert_eq!(destination_downloaded, bytes);
+        let recovery_download_elapsed = recovery_download_started.elapsed();
+
+        let rss_after = current_rss_high_water_bytes();
+        let disk_after = directory_size_bytes(storage.path()) + directory_size_bytes(tus.path());
+        let git_commit = command_stdout("git", &["rev-parse", "HEAD"]);
+        let git_status = command_stdout("git", &["status", "--porcelain"]);
+        let git_dirty = git_status.as_ref().map(|status| !status.trim().is_empty());
+        let expect_clean_checkout = std::env::var("FORTEMI_AL_PERF_EXPECT_CLEAN_CHECKOUT")
+            .ok()
+            .as_deref()
+            == Some("1");
+        let clean_checkout_reproduced = expect_clean_checkout && git_dirty == Some(false);
+        let current_dir = std::env::current_dir()
+            .ok()
+            .map(|path| path.to_string_lossy().to_string());
+        let storage_filesystem = filesystem_type(storage.path());
+        let tus_filesystem = filesystem_type(tus.path());
+        let rustc_version = command_stdout("rustc", &["--version"]);
+        let cargo_version = command_stdout("cargo", &["--version"]);
+        let bytes_per_second = |bytes: usize, elapsed: std::time::Duration| -> u64 {
+            let millis = elapsed.as_millis().max(1);
+            ((bytes as u128 * 1000) / millis).min(u64::MAX as u128) as u64
+        };
+        let parse_budget = |name: &str| -> Option<u64> {
+            std::env::var(name)
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+        };
+        let upload_millis = upload_elapsed.as_millis();
+        let download_millis = download_elapsed.as_millis();
+        let export_millis = export_elapsed.as_millis();
+        let import_millis = import_elapsed.as_millis();
+        let recovery_download_millis = recovery_download_elapsed.as_millis();
+        let rto_millis = import_elapsed
+            .saturating_add(recovery_download_elapsed)
+            .as_millis();
+        let rss_delta = rss_after.saturating_sub(rss_before);
+        let max_upload_millis = parse_budget("FORTEMI_AL_PERF_MAX_UPLOAD_MILLIS");
+        let max_download_millis = parse_budget("FORTEMI_AL_PERF_MAX_DOWNLOAD_MILLIS");
+        let max_export_millis = parse_budget("FORTEMI_AL_PERF_MAX_EXPORT_MILLIS");
+        let max_import_millis = parse_budget("FORTEMI_AL_PERF_MAX_IMPORT_MILLIS");
+        let max_recovery_rto_millis = parse_budget("FORTEMI_AL_PERF_MAX_RECOVERY_RTO_MILLIS");
+        let max_rss_delta_bytes = parse_budget("FORTEMI_AL_PERF_MAX_RSS_DELTA_BYTES");
+        let max_storage_and_tus_disk_bytes =
+            parse_budget("FORTEMI_AL_PERF_MAX_STORAGE_AND_TUS_DISK_BYTES");
+        let expected_max_corpus_bytes = parse_budget("FORTEMI_AL_PERF_EXPECT_MAX_CORPUS_BYTES");
+        let expected_max_sidecar_count = parse_budget("FORTEMI_AL_PERF_EXPECT_MAX_SIDECAR_COUNT");
+        let budget_pass = |actual: u128, limit: Option<u64>| -> bool {
+            limit.is_some_and(|limit| actual <= limit as u128)
+        };
+        let max_corpus_passed =
+            expected_max_corpus_bytes.is_some_and(|limit| corpus_bytes as u128 >= limit as u128);
+        let max_count_corpus_passed = expected_max_sidecar_count.is_some_and(|limit| {
+            segments.len() as u128 == limit as u128 && files.len() == SHARD_MAX_ENTRIES
+        });
+        let budget_limits = [
+            max_upload_millis,
+            max_download_millis,
+            max_export_millis,
+            max_import_millis,
+            max_recovery_rto_millis,
+            max_rss_delta_bytes,
+            max_storage_and_tus_disk_bytes,
+        ];
+        let approved_budget_gate_enabled = budget_limits.iter().any(Option::is_some);
+        let approved_budget_gate_complete = budget_limits.iter().all(Option::is_some);
+        let approved_budgets_passed = approved_budget_gate_complete
+            && budget_pass(upload_millis, max_upload_millis)
+            && budget_pass(download_millis, max_download_millis)
+            && budget_pass(export_millis, max_export_millis)
+            && budget_pass(import_millis, max_import_millis)
+            && budget_pass(rto_millis, max_recovery_rto_millis)
+            && budget_pass(rss_delta as u128, max_rss_delta_bytes)
+            && budget_pass(disk_after as u128, max_storage_and_tus_disk_bytes);
+        let approved_rpo_rto_budget_passed =
+            max_recovery_rto_millis.is_some_and(|limit| rto_millis <= limit as u128);
+        use sha2::Digest;
+        let receipt = serde_json::json!({
+            "schemaVersion": "fortemi.asset-lifecycle.perf-receipt.v1",
+            "status": "local-focused-measurement-passed",
+            "scope": "Fortemi AL-PERF01 configurable corpus scaffold; not a full #1094 closure",
+            "profile": "2.0.0/full-v1",
+            "corpus": {
+                "bytes": corpus_bytes,
+                "segmentCount": segments.len(),
+                "segmentMaxBytes": segment_max_bytes,
+                "archiveEntryCount": files.len(),
+                "sha256": hex::encode(sha2::Sha256::digest(&bytes)),
+                "blake3Segments": expected_hashes,
+            },
+            "limits": {
+                "maxUploadSizeBytes": corpus_bytes,
+                "expectedMaxCorpusBytes": expected_max_corpus_bytes,
+                "expectedMaxSidecarCount": expected_max_sidecar_count,
+                "maxArchiveEntries": SHARD_MAX_ENTRIES,
+                "limitPlusOneRejectedBeforeTusMutation": true,
+            },
+            "boundedIo": {
+                "scope": "Fortemi server filesystem TUS and 2.0.0/full-v1 sidecars",
+                "tusRequestBodyStreaming": true,
+                "tusFinalizationWholePayloadBuffered": false,
+                "tusSafetyPrefixMaxBytes": TUS_FINALIZATION_PREFIX_BYTES,
+                "filesystemCopyBufferBytes": matric_db::FILE_COPY_BUFFER_BYTES,
+                "fullV1SidecarImportSpooledToDisk": true,
+                "fullV1SidecarStreamBufferBytes": SHARD_STREAM_BUFFER_BYTES,
+                "wholeTestProcessBoundedMemoryPassed": false,
+            },
+            "metrics": {
+                "uploadMillis": upload_millis,
+                "downloadMillis": download_millis,
+                "exportMillis": export_millis,
+                "importMillis": import_millis,
+                "recoveryDownloadMillis": recovery_download_millis,
+                "uploadBytesPerSecond": bytes_per_second(corpus_bytes, upload_elapsed),
+                "downloadBytesPerSecond": bytes_per_second(corpus_bytes, download_elapsed),
+                "exportArchiveBytesPerSecond": bytes_per_second(archive.len(), export_elapsed),
+                "importArchiveBytesPerSecond": bytes_per_second(archive.len(), import_elapsed),
+                "archiveBytes": archive.len(),
+                "storageAndTusDiskBytesBefore": disk_before,
+                "storageAndTusDiskBytesAfter": disk_after,
+                "rssHighWaterBytesBefore": rss_before,
+                "rssHighWaterBytesAfter": rss_after,
+                "rssHighWaterDeltaBytes": rss_delta,
+            },
+            "budgets": {
+                "approvedGateEnabled": approved_budget_gate_enabled,
+                "approvedGateComplete": approved_budget_gate_complete,
+                "approvedGatePassed": approved_budgets_passed,
+                "uploadMillis": {
+                    "actual": upload_millis,
+                    "max": max_upload_millis,
+                    "passed": budget_pass(upload_millis, max_upload_millis),
+                },
+                "downloadMillis": {
+                    "actual": download_millis,
+                    "max": max_download_millis,
+                    "passed": budget_pass(download_millis, max_download_millis),
+                },
+                "exportMillis": {
+                    "actual": export_millis,
+                    "max": max_export_millis,
+                    "passed": budget_pass(export_millis, max_export_millis),
+                },
+                "importMillis": {
+                    "actual": import_millis,
+                    "max": max_import_millis,
+                    "passed": budget_pass(import_millis, max_import_millis),
+                },
+                "recoveryRtoMillis": {
+                    "actual": rto_millis,
+                    "max": max_recovery_rto_millis,
+                    "passed": approved_rpo_rto_budget_passed,
+                },
+                "rssHighWaterDeltaBytes": {
+                    "actual": rss_delta,
+                    "max": max_rss_delta_bytes,
+                    "passed": budget_pass(rss_delta as u128, max_rss_delta_bytes),
+                },
+                "storageAndTusDiskBytesAfter": {
+                    "actual": disk_after,
+                    "max": max_storage_and_tus_disk_bytes,
+                    "passed": budget_pass(disk_after as u128, max_storage_and_tus_disk_bytes),
+                },
+            },
+            "recovery": {
+                "rpoLostBytesAfterSignedFullV1Export": 0,
+                "rpoDigestMatchesExportedSidecar": true,
+                "rtoMillisImportAndVerifyDownload": rto_millis,
+                "timedRpoRtoRecorded": true,
+                "approvedRpoRtoBudgetPassed": approved_rpo_rto_budget_passed,
+            },
+            "reproducibility": {
+                "gitCommit": git_commit,
+                "worktreeDirty": git_dirty,
+                "currentDir": current_dir,
+                "packageVersion": env!("CARGO_PKG_VERSION"),
+                "targetOs": std::env::consts::OS,
+                "targetArch": std::env::consts::ARCH,
+                "storageFilesystem": storage_filesystem,
+                "tusFilesystem": tus_filesystem,
+                "rustcVersion": rustc_version,
+                "cargoVersion": cargo_version,
+                "deterministicCorpusAlgorithm": "deterministic_asset_lifecycle_bytes(index * 31 + floor(index / 257) + 17 mod 251)",
+                "command": "scripts/ci/verify-asset-lifecycle-perf-receipt.sh",
+                "cleanCheckoutReproduced": clean_checkout_reproduced,
+            },
+            "claims": {
+                "approvedBudgetsPassed": approved_budgets_passed,
+                "hundredMiBCorpusPassed": corpus_bytes >= 100 * 1024 * 1024,
+                "maxCorpusPassed": max_corpus_passed,
+                "maxCountCorpusPassed": max_count_corpus_passed,
+                "rpoRtoPassed": approved_rpo_rto_budget_passed,
+                "boundedServerTusAndFullV1SidecarIoPassed": true,
+                "hotmBrowserDesktopPassed": false,
+                "suiteWidePortability": false,
+            }
+        });
+        if let Ok(path) = std::env::var("FORTEMI_AL_PERF_RECEIPT_PATH") {
+            std::fs::write(&path, serde_json::to_vec_pretty(&receipt).unwrap())
+                .expect("write AL-PERF01 receipt");
+        }
+        println!("{}", serde_json::to_string_pretty(&receipt).unwrap());
+
+        for archive_name in [destination_name, source_name] {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .expect("drop AL-PERF01 archive");
+        }
+    }
+
+    #[tokio::test]
+    async fn al_perf01_process_isolated_streamed_tus_memory_guard() {
+        if let Some(corpus_bytes) = std::env::var(TUS_MEMORY_CHILD_BYTES_ENV)
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+        {
+            run_process_isolated_tus_memory_child(corpus_bytes).await;
+            return;
+        }
+
+        let receipts = tempfile::tempdir().expect("create isolated TUS memory receipt directory");
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let run_child = |corpus_bytes: usize, name: &str| -> serde_json::Value {
+            let receipt_path = receipts.path().join(name);
+            let status =
+                std::process::Command::new(std::env::current_exe().expect("locate test binary"))
+                    .arg("--exact")
+                    .arg("tests::al_perf01_process_isolated_streamed_tus_memory_guard")
+                    .arg("--nocapture")
+                    .env("DATABASE_URL", &database_url)
+                    .env(TUS_MEMORY_CHILD_BYTES_ENV, corpus_bytes.to_string())
+                    .env(TUS_MEMORY_CHILD_RECEIPT_ENV, &receipt_path)
+                    .status()
+                    .expect("run process-isolated TUS memory child");
+            assert!(
+                status.success(),
+                "process-isolated TUS memory child failed for {corpus_bytes} bytes"
+            );
+            serde_json::from_slice(
+                &std::fs::read(&receipt_path).expect("read TUS memory child receipt"),
+            )
+            .expect("parse TUS memory child receipt")
+        };
+
+        let small = run_child(TUS_MEMORY_SMALL_CORPUS_BYTES, "small.json");
+        let large = run_child(TUS_MEMORY_LARGE_CORPUS_BYTES, "large.json");
+        let small_delta = small["rssHighWaterDeltaBytes"]
+            .as_u64()
+            .expect("small TUS memory HWM delta");
+        let large_delta = large["rssHighWaterDeltaBytes"]
+            .as_u64()
+            .expect("large TUS memory HWM delta");
+        let growth_over_small = large_delta.saturating_sub(small_delta);
+        assert!(
+            large_delta <= TUS_MEMORY_MAX_LARGE_HWM_DELTA_BYTES,
+            "100 MiB streamed TUS HWM delta {large_delta} exceeds the non-policy guard {}",
+            TUS_MEMORY_MAX_LARGE_HWM_DELTA_BYTES
+        );
+        assert!(
+            growth_over_small <= TUS_MEMORY_MAX_GROWTH_OVER_SMALL_BYTES,
+            "100 MiB streamed TUS HWM growth over the 1 MiB control {growth_over_small} exceeds the non-policy guard {}",
+            TUS_MEMORY_MAX_GROWTH_OVER_SMALL_BYTES
+        );
+
+        let receipt = serde_json::json!({
+            "schemaVersion": "fortemi.asset-lifecycle.tus-memory-receipt.v1",
+            "status": "local-process-isolated-memory-guard-passed",
+            "scope": "Fortemi server filesystem TUS PATCH and finalization",
+            "profile": "filesystem-tus-v1",
+            "corpora": {
+                "small": small,
+                "large": large,
+            },
+            "memoryGuard": {
+                "requestChunkBytes": TUS_MEMORY_REQUEST_CHUNK_BYTES,
+                "tusSafetyPrefixMaxBytes": TUS_FINALIZATION_PREFIX_BYTES,
+                "filesystemCopyBufferBytes": matric_db::FILE_COPY_BUFFER_BYTES,
+                "maxLargeRssHighWaterDeltaBytes": TUS_MEMORY_MAX_LARGE_HWM_DELTA_BYTES,
+                "maxGrowthOverSmallBytes": TUS_MEMORY_MAX_GROWTH_OVER_SMALL_BYTES,
+                "observedGrowthOverSmallBytes": growth_over_small,
+                "approvedPolicy": false,
+            },
+            "claims": {
+                "processIsolatedTusPathMemoryGuardPassed": true,
+                "wholeAssetLifecycleProcessBoundedMemoryPassed": false,
+                "approvedPeakRssBudgetPassed": false,
+                "nonFilesystemBackendsPassed": false,
+                "scannerPathPassed": false,
+                "suiteWidePortability": false,
+            }
+        });
+        if let Some(path) = std::env::var_os(TUS_MEMORY_RECEIPT_ENV) {
+            std::fs::write(path, serde_json::to_vec_pretty(&receipt).unwrap())
+                .expect("write process-isolated TUS memory receipt");
+        }
+        println!("{}", serde_json::to_string_pretty(&receipt).unwrap());
     }
 
     #[tokio::test]
@@ -55755,6 +58566,602 @@ not-json
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
             idempotency_store: matric_api::services::IdempotencyStore::disabled(),
         }
+    }
+
+    async fn create_asset_lifecycle_test_state(
+        db: Database,
+        database_url: &str,
+        tus_staging_path: &std::path::Path,
+    ) -> AppState {
+        tokio::fs::create_dir_all(tus_staging_path)
+            .await
+            .expect("create isolated tus staging directory");
+        let mut state = build_call_api_test_state(db, database_url).await;
+        state.tus_staging_path = tus_staging_path.to_string_lossy().to_string();
+        state.lifecycle.mark_ready();
+        state
+    }
+
+    async fn spawn_asset_lifecycle_test_server(
+        state: AppState,
+        archive_ctx: ArchiveContext,
+    ) -> String {
+        let max_upload_size = state.max_upload_size;
+        let router = Router::new()
+            .route(
+                "/api/v1/notes/{id}/attachments/tus",
+                post(tus_create_upload).options(tus_options),
+            )
+            .route(
+                "/api/v1/notes/{id}/attachments/tus/{upload_id}",
+                get(tus_get_upload)
+                    .head(tus_head_upload)
+                    .patch(tus_patch_upload)
+                    .delete(tus_delete_upload),
+            )
+            .route(
+                "/api/v1/attachments/{attachment_id}",
+                delete(delete_attachment),
+            )
+            .route(
+                "/api/v1/attachments/{attachment_id}/download",
+                get(download_attachment),
+            )
+            .route("/api/v1/backup/knowledge-shard", get(knowledge_shard))
+            .route(
+                "/api/v1/backup/knowledge-shard/import",
+                post(knowledge_shard_import),
+            )
+            .layer(DefaultBodyLimit::max(max_upload_size))
+            .layer(Extension(archive_ctx))
+            .with_state(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind asset lifecycle test server");
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(listener, router)
+                .await
+                .expect("asset lifecycle test server exits cleanly");
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        base_url
+    }
+
+    async fn create_asset_lifecycle_note(db: &Database, schema: &str, title: &str) -> Uuid {
+        let ctx = db
+            .for_schema(schema)
+            .expect("asset lifecycle schema context");
+        let notes = matric_db::PgNoteRepository::new(db.pool.clone());
+        let req = CreateNoteRequest {
+            content: format!("asset lifecycle note: {title}"),
+            format: "markdown".to_string(),
+            source: "asset-lifecycle-test".to_string(),
+            collection_id: None,
+            tags: Some(vec!["asset-lifecycle".to_string()]),
+            metadata: None,
+            document_type_id: None,
+            title: Some(title.to_string()),
+        };
+        ctx.execute(move |tx| Box::pin(async move { notes.insert_tx(tx, req).await }))
+            .await
+            .expect("create asset lifecycle note")
+    }
+
+    fn deterministic_asset_lifecycle_bytes(len: usize) -> Vec<u8> {
+        deterministic_asset_lifecycle_range(0, len)
+    }
+
+    fn deterministic_asset_lifecycle_range(start: usize, len: usize) -> Vec<u8> {
+        (start..start.saturating_add(len))
+            .map(|index| {
+                let value = index
+                    .wrapping_mul(31)
+                    .wrapping_add(index / 257)
+                    .wrapping_add(17);
+                (value % 251) as u8
+            })
+            .collect()
+    }
+
+    fn deterministic_asset_lifecycle_content_hash(len: usize) -> String {
+        let mut hasher = blake3::Hasher::new();
+        let mut offset = 0;
+        while offset < len {
+            let chunk_len = (len - offset).min(TUS_MEMORY_REQUEST_CHUNK_BYTES);
+            hasher.update(&deterministic_asset_lifecycle_range(offset, chunk_len));
+            offset += chunk_len;
+        }
+        format!("blake3:{}", hasher.finalize().to_hex())
+    }
+
+    async fn run_process_isolated_tus_memory_child(corpus_bytes: usize) {
+        assert_eq!(
+            std::env::consts::OS,
+            "linux",
+            "process-isolated RSS receipt requires Linux /proc"
+        );
+        assert!(corpus_bytes > 0, "TUS memory corpus must be positive");
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let receipt_path = std::env::var_os(TUS_MEMORY_CHILD_RECEIPT_ENV)
+            .expect("process-isolated TUS memory child receipt path");
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let storage = tempfile::tempdir().expect("create TUS memory storage");
+        let tus = tempfile::tempdir().expect("create TUS memory staging");
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect TUS memory database")
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        let archive_name = format!("al-tus-memory-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&archive_name, Some("AL-PERF01 TUS memory child"))
+            .await
+            .expect("create TUS memory archive");
+        let note_id =
+            create_asset_lifecycle_note(&db, &archive.schema_name, "AL-PERF01 TUS memory").await;
+        let archive_ctx = ArchiveContext {
+            schema: archive.schema_name.clone(),
+            is_default: false,
+            name: Some(archive_name.clone()),
+        };
+        let mut state =
+            create_asset_lifecycle_test_state(db.clone(), &database_url, tus.path()).await;
+        state.max_upload_size = corpus_bytes;
+        let base_url = spawn_asset_lifecycle_test_server(state, archive_ctx).await;
+        let client = reqwest::Client::new();
+        let metadata = format!(
+            "filename {},content_type {}",
+            base64::engine::general_purpose::STANDARD
+                .encode(format!("al-tus-memory-{corpus_bytes}.bin")),
+            base64::engine::general_purpose::STANDARD.encode("application/octet-stream")
+        );
+        let create = client
+            .post(format!("{base_url}/api/v1/notes/{note_id}/attachments/tus"))
+            .header("Tus-Resumable", "1.0.0")
+            .header("Upload-Length", corpus_bytes.to_string())
+            .header("Upload-Metadata", metadata)
+            .send()
+            .await
+            .expect("create process-isolated TUS upload");
+        assert_eq!(create.status(), reqwest::StatusCode::CREATED);
+        let location = create
+            .headers()
+            .get("Location")
+            .expect("TUS memory create Location")
+            .to_str()
+            .expect("UTF-8 TUS memory Location")
+            .to_string();
+        let upload_url = format!("{base_url}{location}");
+        let expected_hash = deterministic_asset_lifecycle_content_hash(corpus_bytes);
+        let body_stream = futures::stream::unfold(0usize, move |offset| async move {
+            if offset >= corpus_bytes {
+                return None;
+            }
+            let chunk_len = (corpus_bytes - offset).min(TUS_MEMORY_REQUEST_CHUNK_BYTES);
+            let chunk = Bytes::from(deterministic_asset_lifecycle_range(offset, chunk_len));
+            Some((Ok::<Bytes, std::io::Error>(chunk), offset + chunk_len))
+        });
+
+        let rss_resident_before = current_rss_resident_bytes();
+        let rss_high_water_before = current_rss_high_water_bytes();
+        assert!(
+            rss_resident_before > 0 && rss_high_water_before > 0,
+            "Linux /proc RSS fields must be readable"
+        );
+        let upload_started = std::time::Instant::now();
+        let complete = client
+            .patch(&upload_url)
+            .header("Tus-Resumable", "1.0.0")
+            .header("Content-Type", "application/offset+octet-stream")
+            .header("Content-Length", corpus_bytes.to_string())
+            .header("Upload-Offset", "0")
+            .body(reqwest::Body::wrap_stream(body_stream))
+            .send()
+            .await
+            .expect("stream process-isolated TUS body");
+        if complete.status() != reqwest::StatusCode::OK {
+            let status = complete.status();
+            let body = complete.text().await.unwrap_or_default();
+            panic!("process-isolated TUS completion failed: status={status}; body={body}");
+        }
+        assert_eq!(
+            complete.headers()["Upload-Offset"].to_str().unwrap(),
+            corpus_bytes.to_string()
+        );
+        let attachment: serde_json::Value = complete
+            .json()
+            .await
+            .expect("parse process-isolated TUS attachment");
+        let upload_elapsed = upload_started.elapsed();
+        let rss_resident_after = current_rss_resident_bytes();
+        let rss_high_water_after = current_rss_high_water_bytes();
+        assert!(rss_high_water_after >= rss_high_water_before);
+        let attachment_id = attachment["id"]
+            .as_str()
+            .expect("process-isolated TUS attachment id")
+            .parse::<Uuid>()
+            .expect("valid process-isolated TUS attachment id");
+
+        let blob = db
+            .for_schema(&archive.schema_name)
+            .unwrap()
+            .query(|tx| {
+                Box::pin(async move {
+                    sqlx::query_as::<_, (String, i64, String, Option<String>, i32)>(
+                        "SELECT ab.content_hash, ab.size_bytes, ab.storage_backend,
+                                ab.storage_path, ab.reference_count
+                         FROM attachment a
+                         JOIN attachment_blob ab ON ab.id = a.blob_id
+                         WHERE a.id = $1",
+                    )
+                    .bind(attachment_id)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)
+                })
+            })
+            .await
+            .expect("read process-isolated TUS blob");
+        assert_eq!(blob.0, expected_hash);
+        assert_eq!(blob.1, corpus_bytes as i64);
+        assert_eq!(blob.2, "filesystem");
+        assert_eq!(blob.4, 1);
+        let final_path = storage
+            .path()
+            .join(blob.3.expect("filesystem storage path"));
+        let (final_hash, final_size) =
+            bounded_file_content_hash(&final_path).expect("hash final TUS file");
+        assert_eq!(final_hash, expected_hash);
+        assert_eq!(final_size, corpus_bytes as u64);
+        assert_eq!(
+            directory_size_bytes(tus.path()),
+            0,
+            "finalized TUS staging must be empty"
+        );
+
+        let receipt = serde_json::json!({
+            "corpusBytes": corpus_bytes,
+            "requestChunkBytes": TUS_MEMORY_REQUEST_CHUNK_BYTES,
+            "expectedContentHash": expected_hash,
+            "uploadMillis": upload_elapsed.as_millis(),
+            "rssResidentBytesBefore": rss_resident_before,
+            "rssResidentBytesAfter": rss_resident_after,
+            "rssHighWaterBytesBefore": rss_high_water_before,
+            "rssHighWaterBytesAfter": rss_high_water_after,
+            "rssHighWaterDeltaBytes": rss_high_water_after.saturating_sub(rss_high_water_before),
+            "finalFileBytes": final_size,
+            "stagingDiskBytesAfter": 0,
+            "oracles": {
+                "databaseHashSizeRefcountPassed": true,
+                "finalFileHashSizePassed": true,
+                "stagingCleanupPassed": true,
+            },
+            "reproducibility": {
+                "targetOs": std::env::consts::OS,
+                "targetArch": std::env::consts::ARCH,
+                "storageFilesystem": filesystem_type(storage.path()),
+                "tusFilesystem": filesystem_type(tus.path()),
+            }
+        });
+        std::fs::write(receipt_path, serde_json::to_vec_pretty(&receipt).unwrap())
+            .expect("write TUS memory child receipt");
+        db.archives
+            .drop_archive_schema(&archive_name)
+            .await
+            .expect("drop TUS memory archive");
+    }
+
+    fn bounded_file_content_hash(path: &std::path::Path) -> std::io::Result<(String, u64)> {
+        use std::io::Read;
+
+        let mut file = std::fs::File::open(path)?;
+        let mut hasher = blake3::Hasher::new();
+        let mut buffer = [0_u8; TUS_MEMORY_REQUEST_CHUNK_BYTES];
+        let mut size = 0_u64;
+        loop {
+            let read = file.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+            size += read as u64;
+        }
+        Ok((format!("blake3:{}", hasher.finalize().to_hex()), size))
+    }
+
+    fn directory_size_bytes(path: &std::path::Path) -> u64 {
+        let Ok(metadata) = std::fs::symlink_metadata(path) else {
+            return 0;
+        };
+        if metadata.is_file() {
+            return metadata.len();
+        }
+        if !metadata.is_dir() {
+            return 0;
+        }
+        let Ok(entries) = std::fs::read_dir(path) else {
+            return 0;
+        };
+        entries
+            .filter_map(Result::ok)
+            .map(|entry| directory_size_bytes(&entry.path()))
+            .sum()
+    }
+
+    fn current_rss_high_water_bytes() -> u64 {
+        current_proc_status_bytes("VmHWM:")
+    }
+
+    fn current_rss_resident_bytes() -> u64 {
+        current_proc_status_bytes("VmRSS:")
+    }
+
+    fn current_proc_status_bytes(label: &str) -> u64 {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|status| {
+                status.lines().find_map(|line| {
+                    let rest = line.strip_prefix(label)?;
+                    let kib = rest.split_whitespace().next()?.parse::<u64>().ok()?;
+                    Some(kib * 1024)
+                })
+            })
+            .unwrap_or(0)
+    }
+
+    fn command_stdout(program: &str, args: &[&str]) -> Option<String> {
+        std::process::Command::new(program)
+            .args(args)
+            .output()
+            .ok()
+            .and_then(|output| {
+                output
+                    .status
+                    .success()
+                    .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            })
+            .filter(|value| !value.is_empty())
+    }
+
+    fn filesystem_type(path: &std::path::Path) -> Option<String> {
+        command_stdout("stat", &["-f", "-c", "%T", &path.to_string_lossy()])
+    }
+
+    async fn seed_asset_lifecycle_full_v1_baseline(state: &AppState, schema: &str) {
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let fixture = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+        );
+        let result = knowledge_shard_import_internal(state, fixture, &opts, schema)
+            .await
+            .expect("seed asset lifecycle full-v1 fixture baseline");
+        assert_eq!(
+            result
+                .manifest
+                .as_ref()
+                .and_then(|manifest| manifest.profile.as_deref()),
+            Some("full-v1")
+        );
+    }
+
+    async fn upload_asset_over_tus(
+        client: &reqwest::Client,
+        base_url: &str,
+        note_id: Uuid,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> Uuid {
+        let metadata = format!(
+            "filename {},content_type {}",
+            base64::engine::general_purpose::STANDARD.encode(filename),
+            base64::engine::general_purpose::STANDARD.encode(content_type)
+        );
+        let create = client
+            .post(format!("{base_url}/api/v1/notes/{note_id}/attachments/tus"))
+            .header("Tus-Resumable", "1.0.0")
+            .header("Upload-Length", bytes.len().to_string())
+            .header("Upload-Metadata", metadata)
+            .send()
+            .await
+            .expect("create tus upload");
+        assert_eq!(create.status(), reqwest::StatusCode::CREATED);
+        let location = create
+            .headers()
+            .get("Location")
+            .expect("tus create Location")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let upload_url = format!("{base_url}{location}");
+        let split = bytes.len() / 2;
+
+        let first = client
+            .patch(&upload_url)
+            .header("Tus-Resumable", "1.0.0")
+            .header("Content-Type", "application/offset+octet-stream")
+            .header("Upload-Offset", "0")
+            .body(bytes[..split].to_vec())
+            .send()
+            .await
+            .expect("send first tus chunk");
+        assert_eq!(first.status(), reqwest::StatusCode::NO_CONTENT);
+        assert_eq!(
+            first.headers()["Upload-Offset"].to_str().unwrap(),
+            split.to_string()
+        );
+
+        let mismatch = client
+            .patch(&upload_url)
+            .header("Tus-Resumable", "1.0.0")
+            .header("Content-Type", "application/offset+octet-stream")
+            .header("Upload-Offset", "0")
+            .body(bytes[split..].to_vec())
+            .send()
+            .await
+            .expect("send mismatched tus chunk");
+        assert_eq!(mismatch.status(), reqwest::StatusCode::CONFLICT);
+
+        let head = client
+            .head(&upload_url)
+            .send()
+            .await
+            .expect("query tus resume offset");
+        assert_eq!(head.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            head.headers()["Upload-Offset"].to_str().unwrap(),
+            split.to_string()
+        );
+
+        let complete = client
+            .patch(&upload_url)
+            .header("Tus-Resumable", "1.0.0")
+            .header("Content-Type", "application/offset+octet-stream")
+            .header("Upload-Offset", split.to_string())
+            .body(bytes[split..].to_vec())
+            .send()
+            .await
+            .expect("send final tus chunk");
+        if complete.status() != reqwest::StatusCode::OK {
+            let status = complete.status();
+            let body = complete.text().await.unwrap_or_default();
+            panic!("final tus chunk failed: status={status}; body={body}");
+        }
+        assert_eq!(
+            complete.headers()["Upload-Offset"].to_str().unwrap(),
+            bytes.len().to_string()
+        );
+        let attachment: serde_json::Value = complete.json().await.expect("attachment json");
+        let attachment_id = attachment["id"]
+            .as_str()
+            .expect("attachment id")
+            .parse::<Uuid>()
+            .expect("valid attachment id");
+
+        let finalized = client
+            .get(&upload_url)
+            .send()
+            .await
+            .expect("get finalized tus upload");
+        assert_eq!(finalized.status(), reqwest::StatusCode::OK);
+        let finalized: serde_json::Value = finalized.json().await.expect("finalized attachment");
+        assert_eq!(finalized["id"].as_str().unwrap(), attachment_id.to_string());
+        attachment_id
+    }
+
+    async fn download_asset_bytes(
+        client: &reqwest::Client,
+        base_url: &str,
+        attachment_id: Uuid,
+    ) -> Vec<u8> {
+        let response = client
+            .get(format!(
+                "{base_url}/api/v1/attachments/{attachment_id}/download"
+            ))
+            .send()
+            .await
+            .expect("download attachment");
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        response.bytes().await.expect("download bytes").to_vec()
+    }
+
+    async fn signed_full_v1_export(
+        client: &reqwest::Client,
+        base_url: &str,
+        key_id: &str,
+    ) -> (Vec<u8>, serde_json::Value, tempfile::NamedTempFile) {
+        let signing_key_file = tempfile::NamedTempFile::new().unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            signing_key_file
+                .as_file()
+                .set_permissions(std::fs::Permissions::from_mode(0o600))
+                .unwrap();
+        }
+        std::fs::write(
+            signing_key_file.path(),
+            serde_json::to_vec(&serde_json::json!({
+                "key_id": key_id,
+                "private_key": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([17_u8; 32]),
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let _signing_key_guard = ScopedEnvVar::set(
+            "FORTEMI_SHARD_SIGNING_KEY_FILE",
+            signing_key_file.path().as_os_str(),
+        );
+        let response = client
+            .get(format!(
+                "{base_url}/api/v1/backup/knowledge-shard?schema_version={SHARD_SCHEMA_2_VERSION}&profile=full-v1&include_blobs=true"
+            ))
+            .send()
+            .await
+            .expect("export signed full-v1 shard");
+        if response.status() != reqwest::StatusCode::OK {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            panic!("signed full-v1 export failed: status={status}; body={body}");
+        }
+        let archive = response.bytes().await.expect("export bytes").to_vec();
+        let files = read_shard_archive(&archive, ShardArchiveLimits::default()).unwrap();
+        let signature: serde_json::Value =
+            serde_json::from_slice(&files[shard_signature::SIGNATURE_ENTRY]).unwrap();
+        assert_eq!(signature["signer"]["key_id"], key_id);
+        (archive, signature, signing_key_file)
+    }
+
+    async fn import_signed_full_v1(
+        client: &reqwest::Client,
+        base_url: &str,
+        archive: &[u8],
+        signature: &serde_json::Value,
+    ) -> serde_json::Value {
+        let trust_file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(
+            trust_file.path(),
+            serde_json::to_vec(&serde_json::json!([{
+                "key_id": signature["signer"]["key_id"],
+                "public_key": signature["signer"]["public_key"],
+                "revoked": false,
+            }]))
+            .unwrap(),
+        )
+        .unwrap();
+        let _inline_trust_guard = ScopedEnvVar::remove("FORTEMI_SHARD_TRUSTED_KEYS_JSON");
+        let _trust_file_guard = ScopedEnvVar::set(
+            "FORTEMI_SHARD_TRUSTED_KEYS_FILE",
+            trust_file.path().as_os_str(),
+        );
+        let body = serde_json::json!({
+            "shard_base64": base64::engine::general_purpose::STANDARD.encode(archive),
+            "dry_run": false,
+            "on_conflict": "replace",
+            "skip_embedding_regen": true,
+            "verify_signature": "require"
+        });
+        let response = client
+            .post(format!("{base_url}/api/v1/backup/knowledge-shard/import"))
+            .json(&body)
+            .send()
+            .await
+            .expect("import signed full-v1 shard");
+        if response.status() != reqwest::StatusCode::OK {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            panic!("signed full-v1 import failed: status={status}; body={body}");
+        }
+        response.json().await.expect("import response")
     }
 
     struct DenyAllPolicy;

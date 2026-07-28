@@ -1,0 +1,55 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-27T22:59:55Z"
+  description: "Provenance for Fortemi #1093 process-abort evidence in the lifecycle audit plan"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:fb24eb26fdc45a784e796e7eff4c1081ee58b14446c70e5f821112caf3d9fd05"
+  type: document
+  created_at: "2026-07-27T22:59:55Z"
+  updated_at: "2026-07-28T00:32:36Z"
+  checksum: "sha256:fb24eb26fdc45a784e796e7eff4c1081ee58b14446c70e5f821112caf3d9fd05"
+  size_bytes: 55694
+  attributes:
+    issue: "Fortemi/fortemi#1093"
+    profile: "2.0.0/full-v1"
+    decision: "partial-copy-and-promotion-process-abort-locally-proven-broader-matrix-open"
+activity:
+  id: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+  type: modification
+  started_at: "2026-07-27T22:30:00Z"
+  ended_at: "2026-07-27T23:50:33Z"
+  description: "Record ten real exact-prefix-copy/staging/journal/promotion/commit process-abort oracles, four deterministic journal persistence checkpoints, explicit pre-rename salvage, orphan-state fail-closed behavior, committed-state preservation, and remaining mid-syscall/power-loss/platform limits"
+  attributes:
+    verification:
+      - "scripts/ci/verify-bidirectional-asset-lifecycle.sh: passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:fb24eb26fdc45a784e796e7eff4c1081ee58b14446c70e5f821112caf3d9fd05"
+    activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+    time: "2026-07-28T00:32:36Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1093"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:fb24eb26fdc45a784e796e7eff4c1081ee58b14446c70e5f821112caf3d9fd05"
+      source: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:29a5df0473e2c6818334dd57a7ea436b5874e3db902159cc53c299279e642993"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+    - entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:fb24eb26fdc45a784e796e7eff4c1081ee58b14446c70e5f821112caf3d9fd05"
+      source: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:f61b6c734c84c8bf8dd4f4efeb7c045741d1e6a1f869f91e163fd900a078ea82"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: test_documenter
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:fb24eb26fdc45a784e796e7eff4c1081ee58b14446c70e5f821112caf3d9fd05"
+    agent: "urn:aiwg:agent:codex-gpt-5"

@@ -27,6 +27,7 @@ use matric_core::{
     Attachment, AttachmentBlob, AttachmentScanStatus, AttachmentStatus, AttachmentSummary, Error,
     ExtractionStrategy, GlobalAttachmentSummary, Result,
 };
+use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::path::{Path, PathBuf};
 use tokio::fs;
@@ -37,7 +38,52 @@ use uuid::Uuid;
 const SHARD_BLOB_STAGING_ROOT: &str = "staging/shard-import";
 const SHARD_BLOB_STAGING_SUFFIX: &str = ".blob.stage";
 const SHARD_BLOB_STAGING_TEMP_SUFFIX: &str = ".blob.stage.tmp";
-const FILE_COPY_BUFFER_BYTES: usize = 64 * 1024;
+const SHARD_IMPORT_JOURNAL_ROOT: &str = "staging/shard-import/journals";
+const SHARD_IMPORT_JOURNAL_VERSION: u32 = 1;
+pub const FILE_COPY_BUFFER_BYTES: usize = 64 * 1024;
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum ShardImportJournalPersistCheckpoint {
+    AfterTempWrite,
+    AfterFileSync,
+    AfterRename,
+    AfterDirectorySync,
+}
+
+fn maybe_abort_shard_import_journal_persist(checkpoint: ShardImportJournalPersistCheckpoint) {
+    #[cfg(feature = "test-fault-injection")]
+    {
+        let checkpoint_name = match checkpoint {
+            ShardImportJournalPersistCheckpoint::AfterTempWrite => "after-temp-write",
+            ShardImportJournalPersistCheckpoint::AfterFileSync => "after-file-sync",
+            ShardImportJournalPersistCheckpoint::AfterRename => "after-rename",
+            ShardImportJournalPersistCheckpoint::AfterDirectorySync => "after-directory-sync",
+        };
+        if std::env::var("FORTEMI_TEST_ABORT_SHARD_IMPORT_JOURNAL_PERSIST_AT").as_deref()
+            == Ok(checkpoint_name)
+        {
+            std::process::abort();
+        }
+    }
+    #[cfg(not(feature = "test-fault-injection"))]
+    {
+        let _ = checkpoint;
+    }
+}
+
+fn shard_import_sidecar_copy_abort_after_bytes() -> Option<u64> {
+    #[cfg(feature = "test-fault-injection")]
+    {
+        return std::env::var("FORTEMI_TEST_ABORT_SHARD_IMPORT_SIDECAR_COPY_AFTER_BYTES")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|value| *value > 0);
+    }
+    #[cfg(not(feature = "test-fault-injection"))]
+    {
+        None
+    }
+}
 
 fn storage_path_len(path: &Path) -> usize {
     path.as_os_str().to_string_lossy().chars().count()
@@ -152,6 +198,19 @@ pub trait StorageBackend: Send + Sync {
     /// Write data to the specified path.
     async fn write(&self, path: &str, data: &[u8]) -> Result<()>;
 
+    /// Copy a verified local file into the specified path without buffering it whole.
+    async fn write_file(
+        &self,
+        _path: &str,
+        _source: &Path,
+        _expected_content_hash: &str,
+        _expected_size: u64,
+    ) -> Result<()> {
+        Err(Error::InvalidInput(
+            "Storage backend does not support bounded local-file writes".to_string(),
+        ))
+    }
+
     /// Read data from the specified path.
     async fn read(&self, path: &str) -> Result<Vec<u8>>;
 
@@ -231,6 +290,106 @@ pub enum StagedShardBlobPromotion {
     AlreadyPromoted,
 }
 
+/// Durable state for one sidecar in an interrupted shard import.
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShardImportJournalBlobState {
+    /// The sidecar is staged but has not produced a durable promotion receipt.
+    Pending,
+    /// Final bytes did not preexist; recovery owns compensation if promotion is interrupted.
+    Promoting,
+    /// This import created the final blob path and owns rollback compensation.
+    Promoted,
+    /// Exact final bytes predated this import and must never be removed by recovery.
+    AlreadyPromoted,
+}
+
+/// One verified sidecar recorded in a durable shard-import journal.
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShardImportJournalBlob {
+    blob_id: Uuid,
+    content_hash: String,
+    size_bytes: u64,
+    storage_path: String,
+    state: ShardImportJournalBlobState,
+}
+
+impl ShardImportJournalBlob {
+    pub fn blob_id(&self) -> Uuid {
+        self.blob_id
+    }
+
+    pub fn content_hash(&self) -> &str {
+        &self.content_hash
+    }
+
+    pub fn size_bytes(&self) -> u64 {
+        self.size_bytes
+    }
+
+    pub fn storage_path(&self) -> &str {
+        &self.storage_path
+    }
+
+    pub fn state(&self) -> ShardImportJournalBlobState {
+        self.state
+    }
+
+    fn staged_blob(&self) -> Result<StagedShardBlob> {
+        Ok(StagedShardBlob {
+            blob_id: self.blob_id,
+            content_hash: FilesystemBackend::parse_canonical_content_hash(&self.content_hash)?,
+            size_bytes: self.size_bytes,
+        })
+    }
+}
+
+/// Durable recovery intent for one shard import.
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShardImportJournal {
+    version: u32,
+    operation_id: Uuid,
+    schema: String,
+    blobs: Vec<ShardImportJournalBlob>,
+}
+
+impl ShardImportJournal {
+    pub fn operation_id(&self) -> Uuid {
+        self.operation_id
+    }
+
+    pub fn schema(&self) -> &str {
+        &self.schema
+    }
+
+    pub fn blobs(&self) -> &[ShardImportJournalBlob] {
+        &self.blobs
+    }
+}
+
+/// Process-held ownership lock for one live shard-import journal.
+pub struct ShardImportJournalLease {
+    operation_id: Uuid,
+    lock_file: std::fs::File,
+}
+
+impl std::fmt::Debug for ShardImportJournalLease {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ShardImportJournalLease")
+            .field("operation_id_present", &true)
+            .finish()
+    }
+}
+
+impl ShardImportJournalLease {
+    pub fn operation_id(&self) -> Uuid {
+        self.operation_id
+    }
+}
+
 impl FilesystemBackend {
     /// Create a new filesystem backend with the given base directory.
     pub fn new(base_path: impl Into<PathBuf>) -> Self {
@@ -255,6 +414,24 @@ impl FilesystemBackend {
         name.push(".tmp");
         path.set_file_name(name);
         path
+    }
+
+    fn shard_import_journal_path(&self, operation_id: &Uuid) -> PathBuf {
+        self.base_path
+            .join(SHARD_IMPORT_JOURNAL_ROOT)
+            .join(format!("{}.json", operation_id.as_hyphenated()))
+    }
+
+    fn shard_import_journal_temp_path(&self, operation_id: &Uuid) -> PathBuf {
+        self.base_path
+            .join(SHARD_IMPORT_JOURNAL_ROOT)
+            .join(format!("{}.json.tmp", operation_id.as_hyphenated()))
+    }
+
+    fn shard_import_journal_lock_path(&self, operation_id: &Uuid) -> PathBuf {
+        self.base_path
+            .join(SHARD_IMPORT_JOURNAL_ROOT)
+            .join(format!("{}.lock", operation_id.as_hyphenated()))
     }
 
     async fn sync_directory_best_effort(directory: &Path, operation: &'static str) {
@@ -286,6 +463,19 @@ impl FilesystemBackend {
         }
     }
 
+    async fn sync_shard_import_journal_directory(directory: &Path) -> Result<()> {
+        #[cfg(unix)]
+        {
+            let directory_file = fs::File::open(directory).await?;
+            directory_file.sync_all().await?;
+        }
+        #[cfg(not(unix))]
+        {
+            Self::sync_directory_best_effort(directory, "persist_shard_import_journal").await;
+        }
+        Ok(())
+    }
+
     fn is_staged_shard_blob_file_name(name: &str) -> bool {
         let id = name
             .strip_suffix(SHARD_BLOB_STAGING_TEMP_SUFFIX)
@@ -305,6 +495,365 @@ impl FilesystemBackend {
                 );
             }
         }
+    }
+
+    async fn unlink_staged_shard_temp(path: &Path) {
+        match fs::remove_file(path).await {
+            Ok(()) => Self::sync_parent_best_effort(path, "stage_shard_blob").await,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                warn!(
+                    path_len = storage_path_len(path),
+                    error_kind = storage_io_error_kind(&error),
+                    "file_storage: staged shard blob temp unlink failed during recovery"
+                );
+            }
+        }
+    }
+
+    async fn persist_shard_import_journal(&self, journal: &ShardImportJournal) -> Result<()> {
+        self.persist_shard_import_journal_with_checkpoints(journal, |_| Ok(()))
+            .await
+    }
+
+    async fn persist_shard_import_journal_with_checkpoints<F>(
+        &self,
+        journal: &ShardImportJournal,
+        mut checkpoint: F,
+    ) -> Result<()>
+    where
+        F: FnMut(ShardImportJournalPersistCheckpoint) -> Result<()>,
+    {
+        let path = self.shard_import_journal_path(&journal.operation_id);
+        let temp_path = self.shard_import_journal_temp_path(&journal.operation_id);
+        let parent = path.parent().ok_or_else(|| {
+            Error::Internal("Shard import journal parent is unavailable".to_string())
+        })?;
+        fs::create_dir_all(parent).await?;
+        let contents = serde_json::to_vec(journal)?;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&temp_path)
+            .await?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o600)).await?;
+        }
+        file.write_all(&contents).await?;
+        checkpoint(ShardImportJournalPersistCheckpoint::AfterTempWrite)?;
+        maybe_abort_shard_import_journal_persist(
+            ShardImportJournalPersistCheckpoint::AfterTempWrite,
+        );
+        file.sync_all().await?;
+        checkpoint(ShardImportJournalPersistCheckpoint::AfterFileSync)?;
+        maybe_abort_shard_import_journal_persist(
+            ShardImportJournalPersistCheckpoint::AfterFileSync,
+        );
+        drop(file);
+        fs::rename(&temp_path, &path).await?;
+        checkpoint(ShardImportJournalPersistCheckpoint::AfterRename)?;
+        maybe_abort_shard_import_journal_persist(ShardImportJournalPersistCheckpoint::AfterRename);
+        Self::sync_shard_import_journal_directory(parent).await?;
+        checkpoint(ShardImportJournalPersistCheckpoint::AfterDirectorySync)?;
+        maybe_abort_shard_import_journal_persist(
+            ShardImportJournalPersistCheckpoint::AfterDirectorySync,
+        );
+        Ok(())
+    }
+
+    /// Create a durable recovery journal before shard sidecar promotion starts.
+    pub async fn begin_shard_import_journal<'a>(
+        &self,
+        schema: &str,
+        staged_blobs: impl IntoIterator<Item = &'a StagedShardBlob>,
+    ) -> Result<ShardImportJournalLease> {
+        let operation_id = Uuid::now_v7();
+        let mut blobs = staged_blobs
+            .into_iter()
+            .map(|staged| ShardImportJournalBlob {
+                blob_id: staged.blob_id,
+                content_hash: staged.content_hash(),
+                size_bytes: staged.size_bytes,
+                storage_path: staged.storage_path(),
+                state: ShardImportJournalBlobState::Pending,
+            })
+            .collect::<Vec<_>>();
+        blobs.sort_by_key(|blob| blob.blob_id);
+        if blobs.is_empty() {
+            return Err(Error::InvalidInput(
+                "Shard import journal requires at least one staged blob".to_string(),
+            ));
+        }
+        let journal_root = self.base_path.join(SHARD_IMPORT_JOURNAL_ROOT);
+        fs::create_dir_all(&journal_root).await?;
+        let lock_path = self.shard_import_journal_lock_path(&operation_id);
+        let mut options = std::fs::OpenOptions::new();
+        options.create_new(true).read(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let lock_file = options.open(&lock_path)?;
+        match lock_file.try_lock() {
+            Ok(()) => {}
+            Err(std::fs::TryLockError::WouldBlock) => {
+                return Err(Error::Internal(
+                    "New shard import journal lock is already held".to_string(),
+                ));
+            }
+            Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
+        }
+        let journal = ShardImportJournal {
+            version: SHARD_IMPORT_JOURNAL_VERSION,
+            operation_id,
+            schema: schema.to_string(),
+            blobs,
+        };
+        if let Err(error) = self.persist_shard_import_journal(&journal).await {
+            let _ = lock_file.unlock();
+            drop(lock_file);
+            let temp_path = self.shard_import_journal_temp_path(&operation_id);
+            if fs::remove_file(&temp_path).await.is_ok() {
+                Self::sync_parent_best_effort(&temp_path, "begin_shard_import_journal").await;
+            }
+            let _ = fs::remove_file(&lock_path).await;
+            return Err(error);
+        }
+        Ok(ShardImportJournalLease {
+            operation_id,
+            lock_file,
+        })
+    }
+
+    /// Persist a promotion receipt before the surrounding database transaction commits.
+    pub async fn record_shard_import_promotion(
+        &self,
+        operation_id: Uuid,
+        staged: &StagedShardBlob,
+        promotion: StagedShardBlobPromotion,
+    ) -> Result<()> {
+        let state = match promotion {
+            StagedShardBlobPromotion::Promoted => ShardImportJournalBlobState::Promoted,
+            StagedShardBlobPromotion::AlreadyPromoted => {
+                ShardImportJournalBlobState::AlreadyPromoted
+            }
+        };
+        self.update_shard_import_journal_blob_state(operation_id, staged, state)
+            .await
+    }
+
+    async fn update_shard_import_journal_blob_state(
+        &self,
+        operation_id: Uuid,
+        staged: &StagedShardBlob,
+        state: ShardImportJournalBlobState,
+    ) -> Result<()> {
+        let path = self.shard_import_journal_path(&operation_id);
+        let contents = fs::read(&path).await?;
+        let mut journal = serde_json::from_slice::<ShardImportJournal>(&contents)?;
+        if journal.version != SHARD_IMPORT_JOURNAL_VERSION || journal.operation_id != operation_id {
+            return Err(Error::InvalidInput(
+                "Shard import journal identity is invalid".to_string(),
+            ));
+        }
+        let blob = journal
+            .blobs
+            .iter_mut()
+            .find(|blob| blob.blob_id == staged.blob_id)
+            .ok_or_else(|| {
+                Error::InvalidInput(
+                    "Promoted shard blob is absent from its recovery journal".to_string(),
+                )
+            })?;
+        if blob.content_hash != staged.content_hash()
+            || blob.size_bytes != staged.size_bytes
+            || blob.storage_path != staged.storage_path()
+        {
+            return Err(Error::InvalidInput(
+                "Promoted shard blob does not match its recovery journal".to_string(),
+            ));
+        }
+        blob.state = state;
+        self.persist_shard_import_journal(&journal).await
+    }
+
+    /// Persist rollback ownership before entering the filesystem promotion helper.
+    ///
+    /// If exact final bytes preexist, recovery records `AlreadyPromoted` and
+    /// must preserve them. Otherwise `Promoting` owns any matching final link
+    /// created before the final promotion receipt can be persisted.
+    pub async fn prepare_shard_import_promotion(
+        &self,
+        operation_id: Uuid,
+        staged: &StagedShardBlob,
+    ) -> Result<()> {
+        let final_path = self.full_path(&staged.storage_path());
+        let state = if fs::try_exists(&final_path).await? {
+            Self::verify_file(&final_path, staged.content_hash, staged.size_bytes).await?;
+            ShardImportJournalBlobState::AlreadyPromoted
+        } else {
+            ShardImportJournalBlobState::Promoting
+        };
+        self.update_shard_import_journal_blob_state(operation_id, staged, state)
+            .await
+    }
+
+    /// Load all complete recovery journals, failing closed on malformed state.
+    pub async fn load_shard_import_journals(&self) -> Result<Vec<ShardImportJournal>> {
+        let root = self.base_path.join(SHARD_IMPORT_JOURNAL_ROOT);
+        if !fs::try_exists(&root).await? {
+            return Ok(Vec::new());
+        }
+        let mut entries = fs::read_dir(&root).await?;
+        let mut journals = Vec::new();
+        while let Some(entry) = entries.next_entry().await? {
+            if !entry.file_type().await?.is_file() {
+                continue;
+            }
+            let path = entry.path();
+            let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if let Some(id) = file_name.strip_suffix(".json.tmp") {
+                let id = Uuid::parse_str(id).map_err(|_| {
+                    Error::InvalidInput(
+                        "Shard import journal temporary filename is invalid".to_string(),
+                    )
+                })?;
+                if !fs::try_exists(self.shard_import_journal_path(&id)).await? {
+                    return Err(Error::InvalidInput(
+                        "Shard import journal temporary rewrite has no complete authority"
+                            .to_string(),
+                    ));
+                }
+                continue;
+            }
+            let Some(id) = file_name.strip_suffix(".json") else {
+                continue;
+            };
+            let id = Uuid::parse_str(id).map_err(|_| {
+                Error::InvalidInput("Shard import journal filename is invalid".to_string())
+            })?;
+            let contents = fs::read(&path).await?;
+            let journal = serde_json::from_slice::<ShardImportJournal>(&contents)?;
+            if journal.version != SHARD_IMPORT_JOURNAL_VERSION || journal.operation_id != id {
+                return Err(Error::InvalidInput(
+                    "Shard import journal identity is invalid".to_string(),
+                ));
+            }
+            for blob in &journal.blobs {
+                let staged = blob.staged_blob()?;
+                if blob.storage_path != staged.storage_path() {
+                    return Err(Error::InvalidInput(
+                        "Shard import journal storage path is invalid".to_string(),
+                    ));
+                }
+            }
+            journals.push(journal);
+        }
+        journals.sort_by_key(ShardImportJournal::operation_id);
+        Ok(journals)
+    }
+
+    /// Try to claim an inactive journal for crash recovery.
+    ///
+    /// A live importer holds the same lock for the full journal lifetime, so a
+    /// concurrent process skips rather than compensating in-flight state.
+    pub async fn try_lock_shard_import_journal(
+        &self,
+        operation_id: Uuid,
+    ) -> Result<Option<ShardImportJournalLease>> {
+        let lock_path = self.shard_import_journal_lock_path(&operation_id);
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).read(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let lock_file = options.open(lock_path)?;
+        match lock_file.try_lock() {
+            Ok(()) => Ok(Some(ShardImportJournalLease {
+                operation_id,
+                lock_file,
+            })),
+            Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+            Err(std::fs::TryLockError::Error(error)) => Err(error.into()),
+        }
+    }
+
+    /// Verify committed final bytes against a recovery-journal entry.
+    pub async fn verify_shard_import_journal_blob(
+        &self,
+        blob: &ShardImportJournalBlob,
+    ) -> Result<()> {
+        let staged = blob.staged_blob()?;
+        let final_path = self.full_path(blob.storage_path());
+        Self::verify_file(&final_path, staged.content_hash, staged.size_bytes).await
+    }
+
+    /// Remove final bytes owned by an uncommitted promotion receipt.
+    pub async fn compensate_shard_import_journal_blob(
+        &self,
+        blob: &ShardImportJournalBlob,
+    ) -> Result<()> {
+        if !matches!(
+            blob.state,
+            ShardImportJournalBlobState::Promoting | ShardImportJournalBlobState::Promoted
+        ) {
+            return Ok(());
+        }
+        self.compensate_staged_shard_blob_promotion(
+            &blob.staged_blob()?,
+            StagedShardBlobPromotion::Promoted,
+        )
+        .await
+    }
+
+    /// Discard a journal entry's staging paths without touching final bytes.
+    pub async fn discard_shard_import_journal_blob(
+        &self,
+        blob: &ShardImportJournalBlob,
+    ) -> Result<()> {
+        self.discard_staged_shard_blob(&blob.staged_blob()?).await
+    }
+
+    /// Remove a completed recovery journal and any interrupted journal rewrite.
+    pub async fn finish_shard_import_journal(&self, operation_id: Uuid) -> Result<()> {
+        for path in [
+            self.shard_import_journal_path(&operation_id),
+            self.shard_import_journal_temp_path(&operation_id),
+        ] {
+            match fs::remove_file(&path).await {
+                Ok(()) => Self::sync_parent_best_effort(&path, "finish_shard_import_journal").await,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
+    }
+
+    /// Release a completed journal lease and remove its lock file.
+    pub async fn finish_shard_import_journal_lease(
+        &self,
+        lease: ShardImportJournalLease,
+    ) -> Result<()> {
+        let operation_id = lease.operation_id;
+        lease.lock_file.unlock()?;
+        drop(lease);
+        let path = self.shard_import_journal_lock_path(&operation_id);
+        match fs::remove_file(&path).await {
+            Ok(()) => {
+                Self::sync_parent_best_effort(&path, "finish_shard_import_journal_lease").await
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        Ok(())
     }
 
     fn parse_canonical_content_hash(content_hash: &str) -> Result<blake3::Hash> {
@@ -339,9 +888,17 @@ impl FilesystemBackend {
         let mut buffer = vec![0_u8; FILE_COPY_BUFFER_BYTES];
         let mut hasher = blake3::Hasher::new();
         let mut size_bytes = 0_u64;
+        let abort_after_bytes = shard_import_sidecar_copy_abort_after_bytes();
 
         loop {
-            let read = reader.read(&mut buffer).await?;
+            let read_limit = abort_after_bytes
+                .map(|threshold| {
+                    usize::try_from(threshold.saturating_sub(size_bytes))
+                        .unwrap_or(usize::MAX)
+                        .clamp(1, buffer.len())
+                })
+                .unwrap_or(buffer.len());
+            let read = reader.read(&mut buffer[..read_limit]).await?;
             if read == 0 {
                 break;
             }
@@ -355,6 +912,9 @@ impl FilesystemBackend {
             }
             hasher.update(&buffer[..read]);
             destination.write_all(&buffer[..read]).await?;
+            if abort_after_bytes.is_some_and(|threshold| size_bytes >= threshold) {
+                std::process::abort();
+            }
         }
 
         if size_bytes != expected_size || hasher.finalize() != expected_hash {
@@ -419,7 +979,16 @@ impl FilesystemBackend {
         })?;
         fs::create_dir_all(parent).await?;
 
-        if fs::try_exists(&staging_path).await? || fs::try_exists(&temp_path).await? {
+        if fs::try_exists(&staging_path).await? {
+            Self::verify_file(&staging_path, content_hash, size_bytes).await?;
+            Self::unlink_staged_shard_temp(&temp_path).await;
+            return Ok(StagedShardBlob {
+                blob_id,
+                content_hash,
+                size_bytes,
+            });
+        }
+        if fs::try_exists(&temp_path).await? {
             return Err(Error::InvalidInput(
                 "Staged shard blob identifier is already in use".to_string(),
             ));
@@ -874,6 +1443,56 @@ impl StorageBackend for FilesystemBackend {
         Ok(())
     }
 
+    async fn write_file(
+        &self,
+        path: &str,
+        source: &Path,
+        expected_content_hash: &str,
+        expected_size: u64,
+    ) -> Result<()> {
+        let expected_hash = Self::parse_canonical_content_hash(expected_content_hash)?;
+        let full_path = self.full_path(path);
+        debug!(
+            storage_path_len = storage_text_len(path),
+            full_path_len = storage_path_len(&full_path),
+            size = expected_size,
+            "file_storage: write_file"
+        );
+
+        if let Some(parent) = full_path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        let temp_path = {
+            let mut path = full_path.clone();
+            let mut name = path
+                .file_name()
+                .map(|name| name.to_os_string())
+                .unwrap_or_default();
+            name.push(".tmp");
+            path.set_file_name(name);
+            path
+        };
+        let mut source = fs::File::open(source).await?;
+        let mut destination = fs::File::create(&temp_path).await?;
+        if let Err(error) =
+            Self::copy_and_verify(&mut destination, &mut source, expected_hash, expected_size).await
+        {
+            drop(destination);
+            let _ = fs::remove_file(&temp_path).await;
+            return Err(error);
+        }
+        drop(destination);
+
+        fs::rename(&temp_path, &full_path).await?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&full_path, std::fs::Permissions::from_mode(0o644)).await?;
+        }
+        Self::sync_parent_best_effort(&full_path, "write_file").await;
+        Ok(())
+    }
+
     async fn read(&self, path: &str) -> Result<Vec<u8>> {
         let full_path = self.full_path(path);
         Ok(fs::read(full_path).await?)
@@ -1001,20 +1620,30 @@ impl PgFileStorageRepository {
             let path = generate_storage_path(&blob_id);
             self.backend.write(&path, data).await?;
 
-            sqlx::query(
+            let inserted_blob_id = sqlx::query_scalar::<_, Uuid>(
                 r#"INSERT INTO attachment_blob
                    (id, content_hash, content_type, size_bytes, storage_backend, storage_path)
-                   VALUES ($1, $2, $3, $4, 'filesystem', $5)"#,
+                   VALUES ($1, $2, $3, $4, 'filesystem', $5)
+                   ON CONFLICT (content_hash) DO NOTHING
+                   RETURNING id"#,
             )
             .bind(blob_id)
             .bind(&content_hash)
             .bind(content_type)
             .bind(size_bytes)
             .bind(&path)
-            .execute(&self.pool)
+            .fetch_optional(&self.pool)
             .await?;
 
-            blob_id
+            if let Some(inserted_blob_id) = inserted_blob_id {
+                inserted_blob_id
+            } else {
+                let _ = self.backend.delete(&path).await;
+                sqlx::query_scalar("SELECT id FROM attachment_blob WHERE content_hash = $1")
+                    .bind(&content_hash)
+                    .fetch_one(&self.pool)
+                    .await?
+            }
         };
 
         // Create attachment record
@@ -1581,20 +2210,30 @@ impl PgFileStorageRepository {
             let path = generate_storage_path(&blob_id);
             self.backend.write(&path, data).await?;
 
-            sqlx::query(
+            let inserted_blob_id = sqlx::query_scalar::<_, Uuid>(
                 r#"INSERT INTO attachment_blob
                    (id, content_hash, content_type, size_bytes, storage_backend, storage_path)
-                   VALUES ($1, $2, $3, $4, 'filesystem', $5)"#,
+                   VALUES ($1, $2, $3, $4, 'filesystem', $5)
+                   ON CONFLICT (content_hash) DO NOTHING
+                   RETURNING id"#,
             )
             .bind(blob_id)
             .bind(&content_hash)
             .bind(content_type)
             .bind(size_bytes)
             .bind(&path)
-            .execute(&mut **tx)
+            .fetch_optional(&mut **tx)
             .await?;
 
-            blob_id
+            if let Some(inserted_blob_id) = inserted_blob_id {
+                inserted_blob_id
+            } else {
+                let _ = self.backend.delete(&path).await;
+                sqlx::query_scalar("SELECT id FROM attachment_blob WHERE content_hash = $1")
+                    .bind(&content_hash)
+                    .fetch_one(&mut **tx)
+                    .await?
+            }
         };
 
         // Note: reference_count is managed by the update_blob_refcount() trigger
@@ -1626,6 +2265,120 @@ impl PgFileStorageRepository {
         .await?;
 
         attachment_from_row(&row)
+    }
+
+    /// Transaction-aware bounded-memory storage from a local staging file.
+    ///
+    /// The source is hashed with a fixed-size buffer. Filesystem storage then
+    /// re-verifies the same identity while atomically copying it into the blob
+    /// namespace, so a changing source fails before a blob row is committed.
+    pub async fn store_file_from_path_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        filename: &str,
+        content_type: &str,
+        source: &Path,
+        expected_size: u64,
+    ) -> Result<(Attachment, String)> {
+        let mut source_file = fs::File::open(source).await?;
+        let mut buffer = vec![0_u8; FILE_COPY_BUFFER_BYTES];
+        let mut hasher = blake3::Hasher::new();
+        let mut size_bytes = 0_u64;
+        loop {
+            let read = source_file.read(&mut buffer).await?;
+            if read == 0 {
+                break;
+            }
+            size_bytes = size_bytes.checked_add(read as u64).ok_or_else(|| {
+                Error::InvalidInput("Attachment staging file is too large".to_string())
+            })?;
+            if size_bytes > expected_size {
+                return Err(Error::InvalidInput(
+                    "Attachment staging file exceeds its declared size".to_string(),
+                ));
+            }
+            hasher.update(&buffer[..read]);
+        }
+        if size_bytes != expected_size {
+            return Err(Error::InvalidInput(
+                "Attachment staging file does not match its declared size".to_string(),
+            ));
+        }
+        let content_hash = format!("blake3:{}", hasher.finalize().to_hex());
+        let size_bytes_i64 = i64::try_from(size_bytes)
+            .map_err(|_| Error::InvalidInput("Attachment is too large".to_string()))?;
+
+        let existing_blob: Option<AttachmentBlob> = sqlx::query(
+            r#"SELECT id, content_hash, content_type, size_bytes,
+                      storage_backend, storage_path, reference_count, created_at
+               FROM attachment_blob WHERE content_hash = $1"#,
+        )
+        .bind(&content_hash)
+        .fetch_optional(&mut **tx)
+        .await?
+        .map(|row| attachment_blob_from_row(&row))
+        .transpose()?;
+
+        let blob_id = if let Some(blob) = existing_blob {
+            blob.id
+        } else {
+            let blob_id = Uuid::now_v7();
+            let path = generate_storage_path(&blob_id);
+            self.backend
+                .write_file(&path, source, &content_hash, size_bytes)
+                .await?;
+
+            let inserted_blob_id = sqlx::query_scalar::<_, Uuid>(
+                r#"INSERT INTO attachment_blob
+                   (id, content_hash, content_type, size_bytes, storage_backend, storage_path)
+                   VALUES ($1, $2, $3, $4, 'filesystem', $5)
+                   ON CONFLICT (content_hash) DO NOTHING
+                   RETURNING id"#,
+            )
+            .bind(blob_id)
+            .bind(&content_hash)
+            .bind(content_type)
+            .bind(size_bytes_i64)
+            .bind(&path)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+            if let Some(inserted_blob_id) = inserted_blob_id {
+                inserted_blob_id
+            } else {
+                let _ = self.backend.delete(&path).await;
+                sqlx::query_scalar("SELECT id FROM attachment_blob WHERE content_hash = $1")
+                    .bind(&content_hash)
+                    .fetch_one(&mut **tx)
+                    .await?
+            }
+        };
+
+        let attachment_id = Uuid::now_v7();
+        let row = sqlx::query(
+            r#"INSERT INTO attachment
+               (id, note_id, blob_id, filename, original_filename, status)
+               VALUES ($1, $2, $3, $4, $4, 'uploaded')
+               RETURNING id, note_id, blob_id, filename, original_filename,
+                         document_type_id, status::TEXT, extraction_strategy::TEXT,
+                         extracted_text, extracted_metadata,
+                         ai_description, ai_model,
+                         has_preview, is_canonical_content,
+                         detected_document_type_id, detection_confidence, detection_method,
+                         virus_scan_status, virus_scan_at, virus_scan_backend,
+                         virus_scan_engine_version, virus_scan_signature_version,
+                         virus_scan_reason_code, virus_scan_blob_hash,
+                         created_at, updated_at"#,
+        )
+        .bind(attachment_id)
+        .bind(note_id)
+        .bind(blob_id)
+        .bind(filename)
+        .fetch_one(&mut **tx)
+        .await?;
+
+        Ok((attachment_from_row(&row)?, content_hash))
     }
 
     /// Transaction-aware variant of get.
@@ -2492,6 +3245,47 @@ mod sweep_tests {
             .unwrap()
     }
 
+    #[tokio::test]
+    async fn filesystem_write_file_copies_with_bounded_identity_verification() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source_root = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let source_path = source_root.path().join("source.bin");
+        let data = (0..(FILE_COPY_BUFFER_BYTES * 3 + 17))
+            .map(|index| (index % 251) as u8)
+            .collect::<Vec<_>>();
+        tokio::fs::write(&source_path, &data).await.unwrap();
+        let storage_path = generate_storage_path(&Uuid::now_v7());
+
+        let bad_hash = format!("blake3:{}", "0".repeat(64));
+        assert!(backend
+            .write_file(&storage_path, &source_path, &bad_hash, data.len() as u64)
+            .await
+            .is_err());
+        assert!(!tmp.path().join(&storage_path).exists());
+        let mut temp_path = tmp.path().join(&storage_path);
+        let mut temp_name = temp_path.file_name().unwrap().to_os_string();
+        temp_name.push(".tmp");
+        temp_path.set_file_name(temp_name);
+        assert!(!temp_path.exists(), "failed verification must remove temp");
+
+        backend
+            .write_file(
+                &storage_path,
+                &source_path,
+                &compute_content_hash(&data),
+                data.len() as u64,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            tokio::fs::read(tmp.path().join(storage_path))
+                .await
+                .unwrap(),
+            data
+        );
+    }
+
     #[test]
     fn file_storage_telemetry_helpers_report_lengths_and_classes() {
         let raw_path = Path::new("/srv/fortemi/private/user@example.com/token=sk-secret/blob.bin");
@@ -2603,6 +3397,269 @@ mod sweep_tests {
     }
 
     #[tokio::test]
+    async fn stage_shard_blob_recovers_link_before_temp_unlink_crash_window() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let blob_id = Uuid::now_v7();
+        let data = b"recoverable staged sidecar bytes";
+        let staged_path = backend.staged_shard_blob_path(&blob_id);
+        let temp_path = backend.staged_shard_blob_temp_path(&blob_id);
+        tokio::fs::create_dir_all(staged_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&temp_path, data).await.unwrap();
+        tokio::fs::hard_link(&temp_path, &staged_path)
+            .await
+            .unwrap();
+
+        let mut retry_reader = &b"retry should not overwrite recovered staging"[..];
+        let staged = backend
+            .stage_shard_blob(
+                blob_id,
+                &compute_content_hash(data),
+                data.len() as u64,
+                &mut retry_reader,
+            )
+            .await
+            .expect("staging retry recovers verified staged link");
+
+        assert_eq!(staged.blob_id(), blob_id);
+        assert_eq!(staged.content_hash(), compute_content_hash(data));
+        assert_eq!(staged.size_bytes(), data.len() as u64);
+        assert_eq!(tokio::fs::read(&staged_path).await.unwrap(), data);
+        assert!(
+            !temp_path.exists(),
+            "retry must clean temp left by interrupted staging"
+        );
+        assert!(
+            !tmp.path().join(staged.storage_path()).exists(),
+            "staging recovery must not publish final bytes"
+        );
+
+        let promotion = backend.promote_staged_shard_blob(&staged).await.unwrap();
+        assert_eq!(promotion, StagedShardBlobPromotion::Promoted);
+        assert_eq!(
+            tokio::fs::read(tmp.path().join(staged.storage_path()))
+                .await
+                .unwrap(),
+            data
+        );
+    }
+
+    #[tokio::test]
+    async fn shard_import_journal_persists_promotion_receipts_for_process_recovery() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let promoted =
+            stage_bytes(&backend, Uuid::now_v7(), b"journal-promoted-sidecar-bytes").await;
+        let pending = stage_bytes(&backend, Uuid::now_v7(), b"journal-pending-sidecar-bytes").await;
+
+        let lease = backend
+            .begin_shard_import_journal("archive_receipt", [&promoted, &pending])
+            .await
+            .unwrap();
+        let operation_id = lease.operation_id();
+        let journal_path = backend.shard_import_journal_path(&operation_id);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                tokio::fs::metadata(&journal_path)
+                    .await
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+
+        let journals = backend.load_shard_import_journals().await.unwrap();
+        assert!(
+            backend
+                .try_lock_shard_import_journal(operation_id)
+                .await
+                .unwrap()
+                .is_none(),
+            "recovery must not claim a journal held by a live importer"
+        );
+        assert_eq!(journals.len(), 1);
+        backend
+            .prepare_shard_import_promotion(operation_id, &promoted)
+            .await
+            .unwrap();
+        let prepared = backend.load_shard_import_journals().await.unwrap();
+        assert_eq!(
+            prepared[0]
+                .blobs()
+                .iter()
+                .find(|blob| blob.blob_id() == promoted.blob_id())
+                .unwrap()
+                .state(),
+            ShardImportJournalBlobState::Promoting
+        );
+        let promotion = backend.promote_staged_shard_blob(&promoted).await.unwrap();
+        assert_eq!(promotion, StagedShardBlobPromotion::Promoted);
+        backend
+            .record_shard_import_promotion(operation_id, &promoted, promotion)
+            .await
+            .unwrap();
+        let journals = backend.load_shard_import_journals().await.unwrap();
+        assert_eq!(journals[0].schema(), "archive_receipt");
+        assert_eq!(journals[0].operation_id(), operation_id);
+        assert_eq!(journals[0].blobs().len(), 2);
+        let promoted_receipt = journals[0]
+            .blobs()
+            .iter()
+            .find(|blob| blob.blob_id() == promoted.blob_id())
+            .unwrap();
+        assert_eq!(
+            promoted_receipt.state(),
+            ShardImportJournalBlobState::Promoted
+        );
+        assert_eq!(promoted_receipt.content_hash(), promoted.content_hash());
+        assert_eq!(promoted_receipt.size_bytes(), promoted.size_bytes());
+        assert_eq!(promoted_receipt.storage_path(), promoted.storage_path());
+        backend
+            .verify_shard_import_journal_blob(promoted_receipt)
+            .await
+            .unwrap();
+        backend
+            .compensate_shard_import_journal_blob(promoted_receipt)
+            .await
+            .unwrap();
+
+        let pending_receipt = journals[0]
+            .blobs()
+            .iter()
+            .find(|blob| blob.blob_id() == pending.blob_id())
+            .unwrap();
+        assert_eq!(
+            pending_receipt.state(),
+            ShardImportJournalBlobState::Pending
+        );
+        backend
+            .discard_shard_import_journal_blob(pending_receipt)
+            .await
+            .unwrap();
+        backend
+            .finish_shard_import_journal(operation_id)
+            .await
+            .unwrap();
+        backend
+            .finish_shard_import_journal_lease(lease)
+            .await
+            .unwrap();
+
+        assert!(!tmp.path().join(promoted.storage_path()).exists());
+        assert!(!backend.staged_shard_blob_path(&pending.blob_id()).exists());
+        assert!(backend
+            .load_shard_import_journals()
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn shard_import_journal_atomic_rewrite_exposes_only_complete_authority() {
+        for fault in [
+            ShardImportJournalPersistCheckpoint::AfterTempWrite,
+            ShardImportJournalPersistCheckpoint::AfterFileSync,
+            ShardImportJournalPersistCheckpoint::AfterRename,
+            ShardImportJournalPersistCheckpoint::AfterDirectorySync,
+        ] {
+            let tmp = tempfile::tempdir().unwrap();
+            let backend = FilesystemBackend::new(tmp.path());
+            let staged = stage_bytes(&backend, Uuid::now_v7(), b"journal-checkpoint-sidecar").await;
+            let lease = backend
+                .begin_shard_import_journal("archive_checkpoint", [&staged])
+                .await
+                .unwrap();
+            let operation_id = lease.operation_id();
+            let prior = backend
+                .load_shard_import_journals()
+                .await
+                .unwrap()
+                .remove(0);
+            let mut candidate = prior.clone();
+            candidate.blobs[0].state = ShardImportJournalBlobState::Promoting;
+
+            let result = backend
+                .persist_shard_import_journal_with_checkpoints(&candidate, |checkpoint| {
+                    if checkpoint == fault {
+                        Err(Error::Internal(
+                            "injected shard import journal persistence interruption".to_string(),
+                        ))
+                    } else {
+                        Ok(())
+                    }
+                })
+                .await;
+            assert!(matches!(result, Err(Error::Internal(_))));
+
+            let loaded = backend.load_shard_import_journals().await.unwrap();
+            assert_eq!(loaded.len(), 1);
+            let temp_path = backend.shard_import_journal_temp_path(&operation_id);
+            if matches!(
+                fault,
+                ShardImportJournalPersistCheckpoint::AfterTempWrite
+                    | ShardImportJournalPersistCheckpoint::AfterFileSync
+            ) {
+                assert_eq!(
+                    loaded[0], prior,
+                    "the complete prior record remains authoritative"
+                );
+                let temp_contents = tokio::fs::read(&temp_path).await.unwrap();
+                let temp_candidate =
+                    serde_json::from_slice::<ShardImportJournal>(&temp_contents).unwrap();
+                assert_eq!(
+                    temp_candidate, candidate,
+                    "the rewrite is complete but not authoritative"
+                );
+            } else {
+                assert_eq!(
+                    loaded[0], candidate,
+                    "the complete renamed record is authoritative"
+                );
+                assert!(
+                    !temp_path.exists(),
+                    "rename must consume the temporary rewrite"
+                );
+            }
+
+            backend
+                .finish_shard_import_journal(operation_id)
+                .await
+                .unwrap();
+            backend
+                .finish_shard_import_journal_lease(lease)
+                .await
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn shard_import_journal_loader_fails_closed_on_orphan_temporary_rewrite() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let operation_id = Uuid::now_v7();
+        let temp_path = backend.shard_import_journal_temp_path(&operation_id);
+        tokio::fs::create_dir_all(temp_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&temp_path, b"{\"partial\":")
+            .await
+            .unwrap();
+
+        let result = backend.load_shard_import_journals().await;
+        assert!(matches!(result, Err(Error::InvalidInput(_))));
+        assert!(
+            temp_path.exists(),
+            "unknown recovery state must remain available for inspection"
+        );
+    }
+
+    #[tokio::test]
     async fn stage_shard_blob_rejects_invalid_integrity_and_cleans_temp_file() {
         let tmp = tempfile::tempdir().unwrap();
         let backend = FilesystemBackend::new(tmp.path());
@@ -2674,6 +3731,42 @@ mod sweep_tests {
             tokio::fs::read(&final_path).await.unwrap(),
             data,
             "compensation must not remove promoted bytes"
+        );
+    }
+
+    #[tokio::test]
+    async fn promote_staged_shard_blob_recovers_link_before_stage_unlink_crash_window() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let blob_id = Uuid::now_v7();
+        let data = b"linked final and retained stage crash window";
+        let staged = stage_bytes(&backend, blob_id, data).await;
+        let staged_path = backend.staged_shard_blob_path(&blob_id);
+        let final_path = tmp.path().join(staged.storage_path());
+        tokio::fs::create_dir_all(final_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::hard_link(&staged_path, &final_path)
+            .await
+            .unwrap();
+
+        let receipt = backend.promote_staged_shard_blob(&staged).await.unwrap();
+
+        assert_eq!(receipt, StagedShardBlobPromotion::AlreadyPromoted);
+        assert!(
+            !staged_path.exists(),
+            "retry must unlink leftover staging from interrupted promotion"
+        );
+        assert_eq!(tokio::fs::read(&final_path).await.unwrap(), data);
+
+        backend
+            .compensate_staged_shard_blob_promotion(&staged, receipt)
+            .await
+            .unwrap();
+        assert_eq!(
+            tokio::fs::read(&final_path).await.unwrap(),
+            data,
+            "AlreadyPromoted compensation must not remove durable final bytes"
         );
     }
 
