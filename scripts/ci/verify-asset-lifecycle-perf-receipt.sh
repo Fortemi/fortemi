@@ -102,6 +102,47 @@ for key in [
     if not isinstance(metrics.get(key), int) or metrics[key] < 0:
         failures.append(f"metric {key} missing or invalid")
 
+phase_measurements = receipt.get("phaseMeasurements", {})
+phase_names = [
+    "before",
+    "afterUpload",
+    "afterSourceDownload",
+    "afterSignedExport",
+    "afterCleanImport",
+    "afterRecoveryDownload",
+]
+if set(phase_measurements) != set(phase_names):
+    failures.append("phase measurement names mismatch")
+else:
+    prior_rss = 0
+    for phase_name in phase_names:
+        phase = phase_measurements[phase_name]
+        fields = {
+            "rssHighWaterBytes",
+            "storageDiskBytes",
+            "tusStagingDiskBytes",
+            "combinedStorageAndTusDiskBytes",
+        }
+        if set(phase) != fields:
+            failures.append(f"{phase_name} phase fields mismatch")
+            continue
+        if any(
+            not isinstance(phase.get(field), int) or phase[field] < 0
+            for field in fields
+        ):
+            failures.append(f"{phase_name} phase metric missing or invalid")
+            continue
+        if phase["rssHighWaterBytes"] < prior_rss:
+            failures.append("phase RSS high-water must be monotonic")
+        prior_rss = phase["rssHighWaterBytes"]
+        if (
+            phase["combinedStorageAndTusDiskBytes"]
+            != phase["storageDiskBytes"] + phase["tusStagingDiskBytes"]
+        ):
+            failures.append(f"{phase_name} combined disk mismatch")
+        if phase_name != "before" and phase["tusStagingDiskBytes"] != 0:
+            failures.append(f"{phase_name} retained TUS staging residue")
+
 recovery = receipt.get("recovery", {})
 if recovery.get("rpoLostBytesAfterSignedFullV1Export") != 0:
     failures.append("RPO lost-byte oracle must be zero for the focused signed full-v1 recovery")

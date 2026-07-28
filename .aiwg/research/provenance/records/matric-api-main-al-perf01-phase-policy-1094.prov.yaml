@@ -1,0 +1,46 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T05:14:54Z"
+  description: "Provenance for AL-PERF01 phase measurement and approved TUS memory claims"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:75e24a1e9f621f8ba74258ae286871e73456cc47f0762c5bd81e49b9a963e36e"
+  type: code
+  created_at: "2026-07-28T05:14:54Z"
+  updated_at: "2026-07-28T05:14:54Z"
+  checksum: "sha256:75e24a1e9f621f8ba74258ae286871e73456cc47f0762c5bd81e49b9a963e36e"
+  size_bytes: 2690116
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1094"
+    profile: "2.0.0/full-v1"
+activity:
+  id: "urn:aiwg:activity:implementation:al-perf01-phase-policy-1094:001"
+  type: modification
+  started_at: "2026-07-28T05:02:00Z"
+  ended_at: "2026-07-28T05:14:54Z"
+  description: "Record lifecycle phase RSS/disk evidence and bind the filesystem TUS memory guard to policy revision 1"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:75e24a1e9f621f8ba74258ae286871e73456cc47f0762c5bd81e49b9a963e36e"
+    activity: "urn:aiwg:activity:implementation:al-perf01-phase-policy-1094:001"
+    time: "2026-07-28T05:14:54Z"
+  used:
+    - activity: "urn:aiwg:activity:implementation:al-perf01-phase-policy-1094:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1094"
+      role: requirement
+    - activity: "urn:aiwg:activity:implementation:al-perf01-phase-policy-1094:001"
+      entity: "urn:aiwg:artifact:.aiwg/testing/asset-lifecycle-performance-policy-v1.json:sha256:52d2f5215bac61e8e6d1a61a4d133d48858ae830b964ee6feb5e87718b220d84"
+      role: policy
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:implementation:al-perf01-phase-policy-1094:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:75e24a1e9f621f8ba74258ae286871e73456cc47f0762c5bd81e49b9a963e36e"
+    agent: "urn:aiwg:agent:codex-gpt-5"

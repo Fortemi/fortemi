@@ -647,6 +647,14 @@ jobs:
               target/al-perf01-receipts/clean-checkout.json
           FORTEMI_AL_PERF_CORPUS_BYTES=104857600 \
             FORTEMI_AL_PERF_EXPECT_MAX_CORPUS_BYTES=104857600 \
+            FORTEMI_AL_PERF_EXPECT_APPROVED_BUDGETS=1 \
+            FORTEMI_AL_PERF_MAX_UPLOAD_MILLIS=3000 \
+            FORTEMI_AL_PERF_MAX_DOWNLOAD_MILLIS=2000 \
+            FORTEMI_AL_PERF_MAX_EXPORT_MILLIS=10000 \
+            FORTEMI_AL_PERF_MAX_IMPORT_MILLIS=5000 \
+            FORTEMI_AL_PERF_MAX_RECOVERY_RTO_MILLIS=7000 \
+            FORTEMI_AL_PERF_MAX_RSS_DELTA_BYTES=805306368 \
+            FORTEMI_AL_PERF_MAX_STORAGE_AND_TUS_DISK_BYTES=268435456 \
             scripts/ci/verify-asset-lifecycle-perf-receipt.sh \
               target/al-perf01-receipts/max-corpus-100mib.json
           FORTEMI_AL_PERF_CORPUS_BYTES=29360128 \
@@ -656,34 +664,17 @@ jobs:
               target/al-perf01-receipts/max-count-28-sidecars.json
           scripts/ci/verify-tus-bounded-memory-receipt.sh \
             target/al-perf01-receipts/tus-bounded-memory.json
-          if [ -n "${FORTEMI_AL_PERF_MAX_UPLOAD_MILLIS:-}" ] \
-            && [ -n "${FORTEMI_AL_PERF_MAX_DOWNLOAD_MILLIS:-}" ] \
-            && [ -n "${FORTEMI_AL_PERF_MAX_EXPORT_MILLIS:-}" ] \
-            && [ -n "${FORTEMI_AL_PERF_MAX_IMPORT_MILLIS:-}" ] \
-            && [ -n "${FORTEMI_AL_PERF_MAX_RECOVERY_RTO_MILLIS:-}" ] \
-            && [ -n "${FORTEMI_AL_PERF_MAX_RSS_DELTA_BYTES:-}" ] \
-            && [ -n "${FORTEMI_AL_PERF_MAX_STORAGE_AND_TUS_DISK_BYTES:-}" ]; then
-            FORTEMI_AL_PERF_EXPECT_APPROVED_BUDGETS=1 \
-              scripts/ci/verify-asset-lifecycle-perf-receipt.sh \
-                target/al-perf01-receipts/approved-budget.json
-          else
-            cat > target/al-perf01-receipts/approved-budget.not-configured.json <<'JSON'
-          {
-            "schemaVersion": "fortemi.asset-lifecycle.approved-budget-receipt.v1",
-            "status": "not-configured",
-            "reason": "all seven FORTEMI_AL_PERF_MAX_* repository variables are required before CI can claim approved budget/RPO-RTO pass"
-          }
-          JSON
-          fi
+          FORTEMI_AL_PERF_EXPECT_APPROVED_BUDGETS=1 \
+            FORTEMI_AL_PERF_MAX_UPLOAD_MILLIS=1000 \
+            FORTEMI_AL_PERF_MAX_DOWNLOAD_MILLIS=500 \
+            FORTEMI_AL_PERF_MAX_EXPORT_MILLIS=2000 \
+            FORTEMI_AL_PERF_MAX_IMPORT_MILLIS=2000 \
+            FORTEMI_AL_PERF_MAX_RECOVERY_RTO_MILLIS=2500 \
+            FORTEMI_AL_PERF_MAX_RSS_DELTA_BYTES=67108864 \
+            FORTEMI_AL_PERF_MAX_STORAGE_AND_TUS_DISK_BYTES=3145728 \
+            scripts/ci/verify-asset-lifecycle-perf-receipt.sh \
+              target/al-perf01-receipts/approved-budget.json
           python3 scripts/ci/verify-al-perf01-receipt-bundle.py --write-manifest target/al-perf01-receipts
-        env:
-          FORTEMI_AL_PERF_MAX_UPLOAD_MILLIS: ${{ vars.FORTEMI_AL_PERF_MAX_UPLOAD_MILLIS }}
-          FORTEMI_AL_PERF_MAX_DOWNLOAD_MILLIS: ${{ vars.FORTEMI_AL_PERF_MAX_DOWNLOAD_MILLIS }}
-          FORTEMI_AL_PERF_MAX_EXPORT_MILLIS: ${{ vars.FORTEMI_AL_PERF_MAX_EXPORT_MILLIS }}
-          FORTEMI_AL_PERF_MAX_IMPORT_MILLIS: ${{ vars.FORTEMI_AL_PERF_MAX_IMPORT_MILLIS }}
-          FORTEMI_AL_PERF_MAX_RECOVERY_RTO_MILLIS: ${{ vars.FORTEMI_AL_PERF_MAX_RECOVERY_RTO_MILLIS }}
-          FORTEMI_AL_PERF_MAX_RSS_DELTA_BYTES: ${{ vars.FORTEMI_AL_PERF_MAX_RSS_DELTA_BYTES }}
-          FORTEMI_AL_PERF_MAX_STORAGE_AND_TUS_DISK_BYTES: ${{ vars.FORTEMI_AL_PERF_MAX_STORAGE_AND_TUS_DISK_BYTES }}
 
       - name: Upload AL-PERF01 asset lifecycle receipts
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3

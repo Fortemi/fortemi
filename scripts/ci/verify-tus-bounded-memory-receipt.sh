@@ -104,7 +104,8 @@ expected_guard = {
     "filesystemCopyBufferBytes": 65_536,
     "maxLargeRssHighWaterDeltaBytes": 67_108_864,
     "maxGrowthOverSmallBytes": 33_554_432,
-    "approvedPolicy": False,
+    "approvedPolicy": True,
+    "policyRevision": "1",
 }
 for key, expected in expected_guard.items():
     if guard.get(key) != expected:
@@ -123,7 +124,7 @@ if isinstance(small_delta, int) and isinstance(large_delta, int):
 expected_claims = {
     "processIsolatedTusPathMemoryGuardPassed": True,
     "wholeAssetLifecycleProcessBoundedMemoryPassed": False,
-    "approvedPeakRssBudgetPassed": False,
+    "approvedPeakRssBudgetPassed": True,
     "nonFilesystemBackendsPassed": False,
     "scannerPathPassed": False,
     "suiteWidePortability": False,

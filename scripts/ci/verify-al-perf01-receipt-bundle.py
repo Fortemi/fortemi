@@ -11,6 +11,8 @@ from typing import Any
 
 
 DEFAULT_DIR = Path("target/al-perf01-receipts")
+ROOT = Path(__file__).resolve().parents[2]
+POLICY_PATH = ROOT / ".aiwg/testing/asset-lifecycle-performance-policy-v1.json"
 DEFAULT_BYTES = 1_048_576
 MAX_CORPUS_BYTES = 104_857_600
 MAX_COUNT_CORPUS_BYTES = 28 * 1_048_576
@@ -25,6 +27,7 @@ STATISTICAL_SCHEMA = "fortemi.asset-lifecycle.observed-percentiles.v1"
 STATISTICAL_SAMPLE_COUNT = 5
 TUS_MEMORY_SCHEMA = "fortemi.asset-lifecycle.tus-memory-receipt.v1"
 PROFILE = "2.0.0/full-v1"
+PERCENTILES = ("p50", "p95", "p99")
 APPROVED_BUDGET_FIELDS = (
     "uploadMillis",
     "downloadMillis",
@@ -109,6 +112,216 @@ def read_path(value: dict[str, Any], parts: tuple[str, ...]) -> Any:
     return current
 
 
+def sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load_policy(failures: list[str]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    policy = load_json(POLICY_PATH, failures)
+    if policy is None:
+        return None
+    if policy.get("schemaVersion") != "fortemi.asset-lifecycle.performance-policy.v1":
+        failures.append("performance policy: schemaVersion mismatch")
+    if policy.get("status") != "approved":
+        failures.append("performance policy: status must be approved")
+    if policy.get("issue") != "Fortemi/fortemi#1094":
+        failures.append("performance policy: issue mismatch")
+    if policy.get("profile") != PROFILE:
+        failures.append("performance policy: profile mismatch")
+
+    scope = policy.get("scope", {})
+    expected_scope = {
+        "targetOs": "linux",
+        "targetArch": "x86_64",
+        "storageBackend": "filesystem",
+        "defaultCorpusBytes": DEFAULT_BYTES,
+        "maximumCiCorpusBytes": MAX_CORPUS_BYTES,
+        "maximumSidecarCount": MAX_SIDECAR_COUNT,
+        "maximumArchiveEntries": MAX_ARCHIVE_ENTRIES,
+        "sampleCount": STATISTICAL_SAMPLE_COUNT,
+        "percentileMethod": "nearest-rank",
+    }
+    if scope != expected_scope:
+        failures.append("performance policy: scope mismatch")
+
+    percentile_budgets = policy.get("percentileBudgets", {})
+    observation_directions = {
+        name: direction for name, _path, _unit, direction in OBSERVATION_FIELDS
+    }
+    if set(percentile_budgets) != set(observation_directions):
+        failures.append("performance policy: percentile budget fields mismatch")
+    for name, direction in observation_directions.items():
+        budget = percentile_budgets.get(name, {})
+        if budget.get("direction") != direction:
+            failures.append(f"performance policy: {name} direction mismatch")
+        for percentile in PERCENTILES:
+            limit = budget.get(percentile)
+            if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+                failures.append(
+                    f"performance policy: {name}.{percentile} limit missing or invalid"
+                )
+
+    for section in ("singleRunBudgets", "maximumCiCorpusBudgets"):
+        budgets = policy.get(section, {})
+        if set(budgets) != set(APPROVED_BUDGET_FIELDS):
+            failures.append(f"performance policy: {section} fields mismatch")
+        for name in APPROVED_BUDGET_FIELDS:
+            limit = budgets.get(name)
+            if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+                failures.append(
+                    f"performance policy: {section}.{name} missing or invalid"
+                )
+
+    recovery = policy.get("recoveryObjectives", {})
+    if recovery != {
+        "rpoMaximumLostBytes": 0,
+        "defaultCorpusRtoMaximumMillis": policy.get("singleRunBudgets", {}).get(
+            "recoveryRtoMillis"
+        ),
+        "maximumCiCorpusRtoMaximumMillis": policy.get(
+            "maximumCiCorpusBudgets", {}
+        ).get("recoveryRtoMillis"),
+    }:
+        failures.append("performance policy: recovery objectives mismatch")
+    if policy.get("boundedIoBudgets") != {
+        "requestChunkBytes": 64 * 1024,
+        "tusSafetyPrefixMaxBytes": 8 * 1024,
+        "filesystemCopyBufferBytes": 64 * 1024,
+        "fullV1SidecarStreamBufferBytes": 64 * 1024,
+        "maximumLargeTusRssHighWaterDeltaBytes": 64 * 1024 * 1024,
+        "maximumTusRssGrowthOverOneMiBBytes": 32 * 1024 * 1024,
+    }:
+        failures.append("performance policy: bounded I/O budgets mismatch")
+    if policy.get("claimBoundaries") != {
+        "wholeAssetLifecycleProcessBoundedMemory": False,
+        "scannerPathMemory": False,
+        "nonFilesystemBackendMemory": False,
+        "nonLinuxPlatformMatrix": False,
+        "suiteWidePortability": False,
+    }:
+        failures.append("performance policy: claim boundaries mismatch")
+
+    trend = policy.get("trend", {})
+    baseline_relative = trend.get("baseline")
+    if (
+        not isinstance(baseline_relative, str)
+        or not baseline_relative.startswith(".aiwg/testing/receipts/")
+    ):
+        failures.append("performance policy: baseline path missing or invalid")
+        return None
+    if trend.get("comparisonRequired") is not True:
+        failures.append("performance policy: historical comparison must be required")
+    if trend.get("comparisonMayRelaxBudgets") is not False:
+        failures.append("performance policy: trend comparison must not relax budgets")
+    if trend.get("artifactRetentionDays") != 30:
+        failures.append("performance policy: artifact retention must be 30 days")
+
+    baseline_path = ROOT / baseline_relative
+    baseline = load_json(baseline_path, failures)
+    if baseline is None:
+        return None
+    if baseline.get("schemaVersion") != "fortemi.asset-lifecycle.performance-baseline.v1":
+        failures.append("performance baseline: schemaVersion mismatch")
+    if baseline.get("status") != "immutable-ci-baseline":
+        failures.append("performance baseline: status mismatch")
+    if baseline.get("issue") != "Fortemi/fortemi#1094":
+        failures.append("performance baseline: issue mismatch")
+    if baseline.get("profile") != PROFILE:
+        failures.append("performance baseline: profile mismatch")
+    source = baseline.get("source", {})
+    commit = source.get("gitCommit")
+    if (
+        not isinstance(commit, str)
+        or len(commit) != 40
+        or any(character not in "0123456789abcdef" for character in commit)
+    ):
+        failures.append("performance baseline: exact git commit missing or invalid")
+    for key in (
+        "observedPercentilesSha256",
+        "bundleManifestSha256",
+        "trendKey",
+    ):
+        value = source.get(key)
+        if (
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+        ):
+            failures.append(f"performance baseline: source.{key} missing or invalid")
+    if baseline.get("corpus") != {
+        "bytes": DEFAULT_BYTES,
+        "sampleCount": STATISTICAL_SAMPLE_COUNT,
+        "percentileMethod": "nearest-rank",
+    }:
+        failures.append("performance baseline: corpus mismatch")
+    observations = baseline.get("observations", {})
+    if set(observations) != set(observation_directions):
+        failures.append("performance baseline: observation fields mismatch")
+    for name in observation_directions:
+        values = observations.get(name, {})
+        if set(values) != set(PERCENTILES):
+            failures.append(f"performance baseline: {name} percentiles mismatch")
+        for percentile in PERCENTILES:
+            value = values.get(percentile)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                failures.append(
+                    f"performance baseline: {name}.{percentile} missing or invalid"
+                )
+    if baseline.get("claims") != {
+        "historicalObservedBaseline": True,
+        "approvedPolicy": False,
+        "suiteWidePortability": False,
+    }:
+        failures.append("performance baseline: claim scope mismatch")
+    return policy, baseline
+
+
+def evaluate_percentile_policy(
+    observations: dict[str, Any],
+    policy: dict[str, Any],
+) -> tuple[dict[str, Any], bool]:
+    evaluations: dict[str, Any] = {}
+    all_passed = True
+    for name, budget in policy["percentileBudgets"].items():
+        direction = budget["direction"]
+        metric_evaluations = {}
+        for percentile in PERCENTILES:
+            actual = observations[name][percentile]
+            limit = budget[percentile]
+            passed = actual <= limit if direction == "lower-is-better" else actual >= limit
+            all_passed = all_passed and passed
+            metric_evaluations[percentile] = {
+                "actual": actual,
+                "limit": limit,
+                "passed": passed,
+            }
+        evaluations[name] = {
+            "direction": direction,
+            "percentiles": metric_evaluations,
+        }
+    return evaluations, all_passed
+
+
+def compare_to_baseline(
+    observations: dict[str, Any],
+    baseline: dict[str, Any],
+) -> dict[str, Any]:
+    comparisons = {}
+    for name in sorted(observations):
+        comparisons[name] = {
+            percentile: {
+                "baseline": baseline["observations"][name][percentile],
+                "current": observations[name][percentile],
+                "delta": (
+                    observations[name][percentile]
+                    - baseline["observations"][name][percentile]
+                ),
+            }
+            for percentile in PERCENTILES
+        }
+    return comparisons
+
+
 def repeatability_names() -> tuple[str, ...]:
     return ("repeatability.json",) + tuple(
         f"repeatability.json.repeat-{index}.json"
@@ -126,6 +339,10 @@ def build_statistical_receipt(
     directory: Path,
     failures: list[str],
 ) -> dict[str, Any] | None:
+    policy_bundle = load_policy(failures)
+    if policy_bundle is None:
+        return None
+    policy, historical_baseline = policy_bundle
     receipts: list[dict[str, Any]] = []
     source_receipts = []
     for name in repeatability_names():
@@ -203,12 +420,26 @@ def build_statistical_receipt(
         "storageFilesystem": reproducibility.get("storageFilesystem"),
         "tusFilesystem": reproducibility.get("tusFilesystem"),
     }
+    if identity["targetOs"] != policy["scope"]["targetOs"]:
+        failures.append(f"{STATISTICAL_NAME}: target OS is outside approved policy")
+    if identity["targetArch"] != policy["scope"]["targetArch"]:
+        failures.append(f"{STATISTICAL_NAME}: target architecture is outside approved policy")
+    if identity["corpusBytes"] != policy["scope"]["defaultCorpusBytes"]:
+        failures.append(f"{STATISTICAL_NAME}: corpus is outside approved policy")
+    if failures:
+        return None
+
     trend_key = hashlib.sha256(
         json.dumps(identity, separators=(",", ":"), sort_keys=True).encode("utf-8")
     ).hexdigest()
+    budget_evaluations, percentile_budgets_passed = evaluate_percentile_policy(
+        observations, policy
+    )
+    historical_comparison = compare_to_baseline(observations, historical_baseline)
+    baseline_path = ROOT / policy["trend"]["baseline"]
     return {
         "schemaVersion": STATISTICAL_SCHEMA,
-        "status": "clean-checkout-observed-percentiles-passed",
+        "status": "clean-checkout-approved-percentiles-passed",
         "issue": "Fortemi/fortemi#1094",
         "profile": PROFILE,
         "sampleCount": STATISTICAL_SAMPLE_COUNT,
@@ -219,15 +450,37 @@ def build_statistical_receipt(
         "identity": identity,
         "trend": {
             "key": trend_key,
-            "artifactRetentionDays": 30,
+            "artifactRetentionDays": policy["trend"]["artifactRetentionDays"],
+            "baseline": {
+                "path": policy["trend"]["baseline"],
+                "sha256": sha256_file(baseline_path),
+                "gitCommit": historical_baseline["source"]["gitCommit"],
+                "giteaRun": historical_baseline["source"]["giteaRun"],
+                "giteaJob": historical_baseline["source"]["giteaJob"],
+                "artifact": historical_baseline["source"]["artifact"],
+                "observedPercentilesSha256": historical_baseline["source"][
+                    "observedPercentilesSha256"
+                ],
+            },
+            "comparison": historical_comparison,
+        },
+        "policy": {
+            "path": str(POLICY_PATH.relative_to(ROOT)),
+            "sha256": sha256_file(POLICY_PATH),
+            "revision": policy["revision"],
+            "status": policy["status"],
+            "comparisonMayRelaxBudgets": policy["trend"][
+                "comparisonMayRelaxBudgets"
+            ],
         },
         "sourceReceipts": source_receipts,
         "observations": observations,
+        "budgetEvaluations": budget_evaluations,
         "claims": {
             "cleanCheckoutSamplesPassed": True,
             "observedP50P95P99Recorded": True,
-            "approvedPercentileBudgetsPassed": False,
-            "historicalTrendComparisonPassed": False,
+            "approvedPercentileBudgetsPassed": percentile_budgets_passed,
+            "historicalTrendComparisonPassed": True,
             "wholeAssetLifecycleProcessBoundedMemoryPassed": False,
             "suiteWidePortability": False,
         },
@@ -259,6 +512,12 @@ def validate_statistical_receipt(directory: Path, failures: list[str]) -> None:
         failures.append(
             f"{STATISTICAL_NAME}: content does not match exact source-receipt recomputation"
         )
+    if (
+        expected is not None
+        and expected.get("claims", {}).get("approvedPercentileBudgetsPassed")
+        is not True
+    ):
+        failures.append(f"{STATISTICAL_NAME}: approved percentile budgets did not pass")
 
 
 def require_perf_receipt(
@@ -273,6 +532,7 @@ def require_perf_receipt(
     max_count_corpus_passed: bool | None = None,
     clean_checkout: bool | None = None,
     approved_budgets: bool | None = None,
+    approved_budget_limits: dict[str, int] | None = None,
 ) -> dict[str, Any] | None:
     path = require_file(directory, name, failures)
     if path is None:
@@ -368,8 +628,11 @@ def require_perf_receipt(
         is not True
     ):
         failures.append(f"{name}: bounded server TUS/full-v1 sidecar I/O claim missing")
+    validate_phase_measurements(name, receipt, failures)
     if approved_budgets is True:
-        validate_approved_budget_fields(name, receipt, failures)
+        validate_approved_budget_fields(
+            name, receipt, failures, expected_limits=approved_budget_limits
+        )
     for claim in ("hotmBrowserDesktopPassed", "suiteWidePortability"):
         if receipt.get("claims", {}).get(claim) is not False:
             failures.append(f"{name}: claim {claim} must remain false")
@@ -381,8 +644,25 @@ def validate_approved_budget_fields(
     name: str,
     receipt: dict[str, Any],
     failures: list[str],
+    *,
+    expected_limits: dict[str, int] | None,
 ) -> None:
     budgets = receipt.get("budgets", {})
+    actual_paths = {
+        "uploadMillis": ("metrics", "uploadMillis"),
+        "downloadMillis": ("metrics", "downloadMillis"),
+        "exportMillis": ("metrics", "exportMillis"),
+        "importMillis": ("metrics", "importMillis"),
+        "recoveryRtoMillis": (
+            "recovery",
+            "rtoMillisImportAndVerifyDownload",
+        ),
+        "rssHighWaterDeltaBytes": ("metrics", "rssHighWaterDeltaBytes"),
+        "storageAndTusDiskBytesAfter": (
+            "metrics",
+            "storageAndTusDiskBytesAfter",
+        ),
+    }
     if budgets.get("approvedGateEnabled") is not True:
         failures.append(f"{name}: approved budget gate must be enabled")
     if budgets.get("approvedGateComplete") is not True:
@@ -393,12 +673,70 @@ def validate_approved_budget_fields(
         evaluation = budgets.get(field, {})
         if not isinstance(evaluation.get("actual"), int) or evaluation["actual"] < 0:
             failures.append(f"{name}: budget actual {field} missing or invalid")
+        if evaluation.get("actual") != read_path(receipt, actual_paths[field]):
+            failures.append(f"{name}: budget actual {field} differs from measurement")
         if not isinstance(evaluation.get("max"), int) or evaluation["max"] <= 0:
             failures.append(f"{name}: approved budget max {field} missing or invalid")
+        if (
+            expected_limits is not None
+            and evaluation.get("max") != expected_limits.get(field)
+        ):
+            failures.append(f"{name}: approved budget {field} differs from policy")
         if evaluation.get("passed") is not True:
             failures.append(f"{name}: approved budget {field} did not pass")
     if receipt.get("recovery", {}).get("approvedRpoRtoBudgetPassed") is not True:
         failures.append(f"{name}: approved RPO/RTO budget must pass")
+
+
+def validate_phase_measurements(
+    name: str,
+    receipt: dict[str, Any],
+    failures: list[str],
+) -> None:
+    measurements = receipt.get("phaseMeasurements", {})
+    phase_names = (
+        "before",
+        "afterUpload",
+        "afterSourceDownload",
+        "afterSignedExport",
+        "afterCleanImport",
+        "afterRecoveryDownload",
+    )
+    if set(measurements) != set(phase_names):
+        failures.append(f"{name}: phase measurement names mismatch")
+        return
+    prior_rss = 0
+    for phase_name in phase_names:
+        phase = measurements.get(phase_name, {})
+        expected_fields = {
+            "rssHighWaterBytes",
+            "storageDiskBytes",
+            "tusStagingDiskBytes",
+            "combinedStorageAndTusDiskBytes",
+        }
+        if set(phase) != expected_fields:
+            failures.append(f"{name}: {phase_name} phase fields mismatch")
+            continue
+        for field in expected_fields:
+            value = phase.get(field)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                failures.append(f"{name}: {phase_name}.{field} missing or invalid")
+        rss = phase.get("rssHighWaterBytes")
+        if isinstance(rss, int) and rss < prior_rss:
+            failures.append(f"{name}: phase RSS high-water must be monotonic")
+        if isinstance(rss, int):
+            prior_rss = rss
+        storage = phase.get("storageDiskBytes")
+        tus = phase.get("tusStagingDiskBytes")
+        combined = phase.get("combinedStorageAndTusDiskBytes")
+        if (
+            isinstance(storage, int)
+            and isinstance(tus, int)
+            and combined != storage + tus
+        ):
+            failures.append(f"{name}: {phase_name} combined disk mismatch")
+        if phase_name != "before" and tus != 0:
+            failures.append(f"{name}: {phase_name} retained TUS staging residue")
 
 
 def validate_tus_memory_receipt(directory: Path, failures: list[str]) -> None:
@@ -467,7 +805,8 @@ def validate_tus_memory_receipt(directory: Path, failures: list[str]) -> None:
         "filesystemCopyBufferBytes": 64 * 1024,
         "maxLargeRssHighWaterDeltaBytes": 64 * 1024 * 1024,
         "maxGrowthOverSmallBytes": 32 * 1024 * 1024,
-        "approvedPolicy": False,
+        "approvedPolicy": True,
+        "policyRevision": "1",
     }
     for key, expected in expected_guard.items():
         if guard.get(key) != expected:
@@ -485,7 +824,7 @@ def validate_tus_memory_receipt(directory: Path, failures: list[str]) -> None:
     if receipt.get("claims") != {
         "processIsolatedTusPathMemoryGuardPassed": True,
         "wholeAssetLifecycleProcessBoundedMemoryPassed": False,
-        "approvedPeakRssBudgetPassed": False,
+        "approvedPeakRssBudgetPassed": True,
         "nonFilesystemBackendsPassed": False,
         "scannerPathPassed": False,
         "suiteWidePortability": False,
@@ -552,33 +891,30 @@ def validate_repeatability(directory: Path, failures: list[str]) -> None:
                 )
 
 
-def validate_budget_branch(directory: Path, failures: list[str]) -> None:
+def validate_budget_branch(
+    directory: Path,
+    failures: list[str],
+    policy: dict[str, Any],
+) -> None:
     approved = directory / "approved-budget.json"
     not_configured = directory / "approved-budget.not-configured.json"
-    if approved.is_file() == not_configured.is_file():
-        failures.append("expected exactly one approved-budget.json or approved-budget.not-configured.json")
-        return
-    if approved.is_file():
-        require_perf_receipt(
-            directory,
-            "approved-budget.json",
-            failures,
-            corpus_bytes=DEFAULT_BYTES,
-            max_corpus_passed=False,
-            clean_checkout=False,
-            approved_budgets=True,
+    if not_configured.is_file():
+        failures.append(
+            "approved-budget.not-configured.json is invalid after policy approval"
         )
+    if not approved.is_file():
+        failures.append("missing required receipt approved-budget.json")
         return
-    receipt = load_json(not_configured, failures)
-    if receipt is None:
-        return
-    if receipt.get("schemaVersion") != NOT_CONFIGURED_SCHEMA:
-        failures.append("approved-budget.not-configured.json: schemaVersion mismatch")
-    if receipt.get("status") != "not-configured":
-        failures.append("approved-budget.not-configured.json: status mismatch")
-    reason = receipt.get("reason")
-    if not isinstance(reason, str) or "FORTEMI_AL_PERF_MAX_*" not in reason:
-        failures.append("approved-budget.not-configured.json: reason must name FORTEMI_AL_PERF_MAX_*")
+    require_perf_receipt(
+        directory,
+        "approved-budget.json",
+        failures,
+        corpus_bytes=DEFAULT_BYTES,
+        max_corpus_passed=False,
+        clean_checkout=False,
+        approved_budgets=True,
+        approved_budget_limits=policy["singleRunBudgets"],
+    )
 
 
 def allowed_receipt_names() -> set[str]:
@@ -657,6 +993,10 @@ def validate_bundle(directory: Path) -> list[str]:
     failures: list[str] = []
     if not directory.is_dir():
         return [f"receipt bundle directory does not exist: {directory}"]
+    policy_bundle = load_policy(failures)
+    if policy_bundle is None:
+        return failures
+    policy, _baseline = policy_bundle
 
     require_perf_receipt(
         directory,
@@ -686,7 +1026,8 @@ def validate_bundle(directory: Path) -> list[str]:
         expected_max_corpus_bytes=MAX_CORPUS_BYTES,
         max_corpus_passed=True,
         clean_checkout=False,
-        approved_budgets=False,
+        approved_budgets=True,
+        approved_budget_limits=policy["maximumCiCorpusBudgets"],
     )
     require_perf_receipt(
         directory,
@@ -700,7 +1041,7 @@ def validate_bundle(directory: Path) -> list[str]:
         approved_budgets=False,
     )
     validate_tus_memory_receipt(directory, failures)
-    validate_budget_branch(directory, failures)
+    validate_budget_branch(directory, failures, policy)
 
     validate_manifest(directory, failures)
 

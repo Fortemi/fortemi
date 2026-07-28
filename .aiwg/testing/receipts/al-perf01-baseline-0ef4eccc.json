@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "fortemi.asset-lifecycle.performance-baseline.v1",
+  "status": "immutable-ci-baseline",
+  "issue": "Fortemi/fortemi#1094",
+  "profile": "2.0.0/full-v1",
+  "source": {
+    "gitCommit": "0ef4eccc21affe0ed4efe7b3da41ccb8b5e67f86",
+    "giteaRun": 6183,
+    "giteaJob": 104296,
+    "artifact": "al-perf01-asset-lifecycle-receipts",
+    "observedPercentilesSha256": "44f87d609ec1e4bbffd2d6848681e727c3f946273fddbb5f65261e710da52241",
+    "bundleManifestSha256": "9774b7ecadad8f17bfd920ca961bf7943b9e96001cdecc4d96d04beb7ffe0400",
+    "trendKey": "5a9f6e1cd78d1eed1578a5abc5121a5fe785acd1c69e872774cefa778baead8f"
+  },
+  "corpus": {
+    "bytes": 1048576,
+    "sampleCount": 5,
+    "percentileMethod": "nearest-rank"
+  },
+  "observations": {
+    "uploadMillis": {
+      "p50": 54,
+      "p95": 66,
+      "p99": 66
+    },
+    "downloadMillis": {
+      "p50": 6,
+      "p95": 7,
+      "p99": 7
+    },
+    "exportMillis": {
+      "p50": 96,
+      "p95": 131,
+      "p99": 131
+    },
+    "importMillis": {
+      "p50": 93,
+      "p95": 133,
+      "p99": 133
+    },
+    "recoveryRtoMillis": {
+      "p50": 97,
+      "p95": 143,
+      "p99": 143
+    },
+    "uploadBytesPerSecond": {
+      "p50": 19418074,
+      "p95": 23831272,
+      "p99": 23831272
+    },
+    "downloadBytesPerSecond": {
+      "p50": 174762666,
+      "p95": 349525333,
+      "p99": 349525333
+    },
+    "exportArchiveBytesPerSecond": {
+      "p50": 302083,
+      "p95": 329568,
+      "p99": 329568
+    },
+    "importArchiveBytesPerSecond": {
+      "p50": 311666,
+      "p95": 358037,
+      "p99": 358037
+    },
+    "rssHighWaterDeltaBytes": {
+      "p50": 25980928,
+      "p95": 27115520,
+      "p99": 27115520
+    },
+    "storageAndTusDiskBytesAfter": {
+      "p50": 2097222,
+      "p95": 2097222,
+      "p99": 2097222
+    }
+  },
+  "claims": {
+    "historicalObservedBaseline": true,
+    "approvedPolicy": false,
+    "suiteWidePortability": false
+  }
+}

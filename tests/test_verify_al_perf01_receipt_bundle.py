@@ -64,13 +64,14 @@ def perf_receipt(
             "downloadMillis": sample * 2,
             "exportMillis": sample * 3,
             "importMillis": sample * 4,
-            "uploadBytesPerSecond": sample * 100,
-            "downloadBytesPerSecond": sample * 200,
-            "exportArchiveBytesPerSecond": sample * 300,
-            "importArchiveBytesPerSecond": sample * 400,
-            "rssHighWaterDeltaBytes": sample * 1_000,
-            "storageAndTusDiskBytesAfter": sample * 2_000,
+            "uploadBytesPerSecond": 10_000_000 + sample,
+            "downloadBytesPerSecond": 20_000_000 + sample,
+            "exportArchiveBytesPerSecond": 200_000 + sample,
+            "importArchiveBytesPerSecond": 200_000 + sample,
+            "rssHighWaterDeltaBytes": 10_000_000 + sample,
+            "storageAndTusDiskBytesAfter": 2_000_000 + sample,
         },
+        "phaseMeasurements": phase_measurements(sample),
         "reproducibility": {
             "cleanCheckoutReproduced": clean_checkout,
             "worktreeDirty": worktree_dirty,
@@ -93,11 +94,31 @@ def perf_receipt(
             "hotmBrowserDesktopPassed": False,
             "suiteWidePortability": False,
         },
-        "budgets": budget_block(approved_budgets),
+        "budgets": budget_block(approved_budgets, corpus_bytes, sample),
     }
 
 
-def budget_block(approved_budgets: bool) -> dict:
+def phase_measurements(sample: int) -> dict:
+    names = (
+        "before",
+        "afterUpload",
+        "afterSourceDownload",
+        "afterSignedExport",
+        "afterCleanImport",
+        "afterRecoveryDownload",
+    )
+    return {
+        name: {
+            "rssHighWaterBytes": 50_000_000 + index * sample,
+            "storageDiskBytes": index * 1000,
+            "tusStagingDiskBytes": 0,
+            "combinedStorageAndTusDiskBytes": index * 1000,
+        }
+        for index, name in enumerate(names)
+    }
+
+
+def budget_block(approved_budgets: bool, corpus_bytes: int, sample: int) -> dict:
     fields = [
         "uploadMillis",
         "downloadMillis",
@@ -107,14 +128,42 @@ def budget_block(approved_budgets: bool) -> dict:
         "rssHighWaterDeltaBytes",
         "storageAndTusDiskBytesAfter",
     ]
+    default_limits = {
+        "uploadMillis": 1000,
+        "downloadMillis": 500,
+        "exportMillis": 2000,
+        "importMillis": 2000,
+        "recoveryRtoMillis": 2500,
+        "rssHighWaterDeltaBytes": 67_108_864,
+        "storageAndTusDiskBytesAfter": 3_145_728,
+    }
+    maximum_limits = {
+        "uploadMillis": 3000,
+        "downloadMillis": 2000,
+        "exportMillis": 10000,
+        "importMillis": 5000,
+        "recoveryRtoMillis": 7000,
+        "rssHighWaterDeltaBytes": 805_306_368,
+        "storageAndTusDiskBytesAfter": 268_435_456,
+    }
+    limits = maximum_limits if corpus_bytes == 104_857_600 else default_limits
+    actuals = {
+        "uploadMillis": sample,
+        "downloadMillis": sample * 2,
+        "exportMillis": sample * 3,
+        "importMillis": sample * 4,
+        "recoveryRtoMillis": sample * 10,
+        "rssHighWaterDeltaBytes": 10_000_000 + sample,
+        "storageAndTusDiskBytesAfter": 2_000_000 + sample,
+    }
     return {
         "approvedGateEnabled": approved_budgets,
         "approvedGateComplete": approved_budgets,
         "approvedGatePassed": approved_budgets,
         **{
             field: {
-                "actual": 1,
-                "max": 10 if approved_budgets else None,
+                "actual": actuals[field],
+                "max": limits[field] if approved_budgets else None,
                 "passed": approved_budgets,
             }
             for field in fields
@@ -170,12 +219,13 @@ def tus_memory_receipt(
             "maxLargeRssHighWaterDeltaBytes": 67_108_864,
             "maxGrowthOverSmallBytes": 33_554_432,
             "observedGrowthOverSmallBytes": max(0, large_delta - small_delta),
-            "approvedPolicy": False,
+            "approvedPolicy": True,
+            "policyRevision": "1",
         },
         "claims": {
             "processIsolatedTusPathMemoryGuardPassed": True,
             "wholeAssetLifecycleProcessBoundedMemoryPassed": False,
-            "approvedPeakRssBudgetPassed": False,
+            "approvedPeakRssBudgetPassed": True,
             "nonFilesystemBackendsPassed": False,
             "scannerPathPassed": False,
             "suiteWidePortability": False,
@@ -184,14 +234,18 @@ def tus_memory_receipt(
 
 
 class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
-    def test_not_configured_budget_branch_passes(self) -> None:
+    def test_not_configured_budget_branch_fails_after_policy_approval(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=False, manifest=False)
 
             result = run_verifier(bundle)
 
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "approved-budget.not-configured.json is invalid after policy approval",
+                result.stderr,
+            )
 
     def test_approved_budget_branch_passes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -241,10 +295,29 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
                 result.stderr,
             )
 
+    def test_approved_budget_drift_from_policy_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            bundle = Path(temp)
+            write_valid_bundle(bundle, approved=True)
+            receipt = json.loads(
+                (bundle / "approved-budget.json").read_text(encoding="utf-8")
+            )
+            receipt["budgets"]["uploadMillis"]["max"] = 1001
+            write_json(bundle / "approved-budget.json", receipt)
+            run_verifier(bundle, "--write-manifest")
+
+            result = run_verifier(bundle)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "approved-budget.json: approved budget uploadMillis differs from policy",
+                result.stderr,
+            )
+
     def test_missing_clean_checkout_receipt_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=True)
             (bundle / "clean-checkout.json").unlink()
 
             result = run_verifier(bundle)
@@ -255,7 +328,7 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
     def test_dirty_clean_checkout_receipt_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=True)
             write_json(
                 bundle / "clean-checkout.json",
                 perf_receipt(clean_checkout=True, worktree_dirty=True),
@@ -272,7 +345,7 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
     def test_incomplete_budget_branch_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=False, manifest=False)
             write_json(
                 bundle / "approved-budget.json",
                 perf_receipt(approved_budgets=True),
@@ -282,14 +355,14 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(
-                "expected exactly one approved-budget.json or approved-budget.not-configured.json",
+                "approved-budget.not-configured.json is invalid after policy approval",
                 result.stderr,
             )
 
     def test_understated_max_corpus_claim_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=True)
             write_json(
                 bundle / "max-corpus-100mib.json",
                 perf_receipt(
@@ -311,7 +384,7 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
     def test_understated_max_count_claim_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=True)
             receipt = perf_receipt(
                 corpus_bytes=28 * 1_048_576,
                 segment_count=28,
@@ -332,7 +405,7 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
     def test_missing_platform_filesystem_context_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=True)
             receipt = json.loads((bundle / "default.json").read_text(encoding="utf-8"))
             receipt["reproducibility"]["storageFilesystem"] = " "
             write_json(bundle / "default.json", receipt)
@@ -349,7 +422,7 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
     def test_understated_bounded_io_contract_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=True)
             receipt = json.loads((bundle / "default.json").read_text(encoding="utf-8"))
             receipt["boundedIo"]["tusFinalizationWholePayloadBuffered"] = True
             receipt["claims"]["boundedServerTusAndFullV1SidecarIoPassed"] = False
@@ -368,10 +441,27 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
                 result.stderr,
             )
 
+    def test_incomplete_phase_measurements_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            bundle = Path(temp)
+            write_valid_bundle(bundle, approved=True)
+            receipt = json.loads((bundle / "default.json").read_text(encoding="utf-8"))
+            del receipt["phaseMeasurements"]["afterSignedExport"]
+            write_json(bundle / "default.json", receipt)
+            run_verifier(bundle, "--write-manifest")
+
+            result = run_verifier(bundle)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "default.json: phase measurement names mismatch",
+                result.stderr,
+            )
+
     def test_missing_tus_memory_receipt_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=True)
             (bundle / "tus-bounded-memory.json").unlink()
 
             result = run_verifier(bundle)
@@ -385,7 +475,7 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
     def test_understated_tus_memory_claim_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=True)
             receipt = tus_memory_receipt()
             receipt["claims"]["processIsolatedTusPathMemoryGuardPassed"] = False
             write_json(bundle / "tus-bounded-memory.json", receipt)
@@ -402,7 +492,7 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
     def test_missing_statistical_sample_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=True)
             (bundle / "repeatability.json.repeat-5.json").unlink()
 
             result = run_verifier(bundle)
@@ -416,7 +506,7 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
     def test_statistical_receipt_uses_nearest_rank_percentiles(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=True)
 
             receipt = json.loads(
                 (bundle / "observed-percentiles.json").read_text(encoding="utf-8")
@@ -436,13 +526,15 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
                     "unit": "milliseconds",
                 },
             )
-            self.assertFalse(receipt["claims"]["approvedPercentileBudgetsPassed"])
-            self.assertFalse(receipt["claims"]["historicalTrendComparisonPassed"])
+            self.assertTrue(receipt["claims"]["approvedPercentileBudgetsPassed"])
+            self.assertTrue(receipt["claims"]["historicalTrendComparisonPassed"])
+            self.assertEqual(receipt["policy"]["revision"], "1")
+            self.assertFalse(receipt["policy"]["comparisonMayRelaxBudgets"])
 
     def test_tampered_statistical_receipt_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=True)
             receipt = json.loads(
                 (bundle / "observed-percentiles.json").read_text(encoding="utf-8")
             )
@@ -457,10 +549,33 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
                 result.stderr,
             )
 
+    def test_percentile_regression_beyond_policy_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            bundle = Path(temp)
+            write_valid_bundle(bundle, approved=True)
+            for name in (
+                "repeatability.json",
+                "repeatability.json.repeat-2.json",
+                "repeatability.json.repeat-3.json",
+                "repeatability.json.repeat-4.json",
+                "repeatability.json.repeat-5.json",
+            ):
+                receipt = json.loads((bundle / name).read_text(encoding="utf-8"))
+                receipt["metrics"]["uploadMillis"] = 1001
+                write_json(bundle / name, receipt)
+
+            result = run_verifier(bundle, "--write-manifest")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "observed-percentiles.json: approved percentile budgets did not pass",
+                result.stderr,
+            )
+
     def test_statistical_generation_rejects_dirty_source_sample(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=True)
             sample = json.loads(
                 (bundle / "repeatability.json.repeat-3.json").read_text(
                     encoding="utf-8"
@@ -481,7 +596,7 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
     def test_missing_manifest_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=True)
             (bundle / "manifest.json").unlink()
 
             result = run_verifier(bundle)
@@ -492,7 +607,7 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
     def test_stale_manifest_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False)
+            write_valid_bundle(bundle, approved=True)
             default = json.loads((bundle / "default.json").read_text(encoding="utf-8"))
             default["corpus"]["sha256"] = "c" * 64
             write_json(bundle / "default.json", default)
@@ -508,7 +623,7 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
     def test_write_manifest_mode_creates_valid_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
-            write_valid_bundle(bundle, approved=False, manifest=False)
+            write_valid_bundle(bundle, approved=True, manifest=False)
 
             result = run_verifier(bundle, "--write-manifest")
 
@@ -521,7 +636,7 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
             self.assertEqual(
                 [entry["name"] for entry in manifest["files"]],
                 [
-                    "approved-budget.not-configured.json",
+                    "approved-budget.json",
                     "clean-checkout.json",
                     "default.json",
                     "max-corpus-100mib.json",
@@ -563,6 +678,7 @@ def write_valid_bundle(bundle: Path, *, approved: bool, manifest: bool = True) -
             corpus_bytes=104_857_600,
             expected_max_corpus_bytes=104_857_600,
             max_corpus_passed=True,
+            approved_budgets=True,
         ),
     )
     write_json(

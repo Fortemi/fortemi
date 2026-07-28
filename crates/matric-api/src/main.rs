@@ -51614,8 +51614,23 @@ not-json
             .iter()
             .map(|segment| matric_db::compute_content_hash(segment))
             .collect();
-        let rss_before = current_rss_high_water_bytes();
-        let disk_before = directory_size_bytes(storage.path()) + directory_size_bytes(tus.path());
+        let phase_snapshot = || {
+            let storage_disk_bytes = directory_size_bytes(storage.path());
+            let tus_staging_disk_bytes = directory_size_bytes(tus.path());
+            serde_json::json!({
+                "rssHighWaterBytes": current_rss_high_water_bytes(),
+                "storageDiskBytes": storage_disk_bytes,
+                "tusStagingDiskBytes": tus_staging_disk_bytes,
+                "combinedStorageAndTusDiskBytes": storage_disk_bytes + tus_staging_disk_bytes,
+            })
+        };
+        let before_phase = phase_snapshot();
+        let rss_before = before_phase["rssHighWaterBytes"]
+            .as_u64()
+            .expect("before phase RSS high-water");
+        let disk_before = before_phase["combinedStorageAndTusDiskBytes"]
+            .as_u64()
+            .expect("before phase combined disk");
 
         let mut source_state =
             create_asset_lifecycle_test_state(db.clone(), &database_url, tus.path()).await;
@@ -51674,6 +51689,11 @@ not-json
             source_attachment_ids.push(attachment_id);
         }
         let upload_elapsed = upload_started.elapsed();
+        let after_upload_phase = phase_snapshot();
+        assert_eq!(
+            after_upload_phase["tusStagingDiskBytes"], 0,
+            "completed uploads must leave no TUS staging residue"
+        );
 
         let download_started = std::time::Instant::now();
         let mut source_downloaded = Vec::with_capacity(corpus_bytes);
@@ -51683,6 +51703,7 @@ not-json
         }
         assert_eq!(source_downloaded, bytes);
         let download_elapsed = download_started.elapsed();
+        let after_source_download_phase = phase_snapshot();
 
         let export_started = std::time::Instant::now();
         let (archive, signature, _signing_key_file) =
@@ -51697,6 +51718,7 @@ not-json
             let sidecar_name = shard_blob_entry_name(expected_hash).expect("sidecar entry name");
             assert_eq!(files[&sidecar_name], *segment);
         }
+        let after_signed_export_phase = phase_snapshot();
 
         let mut destination_state =
             create_asset_lifecycle_test_state(db.clone(), &database_url, tus.path()).await;
@@ -51707,6 +51729,7 @@ not-json
         let import = import_signed_full_v1(&client, &destination_base, &archive, &signature).await;
         let import_elapsed = import_started.elapsed();
         assert_eq!(import["status"], "success");
+        let after_clean_import_phase = phase_snapshot();
 
         let destination_attachments: Vec<(String, Uuid)> = db
             .for_schema(&destination.schema_name)
@@ -51739,8 +51762,13 @@ not-json
         assert_eq!(destination_downloaded, bytes);
         let recovery_download_elapsed = recovery_download_started.elapsed();
 
-        let rss_after = current_rss_high_water_bytes();
-        let disk_after = directory_size_bytes(storage.path()) + directory_size_bytes(tus.path());
+        let after_recovery_download_phase = phase_snapshot();
+        let rss_after = after_recovery_download_phase["rssHighWaterBytes"]
+            .as_u64()
+            .expect("recovery phase RSS high-water");
+        let disk_after = after_recovery_download_phase["combinedStorageAndTusDiskBytes"]
+            .as_u64()
+            .expect("recovery phase combined disk");
         let git_commit = command_stdout("git", &["rev-parse", "HEAD"]);
         let git_status = command_stdout_allow_empty("git", &["status", "--porcelain"]);
         let git_dirty = git_status.as_ref().map(|status| !status.trim().is_empty());
@@ -51860,6 +51888,14 @@ not-json
                 "rssHighWaterBytesBefore": rss_before,
                 "rssHighWaterBytesAfter": rss_after,
                 "rssHighWaterDeltaBytes": rss_delta,
+            },
+            "phaseMeasurements": {
+                "before": before_phase,
+                "afterUpload": after_upload_phase,
+                "afterSourceDownload": after_source_download_phase,
+                "afterSignedExport": after_signed_export_phase,
+                "afterCleanImport": after_clean_import_phase,
+                "afterRecoveryDownload": after_recovery_download_phase,
             },
             "budgets": {
                 "approvedGateEnabled": approved_budget_gate_enabled,
@@ -52019,12 +52055,13 @@ not-json
                 "maxLargeRssHighWaterDeltaBytes": TUS_MEMORY_MAX_LARGE_HWM_DELTA_BYTES,
                 "maxGrowthOverSmallBytes": TUS_MEMORY_MAX_GROWTH_OVER_SMALL_BYTES,
                 "observedGrowthOverSmallBytes": growth_over_small,
-                "approvedPolicy": false,
+                "approvedPolicy": true,
+                "policyRevision": "1",
             },
             "claims": {
                 "processIsolatedTusPathMemoryGuardPassed": true,
                 "wholeAssetLifecycleProcessBoundedMemoryPassed": false,
-                "approvedPeakRssBudgetPassed": false,
+                "approvedPeakRssBudgetPassed": true,
                 "nonFilesystemBackendsPassed": false,
                 "scannerPathPassed": false,
                 "suiteWidePortability": false,

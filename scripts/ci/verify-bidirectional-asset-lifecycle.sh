@@ -115,4 +115,4 @@ run "HotM live-assets default schema guard" "HotM/ui" \
   npm run test:e2e:live-assets
 
 printf '\nFocused lifecycle validation passed.\n'
-printf 'Open: launched native desktop GUI artifacts, mid-syscall/power-loss crash matrix, approved policy budgets/RPO-RTO/max-size, whole asset-lifecycle process RSS proof, and immutable receipt publication.\n'
+printf 'Open: launched native desktop GUI artifacts, mid-syscall/power-loss crash matrix, whole asset-lifecycle process RSS proof, non-filesystem/platform evidence, and current-head immutable receipt publication.\n'

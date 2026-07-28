@@ -1,7 +1,17 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-28T04:31:47Z"
+  updated_at: "2026-07-28T05:14:54Z"
 records:
+  - entity: ".aiwg/testing/asset-lifecycle-performance-policy-v1.json"
+    record: "records/asset-lifecycle-performance-policy-v1-1094.prov.yaml"
+  - entity: ".aiwg/testing/receipts/al-perf01-baseline-0ef4eccc.json"
+    record: "records/al-perf01-baseline-0ef4eccc-1094.prov.yaml"
+  - entity: "crates/matric-api/src/main.rs"
+    record: "records/matric-api-main-al-perf01-phase-policy-1094.prov.yaml"
+  - entity: "scripts/ci/verify-al-perf01-receipt-bundle.py"
+    record: "records/verify-al-perf01-policy-bundle-1094.prov.yaml"
+  - entity: ".aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
+    record: "records/bidirectional-asset-lifecycle-audit-plan-policy-1094.prov.yaml"
   - entity: "scripts/ci/verify-asset-lifecycle-system-receipt.py"
     record: "records/verify-asset-lifecycle-system-receipt-1093.prov.yaml"
   - entity: "scripts/ci/verify-asset-lifecycle-system-receipt.sh"

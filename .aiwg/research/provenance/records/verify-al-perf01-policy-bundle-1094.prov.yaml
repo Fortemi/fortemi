@@ -1,0 +1,50 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T05:14:54Z"
+  description: "Provenance for the fail-closed AL-PERF01 policy bundle verifier"
+entity:
+  id: "urn:aiwg:artifact:scripts/ci/verify-al-perf01-receipt-bundle.py:sha256:735e17af47c14efa9677efbf1e9f6ded95a01839c260c1e714bfdb631e0041f1"
+  type: test
+  created_at: "2026-07-28T05:14:54Z"
+  updated_at: "2026-07-28T05:14:54Z"
+  checksum: "sha256:735e17af47c14efa9677efbf1e9f6ded95a01839c260c1e714bfdb631e0041f1"
+  size_bytes: 41800
+  attributes:
+    language: python
+    issue: "Fortemi/fortemi#1094"
+    validation: fail_closed
+activity:
+  id: "urn:aiwg:activity:testing:al-perf01-policy-bundle-1094:001"
+  type: testing
+  started_at: "2026-07-28T05:02:00Z"
+  ended_at: "2026-07-28T05:14:54Z"
+  description: "Enforce policy identity, percentile budgets, historical comparison, exact single-run limits, phase evidence, and manifest integrity"
+  attributes:
+    verification:
+      - "python3 -m unittest tests/test_verify_al_perf01_receipt_bundle.py: 23 passed"
+      - "approved local 1 MiB, 100 MiB, and TUS memory receipts: passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-al-perf01-receipt-bundle.py:sha256:735e17af47c14efa9677efbf1e9f6ded95a01839c260c1e714bfdb631e0041f1"
+    activity: "urn:aiwg:activity:testing:al-perf01-policy-bundle-1094:001"
+    time: "2026-07-28T05:14:54Z"
+  used:
+    - activity: "urn:aiwg:activity:testing:al-perf01-policy-bundle-1094:001"
+      entity: "urn:aiwg:artifact:.aiwg/testing/asset-lifecycle-performance-policy-v1.json:sha256:52d2f5215bac61e8e6d1a61a4d133d48858ae830b964ee6feb5e87718b220d84"
+      role: policy
+    - activity: "urn:aiwg:activity:testing:al-perf01-policy-bundle-1094:001"
+      entity: "urn:aiwg:artifact:.aiwg/testing/receipts/al-perf01-baseline-0ef4eccc.json:sha256:fbe23e954993d83ef0fce05bcb8f03c89d02805f45eb696ce6c957fabe78ac56"
+      role: historical_baseline
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:testing:al-perf01-policy-bundle-1094:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: test_maintainer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-al-perf01-receipt-bundle.py:sha256:735e17af47c14efa9677efbf1e9f6ded95a01839c260c1e714bfdb631e0041f1"
+    agent: "urn:aiwg:agent:codex-gpt-5"

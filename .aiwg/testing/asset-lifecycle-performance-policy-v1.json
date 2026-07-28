@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "fortemi.asset-lifecycle.performance-policy.v1",
+  "revision": "1",
+  "status": "approved",
+  "issue": "Fortemi/fortemi#1094",
+  "profile": "2.0.0/full-v1",
+  "scope": {
+    "targetOs": "linux",
+    "targetArch": "x86_64",
+    "storageBackend": "filesystem",
+    "defaultCorpusBytes": 1048576,
+    "maximumCiCorpusBytes": 104857600,
+    "maximumSidecarCount": 28,
+    "maximumArchiveEntries": 64,
+    "sampleCount": 5,
+    "percentileMethod": "nearest-rank"
+  },
+  "percentileBudgets": {
+    "uploadMillis": {
+      "direction": "lower-is-better",
+      "p50": 250,
+      "p95": 750,
+      "p99": 1000
+    },
+    "downloadMillis": {
+      "direction": "lower-is-better",
+      "p50": 100,
+      "p95": 250,
+      "p99": 500
+    },
+    "exportMillis": {
+      "direction": "lower-is-better",
+      "p50": 500,
+      "p95": 1500,
+      "p99": 2000
+    },
+    "importMillis": {
+      "direction": "lower-is-better",
+      "p50": 500,
+      "p95": 1500,
+      "p99": 2000
+    },
+    "recoveryRtoMillis": {
+      "direction": "lower-is-better",
+      "p50": 750,
+      "p95": 2000,
+      "p99": 2500
+    },
+    "uploadBytesPerSecond": {
+      "direction": "higher-is-better",
+      "p50": 4194304,
+      "p95": 4194304,
+      "p99": 4194304
+    },
+    "downloadBytesPerSecond": {
+      "direction": "higher-is-better",
+      "p50": 16777216,
+      "p95": 16777216,
+      "p99": 16777216
+    },
+    "exportArchiveBytesPerSecond": {
+      "direction": "higher-is-better",
+      "p50": 100000,
+      "p95": 100000,
+      "p99": 100000
+    },
+    "importArchiveBytesPerSecond": {
+      "direction": "higher-is-better",
+      "p50": 100000,
+      "p95": 100000,
+      "p99": 100000
+    },
+    "rssHighWaterDeltaBytes": {
+      "direction": "lower-is-better",
+      "p50": 50331648,
+      "p95": 67108864,
+      "p99": 67108864
+    },
+    "storageAndTusDiskBytesAfter": {
+      "direction": "lower-is-better",
+      "p50": 3145728,
+      "p95": 3145728,
+      "p99": 3145728
+    }
+  },
+  "singleRunBudgets": {
+    "uploadMillis": 1000,
+    "downloadMillis": 500,
+    "exportMillis": 2000,
+    "importMillis": 2000,
+    "recoveryRtoMillis": 2500,
+    "rssHighWaterDeltaBytes": 67108864,
+    "storageAndTusDiskBytesAfter": 3145728
+  },
+  "maximumCiCorpusBudgets": {
+    "uploadMillis": 3000,
+    "downloadMillis": 2000,
+    "exportMillis": 10000,
+    "importMillis": 5000,
+    "recoveryRtoMillis": 7000,
+    "rssHighWaterDeltaBytes": 805306368,
+    "storageAndTusDiskBytesAfter": 268435456
+  },
+  "boundedIoBudgets": {
+    "requestChunkBytes": 65536,
+    "tusSafetyPrefixMaxBytes": 8192,
+    "filesystemCopyBufferBytes": 65536,
+    "fullV1SidecarStreamBufferBytes": 65536,
+    "maximumLargeTusRssHighWaterDeltaBytes": 67108864,
+    "maximumTusRssGrowthOverOneMiBBytes": 33554432
+  },
+  "recoveryObjectives": {
+    "rpoMaximumLostBytes": 0,
+    "defaultCorpusRtoMaximumMillis": 2500,
+    "maximumCiCorpusRtoMaximumMillis": 7000
+  },
+  "trend": {
+    "baseline": ".aiwg/testing/receipts/al-perf01-baseline-0ef4eccc.json",
+    "comparisonRequired": true,
+    "comparisonMayRelaxBudgets": false,
+    "artifactRetentionDays": 30
+  },
+  "claimBoundaries": {
+    "wholeAssetLifecycleProcessBoundedMemory": false,
+    "scannerPathMemory": false,
+    "nonFilesystemBackendMemory": false,
+    "nonLinuxPlatformMatrix": false,
+    "suiteWidePortability": false
+  }
+}
