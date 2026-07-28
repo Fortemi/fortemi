@@ -525,7 +525,10 @@ start_authority_server
 seed_authority_fixture
 (
   cd "$REACT_DIR"
-  corepack enable
+  if command -v corepack >/dev/null 2>&1; then
+    corepack enable
+  fi
+  command -v pnpm >/dev/null
   pnpm install --frozen-lockfile
   VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-2}" \
     node packages/core/scripts/run-platform-contract.mjs \

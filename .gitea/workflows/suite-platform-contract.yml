@@ -138,11 +138,9 @@ jobs:
           if ! command -v python3 >/dev/null 2>&1; then
             brew install python
           fi
-          if ! command -v corepack >/dev/null 2>&1; then
-            npm install --global corepack@0.34.1
-          fi
           printf 'node: %s\n' "$(node --version)"
           printf 'npm: %s\n' "$(npm --version)"
+          printf 'pnpm: %s\n' "$(pnpm --version)"
           printf 'python: %s\n' "$(python3 --version)"
           printf 'cargo: %s\n' "$(cargo --version)"
 
