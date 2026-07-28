@@ -44,20 +44,20 @@ pub const FILE_COPY_BUFFER_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum ShardImportJournalPersistCheckpoint {
-    AfterTempWrite,
-    AfterFileSync,
-    AfterRename,
-    AfterDirectorySync,
+    TempWrite,
+    FileSync,
+    Rename,
+    DirectorySync,
 }
 
 fn maybe_abort_shard_import_journal_persist(checkpoint: ShardImportJournalPersistCheckpoint) {
     #[cfg(feature = "test-fault-injection")]
     {
         let checkpoint_name = match checkpoint {
-            ShardImportJournalPersistCheckpoint::AfterTempWrite => "after-temp-write",
-            ShardImportJournalPersistCheckpoint::AfterFileSync => "after-file-sync",
-            ShardImportJournalPersistCheckpoint::AfterRename => "after-rename",
-            ShardImportJournalPersistCheckpoint::AfterDirectorySync => "after-directory-sync",
+            ShardImportJournalPersistCheckpoint::TempWrite => "after-temp-write",
+            ShardImportJournalPersistCheckpoint::FileSync => "after-file-sync",
+            ShardImportJournalPersistCheckpoint::Rename => "after-rename",
+            ShardImportJournalPersistCheckpoint::DirectorySync => "after-directory-sync",
         };
         if std::env::var("FORTEMI_TEST_ABORT_SHARD_IMPORT_JOURNAL_PERSIST_AT").as_deref()
             == Ok(checkpoint_name)
@@ -74,10 +74,10 @@ fn maybe_abort_shard_import_journal_persist(checkpoint: ShardImportJournalPersis
 fn shard_import_sidecar_copy_abort_after_bytes() -> Option<u64> {
     #[cfg(feature = "test-fault-injection")]
     {
-        return std::env::var("FORTEMI_TEST_ABORT_SHARD_IMPORT_SIDECAR_COPY_AFTER_BYTES")
+        std::env::var("FORTEMI_TEST_ABORT_SHARD_IMPORT_SIDECAR_COPY_AFTER_BYTES")
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
-            .filter(|value| *value > 0);
+            .filter(|value| *value > 0)
     }
     #[cfg(not(feature = "test-fault-injection"))]
     {
@@ -543,23 +543,19 @@ impl FilesystemBackend {
             fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o600)).await?;
         }
         file.write_all(&contents).await?;
-        checkpoint(ShardImportJournalPersistCheckpoint::AfterTempWrite)?;
-        maybe_abort_shard_import_journal_persist(
-            ShardImportJournalPersistCheckpoint::AfterTempWrite,
-        );
+        checkpoint(ShardImportJournalPersistCheckpoint::TempWrite)?;
+        maybe_abort_shard_import_journal_persist(ShardImportJournalPersistCheckpoint::TempWrite);
         file.sync_all().await?;
-        checkpoint(ShardImportJournalPersistCheckpoint::AfterFileSync)?;
-        maybe_abort_shard_import_journal_persist(
-            ShardImportJournalPersistCheckpoint::AfterFileSync,
-        );
+        checkpoint(ShardImportJournalPersistCheckpoint::FileSync)?;
+        maybe_abort_shard_import_journal_persist(ShardImportJournalPersistCheckpoint::FileSync);
         drop(file);
         fs::rename(&temp_path, &path).await?;
-        checkpoint(ShardImportJournalPersistCheckpoint::AfterRename)?;
-        maybe_abort_shard_import_journal_persist(ShardImportJournalPersistCheckpoint::AfterRename);
+        checkpoint(ShardImportJournalPersistCheckpoint::Rename)?;
+        maybe_abort_shard_import_journal_persist(ShardImportJournalPersistCheckpoint::Rename);
         Self::sync_shard_import_journal_directory(parent).await?;
-        checkpoint(ShardImportJournalPersistCheckpoint::AfterDirectorySync)?;
+        checkpoint(ShardImportJournalPersistCheckpoint::DirectorySync)?;
         maybe_abort_shard_import_journal_persist(
-            ShardImportJournalPersistCheckpoint::AfterDirectorySync,
+            ShardImportJournalPersistCheckpoint::DirectorySync,
         );
         Ok(())
     }
@@ -3563,10 +3559,10 @@ mod sweep_tests {
     #[tokio::test]
     async fn shard_import_journal_atomic_rewrite_exposes_only_complete_authority() {
         for fault in [
-            ShardImportJournalPersistCheckpoint::AfterTempWrite,
-            ShardImportJournalPersistCheckpoint::AfterFileSync,
-            ShardImportJournalPersistCheckpoint::AfterRename,
-            ShardImportJournalPersistCheckpoint::AfterDirectorySync,
+            ShardImportJournalPersistCheckpoint::TempWrite,
+            ShardImportJournalPersistCheckpoint::FileSync,
+            ShardImportJournalPersistCheckpoint::Rename,
+            ShardImportJournalPersistCheckpoint::DirectorySync,
         ] {
             let tmp = tempfile::tempdir().unwrap();
             let backend = FilesystemBackend::new(tmp.path());
@@ -3602,8 +3598,8 @@ mod sweep_tests {
             let temp_path = backend.shard_import_journal_temp_path(&operation_id);
             if matches!(
                 fault,
-                ShardImportJournalPersistCheckpoint::AfterTempWrite
-                    | ShardImportJournalPersistCheckpoint::AfterFileSync
+                ShardImportJournalPersistCheckpoint::TempWrite
+                    | ShardImportJournalPersistCheckpoint::FileSync
             ) {
                 assert_eq!(
                     loaded[0], prior,

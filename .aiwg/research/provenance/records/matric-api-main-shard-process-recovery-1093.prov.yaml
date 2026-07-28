@@ -3,12 +3,12 @@ metadata:
   created_at: "2026-07-27T22:59:55Z"
   description: "Provenance for Fortemi #1093 process-abort sidecar recovery integration"
 entity:
-  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:01d7fa5b923d7b6c15d853bb757a084fb540dd0ef95910b997820afd058a5d5e"
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:76560e40e0e209abe4ce8535a12fdcdd8f2d323df45397e77127848d1b4f1178"
   type: code
   created_at: "2026-07-27T22:59:55Z"
-  updated_at: "2026-07-28T00:32:36Z"
-  checksum: "sha256:01d7fa5b923d7b6c15d853bb757a084fb540dd0ef95910b997820afd058a5d5e"
-  size_bytes: 2689298
+  updated_at: "2026-07-28T02:26:11Z"
+  checksum: "sha256:76560e40e0e209abe4ce8535a12fdcdd8f2d323df45397e77127848d1b4f1178"
+  size_bytes: 2689292
   attributes:
     language: rust
     issue: "Fortemi/fortemi#1093"
@@ -24,6 +24,7 @@ activity:
     verification:
       - "cargo test -p matric-api shard_optional_sidecars_round_trip_and_fail_without_partial_storage -- --nocapture: passed"
       - "cargo check -p matric-api --all-targets: passed"
+      - "cargo clippy --all-targets --all-features -- -D warnings: passed"
       - "cargo tree -p matric-api -e features,no-dev excludes test-fault-injection: passed"
       - "scripts/ci/verify-bidirectional-asset-lifecycle.sh: passed"
 agent:
@@ -34,9 +35,9 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:01d7fa5b923d7b6c15d853bb757a084fb540dd0ef95910b997820afd058a5d5e"
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:76560e40e0e209abe4ce8535a12fdcdd8f2d323df45397e77127848d1b4f1178"
     activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
-    time: "2026-07-28T00:32:36Z"
+    time: "2026-07-28T02:26:11Z"
   used:
     - activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
       entity: "urn:gitea:issue:Fortemi/fortemi:1093"
@@ -45,7 +46,7 @@ relationships:
       entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
       role: architecture_authority
   wasDerivedFrom:
-    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:01d7fa5b923d7b6c15d853bb757a084fb540dd0ef95910b997820afd058a5d5e"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:76560e40e0e209abe4ce8535a12fdcdd8f2d323df45397e77127848d1b4f1178"
       source: "urn:gitea:issue:Fortemi/fortemi:1093"
       derivation_type: implements
       activity: "urn:aiwg:activity:modification:sidecar-process-recovery-1093:001"
@@ -54,5 +55,5 @@ relationships:
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:01d7fa5b923d7b6c15d853bb757a084fb540dd0ef95910b997820afd058a5d5e"
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:76560e40e0e209abe4ce8535a12fdcdd8f2d323df45397e77127848d1b4f1178"
     agent: "urn:aiwg:agent:codex-gpt-5"

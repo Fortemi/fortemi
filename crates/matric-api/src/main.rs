@@ -35936,6 +35936,7 @@ struct ValidatedShardApplyPolicy {
     wipe_before_apply: bool,
     preserve_empty_revisions: bool,
     preserve_schema_2_component_presence: bool,
+    sidecar_journal_id: Option<Uuid>,
 }
 
 async fn apply_validated_shard_components(
@@ -35945,7 +35946,6 @@ async fn apply_validated_shard_components(
     opts: &ShardImportOptions,
     schema: &str,
     staged_blobs: &std::collections::HashMap<String, StagedShardBlob>,
-    sidecar_journal_id: Option<Uuid>,
     policy: ValidatedShardApplyPolicy,
 ) -> Result<
     (
@@ -36598,7 +36598,7 @@ async fn apply_validated_shard_components(
         used_checksums.sort();
         for checksum in used_checksums {
             let staged = &staged_blobs[&checksum];
-            if let Some(operation_id) = sidecar_journal_id {
+            if let Some(operation_id) = policy.sidecar_journal_id {
                 if let Err(error) = backend
                     .prepare_shard_import_promotion(operation_id, staged)
                     .await
@@ -36625,7 +36625,7 @@ async fn apply_validated_shard_components(
                             std::process::abort();
                         }
                     }
-                    if let Some(operation_id) = sidecar_journal_id {
+                    if let Some(operation_id) = policy.sidecar_journal_id {
                         if let Err(error) = backend
                             .record_shard_import_promotion(operation_id, staged, promotion)
                             .await
@@ -36932,11 +36932,11 @@ where
         opts,
         schema,
         &staged_blobs,
-        sidecar_journal_id,
         ValidatedShardApplyPolicy {
             wipe_before_apply,
             preserve_empty_revisions: manifest.profile.is_some(),
             preserve_schema_2_component_presence: manifest.version == SHARD_SCHEMA_2_VERSION,
+            sidecar_journal_id,
         },
     )
     .await;
@@ -51351,10 +51351,9 @@ not-json
             bytes
         );
         assert!(
-            tokio::fs::try_exists(&staging_path)
+            !tokio::fs::try_exists(&staging_path)
                 .await
-                .expect("stat staging path")
-                == false,
+                .expect("stat staging path"),
             "successful retry finalization must remove durable staging bytes"
         );
 
