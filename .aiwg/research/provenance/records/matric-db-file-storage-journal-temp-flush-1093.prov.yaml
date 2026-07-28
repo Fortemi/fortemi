@@ -1,0 +1,51 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T08:15:33Z"
+  description: "Provenance for deterministic temporary-journal write visibility before process abort"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:30da57e681f1accad25c860990645c5e00c9443829e3edfc9d59216da39781dc"
+  type: code
+  created_at: "2026-07-28T08:15:33Z"
+  updated_at: "2026-07-28T08:15:33Z"
+  checksum: "sha256:30da57e681f1accad25c860990645c5e00c9443829e3edfc9d59216da39781dc"
+  size_bytes: 157407
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1093"
+    boundary: "completed async temporary-journal write before process abort; no fsync claim"
+activity:
+  id: "urn:aiwg:activity:fix:journal-temp-flush-1093:001"
+  type: modification
+  started_at: "2026-07-28T08:13:46Z"
+  ended_at: "2026-07-28T08:17:37Z"
+  description: "Flush the Tokio journal file before the temporary-write checkpoint so process abort leaves the complete pre-fsync candidate promised by the checkpoint"
+  attributes:
+    verification:
+      - "cargo fmt --check"
+      - "cargo test -p matric-db shard_import_journal_: 5 passed"
+      - "PostgreSQL-backed shard_optional_sidecars_round_trip_and_fail_without_partial_storage: 1 passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:30da57e681f1accad25c860990645c5e00c9443829e3edfc9d59216da39781dc"
+    activity: "urn:aiwg:activity:fix:journal-temp-flush-1093:001"
+    time: "2026-07-28T08:15:33Z"
+  used:
+    - activity: "urn:aiwg:activity:fix:journal-temp-flush-1093:001"
+      entity: "urn:gitea:run:Fortemi/fortemi:6216:job:104895"
+      role: failing_ci_evidence
+    - activity: "urn:aiwg:activity:fix:journal-temp-flush-1093:001"
+      entity: "urn:gitea:run:Fortemi/fortemi:6215:job:104875"
+      role: failing_coverage_evidence
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:fix:journal-temp-flush-1093:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/file_storage.rs:sha256:30da57e681f1accad25c860990645c5e00c9443829e3edfc9d59216da39781dc"
+    agent: "urn:aiwg:agent:codex-gpt-5"

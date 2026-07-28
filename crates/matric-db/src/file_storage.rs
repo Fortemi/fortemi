@@ -543,6 +543,8 @@ impl FilesystemBackend {
             fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o600)).await?;
         }
         file.write_all(&contents).await?;
+        // Complete Tokio's buffered write before exposing the pre-fsync checkpoint.
+        file.flush().await?;
         checkpoint(ShardImportJournalPersistCheckpoint::TempWrite)?;
         maybe_abort_shard_import_journal_persist(ShardImportJournalPersistCheckpoint::TempWrite);
         file.sync_all().await?;
