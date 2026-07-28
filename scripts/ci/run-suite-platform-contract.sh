@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export CARGO_NET_GIT_FETCH_WITH_CLI="${CARGO_NET_GIT_FETCH_WITH_CLI:-true}"
+
 ORCHESTRATOR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MANIFEST="${SUITE_PLATFORM_MANIFEST:-${ORCHESTRATOR_ROOT}/contracts/suite-conformance/platform-matrix.json}"
 OUTPUT_INPUT="${1:-${ORCHESTRATOR_ROOT}/target/suite-platform-contract}"
@@ -525,18 +527,22 @@ start_authority_server
 seed_authority_fixture
 (
   cd "$REACT_DIR"
-  if command -v corepack >/dev/null 2>&1; then
-    corepack enable
+  if command -v pnpm >/dev/null 2>&1; then
+    pnpm_command=(pnpm)
+  elif command -v corepack >/dev/null 2>&1; then
+    pnpm_command=(corepack pnpm)
+  else
+    echo "pnpm or corepack is required for the React/core contract" >&2
+    exit 2
   fi
-  command -v pnpm >/dev/null
-  pnpm install --frozen-lockfile
+  "${pnpm_command[@]}" install --frozen-lockfile
   VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-2}" \
     node packages/core/scripts/run-platform-contract.mjs \
       --output "$OUTPUT_DIR/react-receipt.json"
   node packages/core/scripts/verify-platform-contract-receipt.mjs \
     "$OUTPUT_DIR/react-receipt.json"
   mkdir -p "$OUTPUT_DIR/react-package"
-  pnpm --dir packages/core pack \
+  "${pnpm_command[@]}" --dir packages/core pack \
     --pack-destination "$OUTPUT_DIR/react-package"
 )
 REACT_PACKAGE_TARBALL="$(find "$OUTPUT_DIR/react-package" -maxdepth 1 \

@@ -1,7 +1,11 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-28T21:16:35Z"
+  updated_at: "2026-07-28T21:43:26Z"
 records:
+  - entity: "scripts/ci/run-suite-platform-contract.sh"
+    record: "records/run-suite-platform-contract-toolchain-1095.prov.yaml"
+  - entity: "tests/test_verify_suite_platform_matrix.py"
+    record: "records/test-suite-platform-toolchain-1095.prov.yaml"
   - entity: "contracts/suite-conformance/platform-matrix.json"
     record: "records/suite-platform-matrix-1095.prov.yaml"
   - entity: "crates/matric-api/src/main.rs"

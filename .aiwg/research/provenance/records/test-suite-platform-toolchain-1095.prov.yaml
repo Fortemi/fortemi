@@ -1,0 +1,42 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T21:43:26Z"
+  description: "Provenance for suite dependency tool regression assertions"
+entity:
+  id: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:d5fd2a31f4da2f82862f62a20affa08e5cbd77d955524c05e2d51b2068911cf0"
+  type: test
+  created_at: "2026-07-28T21:43:26Z"
+  updated_at: "2026-07-28T21:43:26Z"
+  checksum: "sha256:d5fd2a31f4da2f82862f62a20affa08e5cbd77d955524c05e2d51b2068911cf0"
+  size_bytes: 14269
+  attributes:
+    language: python
+    issue: "Fortemi/fortemi#1095"
+activity:
+  id: "urn:aiwg:activity:test:suite-platform-toolchain-1095:001"
+  type: modification
+  started_at: "2026-07-28T21:42:00Z"
+  ended_at: "2026-07-28T21:43:26Z"
+  description: "Fail if the suite drops Git CLI dependency transport or restores global Corepack mutation"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:d5fd2a31f4da2f82862f62a20affa08e5cbd77d955524c05e2d51b2068911cf0"
+    activity: "urn:aiwg:activity:test:suite-platform-toolchain-1095:001"
+    time: "2026-07-28T21:43:26Z"
+  used:
+    - activity: "urn:aiwg:activity:test:suite-platform-toolchain-1095:001"
+      entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:d75397746fd3909c4955d9803e4d7e6e73483d8a635b2f2dc53f7f0c5d2c91d8"
+      role: tested_artifact
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:test:suite-platform-toolchain-1095:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:d5fd2a31f4da2f82862f62a20affa08e5cbd77d955524c05e2d51b2068911cf0"
+    agent: "urn:aiwg:agent:codex-gpt-5"

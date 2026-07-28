@@ -285,6 +285,15 @@ class SuitePlatformMatrixTests(unittest.TestCase):
         self.assertIn("sha256_file() {", runner)
         self.assertIn('hashlib.file_digest(handle, "sha256")', runner)
 
+    def test_runner_uses_portable_package_and_git_dependency_tools(self):
+        runner = (
+            ROOT / "scripts/ci/run-suite-platform-contract.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("CARGO_NET_GIT_FETCH_WITH_CLI", runner)
+        self.assertIn("pnpm_command=(pnpm)", runner)
+        self.assertIn("pnpm_command=(corepack pnpm)", runner)
+        self.assertNotIn("corepack enable", runner)
+
     def test_accepts_exact_manifest_and_both_platforms(self):
         value = manifest()
         MODULE.validate_manifest(value)
