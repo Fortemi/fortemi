@@ -1,0 +1,51 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T23:39:09Z"
+  updated_at: "2026-07-28T23:39:09Z"
+  description: "Provenance for the suite platform aggregate artifact-root correction"
+entity:
+  id: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml:sha256:08c81b2282c5e6255f43b1a4ee2e62480a33c61b8a171fba4768fa4a45c887e9"
+  type: workflow
+  created_at: "2026-07-28T23:39:09Z"
+  updated_at: "2026-07-28T23:39:09Z"
+  checksum: "sha256:08c81b2282c5e6255f43b1a4ee2e62480a33c61b8a171fba4768fa4a45c887e9"
+  size_bytes: 10616
+  attributes:
+    issue: "Fortemi/fortemi#1095"
+    base_revision: "f06def6b3d7f145b7fb68d351ce03bac6c6bca89"
+activity:
+  id: "urn:aiwg:activity:modification:suite-platform-contract-workflow-1095:001"
+  type: modification
+  started_at: "2026-07-28T23:39:09Z"
+  ended_at: "2026-07-28T23:39:09Z"
+  description: "Resolve exactly one platform and HotM receipt below each Gitea download-artifact root"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml:sha256:08c81b2282c5e6255f43b1a4ee2e62480a33c61b8a171fba4768fa4a45c887e9"
+    activity: "urn:aiwg:activity:modification:suite-platform-contract-workflow-1095:001"
+    time: "2026-07-28T23:39:09Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:suite-platform-contract-workflow-1095:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1095"
+      role: requirement
+    - activity: "urn:aiwg:activity:modification:suite-platform-contract-workflow-1095:001"
+      entity: "urn:gitea:run:Fortemi/fortemi:6322"
+      role: failed_aggregate_evidence
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml:sha256:08c81b2282c5e6255f43b1a4ee2e62480a33c61b8a171fba4768fa4a45c887e9"
+      source: "urn:git:git@git.integrolabs.net:Fortemi/fortemi.git:f06def6b3d7f145b7fb68d351ce03bac6c6bca89:.gitea/workflows/suite-platform-contract.yml"
+      derivation_type: "modifies"
+      activity: "urn:aiwg:activity:modification:suite-platform-contract-workflow-1095:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:suite-platform-contract-workflow-1095:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml:sha256:08c81b2282c5e6255f43b1a4ee2e62480a33c61b8a171fba4768fa4a45c887e9"
+    agent: "urn:aiwg:agent:codex-gpt-5"

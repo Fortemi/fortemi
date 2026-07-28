@@ -279,6 +279,31 @@ def hotm_receipt(platform_id):
 
 
 class SuitePlatformMatrixTests(unittest.TestCase):
+    def test_workflow_reads_downloaded_artifact_roots_exactly(self):
+        workflow = (
+            ROOT / ".gitea/workflows/suite-platform-contract.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            'linux_artifact="suite-platform-artifacts/'
+            'suite-platform-linux-x86_64"',
+            workflow,
+        )
+        self.assertIn(
+            'macos_artifact="suite-platform-artifacts/'
+            'suite-platform-macos-arm64"',
+            workflow,
+        )
+        self.assertIn("find_exact_file() {", workflow)
+        self.assertIn(
+            'linux_receipt="$(find_exact_file "$linux_artifact" '
+            'platform-receipt.json)"',
+            workflow,
+        )
+        self.assertNotIn(
+            "*/linux-x86_64/platform-receipt.json",
+            workflow,
+        )
+
     def test_runner_defines_portable_package_digest_helper(self):
         runner = (
             ROOT / "scripts/ci/run-suite-platform-contract.sh"

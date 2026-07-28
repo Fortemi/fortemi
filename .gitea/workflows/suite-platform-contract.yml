@@ -214,26 +214,28 @@ jobs:
       - name: Verify exact two-platform aggregate
         run: |
           set -euo pipefail
-          linux_receipt="$(
-            find suite-platform-artifacts -path '*/linux-x86_64/platform-receipt.json' \
-              -print -quit
-          )"
-          macos_receipt="$(
-            find suite-platform-artifacts -path '*/macos-arm64/platform-receipt.json' \
-              -print -quit
-          )"
-          linux_hotm="$(
-            find suite-platform-artifacts -path '*/linux-x86_64/hotm-receipt.json' \
-              -print -quit
-          )"
-          macos_hotm="$(
-            find suite-platform-artifacts -path '*/macos-arm64/hotm-receipt.json' \
-              -print -quit
-          )"
-          test -n "$linux_receipt"
-          test -n "$macos_receipt"
-          test -n "$linux_hotm"
-          test -n "$macos_hotm"
+          linux_artifact="suite-platform-artifacts/suite-platform-linux-x86_64"
+          macos_artifact="suite-platform-artifacts/suite-platform-macos-arm64"
+
+          find_exact_file() {
+            local artifact_root="$1"
+            local filename="$2"
+            local matches=()
+            mapfile -t matches < <(
+              find "$artifact_root" -type f -name "$filename" -print
+            )
+            if [[ "${#matches[@]}" -ne 1 ]]; then
+              printf 'expected one %s below %s; found %s\n' \
+                "$filename" "$artifact_root" "${#matches[@]}" >&2
+              return 1
+            fi
+            printf '%s\n' "${matches[0]}"
+          }
+
+          linux_receipt="$(find_exact_file "$linux_artifact" platform-receipt.json)"
+          macos_receipt="$(find_exact_file "$macos_artifact" platform-receipt.json)"
+          linux_hotm="$(find_exact_file "$linux_artifact" hotm-receipt.json)"
+          macos_hotm="$(find_exact_file "$macos_artifact" hotm-receipt.json)"
 
           hotm_repository="$(
             python3 -c \

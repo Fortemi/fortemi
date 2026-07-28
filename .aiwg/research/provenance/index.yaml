@@ -1,11 +1,13 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-28T23:15:41Z"
+  updated_at: "2026-07-28T23:39:09Z"
 records:
   - entity: "scripts/ci/run-suite-platform-contract.sh"
     record: "records/run-suite-platform-contract-toolchain-1095.prov.yaml"
   - entity: "tests/test_verify_suite_platform_matrix.py"
     record: "records/test-suite-platform-toolchain-1095.prov.yaml"
+  - entity: ".gitea/workflows/suite-platform-contract.yml"
+    record: "records/suite-platform-contract-workflow-1095.prov.yaml"
   - entity: "contracts/suite-conformance/platform-matrix.json"
     record: "records/suite-platform-matrix-1095.prov.yaml"
   - entity: "contracts/suite-conformance/platform-matrix.schema.json"
