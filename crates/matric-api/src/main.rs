@@ -51742,7 +51742,7 @@ not-json
         let rss_after = current_rss_high_water_bytes();
         let disk_after = directory_size_bytes(storage.path()) + directory_size_bytes(tus.path());
         let git_commit = command_stdout("git", &["rev-parse", "HEAD"]);
-        let git_status = command_stdout("git", &["status", "--porcelain"]);
+        let git_status = command_stdout_allow_empty("git", &["status", "--porcelain"]);
         let git_dirty = git_status.as_ref().map(|status| !status.trim().is_empty());
         let expect_clean_checkout = std::env::var("FORTEMI_AL_PERF_EXPECT_CLEAN_CHECKOUT")
             .ok()
@@ -58890,6 +58890,10 @@ not-json
     }
 
     fn command_stdout(program: &str, args: &[&str]) -> Option<String> {
+        command_stdout_allow_empty(program, args).filter(|value| !value.is_empty())
+    }
+
+    fn command_stdout_allow_empty(program: &str, args: &[&str]) -> Option<String> {
         std::process::Command::new(program)
             .args(args)
             .output()
@@ -58900,7 +58904,6 @@ not-json
                     .success()
                     .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
             })
-            .filter(|value| !value.is_empty())
     }
 
     fn filesystem_type(path: &std::path::Path) -> Option<String> {

@@ -1,28 +1,28 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-07-28T00:12:45Z"
-  description: "Provenance for Fortemi #1094 AL-PERF01 max-count CI wiring"
+  description: "Provenance for Fortemi #1094 AL-PERF01 statistical CI wiring"
 entity:
-  id: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml:sha256:cd750955541877555f013d832b03443783e59a0860f9c3f3ee71025642b46960"
+  id: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml:sha256:995793f95118d742dd09bac7670198543df5042274817f73e1a1be769722448e"
   type: workflow
   created_at: "2026-07-28T00:12:45Z"
-  updated_at: "2026-07-28T00:32:36Z"
-  checksum: "sha256:cd750955541877555f013d832b03443783e59a0860f9c3f3ee71025642b46960"
-  size_bytes: 67217
+  updated_at: "2026-07-28T03:04:07Z"
+  checksum: "sha256:995793f95118d742dd09bac7670198543df5042274817f73e1a1be769722448e"
+  size_bytes: 67271
   attributes:
     language: yaml
     issue: "Fortemi/fortemi#1094"
-    receipt_role: "max-count-28-sidecars"
+    receipt_role: "five-sample-clean-checkout-observed-percentiles"
 activity:
-  id: "urn:aiwg:activity:ci:bounded-io-scale-1094:001"
+  id: "urn:aiwg:activity:ci:observed-percentiles-1094:002"
   type: modification
   started_at: "2026-07-27T23:50:34Z"
-  ended_at: "2026-07-28T00:12:45Z"
-  description: "Generate and upload deterministic max-count and process-isolated TUS-memory AL-PERF01 receipts as part of the immutable bundle"
+  ended_at: "2026-07-28T03:04:07Z"
+  description: "Generate five exact-revision clean-checkout samples and upload their recomputed nearest-rank statistical receipt in the immutable AL-PERF01 bundle"
   attributes:
     verification:
       - ".gitea/workflows/ci-builder.yaml parsed with yaml: passed"
-      - "local max-count receipt and bundle validation: passed"
+      - "scripts/ci/verify-bidirectional-asset-lifecycle.sh: passed"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -31,22 +31,22 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml:sha256:cd750955541877555f013d832b03443783e59a0860f9c3f3ee71025642b46960"
-    activity: "urn:aiwg:activity:ci:bounded-io-scale-1094:001"
-    time: "2026-07-28T00:32:36Z"
+    entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml:sha256:995793f95118d742dd09bac7670198543df5042274817f73e1a1be769722448e"
+    activity: "urn:aiwg:activity:ci:observed-percentiles-1094:002"
+    time: "2026-07-28T03:04:07Z"
   used:
-    - activity: "urn:aiwg:activity:ci:bounded-io-scale-1094:001"
+    - activity: "urn:aiwg:activity:ci:observed-percentiles-1094:002"
       entity: "urn:gitea:issue:Fortemi/fortemi:1094"
       role: requirement
   wasDerivedFrom:
-    - entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml:sha256:cd750955541877555f013d832b03443783e59a0860f9c3f3ee71025642b46960"
+    - entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml:sha256:995793f95118d742dd09bac7670198543df5042274817f73e1a1be769722448e"
       source: "urn:gitea:issue:Fortemi/fortemi:1094"
       derivation_type: implements
-      activity: "urn:aiwg:activity:ci:bounded-io-scale-1094:001"
+      activity: "urn:aiwg:activity:ci:observed-percentiles-1094:002"
   wasAssociatedWith:
-    activity: "urn:aiwg:activity:ci:bounded-io-scale-1094:001"
+    activity: "urn:aiwg:activity:ci:observed-percentiles-1094:002"
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: ci_maintainer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml:sha256:cd750955541877555f013d832b03443783e59a0860f9c3f3ee71025642b46960"
+    entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml:sha256:995793f95118d742dd09bac7670198543df5042274817f73e1a1be769722448e"
     agent: "urn:aiwg:agent:codex-gpt-5"

@@ -1,26 +1,27 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-07-28T00:12:45Z"
-  description: "Provenance for Fortemi #1094 AL-PERF01 bundle verifier tests"
+  description: "Provenance for Fortemi #1094 AL-PERF01 statistical bundle verifier tests"
 entity:
-  id: "urn:aiwg:artifact:tests/test_verify_al_perf01_receipt_bundle.py:sha256:83bedc92e58f9221ddb49297e77a194449de7006b8d2467b71a5344de44021ce"
+  id: "urn:aiwg:artifact:tests/test_verify_al_perf01_receipt_bundle.py:sha256:517f4d0a5553c62c440c7b0e9c4bd43806db5a5e6270eb5333cdc4c86545fb4c"
   type: test
   created_at: "2026-07-28T00:12:45Z"
-  updated_at: "2026-07-28T00:32:36Z"
-  checksum: "sha256:83bedc92e58f9221ddb49297e77a194449de7006b8d2467b71a5344de44021ce"
-  size_bytes: 18779
+  updated_at: "2026-07-28T03:04:07Z"
+  checksum: "sha256:517f4d0a5553c62c440c7b0e9c4bd43806db5a5e6270eb5333cdc4c86545fb4c"
+  size_bytes: 23059
   attributes:
     language: python
     issue: "Fortemi/fortemi#1094"
 activity:
-  id: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+  id: "urn:aiwg:activity:testing:observed-percentiles-1094:002"
   type: testing
   started_at: "2026-07-27T23:50:34Z"
-  ended_at: "2026-07-28T00:12:45Z"
-  description: "Exercise valid max-count and TUS-memory bundles and reject understated bounded-I/O, max-count, or process-memory claims"
+  ended_at: "2026-07-28T03:04:07Z"
+  description: "Exercise five clean samples and exact nearest-rank observations, and reject missing, dirty, or tampered statistical sources"
   attributes:
     verification:
-      - "python3 -m unittest tests/test_verify_al_perf01_receipt_bundle.py: 16 passed"
+      - "python3 -m unittest tests/test_verify_al_perf01_receipt_bundle.py: 20 passed"
+      - "scripts/ci/verify-bidirectional-asset-lifecycle.sh: passed"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -29,25 +30,25 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:tests/test_verify_al_perf01_receipt_bundle.py:sha256:83bedc92e58f9221ddb49297e77a194449de7006b8d2467b71a5344de44021ce"
-    activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
-    time: "2026-07-28T00:32:36Z"
+    entity: "urn:aiwg:artifact:tests/test_verify_al_perf01_receipt_bundle.py:sha256:517f4d0a5553c62c440c7b0e9c4bd43806db5a5e6270eb5333cdc4c86545fb4c"
+    activity: "urn:aiwg:activity:testing:observed-percentiles-1094:002"
+    time: "2026-07-28T03:04:07Z"
   used:
-    - activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+    - activity: "urn:aiwg:activity:testing:observed-percentiles-1094:002"
       entity: "urn:gitea:issue:Fortemi/fortemi:1094"
       role: requirement
-    - activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+    - activity: "urn:aiwg:activity:testing:observed-percentiles-1094:002"
       entity: "urn:aiwg:artifact:scripts/ci/verify-al-perf01-receipt-bundle.py"
       role: test_subject
   wasDerivedFrom:
-    - entity: "urn:aiwg:artifact:tests/test_verify_al_perf01_receipt_bundle.py:sha256:83bedc92e58f9221ddb49297e77a194449de7006b8d2467b71a5344de44021ce"
+    - entity: "urn:aiwg:artifact:tests/test_verify_al_perf01_receipt_bundle.py:sha256:517f4d0a5553c62c440c7b0e9c4bd43806db5a5e6270eb5333cdc4c86545fb4c"
       source: "urn:gitea:issue:Fortemi/fortemi:1094"
       derivation_type: tests
-      activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+      activity: "urn:aiwg:activity:testing:observed-percentiles-1094:002"
   wasAssociatedWith:
-    activity: "urn:aiwg:activity:testing:bounded-io-scale-1094:001"
+    activity: "urn:aiwg:activity:testing:observed-percentiles-1094:002"
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: test_maintainer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:tests/test_verify_al_perf01_receipt_bundle.py:sha256:83bedc92e58f9221ddb49297e77a194449de7006b8d2467b71a5344de44021ce"
+    entity: "urn:aiwg:artifact:tests/test_verify_al_perf01_receipt_bundle.py:sha256:517f4d0a5553c62c440c7b0e9c4bd43806db5a5e6270eb5333cdc4c86545fb4c"
     agent: "urn:aiwg:agent:codex-gpt-5"

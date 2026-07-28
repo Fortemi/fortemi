@@ -20,6 +20,9 @@ MANIFEST_NAME = "manifest.json"
 MANIFEST_SCHEMA = "fortemi.asset-lifecycle.perf-receipt-bundle-manifest.v1"
 NOT_CONFIGURED_SCHEMA = "fortemi.asset-lifecycle.approved-budget-receipt.v1"
 PERF_SCHEMA = "fortemi.asset-lifecycle.perf-receipt.v1"
+STATISTICAL_NAME = "observed-percentiles.json"
+STATISTICAL_SCHEMA = "fortemi.asset-lifecycle.observed-percentiles.v1"
+STATISTICAL_SAMPLE_COUNT = 5
 TUS_MEMORY_SCHEMA = "fortemi.asset-lifecycle.tus-memory-receipt.v1"
 PROFILE = "2.0.0/full-v1"
 APPROVED_BUDGET_FIELDS = (
@@ -30,6 +33,54 @@ APPROVED_BUDGET_FIELDS = (
     "recoveryRtoMillis",
     "rssHighWaterDeltaBytes",
     "storageAndTusDiskBytesAfter",
+)
+OBSERVATION_FIELDS = (
+    ("uploadMillis", ("metrics", "uploadMillis"), "milliseconds", "lower-is-better"),
+    ("downloadMillis", ("metrics", "downloadMillis"), "milliseconds", "lower-is-better"),
+    ("exportMillis", ("metrics", "exportMillis"), "milliseconds", "lower-is-better"),
+    ("importMillis", ("metrics", "importMillis"), "milliseconds", "lower-is-better"),
+    (
+        "recoveryRtoMillis",
+        ("recovery", "rtoMillisImportAndVerifyDownload"),
+        "milliseconds",
+        "lower-is-better",
+    ),
+    (
+        "uploadBytesPerSecond",
+        ("metrics", "uploadBytesPerSecond"),
+        "bytes-per-second",
+        "higher-is-better",
+    ),
+    (
+        "downloadBytesPerSecond",
+        ("metrics", "downloadBytesPerSecond"),
+        "bytes-per-second",
+        "higher-is-better",
+    ),
+    (
+        "exportArchiveBytesPerSecond",
+        ("metrics", "exportArchiveBytesPerSecond"),
+        "bytes-per-second",
+        "higher-is-better",
+    ),
+    (
+        "importArchiveBytesPerSecond",
+        ("metrics", "importArchiveBytesPerSecond"),
+        "bytes-per-second",
+        "higher-is-better",
+    ),
+    (
+        "rssHighWaterDeltaBytes",
+        ("metrics", "rssHighWaterDeltaBytes"),
+        "bytes",
+        "lower-is-better",
+    ),
+    (
+        "storageAndTusDiskBytesAfter",
+        ("metrics", "storageAndTusDiskBytesAfter"),
+        "bytes",
+        "lower-is-better",
+    ),
 )
 
 
@@ -49,6 +100,165 @@ def require_file(directory: Path, name: str, failures: list[str]) -> Path | None
         failures.append(f"missing required receipt {name}")
         return None
     return path
+
+
+def read_path(value: dict[str, Any], parts: tuple[str, ...]) -> Any:
+    current: Any = value
+    for part in parts:
+        current = current.get(part) if isinstance(current, dict) else None
+    return current
+
+
+def repeatability_names() -> tuple[str, ...]:
+    return ("repeatability.json",) + tuple(
+        f"repeatability.json.repeat-{index}.json"
+        for index in range(2, STATISTICAL_SAMPLE_COUNT + 1)
+    )
+
+
+def nearest_rank(values: list[int], percentile: int) -> int:
+    ordered = sorted(values)
+    rank = (percentile * len(ordered) + 99) // 100
+    return ordered[max(1, rank) - 1]
+
+
+def build_statistical_receipt(
+    directory: Path,
+    failures: list[str],
+) -> dict[str, Any] | None:
+    receipts: list[dict[str, Any]] = []
+    source_receipts = []
+    for name in repeatability_names():
+        path = require_file(directory, name, failures)
+        if path is None:
+            continue
+        receipt = load_json(path, failures)
+        if receipt is None:
+            continue
+        receipts.append(receipt)
+        contents = path.read_bytes()
+        source_receipts.append(
+            {
+                "name": name,
+                "bytes": len(contents),
+                "sha256": hashlib.sha256(contents).hexdigest(),
+            }
+        )
+    if len(receipts) != STATISTICAL_SAMPLE_COUNT:
+        return None
+
+    if any(
+        receipt.get("reproducibility", {}).get("cleanCheckoutReproduced") is not True
+        or receipt.get("reproducibility", {}).get("worktreeDirty") is not False
+        for receipt in receipts
+    ):
+        failures.append(
+            f"{STATISTICAL_NAME}: every source receipt must prove a clean checkout"
+        )
+        return None
+
+    baseline = receipts[0]
+    observations: dict[str, Any] = {}
+    for name, path, unit, direction in OBSERVATION_FIELDS:
+        values = [read_path(receipt, path) for receipt in receipts]
+        if any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+            for value in values
+        ):
+            failures.append(
+                f"{STATISTICAL_NAME}: source metric {'.'.join(path)} missing or invalid"
+            )
+            continue
+        observations[name] = {
+            "unit": unit,
+            "direction": direction,
+            "minimum": min(values),
+            "maximum": max(values),
+            "p50": nearest_rank(values, 50),
+            "p95": nearest_rank(values, 95),
+            "p99": nearest_rank(values, 99),
+        }
+    if len(observations) != len(OBSERVATION_FIELDS):
+        return None
+
+    reproducibility = baseline.get("reproducibility", {})
+    git_commit = reproducibility.get("gitCommit")
+    if (
+        not isinstance(git_commit, str)
+        or len(git_commit) != 40
+        or any(character not in "0123456789abcdef" for character in git_commit)
+    ):
+        failures.append(f"{STATISTICAL_NAME}: exact git commit is missing or invalid")
+        return None
+
+    identity = {
+        "issue": "Fortemi/fortemi#1094",
+        "profile": PROFILE,
+        "corpusBytes": baseline.get("corpus", {}).get("bytes"),
+        "corpusSha256": baseline.get("corpus", {}).get("sha256"),
+        "gitCommit": git_commit,
+        "packageVersion": reproducibility.get("packageVersion"),
+        "targetOs": reproducibility.get("targetOs"),
+        "targetArch": reproducibility.get("targetArch"),
+        "storageFilesystem": reproducibility.get("storageFilesystem"),
+        "tusFilesystem": reproducibility.get("tusFilesystem"),
+    }
+    trend_key = hashlib.sha256(
+        json.dumps(identity, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return {
+        "schemaVersion": STATISTICAL_SCHEMA,
+        "status": "clean-checkout-observed-percentiles-passed",
+        "issue": "Fortemi/fortemi#1094",
+        "profile": PROFILE,
+        "sampleCount": STATISTICAL_SAMPLE_COUNT,
+        "method": {
+            "name": "nearest-rank",
+            "percentiles": [50, 95, 99],
+        },
+        "identity": identity,
+        "trend": {
+            "key": trend_key,
+            "artifactRetentionDays": 30,
+        },
+        "sourceReceipts": source_receipts,
+        "observations": observations,
+        "claims": {
+            "cleanCheckoutSamplesPassed": True,
+            "observedP50P95P99Recorded": True,
+            "approvedPercentileBudgetsPassed": False,
+            "historicalTrendComparisonPassed": False,
+            "wholeAssetLifecycleProcessBoundedMemoryPassed": False,
+            "suiteWidePortability": False,
+        },
+    }
+
+
+def write_statistical_receipt(directory: Path) -> list[str]:
+    failures: list[str] = []
+    receipt = build_statistical_receipt(directory, failures)
+    if receipt is not None and not failures:
+        (directory / STATISTICAL_NAME).write_text(
+            json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    return failures
+
+
+def validate_statistical_receipt(directory: Path, failures: list[str]) -> None:
+    path = require_file(directory, STATISTICAL_NAME, failures)
+    if path is None:
+        return
+    actual = load_json(path, failures)
+    if actual is None:
+        return
+    expected_failures: list[str] = []
+    expected = build_statistical_receipt(directory, expected_failures)
+    failures.extend(expected_failures)
+    if expected is not None and actual != expected:
+        failures.append(
+            f"{STATISTICAL_NAME}: content does not match exact source-receipt recomputation"
+        )
 
 
 def require_perf_receipt(
@@ -284,26 +494,22 @@ def validate_tus_memory_receipt(directory: Path, failures: list[str]) -> None:
 
 
 def validate_repeatability(directory: Path, failures: list[str]) -> None:
-    first = require_perf_receipt(
-        directory,
-        "repeatability.json",
-        failures,
-        corpus_bytes=DEFAULT_BYTES,
-        max_corpus_passed=False,
-        clean_checkout=False,
-        approved_budgets=False,
-    )
-    second = require_perf_receipt(
-        directory,
-        "repeatability.json.repeat-2.json",
-        failures,
-        corpus_bytes=DEFAULT_BYTES,
-        max_corpus_passed=False,
-        clean_checkout=False,
-        approved_budgets=False,
-    )
-    if first is None or second is None:
+    receipts = [
+        require_perf_receipt(
+            directory,
+            name,
+            failures,
+            corpus_bytes=DEFAULT_BYTES,
+            max_corpus_passed=False,
+            clean_checkout=True,
+            approved_budgets=False,
+        )
+        for name in repeatability_names()
+    ]
+    if any(receipt is None for receipt in receipts):
         return
+    complete_receipts = [receipt for receipt in receipts if receipt is not None]
+    first = complete_receipts[0]
     stable_paths = (
         ("schemaVersion",),
         ("profile",),
@@ -328,6 +534,9 @@ def validate_repeatability(directory: Path, failures: list[str]) -> None:
         ("reproducibility", "targetArch"),
         ("reproducibility", "storageFilesystem"),
         ("reproducibility", "tusFilesystem"),
+        ("reproducibility", "gitCommit"),
+        ("reproducibility", "cleanCheckoutReproduced"),
+        ("reproducibility", "worktreeDirty"),
         ("claims", "hundredMiBCorpusPassed"),
         ("claims", "maxCorpusPassed"),
         ("claims", "maxCountCorpusPassed"),
@@ -335,16 +544,12 @@ def validate_repeatability(directory: Path, failures: list[str]) -> None:
         ("claims", "hotmBrowserDesktopPassed"),
         ("claims", "suiteWidePortability"),
     )
-    for path in stable_paths:
-        if read_path(first, path) != read_path(second, path):
-            failures.append(f"repeatability mismatch: {'.'.join(path)}")
-
-
-def read_path(value: dict[str, Any], parts: tuple[str, ...]) -> Any:
-    current: Any = value
-    for part in parts:
-        current = current.get(part) if isinstance(current, dict) else None
-    return current
+    for index, receipt in enumerate(complete_receipts[1:], start=2):
+        for path in stable_paths:
+            if read_path(first, path) != read_path(receipt, path):
+                failures.append(
+                    f"repeatability mismatch in sample {index}: {'.'.join(path)}"
+                )
 
 
 def validate_budget_branch(directory: Path, failures: list[str]) -> None:
@@ -379,8 +584,8 @@ def validate_budget_branch(directory: Path, failures: list[str]) -> None:
 def allowed_receipt_names() -> set[str]:
     return {
         "default.json",
-        "repeatability.json",
-        "repeatability.json.repeat-2.json",
+        *repeatability_names(),
+        STATISTICAL_NAME,
         "clean-checkout.json",
         "max-corpus-100mib.json",
         "max-count-28-sidecars.json",
@@ -463,6 +668,7 @@ def validate_bundle(directory: Path) -> list[str]:
         approved_budgets=False,
     )
     validate_repeatability(directory, failures)
+    validate_statistical_receipt(directory, failures)
     require_perf_receipt(
         directory,
         "clean-checkout.json",
@@ -514,6 +720,12 @@ def main() -> int:
         args = args[1:]
     directory = Path(args[0]) if args else DEFAULT_DIR
     if write_manifest_first:
+        statistical_failures = write_statistical_receipt(directory)
+        if statistical_failures:
+            print("AL-PERF01 statistical receipt generation failed", file=sys.stderr)
+            for failure in statistical_failures:
+                print(f"- {failure}", file=sys.stderr)
+            return 1
         write_manifest(directory)
     failures = validate_bundle(directory)
     if failures:

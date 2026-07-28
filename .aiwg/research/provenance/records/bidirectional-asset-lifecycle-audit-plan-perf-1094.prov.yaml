@@ -1,24 +1,24 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-07-28T00:12:45Z"
-  description: "Provenance for the Fortemi #1094 bounded-I/O and scale audit plan"
+  description: "Provenance for the Fortemi #1094 statistical performance audit plan"
 entity:
-  id: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:fb24eb26fdc45a784e796e7eff4c1081ee58b14446c70e5f821112caf3d9fd05"
+  id: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:4d474f7f7f52b5601770ecc4b221859a653f3484f45f7970e75dff65a35ec4b4"
   type: test_plan
   created_at: "2026-07-28T00:12:45Z"
-  updated_at: "2026-07-28T00:32:36Z"
-  checksum: "sha256:fb24eb26fdc45a784e796e7eff4c1081ee58b14446c70e5f821112caf3d9fd05"
-  size_bytes: 55694
+  updated_at: "2026-07-28T03:04:07Z"
+  checksum: "sha256:4d474f7f7f52b5601770ecc4b221859a653f3484f45f7970e75dff65a35ec4b4"
+  size_bytes: 55589
   attributes:
     issue: "Fortemi/fortemi#1094"
     profile: "2.0.0/full-v1"
     status: partial
 activity:
-  id: "urn:aiwg:activity:planning:bounded-io-scale-1094:001"
+  id: "urn:aiwg:activity:planning:observed-percentiles-1094:002"
   type: modification
   started_at: "2026-07-27T23:50:34Z"
-  ended_at: "2026-07-28T00:12:45Z"
-  description: "Record bounded server I/O, deterministic 100 MiB, exact max-count, process-isolated TUS memory evidence, CI wiring, and unresolved whole-lifecycle and approved-policy gates"
+  ended_at: "2026-07-28T03:04:07Z"
+  description: "Record five-sample observed latency, throughput, recovery, RSS, and disk percentiles while preserving unresolved approved policy, historical trend, and whole-lifecycle memory gates"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -27,22 +27,22 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:fb24eb26fdc45a784e796e7eff4c1081ee58b14446c70e5f821112caf3d9fd05"
-    activity: "urn:aiwg:activity:planning:bounded-io-scale-1094:001"
-    time: "2026-07-28T00:32:36Z"
+    entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:4d474f7f7f52b5601770ecc4b221859a653f3484f45f7970e75dff65a35ec4b4"
+    activity: "urn:aiwg:activity:planning:observed-percentiles-1094:002"
+    time: "2026-07-28T03:04:07Z"
   used:
-    - activity: "urn:aiwg:activity:planning:bounded-io-scale-1094:001"
+    - activity: "urn:aiwg:activity:planning:observed-percentiles-1094:002"
       entity: "urn:gitea:issue:Fortemi/fortemi:1094"
       role: requirement
   wasDerivedFrom:
-    - entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:fb24eb26fdc45a784e796e7eff4c1081ee58b14446c70e5f821112caf3d9fd05"
+    - entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:4d474f7f7f52b5601770ecc4b221859a653f3484f45f7970e75dff65a35ec4b4"
       source: "urn:gitea:issue:Fortemi/fortemi:1094"
       derivation_type: implements
-      activity: "urn:aiwg:activity:planning:bounded-io-scale-1094:001"
+      activity: "urn:aiwg:activity:planning:observed-percentiles-1094:002"
   wasAssociatedWith:
-    activity: "urn:aiwg:activity:planning:bounded-io-scale-1094:001"
+    activity: "urn:aiwg:activity:planning:observed-percentiles-1094:002"
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: test_planner
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:fb24eb26fdc45a784e796e7eff4c1081ee58b14446c70e5f821112caf3d9fd05"
+    entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:4d474f7f7f52b5601770ecc4b221859a653f3484f45f7970e75dff65a35ec4b4"
     agent: "urn:aiwg:agent:codex-gpt-5"

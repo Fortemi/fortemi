@@ -248,6 +248,17 @@ the 1 MiB control. These are executable regression guards, not approved
 peak-RSS policy values, and do not cover the full export/import lifecycle,
 scanner jobs, or non-filesystem backends.
 
+The AL-PERF01 CI bundle also requires five clean-checkout 1 MiB lifecycle
+samples and deterministically derives nearest-rank p50, p95, and p99
+observations for upload, download, signed export, clean import, recovery RTO,
+the corresponding throughput fields, RSS high-water delta, and final
+storage-plus-TUS disk bytes. The derived receipt binds every source file by
+SHA-256 and records an exact commit/environment trend key before entering the
+bundle manifest. This creates reproducible observed statistics and a stable
+artifact series identity. It does not approve percentile budgets, compare
+historical runs, or establish whole-lifecycle bounded memory; those claims
+remain false until separately approved policy and comparison evidence exist.
+
 ### 7. Shard/Backup Integration
 
 **Shard structure with files:**

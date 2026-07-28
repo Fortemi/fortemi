@@ -22,6 +22,7 @@ def perf_receipt(
     clean_checkout: bool = False,
     worktree_dirty: bool = True,
     approved_budgets: bool = False,
+    sample: int = 1,
 ) -> dict:
     return {
         "schemaVersion": "fortemi.asset-lifecycle.perf-receipt.v1",
@@ -56,6 +57,19 @@ def perf_receipt(
             "rpoDigestMatchesExportedSidecar": True,
             "timedRpoRtoRecorded": True,
             "approvedRpoRtoBudgetPassed": approved_budgets,
+            "rtoMillisImportAndVerifyDownload": sample * 10,
+        },
+        "metrics": {
+            "uploadMillis": sample,
+            "downloadMillis": sample * 2,
+            "exportMillis": sample * 3,
+            "importMillis": sample * 4,
+            "uploadBytesPerSecond": sample * 100,
+            "downloadBytesPerSecond": sample * 200,
+            "exportArchiveBytesPerSecond": sample * 300,
+            "importArchiveBytesPerSecond": sample * 400,
+            "rssHighWaterDeltaBytes": sample * 1_000,
+            "storageAndTusDiskBytesAfter": sample * 2_000,
         },
         "reproducibility": {
             "cleanCheckoutReproduced": clean_checkout,
@@ -67,6 +81,7 @@ def perf_receipt(
             "targetArch": "x86_64",
             "storageFilesystem": "overlay",
             "tusFilesystem": "overlay",
+            "gitCommit": "a" * 40,
         },
         "claims": {
             "hundredMiBCorpusPassed": corpus_bytes >= 104_857_600,
@@ -384,6 +399,85 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
                 result.stderr,
             )
 
+    def test_missing_statistical_sample_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            bundle = Path(temp)
+            write_valid_bundle(bundle, approved=False)
+            (bundle / "repeatability.json.repeat-5.json").unlink()
+
+            result = run_verifier(bundle)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "missing required receipt repeatability.json.repeat-5.json",
+                result.stderr,
+            )
+
+    def test_statistical_receipt_uses_nearest_rank_percentiles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            bundle = Path(temp)
+            write_valid_bundle(bundle, approved=False)
+
+            receipt = json.loads(
+                (bundle / "observed-percentiles.json").read_text(encoding="utf-8")
+            )
+
+            self.assertEqual(receipt["sampleCount"], 5)
+            self.assertEqual(receipt["method"]["name"], "nearest-rank")
+            self.assertEqual(
+                receipt["observations"]["uploadMillis"],
+                {
+                    "direction": "lower-is-better",
+                    "maximum": 5,
+                    "minimum": 1,
+                    "p50": 3,
+                    "p95": 5,
+                    "p99": 5,
+                    "unit": "milliseconds",
+                },
+            )
+            self.assertFalse(receipt["claims"]["approvedPercentileBudgetsPassed"])
+            self.assertFalse(receipt["claims"]["historicalTrendComparisonPassed"])
+
+    def test_tampered_statistical_receipt_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            bundle = Path(temp)
+            write_valid_bundle(bundle, approved=False)
+            receipt = json.loads(
+                (bundle / "observed-percentiles.json").read_text(encoding="utf-8")
+            )
+            receipt["observations"]["uploadMillis"]["p50"] = 0
+            write_json(bundle / "observed-percentiles.json", receipt)
+
+            result = run_verifier(bundle)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "observed-percentiles.json: content does not match exact source-receipt recomputation",
+                result.stderr,
+            )
+
+    def test_statistical_generation_rejects_dirty_source_sample(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            bundle = Path(temp)
+            write_valid_bundle(bundle, approved=False)
+            sample = json.loads(
+                (bundle / "repeatability.json.repeat-3.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            sample["reproducibility"]["cleanCheckoutReproduced"] = False
+            sample["reproducibility"]["worktreeDirty"] = True
+            write_json(bundle / "repeatability.json.repeat-3.json", sample)
+
+            result = run_verifier(bundle, "--write-manifest")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "observed-percentiles.json: every source receipt must prove a clean checkout",
+                result.stderr,
+            )
+
     def test_missing_manifest_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp)
@@ -432,8 +526,12 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
                     "default.json",
                     "max-corpus-100mib.json",
                     "max-count-28-sidecars.json",
+                    "observed-percentiles.json",
                     "repeatability.json",
                     "repeatability.json.repeat-2.json",
+                    "repeatability.json.repeat-3.json",
+                    "repeatability.json.repeat-4.json",
+                    "repeatability.json.repeat-5.json",
                     "tus-bounded-memory.json",
                 ],
             )
@@ -441,8 +539,20 @@ class VerifyAlPerf01ReceiptBundleTests(unittest.TestCase):
 
 def write_valid_bundle(bundle: Path, *, approved: bool, manifest: bool = True) -> None:
     write_json(bundle / "default.json", perf_receipt())
-    write_json(bundle / "repeatability.json", perf_receipt())
-    write_json(bundle / "repeatability.json.repeat-2.json", perf_receipt())
+    for sample in range(1, 6):
+        name = (
+            "repeatability.json"
+            if sample == 1
+            else f"repeatability.json.repeat-{sample}.json"
+        )
+        write_json(
+            bundle / name,
+            perf_receipt(
+                clean_checkout=True,
+                worktree_dirty=False,
+                sample=sample,
+            ),
+        )
     write_json(
         bundle / "clean-checkout.json",
         perf_receipt(clean_checkout=True, worktree_dirty=False),

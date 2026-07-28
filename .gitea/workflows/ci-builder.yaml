@@ -620,7 +620,8 @@ jobs:
           mkdir -p target/al-perf01-receipts
           scripts/ci/verify-asset-lifecycle-perf-receipt.sh \
             target/al-perf01-receipts/default.json
-          FORTEMI_AL_PERF_REPETITIONS=2 \
+          FORTEMI_AL_PERF_REPETITIONS=5 \
+            FORTEMI_AL_PERF_EXPECT_CLEAN_CHECKOUT=1 \
             scripts/ci/verify-asset-lifecycle-perf-receipt.sh \
               target/al-perf01-receipts/repeatability.json
           FORTEMI_AL_PERF_EXPECT_CLEAN_CHECKOUT=1 \
