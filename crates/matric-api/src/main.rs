@@ -52005,6 +52005,7 @@ not-json
             return;
         }
 
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let receipts = tempfile::tempdir().expect("create isolated TUS memory receipt directory");
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
@@ -58702,10 +58703,9 @@ not-json
     }
 
     async fn run_process_isolated_tus_memory_child(corpus_bytes: usize) {
-        assert_eq!(
-            std::env::consts::OS,
-            "linux",
-            "process-isolated RSS receipt requires Linux /proc"
+        assert!(
+            matches!(std::env::consts::OS, "linux" | "macos"),
+            "process-isolated RSS receipt requires Linux or macOS"
         );
         assert!(corpus_bytes > 0, "TUS memory corpus must be positive");
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
@@ -58774,7 +58774,7 @@ not-json
         let rss_high_water_before = current_rss_high_water_bytes();
         assert!(
             rss_resident_before > 0 && rss_high_water_before > 0,
-            "Linux /proc RSS fields must be readable"
+            "platform RSS fields must be readable"
         );
         let upload_started = std::time::Instant::now();
         let complete = client
@@ -58916,14 +58916,17 @@ not-json
             .sum()
     }
 
+    #[cfg(target_os = "linux")]
     fn current_rss_high_water_bytes() -> u64 {
         current_proc_status_bytes("VmHWM:")
     }
 
+    #[cfg(target_os = "linux")]
     fn current_rss_resident_bytes() -> u64 {
         current_proc_status_bytes("VmRSS:")
     }
 
+    #[cfg(target_os = "linux")]
     fn current_proc_status_bytes(label: &str) -> u64 {
         std::fs::read_to_string("/proc/self/status")
             .ok()
@@ -58934,6 +58937,26 @@ not-json
                     Some(kib * 1024)
                 })
             })
+            .unwrap_or(0)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn current_rss_high_water_bytes() -> u64 {
+        let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+        // macOS reports ru_maxrss in bytes.
+        let status = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
+        if status == 0 {
+            unsafe { usage.assume_init() }.ru_maxrss.max(0) as u64
+        } else {
+            0
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn current_rss_resident_bytes() -> u64 {
+        command_stdout("ps", &["-o", "rss=", "-p", &std::process::id().to_string()])
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .map(|kib| kib * 1024)
             .unwrap_or(0)
     }
 

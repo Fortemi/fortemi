@@ -1,0 +1,53 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T21:02:02Z"
+  description: "Provenance for deterministic Linux and macOS asset-lifecycle memory verification"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:0af67cf61385b44b01f8e83d5dd1e465208ddb48c49924302998f46b8075e590"
+  type: code
+  created_at: "2026-07-28T21:02:02Z"
+  updated_at: "2026-07-28T21:02:02Z"
+  checksum: "sha256:0af67cf61385b44b01f8e83d5dd1e465208ddb48c49924302998f46b8075e590"
+  size_bytes: 2691504
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1095"
+    profile: "2.0.0/full-v1"
+    platforms: "linux-x86_64, macos-arm64"
+    claim_scope: "process-isolated filesystem TUS memory guard and shard-test serialization"
+activity:
+  id: "urn:aiwg:activity:fix:suite-platform-memory-lock-1095:001"
+  type: modification
+  started_at: "2026-07-28T20:56:00Z"
+  ended_at: "2026-07-28T21:02:02Z"
+  description: "Serialize the process-isolated TUS memory coordinator with shard integration tests and measure RSS through Linux proc status or macOS getrusage and ps"
+  attributes:
+    verification:
+      - "Gitea run 6283 exposed competing full-v1 recovery and memory-child failures"
+      - "cargo fmt --check: passed"
+      - "cargo test -p matric-api --bin matric-api tests::al_: 5 passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:0af67cf61385b44b01f8e83d5dd1e465208ddb48c49924302998f46b8075e590"
+    activity: "urn:aiwg:activity:fix:suite-platform-memory-lock-1095:001"
+    time: "2026-07-28T21:02:02Z"
+  used:
+    - activity: "urn:aiwg:activity:fix:suite-platform-memory-lock-1095:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1095"
+      role: requirement
+    - activity: "urn:aiwg:activity:fix:suite-platform-memory-lock-1095:001"
+      entity: "urn:gitea:run:Fortemi/fortemi:6283"
+      role: failing_cross_platform_evidence
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:fix:suite-platform-memory-lock-1095:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:0af67cf61385b44b01f8e83d5dd1e465208ddb48c49924302998f46b8075e590"
+    agent: "urn:aiwg:agent:codex-gpt-5"
