@@ -1,0 +1,42 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T22:38:59Z"
+  description: "Provenance for the suite platform matrix JSON Schema"
+entity:
+  id: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.schema.json:sha256:0522c3b5a746bb81cb9631d9588601ccc9a09cb83d29ff470f43583fa4a6ca43"
+  type: schema
+  created_at: "2026-07-28T22:38:59Z"
+  updated_at: "2026-07-28T22:38:59Z"
+  checksum: "sha256:0522c3b5a746bb81cb9631d9588601ccc9a09cb83d29ff470f43583fa4a6ca43"
+  size_bytes: 5117
+  attributes:
+    issue: "Fortemi/fortemi#1095"
+    profile: "2.0.0/full-v1"
+activity:
+  id: "urn:aiwg:activity:modification:suite-platform-matrix-schema-1095:001"
+  type: modification
+  started_at: "2026-07-28T22:34:00Z"
+  ended_at: "2026-07-28T22:38:59Z"
+  description: "Require separate raw npm tarball and decompressed tar payload digests"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.schema.json:sha256:0522c3b5a746bb81cb9631d9588601ccc9a09cb83d29ff470f43583fa4a6ca43"
+    activity: "urn:aiwg:activity:modification:suite-platform-matrix-schema-1095:001"
+    time: "2026-07-28T22:38:59Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:suite-platform-matrix-schema-1095:001"
+      entity: "urn:gitea:run:Fortemi/fortemi:6309"
+      role: cross_platform_package_wrapper_evidence
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:suite-platform-matrix-schema-1095:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.schema.json:sha256:0522c3b5a746bb81cb9631d9588601ccc9a09cb83d29ff470f43583fa4a6ca43"
+    agent: "urn:aiwg:agent:codex-gpt-5"

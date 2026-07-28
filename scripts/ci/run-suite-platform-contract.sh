@@ -86,6 +86,20 @@ with open(sys.argv[1], "rb") as handle:
 PY
 }
 
+sha256_gzip_payload() {
+  python3 - "$1" <<'PY'
+import gzip
+import hashlib
+import sys
+
+digest = hashlib.sha256()
+with gzip.open(sys.argv[1], "rb") as handle:
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
+print(digest.hexdigest())
+PY
+}
+
 clone_exact() {
   local repository="$1"
   local commit="$2"
@@ -567,12 +581,22 @@ if [[ "$(printf '%s\n' "$REACT_PACKAGE_TARBALL" | sed '/^$/d' | wc -l | tr -d ' 
   printf 'Expected exactly one packed @fortemi/core tarball\n' >&2
   exit 1
 fi
-REACT_PACKAGE_SHA256="$(sha256_file "$REACT_PACKAGE_TARBALL")"
-EXPECTED_REACT_PACKAGE_SHA256="$(json_value \
+REACT_PACKAGE_TARBALL_SHA256="$(sha256_file "$REACT_PACKAGE_TARBALL")"
+EXPECTED_REACT_PACKAGE_TARBALL_SHA256="$(json_value \
   participants.fortemi_react.package_tarball_sha256)"
-if [[ "$REACT_PACKAGE_SHA256" != "$EXPECTED_REACT_PACKAGE_SHA256" ]]; then
+if [[ "$PLATFORM_ID" == "linux-x86_64" \
+  && "$REACT_PACKAGE_TARBALL_SHA256" != "$EXPECTED_REACT_PACKAGE_TARBALL_SHA256" ]]; then
   printf 'Packed @fortemi/core SHA-256 drift: expected %s, got %s\n' \
-    "$EXPECTED_REACT_PACKAGE_SHA256" "$REACT_PACKAGE_SHA256" >&2
+    "$EXPECTED_REACT_PACKAGE_TARBALL_SHA256" \
+    "$REACT_PACKAGE_TARBALL_SHA256" >&2
+  exit 1
+fi
+REACT_PACKAGE_TAR_SHA256="$(sha256_gzip_payload "$REACT_PACKAGE_TARBALL")"
+EXPECTED_REACT_PACKAGE_TAR_SHA256="$(json_value \
+  participants.fortemi_react.package_tar_sha256)"
+if [[ "$REACT_PACKAGE_TAR_SHA256" != "$EXPECTED_REACT_PACKAGE_TAR_SHA256" ]]; then
+  printf 'Packed @fortemi/core tar payload SHA-256 drift: expected %s, got %s\n' \
+    "$EXPECTED_REACT_PACKAGE_TAR_SHA256" "$REACT_PACKAGE_TAR_SHA256" >&2
   exit 1
 fi
 stop_authority_server
@@ -583,6 +607,19 @@ reset_database
   npm ci
   if [[ "$PLATFORM_OS" == "linux" ]]; then
     npx playwright install chromium --with-deps
+    run_root() {
+      if [[ "$(id -u)" == "0" ]]; then
+        "$@"
+      else
+        sudo "$@"
+      fi
+    }
+    run_root apt-get update
+    run_root apt-get install -y --no-install-recommends \
+      libwebkit2gtk-4.1-dev libgtk-3-dev \
+      libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev patchelf \
+      libayatana-appindicator3-dev \
+      build-essential pkg-config libssl-dev curl jq
   else
     npx playwright install chromium
   fi

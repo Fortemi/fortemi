@@ -3,12 +3,12 @@ metadata:
   created_at: "2026-07-28T21:16:35Z"
   description: "Provenance for the exact Linux and mutsu suite platform matrix"
 entity:
-  id: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:5a405814c8391ff05efec735580333e3c9bc1cafcc6650e1cedc04a19bab9a88"
+  id: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:db6c55ffb4322cfba06bfe69d73c6a9751551e4ad8a08857765d9e1a01399486"
   type: test_fixture
   created_at: "2026-07-28T21:16:35Z"
-  updated_at: "2026-07-28T21:16:35Z"
-  checksum: "sha256:5a405814c8391ff05efec735580333e3c9bc1cafcc6650e1cedc04a19bab9a88"
-  size_bytes: 2405
+  updated_at: "2026-07-28T22:38:59Z"
+  checksum: "sha256:db6c55ffb4322cfba06bfe69d73c6a9751551e4ad8a08857765d9e1a01399486"
+  size_bytes: 2501
   attributes:
     issue: "Fortemi/fortemi#1095"
     profile: "2.0.0/full-v1"
@@ -17,8 +17,8 @@ activity:
   id: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
   type: modification
   started_at: "2026-07-28T21:12:17Z"
-  ended_at: "2026-07-28T21:16:35Z"
-  description: "Bind the suite gate to the corrected authority runtime, refreshed HotM consumer, and immutable Linux and mutsu sidecar assets"
+  ended_at: "2026-07-28T22:38:59Z"
+  description: "Bind raw Linux package release bytes separately from the identical cross-platform npm tar payload"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -27,9 +27,9 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:5a405814c8391ff05efec735580333e3c9bc1cafcc6650e1cedc04a19bab9a88"
+    entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:db6c55ffb4322cfba06bfe69d73c6a9751551e4ad8a08857765d9e1a01399486"
     activity: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
-    time: "2026-07-28T21:16:35Z"
+    time: "2026-07-28T22:38:59Z"
   used:
     - activity: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
       entity: "urn:gitea:issue:Fortemi/fortemi:1095"
@@ -40,10 +40,13 @@ relationships:
     - activity: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
       entity: "urn:git:Fortemi/HotM:d9b33459f95d12a49e19dd2fd16fee180f49e74b"
       role: consumer_revision
+    - activity: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
+      entity: "urn:gitea:run:Fortemi/fortemi:6309"
+      role: cross_platform_package_payload_evidence
   wasAssociatedWith:
     activity: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:5a405814c8391ff05efec735580333e3c9bc1cafcc6650e1cedc04a19bab9a88"
+    entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:db6c55ffb4322cfba06bfe69d73c6a9751551e4ad8a08857765d9e1a01399486"
     agent: "urn:aiwg:agent:codex-gpt-5"

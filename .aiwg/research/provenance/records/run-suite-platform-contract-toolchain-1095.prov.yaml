@@ -3,12 +3,12 @@ metadata:
   created_at: "2026-07-28T21:43:26Z"
   description: "Provenance for portable suite dependency tool invocation"
 entity:
-  id: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:8bf2aaaa437d386fbec9d04aca0f1f8f564ad32f4b38979805594a58cc644c61"
+  id: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:61bbbc28658d25a1b7072ff67d7ac5848d0eea5d5a01a8b4e02cc0a1aa34e6d8"
   type: code
   created_at: "2026-07-28T21:43:26Z"
-  updated_at: "2026-07-28T22:17:52Z"
-  checksum: "sha256:8bf2aaaa437d386fbec9d04aca0f1f8f564ad32f4b38979805594a58cc644c61"
-  size_bytes: 20670
+  updated_at: "2026-07-28T22:38:59Z"
+  checksum: "sha256:61bbbc28658d25a1b7072ff67d7ac5848d0eea5d5a01a8b4e02cc0a1aa34e6d8"
+  size_bytes: 21877
   attributes:
     language: shell
     issue: "Fortemi/fortemi#1095"
@@ -17,8 +17,8 @@ activity:
   id: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
   type: modification
   started_at: "2026-07-28T21:38:00Z"
-  ended_at: "2026-07-28T22:17:52Z"
-  description: "Provision portable Git, pnpm, and Linux Playwright runtime dependencies for the headless suite contract"
+  ended_at: "2026-07-28T22:38:59Z"
+  description: "Provision Linux browser and Tauri dependencies and verify both raw release and cross-platform tar payload digests"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -27,9 +27,9 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:8bf2aaaa437d386fbec9d04aca0f1f8f564ad32f4b38979805594a58cc644c61"
+    entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:61bbbc28658d25a1b7072ff67d7ac5848d0eea5d5a01a8b4e02cc0a1aa34e6d8"
     activity: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
-    time: "2026-07-28T22:17:52Z"
+    time: "2026-07-28T22:38:59Z"
   used:
     - activity: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
       entity: "urn:gitea:run:Fortemi/fortemi:6292"
@@ -43,10 +43,13 @@ relationships:
     - activity: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
       entity: "urn:gitea:run:Fortemi/fortemi:6304"
       role: failing_linux_playwright_dependency_evidence
+    - activity: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
+      entity: "urn:gitea:run:Fortemi/fortemi:6309"
+      role: package_wrapper_and_linux_tauri_dependency_evidence
   wasAssociatedWith:
     activity: "urn:aiwg:activity:fix:suite-platform-toolchain-1095:001"
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:8bf2aaaa437d386fbec9d04aca0f1f8f564ad32f4b38979805594a58cc644c61"
+    entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:61bbbc28658d25a1b7072ff67d7ac5848d0eea5d5a01a8b4e02cc0a1aa34e6d8"
     agent: "urn:aiwg:agent:codex-gpt-5"

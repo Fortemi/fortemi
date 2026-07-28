@@ -42,6 +42,7 @@ def manifest():
                 "package": "@fortemi/core",
                 "package_version": "2026.7.14",
                 "package_tarball_sha256": "8" * 64,
+                "package_tar_sha256": "a" * 64,
                 "profile": "2.0.0/full-v1",
             },
             "hotm": {
@@ -101,7 +102,7 @@ def platform_receipt(platform_id):
             "authority_schema": COMMIT_A,
             "authority_runtime": "9" * 40,
             "fortemi_react": COMMIT_R,
-            "fortemi_react_package": "8" * 64,
+            "fortemi_react_package_tar": "a" * 64,
             "hotm": COMMIT_H,
         },
         "required_gates": {
@@ -284,6 +285,9 @@ class SuitePlatformMatrixTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("sha256_file() {", runner)
         self.assertIn('hashlib.file_digest(handle, "sha256")', runner)
+        self.assertIn("sha256_gzip_payload() {", runner)
+        self.assertIn('with gzip.open(sys.argv[1], "rb") as handle:', runner)
+        self.assertIn("participants.fortemi_react.package_tar_sha256", runner)
 
     def test_runner_uses_portable_package_and_git_dependency_tools(self):
         runner = (
@@ -306,6 +310,8 @@ class SuitePlatformMatrixTests(unittest.TestCase):
         self.assertNotIn("pnpm_command=(corepack pnpm)", runner)
         self.assertNotIn("corepack enable", runner)
         self.assertIn("npx playwright install chromium --with-deps", runner)
+        self.assertIn("libwebkit2gtk-4.1-dev libgtk-3-dev", runner)
+        self.assertIn("libsoup-3.0-dev libjavascriptcoregtk-4.1-dev", runner)
 
     def test_accepts_exact_manifest_and_both_platforms(self):
         value = manifest()
@@ -315,6 +321,18 @@ class SuitePlatformMatrixTests(unittest.TestCase):
                 MODULE.validate_platform_receipt(platform_receipt(platform_id), value)[0],
                 platform_id,
             )
+
+    def test_distinguishes_release_tarball_from_cross_platform_tar_payload(self):
+        value = manifest()
+        self.assertEqual(
+            MODULE.manifest_participant_commits(value)[
+                "fortemi_react_package_tar"
+            ],
+            "a" * 64,
+        )
+        del value["participants"]["fortemi_react"]["package_tar_sha256"]
+        with self.assertRaises(MODULE.VerificationError):
+            MODULE.validate_manifest(value)
 
     def test_accepts_bounded_authority_receipts(self):
         value = manifest()

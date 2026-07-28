@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-28T22:17:52Z"
+  updated_at: "2026-07-28T22:41:24Z"
 records:
   - entity: "scripts/ci/run-suite-platform-contract.sh"
     record: "records/run-suite-platform-contract-toolchain-1095.prov.yaml"
@@ -8,6 +8,12 @@ records:
     record: "records/test-suite-platform-toolchain-1095.prov.yaml"
   - entity: "contracts/suite-conformance/platform-matrix.json"
     record: "records/suite-platform-matrix-1095.prov.yaml"
+  - entity: "contracts/suite-conformance/platform-matrix.schema.json"
+    record: "records/suite-platform-matrix-schema-1095.prov.yaml"
+  - entity: "scripts/ci/verify-suite-platform-matrix.py"
+    record: "records/suite-platform-matrix-verifier-1095.prov.yaml"
+  - entity: "contracts/suite-conformance/README.md"
+    record: "records/suite-conformance-readme-1095.prov.yaml"
   - entity: "crates/matric-api/src/main.rs"
     record: "records/matric-api-main-suite-platform-memory-lock-1095.prov.yaml"
   - entity: "docs/architecture/adr/ADR-104-supported-platform-suite-conformance.md"

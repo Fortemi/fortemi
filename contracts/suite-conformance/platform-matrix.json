@@ -20,6 +20,7 @@
       "package": "@fortemi/core",
       "package_version": "2026.7.14",
       "package_tarball_sha256": "e282f504a842261c3f598a7f2ee0d6a85e03dc213ddf545a18daf5f603a742cc",
+      "package_tar_sha256": "47482320b543307c2d44f3a87a2268ead6faf265c6bd38cf33011e0ac7f8e77a",
       "profile": "2.0.0/full-v1"
     },
     "hotm": {

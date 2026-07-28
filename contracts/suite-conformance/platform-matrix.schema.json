@@ -90,6 +90,7 @@
         "package",
         "package_version",
         "package_tarball_sha256",
+        "package_tar_sha256",
         "profile"
       ],
       "properties": {
@@ -98,6 +99,7 @@
         "package": { "const": "@fortemi/core" },
         "package_version": { "type": "string", "minLength": 1 },
         "package_tarball_sha256": { "$ref": "#/$defs/sha256" },
+        "package_tar_sha256": { "$ref": "#/$defs/sha256" },
         "profile": { "const": "2.0.0/full-v1" }
       }
     },

@@ -183,6 +183,7 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
             "package",
             "package_version",
             "package_tarball_sha256",
+            "package_tar_sha256",
             "profile",
         },
         "manifest.participants.fortemi_react",
@@ -197,6 +198,10 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
     require_sha256(
         react.get("package_tarball_sha256"),
         "manifest.fortemi_react.package_tarball_sha256",
+    )
+    require_sha256(
+        react.get("package_tar_sha256"),
+        "manifest.fortemi_react.package_tar_sha256",
     )
     if react.get("profile") != "2.0.0/full-v1":
         raise VerificationError("manifest fortemi_react profile mismatch")
@@ -274,8 +279,8 @@ def manifest_participant_commits(manifest: dict[str, Any]) -> dict[str, str]:
         "authority_schema": manifest["authority"]["schema_commit"],
         "authority_runtime": manifest["authority"]["runtime_commit"],
         "fortemi_react": manifest["participants"]["fortemi_react"]["commit"],
-        "fortemi_react_package": manifest["participants"]["fortemi_react"][
-            "package_tarball_sha256"
+        "fortemi_react_package_tar": manifest["participants"]["fortemi_react"][
+            "package_tar_sha256"
         ],
         "hotm": manifest["participants"]["hotm"]["commit"],
     }

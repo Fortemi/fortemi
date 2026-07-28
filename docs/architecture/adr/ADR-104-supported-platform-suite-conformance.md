@@ -117,6 +117,11 @@ hashes, and pass/fail results. An aggregate verifier fails closed when:
 - any receipt claims universal portability, one universal schema, launched
   GUI/native dialogs, or complete backup without separate evidence.
 
+React/core package parity is evaluated over the exact decompressed npm tar
+payload. The Linux cell additionally binds the published `.tgz` digest.
+Platform gzip implementations may encode the same tar bytes differently, so a
+raw compressed-stream mismatch alone is not package-content drift.
+
 The runner owns an isolated PostgreSQL lifecycle: the Linux cell uses the
 pinned test database image and the macOS cell uses native Homebrew PostgreSQL
 18. Authority tests, React/core, and HotM execute in separate database

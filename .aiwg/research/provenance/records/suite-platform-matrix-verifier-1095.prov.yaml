@@ -1,0 +1,42 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T22:38:59Z"
+  description: "Provenance for the semantic suite platform matrix verifier"
+entity:
+  id: "urn:aiwg:artifact:scripts/ci/verify-suite-platform-matrix.py:sha256:3bad82b7100716e72ce05fe1e073ea4cc2857d79ffa31c62fd4ea21680dc0c78"
+  type: code
+  created_at: "2026-07-28T22:38:59Z"
+  updated_at: "2026-07-28T22:38:59Z"
+  checksum: "sha256:3bad82b7100716e72ce05fe1e073ea4cc2857d79ffa31c62fd4ea21680dc0c78"
+  size_bytes: 33723
+  attributes:
+    language: python
+    issue: "Fortemi/fortemi#1095"
+activity:
+  id: "urn:aiwg:activity:modification:suite-platform-matrix-verifier-1095:001"
+  type: modification
+  started_at: "2026-07-28T22:34:00Z"
+  ended_at: "2026-07-28T22:38:59Z"
+  description: "Bind platform receipt identity to the exact cross-platform npm tar payload"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-suite-platform-matrix.py:sha256:3bad82b7100716e72ce05fe1e073ea4cc2857d79ffa31c62fd4ea21680dc0c78"
+    activity: "urn:aiwg:activity:modification:suite-platform-matrix-verifier-1095:001"
+    time: "2026-07-28T22:38:59Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:suite-platform-matrix-verifier-1095:001"
+      entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:db6c55ffb4322cfba06bfe69d73c6a9751551e4ad8a08857765d9e1a01399486"
+      role: verified_manifest
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:suite-platform-matrix-verifier-1095:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-suite-platform-matrix.py:sha256:3bad82b7100716e72ce05fe1e073ea4cc2857d79ffa31c62fd4ea21680dc0c78"
+    agent: "urn:aiwg:agent:codex-gpt-5"

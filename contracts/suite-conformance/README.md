@@ -5,10 +5,17 @@ authority-to-consumer platform claim in ADR-104.
 
 `platform-matrix.json` pins the separate Knowledge Shard and server
 compatibility authority revisions, consumer revisions,
-`@fortemi/core` source, version, profile, and reproducible packed-tarball
-digest, per-platform immutable sidecar digests, the exact Linux x86_64 and
-macOS arm64 cells, required gates, deferred platforms, and prohibited claims.
+`@fortemi/core` source, version, profile, published Linux `.tgz` digest, and
+cross-platform tar payload digest, per-platform immutable sidecar digests, the
+exact Linux x86_64 and macOS arm64 cells, required gates, deferred platforms,
+and prohibited claims.
 `platform-matrix.schema.json` defines its machine-readable shape.
+
+The raw npm `.tgz` is retained as Linux release evidence. Cross-platform
+package parity is bound to the SHA-256 of its decompressed tar bytes because
+gzip streams can differ across platform zlib implementations even when every
+tar header and file byte is identical. Both required cells must match the tar
+payload digest; the Linux cell must additionally match the published `.tgz`.
 
 The matrix does not redefine Knowledge Shard profiles, OpenAPI, AsyncAPI,
 authentication, or compatibility discovery. It composes their existing
