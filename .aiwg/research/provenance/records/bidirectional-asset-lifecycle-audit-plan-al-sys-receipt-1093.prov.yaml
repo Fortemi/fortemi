@@ -3,22 +3,22 @@ metadata:
   created_at: "2026-07-28T04:12:32Z"
   description: "Provenance for Fortemi #1093 scoped receipt status in the lifecycle audit"
 entity:
-  id: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:53a43f006b2f1fdf6b9d2c076c109bc499c4710111208ea2410f9c7d14e19bcb"
+  id: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:e61b187f1aee6b4ad7480139759a5f3324e0cc7ea238db86c3c28828dc94d13e"
   type: test_plan
   created_at: "2026-07-28T04:12:32Z"
-  updated_at: "2026-07-28T04:12:32Z"
-  checksum: "sha256:53a43f006b2f1fdf6b9d2c076c109bc499c4710111208ea2410f9c7d14e19bcb"
-  size_bytes: 58180
+  updated_at: "2026-07-28T04:31:47Z"
+  checksum: "sha256:e61b187f1aee6b4ad7480139759a5f3324e0cc7ea238db86c3c28828dc94d13e"
+  size_bytes: 58147
   attributes:
     issue: "Fortemi/fortemi#1093"
     profile: "2.0.0/full-v1"
-    status: "local-receipt-passed-immutable-publication-pending"
+    status: "clean-checkout-receipt-and-immutable-artifact-passed"
 activity:
   id: "urn:aiwg:activity:planning:al-sys-receipt-1093:001"
   type: modification
   started_at: "2026-07-28T04:03:30Z"
-  ended_at: "2026-07-28T04:12:32Z"
-  description: "Record scoped receipt wiring and retain all unproven crash, auth, platform, and portability boundaries"
+  ended_at: "2026-07-28T04:31:47Z"
+  description: "Record successful Gitea run 6193 job 104450 receipt verification and artifact finalization while retaining all unproven crash, auth, platform, and portability boundaries"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -27,9 +27,9 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:53a43f006b2f1fdf6b9d2c076c109bc499c4710111208ea2410f9c7d14e19bcb"
+    entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:e61b187f1aee6b4ad7480139759a5f3324e0cc7ea238db86c3c28828dc94d13e"
     activity: "urn:aiwg:activity:planning:al-sys-receipt-1093:001"
-    time: "2026-07-28T04:12:32Z"
+    time: "2026-07-28T04:31:47Z"
   used:
     - activity: "urn:aiwg:activity:planning:al-sys-receipt-1093:001"
       entity: "urn:gitea:issue:Fortemi/fortemi:1093"
@@ -39,5 +39,5 @@ relationships:
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: test_planner
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:53a43f006b2f1fdf6b9d2c076c109bc499c4710111208ea2410f9c7d14e19bcb"
+    entity: "urn:aiwg:artifact:.aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md:sha256:e61b187f1aee6b4ad7480139759a5f3324e0cc7ea238db86c3c28828dc94d13e"
     agent: "urn:aiwg:agent:codex-gpt-5"
