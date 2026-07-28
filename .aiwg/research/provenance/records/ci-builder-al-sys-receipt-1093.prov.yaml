@@ -1,0 +1,49 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T04:12:32Z"
+  description: "Provenance for Fortemi #1093 immutable AL-SYS04/05 receipt wiring"
+entity:
+  id: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml:sha256:b2e1fe2a0dd00b2c92298e9fa635f9950a1e8a52bd8d2b28dad5601b103a6a0d"
+  type: workflow
+  created_at: "2026-07-28T04:12:32Z"
+  updated_at: "2026-07-28T04:12:32Z"
+  checksum: "sha256:b2e1fe2a0dd00b2c92298e9fa635f9950a1e8a52bd8d2b28dad5601b103a6a0d"
+  size_bytes: 68153
+  attributes:
+    language: yaml
+    issue: "Fortemi/fortemi#1093"
+    artifact: "al-sys04-05-asset-lifecycle-receipt"
+    retention_days: 30
+activity:
+  id: "urn:aiwg:activity:ci:al-sys-receipt-1093:001"
+  type: modification
+  started_at: "2026-07-28T04:03:30Z"
+  ended_at: "2026-07-28T04:12:32Z"
+  description: "Run the scoped lifecycle receipt from a clean exact commit and upload only its sanitized JSON"
+  attributes:
+    verification:
+      - ".gitea/workflows/ci-builder.yaml parsed: passed"
+      - "local receipt-producing command: passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml:sha256:b2e1fe2a0dd00b2c92298e9fa635f9950a1e8a52bd8d2b28dad5601b103a6a0d"
+    activity: "urn:aiwg:activity:ci:al-sys-receipt-1093:001"
+    time: "2026-07-28T04:12:32Z"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml:sha256:b2e1fe2a0dd00b2c92298e9fa635f9950a1e8a52bd8d2b28dad5601b103a6a0d"
+      source: "urn:gitea:issue:Fortemi/fortemi:1093"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:ci:al-sys-receipt-1093:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:ci:al-sys-receipt-1093:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: ci_maintainer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml:sha256:b2e1fe2a0dd00b2c92298e9fa635f9950a1e8a52bd8d2b28dad5601b103a6a0d"
+    agent: "urn:aiwg:agent:codex-gpt-5"

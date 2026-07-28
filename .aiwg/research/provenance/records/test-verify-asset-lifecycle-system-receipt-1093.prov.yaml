@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T04:12:32Z"
+  description: "Provenance for the Fortemi #1093 receipt verifier tests"
+entity:
+  id: "urn:aiwg:artifact:tests/test_verify_asset_lifecycle_system_receipt.py:sha256:103413e2a611c3db9e702e69c17055fb061bf706d0dd96d66887d96a0af67678"
+  type: test
+  created_at: "2026-07-28T04:12:32Z"
+  updated_at: "2026-07-28T04:12:32Z"
+  checksum: "sha256:103413e2a611c3db9e702e69c17055fb061bf706d0dd96d66887d96a0af67678"
+  size_bytes: 4074
+  attributes:
+    language: python
+    issue: "Fortemi/fortemi#1093"
+    test_count: 6
+activity:
+  id: "urn:aiwg:activity:testing:al-sys-receipt-verifier-tests-1093:001"
+  type: testing
+  started_at: "2026-07-28T04:03:30Z"
+  ended_at: "2026-07-28T04:12:32Z"
+  description: "Cover valid generation, source drift, dirty clean-checkout claims, sensitive leakage, broad claims, and CI commit mismatch"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:tests/test_verify_asset_lifecycle_system_receipt.py:sha256:103413e2a611c3db9e702e69c17055fb061bf706d0dd96d66887d96a0af67678"
+    activity: "urn:aiwg:activity:testing:al-sys-receipt-verifier-tests-1093:001"
+    time: "2026-07-28T04:12:32Z"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:tests/test_verify_asset_lifecycle_system_receipt.py:sha256:103413e2a611c3db9e702e69c17055fb061bf706d0dd96d66887d96a0af67678"
+      source: "urn:aiwg:artifact:scripts/ci/verify-asset-lifecycle-system-receipt.py:sha256:4f6630581f1b6c343027dfd9dd64d622e7af76d342b8d33e10c0eb3568311f3a"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:testing:al-sys-receipt-verifier-tests-1093:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:testing:al-sys-receipt-verifier-tests-1093:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: test_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:tests/test_verify_asset_lifecycle_system_receipt.py:sha256:103413e2a611c3db9e702e69c17055fb061bf706d0dd96d66887d96a0af67678"
+    agent: "urn:aiwg:agent:codex-gpt-5"

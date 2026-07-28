@@ -178,6 +178,9 @@ jobs:
       - name: Check AL-PERF01 receipt bundle verifier
         run: python3 -m unittest tests/test_verify_al_perf01_receipt_bundle.py
 
+      - name: Check AL-SYS04/05 receipt verifier
+        run: python3 -m unittest tests/test_verify_asset_lifecycle_system_receipt.py
+
       - name: Check Ollama listener guidance
         run: |
           python3 scripts/ci/verify-ollama-exposure-guidance.py
@@ -612,6 +615,21 @@ jobs:
           # Run all workspace tests except matric-jobs
           # (matric-jobs worker tests already ran above with serial execution)
           cargo test --workspace --exclude matric-jobs
+
+      - name: Capture AL-SYS04/05 asset lifecycle receipt
+        run: |
+          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
+          FORTEMI_AL_SYS_EXPECT_CLEAN_CHECKOUT=1 \
+            scripts/ci/verify-asset-lifecycle-system-receipt.sh \
+              target/al-sys04-05-asset-lifecycle-receipt.json
+
+      - name: Upload AL-SYS04/05 asset lifecycle receipt
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
+        with:
+          name: al-sys04-05-asset-lifecycle-receipt
+          path: target/al-sys04-05-asset-lifecycle-receipt.json
+          retention-days: 30
 
       - name: Capture AL-PERF01 asset lifecycle receipt
         run: |

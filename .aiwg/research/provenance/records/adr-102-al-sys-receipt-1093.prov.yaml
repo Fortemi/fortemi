@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-07-28T04:12:32Z"
+  description: "Provenance for ADR-102 scoped AL-SYS04/05 CI receipt boundary"
+entity:
+  id: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:d9f169bffb31a9bd8a0da9b86aaa610d7a94e1f93534e09ba963d14d2fd8828a"
+  type: adr
+  created_at: "2026-07-28T04:12:32Z"
+  updated_at: "2026-07-28T04:12:32Z"
+  checksum: "sha256:d9f169bffb31a9bd8a0da9b86aaa610d7a94e1f93534e09ba963d14d2fd8828a"
+  size_bytes: 30301
+  attributes:
+    issue: "Fortemi/fortemi#1093"
+    profile: "2.0.0/full-v1"
+    change_scope: "runtime-test-receipt-only"
+activity:
+  id: "urn:aiwg:activity:architecture:al-sys-receipt-1093:001"
+  type: modification
+  started_at: "2026-07-28T04:03:30Z"
+  ended_at: "2026-07-28T04:12:32Z"
+  description: "Document the receipt as runtime evidence without changing the Knowledge Shard wire authority"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:d9f169bffb31a9bd8a0da9b86aaa610d7a94e1f93534e09ba963d14d2fd8828a"
+    activity: "urn:aiwg:activity:architecture:al-sys-receipt-1093:001"
+    time: "2026-07-28T04:12:32Z"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:d9f169bffb31a9bd8a0da9b86aaa610d7a94e1f93534e09ba963d14d2fd8828a"
+      source: "urn:gitea:issue:Fortemi/fortemi:1093"
+      derivation_type: documents
+      activity: "urn:aiwg:activity:architecture:al-sys-receipt-1093:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:architecture:al-sys-receipt-1093:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: architecture_documenter
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md:sha256:d9f169bffb31a9bd8a0da9b86aaa610d7a94e1f93534e09ba963d14d2fd8828a"
+    agent: "urn:aiwg:agent:codex-gpt-5"

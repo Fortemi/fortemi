@@ -443,6 +443,18 @@ kernel-level write/fsync failure or power loss, an in-flight commit
 acknowledgement ambiguity, and the complete platform/filesystem matrix remain
 separate acceptance gates.
 
+The Fortemi CI build now has a dedicated scoped AL-SYS04/05 receipt runner for
+this runtime recovery boundary. It reruns the live HTTP/TUS restart and
+concurrency tests, the two-sidecar process-abort matrix, journal recovery, and
+filesystem refcount tests before emitting a sanitized machine receipt. The
+receipt binds the exact clean commit and source digests, records headless
+Linux/PostgreSQL/filesystem execution and explicit isolated no-auth mode, and
+keeps authenticated operation, mid-syscall termination, kernel/fsync failure,
+power loss, in-flight commit ambiguity, non-Unix durability, the platform
+matrix, and suite-wide portability false. The receipt is runtime test evidence,
+not a Knowledge Shard component or schema change. Its CI wiring does not become
+immutable evidence until a successful Gitea artifact upload is observed.
+
 Until the release gates pass:
 
 - user documentation must label lossless/full-profile behavior as a target;
