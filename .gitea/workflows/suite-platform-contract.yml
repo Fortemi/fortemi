@@ -119,14 +119,23 @@ jobs:
           export RUSTUP_HOME="/Volumes/build/bt6/cargo/rustup"
           export TMPDIR="/Volumes/build/tmp"
           mkdir -p "$TMPDIR" "$(dirname "$build_dir")"
+          export DOCKER_CONFIG="${TMPDIR}/suite-docker-${GITHUB_RUN_ID}"
+          mkdir -p "$DOCKER_CONFIG"
+          printf '{"auths":{}}\n' >"$DOCKER_CONFIG/config.json"
+          if [[ -S "$HOME/.colima/default/docker.sock" ]]; then
+            export DOCKER_HOST="unix://${HOME}/.colima/default/docker.sock"
+          fi
           cleanup() {
             rm -rf "$build_dir"
+            rm -rf "$DOCKER_CONFIG"
           }
           trap cleanup EXIT INT TERM
 
           if ! docker info >/dev/null 2>&1; then
             command -v colima >/dev/null 2>&1
-            colima start --cpu 6 --memory 12 --disk 100
+            colima status || true
+            colima start --cpu 6 --memory 12 --disk 100 --verbose
+            export DOCKER_HOST="unix://${HOME}/.colima/default/docker.sock"
           fi
           docker info >/dev/null
           command -v git >/dev/null
