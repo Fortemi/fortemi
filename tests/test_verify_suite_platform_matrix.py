@@ -133,8 +133,11 @@ def authority_receipt(platform_id):
         },
         "database": {
             "engine": "PostgreSQL",
-            "provisioning": "managed-docker",
-            "architecture": "amd64",
+            "provisioning": {
+                "linux-x86_64": "managed-docker",
+                "macos-arm64": "managed-native",
+            }[platform_id],
+            "architecture": arch,
             "version": "18.0",
             "extensions": ["plpgsql", "postgis", "vector"],
         },

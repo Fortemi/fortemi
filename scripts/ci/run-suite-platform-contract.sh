@@ -20,6 +20,9 @@ HOTM_DIR="${WORK_DIR}/hotm"
 DB_CONTAINER=""
 DB_IMAGE=""
 DB_EXTENSION_SQL=""
+NATIVE_PG_BIN=""
+NATIVE_PG_DATA=""
+NATIVE_PG_PORT=""
 API_PID=""
 
 cleanup() {
@@ -47,6 +50,10 @@ cleanup() {
   fi
   if [[ -n "$DB_IMAGE" ]]; then
     docker image rm -f "$DB_IMAGE" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$NATIVE_PG_DATA" && -n "$NATIVE_PG_BIN" ]]; then
+    "$NATIVE_PG_BIN/pg_ctl" -D "$NATIVE_PG_DATA" stop -m fast \
+      >/dev/null 2>&1 || true
   fi
   if [[ "${SUITE_PLATFORM_PRESERVE_WORK:-0}" != "1" ]]; then
     rm -rf "${WORK_DIR}"
@@ -100,6 +107,11 @@ PY
 }
 
 provision_database() {
+  if [[ "$PLATFORM_OS" == "macos" ]]; then
+    provision_native_macos_database
+    return
+  fi
+
   local image port password ready
   command -v docker >/dev/null 2>&1 || {
     echo "docker is required to provision the isolated suite database" >&2
@@ -159,7 +171,87 @@ provision_database() {
     SUITE_DB_VERSION SUITE_DB_EXTENSIONS
 }
 
+provision_native_macos_database() {
+  local formula port ready
+  command -v brew >/dev/null 2>&1 || {
+    echo "Homebrew is required to provision the native macOS database" >&2
+    exit 2
+  }
+  for formula in postgresql@18 postgis pgvector; do
+    if ! brew list --versions "$formula" >/dev/null 2>&1; then
+      brew install "$formula"
+    fi
+  done
+
+  NATIVE_PG_BIN="$(brew --prefix postgresql@18)/bin"
+  NATIVE_PG_DATA="${WORK_DIR}/postgres"
+  NATIVE_PG_PORT="$(find_port)"
+  export PATH="${NATIVE_PG_BIN}:$PATH"
+  "$NATIVE_PG_BIN/initdb" -D "$NATIVE_PG_DATA" \
+    --username=matric --auth=trust --no-locale --encoding=UTF8 >/dev/null
+  "$NATIVE_PG_BIN/pg_ctl" -D "$NATIVE_PG_DATA" \
+    -l "${WORK_DIR}/postgres.log" \
+    -o "-h 127.0.0.1 -p ${NATIVE_PG_PORT} -c max_locks_per_transaction=256" \
+    start >/dev/null
+
+  ready=false
+  for _ in $(seq 1 60); do
+    if "$NATIVE_PG_BIN/pg_isready" -h 127.0.0.1 \
+      -p "$NATIVE_PG_PORT" -U matric >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
+    sleep 1
+  done
+  [[ "$ready" == "true" ]] || {
+    tail -n 100 "${WORK_DIR}/postgres.log" >&2 || true
+    return 1
+  }
+
+  "$NATIVE_PG_BIN/createdb" -h 127.0.0.1 -p "$NATIVE_PG_PORT" \
+    -U matric -O matric matric_suite
+  for formula in vector postgis pg_trgm; do
+    "$NATIVE_PG_BIN/psql" -v ON_ERROR_STOP=1 -h 127.0.0.1 \
+      -p "$NATIVE_PG_PORT" -U matric -d matric_suite \
+      -c "CREATE EXTENSION IF NOT EXISTS ${formula};" >/dev/null
+  done
+
+  DATABASE_URL="postgres://matric@127.0.0.1:${NATIVE_PG_PORT}/matric_suite"
+  export DATABASE_URL
+  SUITE_DB_PROVISIONING="managed-native"
+  SUITE_DB_ARCHITECTURE="$(uname -m)"
+  SUITE_DB_VERSION="$("$NATIVE_PG_BIN/postgres" --version |
+    sed 's/^postgres (PostgreSQL) //')"
+  SUITE_DB_EXTENSIONS="$(
+    "$NATIVE_PG_BIN/psql" -At -h 127.0.0.1 -p "$NATIVE_PG_PORT" \
+      -U matric -d matric_suite \
+      -c "SELECT string_agg(extname, ',' ORDER BY extname) FROM pg_extension"
+  )"
+  DB_EXTENSION_SQL="$(
+    "$NATIVE_PG_BIN/psql" -At -h 127.0.0.1 -p "$NATIVE_PG_PORT" \
+      -U matric -d matric_suite \
+      -c "SELECT format('CREATE EXTENSION IF NOT EXISTS %I;', extname)
+          FROM pg_extension
+          WHERE extname <> 'plpgsql'
+          ORDER BY extname"
+  )"
+  export SUITE_DB_PROVISIONING SUITE_DB_ARCHITECTURE \
+    SUITE_DB_VERSION SUITE_DB_EXTENSIONS
+}
+
 reset_database() {
+  if [[ -n "$NATIVE_PG_DATA" ]]; then
+    "$NATIVE_PG_BIN/dropdb" --force -h 127.0.0.1 -p "$NATIVE_PG_PORT" \
+      -U matric matric_suite >/dev/null
+    "$NATIVE_PG_BIN/createdb" -h 127.0.0.1 -p "$NATIVE_PG_PORT" \
+      -U matric -O matric matric_suite >/dev/null
+    if [[ -n "$DB_EXTENSION_SQL" ]]; then
+      printf '%s\n' "$DB_EXTENSION_SQL" |
+        "$NATIVE_PG_BIN/psql" -v ON_ERROR_STOP=1 -h 127.0.0.1 \
+          -p "$NATIVE_PG_PORT" -U matric -d matric_suite >/dev/null
+    fi
+    return
+  fi
   [[ -n "$DB_CONTAINER" ]] || {
     echo "suite phase isolation requires the managed database container" >&2
     return 1

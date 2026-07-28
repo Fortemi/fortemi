@@ -350,7 +350,11 @@ def validate_authority_receipt(
     )
     if database["engine"] != "PostgreSQL":
         raise VerificationError("authority receipt database engine mismatch")
-    if database["provisioning"] not in {"managed-docker", "external"}:
+    expected_provisioning = {
+        "linux-x86_64": "managed-docker",
+        "macos-arm64": "managed-native",
+    }[platform["id"]]
+    if database["provisioning"] != expected_provisioning:
         raise VerificationError("authority receipt database provisioning mismatch")
     for key in ("architecture", "version"):
         if not isinstance(database[key], str) or not database[key]:
@@ -776,7 +780,7 @@ def parse_args() -> argparse.Namespace:
     authority.add_argument(
         "--database-provisioning",
         required=True,
-        choices=("managed-docker", "external"),
+        choices=("managed-docker", "managed-native"),
     )
     authority.add_argument("--database-architecture", required=True)
     authority.add_argument("--database-version", required=True)

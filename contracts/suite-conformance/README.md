@@ -14,10 +14,11 @@ The matrix does not redefine Knowledge Shard profiles, OpenAPI, AsyncAPI,
 authentication, or compatibility discovery. It composes their existing
 authority-owned receipts into a platform-qualified release gate.
 
-Each platform run owns its database container and recreates the database,
-including the image-provisioned extension baseline, between authority tests,
-React/core, and HotM. No participant inherits another participant's test data
-or background workers.
+Each platform run owns its database lifecycle: the Linux cell uses the pinned
+test database image and the macOS cell uses native Homebrew PostgreSQL 18.
+Both recreate the database, including the required extension baseline,
+between authority tests, React/core, and HotM. No participant inherits another
+participant's test data or background workers.
 
 Run:
 

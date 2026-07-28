@@ -117,10 +117,11 @@ hashes, and pass/fail results. An aggregate verifier fails closed when:
 - any receipt claims universal portability, one universal schema, launched
   GUI/native dialogs, or complete backup without separate evidence.
 
-The runner owns an isolated PostgreSQL container. Authority tests, React/core,
-and HotM execute in separate database lifecycles with the same
-image-provisioned extension baseline. The authority process owns SQLx
-migrations and is stopped while database-backed authority tests run.
+The runner owns an isolated PostgreSQL lifecycle: the Linux cell uses the
+pinned test database image and the macOS cell uses native Homebrew PostgreSQL
+18. Authority tests, React/core, and HotM execute in separate database
+lifecycles with the required extension baseline. The authority process owns
+SQLx migrations and is stopped while database-backed authority tests run.
 
 Passing both cells authorizes only the phrase:
 
