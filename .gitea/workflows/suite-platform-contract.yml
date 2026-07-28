@@ -128,16 +128,22 @@ jobs:
           }
           trap cleanup EXIT INT TERM
 
-          command -v brew >/dev/null
-          command -v git >/dev/null
-          command -v node >/dev/null
-          command -v npm >/dev/null
-          command -v cargo >/dev/null
+          command -v brew
+          command -v git
+          command -v cargo
+          if ! command -v node >/dev/null 2>&1 ||
+            ! command -v npm >/dev/null 2>&1; then
+            brew install node
+          fi
+          printf 'node: %s\n' "$(node --version)"
+          printf 'npm: %s\n' "$(npm --version)"
+          printf 'cargo: %s\n' "$(cargo --version)"
 
           rm -rf "$build_dir" "$output_tar"
           git init -q "$build_dir"
           git -C "$build_dir" remote add origin "$repo_url"
-          git -C "$build_dir" fetch --quiet --no-tags --depth=1 origin "$revision"
+          git -c credential.helper= -c credential.interactive=never \
+            -C "$build_dir" fetch --no-tags --depth=1 origin "$revision"
           git -C "$build_dir" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$build_dir" rev-parse HEAD)" = "$revision"
 
