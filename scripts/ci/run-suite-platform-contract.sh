@@ -428,7 +428,8 @@ case "$(uname -s)/$(uname -m)" in
     PLATFORM_OS="macos"
     PLATFORM_ARCH="arm64"
     FILESYSTEM="$(diskutil info "$ORCHESTRATOR_ROOT" 2>/dev/null |
-      awk -F: '/File System Personality/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}')"
+      awk -F: '/File System Personality/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' ||
+      true)"
     FILESYSTEM="${FILESYSTEM:-unknown-macos-filesystem}"
     ;;
   *)
