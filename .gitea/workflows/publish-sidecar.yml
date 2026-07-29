@@ -182,9 +182,7 @@ jobs:
           container="fortemi-sidecar-linux-arm64-${run_id}"
           source_dir="/Volumes/build/fortemi/builds/sidecar-linux-arm64-${run_id}"
           docker_config="/Volumes/build/tmp/sidecar-linux-arm64-docker-${run_id}"
-          legacy_colima_profile="fortemi-linux-arm64"
-          legacy_colima_home="${HOME}/.colima"
-          colima_profile="fortemi-sidecar-linux-arm64"
+          colima_profile="fortemi-sidecar-linux-arm64-${run_id}"
           colima_home="/Volumes/build/fortemi/colima"
           colima_cache_home="/Volumes/build/fortemi/colima-cache"
           colima_tmp="/Volumes/build/tmp/sidecar-colima-${run_id}"
@@ -200,17 +198,32 @@ jobs:
             "$COLIMA_HOME" "$COLIMA_CACHE_HOME" "$TMPDIR" \
             "$DOCKER_CONFIG" "$(dirname "$source_dir")"
           printf '{"auths":{}}\n' >"$DOCKER_CONFIG/config.json"
+          delete_colima_profile() {
+            local profile="$1"
+            local delete_pid
+            local attempt
+            colima delete "$profile" --force >/dev/null 2>&1 &
+            delete_pid=$!
+            for attempt in $(seq 1 60); do
+              if ! kill -0 "$delete_pid" 2>/dev/null; then
+                wait "$delete_pid" 2>/dev/null || true
+                return
+              fi
+              sleep 1
+            done
+            kill -TERM "$delete_pid" 2>/dev/null || true
+            sleep 2
+            kill -KILL "$delete_pid" 2>/dev/null || true
+            wait "$delete_pid" 2>/dev/null || true
+          }
           cleanup() {
             docker rm -f "$container" >/dev/null 2>&1 || true
-            colima delete "$colima_profile" --force >/dev/null 2>&1 || true
+            delete_colima_profile "$colima_profile"
             rm -rf "$source_dir" "$DOCKER_CONFIG" "$TMPDIR"
           }
           trap cleanup EXIT INT TERM
 
           command -v colima >/dev/null
-          COLIMA_HOME="$legacy_colima_home" \
-            colima delete "$legacy_colima_profile" --force >/dev/null 2>&1 || true
-          colima delete "$colima_profile" --force >/dev/null 2>&1 || true
           colima start "$colima_profile" \
             --arch aarch64 --cpu 6 --memory 12 --disk 100
           case "$(docker info --format '{{.Architecture}}')" in

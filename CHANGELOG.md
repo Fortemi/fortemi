@@ -5,6 +5,20 @@ All notable changes to Fortémi are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
+## [2026.7.17] - 2026-07-29
+
+Corrective publication for `2026.7.16`. Knowledge Shard formats, exact
+`2.0.0/full-v1` evidence, supported platform cells, and consumer revisions are
+unchanged.
+
+### Fixed
+
+- Give each Linux arm64 sidecar build a run-scoped Colima profile on
+  `/Volumes/build` and remove the unbounded cleanup of the obsolete
+  home-volume profile.
+- Bound post-build Colima deletion to 60 seconds so stale VM teardown cannot
+  hold the single mutsu coordinator slot indefinitely.
+
 ## [2026.7.16] - 2026-07-29
 
 Corrective publication for `2026.7.15`. Knowledge Shard formats, exact

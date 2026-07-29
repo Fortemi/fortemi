@@ -28,8 +28,18 @@ def main() -> int:
         "build-linux-arm64:",
         "matric-api-aarch64-unknown-linux-gnu",
         "Colima Docker daemon is not native Linux arm64",
+        'colima_profile="fortemi-sidecar-linux-arm64-${run_id}"',
+        'delete_colima_profile "$colima_profile"',
+        "for attempt in $(seq 1 60)",
     ):
         require(workflow, needle, WORKFLOW, failures)
+
+    for forbidden in (
+        'legacy_colima_home="${HOME}/.colima"',
+        'colima_profile="fortemi-sidecar-linux-arm64"',
+    ):
+        if forbidden in workflow:
+            failures.append(f"{WORKFLOW}: forbidden {forbidden!r}")
 
     for needle in (
         'TAG="sidecar-${GITHUB_SHA:0:12}"',
