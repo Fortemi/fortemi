@@ -223,6 +223,7 @@ jobs:
               apt-get update -qq
               apt-get install -y --no-install-recommends \
                 ca-certificates git libpq-dev libssl-dev pkg-config
+              git config --global --add safe.directory /build
               test "$(git -C /build rev-parse HEAD)" = "$MATRIC_GIT_SHA"
               cd /build
               cargo build --release --package matric-api
