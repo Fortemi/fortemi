@@ -3,11 +3,11 @@ metadata:
   created_at: "2026-07-28T21:16:35Z"
   description: "Provenance for the exact Linux x86_64, Linux arm64, and mutsu macOS arm64 suite platform matrix"
 entity:
-  id: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:93fb8bbd43a2db20b9fb3c13a5813e670c746fecf9e82186ec0df89ee3201d32"
+  id: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:548db691f5943116bf848eff02cab2480d9aea76f9cb288647c1c220e8e88744"
   type: test_fixture
   created_at: "2026-07-28T21:16:35Z"
-  updated_at: "2026-07-29T03:27:15Z"
-  checksum: "sha256:93fb8bbd43a2db20b9fb3c13a5813e670c746fecf9e82186ec0df89ee3201d32"
+  updated_at: "2026-07-29T03:46:16Z"
+  checksum: "sha256:548db691f5943116bf848eff02cab2480d9aea76f9cb288647c1c220e8e88744"
   size_bytes: 2622
   attributes:
     issue: "Fortemi/fortemi#1095"
@@ -18,7 +18,7 @@ activity:
   id: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
   type: modification
   started_at: "2026-07-28T21:12:17Z"
-  ended_at: "2026-07-29T03:27:15Z"
+  ended_at: "2026-07-29T03:46:16Z"
   description: "Pin the exact three-cell authority, React/core, HotM, and immutable sidecar identities"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
@@ -28,9 +28,9 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:93fb8bbd43a2db20b9fb3c13a5813e670c746fecf9e82186ec0df89ee3201d32"
+    entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:548db691f5943116bf848eff02cab2480d9aea76f9cb288647c1c220e8e88744"
     activity: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
-    time: "2026-07-29T03:27:15Z"
+    time: "2026-07-29T03:46:16Z"
   used:
     - activity: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
       entity: "urn:gitea:issue:Fortemi/fortemi:1095"
@@ -39,7 +39,7 @@ relationships:
       entity: "urn:gitea:run:Fortemi/fortemi:6358"
       role: sidecar_publication_evidence
     - activity: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
-      entity: "urn:git:Fortemi/HotM:a3bfd7e2c01b2cda2e4dbc79e1738b70e7a5d5c2"
+      entity: "urn:git:Fortemi/HotM:1b220c1e1735314e70e610d84951db960742da35"
       role: consumer_revision
     - activity: "urn:aiwg:activity:modification:suite-platform-matrix-1095:001"
       entity: "urn:gitea:run:Fortemi/fortemi-react:2584"
@@ -49,5 +49,5 @@ relationships:
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:93fb8bbd43a2db20b9fb3c13a5813e670c746fecf9e82186ec0df89ee3201d32"
+    entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:548db691f5943116bf848eff02cab2480d9aea76f9cb288647c1c220e8e88744"
     agent: "urn:aiwg:agent:codex-gpt-5"

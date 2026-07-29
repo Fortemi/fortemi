@@ -100,21 +100,24 @@ jobs:
         run: |
           set -euo pipefail
           build_dir="/Volumes/build/fortemi/builds/suite-linux-arm64-${GITHUB_RUN_ID}"
+          source_root="/Volumes/build/fortemi/builds/suite-linux-arm64-sources-${GITHUB_RUN_ID}"
           output_root="/Volumes/build/tmp/suite-linux-arm64-out-${GITHUB_RUN_ID}"
           output_tar="/Volumes/build/tmp/suite-linux-arm64-${GITHUB_RUN_ID}.tar.gz"
           repo_url="https://git.integrolabs.net/${GITHUB_REPOSITORY}.git"
 
           remote_status=0
           ssh mutsu-suite bash -s -- \
-            "$build_dir" "$output_root" "$output_tar" "$repo_url" \
-            "$GITHUB_SHA" "$GITHUB_RUN_ID" <<'REMOTE_SCRIPT' || remote_status=$?
+            "$build_dir" "$source_root" "$output_root" "$output_tar" \
+            "$repo_url" "$GITHUB_SHA" "$GITHUB_RUN_ID" \
+            <<'REMOTE_SCRIPT' || remote_status=$?
           set -euo pipefail
           build_dir="$1"
-          output_root="$2"
-          output_tar="$3"
-          repo_url="$4"
-          revision="$5"
-          run_id="$6"
+          source_root="$2"
+          output_root="$3"
+          output_tar="$4"
+          repo_url="$5"
+          revision="$6"
+          run_id="$7"
           container="fortemi-suite-linux-arm64-${run_id}"
           image="fortemi-suite-builder-linux-arm64:${revision}"
           docker_config="/Volumes/build/tmp/suite-linux-arm64-docker-${run_id}"
@@ -128,7 +131,7 @@ jobs:
           printf '{"auths":{}}\n' >"$DOCKER_CONFIG/config.json"
           cleanup() {
             docker rm -f "$container" >/dev/null 2>&1 || true
-            rm -rf "$build_dir" "$output_root" "$DOCKER_CONFIG"
+            rm -rf "$build_dir" "$source_root" "$output_root" "$DOCKER_CONFIG"
           }
           trap cleanup EXIT INT TERM
 
@@ -146,7 +149,7 @@ jobs:
             *) echo "Colima Docker daemon is not native Linux arm64" >&2; exit 1 ;;
           esac
 
-          rm -rf "$build_dir" "$output_root"
+          rm -rf "$build_dir" "$source_root" "$output_root"
           rm -f "$output_tar"
           git init -q "$build_dir"
           git -C "$build_dir" remote add origin "$repo_url"
@@ -154,6 +157,103 @@ jobs:
             -C "$build_dir" fetch --quiet --no-tags --depth=1 origin "$revision"
           git -C "$build_dir" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$build_dir" rev-parse HEAD)" = "$revision"
+
+          matrix="$build_dir/contracts/suite-conformance/platform-matrix.json"
+          matrix_value() {
+            python3 - "$matrix" "$1" <<'PY'
+          import json
+          import sys
+
+          value = json.load(open(sys.argv[1], encoding="utf-8"))
+          for segment in sys.argv[2].split("."):
+              value = value[segment]
+          print(value)
+          PY
+          }
+          stage_repository() {
+            local repository="$1"
+            local commit="$2"
+            local destination="$3"
+            mkdir -p "$(dirname "$destination")"
+            git init -q "$destination"
+            git -C "$destination" remote add origin \
+              "https://git.integrolabs.net/${repository}.git"
+            git -c credential.helper= -c credential.interactive=never \
+              -C "$destination" fetch --quiet --no-tags --depth=1 origin "$commit"
+            git -C "$destination" checkout --quiet --detach FETCH_HEAD
+            git -C "$destination" update-ref refs/heads/suite-pinned "$commit"
+            test "$(git -C "$destination" rev-parse HEAD)" = "$commit"
+            test -z "$(git -C "$destination" status --porcelain)"
+          }
+
+          authority_repository="$(matrix_value authority.repository)"
+          authority_runtime="$(matrix_value authority.runtime_commit)"
+          authority_schema="$(matrix_value authority.schema_commit)"
+          react_repository="$(matrix_value participants.fortemi_react.repository)"
+          react_commit="$(matrix_value participants.fortemi_react.commit)"
+          hotm_repository="$(matrix_value participants.hotm.repository)"
+          hotm_commit="$(matrix_value participants.hotm.commit)"
+          authority_source="$source_root/$authority_repository"
+          hotm_source="$source_root/$hotm_repository"
+          stage_repository \
+            "$authority_repository" "$authority_runtime" "$authority_source"
+          git -c credential.helper= -c credential.interactive=never \
+            -C "$authority_source" fetch --quiet --no-tags --depth=1 \
+            origin "$authority_schema"
+          git -C "$authority_source" update-ref \
+            refs/heads/suite-schema "$authority_schema"
+          stage_repository \
+            "$react_repository" "$react_commit" "$source_root/$react_repository"
+          stage_repository "$hotm_repository" "$hotm_commit" "$hotm_source"
+
+          sidecar_target="aarch64-unknown-linux-gnu"
+          sidecar_asset="$(python3 - "$hotm_source" "$sidecar_target" <<'PY'
+          import json
+          import sys
+
+          root, target = sys.argv[1:]
+          manifest = json.load(open(
+              f"{root}/release/live-asset-receipt-sidecar-provenance.json",
+              encoding="utf-8",
+          ))
+          print(manifest["assets"][target]["asset_name"])
+          PY
+          )"
+          sidecar_url="$(python3 - "$hotm_source" "$sidecar_target" <<'PY'
+          import json
+          import sys
+
+          root, target = sys.argv[1:]
+          manifest = json.load(open(
+              f"{root}/release/live-asset-receipt-sidecar-provenance.json",
+              encoding="utf-8",
+          ))
+          print(f'{manifest["base_url"].rstrip("/")}/{manifest["assets"][target]["asset_name"]}')
+          PY
+          )"
+          expected_sidecar_sha="$(
+            matrix_value participants.hotm.sidecar_assets.linux-arm64
+          )"
+          provenance_sidecar_sha="$(python3 - "$hotm_source" "$sidecar_target" <<'PY'
+          import json
+          import sys
+
+          root, target = sys.argv[1:]
+          manifest = json.load(open(
+              f"{root}/release/live-asset-receipt-sidecar-provenance.json",
+              encoding="utf-8",
+          ))
+          print(manifest["assets"][target]["sha256"])
+          PY
+          )"
+          test "$provenance_sidecar_sha" = "$expected_sidecar_sha"
+          mkdir -p "$source_root/sidecar"
+          curl -fsSL --retry 3 "$sidecar_url" \
+            -o "$source_root/sidecar/$sidecar_asset"
+          actual_sidecar_sha="$(
+            shasum -a 256 "$source_root/sidecar/$sidecar_asset" | awk '{print $1}'
+          )"
+          test "$actual_sidecar_sha" = "$expected_sidecar_sha"
 
           docker build --platform linux/arm64 \
             -f "$build_dir/build/Dockerfile.builder" \
@@ -167,9 +267,27 @@ jobs:
             -e GIT_TERMINAL_PROMPT=0 \
             "$image" sleep infinity
           docker cp "$build_dir/." "$container:/suite"
+          docker cp "$source_root/." "$container:/suite-inputs"
           docker exec "$container" bash -c '
               set -euo pipefail
+              git config --global protocol.file.allow always
               git config --global --add safe.directory /suite
+              git config --global --add safe.directory \
+                /suite-inputs/Fortemi/fortemi
+              git config --global --add safe.directory \
+                /suite-inputs/Fortemi/fortemi-react
+              git config --global --add safe.directory \
+                /suite-inputs/Fortemi/HotM
+              git config --global \
+                url.file:///suite-inputs/Fortemi/fortemi.insteadOf \
+                https://git.integrolabs.net/Fortemi/fortemi.git
+              git config --global \
+                url.file:///suite-inputs/Fortemi/fortemi-react.insteadOf \
+                https://git.integrolabs.net/Fortemi/fortemi-react.git
+              git config --global \
+                url.file:///suite-inputs/Fortemi/HotM.insteadOf \
+                https://git.integrolabs.net/Fortemi/HotM.git
+              export SIDECAR_SOURCE_FILE=/suite-inputs/sidecar/matric-api-aarch64-unknown-linux-gnu
               test "$(git -C /suite rev-parse HEAD)" = "'"$revision"'"
               /suite/scripts/ci/run-suite-platform-contract.sh \
                 /suite-platform-output/linux-arm64
