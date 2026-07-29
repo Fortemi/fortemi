@@ -40,8 +40,11 @@ on:
       - 'migrations/**'
       - '.gitea/workflows/publish-sidecar.yml'
       - 'scripts/ci/ensure-mutsu-boot-auth.sh'
+      - 'scripts/ci/mutsu-build-lock.sh'
+      - 'scripts/ci/verify-mutsu-build-serialization.sh'
       - 'scripts/ci/publish-sidecar-release.sh'
       - 'scripts/ci/verify-sidecar-publication.py'
+      - 'tests/test_mutsu_build_lock.sh'
     tags: ['v*']
   workflow_dispatch:
 
@@ -71,6 +74,11 @@ jobs:
           RUNNER_MIN_FREE_KIB: ${{ vars.RUNNER_MIN_FREE_KIB }}
           RUNNER_MIN_FREE_INODES: ${{ vars.RUNNER_MIN_FREE_INODES }}
         run: bash scripts/ci/check-runner-capacity.sh
+
+      - name: Test mutsu build serialization guard
+        run: |
+          bash tests/test_mutsu_build_lock.sh
+          bash scripts/ci/verify-mutsu-build-serialization.sh
 
   # ─── Linux x86_64 ──────────────────────────────────────────────────────
   build-linux:
@@ -183,8 +191,14 @@ jobs:
           output="/Volumes/build/tmp/matric-api-aarch64-unknown-linux-gnu-${GITHUB_RUN_ID}"
           repository="https://git.integrolabs.net/${GITHUB_REPOSITORY}.git"
           ssh_config="${RUNNER_TEMP:?}/fortemi-mutsu-${GITHUB_RUN_ID}-linux-arm64/config"
+          lock_helper="/Volumes/build/tmp/mutsu-build-lock-sidecar-linux-${GITHUB_RUN_ID}.sh"
+          scp -F "$ssh_config" scripts/ci/mutsu-build-lock.sh \
+            "mutsu-sidecar:${lock_helper}"
 
-          ssh -F "$ssh_config" mutsu-sidecar bash -s -- \
+          ssh -F "$ssh_config" mutsu-sidecar bash "$lock_helper" \
+            --label "Fortemi sidecar Linux arm64 ${GITHUB_RUN_ID}" \
+            --timeout 3600 \
+            -- bash -s -- \
             "$repository" "$GITHUB_SHA" "$GITHUB_REF_NAME" "$GITHUB_RUN_ID" \
             "$output" <<'REMOTE_SCRIPT'
           set -euo pipefail
@@ -288,6 +302,11 @@ jobs:
       - name: Cleanup mutsu credential
         if: always()
         run: |
+          ssh_config="${RUNNER_TEMP:?}/fortemi-mutsu-${GITHUB_RUN_ID}-linux-arm64/config"
+          lock_helper="/Volumes/build/tmp/mutsu-build-lock-sidecar-linux-${GITHUB_RUN_ID}.sh"
+          if [[ -f "$ssh_config" ]]; then
+            ssh -F "$ssh_config" mutsu-sidecar rm -f "$lock_helper" || true
+          fi
           rm -rf "${RUNNER_TEMP:?}/fortemi-mutsu-${GITHUB_RUN_ID}-linux-arm64"
           ci/vault-fetch.sh --cleanup
 
@@ -411,12 +430,18 @@ jobs:
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           SSH_CONFIG="${RUNNER_TEMP:?}/fortemi-mutsu-${RUN_ID}-macos/config"
           LOCAL_OUTPUT="${RUNNER_TEMP}/fortemi-sidecar-macos-${RUN_ID}"
+          LOCK_HELPER="/Volumes/build/tmp/mutsu-build-lock-sidecar-macos-${RUN_ID}.sh"
 
           echo "=== macOS sidecar build on mutsu ==="
           echo "SHA:    ${SHA}"
           echo "Dir:    ${BUILD_DIR}"
 
-          ssh -F "$SSH_CONFIG" mutsu-sidecar bash -s << REMOTE_SCRIPT
+          scp -F "$SSH_CONFIG" scripts/ci/mutsu-build-lock.sh \
+            "mutsu-sidecar:${LOCK_HELPER}"
+          ssh -F "$SSH_CONFIG" mutsu-sidecar bash "$LOCK_HELPER" \
+            --label "Fortemi sidecar macOS ${RUN_ID}" \
+            --timeout 3600 \
+            -- bash -s << REMOTE_SCRIPT
           set -euo pipefail
 
           # Environment — mutsu's Rust toolchain lives on the build volume
@@ -498,6 +523,11 @@ jobs:
       - name: Cleanup mutsu SSH key
         if: always()
         run: |
+          ssh_config="${RUNNER_TEMP:?}/fortemi-mutsu-${GITHUB_RUN_ID}-macos/config"
+          lock_helper="/Volumes/build/tmp/mutsu-build-lock-sidecar-macos-${GITHUB_RUN_ID}.sh"
+          if [[ -f "$ssh_config" ]]; then
+            ssh -F "$ssh_config" mutsu-sidecar rm -f "$lock_helper" || true
+          fi
           rm -rf \
             "${RUNNER_TEMP:?}/fortemi-mutsu-${GITHUB_RUN_ID}-macos" \
             "${RUNNER_TEMP}/fortemi-sidecar-macos-${GITHUB_RUN_ID}"

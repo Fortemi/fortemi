@@ -7,7 +7,10 @@ on:
       - '.gitea/workflows/suite-platform-contract.yml'
       - 'contracts/suite-conformance/**'
       - 'scripts/ci/run-suite-platform-contract.sh'
+      - 'scripts/ci/mutsu-build-lock.sh'
+      - 'scripts/ci/verify-mutsu-build-serialization.sh'
       - 'scripts/ci/verify-suite-platform-matrix.py'
+      - 'tests/test_mutsu_build_lock.sh'
       - 'tests/test_verify_suite_platform_matrix.py'
   workflow_dispatch: {}
 
@@ -44,6 +47,11 @@ jobs:
           RUNNER_MIN_FREE_KIB: ${{ vars.RUNNER_MIN_FREE_KIB }}
           RUNNER_MIN_FREE_INODES: ${{ vars.RUNNER_MIN_FREE_INODES }}
         run: bash scripts/ci/check-runner-capacity.sh
+
+      - name: Test mutsu build serialization guard
+        run: |
+          bash tests/test_mutsu_build_lock.sh
+          bash scripts/ci/verify-mutsu-build-serialization.sh
 
       - name: Execute complete headless platform contract
         run: |
@@ -96,6 +104,10 @@ jobs:
             IdentityFile ~/.ssh/mutsu_key
             IdentitiesOnly yes
             StrictHostKeyChecking yes
+            BatchMode yes
+            PreferredAuthentications publickey
+            PasswordAuthentication no
+            KbdInteractiveAuthentication no
             ServerAliveInterval 30
             ServerAliveCountMax 20
           SSH_CONFIG
@@ -110,9 +122,14 @@ jobs:
           output_root="/Volumes/build/tmp/suite-linux-arm64-out-${GITHUB_RUN_ID}"
           output_tar="/Volumes/build/tmp/suite-linux-arm64-${GITHUB_RUN_ID}.tar.gz"
           repo_url="https://git.integrolabs.net/${GITHUB_REPOSITORY}.git"
+          lock_helper="/Volumes/build/tmp/mutsu-build-lock-suite-linux-${GITHUB_RUN_ID}.sh"
+          scp scripts/ci/mutsu-build-lock.sh "mutsu-suite:${lock_helper}"
 
           remote_status=0
-          ssh mutsu-suite bash -s -- \
+          ssh mutsu-suite bash "$lock_helper" \
+            --label "Fortemi suite Linux arm64 ${GITHUB_RUN_ID}" \
+            --timeout 3600 \
+            -- bash -s -- \
             "$build_dir" "$source_root" "$output_root" "$output_tar" \
             "$repo_url" "$GITHUB_SHA" "$GITHUB_RUN_ID" \
             <<'REMOTE_SCRIPT' || remote_status=$?
@@ -391,6 +408,10 @@ jobs:
       - name: Cleanup mutsu credential
         if: always()
         run: |
+          lock_helper="/Volumes/build/tmp/mutsu-build-lock-suite-linux-${GITHUB_RUN_ID}.sh"
+          if [[ -f "$HOME/.ssh/config" ]]; then
+            ssh mutsu-suite rm -f "$lock_helper" || true
+          fi
           rm -f "$HOME/.ssh/mutsu_key" "$HOME/.ssh/config" "$HOME/.ssh/known_hosts"
           ci/vault-fetch.sh --cleanup
 
@@ -440,6 +461,10 @@ jobs:
             IdentityFile ~/.ssh/mutsu_key
             IdentitiesOnly yes
             StrictHostKeyChecking yes
+            BatchMode yes
+            PreferredAuthentications publickey
+            PasswordAuthentication no
+            KbdInteractiveAuthentication no
             ServerAliveInterval 30
             ServerAliveCountMax 20
           SSH_CONFIG
@@ -452,9 +477,14 @@ jobs:
           build_dir="/Volumes/build/fortemi/builds/suite-${GITHUB_RUN_ID}"
           output_tar="/Volumes/build/tmp/suite-${GITHUB_RUN_ID}.tar.gz"
           repo_url="https://git.integrolabs.net/${GITHUB_REPOSITORY}.git"
+          lock_helper="/Volumes/build/tmp/mutsu-build-lock-suite-macos-${GITHUB_RUN_ID}.sh"
+          scp scripts/ci/mutsu-build-lock.sh "mutsu-suite:${lock_helper}"
 
           remote_status=0
-          ssh mutsu-suite bash -s -- \
+          ssh mutsu-suite bash "$lock_helper" \
+            --label "Fortemi suite macOS arm64 ${GITHUB_RUN_ID}" \
+            --timeout 3600 \
+            -- bash -s -- \
             "$build_dir" "$output_tar" "$repo_url" "$GITHUB_SHA" \
             "$GITHUB_RUN_ID" <<'REMOTE_SCRIPT' || remote_status=$?
           set -euo pipefail
@@ -532,6 +562,10 @@ jobs:
       - name: Cleanup mutsu credential
         if: always()
         run: |
+          lock_helper="/Volumes/build/tmp/mutsu-build-lock-suite-macos-${GITHUB_RUN_ID}.sh"
+          if [[ -f "$HOME/.ssh/config" ]]; then
+            ssh mutsu-suite rm -f "$lock_helper" || true
+          fi
           rm -f "$HOME/.ssh/mutsu_key" "$HOME/.ssh/config" "$HOME/.ssh/known_hosts"
           ci/vault-fetch.sh --cleanup
 
