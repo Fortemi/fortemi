@@ -172,14 +172,14 @@ jobs:
           output="$5"
           container="fortemi-sidecar-linux-arm64-${run_id}"
           docker_config="/Volumes/build/tmp/sidecar-linux-arm64-docker-${run_id}"
+          colima_profile="fortemi-linux-arm64"
+          colima_socket="${HOME}/.colima/${colima_profile}/docker.sock"
 
           export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
           export DOCKER_CONFIG="$docker_config"
+          export DOCKER_HOST="unix://${colima_socket}"
           mkdir -p "$DOCKER_CONFIG"
           printf '{"auths":{}}\n' >"$DOCKER_CONFIG/config.json"
-          if [[ -S "$HOME/.colima/default/docker.sock" ]]; then
-            export DOCKER_HOST="unix://${HOME}/.colima/default/docker.sock"
-          fi
           cleanup() {
             docker rm -f "$container" >/dev/null 2>&1 || true
             rm -rf "$DOCKER_CONFIG"
@@ -188,8 +188,12 @@ jobs:
 
           if ! docker info >/dev/null 2>&1; then
             command -v colima >/dev/null
-            colima start --arch aarch64 --cpu 6 --memory 12 --disk 100
-            export DOCKER_HOST="unix://${HOME}/.colima/default/docker.sock"
+            if ! colima start "$colima_profile" \
+              --arch aarch64 --cpu 6 --memory 12 --disk 100; then
+              colima delete "$colima_profile" --force || true
+              colima start "$colima_profile" \
+                --arch aarch64 --cpu 6 --memory 12 --disk 100
+            fi
           fi
           case "$(docker info --format '{{.Architecture}}')" in
             aarch64 | arm64) ;;
