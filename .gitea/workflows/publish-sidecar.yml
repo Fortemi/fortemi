@@ -38,6 +38,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'migrations/**'
+      - '.gitea/workflows/ci-builder.yaml'
       - '.gitea/workflows/publish-sidecar.yml'
       - 'scripts/ci/ensure-mutsu-boot-auth.sh'
       - 'scripts/ci/mutsu-build-lock.sh'
