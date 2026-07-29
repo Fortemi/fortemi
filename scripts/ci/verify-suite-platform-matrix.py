@@ -429,8 +429,14 @@ def write_authority_receipt(args: argparse.Namespace, manifest: dict[str, Any]) 
     authority = manifest["authority"]
     if git_value(checkout, "rev-parse", "HEAD") != authority["runtime_commit"]:
         raise VerificationError("authority runtime checkout commit drift")
-    if git_value(checkout, "status", "--porcelain"):
-        raise VerificationError("authority runtime checkout must be clean")
+    checkout_status = git_value(
+        checkout, "status", "--porcelain=v1", "--untracked-files=all"
+    )
+    if checkout_status:
+        raise VerificationError(
+            "authority runtime checkout must be clean:\n"
+            f"{checkout_status}"
+        )
     contract_path = args.schema_contract.resolve()
     if sha256_file(contract_path) != authority["contract_sha256"]:
         raise VerificationError("schema authority contract bytes drift")

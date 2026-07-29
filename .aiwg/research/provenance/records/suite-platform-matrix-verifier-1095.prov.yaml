@@ -1,14 +1,15 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-07-28T22:38:59Z"
-  description: "Provenance for the exact three-platform semantic verifier"
+  updated_at: "2026-07-29T04:42:26Z"
+  description: "Provenance for the exact three-platform semantic verifier with actionable clean-checkout diagnostics"
 entity:
-  id: "urn:aiwg:artifact:scripts/ci/verify-suite-platform-matrix.py:sha256:e93c4643f0b48cef8fcde01fe7087a79ae1fc9156b4ddd45b081d0c9e1a0b120"
+  id: "urn:aiwg:artifact:scripts/ci/verify-suite-platform-matrix.py:sha256:91cc9c100250286bbe9914105b261282e3974374267e5e5a2ff770ba8fd60813"
   type: code
   created_at: "2026-07-28T22:38:59Z"
-  updated_at: "2026-07-29T03:14:41Z"
-  checksum: "sha256:e93c4643f0b48cef8fcde01fe7087a79ae1fc9156b4ddd45b081d0c9e1a0b120"
-  size_bytes: 34136
+  updated_at: "2026-07-29T04:42:26Z"
+  checksum: "sha256:91cc9c100250286bbe9914105b261282e3974374267e5e5a2ff770ba8fd60813"
+  size_bytes: 34274
   attributes:
     language: python
     issue: "Fortemi/fortemi#1095"
@@ -16,8 +17,8 @@ activity:
   id: "urn:aiwg:activity:modification:suite-platform-matrix-verifier-1095:001"
   type: modification
   started_at: "2026-07-28T22:34:00Z"
-  ended_at: "2026-07-29T03:14:41Z"
-  description: "Require three identities, three sidecars, and Windows-only deferral"
+  ended_at: "2026-07-29T04:42:26Z"
+  description: "Require three identities, three sidecars, Windows-only deferral, and exact clean-checkout diagnostics"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -26,17 +27,20 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:scripts/ci/verify-suite-platform-matrix.py:sha256:e93c4643f0b48cef8fcde01fe7087a79ae1fc9156b4ddd45b081d0c9e1a0b120"
+    entity: "urn:aiwg:artifact:scripts/ci/verify-suite-platform-matrix.py:sha256:91cc9c100250286bbe9914105b261282e3974374267e5e5a2ff770ba8fd60813"
     activity: "urn:aiwg:activity:modification:suite-platform-matrix-verifier-1095:001"
-    time: "2026-07-29T03:14:41Z"
+    time: "2026-07-29T04:42:26Z"
   used:
     - activity: "urn:aiwg:activity:modification:suite-platform-matrix-verifier-1095:001"
       entity: "urn:aiwg:artifact:contracts/suite-conformance/platform-matrix.json:sha256:db6c55ffb4322cfba06bfe69d73c6a9751551e4ad8a08857765d9e1a01399486"
       role: verified_manifest
+    - activity: "urn:aiwg:activity:modification:suite-platform-matrix-verifier-1095:001"
+      entity: "urn:gitea:run:Fortemi/fortemi:6385"
+      role: failed_linux_arm64_clean_checkout_evidence
   wasAssociatedWith:
     activity: "urn:aiwg:activity:modification:suite-platform-matrix-verifier-1095:001"
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:scripts/ci/verify-suite-platform-matrix.py:sha256:e93c4643f0b48cef8fcde01fe7087a79ae1fc9156b4ddd45b081d0c9e1a0b120"
+    entity: "urn:aiwg:artifact:scripts/ci/verify-suite-platform-matrix.py:sha256:91cc9c100250286bbe9914105b261282e3974374267e5e5a2ff770ba8fd60813"
     agent: "urn:aiwg:agent:codex-gpt-5"
