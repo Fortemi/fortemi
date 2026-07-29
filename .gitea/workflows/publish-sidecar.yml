@@ -177,6 +177,9 @@ jobs:
           export DOCKER_CONFIG="$docker_config"
           mkdir -p "$DOCKER_CONFIG"
           printf '{"auths":{}}\n' >"$DOCKER_CONFIG/config.json"
+          if [[ -S "$HOME/.colima/default/docker.sock" ]]; then
+            export DOCKER_HOST="unix://${HOME}/.colima/default/docker.sock"
+          fi
           cleanup() {
             docker rm -f "$container" >/dev/null 2>&1 || true
             rm -rf "$DOCKER_CONFIG"
@@ -186,8 +189,6 @@ jobs:
           if ! docker info >/dev/null 2>&1; then
             command -v colima >/dev/null
             colima start --arch aarch64 --cpu 6 --memory 12 --disk 100
-          fi
-          if [[ -S "$HOME/.colima/default/docker.sock" ]]; then
             export DOCKER_HOST="unix://${HOME}/.colima/default/docker.sock"
           fi
           case "$(docker info --format '{{.Architecture}}')" in
