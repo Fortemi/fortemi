@@ -821,6 +821,8 @@ jobs:
             -e RUST_LOG=info \
             -e HOST=0.0.0.0 \
             -e PORT=3000 \
+            -e ISSUER_URL=http://localhost:3000 \
+            -e FORTEMI_ALLOW_LOCAL_ISSUER=true \
             -e REQUIRE_AUTH=false \
             -e I_UNDERSTAND_NO_AUTH=true \
             -e RATE_LIMIT_ENABLED=false \
