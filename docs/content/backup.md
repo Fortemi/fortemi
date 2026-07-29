@@ -40,7 +40,10 @@ Knowledge shards use **semantic versioning** (MAJOR.MINOR.PATCH) to ensure compa
 ### Supported versions
 
 - **Default export schema**: `1.2.0`
-- **Opt-in reader/export schema**: exact `2.0.0` tuples
+- **Opt-in reader/export schema**: exact `2.0.0` tuples, with advertised
+  support limited to `2.0.0/full-v1`
+- **Unadvertised schema-2 profiles**: `2.0.0/core-v1` and
+  `2.0.0/record-v1`
 - **Default profile**: `core-v1`
 - **Authority**: `contracts/knowledge-shard/contract.json` and the immutable
   versioned schema roots
@@ -53,7 +56,8 @@ When importing a shard, Fortémi automatically checks version compatibility:
 |----------|----------|
 | Exact registered tuple | Import after schema, profile, integrity, relationship, byte, and limit preflight |
 | Historical registered tuple | Validate source, run only its registered migration path, revalidate, then import |
-| Exact `2.0.0` tuple | Opt-in import/export with direct JSON-key presence semantics |
+| Exact advertised `2.0.0/full-v1` tuple | Opt-in import/export with direct JSON-key presence semantics |
+| Unadvertised `2.0.0` tuple | Do not claim support without its own receipt |
 | Unregistered tuple or schema `3.x` | Reject before persistent or blob mutation |
 | `min_reader_version` newer than the supported schema reader | Reject before mutation |
 
@@ -80,7 +84,12 @@ matrix is a set of per-cell claims, not a suite-wide parity statement. Exact
 `2.0.0/full-v1` is now an advertised opt-in backed by the immutable Fortemi
 #1084 and fortemi-react #382 receipts. That receipt covers only its named
 React and AIWG producers, PGlite and Fortemi destinations, and HotM
-pass-through recovery cell. Full portability, complete backup, and schema parity claims remain blocked.
+pass-through recovery cell. The separate supported-platform aggregate in
+Gitea run 6393 binds the declared Fortemi authority-to-React/core-to-HotM
+surface on Linux x86_64, Linux arm64, and macOS arm64 at exact revisions.
+Windows is deferred under Fortemi #1096. Full portability, complete backup, and schema parity claims remain blocked.
+Launched GUI/native-dialog coverage also remains unproven; Fortemi #1081
+remains `NO-GO` pending independent audit.
 
 For detailed information about versioning, compatibility, and troubleshooting, see the [Shard Migration Guide](#/core-systems-shard-migration).
 

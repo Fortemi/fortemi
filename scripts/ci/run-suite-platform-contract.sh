@@ -167,7 +167,8 @@ provision_database() {
     docker logs "$DB_CONTAINER" >&2
     return 1
   }
-  DATABASE_URL="postgres://matric:${password}@127.0.0.1:${port}/matric_suite"
+  printf -v DATABASE_URL '%s://%s:%s@%s:%s/%s' \
+    postgres matric "$password" 127.0.0.1 "$port" matric_suite
   export DATABASE_URL
   SUITE_DB_PROVISIONING="managed-docker"
   SUITE_DB_ARCHITECTURE="$(

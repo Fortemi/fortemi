@@ -138,14 +138,17 @@ Semantic equality includes own-property presence, JSON type, exact scalar and
 container values, meaningful array order, relationship identity, timestamps,
 and attachment bytes/digests.
 
-## Downstream work
+## Delivered evidence
 
-- React [#379](https://git.integrolabs.net/Fortemi/fortemi-react/issues/379): shared presence model, PGlite/RecordStore storage, and mapper remediation.
-- React [#380](https://git.integrolabs.net/Fortemi/fortemi-react/issues/380): complete `2.0.0/full-v1` PGlite persistence and receipt.
-- React [#381](https://git.integrolabs.net/Fortemi/fortemi-react/issues/381): native AIWG conversion and explicit losses.
-- Fortemi [#1087](https://git.integrolabs.net/Fortemi/fortemi/issues/1087): exact schema-2 runtime dispatch, durable presence, and released-package clean-destination verification.
-- HotM [#272](https://git.integrolabs.net/Fortemi/hotm/issues/272): exact-tuple recovery validation and capability display.
-- Fortemi [#1082](https://git.integrolabs.net/Fortemi/fortemi/issues/1082): per-cell evidence gate and final cross-repository receipts.
+Revision 21 binds the delivered work tracked in React
+[#379](https://git.integrolabs.net/Fortemi/fortemi-react/issues/379),
+[#380](https://git.integrolabs.net/Fortemi/fortemi-react/issues/380), and
+[#381](https://git.integrolabs.net/Fortemi/fortemi-react/issues/381); Fortemi
+[#1087](https://git.integrolabs.net/Fortemi/fortemi/issues/1087) and
+[#1082](https://git.integrolabs.net/Fortemi/fortemi/issues/1082); and HotM
+[#272](https://git.integrolabs.net/Fortemi/hotm/issues/272). Those receipts
+authorize only the exact `2.0.0/full-v1` cells named by
+`contracts/knowledge-shard/2.0.0/contract.json`.
 
 ## Alternatives considered
 
@@ -177,5 +180,6 @@ migration, and compatibility. That is a schema-major change under ADR-102.
 The direct representation stays readable and preserves exact JSON semantics,
 but every storage adapter must carry presence information that nullable columns
 or plain `Option<T>` values cannot express. Existing 1.x archives remain valid
-under their immutable contracts. Full portability claims remain blocked until
-all required 2.0 matrix cells pass.
+under their immutable contracts. Passing exact schema-2 cells authorizes only
+their receipt-scoped claims. Suite-wide portability, complete backup, and
+parity remain blocked by the independent Fortemi #1081 audit.

@@ -6,6 +6,7 @@
 **Tracking:** [Fortemi #1095](https://git.integrolabs.net/Fortemi/fortemi/issues/1095),
 [fortemi-react #399](https://git.integrolabs.net/Fortemi/fortemi-react/issues/399),
 [HotM #284](https://git.integrolabs.net/Fortemi/HotM/issues/284)
+**Deferred Windows story:** [Fortemi #1096](https://git.integrolabs.net/Fortemi/fortemi/issues/1096)
 **Parent gate:** [Fortemi #1081](https://git.integrolabs.net/Fortemi/fortemi/issues/1081)
 **Extends:** ADR-102, ADR-103
 
@@ -47,6 +48,8 @@ Windows is the only deferred operating system. It is neither a passing nor a
 failing cell and must not be included in a supported-platform claim.
 Architectures outside the exact matrix, non-filesystem asset stores, and other
 filesystems are outside this decision and are not separately claimed.
+Fortemi #1096 owns native Windows x86_64 runner, sidecar, contract, and receipt
+work without weakening or reopening the three required cells above.
 
 ### Authority and consumer boundaries
 
@@ -141,6 +144,16 @@ It does not authorize universal portability, full product-feature parity,
 complete backup, or a claim that all suite persistence planes share one
 schema. Fortemi #1081 remains open until the independent final audit accepts
 the resulting evidence.
+
+### Delivered receipt
+
+[Gitea run 6393](https://git.integrolabs.net/Fortemi/fortemi/actions/runs/6393)
+completed successfully at orchestrator commit
+`5bfecfe8d55caced3652a225a60f5217b4c192e8`. Its Linux x86_64, Linux arm64,
+macOS arm64, and required aggregate jobs all passed. The uploaded aggregate
+binds exact `2.0.0/full-v1`, the participant revisions and package/sidecar
+digests in the authority matrix, and false claims for launched desktop GUI,
+interactive native dialogs, and suite-wide portability.
 
 ## Consequences
 

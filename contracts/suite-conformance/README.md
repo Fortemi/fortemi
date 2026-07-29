@@ -21,6 +21,9 @@ tar payload digest; both Linux cells must additionally match the published
 The matrix does not redefine Knowledge Shard profiles, OpenAPI, AsyncAPI,
 authentication, or compatibility discovery. It composes their existing
 authority-owned receipts into a platform-qualified release gate.
+Fortemi remains the schema, API, compatibility, and runtime authority.
+`@fortemi/core` is a reusable conformance consumer, and HotM is an application
+consumer; neither consumer publishes independent server policy.
 
 Each platform run owns its database lifecycle: the Linux cells use the pinned
 test database image and the macOS cell uses native Homebrew PostgreSQL 18. All
@@ -41,4 +44,21 @@ python3 scripts/ci/verify-suite-platform-matrix.py aggregate \
 
 Linux x86_64, Linux arm64 on native Colima virtualization on `mutsu`, and
 macOS arm64 on `mutsu` are required. Windows is the only deferred operating
-system. Architectures outside the exact matrix are not separately claimed.
+system and is tracked separately by
+[Fortemi #1096](https://git.integrolabs.net/Fortemi/fortemi/issues/1096).
+Architectures outside the exact matrix are not separately claimed.
+
+## Delivered evidence
+
+[Gitea run 6393](https://git.integrolabs.net/Fortemi/fortemi/actions/runs/6393)
+at orchestrator commit `5bfecfe8d55caced3652a225a60f5217b4c192e8`
+passed the Linux x86_64, Linux arm64, and macOS arm64 jobs and the required
+aggregate. The aggregate binds exact `2.0.0/full-v1`, the participant
+revisions and package/sidecar digests in `platform-matrix.json`, identical
+required gates, and the prohibited broad claims.
+
+That result authorizes only the platform-qualified statement in ADR-104. It
+does not cover Windows, launched GUI/native dialogs, architectures outside the
+matrix, universal portability, complete backup, or one schema across the AIWG
+static index, Knowledge Shard transfer, and live persistence planes. Fortemi
+#1081 remains `NO-GO` pending independent audit.

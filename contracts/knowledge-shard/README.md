@@ -37,7 +37,10 @@ members of a portable archive or the versioned schema bundle.
 component and every referenced attachment byte. Database-backed tests import
 the signed fixture, export it through that route, import it twice into a clean
 schema, and prove exact component, checksum, attachment, and re-export
-convergence. Cross-repository producer and consumer receipts remain pending.
+convergence. That server self-route is not, by itself, cross-repository
+evidence. The separate schema-2 interoperability receipt binds only the exact
+`2.0.0/full-v1` producer and consumer cells named in
+`2.0.0/contract.json`.
 The revision boundary covers current original state, original history, current
 revised snapshots, and revision chains. The provenance boundary adds the
 W3C-PROV edges and processing activities that reference those exact note and
@@ -74,11 +77,12 @@ embedding contract fingerprint or `null`.
 
 ## Schema 2.0 presence authority
 
-Schema `2.0.0` is published in `specified-implementation-pending` state under
+Schema `2.0.0` is published in `receipt-bound-opt-in` state under
 `contracts/knowledge-shard/2.0.0/`. It retains the `core-v1`, `record-v1`, and
 `full-v1` profile identifiers; consumers negotiate the complete
-`(manifest.version, manifest.profile)` tuple. It is not the current server
-default and no 2.0 profile is advertised yet.
+`(manifest.version, manifest.profile)` tuple. `1.2.0/core-v1` remains the
+server default. Only exact `2.0.0/full-v1` is advertised; `2.0.0/core-v1` and
+`2.0.0/record-v1` remain unadvertised.
 
 [ADR-103](../../docs/architecture/adr/ADR-103-lossless-knowledge-shard-presence-semantics.md)
 defines direct JSON key-presence semantics for absent, null, empty, value, and
@@ -105,8 +109,9 @@ receipt is stored at
 `tests/fixtures/shards/record-v1-fortemi-react-df4762a.shard.receipt.json`;
 the exact producer archive is a permanent integration fixture. `full-v1`
 supports those same transactional boundaries through its complete route;
-cross-repository conformance remains tracked separately.
+cross-repository conformance remains cell- and receipt-scoped.
 The 1.x runtime still has the documented absent-versus-null limitation. The
-2.0 authority resolves the contract decision, but runtime and cross-repository
-support remain blocked on Fortemi #1083, React #379-#381, HotM #272, and the
-per-cell evidence gate in Fortemi #1082.
+2.0 authority and runtime resolve that boundary for the exact
+`2.0.0/full-v1` cells named by the immutable interoperability receipt.
+Advertisement does not authorize suite-wide compatibility, portability,
+complete backup, or parity; Fortemi #1081 remains the independent audit gate.

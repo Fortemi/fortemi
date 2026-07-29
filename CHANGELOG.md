@@ -5,16 +5,23 @@ All notable changes to Fortémi are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
-## [Unreleased]
+## [2026.7.13] - 2026-07-29
 
 ### Added
 
-- Add exact Knowledge Shard `2.0.0` readers and opt-in exporters for
-  `core-v1`, `record-v1`, and `full-v1`, with authority-schema validation,
-  durable absent/null component presence, and clean repeated import/re-export
-  coverage against the released React and AIWG full-v1 archives. Stable 1.x
-  export remains the default, and schema-2 capability advertisement remains
-  gated on the independent destination receipts.
+- Add exact Knowledge Shard `2.0.0` readers for the three registered profiles
+  and receipt-bound opt-in export for exact `2.0.0/full-v1`, with
+  authority-schema validation, durable absent/null component presence, and
+  clean repeated import/re-export coverage against pinned React and AIWG
+  producer artifacts. `1.2.0/core-v1` remains the default export;
+  `2.0.0/core-v1` and `2.0.0/record-v1` remain unadvertised.
+- Add the Fortemi-owned supported-platform aggregate, binding the same server
+  authority, `@fortemi/core` consumer, and HotM application-consumer contract
+  surface on Linux x86_64, Linux arm64, and macOS arm64 on `mutsu`. Gitea run
+  6393 passed all three cells and the aggregate at the pinned revisions.
+  Windows remains deferred under #1096.
+- Add native Linux arm64 sidecar publication and checksum binding for the
+  supported-platform consumer journey.
 
 ### Fixed
 
@@ -22,6 +29,10 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   profiles and exact `2.0.0` opt-in tuples, explicitly supersede obsolete
   ADR-028/029 statements, and block stale or unqualified parity claims in the
   documentation contract scan.
+- Harden attachment-sidecar crash recovery with durable journals, bounded
+  staging, clean retry convergence, and receipt-backed process-abort tests.
+  These runtime receipts do not establish power-loss durability, complete
+  backup, GUI/native-dialog coverage, or suite-wide portability.
 
 ## [2026.7.12] - 2026-07-22
 

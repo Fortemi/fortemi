@@ -345,16 +345,18 @@ transaction as the vector. The registered `1.1.0 -> 1.2.0` migration records
 legacy absence as `null`, recomputes the embedding component checksum, and
 revalidates the migrated representation before writes.
 
-Known gaps remain in complete absent-versus-null semantic preservation across
-all accepted current records, `full-v1`, current-minus-two historical migration
-coverage, and end-to-end streaming archive processing across the legacy JSON
-request buffer, structured components, and single-pass live export emission.
+The 1.x/default path retains gaps in complete absent-versus-null semantic
+preservation across all accepted records, current-minus-two historical
+migration coverage, and end-to-end streaming archive processing across the
+legacy JSON request buffer, structured components, and single-pass live export
+emission.
 `record-v1` does not imply
 preservation of templates, embeddings,
 SKOS, provenance, graph/community data, URL-only links, signature guarantees,
-or attachment bytes. Making tombstone-field presence mandatory requires a
-schema-major or new profile identifier. Those gaps remain tracked release
-blockers, not implicit `core-v1` or `full-v1` claims.
+or attachment bytes. Making tombstone-field presence mandatory in 1.x requires
+a schema-major or new profile identifier. Those gaps block broad/default
+claims; they do not negate the later exact receipt-bound
+`2.0.0/full-v1` cells.
 
 ADR-103 selects schema `2.0.0` with the existing profile identifiers and
 direct JSON key-presence semantics. Revision 21 advertises only exact
@@ -374,13 +376,13 @@ files. After the complete manifest, inventory, component, relationship, length,
 and digest preflight succeeds, the HTTP route streams referenced files through
 the storage staging primitive. Orphan sidecars fail before storage staging or
 database mutation, while profile policy distinguishes optional `core-v1` and
-`record-v1` bytes from mandatory reserved `full-v1` bytes. It exports available
+`record-v1` bytes from mandatory `full-v1` bytes. It exports available
 verified bytes when `include_blobs=true`: filesystem content is hashed directly
 into a disk-backed archive, legacy database content is bounded to one blob at a
 time, and the completed archive is size-checked before a bounded response
-stream owns its temporary-file cleanup. This satisfies only the opt-in
-`core-v1` attachment-byte transport prerequisites, not single-pass end-to-end
-streaming or the `full-v1` attachment gate.
+stream owns its temporary-file cleanup. For the 1.x default path, this
+satisfies the opt-in `core-v1` attachment-byte transport prerequisites; it did
+not by itself establish the later `2.0.0/full-v1` receipt.
 
 The later `2.0.0/full-v1` runtime uses the same staging primitive with a
 schema-scoped durable import journal to bridge the filesystem/database commit
@@ -455,7 +457,16 @@ matrix, and suite-wide portability false. The receipt is runtime test evidence,
 not a Knowledge Shard component or schema change. Its CI wiring does not become
 immutable evidence until a successful Gitea artifact upload is observed.
 
-Until the release gates pass:
+ADR-104 adds a separate platform-qualified aggregate.
+[Gitea run 6393](https://git.integrolabs.net/Fortemi/fortemi/actions/runs/6393)
+passed the declared Fortemi authority-to-React/core-to-HotM contract surface on
+Linux x86_64, Linux arm64, and macOS arm64 at exact revisions. Windows is the
+only deferred operating system and is tracked by Fortemi #1096. That receipt
+does not establish launched GUI/native-dialog coverage, universal portability,
+complete backup, or one schema across the suite persistence planes. Fortemi
+#1081 remains `NO-GO` pending independent audit.
+
+For any tuple or broader claim whose release gates have not passed:
 
 - user documentation must label lossless/full-profile behavior as a target;
 - consumers must advertise only behavior demonstrated by tests; and

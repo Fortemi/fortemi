@@ -5,9 +5,10 @@
 Fortemi owns the normative Knowledge Shard schemas. The default export
 contract is schema `1.2.0`, with registered `core-v1`, reduced `record-v1`, and
 complete server `full-v1` profiles under
-`contracts/knowledge-shard/1.2.0/`. Exact schema `2.0.0` tuples are available
-only through explicit reader/export selection and add direct JSON-key presence
-semantics. Immutable
+`contracts/knowledge-shard/1.2.0/`. Exact schema `2.0.0` tuples use direct
+JSON-key presence semantics. Only exact `2.0.0/full-v1` is advertised for
+opt-in export/import; `2.0.0/core-v1` and `2.0.0/record-v1` remain
+unadvertised. Immutable
 `1.0.0` and `1.1.0` schemas, current and historical file digests, profile
 corpora, and migration targets are recorded in
 `contracts/knowledge-shard/contract.json`.
@@ -27,6 +28,14 @@ producer/consumer cells. The Fortemi #1084 and fortemi-react #382 receipts
 advertise exact `2.0.0/full-v1` as an opt-in for their named React and AIWG
 producers, PGlite and Fortemi destinations, and HotM pass-through recovery
 cell. Neither matrix may be generalized into a suite-wide claim.
+
+Gitea run 6393 separately proves the declared Fortemi
+authority-to-React/core-to-HotM contract surface on Linux x86_64, Linux arm64,
+and macOS arm64 at the receipt-bound revisions. Windows remains deferred under
+Fortemi #1096. The platform aggregate does not establish launched
+GUI/native-dialog coverage. Universal portability and complete backup remain blocked.
+The result does not establish one schema across the suite persistence planes;
+Fortemi #1081 remains `NO-GO` pending independent audit.
 
 Schema validation is necessary but not a full recovery claim. The current
 `core-v1` REST route is reference-only by default and can opt into verified
@@ -85,8 +94,8 @@ Fortémi uses **semantic versioning** for knowledge shards to ensure safe import
 ### Supported versions
 
 The default shard format version is defined in
-`crates/matric-core/src/shard/version.rs`; the API's opt-in reader also accepts
-exact schema `2.0.0` tuples:
+`crates/matric-core/src/shard/version.rs`; the API also reads schema `2.0.0`,
+while only exact `2.0.0/full-v1` is advertised:
 
 ```rust
 pub const CURRENT_SHARD_VERSION: &str = "1.2.0";
@@ -104,7 +113,8 @@ When you import a knowledge shard, Fortémi checks version compatibility and tak
 | **Previous registered version** | 1.1.0 | 1.2.0 | Validate, migrate, revalidate, import | Existing records are preserved |
 | **Unregistered older version** | 1.0.1 | 1.2.0 | Reject before writes | No exact migration path |
 | **Newer minor** | 1.3.0 | 1.2.0 | Reject before writes | Explicit reader support required |
-| **Opt-in current major** | 2.0.0 | reader 2.0.0 | Import exact tuple | Preserve direct-key presence |
+| **Advertised opt-in current major** | 2.0.0/full-v1 | reader 2.0.0 | Import exact tuple | Preserve direct-key presence |
+| **Unadvertised current-major tuple** | 2.0.0/core-v1 or record-v1 | reader 2.0.0 | No support claim | Requires its own receipt |
 | **Newer major** | 3.0.0 | reader 2.0.0 | Reject before writes | Upgrade the schema reader |
 
 ### Compatibility Rules
