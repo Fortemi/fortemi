@@ -5,6 +5,7 @@
 #
 # Targets:
 #   - matric-api-x86_64-unknown-linux-gnu  (built on matric-builder)
+#   - matric-api-aarch64-unknown-linux-gnu (built in native ARM64 Linux on mutsu)
 #   - matric-api-aarch64-apple-darwin      (built on mutsu via SSH)
 #   - matric-api-x86_64-apple-darwin       (cross-compiled on mutsu via SSH)
 #                                            consumed by BT6-ARSENAL universal
@@ -17,6 +18,7 @@
 #
 # Download URLs:
 #   https://git.integrolabs.net/Fortemi/fortemi/releases/download/sidecar-latest/matric-api-x86_64-unknown-linux-gnu
+#   https://git.integrolabs.net/Fortemi/fortemi/releases/download/sidecar-latest/matric-api-aarch64-unknown-linux-gnu
 #   https://git.integrolabs.net/Fortemi/fortemi/releases/download/sidecar-latest/matric-api-aarch64-apple-darwin
 #   https://git.integrolabs.net/Fortemi/fortemi/releases/download/sidecar-latest/matric-api-x86_64-apple-darwin
 #
@@ -106,6 +108,137 @@ jobs:
         with:
           name: matric-api-x86_64-unknown-linux-gnu
           path: matric-api-x86_64-unknown-linux-gnu
+
+  # ─── Linux aarch64 (native Colima VM on mutsu) ─────────────────────────
+  build-linux-arm64:
+    name: Build Linux aarch64 on mutsu
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout coordinator tooling
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Fetch mutsu SSH key from vault
+        env:
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.mutsu.spec
+
+      - name: Configure pinned mutsu host identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "${MUTSU_SSH_KEY_FILE:?MUTSU_SSH_KEY_FILE is required}"
+          install -d -m 700 "$HOME/.ssh"
+          tr -d '\r' <"$MUTSU_SSH_KEY_FILE" >"$HOME/.ssh/mutsu_key"
+          chmod 600 "$HOME/.ssh/mutsu_key"
+          ssh-keygen -y -f "$HOME/.ssh/mutsu_key" >/dev/null
+
+          host_key="$(mktemp)"
+          ssh-keyscan -t ed25519 10.0.42.41 >"$host_key" 2>/dev/null
+          fingerprint="$(ssh-keygen -lf "$host_key" | awk '{print $2}')"
+          test "$fingerprint" = "SHA256:5g0PgPko1v4soAco1TrwF7uLOMoctLuNKTwGt29PTFk"
+          cat "$host_key" >"$HOME/.ssh/known_hosts"
+          rm -f "$host_key"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          cat >"$HOME/.ssh/config" <<'SSH_CONFIG'
+          Host mutsu-sidecar
+            HostName 10.0.42.41
+            User manitcor
+            IdentityFile ~/.ssh/mutsu_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ServerAliveInterval 30
+            ServerAliveCountMax 20
+          SSH_CONFIG
+          chmod 600 "$HOME/.ssh/config"
+
+      - name: Build native Linux aarch64 sidecar on mutsu
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="/Volumes/build/tmp/matric-api-aarch64-unknown-linux-gnu-${GITHUB_RUN_ID}"
+          repository="https://git.integrolabs.net/${GITHUB_REPOSITORY}.git"
+
+          ssh mutsu-sidecar bash -s -- \
+            "$repository" "$GITHUB_SHA" "$GITHUB_REF_NAME" "$GITHUB_RUN_ID" \
+            "$output" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          repository="$1"
+          revision="$2"
+          version="$3"
+          run_id="$4"
+          output="$5"
+          container="fortemi-sidecar-linux-arm64-${run_id}"
+          docker_config="/Volumes/build/tmp/sidecar-linux-arm64-docker-${run_id}"
+
+          export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+          export DOCKER_CONFIG="$docker_config"
+          mkdir -p "$DOCKER_CONFIG"
+          printf '{"auths":{}}\n' >"$DOCKER_CONFIG/config.json"
+          cleanup() {
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            rm -rf "$DOCKER_CONFIG"
+          }
+          trap cleanup EXIT INT TERM
+
+          if ! docker info >/dev/null 2>&1; then
+            command -v colima >/dev/null
+            colima start --arch aarch64 --cpu 6 --memory 12 --disk 100
+          fi
+          if [[ -S "$HOME/.colima/default/docker.sock" ]]; then
+            export DOCKER_HOST="unix://${HOME}/.colima/default/docker.sock"
+          fi
+          case "$(docker info --format '{{.Architecture}}')" in
+            aarch64 | arm64) ;;
+            *) echo "Colima Docker daemon is not native Linux arm64" >&2; exit 1 ;;
+          esac
+          rm -f "$output"
+
+          docker run --name "$container" --platform linux/arm64 \
+            -e REPOSITORY="$repository" \
+            -e REVISION="$revision" \
+            -e MATRIC_VERSION="$version" \
+            -e MATRIC_GIT_SHA="$revision" \
+            -e MATRIC_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            rust:1.92-bookworm@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2 \
+            bash -lc '
+              set -euo pipefail
+              apt-get update -qq
+              apt-get install -y --no-install-recommends \
+                ca-certificates git libpq-dev libssl-dev pkg-config
+              git init -q /build
+              git -C /build remote add origin "$REPOSITORY"
+              git -C /build fetch --quiet --no-tags --depth=1 origin "$REVISION"
+              git -C /build checkout --quiet --detach FETCH_HEAD
+              test "$(git -C /build rev-parse HEAD)" = "$REVISION"
+              cd /build
+              cargo build --release --package matric-api
+            '
+          docker cp "$container:/build/target/release/matric-api" "$output"
+          chmod +x "$output"
+          file "$output"
+          shasum -a 256 "$output"
+          REMOTE_SCRIPT
+
+          scp "mutsu-sidecar:${output}" matric-api-aarch64-unknown-linux-gnu
+          ssh mutsu-sidecar rm -f "$output"
+          chmod +x matric-api-aarch64-unknown-linux-gnu
+          file matric-api-aarch64-unknown-linux-gnu
+          sha256sum matric-api-aarch64-unknown-linux-gnu
+
+      - name: Cleanup mutsu credential
+        if: always()
+        run: |
+          rm -f "$HOME/.ssh/mutsu_key" "$HOME/.ssh/config" "$HOME/.ssh/known_hosts"
+          ci/vault-fetch.sh --cleanup
+
+      - name: Upload Linux aarch64 artifact
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
+        with:
+          name: matric-api-aarch64-unknown-linux-gnu
+          path: matric-api-aarch64-unknown-linux-gnu
 
   # ─── macOS aarch64 (mutsu runner) ─────────────────────────────────────
   # macOS aarch64 build — hybrid via SSH to mutsu (M4 Mac mini).
@@ -296,7 +429,7 @@ jobs:
   publish-sidecar-latest:
     name: Publish immutable sidecar and latest pointer
     runs-on: matric-builder
-    needs: [build-linux, build-macos]
+    needs: [build-linux, build-linux-arm64, build-macos]
     if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout publication tooling
@@ -311,6 +444,7 @@ jobs:
         run: |
           set -euo pipefail
           cp artifacts/matric-api-x86_64-unknown-linux-gnu/matric-api-x86_64-unknown-linux-gnu .
+          cp artifacts/matric-api-aarch64-unknown-linux-gnu/matric-api-aarch64-unknown-linux-gnu .
           cp artifacts/matric-api-aarch64-apple-darwin/matric-api-aarch64-apple-darwin .
           cp artifacts/matric-api-x86_64-apple-darwin/matric-api-x86_64-apple-darwin .
           chmod +x matric-api-*
@@ -333,7 +467,7 @@ jobs:
   publish-versioned:
     name: Publish to Versioned Release
     runs-on: matric-builder
-    needs: [build-linux, build-macos]
+    needs: [build-linux, build-linux-arm64, build-macos]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout publication tooling
@@ -353,6 +487,7 @@ jobs:
 
           # Move binaries to working directory
           cp artifacts/matric-api-x86_64-unknown-linux-gnu/matric-api-x86_64-unknown-linux-gnu .
+          cp artifacts/matric-api-aarch64-unknown-linux-gnu/matric-api-aarch64-unknown-linux-gnu .
           cp artifacts/matric-api-aarch64-apple-darwin/matric-api-aarch64-apple-darwin .
           cp artifacts/matric-api-x86_64-apple-darwin/matric-api-x86_64-apple-darwin .
           chmod +x matric-api-*
@@ -409,7 +544,7 @@ jobs:
           fi
 
           # Upload binaries as release assets
-          for BINARY in matric-api-x86_64-unknown-linux-gnu matric-api-aarch64-apple-darwin matric-api-x86_64-apple-darwin; do
+          for BINARY in matric-api-x86_64-unknown-linux-gnu matric-api-aarch64-unknown-linux-gnu matric-api-aarch64-apple-darwin matric-api-x86_64-apple-darwin; do
             echo "Uploading ${BINARY}..."
             curl -sf -X POST \
               -H "Authorization: token ${TOKEN}" \
@@ -466,6 +601,10 @@ jobs:
           curl -LO https://git.integrolabs.net/${REPO}/releases/download/sidecar-latest/matric-api-x86_64-unknown-linux-gnu
           chmod +x matric-api-x86_64-unknown-linux-gnu
 
+          # Linux arm64
+          curl -LO https://git.integrolabs.net/${REPO}/releases/download/sidecar-latest/matric-api-aarch64-unknown-linux-gnu
+          chmod +x matric-api-aarch64-unknown-linux-gnu
+
           # macOS Apple Silicon (M1+)
           curl -LO https://git.integrolabs.net/${REPO}/releases/download/sidecar-latest/matric-api-aarch64-apple-darwin
           chmod +x matric-api-aarch64-apple-darwin
@@ -493,7 +632,7 @@ jobs:
 
           LATEST_ID=$(echo "${LATEST_RESPONSE}" | jq -r '.id')
 
-          for BINARY in matric-api-x86_64-unknown-linux-gnu matric-api-aarch64-apple-darwin matric-api-x86_64-apple-darwin; do
+          for BINARY in matric-api-x86_64-unknown-linux-gnu matric-api-aarch64-unknown-linux-gnu matric-api-aarch64-apple-darwin matric-api-x86_64-apple-darwin; do
             curl -sf -X POST \
               -H "Authorization: token ${TOKEN}" \
               -H "Content-Type: application/octet-stream" \

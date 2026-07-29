@@ -25,6 +25,9 @@ def main() -> int:
         "publish-sidecar-release.sh prepare",
         "publish-sidecar-release.sh immutable",
         "publish-sidecar-release.sh rolling",
+        "build-linux-arm64:",
+        "matric-api-aarch64-unknown-linux-gnu",
+        "Colima Docker daemon is not native Linux arm64",
     ):
         require(workflow, needle, WORKFLOW, failures)
 
@@ -43,6 +46,7 @@ def main() -> int:
         "sha256sum -c",
         '"_type": "https://in-toto.io/Statement/v1"',
         '"predicateType": "https://slsa.dev/provenance/v1"',
+        "matric-api-aarch64-unknown-linux-gnu",
         "prepare)",
     ):
         require(publisher, needle, PUBLISHER, failures)

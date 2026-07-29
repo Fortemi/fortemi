@@ -1,7 +1,15 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-28T23:55:19Z"
+  updated_at: "2026-07-29T02:25:14Z"
 records:
+  - entity: ".gitea/workflows/publish-sidecar.yml"
+    record: "records/publish-sidecar-workflow-linux-arm64-1095.prov.yaml"
+  - entity: "scripts/ci/publish-sidecar-release.sh"
+    record: "records/publish-sidecar-release-linux-arm64-1095.prov.yaml"
+  - entity: "scripts/ci/mirror-release-assets-to-github.sh"
+    record: "records/mirror-release-assets-linux-arm64-1095.prov.yaml"
+  - entity: "scripts/ci/verify-sidecar-publication.py"
+    record: "records/verify-sidecar-publication-linux-arm64-1095.prov.yaml"
   - entity: "scripts/ci/run-suite-platform-contract.sh"
     record: "records/run-suite-platform-contract-toolchain-1095.prov.yaml"
   - entity: "tests/test_verify_suite_platform_matrix.py"

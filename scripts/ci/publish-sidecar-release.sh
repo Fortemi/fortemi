@@ -11,6 +11,7 @@ API="${GITEA_API}/repos/${REPO}"
 SHORT_SHA="${GITHUB_SHA:0:7}"
 BINARIES=(
   matric-api-x86_64-unknown-linux-gnu
+  matric-api-aarch64-unknown-linux-gnu
   matric-api-aarch64-apple-darwin
   matric-api-x86_64-apple-darwin
 )

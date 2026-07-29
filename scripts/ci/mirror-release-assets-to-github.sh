@@ -15,6 +15,7 @@ GITHUB_API="${GITHUB_API:-https://api.github.com}"
 GITHUB_REPO="${GITHUB_REPO:-Fortemi/fortemi}"
 ASSETS=(
   matric-api-x86_64-unknown-linux-gnu
+  matric-api-aarch64-unknown-linux-gnu
   matric-api-aarch64-apple-darwin
   matric-api-x86_64-apple-darwin
   SHA256SUMS.txt
