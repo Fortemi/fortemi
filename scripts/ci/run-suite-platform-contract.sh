@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Crash-recovery tests intentionally abort child processes. Keep those signals
+# observable without allowing host core-dump policy to dirty the checkout.
+ulimit -c 0
+
 export CARGO_NET_GIT_FETCH_WITH_CLI="${CARGO_NET_GIT_FETCH_WITH_CLI:-true}"
 
 ORCHESTRATOR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

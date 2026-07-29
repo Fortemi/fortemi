@@ -1,14 +1,15 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-07-28T21:43:26Z"
-  description: "Provenance for exact three-platform regression assertions"
+  updated_at: "2026-07-29T04:59:26Z"
+  description: "Provenance for exact three-platform and deterministic crash-recovery regression assertions"
 entity:
-  id: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:be12932fd5db1cc2228897bf7974b2687c2eebc1d5c002b7e9e93ed2e861f8d0"
+  id: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:ed5c074b8365b05149660e41e6b047deaec8ed73012b21446e768fbfb2b65e7f"
   type: test
   created_at: "2026-07-28T21:43:26Z"
-  updated_at: "2026-07-29T03:14:41Z"
-  checksum: "sha256:be12932fd5db1cc2228897bf7974b2687c2eebc1d5c002b7e9e93ed2e861f8d0"
-  size_bytes: 18030
+  updated_at: "2026-07-29T04:59:26Z"
+  checksum: "sha256:ed5c074b8365b05149660e41e6b047deaec8ed73012b21446e768fbfb2b65e7f"
+  size_bytes: 18119
   attributes:
     language: python
     issue: "Fortemi/fortemi#1095"
@@ -16,8 +17,8 @@ activity:
   id: "urn:aiwg:activity:test:suite-platform-toolchain-1095:001"
   type: modification
   started_at: "2026-07-28T21:42:00Z"
-  ended_at: "2026-07-29T03:14:41Z"
-  description: "Fail on missing Linux arm64, extra deferrals, or three-cell identity drift"
+  ended_at: "2026-07-29T04:59:26Z"
+  description: "Fail on missing Linux arm64, extra deferrals, three-cell identity drift, or missing core-dump suppression"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -26,20 +27,20 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:be12932fd5db1cc2228897bf7974b2687c2eebc1d5c002b7e9e93ed2e861f8d0"
+    entity: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:ed5c074b8365b05149660e41e6b047deaec8ed73012b21446e768fbfb2b65e7f"
     activity: "urn:aiwg:activity:test:suite-platform-toolchain-1095:001"
-    time: "2026-07-29T03:14:41Z"
+    time: "2026-07-29T04:59:26Z"
   used:
     - activity: "urn:aiwg:activity:test:suite-platform-toolchain-1095:001"
-      entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:f7979d4a7ada2b40ff4f72464c8696d0081f1d89cf26deb4f9c84c77e7addf7e"
+      entity: "urn:aiwg:artifact:scripts/ci/run-suite-platform-contract.sh:sha256:e93ae1d0d2628fddf87754c33ba1d52711900742f0a46ed632ecc497e6ed9a5d"
       role: tested_artifact
     - activity: "urn:aiwg:activity:test:suite-platform-toolchain-1095:001"
-      entity: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml:sha256:808df5098948d85e257837b9cff1c6af4a90891c09f773aeb29094f39dd80c02"
+      entity: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml:sha256:9c0b96260f3047a6069b70ef797f54f8980f978b26753f5aea17dc859dcb8766"
       role: tested_artifact
   wasAssociatedWith:
     activity: "urn:aiwg:activity:test:suite-platform-toolchain-1095:001"
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:be12932fd5db1cc2228897bf7974b2687c2eebc1d5c002b7e9e93ed2e861f8d0"
+    entity: "urn:aiwg:artifact:tests/test_verify_suite_platform_matrix.py:sha256:ed5c074b8365b05149660e41e6b047deaec8ed73012b21446e768fbfb2b65e7f"
     agent: "urn:aiwg:agent:codex-gpt-5"

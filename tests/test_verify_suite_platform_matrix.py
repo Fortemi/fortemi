@@ -369,6 +369,7 @@ class SuitePlatformMatrixTests(unittest.TestCase):
         runner = (
             ROOT / "scripts/ci/run-suite-platform-contract.sh"
         ).read_text(encoding="utf-8")
+        self.assertLess(runner.index("ulimit -c 0"), runner.index("ORCHESTRATOR_ROOT="))
         self.assertIn(
             "cargo test --workspace --exclude matric-jobs -- --test-threads=1",
             runner,
