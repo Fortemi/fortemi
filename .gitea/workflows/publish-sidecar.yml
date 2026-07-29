@@ -208,7 +208,7 @@ jobs:
             -e MATRIC_GIT_SHA="$revision" \
             -e MATRIC_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             rust:1.92-bookworm@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2 \
-            bash -lc '
+            bash -c '
               set -euo pipefail
               apt-get update -qq
               apt-get install -y --no-install-recommends \

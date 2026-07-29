@@ -1,24 +1,24 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-07-29T02:25:14Z"
-  updated_at: "2026-07-29T02:44:53Z"
+  updated_at: "2026-07-29T02:50:17Z"
   description: "Provenance for native Linux arm64 sidecar publication on mutsu"
 entity:
-  id: "urn:aiwg:artifact:.gitea/workflows/publish-sidecar.yml:sha256:b77f1e98e718ba3b79f0e70f69b407d3bf1ce63202b1b2a29a945df1aa4c9353"
+  id: "urn:aiwg:artifact:.gitea/workflows/publish-sidecar.yml:sha256:63195bfe93398ded035b055c783acde0005c5e5a8437b4fb63b38c4395385c04"
   type: workflow
   created_at: "2026-07-29T02:25:14Z"
-  updated_at: "2026-07-29T02:44:53Z"
-  checksum: "sha256:b77f1e98e718ba3b79f0e70f69b407d3bf1ce63202b1b2a29a945df1aa4c9353"
-  size_bytes: 28188
+  updated_at: "2026-07-29T02:50:17Z"
+  checksum: "sha256:63195bfe93398ded035b055c783acde0005c5e5a8437b4fb63b38c4395385c04"
+  size_bytes: 28187
   attributes:
     issue: "Fortemi/fortemi#1095"
-    base_revision: "ddd729afbf806cb50793ba46185f035c925f6869"
+    base_revision: "229a41fe6e06a5b114670b83bf999fdf5a12feca"
 activity:
   id: "urn:aiwg:activity:modification:publish-sidecar-linux-arm64-1095:001"
   type: modification
   started_at: "2026-07-29T02:25:14Z"
-  ended_at: "2026-07-29T02:44:53Z"
-  description: "Isolate native Linux arm64 publication in a self-healing Fortemi-owned Colima profile"
+  ended_at: "2026-07-29T02:50:17Z"
+  description: "Preserve the Rust image Cargo path by using non-login Bash"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -27,16 +27,16 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:.gitea/workflows/publish-sidecar.yml:sha256:b77f1e98e718ba3b79f0e70f69b407d3bf1ce63202b1b2a29a945df1aa4c9353"
+    entity: "urn:aiwg:artifact:.gitea/workflows/publish-sidecar.yml:sha256:63195bfe93398ded035b055c783acde0005c5e5a8437b4fb63b38c4395385c04"
     activity: "urn:aiwg:activity:modification:publish-sidecar-linux-arm64-1095:001"
-    time: "2026-07-29T02:44:53Z"
+    time: "2026-07-29T02:50:17Z"
   used:
     - activity: "urn:aiwg:activity:modification:publish-sidecar-linux-arm64-1095:001"
       entity: "urn:gitea:issue:Fortemi/fortemi:1095"
       role: requirement
   wasDerivedFrom:
-    - entity: "urn:aiwg:artifact:.gitea/workflows/publish-sidecar.yml:sha256:5f28b2180212fb314e9e751073c7a4e03e85be28f8e023a8b9618ef7640909bb"
-      source: "urn:git:git@git.integrolabs.net:Fortemi/fortemi.git:ddd729afbf806cb50793ba46185f035c925f6869:.gitea/workflows/publish-sidecar.yml"
+    - entity: "urn:aiwg:artifact:.gitea/workflows/publish-sidecar.yml:sha256:b77f1e98e718ba3b79f0e70f69b407d3bf1ce63202b1b2a29a945df1aa4c9353"
+      source: "urn:git:git@git.integrolabs.net:Fortemi/fortemi.git:229a41fe6e06a5b114670b83bf999fdf5a12feca:.gitea/workflows/publish-sidecar.yml"
       derivation_type: "modifies"
       activity: "urn:aiwg:activity:modification:publish-sidecar-linux-arm64-1095:001"
   wasAssociatedWith:
@@ -44,5 +44,5 @@ relationships:
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:.gitea/workflows/publish-sidecar.yml:sha256:b77f1e98e718ba3b79f0e70f69b407d3bf1ce63202b1b2a29a945df1aa4c9353"
+    entity: "urn:aiwg:artifact:.gitea/workflows/publish-sidecar.yml:sha256:63195bfe93398ded035b055c783acde0005c5e5a8437b4fb63b38c4395385c04"
     agent: "urn:aiwg:agent:codex-gpt-5"
