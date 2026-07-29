@@ -439,6 +439,12 @@ case "$(uname -s)/$(uname -m)" in
     PLATFORM_ARCH="x86_64"
     FILESYSTEM="$(stat -f -c '%T' "$ORCHESTRATOR_ROOT")"
     ;;
+  Linux/aarch64 | Linux/arm64)
+    PLATFORM_ID="linux-arm64"
+    PLATFORM_OS="linux"
+    PLATFORM_ARCH="arm64"
+    FILESYSTEM="$(stat -f -c '%T' "$ORCHESTRATOR_ROOT")"
+    ;;
   Darwin/arm64)
     PLATFORM_ID="macos-arm64"
     PLATFORM_OS="macos"

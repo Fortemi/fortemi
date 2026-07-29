@@ -52,6 +52,7 @@ def manifest():
                 "sidecar_release": "sidecar-test",
                 "sidecar_assets": {
                     "linux-x86_64": "6" * 64,
+                    "linux-arm64": "8" * 64,
                     "macos-arm64": "7" * 64,
                 },
             },
@@ -64,6 +65,12 @@ def manifest():
                 "runner": "matric-builder",
             },
             {
+                "id": "linux-arm64",
+                "os": "linux",
+                "architecture": "arm64",
+                "runner": "mutsu-colima",
+            },
+            {
                 "id": "macos-arm64",
                 "os": "macos",
                 "architecture": "arm64",
@@ -71,7 +78,7 @@ def manifest():
             },
         ],
         "required_gates": list(MODULE.REQUIRED_GATES),
-        "deferred_platforms": ["windows", "linux-arm64"],
+        "deferred_platforms": ["windows"],
         "claim_boundary": {
             "supported_platforms_only": True,
             "universal_portability": False,
@@ -85,6 +92,7 @@ def manifest():
 def platform_receipt(platform_id):
     os_name, arch = {
         "linux-x86_64": ("linux", "x86_64"),
+        "linux-arm64": ("linux", "arm64"),
         "macos-arm64": ("macos", "arm64"),
     }[platform_id]
     return {
@@ -120,6 +128,7 @@ def platform_receipt(platform_id):
 def authority_receipt(platform_id):
     os_name, arch = {
         "linux-x86_64": ("linux", "x86_64"),
+        "linux-arm64": ("linux", "arm64"),
         "macos-arm64": ("macos", "arm64"),
     }[platform_id]
     return {
@@ -136,6 +145,7 @@ def authority_receipt(platform_id):
             "engine": "PostgreSQL",
             "provisioning": {
                 "linux-x86_64": "managed-docker",
+                "linux-arm64": "managed-docker",
                 "macos-arm64": "managed-native",
             }[platform_id],
             "architecture": arch,
@@ -188,6 +198,7 @@ def react_receipt(platform_id):
         "platform": {
             "id": {
                 "linux-x86_64": "linux/x86_64",
+                "linux-arm64": "linux/arm64",
                 "macos-arm64": "darwin/arm64",
             }[platform_id]
         },
@@ -230,6 +241,12 @@ def hotm_receipt(platform_id):
             "x86_64-unknown-linux-gnu",
             "tauri-command-core-linux-x86_64",
         ),
+        "linux-arm64": (
+            "linux",
+            "arm64",
+            "aarch64-unknown-linux-gnu",
+            "tauri-command-core-linux-arm64",
+        ),
         "macos-arm64": (
             "darwin",
             "arm64",
@@ -250,6 +267,7 @@ def hotm_receipt(platform_id):
             "sidecarRelease": "sidecar-test",
             "sidecarSha256": {
                 "linux-x86_64": "6" * 64,
+                "linux-arm64": "8" * 64,
                 "macos-arm64": "7" * 64,
             }[platform_id],
             "fixture": MODULE.HOTM_FIXTURE_IDENTITY,
@@ -289,11 +307,20 @@ class SuitePlatformMatrixTests(unittest.TestCase):
             workflow,
         )
         self.assertIn(
+            'linux_arm_artifact="suite-platform-artifacts/'
+            'suite-platform-linux-arm64"',
+            workflow,
+        )
+        self.assertIn(
             'macos_artifact="suite-platform-artifacts/'
             'suite-platform-macos-arm64"',
             workflow,
         )
         self.assertIn("find_exact_file() {", workflow)
+        self.assertIn(
+            'linux_arm_receipt="$(',
+            workflow,
+        )
         self.assertIn(
             'linux_receipt="$(find_exact_file "$linux_artifact" '
             'platform-receipt.json)"',
@@ -351,10 +378,10 @@ class SuitePlatformMatrixTests(unittest.TestCase):
             runner,
         )
 
-    def test_accepts_exact_manifest_and_both_platforms(self):
+    def test_accepts_exact_manifest_and_all_required_platforms(self):
         value = manifest()
         MODULE.validate_manifest(value)
-        for platform_id in ("linux-x86_64", "macos-arm64"):
+        for platform_id in ("linux-x86_64", "linux-arm64", "macos-arm64"):
             self.assertEqual(
                 MODULE.validate_platform_receipt(platform_receipt(platform_id), value)[0],
                 platform_id,
@@ -376,6 +403,9 @@ class SuitePlatformMatrixTests(unittest.TestCase):
         value = manifest()
         MODULE.validate_authority_receipt(
             authority_receipt("linux-x86_64"), value
+        )
+        MODULE.validate_authority_receipt(
+            authority_receipt("linux-arm64"), value
         )
         MODULE.validate_authority_receipt(
             authority_receipt("macos-arm64"), value
@@ -403,7 +433,7 @@ class SuitePlatformMatrixTests(unittest.TestCase):
 
     def test_validates_child_receipt_platform_and_authority_bindings(self):
         value = manifest()
-        for platform_id in ("linux-x86_64", "macos-arm64"):
+        for platform_id in ("linux-x86_64", "linux-arm64", "macos-arm64"):
             MODULE.validate_react_receipt(
                 react_receipt(platform_id), value, platform_id
             )
@@ -436,30 +466,32 @@ class SuitePlatformMatrixTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.VerificationError, "sidecar asset drift"):
             MODULE.validate_hotm_receipt(wrong_sidecar, value, "macos-arm64")
 
-    def test_aggregate_requires_both_distinct_platforms(self):
+    def test_aggregate_requires_all_distinct_platforms(self):
         value = manifest()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             linux = write_platform_bundle(root, "linux-x86_64", "linux")
             duplicate = write_platform_bundle(root, "linux-x86_64", "duplicate")
+            macos = write_platform_bundle(root, "macos-arm64", "macos")
             output = root / "aggregate.json"
             with self.assertRaisesRegex(MODULE.VerificationError, "duplicate platform"):
-                MODULE.aggregate_receipts([linux, duplicate], value, output)
+                MODULE.aggregate_receipts([linux, duplicate, macos], value, output)
 
     def test_aggregate_writes_bounded_claim(self):
         value = manifest()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             linux = write_platform_bundle(root, "linux-x86_64")
+            linux_arm = write_platform_bundle(root, "linux-arm64")
             macos = write_platform_bundle(root, "macos-arm64")
             output = root / "aggregate.json"
-            MODULE.aggregate_receipts([linux, macos], value, output)
+            MODULE.aggregate_receipts([linux, linux_arm, macos], value, output)
             aggregate = json.loads(output.read_text())
             self.assertEqual(aggregate["status"], "passed")
             self.assertFalse(aggregate["claims"]["universal_portability"])
             self.assertEqual(
                 set(aggregate["platform_receipts"]),
-                {"linux-x86_64", "macos-arm64"},
+                {"linux-x86_64", "linux-arm64", "macos-arm64"},
             )
 
 

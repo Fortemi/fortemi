@@ -224,13 +224,18 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
     assets = hotm.get("sidecar_assets")
     if not isinstance(assets, dict):
         raise VerificationError("manifest hotm sidecar assets must be an object")
-    exact_keys(assets, {"linux-x86_64", "macos-arm64"}, "manifest hotm assets")
+    exact_keys(
+        assets,
+        {"linux-x86_64", "linux-arm64", "macos-arm64"},
+        "manifest hotm assets",
+    )
     for platform_id, digest in assets.items():
         require_sha256(digest, f"manifest.hotm.sidecar_assets.{platform_id}")
 
     platforms = manifest["required_platforms"]
     expected_platforms = {
         ("linux-x86_64", "linux", "x86_64"),
+        ("linux-arm64", "linux", "arm64"),
         ("macos-arm64", "macos", "arm64"),
     }
     if not isinstance(platforms, list):
@@ -245,7 +250,8 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
         )
     if actual_platforms != expected_platforms:
         raise VerificationError(
-            "required platforms must be exactly linux-x86_64 and macos-arm64"
+            "required platforms must be exactly linux-x86_64, linux-arm64, "
+            "and macos-arm64"
         )
 
     gates = manifest["required_gates"]
@@ -259,8 +265,8 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
     if set(gates) != set(REQUIRED_GATES):
         raise VerificationError("manifest.required_gates does not contain the exact suite gate set")
     deferred = manifest["deferred_platforms"]
-    if not isinstance(deferred, list) or not deferred:
-        raise VerificationError("manifest.deferred_platforms must not be empty")
+    if deferred != ["windows"]:
+        raise VerificationError("manifest.deferred_platforms must be exactly ['windows']")
 
     boundary = manifest["claim_boundary"]
     expected_boundary = {
@@ -357,6 +363,7 @@ def validate_authority_receipt(
         raise VerificationError("authority receipt database engine mismatch")
     expected_provisioning = {
         "linux-x86_64": "managed-docker",
+        "linux-arm64": "managed-docker",
         "macos-arm64": "managed-native",
     }[platform["id"]]
     if database["provisioning"] != expected_provisioning:
@@ -493,6 +500,7 @@ def validate_react_receipt(
         raise VerificationError("React receipt package identity drift")
     expected_platform = {
         "linux-x86_64": "linux/x86_64",
+        "linux-arm64": "linux/arm64",
         "macos-arm64": "darwin/arm64",
     }[platform_id]
     if receipt.get("platform", {}).get("id") != expected_platform:
@@ -573,6 +581,12 @@ def validate_hotm_receipt(
             "x86_64",
             "x86_64-unknown-linux-gnu",
             "tauri-command-core-linux-x86_64",
+        ),
+        "linux-arm64": (
+            "linux",
+            "arm64",
+            "aarch64-unknown-linux-gnu",
+            "tauri-command-core-linux-arm64",
         ),
         "macos-arm64": (
             "darwin",
@@ -779,7 +793,9 @@ def parse_args() -> argparse.Namespace:
 
     authority = subparsers.add_parser("authority")
     authority.add_argument(
-        "--platform-id", required=True, choices=("linux-x86_64", "macos-arm64")
+        "--platform-id",
+        required=True,
+        choices=("linux-x86_64", "linux-arm64", "macos-arm64"),
     )
     authority.add_argument("--filesystem", required=True)
     authority.add_argument(
@@ -796,7 +812,9 @@ def parse_args() -> argparse.Namespace:
 
     platform = subparsers.add_parser("platform")
     platform.add_argument(
-        "--platform-id", required=True, choices=("linux-x86_64", "macos-arm64")
+        "--platform-id",
+        required=True,
+        choices=("linux-x86_64", "linux-arm64", "macos-arm64"),
     )
     platform.add_argument("--filesystem", required=True)
     platform.add_argument("--authority-receipt", type=Path, required=True)

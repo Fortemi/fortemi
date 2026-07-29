@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "matrix_id": "fortemi.suite-conformance.2026-07-linux-mutsu-v1",
+  "matrix_id": "fortemi.suite-conformance.2026-07-linux-mutsu-v2",
   "issue": "Fortemi/fortemi#1095",
   "authority": {
     "repository": "Fortemi/fortemi",
     "schema_commit": "0c59bc6cb06cca0b1e00eba4c0fa493f3ef3b90b",
-    "runtime_commit": "447fd5148fb97dc35b7b160fb1e7f15914c84d7a",
+    "runtime_commit": "aac23805d0906a5f39a5fdcceb51d048c09cb9d8",
     "contract_path": "contracts/knowledge-shard/2.0.0/contract.json",
     "contract_sha256": "ac417e23181ec80741d776b6b29fa38236091dfa649b01255aaac30ebb53969f",
     "contract_revision": "21",
@@ -16,7 +16,7 @@
   "participants": {
     "fortemi_react": {
       "repository": "Fortemi/fortemi-react",
-      "commit": "e415d3730386993c418344205344a094127200e6",
+      "commit": "ccf96fad6025025293e40e250c85f088c8999d86",
       "package": "@fortemi/core",
       "package_version": "2026.7.14",
       "package_tarball_sha256": "e282f504a842261c3f598a7f2ee0d6a85e03dc213ddf545a18daf5f603a742cc",
@@ -25,12 +25,13 @@
     },
     "hotm": {
       "repository": "Fortemi/HotM",
-      "commit": "ca035799bfe46b622be1e1a131de986cd19f2a72",
+      "commit": "a3bfd7e2c01b2cda2e4dbc79e1738b70e7a5d5c2",
       "profile": "2.0.0/full-v1",
-      "sidecar_release": "sidecar-447fd5148fb9",
+      "sidecar_release": "sidecar-aac23805d090",
       "sidecar_assets": {
-        "linux-x86_64": "9eb47cca070ec39d0a87871167d45ff40017a0c94e073ce30065cd05b34aeb10",
-        "macos-arm64": "c0dbea1c097b5272cde353278ce9b483b1eb8877453f80476d0b6316ecfb0b3b"
+        "linux-x86_64": "56fa4f29fba208316585cc5f8e87634c3b25f295c1f501c51929605fcbd70d68",
+        "linux-arm64": "c99cbc2915a6384cd44a20cb46c61c8eb3e6bb9c06e42b5e906f9995bde5b0c8",
+        "macos-arm64": "e22c10fdff44ba86201944588a6a36c4ae0ce34478032eef9bf8d6cbe4e94818"
       }
     }
   },
@@ -40,6 +41,12 @@
       "os": "linux",
       "architecture": "x86_64",
       "runner": "matric-builder"
+    },
+    {
+      "id": "linux-arm64",
+      "os": "linux",
+      "architecture": "arm64",
+      "runner": "mutsu-colima"
     },
     {
       "id": "macos-arm64",
@@ -61,12 +68,7 @@
     "hotm.authenticated-live"
   ],
   "deferred_platforms": [
-    "linux-arm64",
-    "macos-x86_64",
-    "windows-x86_64",
-    "windows-arm64",
-    "ios",
-    "android"
+    "windows"
   ],
   "claim_boundary": {
     "supported_platforms_only": true,

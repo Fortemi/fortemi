@@ -14,9 +14,10 @@
 The suite has immutable Linux receipts for individual Knowledge Shard, live
 asset, API-consumer, authentication, recovery, and performance cells. It also
 builds native macOS artifacts on `mutsu`. Those facts do not prove that the
-same authority-to-consumer behavior executes on both platforms. A native build
-is not an end-to-end behavioral receipt, and independent green repository
-workflows do not prove that their revisions or contract inputs agree.
+same authority-to-consumer behavior executes across the supported platforms.
+A native build is not an end-to-end behavioral receipt, and independent green
+repository workflows do not prove that their revisions or contract inputs
+agree.
 
 Contract ownership is also easy to blur when proving a cross-repository
 journey. Fortemi owns and enforces the live REST, AsyncAPI, compatibility,
@@ -27,23 +28,25 @@ HotM fixture or a React type is not an independent authority.
 
 The suite audit remains `NO-GO` for unqualified parity, complete backup, or
 portability. The next useful claim is narrower: all declared contract
-behaviors pass on the two platforms that are currently supported and operated.
+behaviors pass on the three platform cells that are currently supported and
+operated.
 
 ## Decision
 
 ### Required platforms
 
-The executable suite matrix has exactly two required platform cells:
+The executable suite matrix has exactly three required platform cells:
 
 | Platform ID | Operating system | Architecture | Execution authority |
 |---|---|---|---|
 | `linux-x86_64` | Linux | x86_64 | Current Fortemi Gitea contract runner |
+| `linux-arm64` | Linux | arm64 | Native Linux arm64 Colima virtualization on `mutsu` through the established SSH coordinator |
 | `macos-arm64` | macOS | arm64 | Native execution on `mutsu` through the established SSH coordinator |
 
-Windows, macOS x86_64, Linux arm64, other operating systems, other
-architectures, non-filesystem asset stores, and other filesystems are
-deferred. They are neither passing nor failing cells and must not be included
-in a supported-platform claim.
+Windows is the only deferred operating system. It is neither a passing nor a
+failing cell and must not be included in a supported-platform claim.
+Architectures outside the exact matrix, non-filesystem asset stores, and other
+filesystems are outside this decision and are not separately claimed.
 
 ### Authority and consumer boundaries
 
@@ -109,7 +112,7 @@ Every platform run emits an immutable receipt with normalized OS,
 architecture, filesystem, exact revisions, command identities, child receipt
 hashes, and pass/fail results. An aggregate verifier fails closed when:
 
-- either required platform receipt is absent;
+- any required platform receipt is absent;
 - a platform or participant identity is unsupported or drifts;
 - required coverage differs between platforms;
 - a child verifier fails;
@@ -122,16 +125,17 @@ payload. The Linux cell additionally binds the published `.tgz` digest.
 Platform gzip implementations may encode the same tar bytes differently, so a
 raw compressed-stream mismatch alone is not package-content drift.
 
-The runner owns an isolated PostgreSQL lifecycle: the Linux cell uses the
+The runner owns an isolated PostgreSQL lifecycle: both Linux cells use the
 pinned test database image and the macOS cell uses native Homebrew PostgreSQL
 18. Authority tests, React/core, and HotM execute in separate database
 lifecycles with the required extension baseline. The authority process owns
 SQLx migrations and is stopped while database-backed authority tests run.
 
-Passing both cells authorizes only the phrase:
+Passing all three cells authorizes only the phrase:
 
 > The declared Fortemi authority-to-React/core-to-HotM contract surface passes
-> on Linux x86_64 and macOS arm64 on mutsu at the receipt-bound revisions.
+> on Linux x86_64, Linux arm64, and macOS arm64 on mutsu at the receipt-bound
+> revisions.
 
 It does not authorize universal portability, full product-feature parity,
 complete backup, or a claim that all suite persistence planes share one
@@ -163,8 +167,9 @@ Rejected because a consumer must not redefine the server contract it tests.
 
 ### Require every operating system before making any claim
 
-Rejected because unsupported platforms would block useful evidence without
-improving the accuracy of the two platforms that are actually operated.
+Rejected because Windows cannot currently be executed in the suite
+infrastructure and would block useful evidence without improving the accuracy
+of the three platform cells that are actually operated.
 
 ### Count macOS artifact construction as behavioral evidence
 

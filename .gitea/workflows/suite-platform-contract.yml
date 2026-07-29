@@ -52,10 +52,168 @@ jobs:
           name: suite-platform-linux-x86_64
           path: suite-platform-output/linux-x86_64
 
+  linux-arm64:
+    name: mutsu Linux arm64 authority-to-consumer contract
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout coordinator tooling
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Fetch mutsu SSH key from Vault
+        env:
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.mutsu.spec
+
+      - name: Configure pinned mutsu host identity
+        run: |
+          set -euo pipefail
+          test -s "${MUTSU_SSH_KEY_FILE:?MUTSU_SSH_KEY_FILE is required}"
+          install -d -m 700 "$HOME/.ssh"
+          tr -d '\r' <"$MUTSU_SSH_KEY_FILE" >"$HOME/.ssh/mutsu_key"
+          chmod 600 "$HOME/.ssh/mutsu_key"
+          ssh-keygen -y -f "$HOME/.ssh/mutsu_key" >/dev/null
+
+          host_key="$(mktemp)"
+          ssh-keyscan -t ed25519 10.0.42.41 >"$host_key" 2>/dev/null
+          fingerprint="$(ssh-keygen -lf "$host_key" | awk '{print $2}')"
+          test "$fingerprint" = "SHA256:5g0PgPko1v4soAco1TrwF7uLOMoctLuNKTwGt29PTFk"
+          cat "$host_key" >"$HOME/.ssh/known_hosts"
+          rm -f "$host_key"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          cat >"$HOME/.ssh/config" <<'SSH_CONFIG'
+          Host mutsu-suite
+            HostName 10.0.42.41
+            User manitcor
+            IdentityFile ~/.ssh/mutsu_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ServerAliveInterval 30
+            ServerAliveCountMax 20
+          SSH_CONFIG
+          chmod 600 "$HOME/.ssh/config"
+
+      - name: Execute complete headless contract in native Linux arm64
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_dir="/Volumes/build/fortemi/builds/suite-linux-arm64-${GITHUB_RUN_ID}"
+          output_root="/Volumes/build/tmp/suite-linux-arm64-out-${GITHUB_RUN_ID}"
+          output_tar="/Volumes/build/tmp/suite-linux-arm64-${GITHUB_RUN_ID}.tar.gz"
+          repo_url="https://git.integrolabs.net/${GITHUB_REPOSITORY}.git"
+
+          remote_status=0
+          ssh mutsu-suite bash -s -- \
+            "$build_dir" "$output_root" "$output_tar" "$repo_url" \
+            "$GITHUB_SHA" "$GITHUB_RUN_ID" <<'REMOTE_SCRIPT' || remote_status=$?
+          set -euo pipefail
+          build_dir="$1"
+          output_root="$2"
+          output_tar="$3"
+          repo_url="$4"
+          revision="$5"
+          run_id="$6"
+          container="fortemi-suite-linux-arm64-${run_id}"
+          image="fortemi-suite-builder-linux-arm64:${revision}"
+          docker_config="/Volumes/build/tmp/suite-linux-arm64-docker-${run_id}"
+          colima_profile="fortemi-linux-arm64"
+          colima_socket="${HOME}/.colima/${colima_profile}/docker.sock"
+
+          export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+          export DOCKER_CONFIG="$docker_config"
+          export DOCKER_HOST="unix://${colima_socket}"
+          mkdir -p "$DOCKER_CONFIG" "$(dirname "$build_dir")"
+          printf '{"auths":{}}\n' >"$DOCKER_CONFIG/config.json"
+          cleanup() {
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            rm -rf "$build_dir" "$output_root" "$DOCKER_CONFIG"
+          }
+          trap cleanup EXIT INT TERM
+
+          if ! docker info >/dev/null 2>&1; then
+            command -v colima >/dev/null
+            if ! colima start "$colima_profile" \
+              --arch aarch64 --cpu 6 --memory 12 --disk 100; then
+              colima delete "$colima_profile" --force || true
+              colima start "$colima_profile" \
+                --arch aarch64 --cpu 6 --memory 12 --disk 100
+            fi
+          fi
+          case "$(docker info --format '{{.Architecture}}')" in
+            aarch64 | arm64) ;;
+            *) echo "Colima Docker daemon is not native Linux arm64" >&2; exit 1 ;;
+          esac
+
+          rm -rf "$build_dir" "$output_root"
+          rm -f "$output_tar"
+          git init -q "$build_dir"
+          git -C "$build_dir" remote add origin "$repo_url"
+          git -c credential.helper= -c credential.interactive=never \
+            -C "$build_dir" fetch --quiet --no-tags --depth=1 origin "$revision"
+          git -C "$build_dir" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$build_dir" rev-parse HEAD)" = "$revision"
+
+          docker build --platform linux/arm64 \
+            -f "$build_dir/build/Dockerfile.builder" \
+            -t "$image" "$build_dir"
+
+          run_status=0
+          docker run -d --name "$container" --platform linux/arm64 \
+            --network host \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -e GITHUB_RUN_ID="$run_id" \
+            -e GIT_TERMINAL_PROMPT=0 \
+            "$image" sleep infinity
+          docker cp "$build_dir/." "$container:/suite"
+          docker exec "$container" bash -c '
+              set -euo pipefail
+              git config --global --add safe.directory /suite
+              test "$(git -C /suite rev-parse HEAD)" = "'"$revision"'"
+              /suite/scripts/ci/run-suite-platform-contract.sh \
+                /suite-platform-output/linux-arm64
+            ' || run_status=$?
+
+          mkdir -p "$output_root"
+          if docker cp \
+            "$container:/suite-platform-output/linux-arm64" "$output_root/"; then
+            tar -C "$output_root" -czf "$output_tar" linux-arm64
+          else
+            run_status=1
+          fi
+          exit "$run_status"
+          REMOTE_SCRIPT
+
+          mkdir -p suite-platform-output
+          if ssh mutsu-suite test -f "$output_tar"; then
+            scp "mutsu-suite:${output_tar}" \
+              suite-platform-output/linux-arm64.tar.gz
+            tar -C suite-platform-output \
+              -xzf suite-platform-output/linux-arm64.tar.gz
+            rm suite-platform-output/linux-arm64.tar.gz
+            ssh mutsu-suite rm -f "$output_tar"
+          fi
+          exit "$remote_status"
+
+      - name: Cleanup mutsu credential
+        if: always()
+        run: |
+          rm -f "$HOME/.ssh/mutsu_key" "$HOME/.ssh/config" "$HOME/.ssh/known_hosts"
+          ci/vault-fetch.sh --cleanup
+
+      - name: Upload Linux arm64 receipt bundle
+        if: always()
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        with:
+          name: suite-platform-linux-arm64
+          path: suite-platform-output/linux-arm64
+
   macos-arm64:
     name: mutsu macOS arm64 authority-to-consumer contract
     runs-on: ubuntu-22.04
     timeout-minutes: 180
+    needs: [linux-arm64]
     steps:
       - name: Checkout coordinator tooling
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -193,10 +351,10 @@ jobs:
           path: suite-platform-output/macos-arm64
 
   aggregate:
-    name: Required Linux and mutsu aggregate
+    name: Required supported-platform aggregate
     runs-on: matric-builder
     timeout-minutes: 30
-    needs: [linux-x86_64, macos-arm64]
+    needs: [linux-x86_64, linux-arm64, macos-arm64]
     steps:
       - name: Checkout exact verifier
         run: |
@@ -211,10 +369,11 @@ jobs:
         with:
           path: suite-platform-artifacts
 
-      - name: Verify exact two-platform aggregate
+      - name: Verify exact supported-platform aggregate
         run: |
           set -euo pipefail
           linux_artifact="suite-platform-artifacts/suite-platform-linux-x86_64"
+          linux_arm_artifact="suite-platform-artifacts/suite-platform-linux-arm64"
           macos_artifact="suite-platform-artifacts/suite-platform-macos-arm64"
 
           find_exact_file() {
@@ -233,8 +392,14 @@ jobs:
           }
 
           linux_receipt="$(find_exact_file "$linux_artifact" platform-receipt.json)"
+          linux_arm_receipt="$(
+            find_exact_file "$linux_arm_artifact" platform-receipt.json
+          )"
           macos_receipt="$(find_exact_file "$macos_artifact" platform-receipt.json)"
           linux_hotm="$(find_exact_file "$linux_artifact" hotm-receipt.json)"
+          linux_arm_hotm="$(
+            find_exact_file "$linux_arm_artifact" hotm-receipt.json
+          )"
           macos_hotm="$(find_exact_file "$macos_artifact" hotm-receipt.json)"
 
           hotm_repository="$(
@@ -253,18 +418,20 @@ jobs:
           git -C "$hotm_checkout" fetch --quiet --no-tags --depth=1 \
             origin "$hotm_commit"
           git -C "$hotm_checkout" checkout --quiet --detach FETCH_HEAD
-          node "$hotm_checkout/ui/scripts/verify-live-asset-ci-receipt-pair.cjs" \
-            "$linux_hotm" "$macos_hotm" hotm-platform-pair.json
+          node "$hotm_checkout/ui/scripts/verify-live-asset-ci-receipt-matrix.cjs" \
+            "$linux_hotm" "$linux_arm_hotm" "$macos_hotm" \
+            --output hotm-platform-matrix.json
 
           python3 scripts/ci/verify-suite-platform-matrix.py aggregate \
             --platform-receipt "$linux_receipt" \
+            --platform-receipt "$linux_arm_receipt" \
             --platform-receipt "$macos_receipt" \
             --output suite-platform-aggregate.json
 
       - name: Upload bounded aggregate receipt
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
         with:
-          name: suite-platform-linux-mutsu-aggregate
+          name: suite-platform-supported-aggregate
           path: |
             suite-platform-aggregate.json
-            hotm-platform-pair.json
+            hotm-platform-matrix.json
