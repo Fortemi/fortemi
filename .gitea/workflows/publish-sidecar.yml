@@ -129,30 +129,32 @@ jobs:
         run: |
           set -euo pipefail
           test -s "${MUTSU_SSH_KEY_FILE:?MUTSU_SSH_KEY_FILE is required}"
-          install -d -m 700 "$HOME/.ssh"
-          tr -d '\r' <"$MUTSU_SSH_KEY_FILE" >"$HOME/.ssh/mutsu_key"
-          chmod 600 "$HOME/.ssh/mutsu_key"
-          ssh-keygen -y -f "$HOME/.ssh/mutsu_key" >/dev/null
+          ssh_dir="${RUNNER_TEMP:?}/fortemi-mutsu-${GITHUB_RUN_ID}-linux-arm64"
+          install -d -m 700 "$ssh_dir"
+          tr -d '\r' <"$MUTSU_SSH_KEY_FILE" >"$ssh_dir/mutsu_key"
+          chmod 600 "$ssh_dir/mutsu_key"
+          ssh-keygen -y -f "$ssh_dir/mutsu_key" >/dev/null
 
-          host_key="$(mktemp)"
+          host_key="$(mktemp "$ssh_dir/host-key.XXXXXX")"
           ssh-keyscan -t ed25519 10.0.42.41 >"$host_key" 2>/dev/null
           fingerprint="$(ssh-keygen -lf "$host_key" | awk '{print $2}')"
           test "$fingerprint" = "SHA256:5g0PgPko1v4soAco1TrwF7uLOMoctLuNKTwGt29PTFk"
-          cat "$host_key" >"$HOME/.ssh/known_hosts"
+          cat "$host_key" >"$ssh_dir/known_hosts"
           rm -f "$host_key"
-          chmod 600 "$HOME/.ssh/known_hosts"
+          chmod 600 "$ssh_dir/known_hosts"
 
-          cat >"$HOME/.ssh/config" <<'SSH_CONFIG'
+          cat >"$ssh_dir/config" <<SSH_CONFIG
           Host mutsu-sidecar
             HostName 10.0.42.41
             User manitcor
-            IdentityFile ~/.ssh/mutsu_key
+            IdentityFile $ssh_dir/mutsu_key
             IdentitiesOnly yes
+            UserKnownHostsFile $ssh_dir/known_hosts
             StrictHostKeyChecking yes
             ServerAliveInterval 30
             ServerAliveCountMax 20
           SSH_CONFIG
-          chmod 600 "$HOME/.ssh/config"
+          chmod 600 "$ssh_dir/config"
 
       - name: Build native Linux aarch64 sidecar on mutsu
         shell: bash
@@ -160,8 +162,9 @@ jobs:
           set -euo pipefail
           output="/Volumes/build/tmp/matric-api-aarch64-unknown-linux-gnu-${GITHUB_RUN_ID}"
           repository="https://git.integrolabs.net/${GITHUB_REPOSITORY}.git"
+          ssh_config="${RUNNER_TEMP:?}/fortemi-mutsu-${GITHUB_RUN_ID}-linux-arm64/config"
 
-          ssh mutsu-sidecar bash -s -- \
+          ssh -F "$ssh_config" mutsu-sidecar bash -s -- \
             "$repository" "$GITHUB_SHA" "$GITHUB_REF_NAME" "$GITHUB_RUN_ID" \
             "$output" <<'REMOTE_SCRIPT'
           set -euo pipefail
@@ -242,8 +245,9 @@ jobs:
           shasum -a 256 "$output"
           REMOTE_SCRIPT
 
-          scp "mutsu-sidecar:${output}" matric-api-aarch64-unknown-linux-gnu
-          ssh mutsu-sidecar rm -f "$output"
+          scp -F "$ssh_config" \
+            "mutsu-sidecar:${output}" matric-api-aarch64-unknown-linux-gnu
+          ssh -F "$ssh_config" mutsu-sidecar rm -f "$output"
           chmod +x matric-api-aarch64-unknown-linux-gnu
           file matric-api-aarch64-unknown-linux-gnu
           sha256sum matric-api-aarch64-unknown-linux-gnu
@@ -251,7 +255,7 @@ jobs:
       - name: Cleanup mutsu credential
         if: always()
         run: |
-          rm -f "$HOME/.ssh/mutsu_key" "$HOME/.ssh/config" "$HOME/.ssh/known_hosts"
+          rm -rf "${RUNNER_TEMP:?}/fortemi-mutsu-${GITHUB_RUN_ID}-linux-arm64"
           ci/vault-fetch.sh --cleanup
 
       - name: Upload Linux aarch64 artifact
@@ -284,54 +288,62 @@ jobs:
       - name: Set up SSH to mutsu
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
           test -s "${MUTSU_SSH_KEY_FILE:?MUTSU_SSH_KEY_FILE is required}"
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
+          ssh_dir="${RUNNER_TEMP:?}/fortemi-mutsu-${GITHUB_RUN_ID}-macos"
+          install -d -m 700 "$ssh_dir"
 
           # Write the key via printf (not echo) so we control the trailing
           # newline. Gitea/GitHub secret paste commonly strips the trailing
           # \n and/or introduces CRLF line endings — openssl's parser rejects
           # both with "error in libcrypto". We strip CRLF and ensure the file
           # ends with a single LF.
-          tr -d '\r' < "$MUTSU_SSH_KEY_FILE" > ~/.ssh/mutsu_key
-          chmod 600 ~/.ssh/mutsu_key
+          tr -d '\r' <"$MUTSU_SSH_KEY_FILE" >"$ssh_dir/mutsu_key"
+          chmod 600 "$ssh_dir/mutsu_key"
 
           # Sanity check: the key file must start with -----BEGIN and end
           # with -----END...PRIVATE KEY-----. Fail loud if not, so a bad
           # secret gets an actionable error instead of a cryptic libcrypto.
-          if ! head -1 ~/.ssh/mutsu_key | grep -q "^-----BEGIN.*PRIVATE KEY-----$"; then
+          if ! head -1 "$ssh_dir/mutsu_key" | grep -q "^-----BEGIN.*PRIVATE KEY-----$"; then
             echo "ERROR: MUTSU_SSH_KEY secret doesn't look like a PEM private key."
-            echo "First line: $(head -1 ~/.ssh/mutsu_key)"
+            echo "First line: $(head -1 "$ssh_dir/mutsu_key")"
             echo "Fix: re-paste the FULL key including -----BEGIN/-----END envelope."
             exit 1
           fi
-          if ! tail -1 ~/.ssh/mutsu_key | grep -q "^-----END.*PRIVATE KEY-----$"; then
+          if ! tail -1 "$ssh_dir/mutsu_key" | grep -q "^-----END.*PRIVATE KEY-----$"; then
             echo "ERROR: MUTSU_SSH_KEY secret doesn't end with -----END line."
-            echo "Last line: $(tail -1 ~/.ssh/mutsu_key)"
+            echo "Last line: $(tail -1 "$ssh_dir/mutsu_key")"
             exit 1
           fi
 
           # Self-validate — ssh-keygen can sanity-check the key format
           # without connecting anywhere. This catches bad paste before we
           # burn a connection attempt.
-          if ! ssh-keygen -y -f ~/.ssh/mutsu_key >/dev/null 2>&1; then
+          if ! ssh-keygen -y -f "$ssh_dir/mutsu_key" >/dev/null 2>&1; then
             echo "ERROR: MUTSU_SSH_KEY parses as invalid. ssh-keygen says:"
-            ssh-keygen -y -f ~/.ssh/mutsu_key 2>&1 || true
+            ssh-keygen -y -f "$ssh_dir/mutsu_key" 2>&1 || true
             exit 1
           fi
           echo "SSH key format validated."
 
-          ssh-keyscan -t ed25519 10.0.42.41 >> ~/.ssh/known_hosts 2>/dev/null
-          cat > ~/.ssh/config <<'SSH_CONFIG'
-          Host mutsu
+          host_key="$(mktemp "$ssh_dir/host-key.XXXXXX")"
+          ssh-keyscan -t ed25519 10.0.42.41 >"$host_key" 2>/dev/null
+          fingerprint="$(ssh-keygen -lf "$host_key" | awk '{print $2}')"
+          test "$fingerprint" = "SHA256:5g0PgPko1v4soAco1TrwF7uLOMoctLuNKTwGt29PTFk"
+          cat "$host_key" >"$ssh_dir/known_hosts"
+          rm -f "$host_key"
+          chmod 600 "$ssh_dir/known_hosts"
+
+          cat >"$ssh_dir/config" <<SSH_CONFIG
+          Host mutsu-sidecar
             HostName 10.0.42.41
             User manitcor
-            IdentityFile ~/.ssh/mutsu_key
+            IdentityFile $ssh_dir/mutsu_key
             IdentitiesOnly yes
-            StrictHostKeyChecking no
+            UserKnownHostsFile $ssh_dir/known_hosts
+            StrictHostKeyChecking yes
           SSH_CONFIG
-          chmod 600 ~/.ssh/config
+          chmod 600 "$ssh_dir/config"
 
       - name: Build on mutsu via SSH
         shell: bash
@@ -343,12 +355,14 @@ jobs:
           RUN_ID="${GITHUB_RUN_ID:-$$}"
           BUILD_DIR="/Volumes/build/fortemi/builds/sidecar-${RUN_ID}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          SSH_CONFIG="${RUNNER_TEMP:?}/fortemi-mutsu-${RUN_ID}-macos/config"
+          LOCAL_OUTPUT="${RUNNER_TEMP}/fortemi-sidecar-macos-${RUN_ID}"
 
           echo "=== macOS sidecar build on mutsu ==="
           echo "SHA:    ${SHA}"
           echo "Dir:    ${BUILD_DIR}"
 
-          ssh -i ~/.ssh/mutsu_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no manitcor@10.0.42.41 bash -s << REMOTE_SCRIPT
+          ssh -F "$SSH_CONFIG" mutsu-sidecar bash -s << REMOTE_SCRIPT
           set -euo pipefail
 
           # Environment — mutsu's Rust toolchain lives on the build volume
@@ -416,21 +430,23 @@ jobs:
           REMOTE_SCRIPT
 
           # Pull binaries back to the ubuntu runner for upload-artifact
-          mkdir -p /tmp/sidecar-macos
-          scp -i ~/.ssh/mutsu_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
-            "manitcor@10.0.42.41:/Volumes/build/tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin" \
-            "manitcor@10.0.42.41:/Volumes/build/tmp/fortemi-sidecar-out/matric-api-x86_64-apple-darwin" \
-            /tmp/sidecar-macos/
-          ls -lh /tmp/sidecar-macos/
+          mkdir -p "$LOCAL_OUTPUT"
+          scp -F "$SSH_CONFIG" \
+            "mutsu-sidecar:/Volumes/build/tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin" \
+            "mutsu-sidecar:/Volumes/build/tmp/fortemi-sidecar-out/matric-api-x86_64-apple-darwin" \
+            "$LOCAL_OUTPUT/"
+          ls -lh "$LOCAL_OUTPUT/"
 
           # Copy to working dir so upload-artifact picks them up
-          cp /tmp/sidecar-macos/matric-api-aarch64-apple-darwin ./matric-api-aarch64-apple-darwin
-          cp /tmp/sidecar-macos/matric-api-x86_64-apple-darwin ./matric-api-x86_64-apple-darwin
+          cp "$LOCAL_OUTPUT/matric-api-aarch64-apple-darwin" ./matric-api-aarch64-apple-darwin
+          cp "$LOCAL_OUTPUT/matric-api-x86_64-apple-darwin" ./matric-api-x86_64-apple-darwin
 
       - name: Cleanup mutsu SSH key
         if: always()
         run: |
-          rm -f ~/.ssh/mutsu_key
+          rm -rf \
+            "${RUNNER_TEMP:?}/fortemi-mutsu-${GITHUB_RUN_ID}-macos" \
+            "${RUNNER_TEMP}/fortemi-sidecar-macos-${GITHUB_RUN_ID}"
           ci/vault-fetch.sh --cleanup
 
       - name: Upload aarch64 artifact

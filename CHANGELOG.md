@@ -16,6 +16,9 @@ unchanged.
 - Pin the Linux arm64 and macOS sidecar coordinator jobs to the `titan` host
   runner, which has the required route to mutsu, instead of allowing generic
   Ubuntu runners without mutsu reachability to claim those jobs.
+- Isolate mutsu SSH keys, host records, configuration, and downloaded binaries
+  under each Actions job's temporary directory so host-runner cleanup cannot
+  modify shared operator SSH state.
 
 ## [2026.7.14] - 2026-07-29
 
