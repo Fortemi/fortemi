@@ -15,7 +15,7 @@ test -s "$private_key"
 test -s "$ssh_config"
 
 public_key="$(ssh-keygen -y -f "$private_key")"
-read -r key_type key_body extra <<<"$public_key"
+read -r key_type key_body _ <<<"$public_key"
 case "$key_type" in
   ssh-* | ecdsa-sha2-*) ;;
   *)
@@ -23,8 +23,8 @@ case "$key_type" in
     exit 1
     ;;
 esac
-if [[ -z "$key_body" || -n "${extra:-}" ]]; then
-  echo "mutsu shared key must derive an unannotated OpenSSH public key" >&2
+if [[ -z "$key_body" ]]; then
+  echo "mutsu shared key did not contain public key material" >&2
   exit 1
 fi
 
