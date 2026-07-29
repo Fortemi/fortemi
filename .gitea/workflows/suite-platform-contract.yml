@@ -126,6 +126,9 @@ jobs:
           run_id="$7"
           container="fortemi-suite-linux-arm64-${run_id}"
           image="fortemi-suite-builder-linux-arm64:${revision}"
+          db_container="fortemi-suite-db-linux-arm64-${run_id}"
+          db_image="fortemi-suite-testdb-linux-arm64:${revision}"
+          network="fortemi-suite-linux-arm64-${run_id}"
           docker_config="/Volumes/build/tmp/suite-linux-arm64-docker-${run_id}"
           legacy_colima_profile="fortemi-linux-arm64"
           legacy_colima_home="${HOME}/.colima"
@@ -147,6 +150,9 @@ jobs:
           printf '{"auths":{}}\n' >"$DOCKER_CONFIG/config.json"
           cleanup() {
             docker rm -f "$container" >/dev/null 2>&1 || true
+            docker rm -f "$db_container" >/dev/null 2>&1 || true
+            docker image rm -f "$db_image" >/dev/null 2>&1 || true
+            docker network rm "$network" >/dev/null 2>&1 || true
             colima delete "$colima_profile" --force >/dev/null 2>&1 || true
             rm -rf \
               "$build_dir" "$source_root" "$output_root" \
@@ -275,12 +281,58 @@ jobs:
             -f "$build_dir/build/Dockerfile.builder" \
             -t "$image" "$build_dir"
 
+          db_password="$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+          docker build --platform linux/arm64 \
+            -f "$build_dir/build/Dockerfile.testdb" \
+            -t "$db_image" "$build_dir"
+          docker network create "$network" >/dev/null
+          docker run -d --name "$db_container" --platform linux/arm64 \
+            --network "$network" \
+            -e POSTGRES_USER=matric \
+            -e "POSTGRES_PASSWORD=${db_password}" \
+            -e POSTGRES_DB=matric_suite \
+            "$db_image" >/dev/null
+          db_ready=false
+          for _ in $(seq 1 60); do
+            if docker exec "$db_container" pg_isready \
+              -h 127.0.0.1 -p 5432 -U matric -d matric_suite \
+              >/dev/null 2>&1; then
+              db_ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$db_ready" != "true" ]]; then
+            docker logs "$db_container" >&2
+            exit 1
+          fi
+          db_architecture="$(
+            docker image inspect "$db_image" --format '{{.Architecture}}'
+          )"
+          db_version="$(
+            docker exec "$db_container" postgres --version |
+              sed 's/^postgres (PostgreSQL) //'
+          )"
+          db_extensions="$(
+            docker exec "$db_container" psql -At \
+              -U matric -d matric_suite \
+              -c "SELECT string_agg(extname, ',' ORDER BY extname)
+                  FROM pg_extension"
+          )"
+          database_url="postgres://matric:${db_password}@${db_container}:5432/matric_suite"
+          maintenance_url="postgres://matric:${db_password}@${db_container}:5432/postgres"
+
           run_status=0
           docker run -d --name "$container" --platform linux/arm64 \
-            --network host \
-            -v /var/run/docker.sock:/var/run/docker.sock \
+            --network "$network" \
             -e GITHUB_RUN_ID="$run_id" \
             -e GIT_TERMINAL_PROMPT=0 \
+            -e "SUITE_PLATFORM_MANAGED_DATABASE_URL=${database_url}" \
+            -e "SUITE_PLATFORM_MANAGED_DATABASE_MAINTENANCE_URL=${maintenance_url}" \
+            -e SUITE_PLATFORM_DATABASE_PROVISIONING=managed-docker \
+            -e "SUITE_PLATFORM_DATABASE_ARCHITECTURE=${db_architecture}" \
+            -e "SUITE_PLATFORM_DATABASE_VERSION=${db_version}" \
+            -e "SUITE_PLATFORM_DATABASE_EXTENSIONS=${db_extensions}" \
             "$image" sleep infinity
           docker cp "$build_dir/." "$container:/suite"
           docker cp "$source_root/." "$container:/suite-inputs"

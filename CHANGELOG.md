@@ -19,6 +19,9 @@ unchanged.
   macOS arm64 jobs do not depend on an interactive console login after reboot.
 - Apply the required free-space and inode guard to both `matric-builder` jobs
   in the supported-platform workflow.
+- Run the Linux arm64 contract builder and its isolated PostgreSQL service on
+  a private Docker network instead of mounting the mutsu Colima daemon socket
+  into the contract container.
 
 ## [2026.7.18] - 2026-07-29
 

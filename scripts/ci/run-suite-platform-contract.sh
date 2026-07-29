@@ -29,6 +29,7 @@ DB_EXTENSION_SQL=""
 NATIVE_PG_BIN=""
 NATIVE_PG_DATA=""
 NATIVE_PG_PORT=""
+MANAGED_DATABASE_MAINTENANCE_URL=""
 API_PID=""
 
 cleanup() {
@@ -127,6 +128,35 @@ PY
 }
 
 provision_database() {
+  if [[ -n "${SUITE_PLATFORM_MANAGED_DATABASE_URL:-}" ]]; then
+    DATABASE_URL="$SUITE_PLATFORM_MANAGED_DATABASE_URL"
+    MANAGED_DATABASE_MAINTENANCE_URL="$(
+      printf '%s' "${SUITE_PLATFORM_MANAGED_DATABASE_MAINTENANCE_URL:?}"
+    )"
+    SUITE_DB_PROVISIONING="$(
+      printf '%s' "${SUITE_PLATFORM_DATABASE_PROVISIONING:?}"
+    )"
+    SUITE_DB_ARCHITECTURE="$(
+      printf '%s' "${SUITE_PLATFORM_DATABASE_ARCHITECTURE:?}"
+    )"
+    SUITE_DB_VERSION="$(
+      printf '%s' "${SUITE_PLATFORM_DATABASE_VERSION:?}"
+    )"
+    SUITE_DB_EXTENSIONS="$(
+      printf '%s' "${SUITE_PLATFORM_DATABASE_EXTENSIONS:?}"
+    )"
+    DB_EXTENSION_SQL="$(
+      psql "$DATABASE_URL" -At \
+        -c "SELECT format('CREATE EXTENSION IF NOT EXISTS %I;', extname)
+            FROM pg_extension
+            WHERE extname <> 'plpgsql'
+            ORDER BY extname"
+    )"
+    export DATABASE_URL SUITE_DB_PROVISIONING SUITE_DB_ARCHITECTURE \
+      SUITE_DB_VERSION SUITE_DB_EXTENSIONS
+    return
+  fi
+
   if [[ "$PLATFORM_OS" == "macos" ]]; then
     provision_native_macos_database
     return
@@ -261,6 +291,18 @@ provision_native_macos_database() {
 }
 
 reset_database() {
+  if [[ -n "$MANAGED_DATABASE_MAINTENANCE_URL" ]]; then
+    dropdb --force --maintenance-db="$MANAGED_DATABASE_MAINTENANCE_URL" \
+      matric_suite >/dev/null
+    createdb --maintenance-db="$MANAGED_DATABASE_MAINTENANCE_URL" \
+      -O matric matric_suite >/dev/null
+    if [[ -n "$DB_EXTENSION_SQL" ]]; then
+      printf '%s\n' "$DB_EXTENSION_SQL" |
+        psql "$DATABASE_URL" -v ON_ERROR_STOP=1 >/dev/null
+    fi
+    return
+  fi
+
   if [[ -n "$NATIVE_PG_DATA" ]]; then
     "$NATIVE_PG_BIN/dropdb" --force -h 127.0.0.1 -p "$NATIVE_PG_PORT" \
       -U matric matric_suite >/dev/null

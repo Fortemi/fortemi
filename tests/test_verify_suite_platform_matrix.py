@@ -379,6 +379,32 @@ class SuitePlatformMatrixTests(unittest.TestCase):
             runner,
         )
 
+    def test_linux_arm64_uses_private_database_network_without_daemon_socket(self):
+        workflow = (
+            ROOT / ".gitea/workflows/suite-platform-contract.yml"
+        ).read_text(encoding="utf-8")
+        runner = (
+            ROOT / "scripts/ci/run-suite-platform-contract.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn(
+            "/var/run/docker.sock:/var/run/docker.sock",
+            workflow,
+        )
+        self.assertIn('docker network create "$network"', workflow)
+        self.assertIn(
+            "-e SUITE_PLATFORM_DATABASE_PROVISIONING=managed-docker",
+            workflow,
+        )
+        self.assertIn(
+            'if [[ -n "${SUITE_PLATFORM_MANAGED_DATABASE_URL:-}" ]]',
+            runner,
+        )
+        self.assertIn(
+            'dropdb --force --maintenance-db="$MANAGED_DATABASE_MAINTENANCE_URL"',
+            runner,
+        )
+
     def test_accepts_exact_manifest_and_all_required_platforms(self):
         value = manifest()
         MODULE.validate_manifest(value)
