@@ -41,6 +41,18 @@ def main() -> int:
         if forbidden in workflow:
             failures.append(f"{WORKFLOW}: forbidden {forbidden!r}")
 
+    for auth_option in (
+        "BatchMode yes",
+        "PreferredAuthentications publickey",
+        "PasswordAuthentication no",
+        "KbdInteractiveAuthentication no",
+        "ConnectTimeout 30",
+    ):
+        if workflow.count(auth_option) < 2:
+            failures.append(
+                f"{WORKFLOW}: both mutsu jobs must set {auth_option!r}"
+            )
+
     for needle in (
         'TAG="sidecar-${GITHUB_SHA:0:12}"',
         ".tag_name == $tag",

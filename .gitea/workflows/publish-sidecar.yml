@@ -157,6 +157,11 @@ jobs:
             IdentitiesOnly yes
             UserKnownHostsFile $ssh_dir/known_hosts
             StrictHostKeyChecking yes
+            BatchMode yes
+            PreferredAuthentications publickey
+            PasswordAuthentication no
+            KbdInteractiveAuthentication no
+            ConnectTimeout 30
             ServerAliveInterval 30
             ServerAliveCountMax 20
           SSH_CONFIG
@@ -367,6 +372,13 @@ jobs:
             IdentitiesOnly yes
             UserKnownHostsFile $ssh_dir/known_hosts
             StrictHostKeyChecking yes
+            BatchMode yes
+            PreferredAuthentications publickey
+            PasswordAuthentication no
+            KbdInteractiveAuthentication no
+            ConnectTimeout 30
+            ServerAliveInterval 30
+            ServerAliveCountMax 20
           SSH_CONFIG
           chmod 600 "$ssh_dir/config"
 

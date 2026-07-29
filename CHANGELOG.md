@@ -5,6 +5,19 @@ All notable changes to Fortémi are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
+## [2026.7.18] - 2026-07-29
+
+Corrective publication for `2026.7.17`. Knowledge Shard formats, exact
+`2.0.0/full-v1` evidence, supported platform cells, and consumer revisions are
+unchanged.
+
+### Fixed
+
+- Require noninteractive public-key authentication for both mutsu coordinator
+  jobs. Password and keyboard-interactive fallback are disabled, and failed
+  authentication now exits within the bounded connection timeout instead of
+  holding the runner's controlling terminal.
+
 ## [2026.7.17] - 2026-07-29
 
 Corrective publication for `2026.7.16`. Knowledge Shard formats, exact
