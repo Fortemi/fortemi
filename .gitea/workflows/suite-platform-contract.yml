@@ -275,9 +275,15 @@ jobs:
               git config --global --add safe.directory \
                 /suite-inputs/Fortemi/fortemi
               git config --global --add safe.directory \
+                /suite-inputs/Fortemi/fortemi/.git
+              git config --global --add safe.directory \
                 /suite-inputs/Fortemi/fortemi-react
               git config --global --add safe.directory \
+                /suite-inputs/Fortemi/fortemi-react/.git
+              git config --global --add safe.directory \
                 /suite-inputs/Fortemi/HotM
+              git config --global --add safe.directory \
+                /suite-inputs/Fortemi/HotM/.git
               git config --global \
                 url.file:///suite-inputs/Fortemi/fortemi.insteadOf \
                 https://git.integrolabs.net/Fortemi/fortemi.git
