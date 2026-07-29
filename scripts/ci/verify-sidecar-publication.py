@@ -9,6 +9,7 @@ from pathlib import Path
 
 WORKFLOW = Path(".gitea/workflows/publish-sidecar.yml")
 PUBLISHER = Path("scripts/ci/publish-sidecar-release.sh")
+BOOT_AUTH = Path("scripts/ci/ensure-mutsu-boot-auth.sh")
 
 
 def require(text: str, needle: str, source: Path, failures: list[str]) -> None:
@@ -20,6 +21,7 @@ def main() -> int:
     failures: list[str] = []
     workflow = WORKFLOW.read_text()
     publisher = PUBLISHER.read_text()
+    boot_auth = BOOT_AUTH.read_text()
 
     for needle in (
         "publish-sidecar-release.sh prepare",
@@ -52,6 +54,19 @@ def main() -> int:
             failures.append(
                 f"{WORKFLOW}: both mutsu jobs must set {auth_option!r}"
             )
+
+    if workflow.count("scripts/ci/ensure-mutsu-boot-auth.sh") < 2:
+        failures.append(
+            f"{WORKFLOW}: both mutsu jobs must enforce boot-available SSH authorization"
+        )
+
+    for needle in (
+        "SHA256:eJxMbprMf90uFTbXdr5uj6i8f63x4//sHiZ3HSonrCw",
+        'authorized_keys_file="${authorized_keys_dir}/manitcor"',
+        "AuthorizedKeysFile .ssh/authorized_keys /etc/ssh/authorized_keys/%u",
+        "sudo -n /usr/sbin/sshd -t",
+    ):
+        require(boot_auth, needle, BOOT_AUTH, failures)
 
     for needle in (
         'TAG="sidecar-${GITHUB_SHA:0:12}"',

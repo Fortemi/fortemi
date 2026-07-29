@@ -167,6 +167,14 @@ jobs:
           SSH_CONFIG
           chmod 600 "$ssh_dir/config"
 
+      - name: Ensure mutsu shared key is available before console login
+        shell: bash
+        run: |
+          scripts/ci/ensure-mutsu-boot-auth.sh \
+            "${RUNNER_TEMP:?}/fortemi-mutsu-${GITHUB_RUN_ID}-linux-arm64/mutsu_key" \
+            "${RUNNER_TEMP:?}/fortemi-mutsu-${GITHUB_RUN_ID}-linux-arm64/config" \
+            mutsu-sidecar
+
       - name: Build native Linux aarch64 sidecar on mutsu
         shell: bash
         run: |
@@ -381,6 +389,14 @@ jobs:
             ServerAliveCountMax 20
           SSH_CONFIG
           chmod 600 "$ssh_dir/config"
+
+      - name: Ensure mutsu shared key is available before console login
+        shell: bash
+        run: |
+          scripts/ci/ensure-mutsu-boot-auth.sh \
+            "${RUNNER_TEMP:?}/fortemi-mutsu-${GITHUB_RUN_ID}-macos/mutsu_key" \
+            "${RUNNER_TEMP:?}/fortemi-mutsu-${GITHUB_RUN_ID}-macos/config" \
+            mutsu-sidecar
 
       - name: Build on mutsu via SSH
         shell: bash

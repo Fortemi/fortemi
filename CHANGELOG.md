@@ -5,6 +5,21 @@ All notable changes to Fortémi are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
+## [2026.7.19] - 2026-07-29
+
+Corrective publication for `2026.7.18`. Knowledge Shard formats, exact
+`2.0.0/full-v1` evidence, supported platform cells, and consumer revisions are
+unchanged.
+
+### Fixed
+
+- Persist the Vault-managed mutsu CI public key in a root-owned,
+  boot-available OpenSSH authorization path. Sidecar publication validates the
+  pinned key fingerprint and effective sshd configuration so Linux arm64 and
+  macOS arm64 jobs do not depend on an interactive console login after reboot.
+- Apply the required free-space and inode guard to both `matric-builder` jobs
+  in the supported-platform workflow.
+
 ## [2026.7.18] - 2026-07-29
 
 Corrective publication for `2026.7.17`. Knowledge Shard formats, exact

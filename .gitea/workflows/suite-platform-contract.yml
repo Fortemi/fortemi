@@ -39,6 +39,12 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
+      - name: Check free bytes and inodes
+        env:
+          RUNNER_MIN_FREE_KIB: ${{ vars.RUNNER_MIN_FREE_KIB }}
+          RUNNER_MIN_FREE_INODES: ${{ vars.RUNNER_MIN_FREE_INODES }}
+        run: bash scripts/ci/check-runner-capacity.sh
+
       - name: Execute complete headless platform contract
         run: |
           set -euo pipefail
@@ -497,6 +503,12 @@ jobs:
           git remote add origin "https://git.integrolabs.net/${GITHUB_REPOSITORY}.git"
           git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
+
+      - name: Check free bytes and inodes
+        env:
+          RUNNER_MIN_FREE_KIB: ${{ vars.RUNNER_MIN_FREE_KIB }}
+          RUNNER_MIN_FREE_INODES: ${{ vars.RUNNER_MIN_FREE_INODES }}
+        run: bash scripts/ci/check-runner-capacity.sh
 
       - name: Download platform receipts
         uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
