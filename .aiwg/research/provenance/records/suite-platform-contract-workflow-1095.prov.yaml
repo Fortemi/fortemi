@@ -1,24 +1,24 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-07-28T23:39:09Z"
-  updated_at: "2026-07-29T03:52:26Z"
-  description: "Provenance for the exact three-platform suite workflow with staged arm64 inputs"
+  updated_at: "2026-07-29T04:05:09Z"
+  description: "Provenance for the exact three-platform suite workflow with isolated arm64 inputs and storage"
 entity:
-  id: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml:sha256:402bcfeaae3c9c1840dfc94987f1f6976db228f9fdeccb7719c1603a58307c69"
+  id: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml:sha256:85338e79dd9a0b5692dfe531dba87f31a477573cc2f4c1c1b294b0b707b96b90"
   type: workflow
   created_at: "2026-07-28T23:39:09Z"
-  updated_at: "2026-07-29T03:52:26Z"
-  checksum: "sha256:402bcfeaae3c9c1840dfc94987f1f6976db228f9fdeccb7719c1603a58307c69"
-  size_bytes: 23276
+  updated_at: "2026-07-29T04:05:09Z"
+  checksum: "sha256:85338e79dd9a0b5692dfe531dba87f31a477573cc2f4c1c1b294b0b707b96b90"
+  size_bytes: 23167
   attributes:
     issue: "Fortemi/fortemi#1095"
-    base_revision: "74917b6aee0c54ebb13b3328c00f80e0a27b95a7"
+    base_revision: "375c4d25b013ecde0a0c4385465ec06f4996cbb0"
 activity:
   id: "urn:aiwg:activity:modification:suite-platform-contract-workflow-1095:001"
   type: modification
   started_at: "2026-07-28T23:39:09Z"
-  ended_at: "2026-07-29T03:52:26Z"
-  description: "Stage exact repositories and sidecar on mutsu before isolated native Linux arm64 execution"
+  ended_at: "2026-07-29T04:05:09Z"
+  description: "Recreate a dedicated 160 GB Colima profile for every native Linux arm64 receipt"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -27,19 +27,19 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml:sha256:402bcfeaae3c9c1840dfc94987f1f6976db228f9fdeccb7719c1603a58307c69"
+    entity: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml:sha256:85338e79dd9a0b5692dfe531dba87f31a477573cc2f4c1c1b294b0b707b96b90"
     activity: "urn:aiwg:activity:modification:suite-platform-contract-workflow-1095:001"
-    time: "2026-07-29T03:52:26Z"
+    time: "2026-07-29T04:05:09Z"
   used:
     - activity: "urn:aiwg:activity:modification:suite-platform-contract-workflow-1095:001"
       entity: "urn:gitea:issue:Fortemi/fortemi:1095"
       role: requirement
     - activity: "urn:aiwg:activity:modification:suite-platform-contract-workflow-1095:001"
-      entity: "urn:gitea:run:Fortemi/fortemi:6368"
-      role: failed_copied_repository_ownership_evidence
+      entity: "urn:gitea:run:Fortemi/fortemi:6372"
+      role: failed_stale_colima_storage_evidence
   wasDerivedFrom:
-    - entity: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml:sha256:402bcfeaae3c9c1840dfc94987f1f6976db228f9fdeccb7719c1603a58307c69"
-      source: "urn:git:git@git.integrolabs.net:Fortemi/fortemi.git:74917b6aee0c54ebb13b3328c00f80e0a27b95a7:.gitea/workflows/suite-platform-contract.yml"
+    - entity: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml:sha256:85338e79dd9a0b5692dfe531dba87f31a477573cc2f4c1c1b294b0b707b96b90"
+      source: "urn:git:git@git.integrolabs.net:Fortemi/fortemi.git:375c4d25b013ecde0a0c4385465ec06f4996cbb0:.gitea/workflows/suite-platform-contract.yml"
       derivation_type: "modifies"
       activity: "urn:aiwg:activity:modification:suite-platform-contract-workflow-1095:001"
   wasAssociatedWith:
@@ -47,5 +47,5 @@ relationships:
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml:sha256:402bcfeaae3c9c1840dfc94987f1f6976db228f9fdeccb7719c1603a58307c69"
+    entity: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml:sha256:85338e79dd9a0b5692dfe531dba87f31a477573cc2f4c1c1b294b0b707b96b90"
     agent: "urn:aiwg:agent:codex-gpt-5"

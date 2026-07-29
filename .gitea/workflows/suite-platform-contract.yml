@@ -121,7 +121,7 @@ jobs:
           container="fortemi-suite-linux-arm64-${run_id}"
           image="fortemi-suite-builder-linux-arm64:${revision}"
           docker_config="/Volumes/build/tmp/suite-linux-arm64-docker-${run_id}"
-          colima_profile="fortemi-linux-arm64"
+          colima_profile="fortemi-suite-linux-arm64"
           colima_socket="${HOME}/.colima/${colima_profile}/docker.sock"
 
           export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
@@ -131,19 +131,15 @@ jobs:
           printf '{"auths":{}}\n' >"$DOCKER_CONFIG/config.json"
           cleanup() {
             docker rm -f "$container" >/dev/null 2>&1 || true
+            colima delete "$colima_profile" --force >/dev/null 2>&1 || true
             rm -rf "$build_dir" "$source_root" "$output_root" "$DOCKER_CONFIG"
           }
           trap cleanup EXIT INT TERM
 
-          if ! docker info >/dev/null 2>&1; then
-            command -v colima >/dev/null
-            if ! colima start "$colima_profile" \
-              --arch aarch64 --cpu 6 --memory 12 --disk 100; then
-              colima delete "$colima_profile" --force || true
-              colima start "$colima_profile" \
-                --arch aarch64 --cpu 6 --memory 12 --disk 100
-            fi
-          fi
+          command -v colima >/dev/null
+          colima delete "$colima_profile" --force >/dev/null 2>&1 || true
+          colima start "$colima_profile" \
+            --arch aarch64 --cpu 6 --memory 12 --disk 160
           case "$(docker info --format '{{.Architecture}}')" in
             aarch64 | arm64) ;;
             *) echo "Colima Docker daemon is not native Linux arm64" >&2; exit 1 ;;
