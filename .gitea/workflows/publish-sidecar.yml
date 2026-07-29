@@ -196,7 +196,7 @@ jobs:
             "mutsu-sidecar:${lock_helper}"
 
           ssh -F "$ssh_config" mutsu-sidecar bash "$lock_helper" \
-            --label "Fortemi sidecar Linux arm64 ${GITHUB_RUN_ID}" \
+            --label "Fortemi-sidecar-Linux-arm64-${GITHUB_RUN_ID}" \
             --timeout 3600 \
             -- bash -s -- \
             "$repository" "$GITHUB_SHA" "$GITHUB_REF_NAME" "$GITHUB_RUN_ID" \
@@ -439,7 +439,7 @@ jobs:
           scp -F "$SSH_CONFIG" scripts/ci/mutsu-build-lock.sh \
             "mutsu-sidecar:${LOCK_HELPER}"
           ssh -F "$SSH_CONFIG" mutsu-sidecar bash "$LOCK_HELPER" \
-            --label "Fortemi sidecar macOS ${RUN_ID}" \
+            --label "Fortemi-sidecar-macOS-${RUN_ID}" \
             --timeout 3600 \
             -- bash -s << REMOTE_SCRIPT
           set -euo pipefail

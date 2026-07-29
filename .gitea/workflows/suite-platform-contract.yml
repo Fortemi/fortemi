@@ -127,7 +127,7 @@ jobs:
 
           remote_status=0
           ssh mutsu-suite bash "$lock_helper" \
-            --label "Fortemi suite Linux arm64 ${GITHUB_RUN_ID}" \
+            --label "Fortemi-suite-Linux-arm64-${GITHUB_RUN_ID}" \
             --timeout 3600 \
             -- bash -s -- \
             "$build_dir" "$source_root" "$output_root" "$output_tar" \
@@ -482,7 +482,7 @@ jobs:
 
           remote_status=0
           ssh mutsu-suite bash "$lock_helper" \
-            --label "Fortemi suite macOS arm64 ${GITHUB_RUN_ID}" \
+            --label "Fortemi-suite-macOS-arm64-${GITHUB_RUN_ID}" \
             --timeout 3600 \
             -- bash -s -- \
             "$build_dir" "$output_tar" "$repo_url" "$GITHUB_SHA" \

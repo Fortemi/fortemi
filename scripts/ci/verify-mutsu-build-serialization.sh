@@ -14,6 +14,10 @@ for workflow in \
   grep -qF "IdentitiesOnly yes" "$path"
   grep -qF "StrictHostKeyChecking yes" "$path"
   grep -qF "PasswordAuthentication no" "$path"
+  if grep -Eq -- '--label "[^"]* [^"]*"' "$path"; then
+    echo "$workflow uses a remote lock label that SSH will split" >&2
+    exit 1
+  fi
   if grep -qF "StrictHostKeyChecking no" "$path"; then
     echo "$workflow permits an unverified mutsu host key" >&2
     exit 1
