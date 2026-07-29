@@ -13,7 +13,8 @@
 #   3. Starts Postgres and the API on that network
 #   4. Waits for /health (the API auto-runs migrations on startup)
 #   5. Runs scripts/rebuild-docs-shard.sh against the API
-#   6. Tears down all resources
+#   6. Writes a provenance receipt tied to the image and source revision
+#   7. Tears down all resources
 #
 # Exits non-zero on any failure so the wrapping job fails loudly rather
 # than silently shipping a stale shard.
@@ -169,4 +170,6 @@ if [ "$SIZE" -lt 102400 ]; then
     exit 1
 fi
 echo ">>> Shard regenerated: $SHARD ($((SIZE / 1024)) KB)"
-echo ">>> Update docker/seed-data/fortemi-docs.shard.receipt.json when committing this artifact."
+python3 scripts/ci/write-docs-shard-receipt.py \
+    --server-image "$API_IMAGE" \
+    --shard "$SHARD"
