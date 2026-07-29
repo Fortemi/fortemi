@@ -5,6 +5,19 @@ All notable changes to Fortémi are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
+## [2026.7.14] - 2026-07-29
+
+Corrective publication for `2026.7.13`. Knowledge Shard formats, exact
+`2.0.0/full-v1` evidence, supported platform cells, and consumer revisions are
+unchanged.
+
+### Fixed
+
+- Relocate native Linux arm64 sidecar Colima state, cache, and temporary files
+  from mutsu's constrained home volume to `/Volumes/build`, matching the
+  passing supported-platform workflow and preventing release publication from
+  failing while expanding the VM disk.
+
 ## [2026.7.13] - 2026-07-29
 
 ### Added
