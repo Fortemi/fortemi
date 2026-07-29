@@ -171,6 +171,7 @@ jobs:
           run_id="$4"
           output="$5"
           container="fortemi-sidecar-linux-arm64-${run_id}"
+          source_dir="/Volumes/build/fortemi/builds/sidecar-linux-arm64-${run_id}"
           docker_config="/Volumes/build/tmp/sidecar-linux-arm64-docker-${run_id}"
           colima_profile="fortemi-linux-arm64"
           colima_socket="${HOME}/.colima/${colima_profile}/docker.sock"
@@ -182,7 +183,7 @@ jobs:
           printf '{"auths":{}}\n' >"$DOCKER_CONFIG/config.json"
           cleanup() {
             docker rm -f "$container" >/dev/null 2>&1 || true
-            rm -rf "$DOCKER_CONFIG"
+            rm -rf "$source_dir" "$DOCKER_CONFIG"
           }
           trap cleanup EXIT INT TERM
 
@@ -200,24 +201,29 @@ jobs:
             *) echo "Colima Docker daemon is not native Linux arm64" >&2; exit 1 ;;
           esac
           rm -f "$output"
+          rm -rf "$source_dir"
+          git init -q "$source_dir"
+          git -C "$source_dir" remote add origin "$repository"
+          git -c credential.helper= -c credential.interactive=never \
+            -C "$source_dir" fetch --quiet --no-tags --depth=1 \
+            origin "$revision"
+          git -C "$source_dir" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$revision"
 
-          docker run --name "$container" --platform linux/arm64 \
-            -e REPOSITORY="$repository" \
-            -e REVISION="$revision" \
+          docker run -d --name "$container" --platform linux/arm64 \
             -e MATRIC_VERSION="$version" \
             -e MATRIC_GIT_SHA="$revision" \
             -e MATRIC_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             rust:1.92-bookworm@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2 \
+            sleep infinity
+          docker cp "$source_dir/." "$container:/build"
+          docker exec "$container" \
             bash -c '
               set -euo pipefail
               apt-get update -qq
               apt-get install -y --no-install-recommends \
                 ca-certificates git libpq-dev libssl-dev pkg-config
-              git init -q /build
-              git -C /build remote add origin "$REPOSITORY"
-              git -C /build fetch --quiet --no-tags --depth=1 origin "$REVISION"
-              git -C /build checkout --quiet --detach FETCH_HEAD
-              test "$(git -C /build rev-parse HEAD)" = "$REVISION"
+              test "$(git -C /build rev-parse HEAD)" = "$MATRIC_GIT_SHA"
               cd /build
               cargo build --release --package matric-api
             '
