@@ -5,6 +5,18 @@ All notable changes to Fortémi are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
+## [2026.7.15] - 2026-07-29
+
+Corrective publication for `2026.7.14`. Knowledge Shard formats, exact
+`2.0.0/full-v1` evidence, supported platform cells, and consumer revisions are
+unchanged.
+
+### Fixed
+
+- Pin the Linux arm64 and macOS sidecar coordinator jobs to the `titan` host
+  runner, which has the required route to mutsu, instead of allowing generic
+  Ubuntu runners without mutsu reachability to claim those jobs.
+
 ## [2026.7.14] - 2026-07-29
 
 Corrective publication for `2026.7.13`. Knowledge Shard formats, exact

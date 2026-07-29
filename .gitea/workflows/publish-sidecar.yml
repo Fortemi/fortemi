@@ -112,7 +112,7 @@ jobs:
   # ─── Linux aarch64 (native Colima VM on mutsu) ─────────────────────────
   build-linux-arm64:
     name: Build Linux aarch64 on mutsu
-    runs-on: ubuntu-22.04
+    runs-on: titan
     timeout-minutes: 180
     steps:
       - name: Checkout coordinator tooling
@@ -270,7 +270,7 @@ jobs:
   # ubuntu pattern below, which works reliably.
   build-macos:
     name: Build macOS aarch64
-    runs-on: ubuntu-22.04
+    runs-on: titan
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
