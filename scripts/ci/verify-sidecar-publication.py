@@ -24,6 +24,7 @@ def main() -> int:
     boot_auth = BOOT_AUTH.read_text()
 
     for needle in (
+        "- 'scripts/ci/ensure-mutsu-boot-auth.sh'",
         "publish-sidecar-release.sh prepare",
         "publish-sidecar-release.sh immutable",
         "publish-sidecar-release.sh rolling",

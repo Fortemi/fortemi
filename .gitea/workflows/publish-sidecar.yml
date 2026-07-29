@@ -39,6 +39,7 @@ on:
       - 'Cargo.lock'
       - 'migrations/**'
       - '.gitea/workflows/publish-sidecar.yml'
+      - 'scripts/ci/ensure-mutsu-boot-auth.sh'
       - 'scripts/ci/publish-sidecar-release.sh'
       - 'scripts/ci/verify-sidecar-publication.py'
     tags: ['v*']
