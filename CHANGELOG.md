@@ -5,6 +5,18 @@ All notable changes to Fortémi are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
+## [2026.7.16] - 2026-07-29
+
+Corrective publication for `2026.7.15`. Knowledge Shard formats, exact
+`2.0.0/full-v1` evidence, supported platform cells, and consumer revisions are
+unchanged.
+
+### Fixed
+
+- Allow three bounded 15-second attempts when acquiring mutsu's pinned SSH
+  host key. This preserves exact fingerprint verification while tolerating
+  the measured seven-second banner delay under concurrent release load.
+
 ## [2026.7.15] - 2026-07-29
 
 Corrective publication for `2026.7.14`. Knowledge Shard formats, exact

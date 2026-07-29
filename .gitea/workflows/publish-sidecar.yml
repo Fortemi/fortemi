@@ -136,7 +136,13 @@ jobs:
           ssh-keygen -y -f "$ssh_dir/mutsu_key" >/dev/null
 
           host_key="$(mktemp "$ssh_dir/host-key.XXXXXX")"
-          ssh-keyscan -t ed25519 10.0.42.41 >"$host_key" 2>/dev/null
+          for attempt in 1 2 3; do
+            if ssh-keyscan -T 15 -t ed25519 10.0.42.41 >"$host_key" 2>/dev/null; then
+              break
+            fi
+            sleep 5
+          done
+          test -s "$host_key"
           fingerprint="$(ssh-keygen -lf "$host_key" | awk '{print $2}')"
           test "$fingerprint" = "SHA256:5g0PgPko1v4soAco1TrwF7uLOMoctLuNKTwGt29PTFk"
           cat "$host_key" >"$ssh_dir/known_hosts"
@@ -327,7 +333,13 @@ jobs:
           echo "SSH key format validated."
 
           host_key="$(mktemp "$ssh_dir/host-key.XXXXXX")"
-          ssh-keyscan -t ed25519 10.0.42.41 >"$host_key" 2>/dev/null
+          for attempt in 1 2 3; do
+            if ssh-keyscan -T 15 -t ed25519 10.0.42.41 >"$host_key" 2>/dev/null; then
+              break
+            fi
+            sleep 5
+          done
+          test -s "$host_key"
           fingerprint="$(ssh-keygen -lf "$host_key" | awk '{print $2}')"
           test "$fingerprint" = "SHA256:5g0PgPko1v4soAco1TrwF7uLOMoctLuNKTwGt29PTFk"
           cat "$host_key" >"$ssh_dir/known_hosts"
