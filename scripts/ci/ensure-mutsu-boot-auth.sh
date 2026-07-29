@@ -16,8 +16,15 @@ test -s "$ssh_config"
 
 public_key="$(ssh-keygen -y -f "$private_key")"
 read -r key_type key_body extra <<<"$public_key"
-if [[ "$key_type" != "ssh-ed25519" || -z "$key_body" || -n "${extra:-}" ]]; then
-  echo "mutsu shared key must be an unannotated Ed25519 public key" >&2
+case "$key_type" in
+  ssh-* | ecdsa-sha2-*) ;;
+  *)
+    echo "mutsu shared key did not derive a supported OpenSSH public key" >&2
+    exit 1
+    ;;
+esac
+if [[ -z "$key_body" || -n "${extra:-}" ]]; then
+  echo "mutsu shared key must derive an unannotated OpenSSH public key" >&2
   exit 1
 fi
 
