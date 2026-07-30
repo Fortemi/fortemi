@@ -63,9 +63,11 @@ matrix, universal portability, complete backup, or one schema across the AIWG
 static index, Knowledge Shard transfer, and live persistence planes. Fortemi
 #1081 remains `NO-GO` pending independent audit.
 
-## Current release qualification
+## Current delivered evidence
 
-The current manifest binds Fortemi `v2026.7.19`, React/core `v2026.7.15`,
-HotM `2026.7.1`, and immutable sidecar `sidecar-5ea08229c9f1` at their exact
-commits and digests. It is release evidence only after the Linux x86_64,
-Linux arm64, macOS arm64, and aggregate jobs all pass.
+[Gitea run 6543](https://git.integrolabs.net/Fortemi/fortemi/actions/runs/6543)
+at orchestrator commit `f0b819a665ce2783cf415deec3f0bf2046f27fba`
+passed Linux x86_64, Mutsu Linux arm64, native Mutsu macOS arm64, and the
+required aggregate. Its manifest binds Fortemi `v2026.7.19`, React/core
+`v2026.7.15`, HotM `2026.7.1`, and immutable sidecar
+`sidecar-5ea08229c9f1` at their exact commits and digests.

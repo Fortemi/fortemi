@@ -155,15 +155,18 @@ binds exact `2.0.0/full-v1` and the participant revisions and package/sidecar
 digests in that run's authority matrix, with false claims for launched desktop
 GUI, interactive native dialogs, and suite-wide portability.
 
-### Current release qualification
+### Current delivered receipt
 
-The next aggregate binds Fortemi runtime
+Gitea [run 6543](https://git.integrolabs.net/Fortemi/fortemi/actions/runs/6543)
+completed successfully at orchestrator commit
+`f0b819a665ce2783cf415deec3f0bf2046f27fba`. Its Linux x86_64,
+Mutsu Linux arm64, native Mutsu macOS arm64, and required aggregate jobs all
+passed. The aggregate binds Fortemi runtime
 `5ea08229c9f1565122df5f8e6906e89d98dc7e75` (`v2026.7.19`),
 React/core `5cab4ea2d3d4bb985ea0d38f8bcb1ea790b32cf7`
 (`@fortemi/core@2026.7.15`), HotM
 `cdbf29aa5dbb924be4bcd4dac2494bfe714d50aa` (`2026.7.1`), and immutable
-sidecar `sidecar-5ea08229c9f1`. These inputs do not become delivered evidence
-until all three required platform jobs and the aggregate pass.
+sidecar `sidecar-5ea08229c9f1`.
 
 ## Consequences
 
