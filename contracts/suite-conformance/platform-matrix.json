@@ -5,7 +5,7 @@
   "authority": {
     "repository": "Fortemi/fortemi",
     "schema_commit": "0c59bc6cb06cca0b1e00eba4c0fa493f3ef3b90b",
-    "runtime_commit": "aac23805d0906a5f39a5fdcceb51d048c09cb9d8",
+    "runtime_commit": "5ea08229c9f1565122df5f8e6906e89d98dc7e75",
     "contract_path": "contracts/knowledge-shard/2.0.0/contract.json",
     "contract_sha256": "ac417e23181ec80741d776b6b29fa38236091dfa649b01255aaac30ebb53969f",
     "contract_revision": "21",
@@ -16,22 +16,22 @@
   "participants": {
     "fortemi_react": {
       "repository": "Fortemi/fortemi-react",
-      "commit": "ccf96fad6025025293e40e250c85f088c8999d86",
+      "commit": "5cab4ea2d3d4bb985ea0d38f8bcb1ea790b32cf7",
       "package": "@fortemi/core",
-      "package_version": "2026.7.14",
-      "package_tarball_sha256": "e282f504a842261c3f598a7f2ee0d6a85e03dc213ddf545a18daf5f603a742cc",
-      "package_tar_sha256": "47482320b543307c2d44f3a87a2268ead6faf265c6bd38cf33011e0ac7f8e77a",
+      "package_version": "2026.7.15",
+      "package_tarball_sha256": "f407bff5c9fb1f0813ca92c3ab8c597f979fd9ee7bebc327b1ed285e1faabc5b",
+      "package_tar_sha256": "88f71534831d8b4986288d7c39b38472de926dcb3ba7509c4bc199463ee6cc99",
       "profile": "2.0.0/full-v1"
     },
     "hotm": {
       "repository": "Fortemi/HotM",
-      "commit": "1b220c1e1735314e70e610d84951db960742da35",
+      "commit": "cdbf29aa5dbb924be4bcd4dac2494bfe714d50aa",
       "profile": "2.0.0/full-v1",
-      "sidecar_release": "sidecar-aac23805d090",
+      "sidecar_release": "sidecar-5ea08229c9f1",
       "sidecar_assets": {
-        "linux-x86_64": "56fa4f29fba208316585cc5f8e87634c3b25f295c1f501c51929605fcbd70d68",
-        "linux-arm64": "c99cbc2915a6384cd44a20cb46c61c8eb3e6bb9c06e42b5e906f9995bde5b0c8",
-        "macos-arm64": "e22c10fdff44ba86201944588a6a36c4ae0ce34478032eef9bf8d6cbe4e94818"
+        "linux-x86_64": "8f9d21277c7c5ad62f4399eb308a8429fd86f58f819c61d9ecb392f2759f10e9",
+        "linux-arm64": "04eef33f321b746346481ce759d849f95340ad41f3196ddeda3e9fb29dd16f49",
+        "macos-arm64": "8a67036f857b65ffff89480aeed5b866972f9d26d045c87cba156b0860131f77"
       }
     }
   },

@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-07-29T02:32:32Z"
+  updated_at: "2026-07-30T01:43:46Z"
 records:
   - entity: ".gitea/workflows/publish-sidecar.yml"
     record: "records/publish-sidecar-workflow-linux-arm64-1095.prov.yaml"
