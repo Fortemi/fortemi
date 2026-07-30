@@ -17,7 +17,13 @@ on:
   push:
     branches: [main]
     tags: ['v*']
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      publish_dev:
+        description: 'Publish main dev images after all CI gates pass'
+        required: false
+        default: false
+        type: boolean
   pull_request:
     branches: [main]
     paths-ignore:
@@ -991,7 +997,7 @@ jobs:
     # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
     # Actions ran this job anyway, contending with the proper tag-only
     # publish-github / publish-release jobs and timing out at 14 min.
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_dev == 'true')
     steps:
       - name: Checkout
         run: |
@@ -1319,7 +1325,7 @@ jobs:
     # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
     # Actions ran this job anyway, contending with the proper tag-only
     # publish-github / publish-release jobs and timing out at 14 min.
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_dev == 'true')
     steps:
       - name: Checkout
         run: |

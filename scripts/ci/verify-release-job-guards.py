@@ -21,6 +21,10 @@ PUBLISH_JOBS = {
 RELEASE_JOBS = {
     "create-release",
 }
+RETRYABLE_DEV_PUBLISH_JOBS = {
+    "publish-dev",
+    "publish-github-dev",
+}
 REQUIRED_PUBLISH_NEEDS = {
     "verify-release-ref",
     "test-container",
@@ -128,7 +132,16 @@ def main() -> int:
         if not has_pull_request_trigger(text):
             continue
 
-        for job_name, block in job_blocks(text):
+        blocks = job_blocks(text)
+        job_names = {job_name for job_name, _ in blocks}
+        if RETRYABLE_DEV_PUBLISH_JOBS <= job_names:
+            trigger_text = text.split("\njobs:", maxsplit=1)[0]
+            if not re.search(r"^      publish_dev:\s*$", trigger_text, re.MULTILINE):
+                failures.append(
+                    f"{path} is missing the workflow_dispatch publish_dev input"
+                )
+
+        for job_name, block in blocks:
             if job_name in PUBLISH_JOBS:
                 missing = sorted(REQUIRED_PUBLISH_NEEDS - job_needs(block))
                 if missing:
@@ -139,6 +152,17 @@ def main() -> int:
                     failures.append(
                         f"{path}:{job_name} is missing the complete Knowledge Shard claim gate"
                     )
+                if job_name in RETRYABLE_DEV_PUBLISH_JOBS:
+                    expression = job_if_expression(block)
+                    required_guards = (
+                        "github.event_name == 'workflow_dispatch'",
+                        "github.event.inputs.publish_dev == 'true'",
+                    )
+                    for guard in required_guards:
+                        if guard not in expression:
+                            failures.append(
+                                f"{path}:{job_name} is missing manual dev publish guard: {guard}"
+                            )
 
             if job_name in RELEASE_JOBS:
                 needs = job_needs(block)
