@@ -2,9 +2,9 @@ name: Scheduled Docs Release
 
 on:
   schedule:
-    # Hourly is sufficient for scheduled editorial content and prevents
+    # Six-hour checks are sufficient for scheduled editorial content and prevent
     # no-op runs from overwhelming the server build signal in Actions history.
-    - cron: '17 * * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
