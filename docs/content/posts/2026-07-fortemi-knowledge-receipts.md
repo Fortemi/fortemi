@@ -2,7 +2,9 @@
 template: post
 title: "Knowledge should leave with receipts"
 slug: "2026-07-fortemi-knowledge-receipts"
-date: 2026-07-22
+date: 2026-07-21
+publish_at: "2026-07-22T00:08:36Z"
+scheduled_assets: ["blog/2026-07-fortemi-knowledge-receipts-hero.png", "blog/2026-07-fortemi-knowledge-receipts-diagram.svg"]
 author: Fortémi Team
 summary: "Portable knowledge is not just export. It needs provenance, shape, policy, and verification details that travel with the bundle."
 hero: https://docs.fortemi.com/server/assets/blog/2026-07-fortemi-knowledge-receipts-hero.png
@@ -142,7 +144,3 @@ Then test the system you already use.
 If it passes, keep using it. If it fails, the gap is now precise: the data can leave, but the receipts cannot.
 
 That is the right moment to inspect [Fortemi](https://github.com/Fortemi/fortemi) as one implementation model for knowledge that leaves with evidence attached.
-
-## Tools & transparency
-
-This article was drafted with AI assistance, then edited for voice, claims, and publication fit. Product behavior should be verified against the Fortémi repository and docs on the day this post is promoted. The hero image is AI-generated. The supporting diagram is illustrative, not a live product screenshot, export artifact, or benchmark result.
