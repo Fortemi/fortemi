@@ -1,6 +1,6 @@
 ---
 template: post
-title: "Fortémi — July 2026: Agent memory needs an inbox, not just a search box"
+title: "Agent memory needs an inbox, not just a search box"
 slug: "2026-07-fortemi-memory-inbox"
 date: 2026-07-31
 author: Fortémi Team
