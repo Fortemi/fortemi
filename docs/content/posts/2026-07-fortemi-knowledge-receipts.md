@@ -1,6 +1,6 @@
 ---
 template: post
-title: "Fortémi — July 2026: Knowledge should leave with receipts"
+title: "Knowledge should leave with receipts"
 slug: "2026-07-fortemi-knowledge-receipts"
 date: 2026-07-21
 author: Fortémi Team
