@@ -1,17 +1,14 @@
 ---
 template: post
-title: "Knowledge should leave with receipts"
+title: "Fortémi — July 2026: Knowledge should leave with receipts"
 slug: "2026-07-fortemi-knowledge-receipts"
 date: 2026-07-21
-publish_at: "2026-07-22T00:08:36Z"
-scheduled_assets: ["blog/2026-07-fortemi-knowledge-receipts-hero.png", "blog/2026-07-fortemi-knowledge-receipts-diagram.svg"]
 author: Fortémi Team
 summary: "Portable knowledge is not just export. It needs provenance, shape, policy, and verification details that travel with the bundle."
 hero: https://docs.fortemi.com/server/assets/blog/2026-07-fortemi-knowledge-receipts-hero.png
+heroAlt: "Illustration of a portable knowledge bundle carrying provenance, manifest, policy, and verification receipts."
 tags: [fortemi, agent-memory, provenance, portability]
 ---
-
-# Knowledge should leave with receipts
 
 Most knowledge tools have an export story.
 

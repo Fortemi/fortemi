@@ -1,17 +1,14 @@
 ---
 template: post
-title: "Agent memory needs an inbox, not just a search box"
+title: "Fortémi — July 2026: Agent memory needs an inbox, not just a search box"
 slug: "2026-07-fortemi-memory-inbox"
-date: 2026-07-21
-publish_at: ""
-scheduled_assets: ["blog/2026-07-fortemi-memory-inbox-hero.png", "blog/2026-07-fortemi-memory-inbox-diagram.svg"]
+date: 2026-07-31
 author: Fortémi Team
 summary: "The first test for agent memory is intake: can a messy input be accepted, normalized, reviewed, routed, and made searchable without losing accountability?"
 hero: https://docs.fortemi.com/server/assets/blog/2026-07-fortemi-memory-inbox-hero.png
+heroAlt: "Illustration of an agent memory inbox routing incoming context through capture, normalization, review, and commit lanes."
 tags: [fortemi, agent-memory, ingest, knowledge-operations]
 ---
-
-# Agent memory needs an inbox, not just a search box
 
 Most conversations about agent memory start at retrieval.
 
@@ -149,7 +146,3 @@ If your current system answers those questions, document the lane and keep using
 If it cannot, the memory does not need a better demo yet. It needs an inbox.
 
 Inspect the [Fortemi server](https://github.com/Fortemi/fortemi) as one concrete implementation model, then test the idea against a real source of context.
-
-## Tools & transparency
-
-This article was drafted with AI assistance, then edited for voice, claims, and publication fit. Product behavior should be verified against the Fortémi repository and docs on the day this post is promoted. The hero image is AI-generated. The supporting diagram is illustrative, not a live product screenshot, export artifact, or benchmark result.
