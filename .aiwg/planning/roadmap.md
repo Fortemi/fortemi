@@ -1,7 +1,7 @@
 # Fortemi Delivery Roadmap
 
 > **Status:** Active — reference until all planned phases are complete.
-> **Created:** 2026-06-24 · **Last updated:** 2026-07-20
+> **Created:** 2026-06-24 · **Last updated:** 2026-08-13
 > **Tracker:** Gitea `Fortemi/fortemi` (authoritative). Issue numbers below are Gitea issues.
 > **Source:** Synthesized from the 2026-06-21→23 open-issue audit sweep (#746–#1006), the milestone structure, and the 2026-06-23 interactive product-decision Q&A (31 decisions recorded on-issue).
 
@@ -584,7 +584,7 @@ Single-user desktop product; no multi-tenancy or advanced OAuth.
 **Gating:** can proceed alongside; distribution gates final GA packaging.
 
 - [ ] Streaming: #906 (cost/default mode) / #915 / #939 (outbox backpressure + payload minimization) / #896 (ADR refresh).
-- [ ] Native distribution: #64 packaging/service lifecycle/CI publish; supply-chain #916/#888/#887/#886; licensing notices #901/#894.
+- [~] Native distribution: #64 packaging/service lifecycle/CI publish; supply-chain #916/#888/#887/#886; licensing notices #901/#894. (2026-08-13: publication audit verified `v2026.7.19` across Gitea release, GitHub release assets, GHCR stable aliases, and current-main GHCR aliases; workflow pinning and release-policy checks pass. `Fortemi/fortemi.com#37` now routes download controls to GitHub release authorities with regression coverage; #916 binary signing remains an explicit open gate.)
 
 ---
 
@@ -1319,3 +1319,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-06-29 — CE/EE migration move-set executed: created `Fortemi-Enterprise/mcp-gate#1` (← #718), `Fortemi-Enterprise/kms#1` (← #911/#912 closed + #734 backend portion), `Fortemi-Enterprise/audit-sinks#1` (← #910 EE remainder + #711 sink portion). CE keeps all plugin seams + enforcement wiring + advanced OAuth + #730/#731 + contracts (#897/#893); #734/#711 re-scoped to CE residual. Triage + execution recorded in `.aiwg/planning/ce-ee-migration-triage.md`.
 - 2026-07-06 — Enterprise/backoffice checkpoint rebaseline applied and reconciled to authoritative trackers on 2026-07-14: ADR-088 through ADR-100 have checkpoint status, phase-owner, and decision-date fields in `docs/architecture/adr/`, with the detailed matrix in `.aiwg/architecture/adr-rebaseline-checklist-2026-07.md`. Milestone #62 remains no-go for hosted production until RLS (`Fortemi/fortemi#733`), KeyProvider/AWS KMS (`Fortemi/fortemi#734`), backoffice/API discovery (`Fortemi/fortemi#1020`), EE repo scaffolding, and private package verification have evidence.
 - 2026-07-20 — #973 completed the mutable-bundle verification policy slice with exact-SHA hosted evidence; the Phase 1 Docker-bundle group is now explicitly in progress.
+- 2026-08-13 — #64 native distribution audit verified latest stable and rolling-main publication across Gitea, GitHub Releases, and GHCR; `Fortemi/fortemi.com#37` carries release-link remediation and #916 signing remains open.
