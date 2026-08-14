@@ -379,6 +379,19 @@ class SuitePlatformMatrixTests(unittest.TestCase):
             runner,
         )
 
+    def test_ci_builder_serializes_shared_database_tests(self):
+        workflow = (
+            ROOT / ".gitea/workflows/ci-builder.yaml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "cargo test --workspace --exclude matric-jobs -- --test-threads=1",
+            workflow,
+        )
+        self.assertNotIn(
+            "\n          cargo test --workspace --exclude matric-jobs\n",
+            workflow,
+        )
+
     def test_linux_arm64_uses_private_database_network_without_daemon_socket(self):
         workflow = (
             ROOT / ".gitea/workflows/suite-platform-contract.yml"

@@ -621,9 +621,10 @@ jobs:
         run: |
           DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
-          # Run all workspace tests except matric-jobs
-          # (matric-jobs worker tests already ran above with serial execution)
-          cargo test --workspace --exclude matric-jobs
+          # The remaining tests share this PostgreSQL instance and mutate
+          # archive/job tables. Serialize them to prevent transient deadlocks
+          # during schema cleanup; matric-jobs already ran separately above.
+          cargo test --workspace --exclude matric-jobs -- --test-threads=1
 
       - name: Capture AL-SYS04/05 asset lifecycle receipt
         run: |
