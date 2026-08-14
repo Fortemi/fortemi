@@ -18,8 +18,19 @@ PUBLISH_JOBS = {
     "publish-github-dev",
     "publish-github",
 }
-RELEASE_JOBS = {
-    "create-release",
+RELEASE_JOB_NEEDS = {
+    "verify-ghcr-release": {
+        "publish-github",
+    },
+    "create-release": {
+        "publish-release",
+        "publish-github",
+        "verify-ghcr-release",
+    },
+    "create-github-release": {
+        "publish-github",
+        "verify-ghcr-release",
+    },
 }
 RETRYABLE_DEV_PUBLISH_JOBS = {
     "publish-dev",
@@ -34,10 +45,6 @@ REQUIRED_PUBLISH_NEEDS = {
     "mcp-lockfile-sync",
     "mcp-server-tests",
     "knowledge-shard-matrix",
-}
-REQUIRED_RELEASE_NEEDS = {
-    "publish-release",
-    "publish-github",
 }
 
 
@@ -164,15 +171,16 @@ def main() -> int:
                                 f"{path}:{job_name} is missing manual dev publish guard: {guard}"
                             )
 
-            if job_name in RELEASE_JOBS:
+            if job_name in RELEASE_JOB_NEEDS:
                 needs = job_needs(block)
-                missing = sorted(REQUIRED_RELEASE_NEEDS - needs)
+                required_needs = RELEASE_JOB_NEEDS[job_name]
+                missing = sorted(required_needs - needs)
                 if missing:
                     failures.append(
                         f"{path}:{job_name} release job is missing required publish dependencies: {', '.join(missing)}"
                     )
                 expression = job_if_expression(block)
-                for required in sorted(REQUIRED_RELEASE_NEEDS):
+                for required in sorted(required_needs):
                     guard = f"needs.{required}.result == 'success'"
                     if guard not in expression:
                         failures.append(

@@ -202,7 +202,13 @@ Creates a public release on GitHub with:
 - Installation instructions for Docker
 - Quick start commands
 
-**Dependencies**: Requires `publish-github` job to pass
+Before release creation, `verify-ghcr-release` uses a clean Docker client with
+no registry credentials to prove both versioned images are publicly pullable.
+It also verifies that `latest` aliases resolve to the versioned digests, the
+API and bundle platform sets match policy, and both amd64 images carry the
+release commit and version labels.
+
+**Dependencies**: Requires `publish-github` and `verify-ghcr-release` to pass
 
 ## Sidecar Image Workflows
 

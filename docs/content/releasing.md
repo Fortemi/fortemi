@@ -105,6 +105,11 @@ The release jobs upload registry-derived receipts that bind version and mutable
 tags to these digests. Verify and retain them as described in
 [Container Release Evidence](#/container-release-evidence).
 
+Release entries are created only after the tag-only `verify-ghcr-release` job
+repeats those checks with an anonymous Docker configuration and verifies the
+published image revision/version labels. This prevents a private or stale GHCR
+package from producing an apparently complete release.
+
 > **Sidecar images** (GLiNER, pyannote) are released independently with their own tags. See [CI/CD docs](#/operations-ci-cd) for details.
 
 ### Post-Release

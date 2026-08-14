@@ -1,9 +1,11 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-13T18:54:00Z"
+  updated_at: "2026-08-14T00:28:18Z"
 records:
   - entity: ".aiwg/planning/roadmap.md"
     record: "records/fortemi-delivery-roadmap-native-distribution-64.prov.yaml"
+  - entity: ".aiwg/release.config"
+    record: "records/fortemi-release-config-ghcr-publication-64.prov.yaml"
   - entity: ".gitea/workflows/publish-sidecar.yml"
     record: "records/publish-sidecar-workflow-linux-arm64-1095.prov.yaml"
   - entity: "scripts/ci/publish-sidecar-release.sh"

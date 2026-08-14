@@ -13,6 +13,7 @@ from pathlib import Path
 POLICY = Path("docker/container-release-evidence-policy.json")
 CI_WORKFLOW = Path(".gitea/workflows/ci-builder.yaml")
 CAPTURE = "scripts/ci/capture-container-release-evidence.py"
+PUBLIC_VERIFY = "scripts/ci/verify-ghcr-publication.sh"
 EXPECTED_FAMILIES = {"api", "bundle", "gliner", "pyannote", "builder", "testdb"}
 EXPECTED_REGISTRIES = {"git.integrolabs.net", "ghcr.io"}
 EXPECTED_BUILD_ARGS = {"VERSION", "GIT_SHA", "BUILD_DATE"}
@@ -148,6 +149,28 @@ def main() -> int:
     )[-1].split("- name: Upload GHCR release image evidence", 1)[0]
     if 'export VERSION="${GITHUB_REF_NAME#v}"' not in release_promotion:
         failures.append("GHCR release promotion must export VERSION to its publisher")
+
+    try:
+        public_verifier = Path(PUBLIC_VERIFY).read_text()
+    except OSError as error:
+        failures.append(f"cannot read public GHCR verifier: {error}")
+        public_verifier = ""
+    for required in (
+        'export DOCKER_CONFIG="$public_docker_config"',
+        '--immutable-ref "${TARGET_IMAGE}:${VERSION}"',
+        '--alias "${TARGET_IMAGE}:latest"',
+        '--immutable-ref "${TARGET_IMAGE}:bundle-${VERSION}"',
+        '--alias "${TARGET_IMAGE}:bundle-latest"',
+        'verify_labels "${TARGET_IMAGE}:${VERSION}"',
+        'verify_labels "${TARGET_IMAGE}:bundle-${VERSION}"',
+    ):
+        if required not in public_verifier:
+            failures.append(f"public GHCR verifier is missing: {required}")
+
+    if "verify-ghcr-release:" not in ci_workflow:
+        failures.append("CI workflow must define the public GHCR release verification job")
+    if "scripts/ci/verify-ghcr-publication.sh" not in ci_workflow:
+        failures.append("CI workflow must invoke the public GHCR publication verifier")
 
     if failures:
         print("container release evidence policy check failed", file=sys.stderr)

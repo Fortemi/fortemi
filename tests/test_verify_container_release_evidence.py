@@ -29,6 +29,10 @@ class VerifyContainerReleaseEvidenceTests(unittest.TestCase):
             ROOT / "scripts/ci/promote-ghcr-images.sh",
             self.root / "scripts/ci/promote-ghcr-images.sh",
         )
+        shutil.copy2(
+            ROOT / "scripts/ci/verify-ghcr-publication.sh",
+            self.root / "scripts/ci/verify-ghcr-publication.sh",
+        )
         for workflow in WORKFLOWS:
             shutil.copy2(ROOT / workflow, self.root / workflow)
 
@@ -82,6 +86,27 @@ class VerifyContainerReleaseEvidenceTests(unittest.TestCase):
         result = self.run_verifier()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must export VERSION", result.stderr)
+
+    def test_missing_public_ghcr_gate_fails_closed(self) -> None:
+        workflow = self.root / ".gitea/workflows/ci-builder.yaml"
+        workflow.write_text(
+            workflow.read_text().replace("  verify-ghcr-release:\n", "  removed-ghcr-release:\n")
+        )
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("public GHCR release verification job", result.stderr)
+
+    def test_authenticated_public_verifier_fails_closed(self) -> None:
+        verifier = self.root / "scripts/ci/verify-ghcr-publication.sh"
+        verifier.write_text(
+            verifier.read_text().replace(
+                'export DOCKER_CONFIG="$public_docker_config"',
+                'echo "not anonymous"',
+            )
+        )
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("DOCKER_CONFIG", result.stderr)
 
 
 if __name__ == "__main__":

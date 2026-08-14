@@ -260,6 +260,7 @@ jobs:
           python3 scripts/ci/verify-container-release-evidence.py
           python3 -m unittest \
             tests/test_container_release_evidence.py \
+            tests/test_verify_ghcr_publication.py \
             tests/test_verify_container_release_evidence.py
 
       - name: Check runner capacity guard
@@ -1228,7 +1229,7 @@ jobs:
   create-release:
     name: Create Gitea Release
     runs-on: matric-builder
-    needs: [publish-release, publish-github]
+    needs: [publish-release, publish-github, verify-ghcr-release]
     # Belt-and-suspenders gating. The `needs.*.result == 'success'` clauses
     # should be sufficient — both publish jobs are themselves tag-gated, so on
     # push-to-main they are skipped and `result` is 'skipped'.
@@ -1236,7 +1237,7 @@ jobs:
     # (CI run #1491; see fix/release-jobs-tag-gating). The explicit
     # `startsWith` check is redundant on GitHub Actions but defensive
     # against the Gitea evaluator's behavior.
-    if: startsWith(github.ref, 'refs/tags/v') && needs.publish-release.result == 'success' && needs.publish-github.result == 'success'
+    if: startsWith(github.ref, 'refs/tags/v') && needs.publish-release.result == 'success' && needs.publish-github.result == 'success' && needs.verify-ghcr-release.result == 'success'
     steps:
       - name: Checkout
         run: |
@@ -1472,16 +1473,46 @@ jobs:
           path: container-release-evidence/
           retention-days: 365
 
+  # Prove that consumers can pull the promoted packages without the publisher
+  # credential before either release entry is finalized.
+  verify-ghcr-release:
+    name: Verify Public GHCR Release
+    runs-on: matric-builder
+    needs: [publish-github]
+    if: startsWith(github.ref, 'refs/tags/v') && needs.publish-github.result == 'success'
+    steps:
+      - name: Checkout
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Verify anonymous GHCR access and release metadata
+        run: |
+          set -euo pipefail
+          export TARGET_IMAGE="${GHCR_REGISTRY}/${GHCR_IMAGE_NAME}"
+          export VERSION="${GITHUB_REF_NAME#v}"
+          scripts/ci/verify-ghcr-publication.sh
+
+      - name: Upload public GHCR verification evidence
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
+        with:
+          name: container-release-evidence-ghcr-public-${{ github.run_id }}
+          path: container-release-evidence/
+          retention-days: 365
+
   # Create GitHub Release with changelog
   create-github-release:
     name: Create GitHub Release
     runs-on: matric-builder
-    needs: publish-github
+    needs: [publish-github, verify-ghcr-release]
     # See create-release above for the rationale. CI run #1491 had this job
     # fire on push-to-main and try to create a GitHub release for tag_name
     # "main" (since GITHUB_REF_NAME on a non-tag push is the branch name),
     # which the GitHub API rejects.
-    if: startsWith(github.ref, 'refs/tags/v') && needs.publish-github.result == 'success'
+    if: startsWith(github.ref, 'refs/tags/v') && needs.publish-github.result == 'success' && needs.verify-ghcr-release.result == 'success'
     steps:
       - name: Checkout
         run: |

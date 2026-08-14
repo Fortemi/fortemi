@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-14T00:28:18Z"
+  updated_at: "2026-08-14T00:28:18Z"
+  description: "Provenance for declaring Fortemi GHCR release verification subjects"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/release.config"
+  type: configuration
+  checksum: "sha256:ed7932e715fff32f7c8b3026f00f49253e9fcde50f30c5e596d5b517d9711252"
+  size_bytes: 5452
+  attributes:
+    change_scope: "fortemi-64-ghcr-publication-verification"
+    result: "implemented"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-release-config-ghcr-publication-64:001"
+  type: modification
+  started_at: "2026-08-14T00:20:00Z"
+  ended_at: "2026-08-14T00:28:18Z"
+  description: "Declare stable API and bundle GHCR tags as release publication verification subjects"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/release.config"
+    activity: "urn:aiwg:activity:modification:fortemi-release-config-ghcr-publication-64:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/release.config"
+      source: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+      derivation_type: "configures"
+      activity: "urn:aiwg:activity:modification:fortemi-release-config-ghcr-publication-64:001"
+    - entity: "urn:aiwg:artifact:.aiwg/release.config"
+      source: "urn:aiwg:artifact:scripts/ci/verify-ghcr-publication.sh"
+      derivation_type: "verifies"
+      activity: "urn:aiwg:activity:modification:fortemi-release-config-ghcr-publication-64:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-release-config-ghcr-publication-64:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "software_implementer"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/release.config"
+    agent: "urn:aiwg:agent:codex-gpt-5"

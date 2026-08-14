@@ -1,13 +1,13 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-08-13T18:54:00Z"
-  updated_at: "2026-08-13T18:54:00Z"
+  updated_at: "2026-08-14T00:28:18Z"
   description: "Provenance for the Fortemi native-distribution roadmap audit increment"
 entity:
   id: "urn:aiwg:artifact:.aiwg/planning/roadmap.md"
   type: planning
-  checksum: "sha256:c21037c7e4563317f8ae41ea69afa815b573a61ecfb3231d3af50500d025865e"
-  size_bytes: 311739
+  checksum: "sha256:97572d635f32cc0d1350441b2146a90f02093d5a25ccbffcfac1d9694a953c79"
+  size_bytes: 312089
   attributes:
     change_scope: "fortemi-64-native-distribution-publication-audit"
     result: "in_progress"
@@ -15,8 +15,8 @@ activity:
   id: "urn:aiwg:activity:modification:fortemi-delivery-roadmap-native-distribution-64:001"
   type: modification
   started_at: "2026-08-13T18:36:00Z"
-  ended_at: "2026-08-13T18:54:00Z"
-  description: "Record verified stable and rolling publication evidence and the website release-link remediation"
+  ended_at: "2026-08-14T00:28:18Z"
+  description: "Record verified publication evidence and the anonymous GHCR release-completion gate"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
