@@ -50,7 +50,7 @@ ring.workspace = true
 urlencoding = "2.1"
 regex = "1"
 kamadak-exif = "0.5"
-lru = "0.16"
+lru = "0.18.2"
 ipnet = "2.12"
 
 # Redis cache

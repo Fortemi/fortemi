@@ -584,7 +584,7 @@ Single-user desktop product; no multi-tenancy or advanced OAuth.
 **Gating:** can proceed alongside; distribution gates final GA packaging.
 
 - [ ] Streaming: #906 (cost/default mode) / #915 / #939 (outbox backpressure + payload minimization) / #896 (ADR refresh).
-- [~] Native distribution: #64 packaging/service lifecycle/CI publish; supply-chain #916/#888/#887/#886; licensing notices #901/#894. (2026-08-13: publication audit verified `v2026.7.19` across Gitea release, GitHub release assets, GHCR stable aliases, and current-main GHCR aliases; workflow pinning and release-policy checks pass. Release CI now blocks both release entries until an anonymous client verifies public GHCR pulls, stable-alias digest binding, platform policy, and source labels. `Fortemi/fortemi.com#37` routes download controls to GitHub release authorities with regression coverage; #916 binary signing remains an explicit open gate.)
+- [~] Native distribution: #64 packaging/service lifecycle/CI publish; supply-chain #916/#888/#887/#886; licensing notices #901/#894. (2026-08-13: publication audit verified `v2026.7.19` across Gitea release, GitHub release assets, GHCR stable aliases, and current-main GHCR aliases; workflow pinning and release-policy checks pass. Release CI now blocks both release entries until an anonymous client verifies public GHCR pulls, stable-alias digest binding, platform policy, and source labels. The current Rust and MCP audit blockers were remediated by upgrading `lru` to `0.18.2` and refreshing patched MCP transitive locks. `Fortemi/fortemi.com#37` routes download controls to GitHub release authorities with regression coverage; #916 binary signing remains an explicit open gate.)
 
 ---
 
@@ -1321,3 +1321,4 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-07-20 — #973 completed the mutable-bundle verification policy slice with exact-SHA hosted evidence; the Phase 1 Docker-bundle group is now explicitly in progress.
 - 2026-08-13 — #64 native distribution audit verified latest stable and rolling-main publication across Gitea, GitHub Releases, and GHCR; `Fortemi/fortemi.com#37` carries release-link remediation and #916 signing remains open.
 - 2026-08-13 — #64 release CI gained a credential-free GHCR verification gate; Gitea and GitHub release creation now require public pull, digest-alias, platform, and revision/version proof.
+- 2026-08-13 — #64 publication blockers from hosted dependency audits were remediated: `lru` upgraded to `0.18.2`, MCP transitive locks refreshed, and local MCP audit returned zero vulnerabilities.
