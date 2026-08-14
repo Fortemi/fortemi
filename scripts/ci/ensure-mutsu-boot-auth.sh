@@ -9,7 +9,7 @@ fi
 private_key="$1"
 ssh_config="$2"
 host_alias="$3"
-expected_fingerprint="SHA256:eJxMbprMf90uFTbXdr5uj6i8f63x4//sHiZ3HSonrCw"
+expected_fingerprint="SHA256:98FJbexEnVPwJAio08Qv53uEahv4u6V+wSoUQLyKFII"
 
 test -s "$private_key"
 test -s "$ssh_config"

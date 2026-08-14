@@ -62,7 +62,7 @@ def main() -> int:
         )
 
     for needle in (
-        "SHA256:eJxMbprMf90uFTbXdr5uj6i8f63x4//sHiZ3HSonrCw",
+        "SHA256:98FJbexEnVPwJAio08Qv53uEahv4u6V+wSoUQLyKFII",
         'authorized_keys_file="${authorized_keys_dir}/manitcor"',
         "AuthorizedKeysFile .ssh/authorized_keys /etc/ssh/authorized_keys/%u",
         "sudo -n /usr/sbin/sshd -t",
