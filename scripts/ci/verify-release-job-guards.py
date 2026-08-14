@@ -22,16 +22,22 @@ RELEASE_JOB_NEEDS = {
     "verify-ghcr-release": {
         "publish-github",
     },
-    "create-release": {
+    "finalize-releases": {
         "publish-release",
         "publish-github",
         "verify-ghcr-release",
     },
-    "create-github-release": {
-        "publish-github",
-        "verify-ghcr-release",
-    },
 }
+RETIRED_RELEASE_JOBS = {
+    "create-release",
+    "create-github-release",
+}
+FINALIZER_REQUIRED_FRAGMENTS = (
+    "ci/vault-fetch.gitea-release.spec",
+    'API="https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}"',
+    "https://api.github.com/repos/Fortemi/fortemi/releases",
+    "scripts/ci/mirror-release-assets-to-github.sh",
+)
 RETRYABLE_DEV_PUBLISH_JOBS = {
     "publish-dev",
     "publish-github-dev",
@@ -141,12 +147,31 @@ def main() -> int:
 
         blocks = job_blocks(text)
         job_names = {job_name for job_name, _ in blocks}
+        block_by_name = dict(blocks)
         if RETRYABLE_DEV_PUBLISH_JOBS <= job_names:
             trigger_text = text.split("\njobs:", maxsplit=1)[0]
             if not re.search(r"^      publish_dev:\s*$", trigger_text, re.MULTILINE):
                 failures.append(
                     f"{path} is missing the workflow_dispatch publish_dev input"
                 )
+
+        if PUBLISH_JOBS <= job_names:
+            missing_release_jobs = sorted(RELEASE_JOB_NEEDS.keys() - job_names)
+            if missing_release_jobs:
+                failures.append(
+                    f"{path} is missing required release jobs: {', '.join(missing_release_jobs)}"
+                )
+            retired_release_jobs = sorted(RETIRED_RELEASE_JOBS & job_names)
+            if retired_release_jobs:
+                failures.append(
+                    f"{path} still defines retired duplicate release jobs: {', '.join(retired_release_jobs)}"
+                )
+            finalizer = block_by_name.get("finalize-releases", "")
+            for fragment in FINALIZER_REQUIRED_FRAGMENTS:
+                if fragment not in finalizer:
+                    failures.append(
+                        f"{path}:finalize-releases is missing required release operation: {fragment}"
+                    )
 
         for job_name, block in blocks:
             if job_name in PUBLISH_JOBS:

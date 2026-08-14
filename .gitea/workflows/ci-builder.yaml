@@ -248,7 +248,9 @@ jobs:
           python3 -m unittest tests/test_verify_source_backup_artifacts.py
 
       - name: Check release job guards
-        run: python3 scripts/ci/verify-release-job-guards.py
+        run: |
+          python3 scripts/ci/verify-release-job-guards.py
+          python3 -m unittest tests/test_verify_release_job_guards.py
 
       - name: Check immutable workflow checkout contract
         run: |
@@ -1225,87 +1227,6 @@ jobs:
           path: container-release-evidence/
           retention-days: 365
 
-  # Create Gitea release on tag push
-  create-release:
-    name: Create Gitea Release
-    runs-on: matric-builder
-    needs: [publish-release, publish-github, verify-ghcr-release]
-    # Belt-and-suspenders gating. The `needs.*.result == 'success'` clauses
-    # should be sufficient — both publish jobs are themselves tag-gated, so on
-    # push-to-main they are skipped and `result` is 'skipped'.
-    # In practice Gitea Actions has fired this job on push-to-main anyway
-    # (CI run #1491; see fix/release-jobs-tag-gating). The explicit
-    # `startsWith` check is redundant on GitHub Actions but defensive
-    # against the Gitea evaluator's behavior.
-    if: startsWith(github.ref, 'refs/tags/v') && needs.publish-release.result == 'success' && needs.publish-github.result == 'success' && needs.verify-ghcr-release.result == 'success'
-    steps:
-      - name: Checkout
-        run: |
-          set -euo pipefail
-          git init -q .
-          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
-          git checkout --quiet --detach FETCH_HEAD
-
-      - name: Extract changelog
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "Extracting changelog for version ${VERSION}"
-
-          # Extract section from CHANGELOG.md
-          awk "/^## \[${VERSION}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md > release_notes.md || true
-
-          if [ ! -s release_notes.md ]; then
-            echo "No changelog found, using default message"
-            echo "Release ${GITHUB_REF_NAME}" > release_notes.md
-          fi
-
-          cat release_notes.md
-
-      - name: Fetch Gitea release token from vault
-        env:
-          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
-          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
-        run: ci/vault-fetch.sh --spec ci/vault-fetch.gitea-release.spec
-
-      - name: Create release
-        run: |
-          VERSION="${GITHUB_REF_NAME}"
-          API="https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}"
-          TOKEN="${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}"
-          BODY_JSON=$(cat release_notes.md | jq -Rs .)
-
-          # publish-sidecar.yml may have created a release on this tag
-          # before this job ran (it triggers on the same tag push and only
-          # waits 5 minutes for the versioned release before creating one
-          # itself). If so, PATCH the body so the changelog content wins
-          # over any boilerplate.
-          EXISTING=$(curl -sf -H "Authorization: token ${TOKEN}" \
-            "${API}/releases/tags/${VERSION}" 2>/dev/null || true)
-          EXISTING_ID=$(echo "${EXISTING}" | jq -r '.id // empty')
-
-          if [ -n "${EXISTING_ID}" ]; then
-            echo "Release ${VERSION} already exists (id=${EXISTING_ID}); updating body"
-            curl -fsS -X PATCH \
-              -H "Authorization: token ${TOKEN}" \
-              -H "Content-Type: application/json" \
-              "${API}/releases/${EXISTING_ID}" \
-              -d "{\"body\": ${BODY_JSON}}"
-          else
-            echo "Creating release ${VERSION}"
-            curl -fsS -X POST \
-              -H "Authorization: token ${TOKEN}" \
-              -H "Content-Type: application/json" \
-              "${API}/releases" \
-              -d "{
-                \"tag_name\": \"${VERSION}\",
-                \"name\": \"${VERSION}\",
-                \"body\": ${BODY_JSON},
-                \"draft\": false,
-                \"prerelease\": false
-              }"
-          fi
-
   # =============================================================================
   # GitHub Publishing (Public Release Target)
   # =============================================================================
@@ -1503,16 +1424,14 @@ jobs:
           path: container-release-evidence/
           retention-days: 365
 
-  # Create GitHub Release with changelog
-  create-github-release:
-    name: Create GitHub Release
+  # Finalize both release entries only after every registry publication and
+  # the anonymous GHCR verification gate succeeds. Keeping this as one job
+  # avoids Gitea scheduling two condition-false release tasks on main pushes.
+  finalize-releases:
+    name: Finalize Gitea and GitHub Releases
     runs-on: matric-builder
-    needs: [publish-github, verify-ghcr-release]
-    # See create-release above for the rationale. CI run #1491 had this job
-    # fire on push-to-main and try to create a GitHub release for tag_name
-    # "main" (since GITHUB_REF_NAME on a non-tag push is the branch name),
-    # which the GitHub API rejects.
-    if: startsWith(github.ref, 'refs/tags/v') && needs.publish-github.result == 'success' && needs.verify-ghcr-release.result == 'success'
+    needs: [publish-release, publish-github, verify-ghcr-release]
+    if: startsWith(github.ref, 'refs/tags/v') && needs.publish-release.result == 'success' && needs.publish-github.result == 'success' && needs.verify-ghcr-release.result == 'success'
     steps:
       - name: Checkout
         run: |
@@ -1570,6 +1489,46 @@ jobs:
           echo "=== Release Notes ==="
           cat release_notes.md
           echo "===================="
+
+      - name: Fetch Gitea release token from vault
+        env:
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.gitea-release.spec
+
+      - name: Create or update Gitea Release
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          API="https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}"
+          TOKEN="${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}"
+          BODY_JSON=$(jq -Rs . <release_notes.md)
+
+          # publish-sidecar.yml may have created this tag's release first.
+          EXISTING=$(curl -sf -H "Authorization: token ${TOKEN}" \
+            "${API}/releases/tags/${VERSION}" 2>/dev/null || true)
+          EXISTING_ID=$(echo "${EXISTING}" | jq -r '.id // empty')
+
+          if [ -n "${EXISTING_ID}" ]; then
+            echo "Release ${VERSION} already exists (id=${EXISTING_ID}); updating body"
+            curl -fsS -X PATCH \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              "${API}/releases/${EXISTING_ID}" \
+              -d "{\"body\": ${BODY_JSON}}"
+          else
+            echo "Creating release ${VERSION}"
+            curl -fsS -X POST \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              "${API}/releases" \
+              -d "{
+                \"tag_name\": \"${VERSION}\",
+                \"name\": \"${VERSION}\",
+                \"body\": ${BODY_JSON},
+                \"draft\": false,
+                \"prerelease\": false
+              }"
+          fi
 
       - name: Fetch GitHub release token from vault
         env:

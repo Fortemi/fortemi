@@ -176,13 +176,7 @@ Production deployments should pin `ghcr.io/fortemi/fortemi@sha256:...` reference
 
 > **Note**: Sidecar images (GLiNER, pyannote) are released independently — see [Sidecar Image Workflows](#sidecar-image-workflows) below.
 
-### 8. Create Gitea Release
-
-Creates a release on the internal Gitea instance with changelog extraction from `CHANGELOG.md`.
-
-**Dependencies**: Requires `publish-release` job to pass
-
-### 9. Publish to GitHub (ghcr.io)
+### 8. Publish to GitHub (ghcr.io)
 
 Publishes release images to GitHub Container Registry for public distribution:
 
@@ -195,9 +189,9 @@ Tags: {version}, latest, bundle-{version}, bundle-latest
 
 **Triggers**: Version tags only (`v*`)
 
-### 10. Create GitHub Release
+### 9. Finalize Gitea and GitHub Releases
 
-Creates a public release on GitHub with:
+Creates the internal Gitea and public GitHub releases in one finalizer with:
 - Changelog extracted from `CHANGELOG.md`
 - Installation instructions for Docker
 - Quick start commands
@@ -208,7 +202,9 @@ It also verifies that `latest` aliases resolve to the versioned digests, the
 API and bundle platform sets match policy, and both amd64 images carry the
 release commit and version labels.
 
-**Dependencies**: Requires `publish-github` and `verify-ghcr-release` to pass
+**Dependencies**: Requires `publish-release`, `publish-github`, and
+`verify-ghcr-release` to pass. Consolidating both release entries into one
+tag-only job prevents branch builds from scheduling redundant release tasks.
 
 ## Sidecar Image Workflows
 
