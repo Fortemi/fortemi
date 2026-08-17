@@ -1,0 +1,450 @@
+{
+  "schema_version": "fortemi.asyncapi.event-fixtures.v1",
+  "producer_repository": "Fortemi/fortemi",
+  "producer_commit": "external-delivery-pin",
+  "asyncapi_path": "contracts/asyncapi/asyncapi.yaml",
+  "asyncapi_sha256": "1ec4a4477431caf60a62ace48f80186bf732408476a24c8d9cd32dba41957ea4",
+  "envelope_contract_revision": "1",
+  "payload_revision": 1,
+  "event_count": 48,
+  "schema_count": 4,
+  "corpus": {
+    "root": "contracts/asyncapi/fixtures/events",
+    "aggregate_algorithm": "sha256(raw fixture file bytes concatenated in lexicographic path order)",
+    "sha256": "ee09b909863b868b57c3bf95daa47d3e24f84eb7eb487c1d64c0ef40ef4dc6ad"
+  },
+  "fixtures": [
+    {
+      "event_type": "queue.status",
+      "variant_name": "QueueStatus",
+      "path": "contracts/asyncapi/fixtures/events/queue_status.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=QueueStatus]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "0a53ce4ed7ed9e055700fbaff7428d2e2818133db2dccd5ce747c42df6d5fcdb"
+    },
+    {
+      "event_type": "job.queued",
+      "variant_name": "JobQueued",
+      "path": "contracts/asyncapi/fixtures/events/job_queued.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=JobQueued]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "84ef0dc6df2e92b22508c3fcb983cb4b8ce08492038207ad55f9853826d13bb2"
+    },
+    {
+      "event_type": "job.started",
+      "variant_name": "JobStarted",
+      "path": "contracts/asyncapi/fixtures/events/job_started.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=JobStarted]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "2375fd555aec04f9b700e2f29b1ffbde3d3635964f3034d70376e5604e146e1e"
+    },
+    {
+      "event_type": "job.progress",
+      "variant_name": "JobProgress",
+      "path": "contracts/asyncapi/fixtures/events/job_progress.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=JobProgress]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "90f8d50c84dfa423e76e1a311ab08f44214d7467325039905b8abc77c2a15354"
+    },
+    {
+      "event_type": "job.completed",
+      "variant_name": "JobCompleted",
+      "path": "contracts/asyncapi/fixtures/events/job_completed.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=JobCompleted]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "7bbb39af5f3a2d2fb7df72638005fc6d66bc3dc3dd5110cf941a0627f59247dd"
+    },
+    {
+      "event_type": "job.failed",
+      "variant_name": "JobFailed",
+      "path": "contracts/asyncapi/fixtures/events/job_failed.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=JobFailed]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "c7786b25525d481b0d41638fa559e38e990e1a880744d702ed78f97d5b6ccba7"
+    },
+    {
+      "event_type": "note.updated",
+      "variant_name": "NoteUpdated",
+      "path": "contracts/asyncapi/fixtures/events/note_updated.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=NoteUpdated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "cbb4a8ce6fbb02ad19ca157082875cbfa4385f156450d8ceebdcf5d030ff905e"
+    },
+    {
+      "event_type": "note.created",
+      "variant_name": "NoteCreated",
+      "path": "contracts/asyncapi/fixtures/events/note_created.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=NoteCreated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "c88caabc1e57b8ba8e6058202407a1e81ebae190c60e53b1c26ce1b72872e2c9"
+    },
+    {
+      "event_type": "note.deleted",
+      "variant_name": "NoteDeleted",
+      "path": "contracts/asyncapi/fixtures/events/note_deleted.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=NoteDeleted]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "9cfad505abf7f77e3a6338b238186f19a7afe8f545f6016631549d151bc5fbd8"
+    },
+    {
+      "event_type": "note.archived",
+      "variant_name": "NoteArchived",
+      "path": "contracts/asyncapi/fixtures/events/note_archived.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=NoteArchived]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "5e433521d9565b37a74a32ac2112503fe0895828256033d5ed97a5b53846cce3"
+    },
+    {
+      "event_type": "note.restored",
+      "variant_name": "NoteRestored",
+      "path": "contracts/asyncapi/fixtures/events/note_restored.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=NoteRestored]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "66a180e080b169af1b38153d5d48a9a71cb62060147bb311257c4e79ede16e0c"
+    },
+    {
+      "event_type": "note.tags.updated",
+      "variant_name": "NoteTagsUpdated",
+      "path": "contracts/asyncapi/fixtures/events/note_tags_updated.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=NoteTagsUpdated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "c4a5cbb34894ca0de6538f6a499040c40ca9377a9a3d6002e70dcd5a7b6cc215"
+    },
+    {
+      "event_type": "note.links.updated",
+      "variant_name": "NoteLinksUpdated",
+      "path": "contracts/asyncapi/fixtures/events/note_links_updated.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=NoteLinksUpdated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "148c12ef0b42194b6033b9274ec4264f7c4a6131b58d7e75c4edd53e11b1030e"
+    },
+    {
+      "event_type": "note.revision.created",
+      "variant_name": "NoteRevisionCreated",
+      "path": "contracts/asyncapi/fixtures/events/note_revision_created.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=NoteRevisionCreated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "fe0c7818c2c55dadb3a62df969872d294447c51be669f82fdbb7e614de665737"
+    },
+    {
+      "event_type": "attachment.created",
+      "variant_name": "AttachmentCreated",
+      "path": "contracts/asyncapi/fixtures/events/attachment_created.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=AttachmentCreated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "9f98c2c89c0f87e58e17be4801c6512189f99cf0c2fd2c9e7cdca912834c14d7"
+    },
+    {
+      "event_type": "attachment.deleted",
+      "variant_name": "AttachmentDeleted",
+      "path": "contracts/asyncapi/fixtures/events/attachment_deleted.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=AttachmentDeleted]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "3cdb85b57a52ef75ea95750204ea693ae9d2f19e3dbcd080fb749ae2de2ad739"
+    },
+    {
+      "event_type": "attachment.extraction.updated",
+      "variant_name": "AttachmentExtractionUpdated",
+      "path": "contracts/asyncapi/fixtures/events/attachment_extraction_updated.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=AttachmentExtractionUpdated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "3b6c4705cb67a1ffcfbcdbaf7231865502ca7f6967dbda71eec90e4de57b1204"
+    },
+    {
+      "event_type": "collection.created",
+      "variant_name": "CollectionCreated",
+      "path": "contracts/asyncapi/fixtures/events/collection_created.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=CollectionCreated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "09815e16164cac012018990952de763d744f95da71e37ded9d8741bf68421ca3"
+    },
+    {
+      "event_type": "collection.updated",
+      "variant_name": "CollectionUpdated",
+      "path": "contracts/asyncapi/fixtures/events/collection_updated.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=CollectionUpdated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "482b304ed06ad2756be8968e162e1b0be9a999ae37b8b18195a39f676052f797"
+    },
+    {
+      "event_type": "collection.deleted",
+      "variant_name": "CollectionDeleted",
+      "path": "contracts/asyncapi/fixtures/events/collection_deleted.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=CollectionDeleted]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "8506b69078ae4db43fbee3bc89a3ee554891cbfc403ade6e721a4162cad62232"
+    },
+    {
+      "event_type": "collection.membership.changed",
+      "variant_name": "CollectionMembershipChanged",
+      "path": "contracts/asyncapi/fixtures/events/collection_membership_changed.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=CollectionMembershipChanged]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "7801d85fe0863e1606f84f8416cbc3643267f8d48d7b3cf37a70fad306c23052"
+    },
+    {
+      "event_type": "archive.created",
+      "variant_name": "ArchiveCreated",
+      "path": "contracts/asyncapi/fixtures/events/archive_created.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ArchiveCreated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "d733f2f0a3818ca77d1ccf1bcf4e29499180c1367b09aed9ad82145188289279"
+    },
+    {
+      "event_type": "archive.updated",
+      "variant_name": "ArchiveUpdated",
+      "path": "contracts/asyncapi/fixtures/events/archive_updated.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ArchiveUpdated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "5db40e8c643cb1e677faba2b2ec321e53047775f0b2fe19bb5819ccb0e901cb8"
+    },
+    {
+      "event_type": "archive.deleted",
+      "variant_name": "ArchiveDeleted",
+      "path": "contracts/asyncapi/fixtures/events/archive_deleted.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ArchiveDeleted]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "8c2ca63122be4c0ae786a3f7b3ee83f7e5bbfd42034076fea32bc0b92660a5c0"
+    },
+    {
+      "event_type": "archive.default.changed",
+      "variant_name": "ArchiveDefaultChanged",
+      "path": "contracts/asyncapi/fixtures/events/archive_default_changed.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ArchiveDefaultChanged]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "0b133d32b9ecb1282c0d8eb0a9a4167bd4a8880164169cdddc0cc7953d6903df"
+    },
+    {
+      "event_type": "concept_scheme.created",
+      "variant_name": "ConceptSchemeCreated",
+      "path": "contracts/asyncapi/fixtures/events/concept_scheme_created.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ConceptSchemeCreated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "a85baa1389c5d6b407d199bdfd8c70d2fbded80aa16430ed006248f0d2a6b119"
+    },
+    {
+      "event_type": "concept_scheme.updated",
+      "variant_name": "ConceptSchemeUpdated",
+      "path": "contracts/asyncapi/fixtures/events/concept_scheme_updated.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ConceptSchemeUpdated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "e830a411d6a3b95675f8bb5f33393c0aaf9ccf7ef9bf60da4c5e38a1d2ca6f1d"
+    },
+    {
+      "event_type": "concept_scheme.deleted",
+      "variant_name": "ConceptSchemeDeleted",
+      "path": "contracts/asyncapi/fixtures/events/concept_scheme_deleted.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ConceptSchemeDeleted]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "5ff21a11e3a666697728d088ba02d1727bbeb431a8a4165e247e18b90567a25f"
+    },
+    {
+      "event_type": "concept.created",
+      "variant_name": "ConceptCreated",
+      "path": "contracts/asyncapi/fixtures/events/concept_created.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ConceptCreated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "117aa8bad9ca1ce8cb2fe17f518bfbe1ee01d6f4d8fe7f15c44ac3521e4bbc05"
+    },
+    {
+      "event_type": "concept.updated",
+      "variant_name": "ConceptUpdated",
+      "path": "contracts/asyncapi/fixtures/events/concept_updated.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ConceptUpdated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "02d0c0c2da10ed5315bc192866e811033027f5ce9d2a2971b56b367f4c85f9a6"
+    },
+    {
+      "event_type": "concept.deleted",
+      "variant_name": "ConceptDeleted",
+      "path": "contracts/asyncapi/fixtures/events/concept_deleted.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ConceptDeleted]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "2eeab5d861261397dbfcd80e9b6ed62e845b5a9d476268bb06ae6d70c148bfd5"
+    },
+    {
+      "event_type": "concept.relations.updated",
+      "variant_name": "ConceptRelationsUpdated",
+      "path": "contracts/asyncapi/fixtures/events/concept_relations_updated.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ConceptRelationsUpdated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "04a3e9ba844e2c62432f7874e1453dc79167a4cdf2286d114ea7c311af56bc11"
+    },
+    {
+      "event_type": "concept.scheme.changed",
+      "variant_name": "ConceptSchemeChanged",
+      "path": "contracts/asyncapi/fixtures/events/concept_scheme_changed.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ConceptSchemeChanged]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "6f4616091add1a0cf5b65b6354cde7500a43d562f9442c17926751634f7a2cb2"
+    },
+    {
+      "event_type": "concept.collection.membership.changed",
+      "variant_name": "ConceptCollectionMembershipChanged",
+      "path": "contracts/asyncapi/fixtures/events/concept_collection_membership_changed.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ConceptCollectionMembershipChanged]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "d40cb94552062f652bfa886e05c8bd989119df6bec35003ff3c514a253659d9d"
+    },
+    {
+      "event_type": "tag.created",
+      "variant_name": "TagCreated",
+      "path": "contracts/asyncapi/fixtures/events/tag_created.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=TagCreated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "266c48a618f595c0504d4e3b839a2ecca1a657c890a0504a3fc9e85d87972887"
+    },
+    {
+      "event_type": "tag.renamed",
+      "variant_name": "TagRenamed",
+      "path": "contracts/asyncapi/fixtures/events/tag_renamed.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=TagRenamed]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "156cbb92678507f021957fe3e0433cc51b18da1b63afc5a8528b399dca050671"
+    },
+    {
+      "event_type": "tag.deleted",
+      "variant_name": "TagDeleted",
+      "path": "contracts/asyncapi/fixtures/events/tag_deleted.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=TagDeleted]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "28e4cf6decbffebc7954a5a1a98a1d4ff16bea669b501ecf8f6db573fde5edc1"
+    },
+    {
+      "event_type": "tag.merged",
+      "variant_name": "TagMerged",
+      "path": "contracts/asyncapi/fixtures/events/tag_merged.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=TagMerged]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "b8a28f66c1b0b356518a09b9c46f86c896ddf88146b0118e648b99983349b769"
+    },
+    {
+      "event_type": "tag.stats.updated",
+      "variant_name": "TagStatsUpdated",
+      "path": "contracts/asyncapi/fixtures/events/tag_stats_updated.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=TagStatsUpdated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "b3bf8c6422f94c9221300347f24a253f3a87c1c22ed3359d21f7fa835f2ebdb2"
+    },
+    {
+      "event_type": "jobs.paused",
+      "variant_name": "JobsPaused",
+      "path": "contracts/asyncapi/fixtures/events/jobs_paused.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=JobsPaused]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "9b0376a75e0ad2e5d2ad2418a7d7bc2ec0c0a89204ebd08fb30bc44cbd6c7206"
+    },
+    {
+      "event_type": "jobs.resumed",
+      "variant_name": "JobsResumed",
+      "path": "contracts/asyncapi/fixtures/events/jobs_resumed.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=JobsResumed]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "57d618b513f8b096783affdb6e163dc6af1f192f08bee46a85112e032af435a6"
+    },
+    {
+      "event_type": "index.embedding.updated",
+      "variant_name": "IndexEmbeddingUpdated",
+      "path": "contracts/asyncapi/fixtures/events/index_embedding_updated.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=IndexEmbeddingUpdated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "546db39ce766a62c0140d1ac8d8204fef659220cb0027b298f20332999d27ce5"
+    },
+    {
+      "event_type": "index.linking.updated",
+      "variant_name": "IndexLinkingUpdated",
+      "path": "contracts/asyncapi/fixtures/events/index_linking_updated.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=IndexLinkingUpdated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "719a62aca0e8221b3762af4cf65bc2d8cfe8c43f9fb9603b4caec1afa1d30ee6"
+    },
+    {
+      "event_type": "index.fts.updated",
+      "variant_name": "IndexFtsUpdated",
+      "path": "contracts/asyncapi/fixtures/events/index_fts_updated.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=IndexFtsUpdated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "64d1e8b0b362108275cc4ff2b988c8cd680ff6b08b771f2edb17c62080da2bb4"
+    },
+    {
+      "event_type": "readmodel.graph.updated",
+      "variant_name": "ReadmodelGraphUpdated",
+      "path": "contracts/asyncapi/fixtures/events/readmodel_graph_updated.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ReadmodelGraphUpdated]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "ba086e67b2acb5de7202645ab3032a4ed3c8ed62472c6c1c307647e84e19af71"
+    },
+    {
+      "event_type": "readmodel.search.ready",
+      "variant_name": "ReadmodelSearchReady",
+      "path": "contracts/asyncapi/fixtures/events/readmodel_search_ready.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=ReadmodelSearchReady]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "a7d42acfade79ebc693fb3a3dc42d887162bf83164fd45d99915e10c09931fff"
+    },
+    {
+      "event_type": "inference.availability.changed",
+      "variant_name": "InferenceAvailabilityChanged",
+      "path": "contracts/asyncapi/fixtures/events/inference_availability_changed.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=InferenceAvailabilityChanged]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "dfaca697827db8d0d1d1f984b1ed65d665c4ab97edec1c35f7fc97b162fafbb8"
+    },
+    {
+      "event_type": "inference.config.changed",
+      "variant_name": "InferenceConfigChanged",
+      "path": "contracts/asyncapi/fixtures/events/inference_config_changed.json",
+      "payload_schema_component": "ServerEvent.oneOf[type=InferenceConfigChanged]",
+      "payload_revision": 1,
+      "envelope_contract_revision": "1",
+      "sha256": "a0de6029af426f2d5c1585a011f9cf33fa3c4da27fbdd0c96329f285e49b54c2"
+    }
+  ]
+}

@@ -2279,6 +2279,7 @@ dependencies = [
  "futures",
  "hex",
  "infer",
+ "jsonschema",
  "kamadak-exif 0.6.1",
  "once_cell",
  "pgvector",

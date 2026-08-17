@@ -557,6 +557,7 @@ provision_database
   cd "$AUTHORITY_DIR"
   scripts/ci/openapi-contract.sh check
   scripts/ci/asyncapi-contract.sh check
+  scripts/ci/asyncapi-event-fixtures.sh check
   python3 scripts/ci/verify-knowledge-shard-presence.py
   python3 -m unittest \
     tests/test_verify_knowledge_shard_matrix.py \

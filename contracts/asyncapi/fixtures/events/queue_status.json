@@ -1,0 +1,21 @@
+{
+  "actor": {
+    "id": "fixture-user-001",
+    "kind": "user",
+    "name": "Fortemi event fixture operator"
+  },
+  "causation_id": "018f7d2d-0000-7000-0003-f147d6a2e70a",
+  "correlation_id": "018f7d2d-0000-7000-0002-f147d6a2e70a",
+  "event_id": "018f7d2d-0000-7000-0001-f147d6a2e70a",
+  "event_type": "queue.status",
+  "memory": "fixture-memory-alpha",
+  "occurred_at": "2026-08-17T12:00:00Z",
+  "payload": {
+    "pending": 7,
+    "running": 2,
+    "total_jobs": 42,
+    "type": "QueueStatus"
+  },
+  "payload_version": 1,
+  "tenant_id": "tenant-fixture-001"
+}

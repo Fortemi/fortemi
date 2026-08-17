@@ -1,0 +1,20 @@
+{
+  "actor": {
+    "id": "fixture-user-001",
+    "kind": "user",
+    "name": "Fortemi event fixture operator"
+  },
+  "causation_id": "018f7d2d-002e-7000-0003-f147d6a2e70a",
+  "correlation_id": "018f7d2d-002e-7000-0002-f147d6a2e70a",
+  "entity_type": "inference",
+  "event_id": "018f7d2d-002e-7000-0001-f147d6a2e70a",
+  "event_type": "inference.availability.changed",
+  "memory": "fixture-memory-alpha",
+  "occurred_at": "2026-08-17T12:46:00Z",
+  "payload": {
+    "available": true,
+    "type": "InferenceAvailabilityChanged"
+  },
+  "payload_version": 1,
+  "tenant_id": "tenant-fixture-001"
+}

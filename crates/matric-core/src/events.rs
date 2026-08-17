@@ -20,7 +20,7 @@ use std::sync::Mutex;
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
@@ -32,7 +32,7 @@ use uuid::Uuid;
 ///
 /// Identifies who or what caused an event — system processes, authenticated
 /// users, or AI agents.
-#[derive(Clone, Serialize, JsonSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct EventActor {
     /// Actor type: `"system"`, `"user"`, or `"agent"`.
     pub kind: String,
@@ -136,7 +136,7 @@ impl fmt::Debug for EventContext {
 /// - New optional fields may be added to the envelope without version bump.
 /// - Consumers should ignore unknown fields (forward compatibility).
 /// - Breaking changes require a new `payload_version` with deprecation window.
-#[derive(Clone, Serialize, JsonSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct EventEnvelope {
     /// Unique event identifier (UUIDv7 for temporal ordering).
     pub event_id: Uuid,
@@ -241,7 +241,7 @@ impl EventEnvelope {
 /// `{"type":"JobStarted","job_id":"...","job_type":"Embedding"}`
 ///
 /// When wrapped in an [`EventEnvelope`], these become the `payload` field.
-#[derive(Clone, Serialize, JsonSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type")]
 pub enum ServerEvent {
     /// Periodic queue statistics broadcast.
@@ -935,7 +935,7 @@ impl ServerEvent {
 /// Critical events (domain mutations) are never coalesced or dropped.
 /// Normal events (job lifecycle) are delivered in order but may be dropped under lag.
 /// Low events (telemetry, progress) may be coalesced or dropped to protect stream stability.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum EventPriority {
     /// Domain mutations — never coalesced or dropped.
     Critical,

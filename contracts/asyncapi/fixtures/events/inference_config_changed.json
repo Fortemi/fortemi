@@ -1,0 +1,25 @@
+{
+  "actor": {
+    "id": "fixture-user-001",
+    "kind": "user",
+    "name": "Fortemi event fixture operator"
+  },
+  "causation_id": "018f7d2d-002f-7000-0003-f147d6a2e70a",
+  "correlation_id": "018f7d2d-002f-7000-0002-f147d6a2e70a",
+  "entity_type": "inference",
+  "event_id": "018f7d2d-002f-7000-0001-f147d6a2e70a",
+  "event_type": "inference.config.changed",
+  "memory": "fixture-memory-alpha",
+  "occurred_at": "2026-08-17T12:47:00Z",
+  "payload": {
+    "changed_fields": [
+      "default_backend",
+      "openrouter.generation_model"
+    ],
+    "default_backend": "ollama",
+    "embedding_backend": "openrouter",
+    "type": "InferenceConfigChanged"
+  },
+  "payload_version": 1,
+  "tenant_id": "tenant-fixture-001"
+}

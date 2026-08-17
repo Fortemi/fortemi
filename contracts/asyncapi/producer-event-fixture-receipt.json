@@ -1,0 +1,17 @@
+{
+  "schema_version": "fortemi.asyncapi.event-fixture-receipt.v1",
+  "producer_repository": "Fortemi/fortemi",
+  "producer_commit": "external-delivery-pin",
+  "manifest_path": "contracts/asyncapi/fixtures/manifest.json",
+  "manifest_sha256": "2a93bc7da7b318adfd3421559dc4caa9ba78dd34d0bd6ae3036157e6faa78176",
+  "asyncapi_path": "contracts/asyncapi/asyncapi.yaml",
+  "asyncapi_sha256": "1ec4a4477431caf60a62ace48f80186bf732408476a24c8d9cd32dba41957ea4",
+  "corpus_root": "contracts/asyncapi/fixtures/events",
+  "corpus_sha256": "ee09b909863b868b57c3bf95daa47d3e24f84eb7eb487c1d64c0ef40ef4dc6ad",
+  "event_count": 48,
+  "consumer_pin": {
+    "fortemi_commit": "external-delivery-pin",
+    "manifest_sha256": "2a93bc7da7b318adfd3421559dc4caa9ba78dd34d0bd6ae3036157e6faa78176",
+    "corpus_sha256": "ee09b909863b868b57c3bf95daa47d3e24f84eb7eb487c1d64c0ef40ef4dc6ad"
+  }
+}

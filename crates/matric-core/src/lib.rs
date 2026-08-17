@@ -6,6 +6,7 @@
 //! that other matric-memory crates depend on.
 
 pub mod asyncapi;
+pub mod asyncapi_event_fixtures;
 pub mod audit;
 pub mod authorization;
 pub mod captions;
