@@ -644,6 +644,20 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         NoStore,
     ),
     r(
+        "/api/v1/events/tokens",
+        AdminOperator,
+        "event_stream",
+        Operator,
+        NoStore,
+    ),
+    r(
+        "/api/v1/events/tokens/{token_id}",
+        AdminOperator,
+        "event_stream",
+        Operator,
+        NoStore,
+    ),
+    r(
         "/api/v1/extraction/stats",
         AdminOperator,
         "system_diagnostics",

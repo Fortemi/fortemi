@@ -1132,6 +1132,19 @@ sudo nginx -s reload
 
 ## Events / WebSocket Issues
 
+### WebSocket Returns 410 Gone
+
+**Symptom:** WebSocket connections to `/api/v1/ws` receive `410 Gone`.
+
+**Cause:** The legacy WebSocket endpoint is intentionally disabled when
+`REQUIRE_AUTH=true`. It has no authenticated bearer, tenant, memory, replay, or
+canonical-envelope handshake.
+
+**Fix:** Use `/api/v1/events` with `Authorization: Bearer <ACCESS_TOKEN>` or a
+short-lived `?token=<STREAM_TOKEN>`. Only anonymous local/dev deployments that
+set both `REQUIRE_AUTH=false` and `I_UNDERSTAND_NO_AUTH=true` can use
+`/api/v1/ws`.
+
 ### WebSocket Connection Drops
 
 **Symptom:** WebSocket connections to `/api/v1/ws` disconnect frequently.
@@ -1526,6 +1539,19 @@ docker exec Fortémi-matric-1 psql -U matric -d matric -c \
 ```
 
 ## Events / WebSocket Issues
+
+### WebSocket Returns 410 Gone
+
+**Symptom:** WebSocket connections to `/api/v1/ws` receive `410 Gone`.
+
+**Cause:** The legacy WebSocket endpoint is intentionally disabled when
+`REQUIRE_AUTH=true`. It has no authenticated bearer, tenant, memory, replay, or
+canonical-envelope handshake.
+
+**Fix:** Use `/api/v1/events` with `Authorization: Bearer <ACCESS_TOKEN>` or a
+short-lived `?token=<STREAM_TOKEN>`. Only anonymous local/dev deployments that
+set both `REQUIRE_AUTH=false` and `I_UNDERSTAND_NO_AUTH=true` can use
+`/api/v1/ws`.
 
 ### WebSocket Connection Drops
 

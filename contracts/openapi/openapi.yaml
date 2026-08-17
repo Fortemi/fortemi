@@ -2914,6 +2914,60 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+  /api/v1/events/tokens:
+    post:
+      tags:
+      - Events
+      summary: POST /api/v1/events/tokens — mint a short-lived EventSource query token.
+      description: |-
+        Requires normal authentication. The token is bound to the current archive
+        schema and captures the caller's scope so `/api/v1/events?token=...` can make
+        the same realtime/admin decision without accepting ordinary credentials in
+        the URL.
+      operationId: mint_event_stream_token
+      responses:
+        '201':
+          description: 'Minted: {token, token_id, expires_in}'
+        '401':
+          description: Authentication required
+        '503':
+          description: Token store unavailable (Redis required to mint stream tokens)
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+  /api/v1/events/tokens/{token_id}:
+    delete:
+      tags:
+      - Events
+      summary: DELETE /api/v1/events/tokens/{token_id} — revoke an SSE query token.
+      operationId: revoke_event_stream_token
+      parameters:
+      - name: token_id
+        in: path
+        description: Non-secret token id returned by mint
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Revoked
+        '401':
+          description: Authentication required
+        '404':
+          description: Token not found or already expired
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
   /api/v1/extraction/stats:
     get:
       tags:

@@ -339,7 +339,7 @@ HTTP REST API server using Axum framework.
 
 **Key Features:**
 - RESTful endpoints for CRUD operations
-- Real-time event streaming via SSE (`/api/v1/events`) and WebSocket (`/api/v1/ws`)
+- Real-time event streaming via authenticated/scoped SSE (`/api/v1/events`) and legacy anonymous-local WebSocket (`/api/v1/ws`)
 - Webhook dispatcher with HMAC-SHA256 signing (`/api/v1/webhooks`)
 - Worker event bridge: translates job worker events into ServerEvents on the EventBus
 - OpenAPI 3.1 specification

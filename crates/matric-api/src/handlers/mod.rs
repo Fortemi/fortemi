@@ -6,6 +6,7 @@ pub mod archives;
 pub mod audio;
 pub mod chat;
 pub mod document_types;
+pub mod event_tokens;
 pub mod inference_complete;
 pub mod inference_config;
 pub mod ingest_stream;

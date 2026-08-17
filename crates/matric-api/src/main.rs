@@ -25,7 +25,7 @@ use axum::{
     http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri},
     response::{
         sse::{Event, KeepAlive},
-        IntoResponse, Sse,
+        IntoResponse, Response, Sse,
     },
     routing::{delete, get, patch, post, put},
     Form, Json, Router,
@@ -1310,6 +1310,9 @@ impl AppState {
         // handlers::ingest_tokens (#829)
         handlers::ingest_tokens::mint_ingest_token,
         handlers::ingest_tokens::revoke_ingest_token,
+        // handlers::event_tokens (#953)
+        handlers::event_tokens::mint_event_stream_token,
+        handlers::event_tokens::revoke_event_stream_token,
         // handlers::pke
         handlers::pke::pke_keygen, handlers::pke::pke_address,
         handlers::pke::pke_encrypt, handlers::pke::pke_decrypt,
@@ -4110,6 +4113,14 @@ async fn main() -> anyhow::Result<()> {
         // Streaming chat over SSE (Issue #812)
         .route("/api/v1/chat/stream", post(chat_stream_handler))
         .route(
+            "/api/v1/events/tokens",
+            post(handlers::event_tokens::mint_event_stream_token),
+        )
+        .route(
+            "/api/v1/events/tokens/{token_id}",
+            delete(handlers::event_tokens::revoke_event_stream_token),
+        )
+        .route(
             "/api/v1/ingest/stream",
             post(handlers::ingest_stream::ingest_stream_handler),
         )
@@ -5617,12 +5628,26 @@ async fn handle_twilio_control_event(
     }
 }
 
-/// WebSocket handler for real-time event streaming (Issue #39).
+/// Legacy WebSocket handler for local anonymous real-time event streaming.
 ///
 /// Clients connect to `/api/v1/ws` and receive JSON-encoded ServerEvents.
-/// Sending "refresh" triggers an immediate QueueStatus response.
-async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+/// Sending "refresh" triggers an immediate QueueStatus response. The route is
+/// retired whenever auth is required because the legacy protocol has no bearer,
+/// tenant, memory, replay, or canonical-envelope handshake.
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
+    if state.require_auth {
+        return (
+            StatusCode::GONE,
+            Json(serde_json::json!({
+                "error": "legacy_websocket_disabled",
+                "message": "The legacy /api/v1/ws endpoint is disabled when authentication is required. Use /api/v1/events with Authorization or a short-lived stream token."
+            })),
+        )
+            .into_response();
+    }
+
     ws.on_upgrade(|socket| handle_ws_connection(socket, state))
+        .into_response()
 }
 
 async fn handle_ws_connection(socket: WebSocket, state: AppState) {
@@ -5855,70 +5880,92 @@ async fn sse_events(
     Extension(archive_ctx): Extension<ArchiveContext>,
     headers: HeaderMap,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>>, ApiError> {
-    // --- Auth (Issue #452) ---
-    // Priority: query param token > Authorization header
-    let token_str = params
-        .token
-        .as_deref()
-        .or_else(|| {
-            headers
-                .get(header::AUTHORIZATION)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.strip_prefix("Bearer "))
-        })
+    // --- Auth (Issue #452/#953) ---
+    // Query auth is browser EventSource compatibility only and accepts a
+    // distinct short-lived event-stream token class. Normal credentials must
+    // use the Authorization header so they do not land in URLs or access logs.
+    let header_token = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.trim());
 
-    if let Some(tok) = token_str {
-        let valid = if tok.starts_with("mm_at_") {
-            state
-                .db
-                .oauth
-                .validate_access_token(tok)
+    let (principal, query_token_schema) =
+        match (params.token.as_deref().map(str::trim), header_token) {
+            (Some(tok), _) => validate_event_stream_query_principal(&state, tok)
                 .await
-                .ok()
-                .flatten()
-                .is_some()
-        } else if tok.starts_with("mm_key_") {
-            state
-                .db
-                .oauth
-                .validate_api_key(tok)
-                .await
-                .ok()
-                .flatten()
-                .is_some()
-        } else {
-            false
+                .ok_or_else(|| {
+                    ApiError::Unauthorized("Invalid or expired stream token".to_string())
+                })?,
+            (None, Some(tok)) => (
+                validate_bearer_principal(&state, tok)
+                    .await
+                    .ok_or_else(|| {
+                        ApiError::Unauthorized("Invalid or expired bearer token".to_string())
+                    })?,
+                None,
+            ),
+            (None, None) if state.require_auth => {
+                return Err(ApiError::Unauthorized(
+                    "Authentication required for the SSE stream.".to_string(),
+                ));
+            }
+            (None, None) => (AuthPrincipal::Anonymous, None),
         };
-        if !valid {
-            return Err(ApiError::Unauthorized(
-                "Invalid or expired token".to_string(),
-            ));
-        }
-    } else if state.require_auth {
-        return Err(ApiError::Unauthorized(
-            "Authentication required. Use ?token= query parameter or Authorization header."
-                .to_string(),
-        ));
-    }
 
     // --- Memory scope resolution (Issue #452) ---
     // Priority: query param > X-Fortemi-Memory header (via middleware) > none (all events)
-    let memory_filter: Option<String> = if let Some(ref name) = params.memory {
-        // Validate requested memory exists
-        state
-            .db
-            .archives
-            .get_archive_by_name(name)
-            .await?
-            .ok_or_else(memory_not_found)?;
-        Some(name.clone())
-    } else if !archive_ctx.is_default {
-        // Explicitly selected via X-Fortemi-Memory header
-        archive_ctx.name.clone()
-    } else {
-        None // Default — deliver all events (admin/monitoring view)
-    };
+    let (memory_filter, memory_schema): (Option<String>, Option<String>) =
+        if let Some(ref name) = params.memory {
+            // Validate requested memory exists
+            let archive = state
+                .db
+                .archives
+                .get_archive_by_name(name)
+                .await?
+                .ok_or_else(memory_not_found)?;
+            (Some(name.clone()), Some(archive.schema_name))
+        } else if !archive_ctx.is_default {
+            // Explicitly selected via X-Fortemi-Memory header
+            (
+                archive_ctx.name.clone(),
+                archive_ctx
+                    .name
+                    .as_ref()
+                    .map(|_| archive_ctx.schema.clone()),
+            )
+        } else {
+            (None, None) // Default — deliver all events (admin/monitoring view)
+        };
+
+    if !sse_query_token_allows_memory(query_token_schema.as_deref(), memory_schema.as_deref()) {
+        return Err(ApiError::Forbidden(
+            "SSE stream token is not valid for the requested memory".to_string(),
+        ));
+    }
+
+    if principal.is_authenticated() {
+        let auth = Auth {
+            principal: principal.clone(),
+        };
+        if let Some(input) =
+            route_policy::authorization_input_for_request(&Method::GET, "/api/v1/events", None)
+        {
+            authorize_policy_input(state.authorization_policy.as_ref(), &auth, &input)
+                .await
+                .map_err(|_| ApiError::Forbidden("SSE stream authorization denied".to_string()))?;
+        }
+        if let Some(memory_name) = memory_filter.as_deref() {
+            authorize_sse_memory_subscription(&state, &auth, memory_name).await?;
+        }
+    }
+
+    if !sse_broad_subscription_allowed(state.require_auth, &memory_filter, &principal) {
+        return Err(ApiError::Forbidden(
+            "All-events SSE monitoring requires admin scope; provide a memory filter for scoped streams."
+                .to_string(),
+        ));
+    }
 
     // --- Type filter parsing (Issue #457) ---
     // Parse comma-separated type prefixes into a Vec for matching.
@@ -6152,6 +6199,44 @@ async fn sse_events(
             .interval(std::time::Duration::from_secs(15))
             .text("keepalive"),
     ))
+}
+
+async fn authorize_sse_memory_subscription(
+    state: &AppState,
+    auth: &Auth,
+    memory_name: &str,
+) -> Result<(), ApiError> {
+    let memory_path = format!("/api/v1/archives/{memory_name}");
+    if let Some(input) =
+        route_policy::authorization_input_for_request(&Method::GET, &memory_path, None)
+    {
+        let input = normalize_archive_route_policy_input(input, |archive_name| async move {
+            state.db.archives.get_archive_by_name(&archive_name).await
+        })
+        .await;
+        authorize_policy_input(state.authorization_policy.as_ref(), auth, &input)
+            .await
+            .map_err(|_| ApiError::Forbidden("SSE memory authorization denied".to_string()))?;
+    }
+    Ok(())
+}
+
+fn sse_broad_subscription_allowed(
+    require_auth: bool,
+    memory_filter: &Option<String>,
+    principal: &AuthPrincipal,
+) -> bool {
+    !require_auth || memory_filter.is_some() || principal.has_scope("admin")
+}
+
+fn sse_query_token_allows_memory(
+    query_token_schema: Option<&str>,
+    memory_schema: Option<&str>,
+) -> bool {
+    match query_token_schema {
+        None => true,
+        Some(query_schema) => memory_schema == Some(query_schema),
+    }
 }
 
 // =============================================================================
@@ -8557,38 +8642,7 @@ async fn auth_middleware(
     let principal = match &auth_header {
         Some(header) if header.starts_with("Bearer ") => {
             let token = header.trim_start_matches("Bearer ").trim();
-
-            if token.starts_with("mm_at_") {
-                // OAuth access token
-                match state.db.oauth.validate_access_token(token).await {
-                    Ok(Some(oauth_token)) => {
-                        // Sliding window refresh
-                        let lifetime = state.token_lifetime_for_scope(&oauth_token.scope);
-                        let _ = state
-                            .db
-                            .oauth
-                            .validate_and_extend_token(token, lifetime)
-                            .await;
-                        Some(AuthPrincipal::OAuthClient {
-                            client_id: oauth_token.client_id,
-                            scope: oauth_token.scope,
-                            user_id: oauth_token.user_id,
-                        })
-                    }
-                    _ => None,
-                }
-            } else if token.starts_with("mm_key_") {
-                // API key
-                match state.db.oauth.validate_api_key(token).await {
-                    Ok(Some(api_key)) => Some(AuthPrincipal::ApiKey {
-                        key_id: api_key.id,
-                        scope: api_key.scope,
-                    }),
-                    _ => None,
-                }
-            } else {
-                None
-            }
+            validate_bearer_principal(&state, token).await
         }
         _ => None,
     };
@@ -8638,6 +8692,56 @@ async fn auth_middleware(
             }
         }
     }
+}
+
+async fn validate_bearer_principal(state: &AppState, token: &str) -> Option<AuthPrincipal> {
+    if token.starts_with("mm_at_") {
+        match state.db.oauth.validate_access_token(token).await {
+            Ok(Some(oauth_token)) => {
+                // Sliding window refresh
+                let lifetime = state.token_lifetime_for_scope(&oauth_token.scope);
+                let _ = state
+                    .db
+                    .oauth
+                    .validate_and_extend_token(token, lifetime)
+                    .await;
+                Some(AuthPrincipal::OAuthClient {
+                    client_id: oauth_token.client_id,
+                    scope: oauth_token.scope,
+                    user_id: oauth_token.user_id,
+                })
+            }
+            _ => None,
+        }
+    } else if token.starts_with("mm_key_") {
+        match state.db.oauth.validate_api_key(token).await {
+            Ok(Some(api_key)) => Some(AuthPrincipal::ApiKey {
+                key_id: api_key.id,
+                scope: api_key.scope,
+            }),
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
+async fn validate_event_stream_query_principal(
+    state: &AppState,
+    token: &str,
+) -> Option<(AuthPrincipal, Option<String>)> {
+    let data = state
+        .ingest_token_store
+        .validate_event_stream(token)
+        .await?;
+    let key_id = Uuid::parse_str(&data.token_id).ok()?;
+    Some((
+        AuthPrincipal::ApiKey {
+            key_id,
+            scope: data.scope,
+        },
+        Some(data.schema),
+    ))
 }
 
 async fn authorize_middleware(
@@ -63786,7 +63890,9 @@ not-json
 
     /// Build a minimal test server with only eventing routes.
     /// Returns the base URL (e.g., "http://127.0.0.1:PORT").
-    async fn spawn_eventing_test_server() -> (String, Arc<EventBus>, Arc<AtomicUsize>) {
+    async fn spawn_eventing_test_server_with_auth(
+        require_auth: bool,
+    ) -> (String, Arc<EventBus>, Arc<AtomicUsize>) {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
         let db = Database::connect(&database_url)
@@ -63809,7 +63915,7 @@ not-json
             event_bus: event_bus.clone(),
             ws_connections: ws_connections.clone(),
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
-            require_auth: false,
+            require_auth,
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
@@ -63913,6 +64019,10 @@ not-json
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         (base_url, event_bus, ws_connections)
+    }
+
+    async fn spawn_eventing_test_server() -> (String, Arc<EventBus>, Arc<AtomicUsize>) {
+        spawn_eventing_test_server_with_auth(false).await
     }
 
     // -- WebSocket Tests --
@@ -64097,6 +64207,23 @@ not-json
         // tungstenite returns the upgrade response
         assert_eq!(response.status(), 101);
         drop(ws_stream);
+    }
+
+    #[tokio::test]
+    async fn test_ws_disabled_when_auth_required() {
+        let (base_url, _bus, conns) = spawn_eventing_test_server_with_auth(true).await;
+        let ws_url = base_url.replace("http://", "ws://") + "/api/v1/ws";
+
+        let err = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .expect_err("legacy WebSocket must not upgrade when auth is required");
+        match err {
+            tokio_tungstenite::tungstenite::Error::Http(response) => {
+                assert_eq!(response.status(), StatusCode::GONE);
+            }
+            other => panic!("expected HTTP 410 rejection, got {other:?}"),
+        }
+        assert_eq!(conns.load(Ordering::Relaxed), 0);
     }
 
     #[tokio::test]
@@ -64453,6 +64580,54 @@ not-json
         assert!(!envelope_matches_filters(
             &envelope, &memory, &types, &wrong_eid
         ));
+    }
+
+    #[test]
+    fn test_sse_auth_required_broad_stream_requires_admin_scope() {
+        let principal = AuthPrincipal::ApiKey {
+            key_id: Uuid::new_v4(),
+            scope: "mcp".to_string(),
+        };
+
+        assert!(!sse_broad_subscription_allowed(true, &None, &principal));
+    }
+
+    #[test]
+    fn test_sse_auth_required_memory_stream_allows_non_admin_scope() {
+        let principal = AuthPrincipal::ApiKey {
+            key_id: Uuid::new_v4(),
+            scope: "mcp".to_string(),
+        };
+        let memory = Some("research".to_string());
+
+        assert!(sse_broad_subscription_allowed(true, &memory, &principal));
+    }
+
+    #[test]
+    fn test_sse_auth_required_broad_stream_allows_admin_scope() {
+        let principal = AuthPrincipal::ApiKey {
+            key_id: Uuid::new_v4(),
+            scope: "admin".to_string(),
+        };
+
+        assert!(sse_broad_subscription_allowed(true, &None, &principal));
+    }
+
+    #[test]
+    fn test_sse_query_token_requires_matching_memory_schema() {
+        assert!(sse_query_token_allows_memory(
+            Some("archive_research"),
+            Some("archive_research")
+        ));
+        assert!(!sse_query_token_allows_memory(
+            Some("archive_research"),
+            Some("archive_other")
+        ));
+        assert!(!sse_query_token_allows_memory(
+            Some("archive_research"),
+            None
+        ));
+        assert!(sse_query_token_allows_memory(None, None));
     }
 
     // -- SSE Contract and Integration Tests (Issue #460) --

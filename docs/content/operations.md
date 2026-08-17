@@ -355,9 +355,13 @@ curl -X POST http://localhost:3000/api/v1/webhooks \
   }'
 ```
 
-**WebSocket for dashboard integration:**
+**Legacy WebSocket for anonymous local dashboard integration:**
 
-Connect to `ws://localhost:3000/api/v1/ws` for real-time dashboard updates. Send `"refresh"` to trigger an immediate queue status broadcast.
+When Fortemi is explicitly running with `REQUIRE_AUTH=false` and
+`I_UNDERSTAND_NO_AUTH=true`, connect to `ws://localhost:3000/api/v1/ws` for
+legacy local dashboard updates. Send `"refresh"` to trigger an immediate queue
+status broadcast. Auth-required or hosted deployments should use
+`/api/v1/events`; `/api/v1/ws` returns `410 Gone`.
 
 ### Container Health
 

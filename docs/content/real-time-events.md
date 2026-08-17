@@ -226,7 +226,16 @@ not put a reusable access token or API key in the URL. Proxies, ingress, and
 application access logs must redact query strings containing `token`. Prefer
 the Authorization header whenever the client can set it.
 
-When `REQUIRE_AUTH=true` (default), one of the above is required. When explicitly running local sidecar/dev mode with `REQUIRE_AUTH=false` and `I_UNDERSTAND_NO_AUTH=true`, authentication is optional.
+Mint EventSource query tokens with `POST /api/v1/events/tokens` and revoke them
+with `DELETE /api/v1/events/tokens/{token_id}`. The query parameter accepts only
+that event-stream token class; ordinary access tokens and API keys are accepted
+only in the Authorization header.
+
+When `REQUIRE_AUTH=true` (default), one of the above is required. Authenticated
+or tenant/memory-scoped clients must use SSE; the legacy WebSocket endpoint is
+disabled in auth-required mode. When explicitly running local sidecar/dev mode
+with `REQUIRE_AUTH=false` and `I_UNDERSTAND_NO_AUTH=true`, authentication is
+optional.
 
 ### Memory Scoping
 
@@ -237,6 +246,11 @@ Events can be scoped to a specific memory (archive):
 | Query param | `?memory=research` | Only events from "research" memory |
 | Header | `X-Fortemi-Memory: research` | Same as query param |
 | Neither | (omit) | All events from all memories (admin view) |
+
+When `REQUIRE_AUTH=true`, an all-events stream with no memory filter requires
+admin scope. Non-admin authenticated clients must request a memory-scoped
+stream, and the selected memory must pass the same read authorization as
+`GET /api/v1/archives/{name}`.
 
 System events (no memory scope) pass through all memory filters.
 
@@ -436,13 +450,23 @@ eventSource.addEventListener('note.updated', (event) => {
 });
 ```
 
-**WebSocket:** The WebSocket endpoint (`/api/v1/ws`) still uses the legacy `ServerEvent` format for backward compatibility. Clients that need the envelope schema should migrate to SSE.
+**WebSocket:** The WebSocket endpoint (`/api/v1/ws`) is a legacy anonymous-local
+compatibility path. It is disabled when `REQUIRE_AUTH=true` because it has no
+bearer, tenant, memory, replay, or canonical-envelope handshake. Scoped clients
+should use SSE.
 
 ## WebSocket
 
 **Endpoint:** `GET /api/v1/ws`
 
-WebSocket provides bidirectional communication. The server sends JSON-encoded ServerEvents as text messages (legacy format), and clients can send commands.
+WebSocket provides anonymous-local bidirectional compatibility only when
+`REQUIRE_AUTH=false` and `I_UNDERSTAND_NO_AUTH=true`. In auth-required or hosted
+mode, `/api/v1/ws` returns `410 Gone`; use `/api/v1/events` with
+`Authorization: Bearer <ACCESS_TOKEN>` or `?token=<STREAM_TOKEN>` instead.
+
+When enabled for local compatibility, the server sends JSON-encoded
+`ServerEvent` payloads as text messages (legacy format), and clients can send
+commands.
 
 ### Client Commands
 

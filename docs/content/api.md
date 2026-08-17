@@ -3338,13 +3338,17 @@ GET /api/v1/events
 
 Streams all server events as `text/event-stream`. Each event includes an `event:` type field and `data:` JSON payload. Keep-alive sent every 15 seconds.
 
-### WebSocket
+### Legacy WebSocket
 
 ```http
 GET /api/v1/ws
 ```
 
-Full-duplex WebSocket connection receiving JSON-encoded events. Send `"refresh"` to trigger an immediate `QueueStatus` response.
+Anonymous-local compatibility WebSocket receiving legacy JSON-encoded
+`ServerEvent` payloads. It is available only when Fortemi is explicitly running
+with `REQUIRE_AUTH=false` and `I_UNDERSTAND_NO_AUTH=true`. Auth-required and
+hosted deployments return `410 Gone`; use `/api/v1/events` for authenticated or
+tenant/memory-scoped streaming.
 
 ### Webhooks
 

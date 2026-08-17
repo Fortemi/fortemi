@@ -60,6 +60,12 @@ pub struct IngestTokenData {
     pub schema: String,
     /// Per-token rate limit in lines/sec; 0 = unlimited.
     pub rate_limit: u64,
+    /// Token audience; keeps ingest-write tokens separate from event-stream tokens.
+    #[serde(default = "default_ingest_audience")]
+    pub audience: String,
+    /// Scope captured from the minting principal for read-side stream policy.
+    #[serde(default)]
+    pub scope: String,
 }
 
 impl std::fmt::Debug for IngestTokenData {
@@ -68,6 +74,8 @@ impl std::fmt::Debug for IngestTokenData {
             .field("token_id_len", &ingest_token_text_len(&self.token_id))
             .field("schema_len", &ingest_token_text_len(&self.schema))
             .field("rate_limit", &self.rate_limit)
+            .field("audience_len", &ingest_token_text_len(&self.audience))
+            .field("scope_len", &ingest_token_text_len(&self.scope))
             .finish()
     }
 }
@@ -80,6 +88,13 @@ pub struct MintedIngestToken {
     pub token_id: String,
     pub rate_limit: u64,
     pub ttl_seconds: u64,
+}
+
+pub const INGEST_TOKEN_AUDIENCE: &str = "ingest-stream";
+pub const EVENT_SSE_TOKEN_AUDIENCE: &str = "event-sse";
+
+fn default_ingest_audience() -> String {
+    INGEST_TOKEN_AUDIENCE.to_string()
 }
 
 /// Redis-backed store of short-lived, archive-bound ingest stream tokens.
@@ -185,15 +200,35 @@ impl IngestTokenStore {
     /// (lines/sec; 0 = unlimited). Returns `None` when Redis is unavailable (the
     /// caller surfaces `503`). The secret token is returned exactly once.
     pub async fn mint(&self, schema: &str, rate_limit: u64) -> Option<MintedIngestToken> {
+        self.mint_for_audience(schema, rate_limit, INGEST_TOKEN_AUDIENCE, "", "mm_ist_")
+            .await
+    }
+
+    /// Mint a short-lived event-stream query token for browser EventSource.
+    pub async fn mint_event_stream(&self, schema: &str, scope: &str) -> Option<MintedIngestToken> {
+        self.mint_for_audience(schema, 0, EVENT_SSE_TOKEN_AUDIENCE, scope, "mm_est_")
+            .await
+    }
+
+    async fn mint_for_audience(
+        &self,
+        schema: &str,
+        rate_limit: u64,
+        audience: &str,
+        scope: &str,
+        token_prefix: &str,
+    ) -> Option<MintedIngestToken> {
         let mut guard = self.inner.connection.write().await;
         let conn = guard.as_mut()?;
 
-        let token = format!("mm_ist_{}", Uuid::new_v4().simple());
+        let token = format!("{}{}", token_prefix, Uuid::new_v4().simple());
         let token_id = Uuid::new_v4().to_string();
         let data = IngestTokenData {
             token_id: token_id.clone(),
             schema: schema.to_string(),
             rate_limit,
+            audience: audience.to_string(),
+            scope: scope.to_string(),
         };
         let json = serde_json::to_string(&data).ok()?;
 
@@ -258,6 +293,16 @@ impl IngestTokenStore {
             }
         };
         serde_json::from_str(&raw?).ok()
+    }
+
+    pub async fn validate_ingest(&self, token: &str) -> Option<IngestTokenData> {
+        let data = self.validate(token).await?;
+        (data.audience == INGEST_TOKEN_AUDIENCE).then_some(data)
+    }
+
+    pub async fn validate_event_stream(&self, token: &str) -> Option<IngestTokenData> {
+        let data = self.validate(token).await?;
+        (data.audience == EVENT_SSE_TOKEN_AUDIENCE).then_some(data)
     }
 
     /// Revoke a token by its non-secret `token_id`, deleting both the primary and
@@ -380,10 +425,21 @@ mod tests {
             token_id: "id-1".to_string(),
             schema: "archive_x".to_string(),
             rate_limit: 250,
+            audience: INGEST_TOKEN_AUDIENCE.to_string(),
+            scope: String::new(),
         };
         let json = serde_json::to_string(&data).unwrap();
         let back: IngestTokenData = serde_json::from_str(&json).unwrap();
         assert_eq!(data, back);
+    }
+
+    #[test]
+    fn legacy_token_data_defaults_to_ingest_audience() {
+        let json = r#"{"token_id":"id-1","schema":"archive_x","rate_limit":250}"#;
+        let back: IngestTokenData = serde_json::from_str(json).unwrap();
+
+        assert_eq!(back.audience, INGEST_TOKEN_AUDIENCE);
+        assert_eq!(back.scope, "");
     }
 
     #[test]
@@ -392,6 +448,8 @@ mod tests {
             token_id: "token-id-secret-tenant-alpha".to_string(),
             schema: "private_schema_with_token_secret".to_string(),
             rate_limit: 250,
+            audience: EVENT_SSE_TOKEN_AUDIENCE.to_string(),
+            scope: "admin private.scope.sk-live-secret".to_string(),
         };
 
         let rendered = format!("{data:?}");
@@ -400,10 +458,13 @@ mod tests {
         assert!(rendered.contains("token_id_len"));
         assert!(rendered.contains("schema_len"));
         assert!(rendered.contains("rate_limit"));
+        assert!(rendered.contains("audience_len"));
+        assert!(rendered.contains("scope_len"));
         assert!(!rendered.contains("token-id-secret"));
         assert!(!rendered.contains("tenant-alpha"));
         assert!(!rendered.contains("private_schema"));
         assert!(!rendered.contains("token_secret"));
+        assert!(!rendered.contains("sk-live-secret"));
     }
 
     #[test]

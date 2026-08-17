@@ -1371,7 +1371,7 @@ async fn resolve_stream_token(
     archive_ctx: &ArchiveContext,
 ) -> Result<(String, u64), Response> {
     if let Some(token) = extract_bearer(headers) {
-        if let Some(data) = state.ingest_token_store.validate(&token).await {
+        if let Some(data) = state.ingest_token_store.validate_ingest(&token).await {
             return Ok((data.schema, data.rate_limit));
         }
     }
