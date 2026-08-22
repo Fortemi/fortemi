@@ -7,6 +7,13 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.7.22] - 2026-08-22
+
+Corrective publication for `2026.7.21`. The implementation and canonical
+Knowledge Shard contract are unchanged. This release refreshes the tracked
+AsyncAPI snapshot against the matching application version so isolated
+container verification and the published runtime contract are coherent.
+
 ## [2026.7.21] - 2026-08-22
 
 Corrective publication for `2026.7.20`. The bounded job execution,
@@ -1978,7 +1985,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.7.21...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.7.22...HEAD
+[2026.7.22]: https://github.com/fortemi/fortemi/compare/v2026.7.21...v2026.7.22
 [2026.7.21]: https://github.com/fortemi/fortemi/compare/v2026.7.20...v2026.7.21
 [2026.7.20]: https://github.com/fortemi/fortemi/compare/v2026.7.19...v2026.7.20
 [2026.7.19]: https://github.com/fortemi/fortemi/compare/v2026.7.18...v2026.7.19
