@@ -235,6 +235,7 @@ RATE_LIMIT_PERIOD_SECS=60
 | `LOG_FORMAT` | String | `text` | Log output format: exactly `text` or `json`; invalid values fail startup |
 | `LOG_FILE` | String | None | Path to log file (logs to stdout if not set) |
 | `LOG_ANSI` | Boolean | auto | Optional strict `true`/`false` or `1`/`0` override for text logs; file text logs default to no ANSI |
+| `FORTEMI_DIAGNOSTIC_PROFILE` | String | None | Set to `jobs` for targeted job/API/inference debug events with JSON output and ANSI disabled |
 
 **Common Configurations:**
 
@@ -250,6 +251,14 @@ Debug and trace filters are a protected diagnostic mode, not a hosted
 operational default. Enable them explicitly, keep the interval time-bound, and
 apply the sink/access/redaction controls in the
 `docs/architecture/hosted-telemetry-classification.md` contract (#974).
+
+The `jobs` profile supplies defaults only. Explicit `RUST_LOG`, `LOG_FORMAT`,
+`LOG_FILE`, and `LOG_ANSI` values take precedence, so an existing `.env` can
+deliberately narrow the filter or select a different sink. The profile emits
+stage names, an opaque per-process job correlation token, counts, lengths,
+durations, configured limits, and stable reason codes. It does not intentionally
+emit note content, prompts, vectors, request or response bodies, authorization
+values, or database credentials.
 
 **API debugging:**
 ```bash
@@ -285,6 +294,8 @@ RUST_LOG=matric_api::routes::search=trace,info
 | `WORKER_THREADS` | Integer | CPU cores | Number of Tokio worker threads for background jobs |
 | `JOB_POLL_INTERVAL_MS` | Integer | `60000` | Safety-net polling interval in milliseconds. The worker is event-driven (woken by NOTIFY); this interval only triggers as a fallback for crash recovery and race conditions. |
 | `JOB_MAX_CONCURRENT` | Integer | `4` | Maximum number of jobs that can run concurrently in the worker |
+| `JOB_TIMEOUT_SECS` | Integer | `1800` (`600` in the bundle) | Outer wall-clock limit for every handler. Provider request timeouts remain separate. Must be 30-7200. |
+| `JOB_STALE_REAP_INTERVAL_SECS` | Integer | `30` | Periodic stale-running recovery cadence. Must be 1-300. The stale age is always derived as 2x `JOB_TIMEOUT_SECS`. |
 | `JOB_RETRY_BASE_DELAY_MS` | Integer | `5000` | Base delay for transient retries |
 | `JOB_RETRY_RATE_LIMIT_BASE_DELAY_MS` | Integer | `30000` | Base delay for rate-limited upstream retries |
 | `JOB_RETRY_TIMEOUT_BASE_DELAY_MS` | Integer | `15000` | Base delay for timed-out jobs |
@@ -298,6 +309,8 @@ WORKER_ENABLED=true
 WORKER_THREADS=4
 JOB_POLL_INTERVAL_MS=60000
 JOB_MAX_CONCURRENT=4
+JOB_TIMEOUT_SECS=120
+JOB_STALE_REAP_INTERVAL_SECS=30
 JOB_RETRY_BASE_DELAY_MS=5000
 JOB_RETRY_MAX_DELAY_MS=3600000
 JOB_RETRY_JITTER_PERCENT=20
@@ -306,7 +319,9 @@ JOB_RETRY_JITTER_PERCENT=20
 Worker safety settings are parsed strictly. Invalid booleans, zero or
 out-of-range concurrency, poll intervals outside 100-300000 ms, retry bases
 outside 100-600000 ms, retry caps below a configured base, and jitter outside
-0-100 stop startup with a configuration error.
+0-100 stop startup with a configuration error. `JOB_TIMEOUT_SECS=120`, for
+example, produces a 240-second stale threshold at runtime; it does not use the
+compiled default.
 
 ### Chat (Synchronous LLM)
 

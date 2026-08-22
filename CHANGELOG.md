@@ -5,6 +5,24 @@ All notable changes to Fortémi are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
+## [Unreleased]
+
+### Fixed
+
+- Bound every background job handler by the configured `JOB_TIMEOUT_SECS`,
+  contain and redact handler panics, and recover stranded `running` jobs on a
+  multi-worker-safe periodic sweep as well as at startup. Timeout, panic,
+  cancellation, restart, and finalization-persistence failures now converge to
+  delayed retry or terminal failure with stable attempt evidence (#1098).
+- Update `h2` to 0.4.16 to resolve `RUSTSEC-2026-0258`, the low-severity
+  unbounded empty-DATA-frame advisory found by the release dependency gate.
+
+### Added
+
+- Add `FORTEMI_DIAGNOSTIC_PROFILE=jobs` for targeted, redaction-safe JSON job
+  tracing, with Docker bundle forwarding and operator capture instructions for
+  Linux, macOS, and Windows Docker Desktop (#1098).
+
 ## [2026.7.19] - 2026-07-29
 
 Corrective publication for `2026.7.18`. Knowledge Shard formats, exact

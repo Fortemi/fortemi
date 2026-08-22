@@ -2,11 +2,15 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
+use std::sync::{Once, OnceLock};
 use std::time::{Duration, Instant};
 
+use futures::FutureExt;
 use tokio::sync::{broadcast, mpsc, RwLock};
-use tokio::time::sleep;
+use tokio::time::{sleep, MissedTickBehavior};
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
@@ -22,6 +26,52 @@ use crate::handler::{JobContext, JobHandler, JobResult};
 use crate::pause::PauseState;
 use crate::DEFAULT_POLL_INTERVAL_MS;
 
+const STALE_THRESHOLD_MULTIPLIER: u32 = 2;
+const DEFAULT_STALE_REAP_INTERVAL_SECS: u64 = 30;
+
+/// Return an opaque, stable-for-this-process token for correlating job stages.
+///
+/// The per-process salt prevents the token from becoming a durable external
+/// identifier while still allowing support logs from the worker, handler, and
+/// inference stages to be joined. Raw job UUIDs are not emitted.
+pub fn job_correlation_token(job_id: &Uuid) -> String {
+    static PROCESS_SALT: OnceLock<Uuid> = OnceLock::new();
+    let salt = PROCESS_SALT.get_or_init(Uuid::new_v4);
+    let mut hasher = DefaultHasher::new();
+    salt.hash(&mut hasher);
+    job_id.hash(&mut hasher);
+    format!("job-{:016x}", hasher.finish())
+}
+
+/// Install a process-wide panic hook that never emits panic payloads.
+///
+/// `catch_unwind` contains handler panics, but Rust's default hook runs before
+/// unwinding and prints the payload. Installing this hook at process startup is
+/// therefore required to keep document text, prompts, and provider responses
+/// out of diagnostic output even when a dependency panics with sensitive data.
+pub fn install_redacted_panic_hook() {
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        std::panic::set_hook(Box::new(|panic_info| {
+            if let Some(location) = panic_info.location() {
+                error!(
+                    target: "fortemi.panic",
+                    panic_payload_redacted = true,
+                    source_line = location.line(),
+                    source_column = location.column(),
+                    "Panic observed; payload redacted"
+                );
+            } else {
+                error!(
+                    target: "fortemi.panic",
+                    panic_payload_redacted = true,
+                    "Panic observed; payload redacted"
+                );
+            }
+        }));
+    });
+}
+
 /// Configuration for the job worker.
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
@@ -35,16 +85,26 @@ pub struct WorkerConfig {
     pub max_concurrent_jobs: usize,
     /// Whether to enable job processing.
     pub enabled: bool,
+    /// Outer wall-clock bound applied to every handler future.
+    pub job_timeout: Duration,
+    /// Age after which a claimed job is considered abandoned.
+    pub stale_reap_threshold: Duration,
+    /// Maximum cadence between stale-running recovery sweeps.
+    pub stale_reap_interval: Duration,
     /// Bounded retry timing shared with stale-job recovery.
     pub retry_policy: JobRetryPolicy,
 }
 
 impl Default for WorkerConfig {
     fn default() -> Self {
+        let job_timeout = Duration::from_secs(matric_core::defaults::JOB_TIMEOUT_SECS);
         Self {
             poll_interval_ms: DEFAULT_POLL_INTERVAL_MS,
             max_concurrent_jobs: matric_core::defaults::JOB_MAX_CONCURRENT,
             enabled: true,
+            job_timeout,
+            stale_reap_threshold: job_timeout.saturating_mul(STALE_THRESHOLD_MULTIPLIER),
+            stale_reap_interval: Duration::from_secs(DEFAULT_STALE_REAP_INTERVAL_SECS),
             retry_policy: JobRetryPolicy::default(),
         }
     }
@@ -138,6 +198,8 @@ impl WorkerConfig {
     /// | `JOB_WORKER_ENABLED` | `true` | Enable/disable job processing |
     /// | `JOB_MAX_CONCURRENT` | `1` | Max concurrent jobs |
     /// | `JOB_POLL_INTERVAL_MS` | `60000` | Safety-net poll interval (ms) |
+    /// | `JOB_TIMEOUT_SECS` | `1800` | Outer handler execution timeout |
+    /// | `JOB_STALE_REAP_INTERVAL_SECS` | `30` | Stale-running sweep cadence |
     /// | `JOB_RETRY_BASE_DELAY_MS` | `5000` | Transient retry base delay |
     /// | `JOB_RETRY_RATE_LIMIT_BASE_DELAY_MS` | `30000` | Rate-limit retry base delay |
     /// | `JOB_RETRY_TIMEOUT_BASE_DELAY_MS` | `15000` | Timeout retry base delay |
@@ -145,54 +207,85 @@ impl WorkerConfig {
     /// | `JOB_RETRY_MAX_DELAY_MS` | `3600000` | Retry delay cap |
     /// | `JOB_RETRY_JITTER_PERCENT` | `20` | Deterministic jitter window |
     pub fn from_env() -> Result<Self> {
+        Self::from_lookup(read_env)
+    }
+
+    fn from_lookup<F>(mut lookup: F) -> Result<Self>
+    where
+        F: FnMut(&str) -> Result<Option<String>>,
+    {
         let defaults = Self::default();
-        let enabled = parse_bool_env("JOB_WORKER_ENABLED", defaults.enabled)?;
-        let max_concurrent_jobs = usize::try_from(parse_u64_env(
+        let enabled = parse_bool_lookup(&mut lookup, "JOB_WORKER_ENABLED", defaults.enabled)?;
+        let max_concurrent_jobs = usize::try_from(parse_u64_lookup(
+            &mut lookup,
             "JOB_MAX_CONCURRENT",
             defaults.max_concurrent_jobs as u64,
             1,
             64,
         )?)
         .map_err(|_| Error::Config("JOB_MAX_CONCURRENT exceeds platform bounds".to_string()))?;
-        let poll_interval_ms = parse_u64_env(
+        let poll_interval_ms = parse_u64_lookup(
+            &mut lookup,
             "JOB_POLL_INTERVAL_MS",
             defaults.poll_interval_ms,
             100,
             300_000,
         )?;
+        let job_timeout_secs = parse_u64_lookup(
+            &mut lookup,
+            matric_core::defaults::ENV_JOB_TIMEOUT_SECS,
+            defaults.job_timeout.as_secs(),
+            30,
+            7_200,
+        )?;
+        let stale_reap_interval_secs = parse_u64_lookup(
+            &mut lookup,
+            "JOB_STALE_REAP_INTERVAL_SECS",
+            defaults.stale_reap_interval.as_secs(),
+            1,
+            300,
+        )?;
+        let job_timeout = Duration::from_secs(job_timeout_secs);
+        let stale_reap_threshold = job_timeout.saturating_mul(STALE_THRESHOLD_MULTIPLIER);
 
         let mut retry_policy = defaults.retry_policy;
-        retry_policy.transient_base_delay_ms = parse_u64_env(
+        retry_policy.transient_base_delay_ms = parse_u64_lookup(
+            &mut lookup,
             "JOB_RETRY_BASE_DELAY_MS",
             retry_policy.transient_base_delay_ms,
             100,
             600_000,
         )?;
-        retry_policy.rate_limit_base_delay_ms = parse_u64_env(
+        retry_policy.rate_limit_base_delay_ms = parse_u64_lookup(
+            &mut lookup,
             "JOB_RETRY_RATE_LIMIT_BASE_DELAY_MS",
             retry_policy.rate_limit_base_delay_ms,
             100,
             600_000,
         )?;
-        retry_policy.timeout_base_delay_ms = parse_u64_env(
+        retry_policy.timeout_base_delay_ms = parse_u64_lookup(
+            &mut lookup,
             "JOB_RETRY_TIMEOUT_BASE_DELAY_MS",
             retry_policy.timeout_base_delay_ms,
             100,
             600_000,
         )?;
-        retry_policy.stale_worker_base_delay_ms = parse_u64_env(
+        retry_policy.stale_worker_base_delay_ms = parse_u64_lookup(
+            &mut lookup,
             "JOB_RETRY_STALE_BASE_DELAY_MS",
             retry_policy.stale_worker_base_delay_ms,
             100,
             600_000,
         )?;
-        retry_policy.max_delay_ms = parse_u64_env(
+        retry_policy.max_delay_ms = parse_u64_lookup(
+            &mut lookup,
             "JOB_RETRY_MAX_DELAY_MS",
             retry_policy.max_delay_ms,
             100,
             86_400_000,
         )?;
-        retry_policy.jitter_percent = u8::try_from(parse_u64_env(
+        retry_policy.jitter_percent = u8::try_from(parse_u64_lookup(
+            &mut lookup,
             "JOB_RETRY_JITTER_PERCENT",
             u64::from(retry_policy.jitter_percent),
             0,
@@ -218,6 +311,9 @@ impl WorkerConfig {
             poll_interval_ms,
             max_concurrent_jobs,
             enabled,
+            job_timeout,
+            stale_reap_threshold,
+            stale_reap_interval: Duration::from_secs(stale_reap_interval_secs),
             retry_policy,
         })
     }
@@ -237,6 +333,26 @@ impl WorkerConfig {
     /// Enable or disable job processing.
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+
+    /// Override the handler timeout and derive the standard 2x stale bound.
+    pub fn with_job_timeout(mut self, timeout: Duration) -> Self {
+        self.job_timeout = timeout;
+        self.stale_reap_threshold = timeout.saturating_mul(STALE_THRESHOLD_MULTIPLIER);
+        self
+    }
+
+    /// Override the stale-running age threshold for deterministic tests or
+    /// deployments that have an independently justified recovery bound.
+    pub fn with_stale_reap_threshold(mut self, threshold: Duration) -> Self {
+        self.stale_reap_threshold = threshold;
+        self
+    }
+
+    /// Override the periodic stale-running sweep cadence.
+    pub fn with_stale_reap_interval(mut self, interval: Duration) -> Self {
+        self.stale_reap_interval = interval;
         self
     }
 
@@ -267,8 +383,11 @@ fn parse_bool_value(name: &str, value: &str) -> Result<bool> {
     }
 }
 
-fn parse_bool_env(name: &str, default: bool) -> Result<bool> {
-    read_env(name)?
+fn parse_bool_lookup<F>(lookup: &mut F, name: &str, default: bool) -> Result<bool>
+where
+    F: FnMut(&str) -> Result<Option<String>>,
+{
+    lookup(name)?
         .as_deref()
         .map(|value| parse_bool_value(name, value))
         .transpose()
@@ -287,12 +406,81 @@ fn parse_bounded_u64_value(name: &str, value: &str, min: u64, max: u64) -> Resul
     Ok(parsed)
 }
 
-fn parse_u64_env(name: &str, default: u64, min: u64, max: u64) -> Result<u64> {
-    read_env(name)?
+fn parse_u64_lookup<F>(lookup: &mut F, name: &str, default: u64, min: u64, max: u64) -> Result<u64>
+where
+    F: FnMut(&str) -> Result<Option<String>>,
+{
+    lookup(name)?
         .as_deref()
         .map(|value| parse_bounded_u64_value(name, value, min, max))
         .transpose()
         .map(|value| value.unwrap_or(default))
+}
+
+async fn reap_stale_jobs_once(
+    db: &Database,
+    stale_reap_threshold: Duration,
+    retry_policy: JobRetryPolicy,
+    trigger: &'static str,
+) {
+    let stale_threshold_secs = stale_reap_threshold.as_secs().max(1);
+    let started = Instant::now();
+    match db
+        .jobs
+        .reap_stale_running(stale_threshold_secs, &retry_policy)
+        .await
+    {
+        Ok(0) => debug!(
+            stage = "stale_reap",
+            trigger,
+            stale_threshold_secs,
+            duration_ms = started.elapsed().as_millis() as u64,
+            reaped_count = 0_u64,
+            "Stale-running job sweep completed"
+        ),
+        Ok(count) => warn!(
+            stage = "stale_reap",
+            trigger,
+            stale_threshold_secs,
+            duration_ms = started.elapsed().as_millis() as u64,
+            reaped_count = count,
+            "Recovered stale running jobs"
+        ),
+        Err(error) => {
+            let error_text = error.to_string();
+            let (error_len, error_reason) = worker_failure_telemetry(&error_text);
+            error!(
+                stage = "stale_reap",
+                trigger,
+                stale_threshold_secs,
+                duration_ms = started.elapsed().as_millis() as u64,
+                error_len,
+                error_reason,
+                "Failed to recover stale running jobs"
+            );
+        }
+    }
+}
+
+async fn run_periodic_stale_reaper(
+    db: Database,
+    stale_reap_threshold: Duration,
+    stale_reap_interval: Duration,
+    retry_policy: JobRetryPolicy,
+) {
+    let interval_duration = if stale_reap_interval.is_zero() {
+        Duration::from_millis(1)
+    } else {
+        stale_reap_interval
+    };
+    let mut interval = tokio::time::interval(interval_duration);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    // Startup recovery is run synchronously before this task starts.
+    interval.tick().await;
+    loop {
+        interval.tick().await;
+        reap_stale_jobs_once(&db, stale_reap_threshold, retry_policy, "periodic").await;
+    }
 }
 
 /// Event emitted by the job worker.
@@ -565,27 +753,21 @@ impl JobWorker {
             return;
         }
 
-        // Reap orphaned running jobs from a previous process (crash/restart).
-        // Use 2x the job timeout as the staleness threshold to avoid reaping
-        // jobs that are legitimately still running during normal operation.
-        let stale_threshold = matric_core::defaults::JOB_TIMEOUT_SECS * 2;
-        match self
-            .db
-            .jobs
-            .reap_stale_running(stale_threshold, &self.config.retry_policy)
-            .await
-        {
-            Ok(0) => debug!("No stale running jobs to reap"),
-            Ok(n) => warn!(count = n, "Reaped stale running jobs from previous worker"),
-            Err(e) => {
-                let error_text = e.to_string();
-                error!(
-                    error_len = error_text.len(),
-                    error_reason = worker_error_reason_code(&error_text),
-                    "Failed to reap stale running jobs"
-                );
-            }
-        }
+        // Reap orphaned running jobs from a previous process before accepting
+        // new work, then keep sweeping independently of the drain loop.
+        reap_stale_jobs_once(
+            &self.db,
+            self.config.stale_reap_threshold,
+            self.config.retry_policy,
+            "startup",
+        )
+        .await;
+        let periodic_reaper = tokio::spawn(run_periodic_stale_reaper(
+            self.db.clone(),
+            self.config.stale_reap_threshold,
+            self.config.stale_reap_interval,
+            self.config.retry_policy,
+        ));
 
         let job_notify = self.db.jobs.job_notify();
         let poll_interval = Duration::from_millis(self.config.poll_interval_ms);
@@ -594,12 +776,17 @@ impl JobWorker {
 
         info!(
             safety_net_interval_ms = self.config.poll_interval_ms,
-            max_concurrent, gpu_concurrent, "Job worker started (event-driven)"
+            max_concurrent,
+            gpu_concurrent,
+            job_timeout_secs = self.config.job_timeout.as_secs(),
+            stale_threshold_secs = self.config.stale_reap_threshold.as_secs(),
+            stale_reap_interval_secs = self.config.stale_reap_interval.as_secs(),
+            "Job worker started (event-driven)"
         );
 
         let _ = self.event_tx.send(WorkerEvent::WorkerStarted);
 
-        loop {
+        'worker: loop {
             // Wait for a wake signal: job enqueue, safety-net timeout, or shutdown
             tokio::select! {
                 _ = shutdown_rx.recv() => {
@@ -636,9 +823,7 @@ impl JobWorker {
                 // Check for shutdown between drain iterations
                 if shutdown_rx.try_recv().is_ok() {
                     info!("Job worker received shutdown signal during drain");
-                    let _ = self.event_tx.send(WorkerEvent::WorkerStopped);
-                    info!("Job worker stopped");
-                    return;
+                    break 'worker;
                 }
 
                 let mut any_processed = false;
@@ -844,6 +1029,8 @@ impl JobWorker {
             }
         }
 
+        periodic_reaper.abort();
+        let _ = periodic_reaper.await;
         let _ = self.event_tx.send(WorkerEvent::WorkerStopped);
         info!("Job worker stopped");
     }
@@ -862,15 +1049,18 @@ impl JobWorker {
         loop {
             let mut claimed = 0;
             let mut tasks = tokio::task::JoinSet::new();
+            let mut task_jobs = HashMap::new();
 
             for _ in 0..max_concurrent {
                 match self.claim_job_for_tier(tier_group, excluded_archives).await {
                     Some(job) => {
                         claimed += 1;
+                        let identity = ClaimedJobIdentity::from(&job);
                         let worker = self.clone_refs();
-                        tasks.spawn(async move {
+                        let abort_handle = tasks.spawn(async move {
                             worker.execute_job(job).await;
                         });
+                        task_jobs.insert(abort_handle.id(), identity);
                     }
                     None => break,
                 }
@@ -884,11 +1074,50 @@ impl JobWorker {
                 tier_class = worker_tier_class(tier_group),
                 claimed, "Processing tiered job batch"
             );
-            while let Some(result) = tasks.join_next().await {
-                if let Err(e) = result {
-                    let error_text = e.to_string();
-                    let (error_len, error_reason) = worker_failure_telemetry(&error_text);
-                    error!(error_len, error_reason, "Job task panicked");
+            while let Some(result) = tasks.join_next_with_id().await {
+                match result {
+                    Ok((task_id, ())) => {
+                        task_jobs.remove(&task_id);
+                    }
+                    Err(join_error) => {
+                        let task_id = join_error.id();
+                        let identity = task_jobs.remove(&task_id);
+                        let failure = if join_error.is_cancelled() {
+                            Some((
+                                JobFailureClass::Cancelled,
+                                "task_cancelled",
+                                "Job task was cancelled outside the handler boundary",
+                            ))
+                        } else if join_error.is_panic() {
+                            Some((
+                                JobFailureClass::Poison,
+                                "task_panicked",
+                                "Job task panicked outside the handler boundary",
+                            ))
+                        } else {
+                            None
+                        };
+                        let error_text = join_error.to_string();
+                        let (error_len, error_reason) = worker_failure_telemetry(&error_text);
+                        error!(
+                            error_len,
+                            error_reason,
+                            job_identity_retained = identity.is_some(),
+                            "Job task terminated abnormally"
+                        );
+                        if let (Some(identity), Some((failure_class, failure_code, message))) =
+                            (identity, failure)
+                        {
+                            self.clone_refs()
+                                .recover_abnormal_task(
+                                    identity,
+                                    failure_class,
+                                    failure_code,
+                                    message,
+                                )
+                                .await;
+                        }
+                    }
                 }
             }
             total_drained += claimed;
@@ -923,7 +1152,17 @@ impl JobWorker {
         };
 
         match result {
-            Ok(Some(job)) => Some(job),
+            Ok(Some(job)) => {
+                debug!(
+                    stage = "claim",
+                    job_correlation = %job_correlation_token(&job.id),
+                    job_type_len = worker_job_type_len(&job.job_type),
+                    retry_count = job.retry_count,
+                    max_retries = job.max_retries,
+                    "Claimed job for execution"
+                );
+                Some(job)
+            }
             Ok(None) => None,
             Err(e) => {
                 let error_text = e.to_string();
@@ -945,6 +1184,7 @@ impl JobWorker {
             db: self.db.clone(),
             handlers: self.handlers.clone(),
             event_tx: self.event_tx.clone(),
+            job_timeout: self.config.job_timeout,
             retry_policy: self.config.retry_policy,
         }
     }
@@ -960,6 +1200,23 @@ impl JobWorker {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ClaimedJobIdentity {
+    job_id: Uuid,
+    job_type: JobType,
+    retry_count: i32,
+}
+
+impl From<&matric_core::Job> for ClaimedJobIdentity {
+    fn from(job: &matric_core::Job) -> Self {
+        Self {
+            job_id: job.id,
+            job_type: job.job_type,
+            retry_count: job.retry_count,
+        }
+    }
+}
+
 /// Lightweight reference bundle for executing a single job in a spawned task.
 ///
 /// This avoids requiring `Arc<JobWorker>` to be `Send + Sync` for `JoinSet::spawn`.
@@ -967,19 +1224,129 @@ struct JobWorkerRef {
     db: Database,
     handlers: Arc<RwLock<HashMap<JobType, Arc<dyn JobHandler>>>>,
     event_tx: broadcast::Sender<WorkerEvent>,
+    job_timeout: Duration,
     retry_policy: JobRetryPolicy,
 }
 
 impl JobWorkerRef {
+    async fn recover_abnormal_task(
+        &self,
+        identity: ClaimedJobIdentity,
+        failure_class: JobFailureClass,
+        failure_code: &'static str,
+        message: &'static str,
+    ) {
+        self.schedule_retry(
+            identity,
+            message.to_string(),
+            failure_class,
+            failure_code,
+            Instant::now(),
+        )
+        .await;
+    }
+
+    async fn schedule_retry(
+        &self,
+        identity: ClaimedJobIdentity,
+        error: String,
+        failure_class: JobFailureClass,
+        failure_code: &'static str,
+        started: Instant,
+    ) {
+        let delay = retry_delay(
+            identity.job_id,
+            identity.retry_count,
+            failure_class,
+            self.retry_policy,
+        );
+        let retry_at = chrono::Utc::now()
+            + chrono::Duration::from_std(delay).expect("bounded job retry delay must fit chrono");
+        let job_correlation = job_correlation_token(&identity.job_id);
+        match self
+            .db
+            .jobs
+            .retry(
+                identity.job_id,
+                &error,
+                failure_class,
+                failure_code,
+                retry_at,
+            )
+            .await
+        {
+            Ok(JobRetryOutcome::Scheduled { next_attempt_at }) => {
+                warn!(
+                    stage = "retry",
+                    job_correlation,
+                    job_type_len = worker_job_type_len(&identity.job_type),
+                    failure_class = failure_class.as_str(),
+                    failure_code,
+                    retry_delay_secs = delay.as_secs(),
+                    next_attempt_at = %next_attempt_at,
+                    duration_ms = started.elapsed().as_millis() as u64,
+                    "Job retry scheduled"
+                );
+                let _ = self.event_tx.send(WorkerEvent::JobRetryScheduled {
+                    job_id: identity.job_id,
+                    job_type: identity.job_type,
+                    failure_class,
+                    failure_code: failure_code.to_string(),
+                    next_attempt_at,
+                    retry_count: identity.retry_count + 1,
+                });
+            }
+            Ok(JobRetryOutcome::Exhausted) => {
+                warn!(
+                    stage = "terminal_failure",
+                    job_correlation,
+                    job_type_len = worker_job_type_len(&identity.job_type),
+                    failure_class = failure_class.as_str(),
+                    failure_code = "retry_exhausted",
+                    duration_ms = started.elapsed().as_millis() as u64,
+                    "Job retries exhausted"
+                );
+                let _ = self.event_tx.send(WorkerEvent::JobFailed {
+                    job_id: identity.job_id,
+                    job_type: identity.job_type,
+                    error,
+                    failure_class,
+                    failure_code: "retry_exhausted".to_string(),
+                });
+            }
+            Err(database_error) => {
+                let error_text = database_error.to_string();
+                let (error_len, error_reason) = worker_failure_telemetry(&error_text);
+                error!(
+                    stage = "retry_persistence",
+                    job_correlation,
+                    error_len,
+                    error_reason,
+                    failure_class = failure_class.as_str(),
+                    failure_code,
+                    "Failed to persist job retry; periodic stale recovery remains active"
+                );
+            }
+        }
+    }
+
     /// Execute a single claimed job.
     async fn execute_job(self, job: matric_core::Job) {
         let start = Instant::now();
-        let job_id = job.id;
-        let job_type = job.job_type;
-        let retry_count = job.retry_count;
+        let identity = ClaimedJobIdentity::from(&job);
+        let job_id = identity.job_id;
+        let job_type = identity.job_type;
         let job_type_len = worker_job_type_len(&job_type);
+        let job_correlation = job_correlation_token(&job_id);
 
-        info!(job_id_present = true, job_type_len, "Processing job");
+        info!(
+            stage = "execute",
+            job_correlation,
+            job_type_len,
+            retry_count = identity.retry_count,
+            max_retries = job.max_retries,
+            "Processing job"
+        );
 
         let _ = self
             .event_tx
@@ -991,7 +1358,7 @@ impl JobWorkerRef {
             handlers.get(&job_type).cloned()
         };
 
-        let result = match handler {
+        let (result, retry_override) = match handler {
             Some(handler) => {
                 let event_tx = self.event_tx.clone();
                 let event_tx_for_ctx = self.event_tx.clone();
@@ -1005,22 +1372,47 @@ impl JobWorkerRef {
                     })
                     .with_event_tx(event_tx_for_ctx);
 
-                let timeout_secs = matric_core::defaults::job_timeout_secs();
-                let job_timeout = Duration::from_secs(timeout_secs);
-                match tokio::time::timeout(job_timeout, handler.execute(ctx)).await {
-                    Ok(result) => result,
+                let timeout_secs = self.job_timeout.as_secs();
+                let handler_future = AssertUnwindSafe(handler.execute(ctx)).catch_unwind();
+                match tokio::time::timeout(self.job_timeout, handler_future).await {
+                    Ok(Ok(result)) => (result, None),
+                    Ok(Err(_panic_payload)) => {
+                        warn!(
+                            stage = "panic_containment",
+                            job_correlation,
+                            job_type_len,
+                            failure_class = JobFailureClass::Poison.as_str(),
+                            failure_code = "handler_panicked",
+                            "Contained panic from job handler"
+                        );
+                        (
+                            JobResult::Retry("handler_panicked".to_string()),
+                            Some((JobFailureClass::Poison, "handler_panicked")),
+                        )
+                    }
                     Err(_) => {
                         warn!(
-                            job_id_present = true,
-                            job_type_len, timeout_secs, "Job exceeded timeout of {}s", timeout_secs
+                            stage = "timeout",
+                            job_correlation,
+                            job_type_len,
+                            timeout_secs,
+                            failure_class = JobFailureClass::Timeout.as_str(),
+                            failure_code = "job_timeout",
+                            "Job exceeded configured execution timeout"
                         );
-                        JobResult::Retry("job_timeout".to_string())
+                        (
+                            JobResult::Retry("job_timeout".to_string()),
+                            Some((JobFailureClass::Timeout, "job_timeout")),
+                        )
                     }
                 }
             }
             None => {
                 warn!(job_type_len, "No handler registered for job type");
-                JobResult::Failed(format!("No handler for job type: {:?}", job_type))
+                (
+                    JobResult::Failed(format!("No handler for job type: {:?}", job_type)),
+                    None,
+                )
             }
         };
 
@@ -1030,14 +1422,16 @@ impl JobWorkerRef {
                     let error_text = e.to_string();
                     let (error_len, error_reason) = worker_failure_telemetry(&error_text);
                     error!(
+                        stage = "completion_persistence",
+                        job_correlation,
                         error_len,
                         error_reason,
-                        job_id_present = true,
-                        "Failed to mark job as completed"
+                        "Failed to persist job completion; periodic stale recovery remains active"
                     );
                 } else {
                     info!(
-                        job_id_present = true,
+                        stage = "complete",
+                        job_correlation,
                         job_type_len,
                         duration_ms = start.elapsed().as_millis() as u64,
                         "Job completed successfully"
@@ -1058,15 +1452,17 @@ impl JobWorkerRef {
                     let error_text = e.to_string();
                     let (error_len, error_reason) = worker_failure_telemetry(&error_text);
                     error!(
+                        stage = "failure_persistence",
+                        job_correlation,
                         error_len,
                         error_reason,
-                        job_id_present = true,
-                        "Failed to mark job as failed"
+                        "Failed to persist terminal job failure; periodic stale recovery remains active"
                     );
                 } else {
                     let (error_len, error_reason) = worker_failure_telemetry(&error);
                     warn!(
-                        job_id_present = true,
+                        stage = "terminal_failure",
+                        job_correlation,
                         job_type_len,
                         error_len,
                         error_reason,
@@ -1084,66 +1480,14 @@ impl JobWorkerRef {
                 }
             }
             JobResult::Retry(error) => {
-                let failure_class = retry_failure_class(&error);
-                let failure_code = worker_error_reason_code(&error);
-                let delay = retry_delay(job_id, retry_count, failure_class, self.retry_policy);
-                let retry_at = chrono::Utc::now()
-                    + chrono::Duration::from_std(delay)
-                        .expect("bounded job retry delay must fit chrono");
-                match self
-                    .db
-                    .jobs
-                    .retry(job_id, &error, failure_class, failure_code, retry_at)
-                    .await
-                {
-                    Ok(JobRetryOutcome::Scheduled { next_attempt_at }) => {
-                        warn!(
-                            job_id_present = true,
-                            job_type_len,
-                            failure_class = failure_class.as_str(),
-                            failure_code,
-                            retry_delay_secs = delay.as_secs(),
-                            next_attempt_at = %next_attempt_at,
-                            duration_ms = start.elapsed().as_millis() as u64,
-                            "Job retry scheduled"
-                        );
-                        let _ = self.event_tx.send(WorkerEvent::JobRetryScheduled {
-                            job_id,
-                            job_type,
-                            failure_class,
-                            failure_code: failure_code.to_string(),
-                            next_attempt_at,
-                            retry_count: retry_count + 1,
-                        });
-                    }
-                    Ok(JobRetryOutcome::Exhausted) => {
-                        warn!(
-                            job_id_present = true,
-                            job_type_len,
-                            failure_class = failure_class.as_str(),
-                            failure_code = "retry_exhausted",
-                            duration_ms = start.elapsed().as_millis() as u64,
-                            "Job retries exhausted"
-                        );
-                        let _ = self.event_tx.send(WorkerEvent::JobFailed {
-                            job_id,
-                            job_type,
-                            error,
-                            failure_class,
-                            failure_code: "retry_exhausted".to_string(),
-                        });
-                    }
-                    Err(e) => {
-                        let error_text = e.to_string();
-                        let (error_len, error_reason) = worker_failure_telemetry(&error_text);
-                        error!(
-                            error_len,
-                            error_reason,
-                            job_id_present = true,
-                            "Failed to schedule job retry"
-                        );
-                    }
-                }
+                let (failure_class, failure_code) = retry_override.unwrap_or_else(|| {
+                    (
+                        retry_failure_class(&error),
+                        worker_error_reason_code(&error),
+                    )
+                });
+                self.schedule_retry(identity, error, failure_class, failure_code, start)
+                    .await;
             }
         }
     }
@@ -1222,6 +1566,17 @@ mod tests {
         assert_eq!(config.poll_interval_ms, DEFAULT_POLL_INTERVAL_MS);
         assert_eq!(config.max_concurrent_jobs, 1);
         assert!(config.enabled);
+        assert_eq!(
+            config.job_timeout,
+            Duration::from_secs(matric_core::defaults::JOB_TIMEOUT_SECS)
+        );
+        assert_eq!(
+            config.stale_reap_threshold,
+            config
+                .job_timeout
+                .saturating_mul(STALE_THRESHOLD_MULTIPLIER)
+        );
+        assert_eq!(config.stale_reap_interval, Duration::from_secs(30));
         assert_eq!(config.retry_policy, JobRetryPolicy::default());
     }
 
@@ -1231,6 +1586,8 @@ mod tests {
             .with_poll_interval(1000)
             .with_max_concurrent(8)
             .with_enabled(false)
+            .with_job_timeout(Duration::from_secs(120))
+            .with_stale_reap_interval(Duration::from_secs(5))
             .with_retry_policy(JobRetryPolicy {
                 transient_base_delay_ms: 10,
                 rate_limit_base_delay_ms: 20,
@@ -1243,7 +1600,38 @@ mod tests {
         assert_eq!(config.poll_interval_ms, 1000);
         assert_eq!(config.max_concurrent_jobs, 8);
         assert!(!config.enabled);
+        assert_eq!(config.job_timeout, Duration::from_secs(120));
+        assert_eq!(config.stale_reap_threshold, Duration::from_secs(240));
+        assert_eq!(config.stale_reap_interval, Duration::from_secs(5));
         assert_eq!(config.retry_policy.max_delay_ms, 100);
+    }
+
+    #[test]
+    fn job_timeout_env_value_derives_stale_threshold_without_global_env_mutation() {
+        let values = HashMap::from([
+            ("JOB_TIMEOUT_SECS", "120"),
+            ("JOB_STALE_REAP_INTERVAL_SECS", "7"),
+        ]);
+        let config = WorkerConfig::from_lookup(|name| {
+            Ok(values.get(name).map(|value| (*value).to_string()))
+        })
+        .expect("synthetic worker environment must parse");
+
+        assert_eq!(config.job_timeout, Duration::from_secs(120));
+        assert_eq!(config.stale_reap_threshold, Duration::from_secs(240));
+        assert_eq!(config.stale_reap_interval, Duration::from_secs(7));
+    }
+
+    #[test]
+    fn job_correlation_is_stable_for_process_and_does_not_expose_uuid() {
+        let first = Uuid::parse_str("018f0000-0000-7000-8000-000000000001").unwrap();
+        let second = Uuid::parse_str("018f0000-0000-7000-8000-000000000002").unwrap();
+
+        let first_token = job_correlation_token(&first);
+        assert_eq!(first_token, job_correlation_token(&first));
+        assert_ne!(first_token, job_correlation_token(&second));
+        assert!(first_token.starts_with("job-"));
+        assert!(!first_token.contains(&first.to_string()));
     }
 
     #[test]

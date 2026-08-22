@@ -299,7 +299,13 @@ services:
       - POSTGRES_DB=matric
 
       # ── API Server ─────────────────────────────────────────────────────
-      - RUST_LOG=${RUST_LOG:-info}
+      # Optional jobs profile supplies targeted JSON/no-ANSI defaults. Each
+      # explicit logging variable remains an operator override.
+      - FORTEMI_DIAGNOSTIC_PROFILE
+      - RUST_LOG
+      - LOG_FORMAT
+      - LOG_FILE
+      - LOG_ANSI
 
       # ── Debug ──────────────────────────────────────────────────────────
       - DEBUG_SESSION_CONTEXT=${DEBUG_SESSION_CONTEXT:-}
@@ -340,10 +346,6 @@ services:
       # ── Real-Time Events ───────────────────────────────────────────────
       - MATRIC_EVENT_BUS_CAPACITY=${MATRIC_EVENT_BUS_CAPACITY:-256}
       - MATRIC_WEBHOOK_TIMEOUT_SECS=${MATRIC_WEBHOOK_TIMEOUT_SECS:-10}
-
-      # ── Background Worker ──────────────────────────────────────────────
-      # - WORKER_ENABLED=true
-      # - LOG_FORMAT=json
 
       # ── Support Memory Archive ──────────────────────────────────────────
       # Off by default so the Docker bundle matches the native build
@@ -389,6 +391,9 @@ services:
       # Job execution timeout (seconds). Default 600 (10 min).
       # Increase for large video files or slow GPU inference.
       - JOB_TIMEOUT_SECS=${JOB_TIMEOUT_SECS:-600}
+      # Stale threshold is derived as 2x JOB_TIMEOUT_SECS. This controls only
+      # how often the multi-worker-safe stale recovery query runs.
+      - JOB_STALE_REAP_INTERVAL_SECS=${JOB_STALE_REAP_INTERVAL_SECS:-30}
       # Fast model for extraction pipeline (concept tagging, references, titles).
       # Default: qwen3.5:9b (256K ctx, natively multimodal, strong JSON).
       # Also serves as vision model — eliminates separate qwen3-vl VRAM load.

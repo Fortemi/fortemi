@@ -1,0 +1,46 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-22T18:44:00Z"
+  description: "Provenance for retry classification of cancelled and poisoned jobs"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-core/src/models.rs:sha256:268f0743cd229f2354e606179f26ef6ab0200fcd57c85be4a1dea331a3cbd2c5"
+  type: code
+  created_at: "2026-08-22T18:44:00Z"
+  updated_at: "2026-08-22T18:44:00Z"
+  checksum: "sha256:268f0743cd229f2354e606179f26ef6ab0200fcd57c85be4a1dea331a3cbd2c5"
+  size_bytes: 430530
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1098"
+activity:
+  id: "urn:aiwg:activity:modification:matric-core-models-retry-partition-1098:001"
+  type: modification
+  started_at: "2026-08-22T17:45:00Z"
+  ended_at: "2026-08-22T18:44:00Z"
+  description: "Classify cancelled and poison failures as bounded retry candidates"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-core/src/models.rs:sha256:268f0743cd229f2354e606179f26ef6ab0200fcd57c85be4a1dea331a3cbd2c5"
+    activity: "urn:aiwg:activity:modification:matric-core-models-retry-partition-1098:001"
+    time: "2026-08-22T18:44:00Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:matric-core-models-retry-partition-1098:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: source_requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-core/src/models.rs:sha256:268f0743cd229f2354e606179f26ef6ab0200fcd57c85be4a1dea331a3cbd2c5"
+      source: "urn:gitea:issue:Fortemi/fortemi:1098"
+      derivation_type: implements
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:matric-core-models-retry-partition-1098:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-core/src/models.rs:sha256:268f0743cd229f2354e606179f26ef6ab0200fcd57c85be4a1dea331a3cbd2c5"
+    agent: "urn:aiwg:agent:codex-gpt-5"

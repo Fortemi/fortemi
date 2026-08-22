@@ -547,9 +547,53 @@ docker exec fortemi-matric-1 psql -U matric -d matric -c \
 ```
 
 Common causes:
-- **Model timeout:** Increase `JOB_TIMEOUT_SECS` (default: 300s)
+- **Job timeout:** Increase `JOB_TIMEOUT_SECS` when the complete handler needs
+  more time (native default: 1800s; bundle default: 600s). Provider request
+  timeouts such as `MATRIC_EMBED_TIMEOUT_SECS` remain independent.
 - **Missing Ollama model:** Run `ollama pull <model>` on the host
 - **Database connection issues:** Check PostgreSQL connectivity
+
+### Capture targeted job diagnostics
+
+`FORTEMI_DIAGNOSTIC_PROFILE=jobs` enables JSON, no-ANSI, targeted debug events
+for the worker, embedding handler, and inference layer. Existing `RUST_LOG`,
+`LOG_FORMAT`, `LOG_FILE`, or `LOG_ANSI` entries in `.env` explicitly override
+the profile defaults; remove them temporarily or set the intended values.
+
+Linux and macOS:
+
+```bash
+mkdir -p support/jobs-1098
+export FORTEMI_DIAGNOSTIC_PROFILE=jobs
+docker compose -f docker-compose.bundle.yml up -d --force-recreate fortemi
+# Reproduce the job, then capture a bounded window from stdout.
+docker compose -f docker-compose.bundle.yml logs \
+  --since 15m --no-color fortemi > support/jobs-1098/fortemi-jobs.jsonl
+# Return to the ordinary logging profile.
+unset FORTEMI_DIAGNOSTIC_PROFILE
+docker compose -f docker-compose.bundle.yml up -d --force-recreate fortemi
+```
+
+Windows PowerShell with Docker Desktop:
+
+```powershell
+New-Item -ItemType Directory -Force support\jobs-1098 | Out-Null
+$env:FORTEMI_DIAGNOSTIC_PROFILE = "jobs"
+docker compose -f docker-compose.bundle.yml up -d --force-recreate fortemi
+# Reproduce the job, then capture a bounded window from stdout.
+docker compose -f docker-compose.bundle.yml logs --since 15m --no-color fortemi |
+  Out-File -Encoding utf8 support\jobs-1098\fortemi-jobs.jsonl
+Remove-Item Env:FORTEMI_DIAGNOSTIC_PROFILE
+docker compose -f docker-compose.bundle.yml up -d --force-recreate fortemi
+```
+
+Review the capture for sensitive material before any private transfer. Even
+though the diagnostic fields are designed to exclude content, prompts, vectors,
+request/response bodies, authorization values, and database credentials,
+deployment-specific middleware can add fields. Never attach diagnostic bundles
+to a public issue. After the private support exchange is complete, delete the
+local capture (`rm -f support/jobs-1098/fortemi-jobs.jsonl` on Linux/macOS or
+`Remove-Item support\jobs-1098\fortemi-jobs.jsonl` in PowerShell).
 
 ### No Progress Events for a Job
 

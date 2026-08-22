@@ -3614,7 +3614,12 @@ impl JobFailureClass {
     pub const fn is_retryable(self) -> bool {
         matches!(
             self,
-            Self::Transient | Self::RateLimited | Self::Timeout | Self::StaleWorker
+            Self::Transient
+                | Self::RateLimited
+                | Self::Timeout
+                | Self::StaleWorker
+                | Self::Cancelled
+                | Self::Poison
         )
     }
 }
@@ -8999,15 +9004,12 @@ mod tests {
             JobFailureClass::RateLimited,
             JobFailureClass::Timeout,
             JobFailureClass::StaleWorker,
-        ] {
-            assert!(retryable.is_retryable());
-        }
-        for terminal in [
-            JobFailureClass::Permanent,
-            JobFailureClass::PolicyDenied,
             JobFailureClass::Cancelled,
             JobFailureClass::Poison,
         ] {
+            assert!(retryable.is_retryable());
+        }
+        for terminal in [JobFailureClass::Permanent, JobFailureClass::PolicyDenied] {
             assert!(!terminal.is_retryable());
         }
     }

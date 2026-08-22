@@ -1,7 +1,8 @@
-# ADR-084: Stale Job Reaping on Worker Startup
+# ADR-084: Stale Job Reaping on Worker Startup and Periodically
 
-**Status:** Accepted
+**Status:** Amended by #1098
 **Date:** 2026-02-20
+**Amended:** 2026-08-22
 **Deciders:** Engineering team
 
 ## Context
@@ -19,14 +20,20 @@ This was observed in production when 3 PDF extraction jobs were stuck in `runnin
 
 ## Decision
 
-On worker startup, before entering the event loop, call `reap_stale_running(threshold)` which:
+On worker startup, before entering the event loop, and periodically on an
+independent timer, call `reap_stale_running(threshold)` which:
 
 1. Identifies jobs in `running` status with `started_at` older than the threshold
 2. Resets jobs with remaining retries to `pending` (incrementing `retry_count`)
 3. Marks jobs with exhausted retries as `failed`
 4. Uses `FOR UPDATE SKIP LOCKED` to prevent concurrent reaping
 
-The staleness threshold is **2x `JOB_TIMEOUT_SECS`** (currently 2 × 300s = 600s). This ensures we never reap a job that is legitimately still running within its normal timeout window.
+The staleness threshold is **2x the effective `JOB_TIMEOUT_SECS` read into
+`WorkerConfig` at startup**. For example, a 120-second timeout produces a
+240-second stale threshold. The periodic cadence is configured separately with
+`JOB_STALE_REAP_INTERVAL_SECS` (default 30 seconds). This ensures the worker
+does not silently fall back to a compiled timeout and does not reap a job that
+is legitimately running within its configured outer execution window.
 
 ### SQL Implementation
 
@@ -67,7 +74,8 @@ SELECT (SELECT COUNT(*) FROM retried) + (SELECT COUNT(*) FROM exhausted) AS tota
 - (+) Reap count is logged at `warn` level for operational visibility
 
 ### Negative
-- (-) 2x timeout threshold means jobs can be orphaned for up to 10 minutes before reaping (during normal worker uptime, the safety-net poll handles this)
+- (-) Recovery can occur up to the configured reap interval after a job crosses
+  the 2x timeout threshold
 - (-) If a legitimate long-running job exceeds 2x the timeout, it will be incorrectly reaped
 
 ## Implementation
@@ -75,12 +83,15 @@ SELECT (SELECT COUNT(*) FROM retried) + (SELECT COUNT(*) FROM exhausted) AS tota
 **Code Location:**
 - Trait: `crates/matric-core/src/traits.rs` — `JobRepository::reap_stale_running()`
 - SQL: `crates/matric-db/src/jobs.rs` — `PgJobRepository::reap_stale_running()`
-- Caller: `crates/matric-jobs/src/worker.rs` — called in `run()` before event loop
+- Caller: `crates/matric-jobs/src/worker.rs` — called in `run()` before the
+  event loop and by an independent periodic task
 
 **Key Changes:**
-- New trait method `reap_stale_running(&self, timeout_secs: u64) -> Result<i64>`
-- Called once on worker startup, not periodically
-- Threshold: `matric_core::defaults::JOB_TIMEOUT_SECS * 2` (600s)
+- Trait method `reap_stale_running(&self, timeout_secs: u64, retry_policy: &JobRetryPolicy) -> Result<i64>`
+- Called on worker startup and every `JOB_STALE_REAP_INTERVAL_SECS`
+- Threshold: the effective `WorkerConfig.job_timeout * 2`
+- Recovery records `stale_worker` / `worker_lease_expired` evidence and applies
+  bounded retry backoff instead of making the row immediately claimable
 
 ## References
 

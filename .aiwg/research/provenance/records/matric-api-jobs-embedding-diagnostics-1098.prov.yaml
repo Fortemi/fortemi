@@ -1,0 +1,46 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-22T18:44:00Z"
+  description: "Provenance for redaction-safe embedding stage diagnostics"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/handlers/jobs.rs:sha256:9b7ec5bd507a8805872c77a178cdb3b172d228e797deca463eb7da04b7025f2d"
+  type: code
+  created_at: "2026-08-22T18:44:00Z"
+  updated_at: "2026-08-22T18:44:00Z"
+  checksum: "sha256:9b7ec5bd507a8805872c77a178cdb3b172d228e797deca463eb7da04b7025f2d"
+  size_bytes: 402751
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1098"
+activity:
+  id: "urn:aiwg:activity:modification:matric-api-jobs-embedding-diagnostics-1098:001"
+  type: modification
+  started_at: "2026-08-22T17:45:00Z"
+  ended_at: "2026-08-22T18:44:00Z"
+  description: "Emit correlated content-fetch, chunking, provider, storage, failure, and completion metadata without customer content"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/jobs.rs:sha256:9b7ec5bd507a8805872c77a178cdb3b172d228e797deca463eb7da04b7025f2d"
+    activity: "urn:aiwg:activity:modification:matric-api-jobs-embedding-diagnostics-1098:001"
+    time: "2026-08-22T18:44:00Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:matric-api-jobs-embedding-diagnostics-1098:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: source_requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/jobs.rs:sha256:9b7ec5bd507a8805872c77a178cdb3b172d228e797deca463eb7da04b7025f2d"
+      source: "urn:gitea:issue:Fortemi/fortemi:1098"
+      derivation_type: implements
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:matric-api-jobs-embedding-diagnostics-1098:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/jobs.rs:sha256:9b7ec5bd507a8805872c77a178cdb3b172d228e797deca463eb7da04b7025f2d"
+    agent: "urn:aiwg:agent:codex-gpt-5"

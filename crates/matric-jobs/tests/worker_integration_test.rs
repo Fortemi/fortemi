@@ -23,7 +23,8 @@
 use matric_core::{JobRepository, JobRetryPolicy, JobStatus, JobType};
 use matric_db::{create_pool, Database};
 use matric_jobs::{
-    JobContext, JobHandler, JobResult, NoOpHandler, WorkerBuilder, WorkerConfig, WorkerEvent,
+    install_redacted_panic_hook, JobContext, JobHandler, JobResult, NoOpHandler, WorkerBuilder,
+    WorkerConfig, WorkerEvent,
 };
 use serde_json::json;
 use sqlx::PgPool;
@@ -40,6 +41,60 @@ async fn setup_test_pool() -> PgPool {
     create_pool(&database_url)
         .await
         .expect("Failed to create test pool")
+}
+
+/// Create a schema-isolated pool for tests that intentionally use an unusually
+/// short stale threshold. This prevents their recovery sweep from touching
+/// jobs owned by concurrently running integration tests.
+async fn setup_isolated_worker_pool() -> (PgPool, PgPool, String) {
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+    let admin = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&database_url)
+        .await
+        .expect("connect to migrated test database");
+    let schema = format!("worker_recovery_{}", Uuid::new_v4().simple());
+    sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        .execute(&admin)
+        .await
+        .expect("create isolated worker schema");
+    sqlx::query(&format!(
+        "CREATE TABLE {schema}.job_queue (LIKE public.job_queue INCLUDING ALL)"
+    ))
+    .execute(&admin)
+    .await
+    .expect("create isolated job queue");
+    sqlx::query(&format!(
+        "CREATE TABLE {schema}.job_attempt (LIKE public.job_attempt INCLUDING ALL)"
+    ))
+    .execute(&admin)
+    .await
+    .expect("create isolated job attempts");
+
+    let search_path = format!("SET search_path TO {schema}, public");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(move |connection, _metadata| {
+            let search_path = search_path.clone();
+            Box::pin(async move {
+                sqlx::query(&search_path).execute(connection).await?;
+                Ok(())
+            })
+        })
+        .connect(&database_url)
+        .await
+        .expect("connect isolated worker pool");
+    (pool, admin, schema)
+}
+
+async fn drop_isolated_worker_pool(pool: PgPool, admin: PgPool, schema: String) {
+    pool.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .expect("drop isolated worker schema");
+    admin.close().await;
 }
 
 // ============================================================================
@@ -152,6 +207,36 @@ impl JobHandler for RetryTrackingHandler {
 struct SlowHandler {
     job_type: JobType,
     duration_ms: u64,
+}
+
+/// Handler that never resolves, used to prove the outer worker timeout owns
+/// the lifecycle rather than relying on provider-specific timeouts.
+struct PendingHandler(JobType);
+
+#[async_trait::async_trait]
+impl JobHandler for PendingHandler {
+    fn job_type(&self) -> JobType {
+        self.0
+    }
+
+    async fn execute(&self, _ctx: JobContext) -> JobResult {
+        std::future::pending().await
+    }
+}
+
+/// Handler whose payload deliberately resembles sensitive content. The worker
+/// must neither persist nor log it when converting the panic to a stable code.
+struct PanickingHandler(JobType);
+
+#[async_trait::async_trait]
+impl JobHandler for PanickingHandler {
+    fn job_type(&self) -> JobType {
+        self.0
+    }
+
+    async fn execute(&self, _ctx: JobContext) -> JobResult {
+        panic!("SENSITIVE_DOCUMENT_CONTENT_MUST_NOT_ESCAPE")
+    }
 }
 
 impl SlowHandler {
@@ -802,4 +887,286 @@ async fn test_worker_updates_job_result() {
     assert_eq!(job.result.unwrap()["result"], "ok");
 
     handle.shutdown().await.unwrap();
+}
+
+// ============================================================================
+// INTEGRATION TESTS - Bounded execution and recovery (#1098)
+// ============================================================================
+
+#[tokio::test]
+async fn test_worker_timeout_schedules_retry_with_attempt_evidence() {
+    let (pool, admin, schema) = setup_isolated_worker_pool().await;
+    let db = Database::new(pool.clone());
+    let job_id = create_test_job(&db, JobType::DocumentTypeInference, None, 10).await;
+    sqlx::query("UPDATE job_queue SET max_retries = 2 WHERE id = $1")
+        .bind(job_id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    let retry_policy = JobRetryPolicy {
+        timeout_base_delay_ms: 5_000,
+        jitter_percent: 0,
+        ..JobRetryPolicy::default()
+    };
+    let worker = WorkerBuilder::new(db.clone())
+        .with_config(
+            WorkerConfig::default()
+                .with_poll_interval(25)
+                .with_job_timeout(Duration::from_millis(100))
+                .with_retry_policy(retry_policy),
+        )
+        .with_handler(PendingHandler(JobType::DocumentTypeInference))
+        .build()
+        .await;
+    let handle = worker.start();
+
+    let start = std::time::Instant::now();
+    let recovered = loop {
+        let job = db.jobs.get(job_id).await.unwrap().unwrap();
+        if job.status == JobStatus::Pending && job.retry_count == 1 {
+            break job;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "timed-out job was not recovered"
+        );
+        sleep(Duration::from_millis(25)).await;
+    };
+    assert_eq!(recovered.error_message.as_deref(), Some("job_timeout"));
+    let (failure_class, failure_code): (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT failure_class, failure_code FROM job_queue WHERE id = $1")
+            .bind(job_id)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert_eq!(failure_class.as_deref(), Some("timeout"));
+    assert_eq!(failure_code.as_deref(), Some("job_timeout"));
+
+    let attempt: (String, Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT outcome, failure_class, failure_code FROM job_attempt
+         WHERE job_id = $1 AND attempt_number = 1",
+    )
+    .bind(job_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(attempt.0, "retry_scheduled");
+    assert_eq!(attempt.1.as_deref(), Some("timeout"));
+    assert_eq!(attempt.2.as_deref(), Some("job_timeout"));
+
+    handle.shutdown().await.unwrap();
+    drop(db);
+    drop_isolated_worker_pool(pool, admin, schema).await;
+}
+
+#[tokio::test]
+async fn test_worker_panic_retries_finitely_without_persisting_payload() {
+    install_redacted_panic_hook();
+    let (pool, admin, schema) = setup_isolated_worker_pool().await;
+    let db = Database::new(pool.clone());
+    let job_id = create_test_job(&db, JobType::MetadataExtraction, None, 10).await;
+    sqlx::query("UPDATE job_queue SET max_retries = 1 WHERE id = $1")
+        .bind(job_id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    let retry_policy = JobRetryPolicy {
+        transient_base_delay_ms: 100,
+        rate_limit_base_delay_ms: 100,
+        timeout_base_delay_ms: 100,
+        stale_worker_base_delay_ms: 100,
+        max_delay_ms: 100,
+        jitter_percent: 0,
+    };
+    let worker = WorkerBuilder::new(db.clone())
+        .with_config(
+            WorkerConfig::default()
+                .with_poll_interval(25)
+                .with_job_timeout(Duration::from_secs(2))
+                .with_retry_policy(retry_policy),
+        )
+        .with_handler(PanickingHandler(JobType::MetadataExtraction))
+        .build()
+        .await;
+    let handle = worker.start();
+
+    assert!(
+        wait_for_job_status(&db, job_id, JobStatus::Failed, 5).await,
+        "panicking job should exhaust its finite retries"
+    );
+    let job = db.jobs.get(job_id).await.unwrap().unwrap();
+    assert_eq!(job.retry_count, 1);
+    assert_eq!(job.error_message.as_deref(), Some("handler_panicked"));
+    assert!(!job.error_message.unwrap().contains("SENSITIVE_DOCUMENT"));
+    let (failure_class, failure_code): (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT failure_class, failure_code FROM job_queue WHERE id = $1")
+            .bind(job_id)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert_eq!(failure_class.as_deref(), Some("poison"));
+    assert_eq!(failure_code.as_deref(), Some("retry_exhausted"));
+
+    let attempts: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT outcome, failure_class, failure_code FROM job_attempt
+         WHERE job_id = $1 ORDER BY attempt_number",
+    )
+    .bind(job_id)
+    .fetch_all(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(attempts.len(), 2);
+    assert_eq!(attempts[0].0, "retry_scheduled");
+    assert_eq!(attempts[0].1.as_deref(), Some("poison"));
+    assert_eq!(attempts[0].2.as_deref(), Some("handler_panicked"));
+    assert_eq!(attempts[1].0, "terminal_failed");
+    assert_eq!(attempts[1].1.as_deref(), Some("poison"));
+    assert_eq!(attempts[1].2.as_deref(), Some("retry_exhausted"));
+
+    handle.shutdown().await.unwrap();
+    drop(db);
+    drop_isolated_worker_pool(pool, admin, schema).await;
+}
+
+#[tokio::test]
+async fn test_periodic_reaper_recovers_job_stranded_after_startup() {
+    let (pool, admin, schema) = setup_isolated_worker_pool().await;
+    let db = Database::new(pool.clone());
+    let job_id = create_test_job(&db, JobType::ReferenceExtraction, None, 10).await;
+    db.jobs
+        .claim_next_for_types(&[JobType::ReferenceExtraction])
+        .await
+        .unwrap()
+        .expect("test must claim job before worker starts");
+
+    let retry_policy = JobRetryPolicy {
+        stale_worker_base_delay_ms: 5_000,
+        jitter_percent: 0,
+        ..JobRetryPolicy::default()
+    };
+    let worker = WorkerBuilder::new(db.clone())
+        .with_config(
+            WorkerConfig::default()
+                .with_poll_interval(25)
+                .with_stale_reap_threshold(Duration::from_secs(1))
+                .with_stale_reap_interval(Duration::from_millis(50))
+                .with_retry_policy(retry_policy),
+        )
+        .with_handler(NoOpHandler::new(JobType::ReferenceExtraction))
+        .build()
+        .await;
+    let handle = worker.start();
+
+    // Startup recovery must leave this young claim alone. Age it only after
+    // startup so recovery can only come from the periodic sweep.
+    sleep(Duration::from_millis(150)).await;
+    let young = db.jobs.get(job_id).await.unwrap().unwrap();
+    assert_eq!(young.status, JobStatus::Running);
+    sqlx::query("UPDATE job_queue SET started_at = NOW() - INTERVAL '5 seconds' WHERE id = $1")
+        .bind(job_id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    let start = std::time::Instant::now();
+    let _recovered = loop {
+        let job = db.jobs.get(job_id).await.unwrap().unwrap();
+        if job.status == JobStatus::Pending && job.retry_count == 1 {
+            break job;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "periodic reaper did not recover job"
+        );
+        sleep(Duration::from_millis(25)).await;
+    };
+    let (failure_class, failure_code): (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT failure_class, failure_code FROM job_queue WHERE id = $1")
+            .bind(job_id)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert_eq!(failure_class.as_deref(), Some("stale_worker"));
+    assert_eq!(failure_code.as_deref(), Some("worker_lease_expired"));
+
+    let attempt: (String, Option<String>) = sqlx::query_as(
+        "SELECT outcome, failure_code FROM job_attempt
+         WHERE job_id = $1 AND attempt_number = 1",
+    )
+    .bind(job_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(attempt.0, "stale_reaped");
+    assert_eq!(attempt.1.as_deref(), Some("worker_lease_expired"));
+
+    handle.shutdown().await.unwrap();
+    drop(db);
+    drop_isolated_worker_pool(pool, admin, schema).await;
+}
+
+#[tokio::test]
+async fn test_worker_startup_uses_runtime_derived_stale_threshold() {
+    let (pool, admin, schema) = setup_isolated_worker_pool().await;
+    let db = Database::new(pool.clone());
+    let job_id = create_test_job(&db, JobType::RelatedConceptInference, None, 10).await;
+    db.jobs
+        .claim_next_for_types(&[JobType::RelatedConceptInference])
+        .await
+        .unwrap()
+        .expect("test must claim job before simulated restart");
+    sqlx::query("UPDATE job_queue SET started_at = NOW() - INTERVAL '5 seconds' WHERE id = $1")
+        .bind(job_id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    let retry_policy = JobRetryPolicy {
+        stale_worker_base_delay_ms: 5_000,
+        jitter_percent: 0,
+        ..JobRetryPolicy::default()
+    };
+    // The two-second runtime timeout derives a four-second stale threshold.
+    // A compile-time 1800-second threshold would leave this row running.
+    let worker = WorkerBuilder::new(db.clone())
+        .with_config(
+            WorkerConfig::default()
+                .with_poll_interval(25)
+                .with_job_timeout(Duration::from_secs(2))
+                .with_stale_reap_interval(Duration::from_secs(30))
+                .with_retry_policy(retry_policy),
+        )
+        .with_handler(NoOpHandler::new(JobType::RelatedConceptInference))
+        .build()
+        .await;
+    let handle = worker.start();
+
+    let start = std::time::Instant::now();
+    loop {
+        let job = db.jobs.get(job_id).await.unwrap().unwrap();
+        if job.status == JobStatus::Pending && job.retry_count == 1 {
+            break;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "startup recovery did not use the runtime-derived threshold"
+        );
+        sleep(Duration::from_millis(25)).await;
+    }
+    let attempt: (String, Option<String>) = sqlx::query_as(
+        "SELECT outcome, failure_code FROM job_attempt
+         WHERE job_id = $1 AND attempt_number = 1",
+    )
+    .bind(job_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(attempt.0, "stale_reaped");
+    assert_eq!(attempt.1.as_deref(), Some("worker_lease_expired"));
+
+    handle.shutdown().await.unwrap();
+    drop(db);
+    drop_isolated_worker_pool(pool, admin, schema).await;
 }

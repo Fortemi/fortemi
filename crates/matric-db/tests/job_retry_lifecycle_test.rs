@@ -26,6 +26,61 @@ async fn isolated_job_pool() -> sqlx::PgPool {
     pool
 }
 
+async fn isolated_concurrent_job_pool() -> (sqlx::PgPool, sqlx::PgPool, String) {
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+    let admin = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&database_url)
+        .await
+        .expect("connect to migrated test database");
+    let schema = format!("job_reaper_{}", uuid::Uuid::new_v4().simple());
+    sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        .execute(&admin)
+        .await
+        .expect("create isolated reaper schema");
+    sqlx::query(&format!(
+        "CREATE TABLE {schema}.job_queue (LIKE public.job_queue INCLUDING ALL)"
+    ))
+    .execute(&admin)
+    .await
+    .expect("create isolated job queue");
+    sqlx::query(&format!(
+        "CREATE TABLE {schema}.job_attempt (LIKE public.job_attempt INCLUDING ALL)"
+    ))
+    .execute(&admin)
+    .await
+    .expect("create isolated job attempts");
+
+    let search_path = format!("SET search_path TO {schema}, public");
+    let pool = PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(move |connection, _metadata| {
+            let search_path = search_path.clone();
+            Box::pin(async move {
+                sqlx::query(&search_path).execute(connection).await?;
+                Ok(())
+            })
+        })
+        .connect(&database_url)
+        .await
+        .expect("connect isolated reaper pool");
+    (pool, admin, schema)
+}
+
+async fn drop_isolated_concurrent_job_pool(
+    pool: sqlx::PgPool,
+    admin: sqlx::PgPool,
+    schema: String,
+) {
+    pool.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .expect("drop isolated reaper schema");
+    admin.close().await;
+}
+
 #[tokio::test]
 async fn delayed_retry_is_not_claimed_early_and_terminal_failure_is_recorded() {
     let pool = isolated_job_pool().await;
@@ -236,4 +291,111 @@ async fn stale_reaper_schedules_backoff_instead_of_immediate_reclaim() {
     assert_eq!(progress_percent, 0);
     assert!(result_is_null);
     pool.close().await;
+}
+
+#[tokio::test]
+async fn stale_reaper_does_not_reap_a_young_running_job() {
+    let pool = isolated_job_pool().await;
+    let repository = PgJobRepository::new(pool.clone());
+    let job_id = repository
+        .queue(None, JobType::ContextUpdate, 5, None, None)
+        .await
+        .expect("queue job");
+    repository
+        .claim_next_for_types(&[JobType::ContextUpdate])
+        .await
+        .expect("claim job")
+        .expect("job should be ready");
+
+    assert_eq!(
+        repository
+            .reap_stale_running(60, &JobRetryPolicy::default())
+            .await
+            .expect("scan for stale jobs"),
+        0
+    );
+    let job = repository
+        .get(job_id)
+        .await
+        .expect("read young job")
+        .expect("young job should remain");
+    assert_eq!(job.status, JobStatus::Running);
+    assert_eq!(job.retry_count, 0);
+    let attempt_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM job_attempt WHERE job_id = $1")
+            .bind(job_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count attempt rows");
+    assert_eq!(
+        attempt_count, 1,
+        "claim attempt remains open and is not duplicated"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn concurrent_stale_reapers_recover_each_job_exactly_once() {
+    let (pool, admin, schema) = isolated_concurrent_job_pool().await;
+    let first_repository = PgJobRepository::new(pool.clone());
+    let second_repository = PgJobRepository::new(pool.clone());
+    let first_id = first_repository
+        .queue(None, JobType::ContextUpdate, 5, None, None)
+        .await
+        .expect("queue first job");
+    let second_id = first_repository
+        .queue(None, JobType::ContextUpdate, 5, None, None)
+        .await
+        .expect("queue second job");
+    for _ in 0..2 {
+        first_repository
+            .claim_next_for_types(&[JobType::ContextUpdate])
+            .await
+            .expect("claim stranded job")
+            .expect("queued job should be ready");
+    }
+    sqlx::query(
+        "UPDATE job_queue SET started_at = NOW() - INTERVAL '1 hour'
+         WHERE id = ANY($1)",
+    )
+    .bind(&[first_id, second_id][..])
+    .execute(&pool)
+    .await
+    .expect("age running jobs");
+
+    let policy = JobRetryPolicy::default();
+    let (first_result, second_result) = tokio::join!(
+        first_repository.reap_stale_running(60, &policy),
+        second_repository.reap_stale_running(60, &policy),
+    );
+    let recovered = first_result.expect("first reaper") + second_result.expect("second reaper");
+    assert_eq!(recovered, 2, "each stranded job should be recovered once");
+
+    let rows: Vec<(uuid::Uuid, String, i32)> = sqlx::query_as(
+        "SELECT id, status::text, retry_count FROM job_queue
+         WHERE id = ANY($1) ORDER BY id",
+    )
+    .bind(&[first_id, second_id][..])
+    .fetch_all(&pool)
+    .await
+    .expect("read concurrently recovered jobs");
+    assert_eq!(rows.len(), 2);
+    assert!(rows
+        .iter()
+        .all(|(_, status, retry_count)| status == "pending" && *retry_count == 1));
+    let attempts: Vec<(uuid::Uuid, i64)> = sqlx::query_as(
+        "SELECT job_id, COUNT(*) FROM job_attempt
+         WHERE job_id = ANY($1) AND outcome = 'stale_reaped'
+         GROUP BY job_id ORDER BY job_id",
+    )
+    .bind(&[first_id, second_id][..])
+    .fetch_all(&pool)
+    .await
+    .expect("read stale attempt evidence");
+    assert_eq!(attempts.len(), 2);
+    assert!(attempts.iter().all(|(_, count)| *count == 1));
+
+    drop(first_repository);
+    drop(second_repository);
+    drop_isolated_concurrent_job_pool(pool, admin, schema).await;
 }

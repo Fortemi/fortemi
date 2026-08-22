@@ -232,6 +232,16 @@ jobs:
           fi
           docker compose -f docker-compose.whisper.yml config --quiet
           docker compose -f docker-compose.workstation.yml config --quiet
+          POSTGRES_PASSWORD=ci-render-fixture-not-a-runtime-secret \
+            FORTEMI_DIAGNOSTIC_PROFILE=jobs \
+            RUST_LOG=warn \
+            LOG_FORMAT=text \
+            LOG_FILE=/tmp/jobs-diagnostic.jsonl \
+            LOG_ANSI=true \
+            JOB_TIMEOUT_SECS=120 \
+            JOB_STALE_REAP_INTERVAL_SECS=7 \
+            docker compose -f docker-compose.bundle.yml config --format json | \
+            python3 scripts/ci/verify-jobs-diagnostic-compose.py
           python3 -m unittest tests/test_verify_bundle_exposure.py
 
       - name: Check Docker bundle database secret contract

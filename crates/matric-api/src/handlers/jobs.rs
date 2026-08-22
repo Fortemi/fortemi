@@ -27,7 +27,7 @@ use matric_inference::{NerBackend, OllamaBackend, ProviderRegistry};
 use matric_jobs::adapters::exif::{
     extract_exif_metadata, parse_exif_datetime, prepare_attachment_metadata,
 };
-use matric_jobs::{JobContext, JobHandler, JobResult};
+use matric_jobs::{job_correlation_token, JobContext, JobHandler, JobResult};
 use sqlx;
 
 #[cfg(test)]
@@ -512,11 +512,28 @@ fn document_type_inference_job_failure(
     JobResult::Failed(DOCUMENT_TYPE_INFERENCE_JOB_FAILURE.to_string())
 }
 
+#[cfg(test)]
 fn embedding_job_failure(error: impl std::fmt::Display, operation: &'static str) -> JobResult {
     let diagnostic = error.to_string();
     warn!(
         error_len = diagnostic.len(),
         operation, "Embedding job failed"
+    );
+    JobResult::Failed(EMBEDDING_JOB_FAILURE.to_string())
+}
+
+fn embedding_job_failure_for_job(
+    error: impl std::fmt::Display,
+    operation: &'static str,
+    job_correlation: &str,
+) -> JobResult {
+    let diagnostic = error.to_string();
+    warn!(
+        stage = "failure",
+        job_correlation,
+        error_len = diagnostic.len(),
+        reason_code = operation,
+        "Embedding job failed"
     );
     JobResult::Failed(EMBEDDING_JOB_FAILURE.to_string())
 }
@@ -2619,10 +2636,16 @@ impl JobHandler for EmbeddingHandler {
 
     #[instrument(
         skip(self, ctx),
-        fields(subsystem = "jobs", component = "embedding", op = "execute")
+        fields(
+            subsystem = "jobs",
+            component = "embedding",
+            op = "execute",
+            job_correlation = %job_correlation_token(&ctx.job.id)
+        )
     )]
     async fn execute(&self, ctx: JobContext) -> JobResult {
         let start = Instant::now();
+        let job_correlation = job_correlation_token(&ctx.job.id);
         let note_id = match ctx.note_id() {
             Some(id) => id,
             None => return JobResult::Failed("No note_id provided".into()),
@@ -2640,14 +2663,24 @@ impl JobHandler for EmbeddingHandler {
             .and_then(|value| uuid::Uuid::parse_str(value).ok());
 
         ctx.report_progress(10, Some("Fetching note..."));
+        let fetch_started = Instant::now();
+        debug!(
+            stage = "content_fetch",
+            job_correlation,
+            embedding_set_scoped = embedding_set_id.is_some(),
+            schema_len = diagnostic_len(schema),
+            "Embedding content fetch started"
+        );
 
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
-            Err(e) => return embedding_job_failure(e, "fetch_note_begin_tx"),
+            Err(e) => {
+                return embedding_job_failure_for_job(e, "fetch_note_begin_tx", &job_correlation)
+            }
         };
         let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
-            Err(e) => return embedding_job_failure(e, "fetch_note"),
+            Err(e) => return embedding_job_failure_for_job(e, "fetch_note", &job_correlation),
         };
         let target_set = match embedding_set_id {
             Some(set_id) => match self.db.embedding_sets.get_by_id_tx(&mut tx, set_id).await {
@@ -2656,11 +2689,23 @@ impl JobHandler for EmbeddingHandler {
                     warn!("Embedding job target set was not found");
                     return JobResult::Failed(EMBEDDING_JOB_FAILURE.to_string());
                 }
-                Err(error) => return embedding_job_failure(error, "resolve_embedding_set"),
+                Err(error) => {
+                    return embedding_job_failure_for_job(
+                        error,
+                        "resolve_embedding_set",
+                        &job_correlation,
+                    )
+                }
             },
             None => match self.db.embedding_sets.get_default_tx(&mut tx).await {
                 Ok(set) => set,
-                Err(error) => return embedding_job_failure(error, "resolve_default_embedding_set"),
+                Err(error) => {
+                    return embedding_job_failure_for_job(
+                        error,
+                        "resolve_default_embedding_set",
+                        &job_correlation,
+                    )
+                }
             },
         };
         let contract_embedding_set_id = target_set.as_ref().map(|set| set.id);
@@ -2677,12 +2722,22 @@ impl JobHandler for EmbeddingHandler {
                     warn!("Embedding job target config was not found");
                     return JobResult::Failed(EMBEDDING_JOB_FAILURE.to_string());
                 }
-                Err(error) => return embedding_job_failure(error, "resolve_embedding_config"),
+                Err(error) => {
+                    return embedding_job_failure_for_job(
+                        error,
+                        "resolve_embedding_config",
+                        &job_correlation,
+                    )
+                }
             },
             None => match self.db.embedding_sets.get_default_config_tx(&mut tx).await {
                 Ok(config) => config,
                 Err(error) => {
-                    return embedding_job_failure(error, "resolve_default_embedding_config")
+                    return embedding_job_failure_for_job(
+                        error,
+                        "resolve_default_embedding_config",
+                        &job_correlation,
+                    )
                 }
             },
         };
@@ -2731,7 +2786,7 @@ impl JobHandler for EmbeddingHandler {
         .unwrap_or_default();
 
         if let Err(e) = tx.commit().await {
-            return embedding_job_failure(e, "fetch_note_commit");
+            return embedding_job_failure_for_job(e, "fetch_note_commit", &job_correlation);
         }
         // Use revised content if available, otherwise original
         let base_content: &str = if !note.revised.content.is_empty() {
@@ -2739,6 +2794,21 @@ impl JobHandler for EmbeddingHandler {
         } else {
             &note.original.content
         };
+        debug!(
+            stage = "content_fetch",
+            job_correlation,
+            content_chars = base_content.chars().count(),
+            title_chars = note
+                .note
+                .title
+                .as_deref()
+                .map(|title| title.chars().count())
+                .unwrap_or(0),
+            concept_count = concept_labels.len(),
+            relationship_count = concept_relations.len(),
+            duration_ms = fetch_started.elapsed().as_millis() as u64,
+            "Embedding content fetch completed"
+        );
 
         if base_content.trim().is_empty() {
             return JobResult::Success(Some(serde_json::json!({"chunks": 0})));
@@ -2782,6 +2852,7 @@ impl JobHandler for EmbeddingHandler {
         let content = composition.build_text(title, base_content, &concept_labels);
 
         ctx.report_progress(30, Some("Chunking content..."));
+        let chunk_started = Instant::now();
 
         // Resolve chunking config with priority:
         // 1. Note's document type (if assigned)
@@ -2816,9 +2887,28 @@ impl JobHandler for EmbeddingHandler {
             ChunkerConfig::default()
         };
 
-        let chunker = SemanticChunker::new(chunker_config);
+        let chunker = SemanticChunker::new(chunker_config.clone());
         let semantic_chunks = chunker.chunk(&content);
         let chunks: Vec<String> = semantic_chunks.into_iter().map(|c| c.text).collect();
+        let chunk_total_chars: usize = chunks.iter().map(|chunk| chunk.chars().count()).sum();
+        let chunk_max_chars = chunks
+            .iter()
+            .map(|chunk| chunk.chars().count())
+            .max()
+            .unwrap_or(0);
+        debug!(
+            stage = "chunking",
+            job_correlation,
+            composed_chars = content.chars().count(),
+            chunk_count = chunks.len(),
+            chunk_total_chars,
+            chunk_max_chars,
+            max_chunk_chars = chunker_config.max_chunk_size,
+            min_chunk_chars = chunker_config.min_chunk_size,
+            overlap_chars = chunker_config.overlap,
+            duration_ms = chunk_started.elapsed().as_millis() as u64,
+            "Embedding chunking completed"
+        );
         if chunks.is_empty() {
             return JobResult::Success(Some(serde_json::json!({"chunks": 0})));
         }
@@ -2840,6 +2930,18 @@ impl JobHandler for EmbeddingHandler {
             .unwrap_or(resolved_backend.backend.as_ref());
         #[cfg(not(test))]
         let embedding_backend = resolved_backend.backend.as_ref();
+        let embed_started = Instant::now();
+        debug!(
+            stage = "embed_request",
+            job_correlation,
+            input_count = chunks.len(),
+            input_total_chars = chunk_total_chars,
+            input_max_chars = chunk_max_chars,
+            provider_id_len = diagnostic_len(resolved_backend.contract.provider_id()),
+            model_len = diagnostic_len(resolved_backend.contract.model()),
+            configured_dimension = resolved_backend.contract.dimension(),
+            "Embedding provider request started"
+        );
         let vectors = match embedding_backend.embed_texts(&chunks).await {
             Ok(v) => v,
             Err(e) => {
@@ -2848,10 +2950,22 @@ impl JobHandler for EmbeddingHandler {
                         .record(None, UsageOutcome::FailedAfterPartialUsage)
                         .await;
                 }
-                return embedding_job_failure(e, "generate_embeddings");
+                return embedding_job_failure_for_job(e, "generate_embeddings", &job_correlation);
             }
         };
         let vector_count = vectors.len();
+        debug!(
+            stage = "embed_response",
+            job_correlation,
+            input_count = chunks.len(),
+            vector_count,
+            vector_dimension = vectors
+                .first()
+                .map(|vector| vector.as_slice().len())
+                .unwrap_or(0),
+            duration_ms = embed_started.elapsed().as_millis() as u64,
+            "Embedding provider response received"
+        );
         if let Err(error) =
             validate_embedding_job_vectors(&resolved_backend.contract, chunks.len(), &vectors)
         {
@@ -2864,6 +2978,15 @@ impl JobHandler for EmbeddingHandler {
         }
 
         ctx.report_progress(70, Some("Storing embeddings..."));
+        let storage_started = Instant::now();
+        debug!(
+            stage = "storage",
+            job_correlation,
+            chunk_count = chunks.len(),
+            vector_count,
+            embedding_set_scoped = embedding_set_id.is_some(),
+            "Embedding storage started"
+        );
 
         // Pair chunks with vectors
         let chunk_vectors: Vec<(String, pgvector::Vector)> =
@@ -2881,7 +3004,7 @@ impl JobHandler for EmbeddingHandler {
                         .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
                         .await;
                 }
-                return embedding_job_failure(e, "store_begin_tx");
+                return embedding_job_failure_for_job(e, "store_begin_tx", &job_correlation);
             }
         };
         let store_result = if let Some(set_id) = embedding_set_id {
@@ -2899,7 +3022,11 @@ impl JobHandler for EmbeddingHandler {
                         .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
                         .await;
                 }
-                return embedding_job_failure(e, "delete_existing_embeddings");
+                return embedding_job_failure_for_job(
+                    e,
+                    "delete_existing_embeddings",
+                    &job_correlation,
+                );
             }
             if !chunk_vectors.is_empty() {
                 let now = chrono::Utc::now();
@@ -2928,7 +3055,11 @@ impl JobHandler for EmbeddingHandler {
                                 .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
                                 .await;
                         }
-                        return embedding_job_failure(e, "insert_embedding");
+                        return embedding_job_failure_for_job(
+                            e,
+                            "insert_embedding",
+                            &job_correlation,
+                        );
                     }
                 }
             }
@@ -2957,8 +3088,12 @@ impl JobHandler for EmbeddingHandler {
                     .await;
             }
             return match rollback_error {
-                Some(error) => embedding_job_failure(error, "rollback_embeddings"),
-                None => embedding_job_failure(store_error, "store_embeddings"),
+                Some(error) => {
+                    embedding_job_failure_for_job(error, "rollback_embeddings", &job_correlation)
+                }
+                None => {
+                    embedding_job_failure_for_job(store_error, "store_embeddings", &job_correlation)
+                }
             };
         }
         if let Err(e) = tx.commit().await.map_err(matric_core::Error::Database) {
@@ -2967,8 +3102,16 @@ impl JobHandler for EmbeddingHandler {
                     .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
                     .await;
             }
-            return embedding_job_failure(e, "commit_embeddings");
+            return embedding_job_failure_for_job(e, "commit_embeddings", &job_correlation);
         }
+        debug!(
+            stage = "storage",
+            job_correlation,
+            chunk_count,
+            vector_count,
+            duration_ms = storage_started.elapsed().as_millis() as u64,
+            "Embedding storage committed"
+        );
 
         // Complete provenance activity (#430)
         if let Some(act_id) = activity_id {
@@ -2996,7 +3139,8 @@ impl JobHandler for EmbeddingHandler {
 
         ctx.report_progress(100, Some("Embeddings complete"));
         info!(
-            note_id_present = true,
+            stage = "complete",
+            job_correlation,
             chunk_count = chunk_count,
             duration_ms = start.elapsed().as_millis() as u64,
             detail = JOB_PROVENANCE_WRITE_FAILURE_DETAIL,

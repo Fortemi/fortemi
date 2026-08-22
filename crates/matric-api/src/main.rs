@@ -2094,6 +2094,7 @@ struct LoggingConfig {
     file: Option<String>,
     ansi: Option<bool>,
     env_filter: tracing_subscriber::EnvFilter,
+    diagnostic_profile: Option<&'static str>,
 }
 
 const MAX_RATE_LIMIT_REQUESTS: u32 = 1_000_000;
@@ -2101,6 +2102,8 @@ const MAX_RATE_LIMIT_PERIOD_SECS: u64 = 86_400;
 const DEFAULT_SHUTDOWN_GRACE_SECS: u64 = 30;
 const MAX_SHUTDOWN_GRACE_SECS: u64 = 300;
 const DEFAULT_RUST_LOG: &str = "info";
+const JOBS_DIAGNOSTIC_RUST_LOG: &str =
+    "matric_jobs=debug,matric_api::handlers::jobs=debug,matric_inference=debug,info";
 
 fn strict_bool_value(name: &str, value: Option<&str>, default: bool) -> anyhow::Result<bool> {
     match value {
@@ -2131,16 +2134,35 @@ fn parse_logging_config_with_env<F>(env: F) -> anyhow::Result<LoggingConfig>
 where
     F: Fn(&str) -> Option<String>,
 {
-    let format = match env("LOG_FORMAT").as_deref().unwrap_or("text") {
+    let diagnostic_profile = match env("FORTEMI_DIAGNOSTIC_PROFILE").as_deref() {
+        None | Some("") => None,
+        Some("jobs") => Some("jobs"),
+        Some(_) => anyhow::bail!(
+            "FORTEMI_DIAGNOSTIC_PROFILE has an invalid value. Expected: jobs or unset."
+        ),
+    };
+    let default_format = if diagnostic_profile == Some("jobs") {
+        "json"
+    } else {
+        "text"
+    };
+    let format = match env("LOG_FORMAT").as_deref().unwrap_or(default_format) {
         "text" => LogFormat::Text,
         "json" => LogFormat::Json,
         _ => anyhow::bail!("LOG_FORMAT has an invalid value. Expected one of: text, json."),
     };
     let ansi = match env("LOG_ANSI") {
         Some(value) => Some(strict_bool_value("LOG_ANSI", Some(&value), false)?),
+        None if diagnostic_profile == Some("jobs") => Some(false),
         None => None,
     };
-    let filter_value = env("RUST_LOG").unwrap_or_else(|| DEFAULT_RUST_LOG.to_string());
+    let filter_value = env("RUST_LOG").unwrap_or_else(|| {
+        if diagnostic_profile == Some("jobs") {
+            JOBS_DIAGNOSTIC_RUST_LOG.to_string()
+        } else {
+            DEFAULT_RUST_LOG.to_string()
+        }
+    });
     let env_filter = tracing_subscriber::EnvFilter::try_new(filter_value)
         .map_err(|_| anyhow::anyhow!("RUST_LOG contains invalid filter directives."))?;
 
@@ -2149,6 +2171,7 @@ where
         file: env("LOG_FILE").filter(|value| !value.is_empty()),
         ansi,
         env_filter,
+        diagnostic_profile,
     })
 }
 
@@ -2878,7 +2901,13 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // The default panic hook prints panic payloads before catch_unwind can
+    // contain them. Replace it only after tracing is initialized so all panic
+    // paths use a stable, redacted diagnostic record.
+    matric_jobs::install_redacted_panic_hook();
+
     info!(
+        diagnostic_profile = logging.diagnostic_profile.unwrap_or("none"),
         log_format_class = startup_log_format_class(logging.format.as_str()),
         log_format_len = telemetry_text_len(logging.format.as_str()),
         log_sink = if logging.file.is_some() {
@@ -59525,6 +59554,7 @@ not-json
         assert_eq!(config.file, None);
         assert_eq!(config.ansi, None);
         assert_eq!(config.env_filter.to_string(), DEFAULT_RUST_LOG);
+        assert_eq!(config.diagnostic_profile, None);
         assert!(!config.env_filter.to_string().contains("debug"));
         assert!(!config.env_filter.to_string().contains("trace"));
     }
@@ -59546,6 +59576,55 @@ not-json
         let filter = config.env_filter.to_string();
         assert!(filter.contains("matric_api=debug"));
         assert!(filter.contains("tower_http=trace"));
+    }
+
+    #[test]
+    fn jobs_diagnostic_profile_selects_safe_targeted_defaults() {
+        let config = parse_logging_config_with_env(|name| {
+            (name == "FORTEMI_DIAGNOSTIC_PROFILE").then(|| "jobs".to_string())
+        })
+        .expect("jobs diagnostic profile must parse");
+
+        assert_eq!(config.diagnostic_profile, Some("jobs"));
+        assert_eq!(config.format, LogFormat::Json);
+        assert_eq!(config.ansi, Some(false));
+        assert_eq!(config.file, None);
+        let filter = config.env_filter.to_string();
+        assert!(filter.contains("matric_jobs=debug"));
+        assert!(filter.contains("matric_api::handlers::jobs=debug"));
+        assert!(filter.contains("matric_inference=debug"));
+        assert!(!filter.contains("tower_http=trace"));
+    }
+
+    #[test]
+    fn explicit_logging_values_override_jobs_profile() {
+        let config = parse_logging_config_with_env(|name| match name {
+            "FORTEMI_DIAGNOSTIC_PROFILE" => Some("jobs".to_string()),
+            "RUST_LOG" => Some("warn".to_string()),
+            "LOG_FORMAT" => Some("text".to_string()),
+            "LOG_FILE" => Some("/tmp/operator-selected.log".to_string()),
+            "LOG_ANSI" => Some("true".to_string()),
+            _ => None,
+        })
+        .expect("explicit logging overrides must parse");
+
+        assert_eq!(config.diagnostic_profile, Some("jobs"));
+        assert_eq!(config.format, LogFormat::Text);
+        assert_eq!(config.ansi, Some(true));
+        assert_eq!(config.file.as_deref(), Some("/tmp/operator-selected.log"));
+        assert_eq!(config.env_filter.to_string(), "warn");
+    }
+
+    #[test]
+    fn logging_config_rejects_unknown_diagnostic_profile_without_echoing_it() {
+        let unsupported = "secret-shaped-profile";
+        let error = parse_logging_config_with_env(|name| {
+            (name == "FORTEMI_DIAGNOSTIC_PROFILE").then(|| unsupported.to_string())
+        })
+        .expect_err("unknown diagnostic profile must fail startup parsing");
+
+        assert!(error.to_string().contains("FORTEMI_DIAGNOSTIC_PROFILE"));
+        assert!(!error.to_string().contains(unsupported));
     }
 
     #[test]

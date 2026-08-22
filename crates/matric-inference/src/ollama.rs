@@ -8,7 +8,9 @@ use tracing::{debug, info, instrument, warn};
 
 use matric_core::{EmbeddingBackend, Error, GenerationBackend, InferenceBackend, Result, Vector};
 
-use crate::diagnostics::{backend_parse_error, backend_request_error, backend_status_error};
+use crate::diagnostics::{
+    backend_body_reason, backend_parse_error, backend_request_error, backend_status_error, text_len,
+};
 use crate::embedding_models::{EmbeddingModelProfile, EmbeddingModelRegistry};
 // requires_raw_mode is tested below but no longer used in generate_internal (switched to chat API).
 #[cfg(test)]
@@ -17,6 +19,22 @@ use crate::profiles::{ModelProfile, ModelRegistry};
 
 fn diagnostic_len(value: &str) -> usize {
     value.chars().count()
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct EmbeddingBatchDiagnostics {
+    input_count: usize,
+    input_total_chars: usize,
+    input_max_chars: usize,
+}
+
+fn embedding_batch_diagnostics(texts: &[String]) -> EmbeddingBatchDiagnostics {
+    let input_lengths = texts.iter().map(|text| text.chars().count());
+    EmbeddingBatchDiagnostics {
+        input_count: texts.len(),
+        input_total_chars: input_lengths.clone().sum(),
+        input_max_chars: input_lengths.max().unwrap_or(0),
+    }
 }
 
 /// Default Ollama endpoint.
@@ -873,6 +891,16 @@ impl EmbeddingBackend for OllamaBackend {
         }
 
         let start = Instant::now();
+        let diagnostics = embedding_batch_diagnostics(texts);
+        debug!(
+            stage = "provider_request",
+            input_count = diagnostics.input_count,
+            input_total_chars = diagnostics.input_total_chars,
+            input_max_chars = diagnostics.input_max_chars,
+            provider_timeout_secs = self.embed_timeout_secs,
+            model_len = diagnostic_len(&self.embed_model),
+            "Ollama embedding request started"
+        );
 
         let request = EmbeddingRequest {
             model: self.embed_model.clone(),
@@ -887,12 +915,33 @@ impl EmbeddingBackend for OllamaBackend {
             .send()
             .await
             .map_err(|e| {
+                warn!(
+                    stage = "provider_response",
+                    response_class = "request_error",
+                    reason_code = if e.is_timeout() {
+                        "timeout"
+                    } else {
+                        "request_failed"
+                    },
+                    provider_timeout_secs = self.embed_timeout_secs,
+                    duration_ms = start.elapsed().as_millis() as u64,
+                    "Ollama embedding request failed"
+                );
                 Error::Embedding(backend_request_error("Ollama embedding request failed", &e))
             })?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
+            warn!(
+                stage = "provider_response",
+                response_class = "http_error",
+                status_code = status.as_u16(),
+                body_len = text_len(&body),
+                reason_code = backend_body_reason(&body),
+                duration_ms = start.elapsed().as_millis() as u64,
+                "Ollama embedding provider returned an error"
+            );
             return Err(Error::Embedding(backend_status_error(
                 "Ollama embeddings",
                 status,
@@ -901,6 +950,14 @@ impl EmbeddingBackend for OllamaBackend {
         }
 
         let result: EmbeddingResponse = response.json().await.map_err(|e| {
+            warn!(
+                stage = "provider_response",
+                response_class = "parse_error",
+                reason_code = "invalid_response",
+                error_len = diagnostic_len(&e.to_string()),
+                duration_ms = start.elapsed().as_millis() as u64,
+                "Ollama embedding response could not be parsed"
+            );
             Error::Embedding(backend_parse_error(
                 "Ollama embedding response parse failed",
                 e,
@@ -918,7 +975,13 @@ impl EmbeddingBackend for OllamaBackend {
         let elapsed = start.elapsed().as_millis() as u64;
 
         debug!(
+            stage = "provider_response",
+            input_count = diagnostics.input_count,
             result_count = vectors.len(),
+            vector_dimension = vectors
+                .first()
+                .map(|vector| vector.as_slice().len())
+                .unwrap_or(0),
             duration_ms = elapsed,
             "Embedding complete"
         );
@@ -1053,6 +1116,35 @@ mod tests {
         assert!(!diagnostic.contains("tenant/private-model"));
         assert!(!diagnostic.contains("user@example.com"));
         assert!(!diagnostic.contains("token=secret"));
+    }
+
+    #[test]
+    fn embedding_batch_diagnostics_expose_only_counts_and_lengths() {
+        let secrets = vec![
+            "private document body request_body=do-not-log".to_string(),
+            "Authorization: Bearer sk-private database=postgres://user:password@db/app".to_string(),
+        ];
+        let diagnostics = embedding_batch_diagnostics(&secrets);
+
+        assert_eq!(diagnostics.input_count, 2);
+        assert_eq!(
+            diagnostics.input_total_chars,
+            secrets
+                .iter()
+                .map(|value| value.chars().count())
+                .sum::<usize>()
+        );
+        let rendered = format!("{diagnostics:?}");
+        for secret in [
+            "private document body",
+            "request_body",
+            "Authorization",
+            "sk-private",
+            "postgres://",
+            "password",
+        ] {
+            assert!(!rendered.contains(secret));
+        }
     }
 
     // ==========================================================================

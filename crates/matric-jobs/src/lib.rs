@@ -83,7 +83,10 @@ pub use relabel_handler::{SpeakerConfig, SpeakerRelabelHandler};
 pub use sprite_handler::ThumbnailSpriteHandler;
 pub use view_assembly_handler::ViewAssemblyHandler;
 pub use view_vision_handler::ViewVisionHandler;
-pub use worker::{JobWorker, WorkerBuilder, WorkerConfig, WorkerEvent, WorkerHandle};
+pub use worker::{
+    install_redacted_panic_hook, job_correlation_token, JobWorker, WorkerBuilder, WorkerConfig,
+    WorkerEvent, WorkerHandle,
+};
 
 // Re-export extraction types
 pub use adapters::{

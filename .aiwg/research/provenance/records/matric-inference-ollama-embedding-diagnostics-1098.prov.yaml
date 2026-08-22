@@ -1,0 +1,49 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-22T18:44:00Z"
+  description: "Provenance for metadata-only Ollama embedding request diagnostics"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-inference/src/ollama.rs:sha256:9cd3aa9a6dccb4eaf101982814744ae8330d4cb36a3427e9f8b76967242e739d"
+  type: code
+  created_at: "2026-08-22T18:44:00Z"
+  updated_at: "2026-08-22T18:44:00Z"
+  checksum: "sha256:9cd3aa9a6dccb4eaf101982814744ae8330d4cb36a3427e9f8b76967242e739d"
+  size_bytes: 58461
+  attributes:
+    language: rust
+    issue: "Fortemi/fortemi#1098"
+activity:
+  id: "urn:aiwg:activity:modification:matric-inference-ollama-embedding-diagnostics-1098:001"
+  type: modification
+  started_at: "2026-08-22T17:45:00Z"
+  ended_at: "2026-08-22T18:44:00Z"
+  description: "Record provider timeout, counts, lengths, status classes, and durations without request bodies, vectors, credentials, or endpoint details"
+  attributes:
+    verification:
+      - "embedding_batch_diagnostics_expose_only_counts_and_lengths passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-inference/src/ollama.rs:sha256:9cd3aa9a6dccb4eaf101982814744ae8330d4cb36a3427e9f8b76967242e739d"
+    activity: "urn:aiwg:activity:modification:matric-inference-ollama-embedding-diagnostics-1098:001"
+    time: "2026-08-22T18:44:00Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:matric-inference-ollama-embedding-diagnostics-1098:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: source_requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-inference/src/ollama.rs:sha256:9cd3aa9a6dccb4eaf101982814744ae8330d4cb36a3427e9f8b76967242e739d"
+      source: "urn:gitea:issue:Fortemi/fortemi:1098"
+      derivation_type: implements
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:matric-inference-ollama-embedding-diagnostics-1098:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-inference/src/ollama.rs:sha256:9cd3aa9a6dccb4eaf101982814744ae8330d4cb36a3427e9f8b76967242e739d"
+    agent: "urn:aiwg:agent:codex-gpt-5"
