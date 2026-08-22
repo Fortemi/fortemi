@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-22T19:00:26Z"
+  updated_at: "2026-08-22T19:04:15Z"
 records:
+  - entity: "docker/python-sidecar-locks.json"
+    record: "records/python-sidecar-locks-review-renewal-1098.prov.yaml"
   - entity: "docker/third-party-dependencies.json"
     record: "records/third-party-dependencies-review-renewal-1098.prov.yaml"
   - entity: "crates/matric-jobs/src/worker.rs"

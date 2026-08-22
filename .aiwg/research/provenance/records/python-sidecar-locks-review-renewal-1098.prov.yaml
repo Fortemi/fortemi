@@ -1,0 +1,54 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-22T19:04:15Z"
+  description: "Provenance for the Python sidecar lock review renewal required by issue 1098 delivery CI"
+entity:
+  id: "urn:aiwg:artifact:docker/python-sidecar-locks.json:sha256:835a87a2ca057f2ef16e8b7ce3fb7e8e9dbba60f817e50d2778cb5873e2ce84c"
+  type: configuration
+  created_at: "2026-08-22T19:04:15Z"
+  updated_at: "2026-08-22T19:04:15Z"
+  checksum: "sha256:835a87a2ca057f2ef16e8b7ce3fb7e8e9dbba60f817e50d2778cb5873e2ce84c"
+  size_bytes: 3064
+  attributes:
+    format: json
+    issue: "Fortemi/fortemi#1098"
+    change_type: review_renewal
+activity:
+  id: "urn:aiwg:activity:review:python-sidecar-locks-review-renewal-1098:001"
+  type: review
+  started_at: "2026-08-22T19:03:00Z"
+  ended_at: "2026-08-22T19:04:15Z"
+  description: "Revalidate the exact GLiNER and pyannote requirement and lock hashes, reviewed package feeds, and platform constraints, then renew review dates without changing package graphs"
+  attributes:
+    verification:
+      - "PyPI and PyTorch CPU/CUDA 12.6 feeds returned HTTP 200 over HTTPS"
+      - "recorded requirements and lock SHA-256 values matched for GLiNER and pyannote"
+      - "python3 -m unittest tests/test_verify_python_sidecar_locks.py: 15 passed"
+      - "python3 scripts/ci/verify-python-sidecar-locks.py"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docker/python-sidecar-locks.json:sha256:835a87a2ca057f2ef16e8b7ce3fb7e8e9dbba60f817e50d2778cb5873e2ce84c"
+    activity: "urn:aiwg:activity:review:python-sidecar-locks-review-renewal-1098:001"
+    time: "2026-08-22T19:04:15Z"
+  used:
+    - activity: "urn:aiwg:activity:review:python-sidecar-locks-review-renewal-1098:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: delivery_requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docker/python-sidecar-locks.json:sha256:835a87a2ca057f2ef16e8b7ce3fb7e8e9dbba60f817e50d2778cb5873e2ce84c"
+      source: "urn:gitea:issue:Fortemi/fortemi:1098"
+      derivation_type: delivery_unblock
+      activity: "urn:aiwg:activity:review:python-sidecar-locks-review-renewal-1098:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:review:python-sidecar-locks-review-renewal-1098:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: reviewer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docker/python-sidecar-locks.json:sha256:835a87a2ca057f2ef16e8b7ce3fb7e8e9dbba60f817e50d2778cb5873e2ce84c"
+    agent: "urn:aiwg:agent:codex-gpt-5"

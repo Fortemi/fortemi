@@ -47,7 +47,7 @@
       "runtime_packages": {
         "torch": "2.13.0+cpu"
       },
-      "reviewed_at": "2026-07-19",
+      "reviewed_at": "2026-08-22",
       "update_cadence_days": 30,
       "rollback": "Restore the prior requirements input and generated lock together, then rebuild both GLiNER architectures."
     },
@@ -74,7 +74,7 @@
         "torchaudio": "2.11.0+cu126",
         "torchcodec": "0.11.1+cpu"
       },
-      "reviewed_at": "2026-07-19",
+      "reviewed_at": "2026-08-22",
       "update_cadence_days": 30,
       "rollback": "Restore the prior requirements input and generated lock together; verify CPU-mode startup, TorchCodec audio decoding, and CUDA 12.6 before republishing."
     }
