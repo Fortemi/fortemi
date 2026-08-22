@@ -1,0 +1,60 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-22T21:59:26Z"
+  description: "Provenance for the documentation shard release receipt bound to the 2026.7.21 server baseline"
+entity:
+  id: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard.receipt.json:sha256:ed5dd84db5117271f057ab2e6b0b49c89b2585dce00de46322a3363ee23ec9e5"
+  type: evidence
+  created_at: "2026-08-22T21:58:42Z"
+  updated_at: "2026-08-22T21:59:26Z"
+  checksum: "sha256:ed5dd84db5117271f057ab2e6b0b49c89b2585dce00de46322a3363ee23ec9e5"
+  size_bytes: 508
+  attributes:
+    format: json
+    issue: "Fortemi/fortemi#1098"
+    release: "2026.7.21"
+    server_image: "fortemi-docs-rebuild:2026.7.21"
+    server_commit: "51bc29a3bc3384ea93d2fd988d07411b547f60ad"
+    manifest_version: "1.2.0"
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-docs-shard-receipt-release-2026-7-21-1098:001"
+  type: generation
+  started_at: "2026-08-22T21:58:42Z"
+  ended_at: "2026-08-22T21:59:26Z"
+  description: "Bind the regenerated documentation shard hash and byte length to the exact release server image and source revision"
+  attributes:
+    verification:
+      - "receipt SHA-256 matches the committed shard"
+      - "receipt byte length 2412643 matches the committed shard"
+      - "receipt server and source revision match 51bc29a3bc3384ea93d2fd988d07411b547f60ad"
+      - "receipt manifest version matches shard schema 1.2.0"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard.receipt.json:sha256:ed5dd84db5117271f057ab2e6b0b49c89b2585dce00de46322a3363ee23ec9e5"
+    activity: "urn:aiwg:activity:generation:fortemi-docs-shard-receipt-release-2026-7-21-1098:001"
+    time: "2026-08-22T21:59:26Z"
+  used:
+    - activity: "urn:aiwg:activity:generation:fortemi-docs-shard-receipt-release-2026-7-21-1098:001"
+      entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:23722e411e750aca197e888b1d18d806c8506b8e0b37a37a88f73e333803bc3d"
+      role: subject_artifact
+    - activity: "urn:aiwg:activity:generation:fortemi-docs-shard-receipt-release-2026-7-21-1098:001"
+      entity: "urn:git:commit:51bc29a3bc3384ea93d2fd988d07411b547f60ad"
+      role: server_baseline
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard.receipt.json:sha256:ed5dd84db5117271f057ab2e6b0b49c89b2585dce00de46322a3363ee23ec9e5"
+      source: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:23722e411e750aca197e888b1d18d806c8506b8e0b37a37a88f73e333803bc3d"
+      derivation_type: attests
+      activity: "urn:aiwg:activity:generation:fortemi-docs-shard-receipt-release-2026-7-21-1098:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-docs-shard-receipt-release-2026-7-21-1098:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard.receipt.json:sha256:ed5dd84db5117271f057ab2e6b0b49c89b2585dce00de46322a3363ee23ec9e5"
+    agent: "urn:aiwg:agent:codex-gpt-5"

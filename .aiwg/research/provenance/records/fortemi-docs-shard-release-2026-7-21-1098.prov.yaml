@@ -1,0 +1,66 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-22T21:59:26Z"
+  description: "Provenance for the clean-source canonical documentation shard rebuilt for the issue 1098 corrective release"
+entity:
+  id: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:23722e411e750aca197e888b1d18d806c8506b8e0b37a37a88f73e333803bc3d"
+  type: dataset
+  created_at: "2026-08-22T21:58:42Z"
+  updated_at: "2026-08-22T21:59:26Z"
+  checksum: "sha256:23722e411e750aca197e888b1d18d806c8506b8e0b37a37a88f73e333803bc3d"
+  size_bytes: 2412643
+  attributes:
+    format: matric-shard
+    issue: "Fortemi/fortemi#1098"
+    release: "2026.7.21"
+    manifest_version: "1.2.0"
+    min_reader_version: "1.2.0"
+    profile: core-v1
+    producer_revision: "51bc29a3bc3384ea93d2fd988d07411b547f60ad"
+    notes: 361
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-docs-shard-release-2026-7-21-1098:001"
+  type: generation
+  started_at: "2026-08-22T21:57:00Z"
+  ended_at: "2026-08-22T21:59:26Z"
+  description: "Rebuild the documentation shard from a detached clean worktree using the exact 2026.7.21 API image and preserve the canonical schema and profile contract"
+  attributes:
+    verification:
+      - "scripts/ci/rebuild-shard-in-ci.sh fortemi-docs-rebuild:2026.7.21: 361/361 committed sources imported, zero failures"
+      - "scripts/ci/verify-docs-shard-coverage.py: 361/361 sources"
+      - "scripts/ci/verify-docs-shard-freshness.py: passed"
+      - "manifest schema 1.2.0, minimum reader 1.2.0, profile core-v1"
+      - "untracked operator working notes excluded by detached clean-source rebuild"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:23722e411e750aca197e888b1d18d806c8506b8e0b37a37a88f73e333803bc3d"
+    activity: "urn:aiwg:activity:generation:fortemi-docs-shard-release-2026-7-21-1098:001"
+    time: "2026-08-22T21:59:26Z"
+  used:
+    - activity: "urn:aiwg:activity:generation:fortemi-docs-shard-release-2026-7-21-1098:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: release_requirement
+    - activity: "urn:aiwg:activity:generation:fortemi-docs-shard-release-2026-7-21-1098:001"
+      entity: "urn:git:commit:51bc29a3bc3384ea93d2fd988d07411b547f60ad"
+      role: producer_revision
+    - activity: "urn:aiwg:activity:generation:fortemi-docs-shard-release-2026-7-21-1098:001"
+      entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
+      role: governing_contract
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:23722e411e750aca197e888b1d18d806c8506b8e0b37a37a88f73e333803bc3d"
+      source: "urn:git:commit:51bc29a3bc3384ea93d2fd988d07411b547f60ad"
+      derivation_type: generated_from
+      activity: "urn:aiwg:activity:generation:fortemi-docs-shard-release-2026-7-21-1098:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-docs-shard-release-2026-7-21-1098:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:23722e411e750aca197e888b1d18d806c8506b8e0b37a37a88f73e333803bc3d"
+    agent: "urn:aiwg:agent:codex-gpt-5"
