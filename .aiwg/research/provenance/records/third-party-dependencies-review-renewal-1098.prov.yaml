@@ -1,0 +1,52 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-22T19:00:26Z"
+  description: "Provenance for the immutable third-party image review renewal required by issue 1098 delivery CI"
+entity:
+  id: "urn:aiwg:artifact:docker/third-party-dependencies.json:sha256:2b8021aa5f00778152695fbe1950958c22178c705958c791aa6f7f8c9e0cabc1"
+  type: configuration
+  created_at: "2026-08-22T19:00:26Z"
+  updated_at: "2026-08-22T19:00:26Z"
+  checksum: "sha256:2b8021aa5f00778152695fbe1950958c22178c705958c791aa6f7f8c9e0cabc1"
+  size_bytes: 12196
+  attributes:
+    format: json
+    issue: "Fortemi/fortemi#1098"
+    change_type: review_renewal
+activity:
+  id: "urn:aiwg:activity:review:third-party-dependencies-review-renewal-1098:001"
+  type: review
+  started_at: "2026-08-22T18:58:00Z"
+  ended_at: "2026-08-22T19:00:26Z"
+  description: "Revalidate the recorded immutable image digests and supported platforms, then renew the expired 30-day review dates without changing dependency versions or digests"
+  attributes:
+    verification:
+      - "docker buildx imagetools inspect: all 11 30-day image digests matched and exposed supported Linux manifests"
+      - "python3 scripts/ci/verify-third-party-dependencies.py"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docker/third-party-dependencies.json:sha256:2b8021aa5f00778152695fbe1950958c22178c705958c791aa6f7f8c9e0cabc1"
+    activity: "urn:aiwg:activity:review:third-party-dependencies-review-renewal-1098:001"
+    time: "2026-08-22T19:00:26Z"
+  used:
+    - activity: "urn:aiwg:activity:review:third-party-dependencies-review-renewal-1098:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: delivery_requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docker/third-party-dependencies.json:sha256:2b8021aa5f00778152695fbe1950958c22178c705958c791aa6f7f8c9e0cabc1"
+      source: "urn:gitea:issue:Fortemi/fortemi:1098"
+      derivation_type: delivery_unblock
+      activity: "urn:aiwg:activity:review:third-party-dependencies-review-renewal-1098:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:review:third-party-dependencies-review-renewal-1098:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: reviewer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docker/third-party-dependencies.json:sha256:2b8021aa5f00778152695fbe1950958c22178c705958c791aa6f7f8c9e0cabc1"
+    agent: "urn:aiwg:agent:codex-gpt-5"
