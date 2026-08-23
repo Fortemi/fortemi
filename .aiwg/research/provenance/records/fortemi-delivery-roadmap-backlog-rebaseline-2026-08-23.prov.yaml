@@ -1,0 +1,47 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-23T16:34:06Z"
+  updated_at: "2026-08-23T16:34:06Z"
+  description: "Provenance for the Fortemi delivery roadmap backlog rebaseline"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/planning/roadmap.md"
+  type: document
+  created_at: "2026-06-24T00:00:00Z"
+  updated_at: "2026-08-23T16:34:06Z"
+  checksum: "sha256:7c18eee9adca60f80b1514be317c1644bd2b11332b333983c214ab8f84bb71d2"
+  size_bytes: 317520
+  attributes:
+    change_scope: "fortemi-open-backlog-rebaseline-2026-08-23"
+    open_issues_audited: 238
+    result: "in_progress"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-delivery-roadmap-backlog-rebaseline-2026-08-23:001"
+  type: modification
+  started_at: "2026-08-23T15:55:00Z"
+  ended_at: "2026-08-23T16:34:06Z"
+  description: "Rebaseline roadmap priority around production hypercare, canonical contracts, open-build GA, hosted construction, and gated downstream lanes"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/planning/roadmap.md"
+    activity: "urn:aiwg:activity:modification:fortemi-delivery-roadmap-backlog-rebaseline-2026-08-23:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/planning/roadmap.md"
+      source: "urn:aiwg:artifact:.aiwg/planning/issue-roadmap-audit-2026-08-23.md"
+      derivation_type: "derives_from"
+      activity: "urn:aiwg:activity:modification:fortemi-delivery-roadmap-backlog-rebaseline-2026-08-23:001"
+    - entity: "urn:aiwg:artifact:.aiwg/planning/roadmap.md"
+      source: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
+      derivation_type: "conforms_to"
+      activity: "urn:aiwg:activity:modification:fortemi-delivery-roadmap-backlog-rebaseline-2026-08-23:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-delivery-roadmap-backlog-rebaseline-2026-08-23:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "roadmap_planner"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/planning/roadmap.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

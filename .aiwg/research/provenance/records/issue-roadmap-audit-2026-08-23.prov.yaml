@@ -1,0 +1,51 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-23T16:34:06Z"
+  updated_at: "2026-08-23T16:34:06Z"
+  description: "Provenance for the 2026-08-23 Fortemi open-issue and roadmap audit"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/planning/issue-roadmap-audit-2026-08-23.md"
+  type: document
+  created_at: "2026-08-23T16:34:06Z"
+  checksum: "sha256:86b2ce69f614114cf1ff47caa12ab5c640d94cac2d7f74c01dc3a448e48daeb1"
+  size_bytes: 7042
+  attributes:
+    change_scope: "fortemi-open-issue-roadmap-audit-2026-08-23"
+    tracker: "gitea:Fortemi/fortemi"
+    open_issues_audited: 238
+    result: "complete"
+activity:
+  id: "urn:aiwg:activity:generation:issue-roadmap-audit-2026-08-23:001"
+  type: generation
+  started_at: "2026-08-23T15:55:00Z"
+  ended_at: "2026-08-23T16:34:06Z"
+  description: "Audit all open Fortemi issues, reconcile them with the delivery roadmap, and record cross-repository traceability gaps"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/planning/issue-roadmap-audit-2026-08-23.md"
+    activity: "urn:aiwg:activity:generation:issue-roadmap-audit-2026-08-23:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/planning/issue-roadmap-audit-2026-08-23.md"
+      source: "urn:aiwg:artifact:.aiwg/planning/roadmap.md"
+      derivation_type: "derives_from"
+      activity: "urn:aiwg:activity:generation:issue-roadmap-audit-2026-08-23:001"
+    - entity: "urn:aiwg:artifact:.aiwg/planning/issue-roadmap-audit-2026-08-23.md"
+      source: "urn:aiwg:artifact:.aiwg/aiwg.config"
+      derivation_type: "derives_from"
+      activity: "urn:aiwg:activity:generation:issue-roadmap-audit-2026-08-23:001"
+    - entity: "urn:aiwg:artifact:.aiwg/planning/issue-roadmap-audit-2026-08-23.md"
+      source: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
+      derivation_type: "conforms_to"
+      activity: "urn:aiwg:activity:generation:issue-roadmap-audit-2026-08-23:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:issue-roadmap-audit-2026-08-23:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "issue_auditor"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/planning/issue-roadmap-audit-2026-08-23.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"
