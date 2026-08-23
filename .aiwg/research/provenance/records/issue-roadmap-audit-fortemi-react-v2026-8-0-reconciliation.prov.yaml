@@ -1,0 +1,48 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-23T19:56:55Z"
+  updated_at: "2026-08-23T19:56:55Z"
+  description: "Provenance for reconciling fortemi-react v2026.8.0 with the Fortemi issue-roadmap audit"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/planning/issue-roadmap-audit-2026-08-23.md"
+  type: document
+  created_at: "2026-08-23T16:34:06Z"
+  updated_at: "2026-08-23T19:56:55Z"
+  checksum: "sha256:55f79978a39af6b0757c5f4558262840d565ff5ffc25933f616835d3e65d0ea8"
+  size_bytes: 7687
+  attributes:
+    change_scope: "fortemi-react-v2026.8.0-consumer-reconciliation"
+    consumer_commit: "4c335a86804dcf5f306218459ccccd8137ceafda"
+    consumer_issues: "404,405,406"
+    result: "consumer_released_authority_conformance_open"
+activity:
+  id: "urn:aiwg:activity:modification:issue-roadmap-audit-fortemi-react-v2026-8-0:001"
+  type: modification
+  started_at: "2026-08-23T19:40:00Z"
+  ended_at: "2026-08-23T19:56:55Z"
+  description: "Verify the released React consumers, record their remaining authority gates, and correct tracker status"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/planning/issue-roadmap-audit-2026-08-23.md"
+    activity: "urn:aiwg:activity:modification:issue-roadmap-audit-fortemi-react-v2026-8-0:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/planning/issue-roadmap-audit-2026-08-23.md"
+      source: "urn:gitea:Fortemi/fortemi-react:release:v2026.8.0"
+      derivation_type: "derives_from"
+      activity: "urn:aiwg:activity:modification:issue-roadmap-audit-fortemi-react-v2026-8-0:001"
+    - entity: "urn:aiwg:artifact:.aiwg/planning/issue-roadmap-audit-2026-08-23.md"
+      source: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
+      derivation_type: "conforms_to"
+      activity: "urn:aiwg:activity:modification:issue-roadmap-audit-fortemi-react-v2026-8-0:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:issue-roadmap-audit-fortemi-react-v2026-8-0:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "issue_auditor"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/planning/issue-roadmap-audit-2026-08-23.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

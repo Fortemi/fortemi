@@ -1,9 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-23T16:34:06Z"
+  updated_at: "2026-08-23T19:56:55Z"
 records:
   - entity: ".aiwg/planning/issue-roadmap-audit-2026-08-23.md"
-    record: "records/issue-roadmap-audit-2026-08-23.prov.yaml"
+    record: "records/issue-roadmap-audit-fortemi-react-v2026-8-0-reconciliation.prov.yaml"
   - entity: "docker/seed-data/fortemi-docs.shard"
     record: "records/fortemi-docs-shard-release-2026-7-22-1098.prov.yaml"
   - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
@@ -33,7 +33,7 @@ records:
   - entity: "crates/matric-inference/src/ollama.rs"
     record: "records/matric-inference-ollama-embedding-diagnostics-1098.prov.yaml"
   - entity: ".aiwg/planning/roadmap.md"
-    record: "records/fortemi-delivery-roadmap-backlog-rebaseline-2026-08-23.prov.yaml"
+    record: "records/fortemi-delivery-roadmap-fortemi-react-v2026-8-0-reconciliation.prov.yaml"
   - entity: ".aiwg/release.config"
     record: "records/fortemi-release-config-ghcr-publication-64.prov.yaml"
   - entity: ".gitea/workflows/publish-sidecar.yml"

@@ -1,0 +1,52 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-23T19:56:55Z"
+  updated_at: "2026-08-23T19:56:55Z"
+  description: "Provenance for the Fortemi roadmap reconciliation with fortemi-react v2026.8.0"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/planning/roadmap.md"
+  type: document
+  created_at: "2026-06-24T00:00:00Z"
+  updated_at: "2026-08-23T19:56:55Z"
+  checksum: "sha256:89b27de7532b88f0c6a8347a18f0d56532a26dfe95bc143911cdebb7cf72b3f6"
+  size_bytes: 318343
+  attributes:
+    change_scope: "fortemi-react-v2026.8.0-authority-conformance-rebaseline"
+    consumer_commit: "4c335a86804dcf5f306218459ccccd8137ceafda"
+    authoritative_issues: "1090,1091,1092"
+    result: "in_progress"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-roadmap-fortemi-react-v2026-8-0:001"
+  type: modification
+  started_at: "2026-08-23T19:40:00Z"
+  ended_at: "2026-08-23T19:56:55Z"
+  description: "Advance the roadmap from React consumer implementation to Fortemi authority conformance and receipt gates"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/planning/roadmap.md"
+    activity: "urn:aiwg:activity:modification:fortemi-roadmap-fortemi-react-v2026-8-0:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/planning/roadmap.md"
+      source: "urn:aiwg:artifact:.aiwg/planning/issue-roadmap-audit-2026-08-23.md"
+      derivation_type: "derives_from"
+      activity: "urn:aiwg:activity:modification:fortemi-roadmap-fortemi-react-v2026-8-0:001"
+    - entity: "urn:aiwg:artifact:.aiwg/planning/roadmap.md"
+      source: "urn:gitea:Fortemi/fortemi-react:release:v2026.8.0"
+      derivation_type: "derives_from"
+      activity: "urn:aiwg:activity:modification:fortemi-roadmap-fortemi-react-v2026-8-0:001"
+    - entity: "urn:aiwg:artifact:.aiwg/planning/roadmap.md"
+      source: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
+      derivation_type: "conforms_to"
+      activity: "urn:aiwg:activity:modification:fortemi-roadmap-fortemi-react-v2026-8-0:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-roadmap-fortemi-react-v2026-8-0:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "roadmap_planner"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/planning/roadmap.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

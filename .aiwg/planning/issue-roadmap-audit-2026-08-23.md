@@ -33,8 +33,8 @@ Mode: Existing-issue cleanup is read-only. Authorized new issue creation and rec
 - **#1098 - stranded embedding jobs:** the fix is implemented and released in `v2026.7.22`; the issue remains open for one previously failing customer note to complete or terminate within the new bound. Recommended action: keep this as the first operational gate, then close on reporter confirmation or a documented bounded hypercare decision.
 - **#1081 - full-fidelity suite portability:** the declared Linux x86_64, Linux arm64, and macOS arm64 authority-to-React/core-to-HotM matrix is green, but the parent remains `NO-GO` for unqualified portability/parity/complete-backup claims pending an independent final audit. Recommended action: schedule the audit and publish an explicit scoped verdict before adding feature scope.
 - **#710 - authorization foundation:** most route/action and object-normalization work has landed, but per-tool MCP authorization remains dependent on the #718/mcp-gate contract. Recommended action: keep it as the active Phase 0 authorization gate; do not restart completed route inventory work.
-- **#1090 -> #1091 - source identity then typed retrieval:** #1091 depends on #1090. Both are new P1 cross-project contracts originating in AIWG session-intelligence planning. Recommended action: implement source-addressed atomic upsert and shared fixtures first, then typed metadata predicates/evidence locators.
-- **#1092 - graph purge/deletion receipts:** independent P1 lifecycle work can proceed alongside #1090, but its restore/import behavior must preserve ADR-102 validate-before-write and exact profile claims.
+- **#1090 -> #1091 - source identity then typed retrieval:** #1091 depends on #1090. `fortemi-react v2026.8.0` now ships the #404 source-upsert and #405 typed-retrieval consumers, with delivered-main CI green. Recommended action: pin the Fortemi authority contracts and complete shared server/PGlite/RecordStore/provider fixtures, hashes, and receipts; do not treat the React-local evidence as cross-backend parity.
+- **#1092 - graph purge/deletion receipts:** `fortemi-react v2026.8.0` now ships the #406 PGlite/RecordStore consumer implementation. The remaining gate is authority-owned shared semantics and evidence, including crash/resume and restore-time re-erasure receipts that preserve ADR-102 validate-before-write and exact profile claims.
 - **#733 / #734 / #943 - hosted construction:** these are the current actionable hosted P0 umbrellas. Closed #897 and #926 must no longer appear as active blockers.
 - **#1072 - runner capacity recurrence:** the repository preflight exists, but CI still exhausted storage after a passing check. Recommended action: assign host-side automated cleanup, monitoring, and concurrency reservation to an operational owner; repository code alone cannot close the remaining criterion.
 
@@ -62,13 +62,14 @@ Mode: Existing-issue cleanup is read-only. Authorized new issue creation and rec
 - Filed `Fortemi/fortemi-react#405` for #1091 typed metadata predicates and evidence locators.
 - Filed `Fortemi/fortemi-react#406` for #1092 previewable graph purge and content-free deletion receipts.
 - Added reciprocal consumer links to Fortemi #1090, #1091, and #1092. Each consumer issue keeps Fortemi as the canonical authority and forbids independent schema/profile semantics.
+- Reconciled `fortemi-react v2026.8.0` at commit `4c335a86804dcf5f306218459ccccd8137ceafda`: #404-#406 are implemented and released with green delivered-main CI, but remain open for authority-pinned shared fixtures and receipts. Removed their inaccurate `status: backlog` labels and recorded the remaining gates on both trackers.
 
 ## Recommended Next Moves
 
 1. Complete #1098 field confirmation and close or record the bounded residual trigger.
 2. Run the independent final audit for #1081 and publish the exact claim boundary.
 3. Finish the remaining #710 per-tool MCP authorization dependency path without reopening completed inventory work.
-4. Start #1090 with `fortemi-react#404` shared fixtures; run #1092/`fortemi-react#406` in parallel if capacity exists; follow with #1091/`fortemi-react#405`.
+4. Pin #1090/#1092 authority revisions against the released `fortemi-react v2026.8.0` consumers, then generate shared server/PGlite/RecordStore fixtures and receipts; follow with the #1091 cross-backend retrieval corpus after #1090 stabilizes.
 5. Keep Phase 1 open-build hardening ahead of licensed-server feature depth; advance #733/#734/#943 as the separate hosted lane.
 6. Move #1072's remaining host automation to an operational owner and close already-fixed #1078 after evidence is attached.
 7. Triage the five no-priority issues and add explicit unblock triggers/check dates to stale blocked parents.
