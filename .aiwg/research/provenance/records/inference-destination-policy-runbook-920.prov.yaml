@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T20:26:21Z"
+  updated_at: "2026-08-24T20:26:21Z"
+  description: "Provenance for inference destination policy operator runbook"
+entity:
+  id: "urn:aiwg:artifact:docs/operations/inference-destination-policy.md"
+  type: documentation
+  checksum: "sha256:81978b10520d4a8e050b9bf5de75966da0560da912846917fd09e86229e7b3be"
+  size_bytes: 2504
+  attributes:
+    change_scope: "fortemi-920-operations"
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-920:runbook"
+  type: generation
+  started_at: "2026-08-24T20:15:00Z"
+  ended_at: "2026-08-24T20:26:21Z"
+  description: "Document deployment profiles, allowlist grammar, transport controls, and future consumers"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/operations/inference-destination-policy.md"
+    activity: "urn:aiwg:activity:generation:fortemi-920:runbook"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docs/operations/inference-destination-policy.md"
+      source: "urn:gitea:Fortemi/fortemi:issue:920"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:generation:fortemi-920:runbook"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-920:runbook"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/operations/inference-destination-policy.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

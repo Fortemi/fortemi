@@ -6,6 +6,11 @@ multi-tenant mode, a verified user-bound OAuth principal, forced PostgreSQL
 RLS, the durable PostgreSQL audit sink, and a startup-validated KMS provider.
 The community build does not mount these routes.
 
+Stored credentials are not yet usable for inference. The #731 proxy must load
+them through the tenant/user-scoped service and route only through the shared
+policy in `docs/operations/inference-destination-policy.md`; inline keys and
+request-controlled destinations remain denied in hosted mode.
+
 ## API Surface
 
 The preview routes are hidden from generated public/operator OpenAPI output:

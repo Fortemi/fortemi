@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T20:26:21Z"
+  updated_at: "2026-08-24T20:26:21Z"
+  description: "Provenance for provider destination resolution and approved-client injection"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-inference/src/provider.rs"
+  type: source_code
+  checksum: "sha256:9491944bc9a5e860f59a621626f7f16778bee67e5d865cb66b5f9cb36523e177"
+  size_bytes: 67286
+  attributes:
+    change_scope: "fortemi-920-provider-client-boundary"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-920:provider-client"
+  type: modification
+  started_at: "2026-08-24T19:20:00Z"
+  ended_at: "2026-08-24T20:26:21Z"
+  description: "Separate destination resolution from backend construction and inject policy-approved clients"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-inference/src/provider.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-920:provider-client"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-inference/src/provider.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:920"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-920:provider-client"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-920:provider-client"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-inference/src/provider.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

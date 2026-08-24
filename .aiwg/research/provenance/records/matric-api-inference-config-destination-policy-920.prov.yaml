@@ -1,0 +1,43 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T20:26:21Z"
+  updated_at: "2026-08-24T20:30:48Z"
+  description: "Provenance for inference configuration and probe destination enforcement"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_config.rs"
+  type: source_code
+  checksum: "sha256:9023c77a8c7750dfb3cbc7f16523104ac055f67644ab6d438e915cae7c03cce5"
+  size_bytes: 156756
+  attributes:
+    change_scope: "fortemi-920-config-probe-policy"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-920:config-probe"
+  type: modification
+  started_at: "2026-08-24T19:20:00Z"
+  ended_at: "2026-08-24T20:30:48Z"
+  description: "Validate all touched destinations and use approved clients for probes"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_config.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-920:config-probe"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_config.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:920"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-920:config-probe"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_config.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:666"
+      derivation_type: enables
+      activity: "urn:aiwg:activity:modification:fortemi-920:config-probe"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-920:config-probe"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_config.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

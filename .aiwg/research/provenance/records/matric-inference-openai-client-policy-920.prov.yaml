@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T20:26:21Z"
+  updated_at: "2026-08-24T20:26:21Z"
+  description: "Provenance for OpenAI-compatible approved HTTP client support"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-inference/src/openai/backend.rs"
+  type: source_code
+  checksum: "sha256:da31a5476714bc61a0ea7c3fb814f8f63a9cfcd949521e7453826ff088c66ff9"
+  size_bytes: 26195
+  attributes:
+    change_scope: "fortemi-920-openai-transport"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-920:openai-client"
+  type: modification
+  started_at: "2026-08-24T19:20:00Z"
+  ended_at: "2026-08-24T20:26:21Z"
+  description: "Accept approved HTTP clients and disable redirects and ambient proxies by default"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-inference/src/openai/backend.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-920:openai-client"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-inference/src/openai/backend.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:920"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-920:openai-client"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-920:openai-client"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-inference/src/openai/backend.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

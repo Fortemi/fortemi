@@ -1,0 +1,40 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T20:26:21Z"
+  updated_at: "2026-08-24T20:26:21Z"
+  description: "Provenance for shared inference outbound destination authorization"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-inference/src/destination_policy.rs"
+  type: source_code
+  checksum: "sha256:bb41fc652bd6ac2f9c15aae87adcbebe28329fb572500d4532aef1fe8231d327"
+  size_bytes: 21326
+  attributes:
+    change_scope: "fortemi-920-inference-destination-policy"
+    security_property: "ssrf-fail-closed"
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-920:destination-policy"
+  type: generation
+  started_at: "2026-08-24T19:20:00Z"
+  ended_at: "2026-08-24T20:26:21Z"
+  description: "Implement URL normalization, address classification, DNS pinning, redirect suppression, and deployment profiles"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-inference/src/destination_policy.rs"
+    activity: "urn:aiwg:activity:generation:fortemi-920:destination-policy"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-inference/src/destination_policy.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:920"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:generation:fortemi-920:destination-policy"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-920:destination-policy"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-inference/src/destination_policy.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

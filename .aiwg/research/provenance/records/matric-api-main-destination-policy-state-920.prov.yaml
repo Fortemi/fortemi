@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T20:26:21Z"
+  updated_at: "2026-08-24T20:26:21Z"
+  description: "Provenance for startup-validated destination policy state"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+  type: source_code
+  checksum: "sha256:195dd28a0205a31cf397e368cb908e9510944c00e1a14a04b5b6d808099bbb9a"
+  size_bytes: 2730105
+  attributes:
+    change_scope: "fortemi-920-policy-startup-state"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-920:policy-state"
+  type: modification
+  started_at: "2026-08-24T19:20:00Z"
+  ended_at: "2026-08-24T20:26:21Z"
+  description: "Parse deployment policy once at startup and share it with API handlers"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-920:policy-state"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:920"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-920:policy-state"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-920:policy-state"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

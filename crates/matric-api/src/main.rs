@@ -1162,6 +1162,9 @@ struct AppState {
     require_auth: bool,
     /// Hosted mode changes both authorization and persistence invariants.
     multi_tenant: bool,
+    /// Shared outbound inference destination policy (#920).
+    inference_destination_policy:
+        Arc<matric_inference::destination_policy::OutboundDestinationPolicy>,
     /// Signed-release OIDC verifier and active-tenant lookup boundary.
     #[cfg(feature = "hosted-auth")]
     hosted_auth: Option<Arc<dyn HostedAuthenticator>>,
@@ -4030,6 +4033,12 @@ async fn main() -> anyhow::Result<()> {
     let ingest_cursor_store = matric_api::services::IngestCursorStore::from_env().await;
     let ingest_token_store = matric_api::services::IngestTokenStore::from_env().await;
     let idempotency_store = matric_api::services::IdempotencyStore::from_env().await;
+    let inference_destination_policy = Arc::new(
+        matric_inference::destination_policy::OutboundDestinationPolicy::from_env(
+            security_config.multi_tenant,
+        )
+        .map_err(|error| anyhow::anyhow!("invalid inference destination policy: {error}"))?,
+    );
     let lifecycle = LifecycleState::default();
     let state = AppState {
         db,
@@ -4053,6 +4062,7 @@ async fn main() -> anyhow::Result<()> {
         ))),
         require_auth: security_config.require_auth, // ADR-094: fail-closed default — see startup validation block in main()
         multi_tenant: security_config.multi_tenant,
+        inference_destination_policy,
         #[cfg(feature = "hosted-auth")]
         hosted_auth,
         call_recording_require_confirmation: security_config.call_recording_require_confirmation,
@@ -59331,6 +59341,10 @@ not-json
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
             multi_tenant: false,
+            inference_destination_policy: Arc::new(
+                matric_inference::destination_policy::OutboundDestinationPolicy::new(false, None)
+                    .expect("valid test destination policy"),
+            ),
             #[cfg(feature = "hosted-auth")]
             hosted_auth: None,
             call_recording_require_confirmation: false,
@@ -64702,6 +64716,10 @@ not-json
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth,
             multi_tenant: false,
+            inference_destination_policy: Arc::new(
+                matric_inference::destination_policy::OutboundDestinationPolicy::new(false, None)
+                    .expect("valid test destination policy"),
+            ),
             #[cfg(feature = "hosted-auth")]
             hosted_auth: None,
             call_recording_require_confirmation: false,
@@ -66494,6 +66512,10 @@ not-json
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
             multi_tenant: false,
+            inference_destination_policy: Arc::new(
+                matric_inference::destination_policy::OutboundDestinationPolicy::new(false, None)
+                    .expect("valid test destination policy"),
+            ),
             #[cfg(feature = "hosted-auth")]
             hosted_auth: None,
             call_recording_require_confirmation: false,
@@ -66837,6 +66859,10 @@ not-json
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
             multi_tenant: false,
+            inference_destination_policy: Arc::new(
+                matric_inference::destination_policy::OutboundDestinationPolicy::new(false, None)
+                    .expect("valid test destination policy"),
+            ),
             #[cfg(feature = "hosted-auth")]
             hosted_auth: None,
             call_recording_require_confirmation: false,

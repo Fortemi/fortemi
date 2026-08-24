@@ -24,6 +24,7 @@ use matric_core::{
     AuditVisibilityClass, AuthPrincipal, TracingSink,
 };
 use matric_core::{GenerationBackend, ServerEvent};
+use matric_inference::destination_policy::{DestinationPolicyError, DestinationSource};
 use matric_inference::OllamaBackend;
 
 // =============================================================================
@@ -688,6 +689,7 @@ const PROBE_REASON_CONNECT_FAILED: &str = "probe connection failed";
 const PROBE_REASON_HTTP_STATUS: &str = "probe returned unsuccessful status";
 const PROBE_REASON_INVALID_RESPONSE: &str = "probe returned invalid response";
 const PROBE_REASON_UNKNOWN_PROVIDER: &str = "probe provider is not supported";
+#[cfg(test)]
 const HTTP_CLIENT_INIT_ERROR: &str = "Failed to initialize HTTP client";
 
 /// Write a row to `inference_config_audit` (#656). Best-effort — DB
@@ -1427,7 +1429,7 @@ pub async fn update_inference_config(
 
     // 3. Merge new values into existing DB override blob.
     let mut merged = existing_db;
-    let mut pending_generation_backend: Option<std::sync::Arc<dyn GenerationBackend>> = None;
+    let mut pending_ollama_config: Option<(String, String, String)> = None;
 
     if let Some(partial_ollama) = &req.ollama {
         let entry = merged
@@ -1478,42 +1480,6 @@ pub async fn update_inference_config(
             .into_response();
         }
 
-        // Optional pre-flight reachability probe.
-        if params.validate {
-            let probe = OllamaBackend::with_config(
-                merged_base.clone(),
-                merged_embed.clone(),
-                merged_gen.clone(),
-                EMBED_DIMENSION,
-            );
-            match probe.health_check().await {
-                Ok(true) => {}
-                Ok(false) => {
-                    return ApiError::ProviderFailure {
-                        capability: "Ollama inference configuration",
-                        detail: "Ollama health check returned unhealthy".to_string(),
-                    }
-                    .into_response();
-                }
-                Err(e) => {
-                    let error_text = e.to_string();
-                    warn!(
-                        provider = "ollama",
-                        base_url_class = telemetry_url_class(&merged_base),
-                        base_url_len = telemetry_text_len(&merged_base),
-                        reason_code = probe_failure_reason(&error_text),
-                        error_len = telemetry_text_len(&error_text),
-                        "Ollama inference configuration probe failed"
-                    );
-                    return ApiError::ProviderFailure {
-                        capability: "Ollama inference configuration",
-                        detail: "Ollama health check request failed".to_string(),
-                    }
-                    .into_response();
-                }
-            }
-        }
-
         // Write changed fields into the blob.
         let obj = entry.as_object_mut().expect("json object");
         if partial_ollama.base_url.is_some() {
@@ -1534,12 +1500,7 @@ pub async fn update_inference_config(
 
         // Prepare the replacement backend. The live runtime is mutated only
         // after validation, dry-run/archive branching, and DB persistence.
-        pending_generation_backend = Some(std::sync::Arc::new(OllamaBackend::with_config(
-            merged_base,
-            merged_embed,
-            merged_gen,
-            EMBED_DIMENSION,
-        )));
+        pending_ollama_config = Some((merged_base, merged_embed, merged_gen));
     }
 
     if let Some(partial_openai) = &req.openai {
@@ -1837,24 +1798,136 @@ pub async fn update_inference_config(
         }
     }
 
+    // Every destination write is policy-checked before persistence. Atomic
+    // mode additionally proves provider reachability with the approved client.
+    for (provider, touched) in [
+        ("ollama", req.ollama.is_some()),
+        ("openai", req.openai.is_some()),
+        ("llamacpp", req.llamacpp.is_some()),
+        ("openrouter", req.openrouter.is_some()),
+    ] {
+        if !touched {
+            continue;
+        }
+        let Some(url) = merged
+            .get(provider)
+            .and_then(|config| config.get("base_url"))
+            .and_then(Value::as_str)
+            .filter(|url| !url.is_empty())
+        else {
+            continue;
+        };
+        if let Err(error) = approved_probe_client(
+            &state,
+            provider,
+            url,
+            std::time::Duration::from_secs(10),
+            DestinationSource::OperatorConfiguration,
+        )
+        .await
+        {
+            warn!(
+                provider,
+                reason_code = error.reason_code(),
+                "Inference destination policy denied configuration"
+            );
+            return err(
+                StatusCode::BAD_REQUEST,
+                "Inference destination is not permitted by deployment policy",
+            )
+            .into_response();
+        }
+    }
+
+    // Build the hot-swap backend only after policy authorization, and retain
+    // the pinned client for every subsequent runtime call.
+    let pending_generation_backend: Option<std::sync::Arc<dyn GenerationBackend>> =
+        if let Some((base_url, embedding_model, generation_model)) = pending_ollama_config {
+            let approved = match state
+                .inference_destination_policy
+                .authorize(
+                    "ollama",
+                    &base_url,
+                    DestinationSource::OperatorConfiguration,
+                )
+                .await
+            {
+                Ok(approved) => approved,
+                Err(error) => {
+                    warn!(
+                        provider = "ollama",
+                        reason_code = error.reason_code(),
+                        "Ollama hot-swap destination denied"
+                    );
+                    return err(
+                        StatusCode::BAD_REQUEST,
+                        "Inference destination is not permitted by deployment policy",
+                    )
+                    .into_response();
+                }
+            };
+            let client = match approved.build_client(
+                std::time::Duration::from_secs(matric_core::defaults::GEN_TIMEOUT_SECS),
+                false,
+            ) {
+                Ok(client) => client,
+                Err(error) => {
+                    warn!(
+                        provider = "ollama",
+                        reason_code = error.reason_code(),
+                        "Ollama hot-swap client construction failed"
+                    );
+                    return err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Inference HTTP client could not be initialized",
+                    )
+                    .into_response();
+                }
+            };
+            let mut backend = OllamaBackend::with_config(
+                approved.base_url().to_string(),
+                embedding_model,
+                generation_model,
+                EMBED_DIMENSION,
+            );
+            backend.set_http_client(client);
+
+            if params.validate {
+                match backend.health_check().await {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        return ApiError::ProviderFailure {
+                            capability: "Ollama inference configuration",
+                            detail: "Ollama health check returned unhealthy".to_string(),
+                        }
+                        .into_response();
+                    }
+                    Err(error) => {
+                        let diagnostic = error.to_string();
+                        warn!(
+                            provider = "ollama",
+                            reason_code = probe_failure_reason(&diagnostic),
+                            error_len = telemetry_text_len(&diagnostic),
+                            "Ollama inference configuration probe failed"
+                        );
+                        return ApiError::ProviderFailure {
+                            capability: "Ollama inference configuration",
+                            detail: "Ollama health check request failed".to_string(),
+                        }
+                        .into_response();
+                    }
+                }
+            }
+
+            Some(std::sync::Arc::new(backend))
+        } else {
+            None
+        };
+
     // Atomic-mode pre-flight: probe every backend touched by this request
     // before committing. On any failure, abort with 503 so the live registry
     // and DB stay on the previous good config.
     if params.atomic {
-        let probe_client = match reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                return err(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Failed to build probe HTTP client: {e}"),
-                )
-                .into_response();
-            }
-        };
-
         let mut probe_failures: Vec<String> = Vec::new();
 
         if req.ollama.is_some() {
@@ -1865,7 +1938,19 @@ pub async fn update_inference_config(
                     .unwrap_or("")
                     .trim_end_matches('/');
                 if !url.is_empty() {
-                    if let Err(e) = probe_ollama(&probe_client, url).await {
+                    let probe = approved_probe_client(
+                        &state,
+                        "ollama",
+                        url,
+                        std::time::Duration::from_secs(10),
+                        DestinationSource::OperatorConfiguration,
+                    )
+                    .await
+                    .map_err(|error| error.reason_code().to_string());
+                    if let Err(e) = match probe {
+                        Ok(client) => probe_ollama(&client, url).await,
+                        Err(error) => Err(error),
+                    } {
                         warn!(
                             provider = "ollama",
                             base_url_class = telemetry_url_class(url),
@@ -1889,7 +1974,19 @@ pub async fn update_inference_config(
                     .trim_end_matches('/');
                 let api_key = o.get("api_key").and_then(|v| v.as_str());
                 if !url.is_empty() {
-                    if let Err(e) = probe_openai(&probe_client, url, api_key).await {
+                    let probe = approved_probe_client(
+                        &state,
+                        "openai",
+                        url,
+                        std::time::Duration::from_secs(10),
+                        DestinationSource::OperatorConfiguration,
+                    )
+                    .await
+                    .map_err(|error| error.reason_code().to_string());
+                    if let Err(e) = match probe {
+                        Ok(client) => probe_openai(&client, url, api_key).await,
+                        Err(error) => Err(error),
+                    } {
                         warn!(
                             provider = "openai",
                             base_url_class = telemetry_url_class(url),
@@ -1915,7 +2012,19 @@ pub async fn update_inference_config(
                 if !url.is_empty() {
                     // llama-server speaks OpenAI-compatible, so probe via
                     // /v1/models like any other OpenAI-compat endpoint.
-                    if let Err(e) = probe_openai(&probe_client, url, api_key).await {
+                    let probe = approved_probe_client(
+                        &state,
+                        "llamacpp",
+                        url,
+                        std::time::Duration::from_secs(10),
+                        DestinationSource::OperatorConfiguration,
+                    )
+                    .await
+                    .map_err(|error| error.reason_code().to_string());
+                    if let Err(e) = match probe {
+                        Ok(client) => probe_openai(&client, url, api_key).await,
+                        Err(error) => Err(error),
+                    } {
                         warn!(
                             provider = "llamacpp",
                             base_url_class = telemetry_url_class(url),
@@ -1940,7 +2049,19 @@ pub async fn update_inference_config(
                 let api_key = o.get("api_key").and_then(|v| v.as_str());
                 if !url.is_empty() {
                     // OpenRouter speaks OpenAI-compatible — same probe path.
-                    if let Err(e) = probe_openai(&probe_client, url, api_key).await {
+                    let probe = approved_probe_client(
+                        &state,
+                        "openrouter",
+                        url,
+                        std::time::Duration::from_secs(10),
+                        DestinationSource::OperatorConfiguration,
+                    )
+                    .await
+                    .map_err(|error| error.reason_code().to_string());
+                    if let Err(e) = match probe {
+                        Ok(client) => probe_openai(&client, url, api_key).await,
+                        Err(error) => Err(error),
+                    } {
                         warn!(
                             provider = "openrouter",
                             base_url_class = telemetry_url_class(url),
@@ -2756,7 +2877,7 @@ struct DetectionResult {
     )
 )]
 pub async fn test_connection(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(req): Json<TestConnectionRequest>,
 ) -> (StatusCode, Json<TestConnectionResponse>) {
     let base_url = req.base_url.trim_end_matches('/').to_string();
@@ -2782,11 +2903,24 @@ pub async fn test_connection(
         );
     }
 
-    let client = match reqwest::Client::builder().timeout(timeout).build() {
-        Ok(c) => c,
-        Err(_) => {
+    let client = match approved_probe_client(
+        &state,
+        &req.provider,
+        &base_url,
+        timeout,
+        DestinationSource::CallerRequest,
+    )
+    .await
+    {
+        Ok(client) => client,
+        Err(error) => {
+            warn!(
+                provider_len = telemetry_text_len(&req.provider),
+                reason_code = error.reason_code(),
+                "Inference test destination denied"
+            );
             return (
-                StatusCode::INTERNAL_SERVER_ERROR,
+                StatusCode::BAD_REQUEST,
                 Json(TestConnectionResponse {
                     reachable: false,
                     detected_provider: None,
@@ -2794,7 +2928,9 @@ pub async fn test_connection(
                     available_models: None,
                     latency_ms: None,
                     capabilities: None,
-                    error: Some(HTTP_CLIENT_INIT_ERROR.to_string()),
+                    error: Some(
+                        "Inference destination is not permitted by deployment policy".to_string(),
+                    ),
                     suggestions: None,
                 }),
             );
@@ -2890,6 +3026,20 @@ pub async fn test_connection(
             suggestions: Some(suggestions),
         }),
     )
+}
+
+async fn approved_probe_client(
+    state: &AppState,
+    provider: &str,
+    base_url: &str,
+    timeout: std::time::Duration,
+    source: DestinationSource,
+) -> Result<reqwest::Client, DestinationPolicyError> {
+    let approved = state
+        .inference_destination_policy
+        .authorize(provider, base_url, source)
+        .await?;
+    approved.build_client(timeout, false)
 }
 
 // =============================================================================

@@ -36,6 +36,7 @@
 pub mod capabilities;
 pub mod circuit_breaker;
 pub mod config;
+pub mod destination_policy;
 mod diagnostics;
 pub mod diarization;
 pub mod discovery;
@@ -80,6 +81,10 @@ pub use capabilities::{
     known_model_capabilities, Capability, CapabilityRating, ModelCapabilities, QualityTier,
 };
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
+pub use destination_policy::{
+    ApprovedDestination, DestinationPolicyError, DestinationProfile, DestinationSource,
+    OutboundDestinationPolicy,
+};
 pub use diarization::{
     align_speakers, DiarizationBackend, DiarizationResult, DiarizationSegment, PyAnnoteBackend,
 };

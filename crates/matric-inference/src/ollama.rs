@@ -99,6 +99,8 @@ impl OllamaBackend {
 
         let client = Client::builder()
             .timeout(Duration::from_secs(gen_timeout))
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
             .build()
             .expect("Failed to create HTTP client");
 
@@ -340,6 +342,11 @@ impl OllamaBackend {
             "Switching Ollama base URL"
         );
         self.base_url = trimmed;
+    }
+
+    /// Use a client built from an approved outbound destination.
+    pub fn set_http_client(&mut self, client: Client) {
+        self.client = client;
     }
 
     /// Set generation model to the best model for general inference.

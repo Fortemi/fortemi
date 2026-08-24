@@ -94,8 +94,10 @@ pub struct OpenAIBackend {
 impl OpenAIBackend {
     /// Create a new OpenAI backend with the given configuration.
     pub fn new(config: OpenAIConfig) -> Result<Self> {
-        let mut client_builder =
-            Client::builder().timeout(Duration::from_secs(config.timeout_seconds));
+        let mut client_builder = Client::builder()
+            .timeout(Duration::from_secs(config.timeout_seconds))
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy();
 
         if config.skip_tls_verify {
             client_builder = client_builder.danger_accept_invalid_certs(true);
@@ -105,6 +107,11 @@ impl OpenAIBackend {
             .build()
             .map_err(|e| Error::Inference(format!("Failed to create HTTP client: {}", e)))?;
 
+        Self::new_with_client(config, client)
+    }
+
+    /// Create a backend with a pre-authorized HTTP client.
+    pub fn new_with_client(config: OpenAIConfig, client: Client) -> Result<Self> {
         info!(
             base_url_len = config.base_url.len(),
             embed_model_len = config.embed_model.len(),

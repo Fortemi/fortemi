@@ -652,6 +652,80 @@ impl ProviderRegistry {
         base_url: Option<&str>,
         model: &str,
     ) -> Result<Box<dyn matric_core::GenerationBackend>> {
+        self.resolve_generation_inline_with_client(provider_id, api_key, base_url, model, None)
+    }
+
+    /// Resolve the effective base URL without constructing a backend.
+    pub fn resolve_generation_destination(
+        &self,
+        provider_id: &str,
+        base_url: Option<&str>,
+    ) -> Result<String> {
+        let registered = self.providers.get(provider_id);
+        let resolved = match provider_id {
+            "ollama" => base_url
+                .map(str::to_string)
+                .or_else(|| registered.map(|config| config.base_url.clone()))
+                .or_else(|| std::env::var("OLLAMA_BASE").ok())
+                .or_else(|| std::env::var("OLLAMA_URL").ok())
+                .or_else(|| std::env::var("OLLAMA_HOST").ok())
+                .unwrap_or_else(|| matric_core::defaults::OLLAMA_URL.to_string()),
+            "openai" => base_url
+                .map(str::to_string)
+                .or_else(|| registered.map(|config| config.base_url.clone()))
+                .or_else(|| std::env::var("OPENAI_BASE_URL").ok())
+                .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+            "openrouter" => base_url
+                .map(str::to_string)
+                .or_else(|| registered.map(|config| config.base_url.clone()))
+                .or_else(|| std::env::var("OPENROUTER_BASE_URL").ok())
+                .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
+            "llamacpp" => base_url
+                .map(str::to_string)
+                .or_else(|| registered.map(|config| config.base_url.clone()))
+                .or_else(|| std::env::var("LLAMACPP_BASE_URL").ok())
+                .ok_or_else(|| {
+                    Error::Config(
+                        "llamacpp: no base_url in request, registry, or LLAMACPP_BASE_URL env"
+                            .to_string(),
+                    )
+                })?,
+            _ => {
+                return Err(Error::Config(format!(
+                    "Provider '{}' not supported (known: ollama, openai, openrouter, llamacpp)",
+                    provider_id
+                )))
+            }
+        };
+        Ok(resolved.trim_end_matches('/').to_string())
+    }
+
+    /// Resolve an inline backend with a policy-approved HTTP client.
+    pub fn resolve_generation_inline_approved(
+        &self,
+        provider_id: &str,
+        api_key: Option<&str>,
+        base_url: &str,
+        model: &str,
+        client: reqwest::Client,
+    ) -> Result<Box<dyn matric_core::GenerationBackend>> {
+        self.resolve_generation_inline_with_client(
+            provider_id,
+            api_key,
+            Some(base_url),
+            model,
+            Some(client),
+        )
+    }
+
+    fn resolve_generation_inline_with_client(
+        &self,
+        provider_id: &str,
+        #[cfg_attr(not(feature = "openai"), allow(unused_variables))] api_key: Option<&str>,
+        base_url: Option<&str>,
+        model: &str,
+        client: Option<reqwest::Client>,
+    ) -> Result<Box<dyn matric_core::GenerationBackend>> {
         // Pick a config to inherit defaults from if the provider is
         // registered. If it's not registered, we fall back to per-type
         // env-var defaults below. This lets `POST /complete` work for
@@ -672,6 +746,9 @@ impl ProviderRegistry {
                     backend.set_base_url(url);
                 }
                 backend.set_gen_model(model.to_string());
+                if let Some(client) = client {
+                    backend.set_http_client(client);
+                }
                 Ok(Box::new(backend))
             }
             #[cfg(feature = "openai")]
@@ -701,7 +778,10 @@ impl ProviderRegistry {
                     timeout_seconds: timeout,
                     ..Default::default()
                 };
-                Ok(Box::new(crate::OpenAIBackend::new(oai_config)?))
+                Ok(Box::new(match client {
+                    Some(client) => crate::OpenAIBackend::new_with_client(oai_config, client)?,
+                    None => crate::OpenAIBackend::new(oai_config)?,
+                }))
             }
             #[cfg(feature = "openai")]
             "openrouter" => {
@@ -734,7 +814,10 @@ impl ProviderRegistry {
                     timeout_seconds: timeout,
                     ..Default::default()
                 };
-                Ok(Box::new(crate::OpenAIBackend::new(oai_config)?))
+                Ok(Box::new(match client {
+                    Some(client) => crate::OpenAIBackend::new_with_client(oai_config, client)?,
+                    None => crate::OpenAIBackend::new(oai_config)?,
+                }))
             }
             #[cfg(feature = "openai")]
             "llamacpp" => {
@@ -763,7 +846,10 @@ impl ProviderRegistry {
                     timeout_seconds: timeout,
                     ..Default::default()
                 };
-                Ok(Box::new(crate::OpenAIBackend::new(oai_config)?))
+                Ok(Box::new(match client {
+                    Some(client) => crate::OpenAIBackend::new_with_client(oai_config, client)?,
+                    None => crate::OpenAIBackend::new(oai_config)?,
+                }))
             }
             _ => Err(Error::Config(format!(
                 "Provider '{}' not supported (known: ollama, openai, openrouter, llamacpp)",

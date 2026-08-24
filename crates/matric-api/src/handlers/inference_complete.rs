@@ -15,10 +15,11 @@ use axum::response::IntoResponse;
 use axum::Json;
 use chrono::{DateTime, Utc};
 use matric_core::{
-    MeteringError, UsageAttributeKey, UsageAttributeValue, UsageAttributes, UsageClass,
-    UsageCorrelation, UsageDimension, UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome,
-    UsageProducer, UsageSource, UsageSubject, UsageUnit,
+    GenerationBackend, MeteringError, UsageAttributeKey, UsageAttributeValue, UsageAttributes,
+    UsageClass, UsageCorrelation, UsageDimension, UsageEvent, UsageMeasurement, UsageMeter,
+    UsageOutcome, UsageProducer, UsageSource, UsageSubject, UsageUnit,
 };
+use matric_inference::destination_policy::DestinationSource;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -287,10 +288,14 @@ pub async fn list_providers(State(state): State<AppState>) -> impl IntoResponse 
         // Use the registered base URL when available so operators see the
         // effective configured value; fall back to the profile's documented
         // default for the BYOK render path.
-        let base_url = registered
-            .map(|c| c.base_url.clone())
-            .or_else(|| profile.default_base_url.map(String::from))
-            .unwrap_or_default();
+        let base_url = if state.inference_destination_policy.is_hosted() {
+            String::new()
+        } else {
+            registered
+                .map(|c| c.base_url.clone())
+                .or_else(|| profile.default_base_url.map(String::from))
+                .unwrap_or_default()
+        };
 
         // Capability list comes from the catalog — it's the source of truth
         // for what a profile can do, regardless of whether it's currently
@@ -350,18 +355,20 @@ pub async fn complete(
         return Err(ApiError::BadRequest("model is required".to_string()).into_response());
     }
 
-    let registry = state.provider_registry();
-    let backend = match registry.resolve_generation_inline(
+    let backend = match resolve_request_backend(
+        &state,
         &provider_id,
         req.api_key.as_deref(),
         req.base_url.as_deref(),
         &req.model,
-    ) {
+    )
+    .await
+    {
         Ok(b) => b,
         Err(e) => {
             warn!(
                 provider_id_len = complete_text_len(&provider_id),
-                error_len = complete_text_len(&e.to_string()),
+                reason_code = e,
                 "Failed to resolve inline backend"
             );
             return Err(ApiError::BadRequest(
@@ -572,18 +579,20 @@ pub async fn stream(
         return Err(ApiError::BadRequest("model is required".to_string()).into_response());
     }
 
-    let registry = state.provider_registry();
-    let backend = match registry.resolve_generation_inline(
+    let backend = match resolve_request_backend(
+        &state,
         &provider_id,
         req.api_key.as_deref(),
         req.base_url.as_deref(),
         &req.model,
-    ) {
+    )
+    .await
+    {
         Ok(b) => b,
         Err(e) => {
             warn!(
                 provider_id_len = complete_text_len(&provider_id),
-                error_len = complete_text_len(&e.to_string()),
+                reason_code = e,
                 "Failed to resolve inline stream backend"
             );
             return Err(ApiError::BadRequest(
@@ -684,6 +693,52 @@ pub async fn stream(
 
     let event_stream = ReceiverStream::new(rx);
     Ok(Sse::new(event_stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+}
+
+async fn resolve_request_backend(
+    state: &AppState,
+    provider_id: &str,
+    api_key: Option<&str>,
+    base_url: Option<&str>,
+    model: &str,
+) -> Result<Box<dyn GenerationBackend>, &'static str> {
+    if state.inference_destination_policy.is_hosted() && api_key.is_some() {
+        return Err("caller_credential_denied");
+    }
+
+    let registry = state.provider_registry();
+    let source = if base_url.is_some() {
+        DestinationSource::CallerRequest
+    } else if registry.get_provider(provider_id).is_some() {
+        DestinationSource::OperatorConfiguration
+    } else {
+        DestinationSource::BuiltInDefault
+    };
+    let raw_destination = registry
+        .resolve_generation_destination(provider_id, base_url)
+        .map_err(|_| "provider_resolution_failed")?;
+    let approved = state
+        .inference_destination_policy
+        .authorize(provider_id, &raw_destination, source)
+        .await
+        .map_err(|error| error.reason_code())?;
+    let timeout = registry
+        .get_provider(provider_id)
+        .map(|config| config.timeout)
+        .unwrap_or_else(|| Duration::from_secs(300));
+    let client = approved
+        .build_client(timeout, false)
+        .map_err(|error| error.reason_code())?;
+
+    registry
+        .resolve_generation_inline_approved(
+            provider_id,
+            api_key,
+            approved.base_url(),
+            model,
+            client,
+        )
+        .map_err(|_| "provider_resolution_failed")
 }
 
 // =============================================================================

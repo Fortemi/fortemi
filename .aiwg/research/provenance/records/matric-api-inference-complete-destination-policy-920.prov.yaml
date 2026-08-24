@@ -1,0 +1,43 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T20:26:21Z"
+  updated_at: "2026-08-24T20:26:21Z"
+  description: "Provenance for completion and streaming destination enforcement"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+  type: source_code
+  checksum: "sha256:1c97f64f1d2fe2a18963ccb73793a957ba86835b6ca71b046a250fdfd710424a"
+  size_bytes: 38676
+  attributes:
+    change_scope: "fortemi-920-complete-stream-policy"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-920:complete-stream"
+  type: modification
+  started_at: "2026-08-24T19:20:00Z"
+  ended_at: "2026-08-24T20:26:21Z"
+  description: "Authorize completion and stream destinations before credential attachment and redact hosted provider URLs"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-920:complete-stream"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:920"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-920:complete-stream"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:731"
+      derivation_type: enables
+      activity: "urn:aiwg:activity:modification:fortemi-920:complete-stream"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-920:complete-stream"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"
