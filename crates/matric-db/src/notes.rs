@@ -572,6 +572,10 @@ impl PgNoteRepository {
 
         // Add tags (merged explicit + inline)
         for tag in all_tags {
+            // Shape-validate before INSERT (rejects JSON fragments, leading
+            // `_`, trailing punct, path-like nests — see tags::validate_tag_name).
+            crate::tags::validate_tag_name(&tag).map_err(Error::InvalidInput)?;
+
             // Determine source: 'user' if explicitly provided, 'inline' if extracted
             let source = if req.tags.as_ref().is_some_and(|t| t.contains(&tag)) {
                 "user"
@@ -678,6 +682,10 @@ impl PgNoteRepository {
 
             // Add tags (merged explicit + inline)
             for tag in &all_tags {
+                // Shape-validate before INSERT (same guard as the per-note
+                // create path above — keeps the bulk path honest).
+                crate::tags::validate_tag_name(tag).map_err(Error::InvalidInput)?;
+
                 // Determine source: 'user' if explicitly provided, 'inline' if extracted
                 let source = if req.tags.as_ref().is_some_and(|t| t.contains(tag)) {
                     "user"

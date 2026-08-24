@@ -4036,7 +4036,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/notes/{id}/tags",
             get(get_note_tags).put(set_note_tags),
         )
-        .route("/api/v1/notes/{id}/links", get(get_note_links))
+        .route("/api/v1/notes/{id}/links", get(get_note_links).post(create_note_link))
         .route("/api/v1/notes/{id}/backlinks", get(get_note_backlinks))
         .route("/api/v1/notes/{id}/related", get(get_related_notes))
         .route("/api/v1/notes/{id}/export", get(export_note))
@@ -17569,6 +17569,93 @@ async fn get_note_links(
 
     Ok(Json(NoteLinksResponse { outgoing, incoming }))
 }
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct CreateLinkRequest {
+    from_note_id: Uuid,
+    to_note_id: Uuid,
+    kind: String,
+    #[serde(default)]
+    score: Option<f32>,
+    #[serde(default)]
+    metadata: Option<serde_json::Value>,
+}
+
+/// Closed set of link kinds we accept on the manual-write path. The
+/// auto-linker writes `semantic` itself; consumers wanting to add a
+/// new kind must extend this list (and likely have a UI/concept story
+/// for it). Free-form `kind` strings were a tag-index-poisoning vector
+/// in the 2026-05-22 audit; keep this list short. The contract is
+/// mirrored in `tests/link_kind_whitelist_test.rs` — update both.
+const ALLOWED_LINK_KINDS: &[&str] = &[
+    "chain",
+    "supersedes",
+    "extends",
+    "derives_from",
+    "references",
+    "semantic",
+];
+
+/// Create a manual link between two notes (chain/supersedes/extends/...).
+/// Idempotent via UNIQUE(from_note_id, to_note_id, kind) — re-POSTs return
+/// the existing link id without error. The path id MUST equal `to_note_id`.
+#[utoipa::path(post, path = "/api/v1/notes/{id}/links", tag = "Graph",
+    params(("id" = Uuid, Path, description = "Target note id (must equal to_note_id)")),
+    request_body = CreateLinkRequest,
+    responses((status = 201, description = "Link created or already existed")))]
+async fn create_note_link(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<CreateLinkRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    if req.to_note_id != id {
+        return Err(ApiError::BadRequest(
+            "to_note_id in body must match {id} in path".into(),
+        ));
+    }
+    if !ALLOWED_LINK_KINDS.contains(&req.kind.as_str()) {
+        return Err(ApiError::BadRequest(format!(
+            "link.kind {:?} not in allowed set {:?}",
+            req.kind, ALLOWED_LINK_KINDS
+        )));
+    }
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let from_id = req.from_note_id;
+    let to_id = req.to_note_id;
+    let kind = req.kind.clone();
+    let score = req.score.unwrap_or(1.0);
+    let meta = req.metadata.clone();
+    let pool = state.db.pool.clone();
+    let link_id = ctx
+        .execute(move |tx| {
+            Box::pin(async move {
+                let notes = matric_db::PgNoteRepository::new(pool.clone());
+                if !notes.exists_tx(tx, from_id).await? {
+                    return Err(matric_core::Error::NotFound(format!(
+                        "from_note_id {} not found",
+                        from_id
+                    )));
+                }
+                if !notes.exists_tx(tx, to_id).await? {
+                    return Err(matric_core::Error::NotFound(format!(
+                        "to_note_id {} not found",
+                        to_id
+                    )));
+                }
+                let links = matric_db::PgLinkRepository::new(pool.clone());
+                links
+                    .create_tx(tx, from_id, to_id, &kind, score, meta)
+                    .await
+            })
+        })
+        .await?;
+    Ok((
+        axum::http::StatusCode::CREATED,
+        Json(serde_json::json!({ "id": link_id })),
+    ))
+}
+
 
 /// Get backlinks (notes that link TO this note).
 #[utoipa::path(get, path = "/api/v1/notes/{id}/backlinks", tag = "Graph",
