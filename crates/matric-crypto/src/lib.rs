@@ -100,11 +100,15 @@ pub use detect::{detect_format, is_encrypted, is_pke_encrypted};
 pub use error::{CryptoError, CryptoResult};
 pub use format::{base64_decode, base64_encode, FileFormat};
 pub use kdf::{derive_key, validate_passphrase, DerivedKey, KdfParams};
+#[cfg(feature = "kms-aws")]
+pub use provider::AwsSdkKmsClient;
 pub use provider::{
-    decrypt_blob, encrypt_blob, rewrap_between, AeadAlgorithm, DegradedMode, DeploymentMode,
-    EncryptedBlob, EnvKeyProvider, GeneratedDek, HealthStatus, KeyContext, KeyError,
-    KeyFailureClass, KeyFuture, KeyOperation, KeyProvider, KeyProviderKind, KeyPurpose,
-    KeyPurposeKind, PlaintextDek, ProviderSignature, RotationInfo, WrappedKey,
+    decrypt_blob, encrypt_blob, rewrap_between, AeadAlgorithm, AwsKmsClient, AwsKmsClientError,
+    AwsKmsDecryptOutput, AwsKmsFuture, AwsKmsGenerateDataKeyOutput, AwsKmsProvider,
+    AwsKmsWrapOutput, DegradedMode, DeploymentMode, EncryptedBlob, EnvKeyProvider, GeneratedDek,
+    HealthStatus, KeyContext, KeyError, KeyFailureClass, KeyFuture, KeyOperation, KeyProvider,
+    KeyProviderKind, KeyPurpose, KeyPurposeKind, PlaintextDek, ProviderSignature, RotationInfo,
+    WrappedKey,
 };
 
 // Re-export PKE types at crate level for convenience

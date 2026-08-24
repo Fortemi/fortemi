@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T17:07:43Z"
+  updated_at: "2026-08-24T17:07:43Z"
+  description: "Provenance for AWS KMS provider contract tests"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-crypto/src/provider/aws_kms/tests.rs"
+  type: test_code
+  checksum: "sha256:b1e1b611ade367136f0682a1863e9c72e20a046230e89f8c6e47139b01e68a46"
+  size_bytes: 6977
+  attributes:
+    change_scope: "fortemi-734-aws-kms-provider-tests"
+    test_boundary: "injectable-mock-client"
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-key-provider-734:aws-kms-tests"
+  type: generation
+  started_at: "2026-08-24T16:00:00Z"
+  ended_at: "2026-08-24T17:07:43Z"
+  description: "Test KMS context binding, envelope operations, rewrap, canary, and redaction"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-crypto/src/provider/aws_kms/tests.rs"
+    activity: "urn:aiwg:activity:generation:fortemi-key-provider-734:aws-kms-tests"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-crypto/src/provider/aws_kms/tests.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:734"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:generation:fortemi-key-provider-734:aws-kms-tests"
+    - entity: "urn:aiwg:artifact:crates/matric-crypto/src/provider/aws_kms/tests.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:897"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:generation:fortemi-key-provider-734:aws-kms-tests"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-key-provider-734:aws-kms-tests"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-crypto/src/provider/aws_kms/tests.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

@@ -1,6 +1,26 @@
 # Key Rotation and DEK Rewrap
 
-This runbook covers the #734 `KeyProvider` foundation. It does not make hosted KMS rotation operational by itself. Hosted execution requires a real KMS provider, audited application wiring, transactional persistence, and release evidence.
+This runbook covers the #734 `KeyProvider` foundation and AWS KMS provider. It does not make hosted
+rotation operational by itself. Hosted execution still requires audited application wiring,
+transactional persistence, startup enforcement, and release evidence.
+
+## AWS Provider Construction and Canary
+
+Build `matric-crypto` with feature `kms-aws`. Construct the AWS SDK `Client` from the deployment's
+central AWS configuration, wrap it in `AwsSdkKmsClient`, and construct `AwsKmsProvider` with
+`FORTEMI_AWS_KMS_KEY_ID`. The key identifier may be a key ARN or alias accepted by KMS. Credentials
+remain in the standard AWS credential chain and must not be copied into Fortemi configuration or
+logs.
+
+For LocalStack or another KMS-compatible emulator, set the endpoint on the AWS SDK configuration;
+do not add emulator behavior to `AwsKmsProvider`. The injectable `AwsKmsClient` boundary is used by
+unit tests and can also host a process-backed emulator adapter.
+
+Hosted startup must call `health_check` with a production-shaped, non-secret `KeyContext`. The hook
+executes `GenerateDataKey(AES_256)` followed by `Decrypt` using the exact versioned encryption
+context. Any returned error or non-`Ready` status blocks hosted startup. Do not replace this with
+`DescribeKey`, and never fall back to `EnvKeyProvider`; that provider refuses construction in
+hosted multi-tenant mode.
 
 ## Invariants
 
@@ -36,8 +56,8 @@ Do not place master material in shell arguments, tickets, logs, command history,
 
 ## Current Acceptance Gaps
 
-- No AWS KMS, Vault Transit, or GCP KMS implementation is present.
+- Vault Transit and GCP KMS implementations are not present.
 - No application-owned row enumeration, atomic update, checkpoint, audit-event, or startup enforcement is wired in this bounded scope.
-- No LocalStack/OpenBao/live-KMS rotation evidence exists.
+- AWS KMS has mock-client contract coverage, but no LocalStack/OpenBao/live-KMS rotation receipt exists.
 - `mlock`/non-dumpable process hardening is not implemented; zeroize-on-drop does not eliminate swap, coredump, allocator-copy, or provider-SDK exposure.
 - Managed signing remains unsupported by `EnvKeyProvider`; the foundation does not substitute a symmetric MAC for a real KMS signing key.

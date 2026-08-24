@@ -8,6 +8,10 @@ repository.workspace = true
 authors.workspace = true
 homepage.workspace = true
 
+[features]
+default = []
+kms-aws = ["dep:aws-sdk-kms"]
+
 [[bin]]
 name = "matric-pke"
 path = "src/bin/pke.rs"
@@ -36,6 +40,7 @@ base64 = { workspace = true }
 # Utilities
 chrono = { workspace = true }
 thiserror = { workspace = true }
+aws-sdk-kms = { version = "=1.116.0", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

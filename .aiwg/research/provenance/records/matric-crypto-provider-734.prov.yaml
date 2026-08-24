@@ -1,16 +1,16 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-08-24T16:42:18Z"
-  updated_at: "2026-08-24T16:42:18Z"
+  updated_at: "2026-08-24T17:07:43Z"
   description: "Provenance for the provider-neutral envelope encryption contract"
 entity:
   id: "urn:aiwg:artifact:crates/matric-crypto/src/provider.rs"
   type: source_code
-  checksum: "sha256:18bf783c7d84e436b884529cff6197f0d98726609b501119b3da163f459d54e6"
-  size_bytes: 33346
+  checksum: "sha256:cf9e0cf5c6b94cb3248522de4d61572afc61b797333d36af08dcd03958fbf243"
+  size_bytes: 33582
   attributes:
     change_scope: "fortemi-734-key-provider-foundation"
-    readiness: "foundation-no-live-aws-provider"
+    readiness: "foundation-with-feature-gated-aws-provider"
 activity:
   id: "urn:aiwg:activity:generation:fortemi-key-provider-734:001"
   type: generation

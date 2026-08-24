@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-24T16:42:18Z"
+  updated_at: "2026-08-24T17:07:43Z"
 records:
   - entity: ".aiwg/architecture/tenant-table-inventory-2026-08.md"
     record: "records/tenant-table-inventory-auth-tenancy-726.prov.yaml"
@@ -14,6 +14,10 @@ records:
     record: "records/matric-api-tenant-scope-728.prov.yaml"
   - entity: "crates/matric-crypto/src/provider.rs"
     record: "records/matric-crypto-provider-734.prov.yaml"
+  - entity: "crates/matric-crypto/src/provider/aws_kms.rs"
+    record: "records/matric-crypto-aws-kms-provider-734.prov.yaml"
+  - entity: "crates/matric-crypto/src/provider/aws_kms/tests.rs"
+    record: "records/matric-crypto-aws-kms-tests-734.prov.yaml"
   - entity: "crates/matric-crypto/src/provider/env.rs"
     record: "records/matric-crypto-env-provider-734.prov.yaml"
   - entity: "crates/matric-crypto/src/provider/tests.rs"

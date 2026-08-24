@@ -4,8 +4,15 @@
 //! plaintext key material. Plaintext DEKs are non-serializable, zeroize on
 //! drop, and never appear in `Debug` output.
 
+mod aws_kms;
 mod env;
 
+#[cfg(feature = "kms-aws")]
+pub use aws_kms::AwsSdkKmsClient;
+pub use aws_kms::{
+    AwsKmsClient, AwsKmsClientError, AwsKmsDecryptOutput, AwsKmsFuture,
+    AwsKmsGenerateDataKeyOutput, AwsKmsProvider, AwsKmsWrapOutput,
+};
 pub use env::{DeploymentMode, EnvKeyProvider};
 
 use std::{collections::BTreeMap, fmt, future::Future, pin::Pin, str::FromStr};

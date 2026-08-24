@@ -1,6 +1,6 @@
 # Cryptographic Decisions — KeyProvider / KMS Launch Contract
 
-> **Status:** Accepted (2026-06-29); foundation implemented for #734 (2026-08-24). Hosted acceptance remains blocked on real KMS and application wiring.
+> **Status:** Accepted (2026-06-29); foundation and AWS KMS provider implemented for #734 (2026-08-24). Hosted acceptance remains blocked on application wiring and live-provider evidence.
 > **Consumes:** ADR-093 (`KeyProvider` trait). **Implemented by:** #734. **Consumed by:** #730 (secret storage), #731 (BYO-LLM proxy). **Audit taxonomy:** #711/#910.
 > **Scope:** the implementation contract #734/#730/#731 build against — provider model, configurable key strategy, versioned AAD/context schema, provider-neutral `EncryptedBlob`/`WrappedKey`, DEK/secret lifetime, startup reachability, fail-closed matrix, and rotation/rewrap.
 
@@ -19,7 +19,18 @@
 
 Implemented in `matric-crypto`: object-safe async `KeyProvider`; versioned and validated `KeyPurpose`/`KeyContext`; provider-neutral `WrappedKey`, `EncryptedBlob`, and `GeneratedDek`; redacted `Debug`; zeroization; stable failure classes/degraded modes; envelope encrypt/decrypt; same-DEK rewrap primitives; explicit-mode `EnvKeyProvider`; deterministic mock rotation tests.
 
-Not implemented: AWS KMS, Vault Transit, GCP KMS, application persistence/atomic batch rewrap, audit emission, startup wiring, and live-provider evidence. `aws-sdk-kms` is absent from the lockfile, and #734 forbids changing `Cargo.lock`; an AWS-shaped imitation was intentionally not added. Hosted multi-tenant remains fail-closed and is not launch-ready on this foundation alone.
+Implemented behind `matric-crypto` feature `kms-aws`: `AwsKmsProvider`, an injectable
+`AwsKmsClient` boundary, and the pinned/locked AWS SDK adapter. `GenerateDataKey` creates fresh
+AES-256 DEKs, `Encrypt` wraps an existing DEK for rewrap, and `Decrypt` supplies the exact canonical
+encryption context and configured key identity. Provider errors collapse to stable redacted failure
+classes. The provider health hook performs a real generate/decrypt canary and is suitable for a
+hosted startup gate. Unit tests use the injectable boundary, so CI does not require credentials and
+an emulator adapter can exercise the same provider behavior.
+
+Not implemented: Vault Transit, GCP KMS, application persistence/atomic batch rewrap, audit
+emission, `matric-api` startup wiring, and LocalStack/live-KMS release evidence. Hosted
+multi-tenant remains fail-closed and is not launch-ready until startup invokes the canary and the
+consumer paths persist/use these envelopes.
 
 ## 1. Why provider-neutral, not AWS-first
 
@@ -159,12 +170,15 @@ The trait and `EnvKeyProvider` round-trip health contract exist. Hosted startup 
 
 - **Unit:** deterministic provider coverage for envelope/AAD/context mismatch/rotation/rewrap, plus `EnvKeyProvider` purpose-separation and redaction coverage.
 - **Vault Transit:** a dev OpenBao (or SoftHSM-backed dev seal) integration profile mirroring the itops topology.
-- **AWS KMS:** LocalStack / `DryRun` for CI; a gated live-KMS profile for release verification.
+- **AWS KMS:** deterministic mock-client tests run in normal CI. LocalStack may be used by building
+  with `--features kms-aws` and configuring the AWS SDK client with its endpoint URL; a gated live
+  KMS profile remains required for release verification.
 - Rotation tests assert old wrapped DEKs decrypt after rotate; context-mismatch / decrypt-denied / disabled-key / startup-check failures emit **metadata-only** audit events (no raw key/ciphertext).
 
 ## 11. Follow-ups
 
-- Land a real AWS SDK-backed provider behind an optional feature and injectable client boundary in a separately authorized dependency change; require LocalStack plus gated live-KMS evidence.
+- Wire `AwsKmsProvider::health_check` into hosted startup/readiness and supply the AWS SDK client
+  from centralized application configuration; require LocalStack plus gated live-KMS evidence.
 - Implement Vault Transit and application startup/audit/persistence wiring before any hosted readiness claim.
 - Link this doc from #730/#731 before their implementation starts.
 - File/keep follow-on issues for GCP KMS and any HSM-direct backend; reserve the `key.*` audit taxonomy now (#711) so wiring is mechanical when #734 lands.
