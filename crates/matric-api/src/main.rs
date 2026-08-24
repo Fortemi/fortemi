@@ -11402,7 +11402,7 @@ fn build_compatibility_response_from_inputs(
 ) -> CompatibilityResponse {
     CompatibilityResponse {
         schema_version: 1,
-        contract_revision: "2026-08-24",
+        contract_revision: "2026-07-06",
         api: CompatibilityApi {
             name: "fortemi",
             version: env!("CARGO_PKG_VERSION"),
@@ -43215,7 +43215,7 @@ mod tests {
         });
         let body = serde_json::to_value(response).unwrap();
 
-        assert_eq!(body["contract_revision"], "2026-08-24");
+        assert_eq!(body["contract_revision"], "2026-07-06");
         assert_eq!(body["deployment"]["mode"], "hosted_multi_tenant");
         assert_eq!(body["deployment"]["edition"], "internal");
         assert_eq!(body["deployment"]["hosted_multi_tenant_ready"], false);

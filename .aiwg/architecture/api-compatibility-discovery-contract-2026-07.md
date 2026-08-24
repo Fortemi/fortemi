@@ -12,7 +12,7 @@ Existing `/health` responses expose useful operational status, but they are not 
 GET /api/v1/system/compatibility
 ```
 
-Implementation status at checkpoint: the Fortemi endpoint is implemented in `crates/matric-api/src/main.rs`. The 2026-08-24 revision identifies the pinned hosted auth claim authority and whether the mandatory runtime KMS provider initialized. It still reports conservative `preview`/`unavailable` states until tenant route coverage, KMS rotation, quota, MCP gate, and enterprise distribution gates close.
+Implementation status at checkpoint: the Fortemi endpoint is implemented in `crates/matric-api/src/main.rs`. The additive 2026-08-24 update to compatibility revision `2026-07-06` identifies the pinned hosted auth claim authority and whether the mandatory runtime KMS provider initialized. It still reports conservative `preview`/`unavailable` states until tenant route coverage, KMS rotation, quota, MCP gate, and enterprise distribution gates close.
 
 | Property | Contract |
 |---|---|
@@ -27,7 +27,7 @@ Implementation status at checkpoint: the Fortemi endpoint is implemented in `cra
 ```json
 {
   "schema_version": 1,
-  "contract_revision": "2026-08-24",
+  "contract_revision": "2026-07-06",
   "api": {
     "name": "fortemi",
     "version": "2026.7.0",
@@ -167,7 +167,7 @@ Implementation status at checkpoint: the Fortemi endpoint is implemented in `cra
 | `unknown` | Auth mode cannot be classified. |
 
 Hosted auth responses additionally include `claim_contract_version`,
-`claim_contract_profile`, and `authority_release`. The 2026-08-24 hosted profile
+`claim_contract_profile`, and `authority_release`. The additive 2026-08-24 update
 pins contract `1.0.0`, profile `rust-node-jwt-v1`, and signed authority release
 `v2026.7.0`. Community and legacy single-tenant OAuth responses omit these fields.
 

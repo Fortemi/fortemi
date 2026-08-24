@@ -1,21 +1,21 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-08-24T17:38:18Z"
-  updated_at: "2026-08-24T17:38:18Z"
+  updated_at: "2026-08-24T17:43:03Z"
   description: "Provenance for the hosted auth and KMS compatibility contract revision"
 entity:
   id: "urn:aiwg:artifact:.aiwg/architecture/api-compatibility-discovery-contract-2026-07.md"
   type: architecture_document
-  checksum: "sha256:87daa97a25cfdaf219f8dbd6945a6b1383f208a22e00f8f2b3a551ce5f3b8501"
-  size_bytes: 14481
+  checksum: "sha256:8aa2bd6a87b32b227e1395aad69dafdca87918b5bacdc7f352b3b4c9f5b1c9dc"
+  size_bytes: 14528
   attributes:
     change_scope: "fortemi-728-734-compatibility-contract"
 activity:
   id: "urn:aiwg:activity:modification:fortemi-auth-tenancy:compatibility-2026-08-24"
   type: modification
   started_at: "2026-08-24T17:25:00Z"
-  ended_at: "2026-08-24T17:38:18Z"
-  description: "Document exact auth authority metadata and conservative hosted KMS capability states"
+  ended_at: "2026-08-24T17:43:03Z"
+  description: "Document additive exact auth authority metadata and conservative hosted KMS capability states under the existing revision"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant

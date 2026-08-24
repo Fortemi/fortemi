@@ -1,12 +1,12 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-08-24T17:38:18Z"
-  updated_at: "2026-08-24T17:38:18Z"
+  updated_at: "2026-08-24T17:43:03Z"
   description: "Provenance for hosted KMS startup enforcement and compatibility metadata"
 entity:
   id: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
   type: source_code
-  checksum: "sha256:44a5d9d5a73aa88bfbf3183d3127deac2abc7bbf52f8d519a869534553923d76"
+  checksum: "sha256:5e2911f8854365c90a9fb8144aee0144dfecc2b009909b510b88f1b8c0fc0550"
   size_bytes: 2720506
   attributes:
     change_scope: "fortemi-734-hosted-kms-startup"
@@ -15,7 +15,7 @@ activity:
   id: "urn:aiwg:activity:modification:fortemi-key-provider-734:hosted-startup"
   type: modification
   started_at: "2026-08-24T17:25:00Z"
-  ended_at: "2026-08-24T17:38:18Z"
+  ended_at: "2026-08-24T17:43:03Z"
   description: "Require a healthy AWS KMS provider for hosted startup and publish conservative auth compatibility metadata"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
