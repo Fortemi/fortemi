@@ -1,0 +1,43 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T16:42:18Z"
+  updated_at: "2026-08-24T16:42:18Z"
+  description: "Provenance for tenant-scoped transactions and catalog inspection"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-db/src/tenancy.rs"
+  type: source_code
+  checksum: "sha256:260cdfee6635b3d722df8ba2f0209b4ea1f8debb057f5b342b1edc19302f33e9"
+  size_bytes: 11605
+  attributes:
+    change_scope: "fortemi-726-727-tenant-runtime"
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-db-tenancy-726-727:001"
+  type: generation
+  started_at: "2026-08-24T14:00:00Z"
+  ended_at: "2026-08-24T16:42:18Z"
+  description: "Implement transaction-local tenant scope and hosted role/catalog assertions"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/tenancy.rs"
+    activity: "urn:aiwg:activity:generation:fortemi-db-tenancy-726-727:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/tenancy.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:726"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:generation:fortemi-db-tenancy-726-727:001"
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/tenancy.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:727"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:generation:fortemi-db-tenancy-726-727:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-db-tenancy-726-727:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/tenancy.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

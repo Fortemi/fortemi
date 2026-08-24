@@ -131,7 +131,7 @@ const FTS_FIX_DEFINITIONS: &[FtsFixDefinition] = &[
 /// These tables contain global system data and are NOT cloned per-memory.
 /// Any table in `public` NOT in this list is automatically cloned when
 /// creating a new memory, ensuring zero-drift as migrations add tables.
-const SHARED_TABLES: &[&str] = &[
+pub(crate) const SHARED_TABLES: &[&str] = &[
     "_sqlx_migrations",
     "api_key",
     "archive_registry",
@@ -153,6 +153,8 @@ const SHARED_TABLES: &[&str] = &[
     "oauth_token",
     "pke_public_keys",
     "realtime_media_stream_attempt",
+    "system_config",
+    "tenant_registry",
     "transcript_segments",
     "usage_event_conflict",
     "usage_event_delivery",
@@ -279,6 +281,54 @@ impl PgArchiveRepository {
                 .await
                 .map_err(Error::Database)?;
             }
+        }
+
+        Ok(())
+    }
+
+    /// Apply the same fail-closed tenant policy used by public tables.
+    ///
+    /// PostgreSQL `LIKE ... INCLUDING ALL` does not copy row-security state or
+    /// policies, so every archive clone must be hardened explicitly.
+    async fn apply_tenant_rls(
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        schema_name: &str,
+        tables: &[String],
+    ) -> Result<()> {
+        for table in tables {
+            sqlx::query(&format!(
+                "ALTER TABLE {}.{} ENABLE ROW LEVEL SECURITY",
+                schema_name, table
+            ))
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+            sqlx::query(&format!(
+                "ALTER TABLE {}.{} FORCE ROW LEVEL SECURITY",
+                schema_name, table
+            ))
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+            sqlx::query(&format!(
+                "DROP POLICY IF EXISTS tenant_isolation ON {}.{}",
+                schema_name, table
+            ))
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+            sqlx::query(&format!(
+                "CREATE POLICY tenant_isolation ON {}.{} \
+                 USING (tenant_id = current_setting('app.current_tenant')::uuid) \
+                 WITH CHECK (tenant_id = current_setting('app.current_tenant')::uuid)",
+                schema_name, table
+            ))
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
         }
 
         Ok(())
@@ -463,6 +513,8 @@ impl PgArchiveRepository {
                 .await
                 .map_err(Error::Database)?;
         }
+
+        Self::apply_tenant_rls(&mut tx, schema_name, &tables).await?;
 
         // Step 8: Create the get_default_embedding_set_id() function in the new schema.
         // This function is called by store_tx() when creating embeddings.
@@ -861,6 +913,8 @@ impl PgArchiveRepository {
                 .await
                 .map_err(Error::Database)?;
         }
+
+        Self::apply_tenant_rls(&mut tx, schema_name, &all_per_memory).await?;
 
         // Drop any archive-local text search configs that may exist from prior versions.
         // All FTS queries use public.-qualified config names, so archive-local copies are

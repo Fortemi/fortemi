@@ -63,6 +63,7 @@ pub mod strict_filter;
 pub mod syntactic_chunker;
 pub mod tags;
 pub mod templates;
+pub mod tenancy;
 pub mod tus;
 pub mod unified_filter;
 pub mod usage_ledger;
@@ -138,6 +139,10 @@ pub use search::PgFtsSearch;
 pub use strict_filter::{QueryParam, StrictFilterQueryBuilder};
 pub use tags::PgTagRepository;
 pub use templates::PgTemplateRepository;
+pub use tenancy::{
+    assert_hosted_runtime_role, inspect_tenant_catalog, TenantCatalogReport, TenantScopedConn,
+    EXEMPT_PUBLIC_TABLES, LOCAL_TENANT_ID, TENANT_SCOPED_TABLES,
+};
 pub use tus::PgTusRepository;
 pub use unified_filter::{UnifiedFilterQueryBuilder, UnifiedFilterResult};
 pub use usage_ledger::{

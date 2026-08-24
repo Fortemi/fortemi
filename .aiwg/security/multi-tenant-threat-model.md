@@ -1,19 +1,22 @@
 # Multi-Tenant SaaS Threat Model Addendum (Fortemi)
 
-**Status:** Draft for ADR-090 / ADR-089 input (revised 2026-05-20 to align with HotM ADR-MOBILE-001)
+**Status:** Construction input (revised 2026-08-24 for ADR-090 implementation)
 **Audience:** Security reviewers, EE plugin authors
 **Scope:** Hosted multi-tenant deployment of Fortemi (one PostgreSQL cluster, many tenants)
 **Companion ADRs:** ADR-090 (Multi-Tenancy Model — RLS), ADR-089 (Authorization Policy Trait), ADR-091 (Audit Plane), ADR-093 (Key Management Plane — KMS at launch), ADR-098 (Quota Plane), ADR-100 (MCP Tool Gating)
 **License context:** BSL-1.1 with a custom "matric-memory Change License" Additional Use Grant whose exact terms are referenced by ADR-090 but not re-asserted here.
 
-## Revision note (2026-05-20)
+## Revision note (2026-08-24)
 
 This document was drafted before HotM ADR-MOBILE-001 and Gitea Fortemi/fortemi#707 were integrated. Two architectural choices have since shifted; treat the revised ADRs as authoritative where they conflict with this document's body:
 
 - **Tenancy isolation** — now shared-schema + Postgres RLS per ADR-090 Rev 1. References to `TenantScopedDb` (a newtype originally proposed for schema-per-tenant) should be read as `TenantScopedConn` (the RLS equivalent — opens a transaction and `SET LOCAL app.current_tenant = ...`). The threat-model rationale (defense-in-depth, type-enforced scope) still applies; the implementation mechanism changed.
 - **Key custody** — KMS at launch per ADR-093 Rev 1; `EnvKeyProvider` is single-tenant-only. References to "KEK rotation procedure" should be read as referring to the KMS-backed rotation path (online, no downtime) rather than the env-key path (manual, requires downtime).
 
-Schema-per-tenant remains a documented escalation trigger; the threat-model section that compares isolation options is still useful for that decision point.
+Schema-per-tenant remains a documented escalation trigger; the threat-model
+section that compares isolation options is retained as decision history. The
+accepted baseline is shared-schema forced RLS and the executable inventory is
+`.aiwg/architecture/tenant-table-inventory-2026-08.md`.
 
 ---
 
@@ -30,7 +33,7 @@ Schema-per-tenant remains a documented escalation trigger; the threat-model sect
 
 ### 1.2 Out-of-scope
 
-- **CE (self-hosted single-tenant)** deployments are out-of-scope here except where we explicitly note "this gap is acceptable in CE because…". The default `REQUIRE_AUTH=false` posture (`crates/matric-api/src/main.rs:1756`) is a CE convenience that **must not** ship to multi-tenant EE.
+- **CE (self-hosted single-tenant)** deployments are out-of-scope here except where we explicitly note "this gap is acceptable in CE because…". CE now defaults to `REQUIRE_AUTH=true`; anonymous local mode requires both `REQUIRE_AUTH=false` and `I_UNDERSTAND_NO_AUTH=true` and is forbidden in multi-tenant mode.
 - The `agent-proxy` HotM sidecar (Node, localhost-bound, holds raw Anthropic/OpenAI keys) is explicitly NOT in scope for multi-tenant operation. It is single-tenant by design and must be replaced by a tenant-aware proxy (referenced by ADR-093) before EE go-live.
 - Bytes-on-the-wire (TLS), platform/IaaS hardening, and physical security are assumed and not enumerated.
 - The Clerk identity provider's internal threat model is delegated to Clerk; we only model how Fortemi consumes its JWTs.
@@ -51,7 +54,7 @@ flowchart LR
         API["matric-api Axum router"]
         Auth["fortemi-auth (Clerk + OAuth)"]
         AuthZ["AuthorizationPolicy (ADR-089)"]
-        Tenant["TenantScopedDb (proposed)"]
+        Tenant["TenantScopedConn\n(request transaction)"]
         Jobs["Background jobs / event bus"]
         Audit["AuditSink (ADR-091)"]
     end
@@ -63,7 +66,7 @@ flowchart LR
     end
 
     subgraph Data["Data zone"]
-        PG["PostgreSQL 18 cluster\n(schema-per-tenant)"]
+        PG["PostgreSQL 18 cluster\n(shared schema + forced RLS)"]
         Obj["Object storage (blobs, exports)"]
         KMS["KMS / HSM (ADR-093)"]
     end
@@ -117,13 +120,22 @@ The current implementation (ADR-068) is **schema-per-archive**, but "archive" to
 
 ### Recommendation for ADR-090
 
-For Fortemi's expected near-term footprint, **(a) is the right starting point**, with the explicit constraint that the design must support graduating to **(c) hybrid** without an application rewrite. Concretely:
+ADR-090 Rev 1 accepts **(b), shared-schema forced RLS**, as the launch baseline,
+with the explicit constraint that the design can graduate selected tenants to
+**(c), dedicated databases**, without changing the authentication or policy
+contract. Concretely:
 
-- Build the abstraction so that `TenantContext` resolution returns a *connection pool handle*, not "the database." Today's pool is one of one; in a hybrid future, the resolver returns the pool for that tenant's home cluster.
-- Treat the ~500-schema number as an *operational signal* to start planning the hybrid migration, not a hard limit. Validate the actual ceiling with benchmarks before committing to a graduation policy.
-- Explicitly reject (b) as the primary mechanism. Schema isolation aligns better with how matric-crypto's per-archive key derivation already works (ADR-006/007/010) and is more defensible at security review.
+- Bind `app.current_tenant` with transaction-local state after canonical auth;
+  session-scoped state is forbidden.
+- Force RLS on every tenant table and reject superuser, `BYPASSRLS`, owner, or
+  incomplete-catalog runtime postures at startup.
+- Keep archive schemas as per-memory namespaces inside the same tenant boundary;
+  they do not replace tenant isolation.
+- Treat dedicated databases as an operational/compliance escalation, validated
+  by benchmarks and migration exercises before defining a promotion threshold.
 
-ADR-090 should record this as a *decision point*, not a fait accompli. The threat model below assumes (a) but its mitigations are largely independent of the choice between (a) and (c).
+The threat model below assumes (b). Historical schema-oriented examples should
+be read through the revision note above.
 
 ---
 
@@ -410,7 +422,7 @@ Concrete, must-pass items. Each row maps to a section above and an ADR.
 | # | Item | Ref | Status owner |
 |---|------|-----|--------------|
 | 1 | `REQUIRE_AUTH=true` enforced at startup in EE build; process refuses to start without it | §1.1, `main.rs:1756` | ADR-090 |
-| 2 | `Database::raw()` gated behind `cfg(feature = "single-tenant")`; EE release build cannot link a handler that bypasses `TenantScopedDb` | §4 | ADR-090 |
+| 2 | Hosted handlers cannot acquire a raw pool connection; tenant persistence is reachable only through `TenantRequestScope`/`TenantScopedConn` | §4 | ADR-090 |
 | 3 | JWTs carry `tenant_id` claim; AuthContext carries TenantId; mismatch with path is 403 | §3.1 S-1, S-2 | ADR-089 |
 | 4 | `AuthorizationPolicy` installed; default-deny; every `/api/v1/*` route covered by middleware | §5 | ADR-089 |
 | 5 | Per-tenant KEK in KMS plane; HKDF domain-separation between purposes (enc/mac/embedding/export); cross-references `no-adhoc-kdf` and `no-key-reuse-across-purposes` | §6 | ADR-093 |
@@ -425,7 +437,7 @@ Concrete, must-pass items. Each row maps to a section above and an ADR.
 | 14 | Background jobs carry the originating `AuthContext`; system-initiated jobs use a distinct `system_job:*` principal | §3.6 E-4 | ADR-089, ADR-091 |
 | 15 | Operational runbook: "evict a tenant" procedure; "rotate a tenant KEK" procedure; "respond to suspected cross-tenant disclosure" procedure | §10 | Ops |
 | 16 | Load test confirming per-tenant DB connection cap actually prevents noisy-neighbor pool exhaustion | §3.5 D-1, §8 | ADR-098 |
-| 17 | Disaster-recovery story for schema-per-tenant: per-tenant restore tested | §2(a) | Ops |
+| 17 | Disaster-recovery story for shared-schema RLS: tenant-aware restore and cross-tenant validation tested | §2(b) | Ops |
 | 18 | Quota usage exposed as billable signal AND DoS signal (single source of truth) | §8 | ADR-098 |
 
 OWASP ASVS L2 and NIST SP 800-53 controls AC-3, AC-4, AC-6, AU-2, AU-9, SC-12, SC-13 are the broad reference families for the auth/audit/key items above; map specific controls in the ADRs rather than here.

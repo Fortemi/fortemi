@@ -1,19 +1,19 @@
 # ADR-094: Fail-Closed Authentication Default
 
-**Status:** Proposed
+**Status:** Accepted and implemented
 **Date:** 2026-05-20
 **Deciders:** roctinam, security review TBD
 **Related:** ADR-071 (auth middleware), ADR-089 (authorization), ADR-090 (tenancy)
 **Related docs:** `.aiwg/architecture/ce-ee-audit-2026-05.md` finding S-1 (CRITICAL)
 
-## July 2026 checkpoint rebaseline
+## August 2026 implementation receipt
 
-This ADR remains proposed for the default-auth inversion. The multi-tenant guard is partially implemented: `matric-api` rejects anonymous mode when `FORTEMI_MULTI_TENANT=true`. The general CE default change and explicit `I_UNDERSTAND_NO_AUTH` flow are still not complete.
+The default-auth inversion, explicit anonymous acknowledgement, strict security-boolean parsing, issuer validation, and multi-tenant anonymous-mode rejection are implemented in `crates/matric-api/src/main.rs`. Configuration documentation and the February-upgrade smoke receipt cover the CE migration path.
 
-- **Decision status:** Proposed; multi-tenant guard partially implemented.
-- **Implementation phase:** Default-auth inversion awaiting a dedicated construction split.
-- **Phase owner:** `Fortemi/fortemi#1017` until the construction issue is split.
-- **Checkpoint decision date:** 2026-07-14.
+- **Decision status:** Accepted and implemented for startup admission.
+- **Implementation phase:** Complete for this ADR; shared external-token middleware and transaction-scoped RLS remain separate ADR-090 integration work.
+- **Evidence:** `parse_startup_security_config_with_env`, `validated_issuer_url`, startup guard tests, `docs/content/configuration.md`, and `.aiwg/reports/feb-upgrade-smoke-test-2026-07-12.md`.
+- **Checkpoint decision date:** 2026-08-24.
 
 ## Context
 
@@ -23,7 +23,7 @@ ADR-071 added authentication middleware behind a `REQUIRE_AUTH` environment vari
 - Operators must explicitly opt-in to enforcement
 - The OAuth/JWT infrastructure is fully wired but inert by default
 
-Source: `crates/matric-api/src/main.rs:1756` reads `REQUIRE_AUTH` from env, defaulting to `false`.
+Historical source behavior defaulted `REQUIRE_AUTH` to `false`; the implementation now defaults it to `true`.
 
 This is **fail-open** behavior. The CE/EE audit (finding S-1) classifies it as a CRITICAL severity issue. A misconfigured production deploy is unauthenticated by accident, and the standard "well, my JWT is valid" smoke-test gives a false sense of security because the unauthenticated path is never exercised.
 
@@ -90,12 +90,9 @@ Tests that need anonymous access use the `cfg(test)` switch or explicit fixture 
 2. Add `i_understand_no_auth` config field
 3. Add startup validation that returns `Err(...)` on bad config
 4. Add periodic warning task when running anonymous
-5. Update CHANGELOG with breaking-change notice and migration instructions
+5. Update release/configuration documentation with breaking-change notice and migration instructions
 
-**Migration window:**
-- Version N (release this ADR): default still `false`, log `WARN` "REQUIRE_AUTH will default to true in version N+1"
-- Version N+1 (one minor later): default `true`, breaking change
-- Version N+2: remove the deprecation warning
+**Migration result:** Existing anonymous CE deployments must set both opt-out values. The upgrade smoke receipt verifies that explicit legacy posture; multi-tenant deployments cannot use it.
 
 ## References
 

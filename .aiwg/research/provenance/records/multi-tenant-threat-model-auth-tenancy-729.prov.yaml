@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T16:42:18Z"
+  updated_at: "2026-08-24T16:42:18Z"
+  description: "Provenance for the hosted multi-tenant threat model rebaseline"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/security/multi-tenant-threat-model.md"
+  type: security_document
+  checksum: "sha256:336cfa9d60fb43d8541f6b0f24b92bd9d49e2164bc39972afaa82a4c4289f812"
+  size_bytes: 36672
+  attributes:
+    change_scope: "fortemi-729-tenant-isolation-verification"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-auth-tenancy-729:001"
+  type: modification
+  started_at: "2026-08-24T14:00:00Z"
+  ended_at: "2026-08-24T16:42:18Z"
+  description: "Rebaseline threats and controls against implemented forced-RLS boundaries"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/security/multi-tenant-threat-model.md"
+    activity: "urn:aiwg:activity:modification:fortemi-auth-tenancy-729:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/security/multi-tenant-threat-model.md"
+      source: "urn:gitea:Fortemi/fortemi:issue:729"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-auth-tenancy-729:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-auth-tenancy-729:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/security/multi-tenant-threat-model.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

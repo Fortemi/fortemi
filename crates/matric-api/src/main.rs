@@ -47,6 +47,8 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::{Config, SwaggerUi};
 use uuid::Uuid;
 
+#[cfg(feature = "hosted-auth")]
+use matric_api::hosted_auth::{build_clerk_authenticator, HostedAuthConfig, HostedAuthenticator};
 use matric_core::{
     AllowAllPolicy, ArchiveRepository, AttachmentScanStatus, AttachmentStatus, AuditEvent,
     AuditFailurePolicy, AuditOutcome, AuditSeverity, AuditSink, AuditSource, AuditVisibilityClass,
@@ -63,13 +65,14 @@ use matric_core::{
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_db::{
-    Database, FileSource, FilesystemBackend, ShardImportJournal, ShardImportJournalLease,
-    SkosCollectionRepository, SkosConceptRepository, SkosConceptSchemeRepository, StagedShardBlob,
-    StagedShardBlobPromotion, StorageBackend,
+    assert_hosted_runtime_role, Database, FileSource, FilesystemBackend, PoolConfig,
+    ShardImportJournal, ShardImportJournalLease, SkosCollectionRepository, SkosConceptRepository,
+    SkosConceptSchemeRepository, StagedShardBlob, StagedShardBlobPromotion, StorageBackend,
 };
 use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
 };
+use middleware::tenant_scope::VerifiedRequestTenant;
 use oauth_profile::{active_oauth_capabilities, is_allowed_oauth_scope};
 use tokio::sync::RwLock;
 use trusted_proxy::{ExternalRequestContext, SocketPeer, TrustedProxyConfig};
@@ -1127,6 +1130,11 @@ struct AppState {
     default_archive_cache: Arc<RwLock<DefaultArchiveCache>>,
     /// Require authentication for protected routes (Issue #114).
     require_auth: bool,
+    /// Hosted mode changes both authorization and persistence invariants.
+    multi_tenant: bool,
+    /// Signed-release OIDC verifier and active-tenant lookup boundary.
+    #[cfg(feature = "hosted-auth")]
+    hosted_auth: Option<Arc<dyn HostedAuthenticator>>,
     /// Require explicit confirmation before call-recording session creation.
     call_recording_require_confirmation: bool,
     /// Authorization policy decision point (#710). Starts with AllowAllPolicy to
@@ -3066,15 +3074,66 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Connect to database
-    info!("Connecting to database...");
-    let db = Database::connect(&database_url).await?;
+    #[cfg(not(feature = "hosted-auth"))]
+    if security_config.multi_tenant {
+        anyhow::bail!(
+            "FORTEMI_MULTI_TENANT=true requires an internal build compiled with the \
+             matric-api hosted-auth feature"
+        );
+    }
+
+    // Hosted deployments use distinct migration and runtime credentials. The
+    // runtime pool starts unscoped and cannot acquire ambient session tenant
+    // state; request transactions establish the tenant with SET LOCAL.
+    let db = if security_config.multi_tenant {
+        let migration_database_url = std::env::var("MIGRATION_DATABASE_URL").map_err(|_| {
+            anyhow::anyhow!(
+                "FORTEMI_MULTI_TENANT=true requires MIGRATION_DATABASE_URL for the owner/migration role"
+            )
+        })?;
+        if migration_database_url == database_url {
+            anyhow::bail!("MIGRATION_DATABASE_URL and DATABASE_URL must use distinct hosted roles");
+        }
+
+        info!("Running hosted database migrations with the migration role...");
+        let migration_db = Database::connect(&migration_database_url).await?;
+        migration_db.migrate().await?;
+        migration_db.pool.close().await;
+        info!("Hosted database migrations complete");
+
+        info!("Connecting with the hosted runtime database role...");
+        Database::connect_with_config(&database_url, PoolConfig::new().hosted_unscoped()).await?
+    } else {
+        info!("Connecting to database...");
+        let db = Database::connect(&database_url).await?;
+        info!("Running database migrations...");
+        db.migrate().await?;
+        info!("Database migrations complete");
+        db
+    };
     info!("Database connected");
 
-    // Run pending database migrations on startup
-    info!("Running database migrations...");
-    db.migrate().await?;
-    info!("Database migrations complete");
+    if security_config.multi_tenant {
+        assert_hosted_runtime_role(&db.pool).await?;
+    }
+
+    #[cfg(feature = "hosted-auth")]
+    let hosted_auth = if security_config.multi_tenant {
+        let auth_config = HostedAuthConfig::from_env(|name| std::env::var(name).ok())
+            .map_err(|_| anyhow::anyhow!("hosted OIDC configuration is invalid"))?;
+        let authenticator = build_clerk_authenticator(&auth_config, db.pool.clone())
+            .map_err(|_| anyhow::anyhow!("hosted OIDC verifier initialization failed"))?;
+        info!(
+            target: "fortemi.security",
+            clock_skew_seconds = auth_config.clock_skew_seconds,
+            jwks_cache_capacity = auth_config.jwks_cache_capacity,
+            http_timeout_seconds = auth_config.http_timeout_seconds,
+            "Released hosted OIDC verifier initialized"
+        );
+        Some(authenticator)
+    } else {
+        None
+    };
 
     // Initialize file storage
     let file_storage_path =
@@ -3874,6 +3933,9 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or(60),
         ))),
         require_auth: security_config.require_auth, // ADR-094: fail-closed default — see startup validation block in main()
+        multi_tenant: security_config.multi_tenant,
+        #[cfg(feature = "hosted-auth")]
+        hosted_auth,
         call_recording_require_confirmation: security_config.call_recording_require_confirmation,
         authorization_policy: authorization_policy_for_mode(security_config.multi_tenant),
         usage_meter,
@@ -5927,10 +5989,15 @@ async fn sse_events(
                     ApiError::Unauthorized("Invalid or expired stream token".to_string())
                 })?,
             (None, Some(tok)) => (
-                validate_bearer_principal(&state, tok)
+                validate_bearer_identity(&state, tok)
                     .await
-                    .ok_or_else(|| {
-                        ApiError::Unauthorized("Invalid or expired bearer token".to_string())
+                    .map(|identity| identity.principal)
+                    .map_err(|failure| {
+                        if failure.status == StatusCode::SERVICE_UNAVAILABLE {
+                            ApiError::ServiceUnavailable(failure.detail.to_string())
+                        } else {
+                            ApiError::Unauthorized(failure.detail.to_string())
+                        }
                     })?,
                 None,
             ),
@@ -8632,6 +8699,53 @@ fn is_download_or_media_response(path: &str, response: &axum::response::Response
 // AUTHENTICATION MIDDLEWARE
 // =============================================================================
 
+#[derive(Clone)]
+struct ValidatedBearerIdentity {
+    principal: AuthPrincipal,
+    tenant_id: Option<Uuid>,
+    #[cfg(feature = "hosted-auth")]
+    canonical_context: Option<fortemi_auth_core::AuthContext>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct BearerValidationFailure {
+    status: StatusCode,
+    problem_type: ProblemType,
+    detail: &'static str,
+}
+
+impl BearerValidationFailure {
+    fn unauthorized() -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            problem_type: ProblemType::Unauthorized,
+            detail: "Invalid or expired bearer token.",
+        }
+    }
+
+    #[cfg(feature = "hosted-auth")]
+    fn from_contract(error: fortemi_auth_core::AuthError) -> Self {
+        match error.http_status() {
+            403 => Self {
+                status: StatusCode::FORBIDDEN,
+                problem_type: ProblemType::Forbidden,
+                detail: "The authenticated identity is not admitted for this tenant.",
+            },
+            503 => Self {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                problem_type: ProblemType::ServiceUnavailable,
+                detail: "The authentication authority is temporarily unavailable.",
+            },
+            500 => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                problem_type: ProblemType::Internal,
+                detail: "Authentication could not be completed.",
+            },
+            _ => Self::unauthorized(),
+        }
+    }
+}
+
 /// Authentication middleware.
 ///
 /// Always validates Bearer tokens when present, regardless of `REQUIRE_AUTH`.
@@ -8668,35 +8782,60 @@ async fn auth_middleware(
 
     let has_token = auth_header.is_some();
 
-    let principal = match &auth_header {
+    let identity = match &auth_header {
         Some(header) if header.starts_with("Bearer ") => {
             let token = header.trim_start_matches("Bearer ").trim();
-            validate_bearer_principal(&state, token).await
+            Some(validate_bearer_identity(&state, token).await)
         }
         _ => None,
     };
 
     // Handle authentication result
-    match principal {
-        Some(p) => {
+    match identity {
+        Some(Ok(identity)) => {
             // Inject auth info into request extensions
             let mut request = request;
-            if let Some(input) = route_policy::authorization_input_for_request(&method, &path, None)
+            let tenant_id = identity.tenant_id.map(|tenant_id| tenant_id.to_string());
+            if let Some(input) =
+                route_policy::authorization_input_for_request(&method, &path, tenant_id.as_deref())
             {
                 request.extensions_mut().insert(input);
             }
-            request.extensions_mut().insert(Auth { principal: p });
+            if let Some(tenant_id) = identity.tenant_id {
+                let tenant = match VerifiedRequestTenant::from_verified(tenant_id) {
+                    Ok(tenant) => tenant,
+                    Err(_) => {
+                        return problem_response(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            ProblemType::Internal,
+                            "The authenticated tenant context is invalid.".to_string(),
+                            None,
+                        );
+                    }
+                };
+                request.extensions_mut().insert(tenant);
+            }
+            #[cfg(feature = "hosted-auth")]
+            if let Some(context) = identity.canonical_context {
+                request.extensions_mut().insert(context);
+            }
+            request.extensions_mut().insert(Auth {
+                principal: identity.principal,
+            });
             next.run(request).await
         }
-        None if has_token => {
-            // Token was present but invalid — always reject
-            problem_response(
-                StatusCode::UNAUTHORIZED,
-                ProblemType::Unauthorized,
-                "Invalid or expired bearer token.".to_string(),
-                None,
-            )
-        }
+        Some(Err(failure)) => problem_response(
+            failure.status,
+            failure.problem_type,
+            failure.detail.to_string(),
+            None,
+        ),
+        None if has_token => problem_response(
+            StatusCode::UNAUTHORIZED,
+            ProblemType::Unauthorized,
+            "Invalid or expired bearer token.".to_string(),
+            None,
+        ),
         None => {
             // No token provided
             if requires_bearer {
@@ -8723,8 +8862,14 @@ async fn auth_middleware(
     }
 }
 
-async fn validate_bearer_principal(state: &AppState, token: &str) -> Option<AuthPrincipal> {
+async fn validate_bearer_identity(
+    state: &AppState,
+    token: &str,
+) -> Result<ValidatedBearerIdentity, BearerValidationFailure> {
     if token.starts_with("mm_at_") {
+        if state.multi_tenant {
+            return Err(BearerValidationFailure::unauthorized());
+        }
         match state.db.oauth.validate_access_token(token).await {
             Ok(Some(oauth_token)) => {
                 // Sliding window refresh
@@ -8734,24 +8879,62 @@ async fn validate_bearer_principal(state: &AppState, token: &str) -> Option<Auth
                     .oauth
                     .validate_and_extend_token(token, lifetime)
                     .await;
-                Some(AuthPrincipal::OAuthClient {
-                    client_id: oauth_token.client_id,
-                    scope: oauth_token.scope,
-                    user_id: oauth_token.user_id,
+                Ok(ValidatedBearerIdentity {
+                    principal: AuthPrincipal::OAuthClient {
+                        client_id: oauth_token.client_id,
+                        scope: oauth_token.scope,
+                        user_id: oauth_token.user_id,
+                    },
+                    tenant_id: None,
+                    #[cfg(feature = "hosted-auth")]
+                    canonical_context: None,
                 })
             }
-            _ => None,
+            _ => Err(BearerValidationFailure::unauthorized()),
         }
     } else if token.starts_with("mm_key_") {
+        if state.multi_tenant {
+            return Err(BearerValidationFailure::unauthorized());
+        }
         match state.db.oauth.validate_api_key(token).await {
-            Ok(Some(api_key)) => Some(AuthPrincipal::ApiKey {
-                key_id: api_key.id,
-                scope: api_key.scope,
+            Ok(Some(api_key)) => Ok(ValidatedBearerIdentity {
+                principal: AuthPrincipal::ApiKey {
+                    key_id: api_key.id,
+                    scope: api_key.scope,
+                },
+                tenant_id: None,
+                #[cfg(feature = "hosted-auth")]
+                canonical_context: None,
             }),
-            _ => None,
+            _ => Err(BearerValidationFailure::unauthorized()),
         }
     } else {
-        None
+        #[cfg(feature = "hosted-auth")]
+        {
+            let authenticator = state
+                .hosted_auth
+                .as_ref()
+                .ok_or_else(BearerValidationFailure::unauthorized)?;
+            let context = authenticator
+                .authenticate(token)
+                .await
+                .map_err(BearerValidationFailure::from_contract)?;
+            let tenant_id = context.tenant_id;
+            let principal_id = context.principal_id.clone();
+            let scope = context.scopes.join(" ");
+            Ok(ValidatedBearerIdentity {
+                principal: AuthPrincipal::OAuthClient {
+                    client_id: "hosted-oidc".to_string(),
+                    scope,
+                    user_id: Some(principal_id),
+                },
+                tenant_id: Some(tenant_id),
+                canonical_context: Some(context),
+            })
+        }
+
+        #[cfg(not(feature = "hosted-auth"))]
+        Err(BearerValidationFailure::unauthorized())
     }
 }
 
@@ -58679,6 +58862,9 @@ not-json
             ws_connections: Arc::new(AtomicUsize::new(0)),
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
+            multi_tenant: false,
+            #[cfg(feature = "hosted-auth")]
+            hosted_auth: None,
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
@@ -63995,6 +64181,9 @@ not-json
             ws_connections: ws_connections.clone(),
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth,
+            multi_tenant: false,
+            #[cfg(feature = "hosted-auth")]
+            hosted_auth: None,
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
@@ -65781,6 +65970,9 @@ not-json
             ws_connections,
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
+            multi_tenant: false,
+            #[cfg(feature = "hosted-auth")]
+            hosted_auth: None,
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
@@ -66118,6 +66310,9 @@ not-json
             ws_connections,
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
+            multi_tenant: false,
+            #[cfg(feature = "hosted-auth")]
+            hosted_auth: None,
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),

@@ -7,6 +7,8 @@ use tracing::{debug, info, warn};
 
 use matric_core::{Error, Result};
 
+use crate::tenancy::LOCAL_TENANT_ID;
+
 /// Default maximum number of connections in the pool.
 pub const DEFAULT_MAX_CONNECTIONS: u32 = 10;
 
@@ -15,6 +17,18 @@ pub const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 30;
 
 /// Default idle timeout in seconds.
 pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 600;
+
+/// Initial tenant posture for newly established database sessions.
+///
+/// Personal mode binds the reserved local tenant for compatibility with the
+/// desktop/community edition. Hosted mode intentionally leaves the custom GUC
+/// unset so tenant tables fail closed until [`crate::TenantScopedConn`] binds a
+/// verified request tenant inside a transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TenantPoolMode {
+    PersonalSynthetic,
+    HostedUnscoped,
+}
 
 /// Pool configuration options.
 #[derive(Debug, Clone)]
@@ -29,6 +43,8 @@ pub struct PoolConfig {
     pub idle_timeout: Duration,
     /// Maximum connection lifetime.
     pub max_lifetime: Option<Duration>,
+    /// Initial tenant posture for each physical connection.
+    pub tenant_mode: TenantPoolMode,
 }
 
 impl Default for PoolConfig {
@@ -39,6 +55,7 @@ impl Default for PoolConfig {
             connect_timeout: Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS),
             idle_timeout: Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECS),
             max_lifetime: Some(Duration::from_secs(1800)), // 30 minutes
+            tenant_mode: TenantPoolMode::PersonalSynthetic,
         }
     }
 }
@@ -78,6 +95,13 @@ impl PoolConfig {
         self.max_lifetime = lifetime;
         self
     }
+
+    /// Leave new sessions unscoped until a verified hosted request opens a
+    /// transaction-local tenant scope.
+    pub fn hosted_unscoped(mut self) -> Self {
+        self.tenant_mode = TenantPoolMode::HostedUnscoped;
+        self
+    }
 }
 
 /// Create a new PostgreSQL connection pool with default configuration.
@@ -97,6 +121,7 @@ pub async fn create_pool_with_config(database_url: &str, config: PoolConfig) -> 
         min_connections = config.min_connections,
         connect_timeout_secs = config.connect_timeout.as_secs(),
         idle_timeout_secs = config.idle_timeout.as_secs(),
+        tenant_mode = ?config.tenant_mode,
         "Creating database connection pool"
     );
 
@@ -109,6 +134,19 @@ pub async fn create_pool_with_config(database_url: &str, config: PoolConfig) -> 
     if let Some(max_lifetime) = config.max_lifetime {
         options = options.max_lifetime(max_lifetime);
     }
+
+    let tenant_mode = config.tenant_mode;
+    options = options.after_connect(move |connection, _metadata| {
+        Box::pin(async move {
+            if tenant_mode == TenantPoolMode::PersonalSynthetic {
+                sqlx::query("SELECT set_config('app.current_tenant', $1, false)")
+                    .bind(LOCAL_TENANT_ID)
+                    .execute(connection)
+                    .await?;
+            }
+            Ok(())
+        })
+    });
 
     let pool = options
         .connect(database_url)
@@ -231,5 +269,10 @@ mod tests {
         assert_eq!(config.max_connections, 20);
         assert_eq!(config.min_connections, 5);
         assert_eq!(config.connect_timeout, Duration::from_secs(60));
+        assert_eq!(config.tenant_mode, TenantPoolMode::PersonalSynthetic);
+        assert_eq!(
+            PoolConfig::new().hosted_unscoped().tenant_mode,
+            TenantPoolMode::HostedUnscoped
+        );
     }
 }

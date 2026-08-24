@@ -4,7 +4,7 @@
 //! for parallel memory archives.
 
 use chrono::Utc;
-use matric_db::{ArchiveRepository, Database};
+use matric_db::{create_pool, inspect_tenant_catalog, ArchiveRepository, Database};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -12,7 +12,7 @@ use uuid::Uuid;
 async fn setup_test_db() -> PgPool {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
-    PgPool::connect(&database_url)
+    create_pool(&database_url)
         .await
         .expect("Failed to connect to test database")
 }
@@ -43,6 +43,49 @@ async fn test_create_archive_schema() {
     assert_eq!(archive.note_count, Some(0));
     assert_eq!(archive.size_bytes, Some(0));
     assert!(!archive.is_default);
+
+    let (table_count, invalid_count): (i64, i64) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint,
+               COUNT(*) FILTER (
+                   WHERE NOT c.relrowsecurity
+                      OR NOT c.relforcerowsecurity
+                      OR tenant_column.attname IS NULL
+                      OR NOT EXISTS (
+                          SELECT 1
+                            FROM pg_policy p
+                           WHERE p.polrelid = c.oid
+                             AND pg_get_expr(p.polqual, p.polrelid) LIKE '%app.current_tenant%'
+                             AND pg_get_expr(p.polwithcheck, p.polrelid) LIKE '%app.current_tenant%'
+                      )
+               )::bigint
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          LEFT JOIN pg_attribute tenant_column
+            ON tenant_column.attrelid = c.oid
+           AND tenant_column.attname = 'tenant_id'
+           AND tenant_column.attnum > 0
+           AND NOT tenant_column.attisdropped
+         WHERE n.nspname = $1
+           AND c.relkind = 'r'
+        "#,
+    )
+    .bind(&schema_name)
+    .fetch_one(&pool)
+    .await
+    .expect("Failed to inspect archive tenant policies");
+    assert!(table_count > 0, "Archive should contain tenant tables");
+    assert_eq!(
+        invalid_count, 0,
+        "Every archive table must force tenant RLS"
+    );
+    let tenant_catalog = inspect_tenant_catalog(&pool)
+        .await
+        .expect("Failed to inspect the complete tenant catalog");
+    assert!(
+        tenant_catalog.is_clean(),
+        "Archive schema must satisfy the hosted tenant catalog: {tenant_catalog:?}"
+    );
 
     // Cleanup: Drop the schema
     db.archives

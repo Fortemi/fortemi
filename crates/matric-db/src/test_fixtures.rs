@@ -87,6 +87,7 @@ impl TestDatabase {
             connect_timeout: std::time::Duration::from_secs(30),
             idle_timeout: std::time::Duration::from_secs(600),
             max_lifetime: Some(std::time::Duration::from_secs(1800)),
+            ..PoolConfig::default()
         };
 
         let pool = create_pool_with_config(&database_url, config)

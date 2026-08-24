@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T16:42:18Z"
+  updated_at: "2026-08-24T16:42:18Z"
+  description: "Provenance for forced RLS on dynamically created archive tables"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-db/src/archives.rs"
+  type: source_code
+  checksum: "sha256:5d93a29d40b316350e728c1c00c395a6d60c70a2e47b08e5c1329ebb5a50ce6f"
+  size_bytes: 56424
+  attributes:
+    change_scope: "fortemi-726-archive-rls"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-archive-rls-726:001"
+  type: modification
+  started_at: "2026-08-24T14:00:00Z"
+  ended_at: "2026-08-24T16:42:18Z"
+  description: "Apply tenant columns and forced RLS when archive tables are cloned or synced"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/archives.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-archive-rls-726:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/archives.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:726"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-archive-rls-726:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-archive-rls-726:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-db/src/archives.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

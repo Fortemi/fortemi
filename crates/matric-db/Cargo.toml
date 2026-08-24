@@ -13,6 +13,11 @@ name = "feb_to_current_migration_gate"
 path = "tests/feb_to_current_migration_gate.rs"
 required-features = ["migrations"]
 
+[[test]]
+name = "tenant_isolation_test"
+path = "tests/tenant_isolation_test.rs"
+required-features = ["migrations"]
+
 [dependencies]
 # Internal
 matric-core.workspace = true

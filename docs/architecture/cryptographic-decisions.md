@@ -1,6 +1,6 @@
 # Cryptographic Decisions — KeyProvider / KMS Launch Contract
 
-> **Status:** Accepted (2026-06-29) — ADR-093 follow-up; locks Fortemi/fortemi#897.
+> **Status:** Accepted (2026-06-29); foundation implemented for #734 (2026-08-24). Hosted acceptance remains blocked on real KMS and application wiring.
 > **Consumes:** ADR-093 (`KeyProvider` trait). **Implemented by:** #734. **Consumed by:** #730 (secret storage), #731 (BYO-LLM proxy). **Audit taxonomy:** #711/#910.
 > **Scope:** the implementation contract #734/#730/#731 build against — provider model, configurable key strategy, versioned AAD/context schema, provider-neutral `EncryptedBlob`/`WrappedKey`, DEK/secret lifetime, startup reachability, fail-closed matrix, and rotation/rewrap.
 
@@ -9,11 +9,17 @@
 | Decision | Choice |
 |---|---|
 | Provider model | **Provider-neutral + configurable.** Multiple backends behind one trait; deployment selects via config. The original "#897 AWS-KMS-first" framing is **superseded** — see §1. |
-| First-class launch backends | **Vault-Transit / OpenBao** (the Integro Labs on-prem network KMS) **and AWS KMS** (cloud SaaS). GCP KMS and additional backends are follow-on. |
+| Required launch backends | **Vault-Transit / OpenBao** (on-prem) and **AWS KMS** (cloud SaaS). Both remain acceptance gaps after the provider-neutral #734 foundation. |
 | Key strategy | **Configurable** (`per-purpose` / `per-tenant` / `shared-with-context`). Not hard-coded — §3. |
 | DEK caching (hosted v1) | **Disabled.** New data key per operation. Revisit later with explicit thresholds. §6. |
 | Plaintext-DEK secure memory | **Zeroize-on-drop only** for v1; `mlock`/secure-enclave deferred to a hardening pass (documented gap). §6. |
 | Startup reachability probe | **Generate-data-key + decrypt-canary round-trip** with the real encryption context; failures fail-closed for hosted. §7. |
+
+### Implementation checkpoint (2026-08-24)
+
+Implemented in `matric-crypto`: object-safe async `KeyProvider`; versioned and validated `KeyPurpose`/`KeyContext`; provider-neutral `WrappedKey`, `EncryptedBlob`, and `GeneratedDek`; redacted `Debug`; zeroization; stable failure classes/degraded modes; envelope encrypt/decrypt; same-DEK rewrap primitives; explicit-mode `EnvKeyProvider`; deterministic mock rotation tests.
+
+Not implemented: AWS KMS, Vault Transit, GCP KMS, application persistence/atomic batch rewrap, audit emission, startup wiring, and live-provider evidence. `aws-sdk-kms` is absent from the lockfile, and #734 forbids changing `Cargo.lock`; an AWS-shaped imitation was intentionally not added. Hosted multi-tenant remains fail-closed and is not launch-ready on this foundation alone.
 
 ## 1. Why provider-neutral, not AWS-first
 
@@ -38,6 +44,9 @@ Canonical config (namespaced; never ad-hoc env reads):
 FORTEMI_KEY_PROVIDER = env | vault-transit | aws-kms | gcp-kms
 FORTEMI_KEY_STRATEGY = per-purpose | per-tenant | shared-with-context   # §3
 FORTEMI_KEY_CONTEXT_VERSION = 1                                          # §4
+
+# env provider (single-tenant/dev only; standard base64, 32 decoded bytes)
+FORTEMI_MASTER_KEY, FORTEMI_ENV_KEK_REF, FORTEMI_ENV_KEY_VERSION
 
 # vault-transit (OpenBao)
 FORTEMI_VAULT_ADDR, FORTEMI_VAULT_NAMESPACE, FORTEMI_VAULT_TRANSIT_MOUNT,
@@ -79,7 +88,7 @@ kek_ref          # configured key alias/name/ARN (non-secret)
 schema           # table family, e.g. user_secrets
 ```
 
-Values MUST be non-secret and free of user-controllable free-text (AWS/Vault may surface context in logs/policy). The full context string is stored/reconstructed; a context-schema version is recorded in the blob so older blobs decrypt after a schema bump.
+Values MUST be non-secret and free of user-controllable free-text (AWS/Vault may surface context in logs/policy). The context is reconstructed; its schema version is recorded in the wrapped key. Payload AEAD binds stable business fields. Provider kind and KEK reference bind DEK-wrapping AAD only, allowing rewrap without payload re-encryption.
 
 ## 5. Provider-neutral `EncryptedBlob` / `WrappedKey`
 
@@ -87,18 +96,21 @@ The on-disk format is backend-agnostic; backend specifics live in an opaque, ver
 
 ```rust
 struct EncryptedBlob {
-    format_version: u16,          // envelope format version
-    aead_alg: AeadAlg,            // e.g. XChaCha20-Poly1305 / AES-256-GCM
+    format_version: u16,          // currently 1
+    aead_alg: AeadAlg,            // AES-256-GCM in foundation v1
     nonce: Vec<u8>,
     ciphertext: Vec<u8>,          // AEAD(ciphertext+tag) of the plaintext under the DEK
     wrapped_key: WrappedKey,
 }
 
 struct WrappedKey {
+    format_version: u16,
     provider_kind: KeyProviderKind,
     kek_ref: String,              // alias/name/ARN — opaque, non-secret
+    purpose: KeyPurpose,
     context_version: u16,         // AAD schema version (§4)
     wrapped_dek: Vec<u8>,         // DEK wrapped by the backend (KMS ciphertext / Vault ciphertext)
+    wrapping_nonce: Option<Vec<u8>>, // local AEAD providers; absent for KMS ciphertexts
     provider_metadata: BTreeMap<String,String>, // opaque, backend-specific, non-secret
     created_at: Timestamp,
     rewrapped_at: Option<Timestamp>,
@@ -110,7 +122,7 @@ struct WrappedKey {
 ## 6. DEK & secret lifetime (v1)
 
 - **No DEK cache** in hosted v1 — `generate_dek` per operation. (AWS Encryption SDK default; smallest plaintext-DEK window.) A bounded cache may be reconsidered later with explicit TTL/message/byte/capacity thresholds, zeroize-on-evict, and audit.
-- **Zeroize-on-drop** for all plaintext DEK and provider-secret buffers (existing `matric-crypto` zeroize). **`mlock`/secure memory deferred** to a later hardening pass — documented known gap (swap/coredump exposure window).
+- **Zeroize-on-drop** for plaintext DEKs and secret/binary envelope buffers. Secret-bearing containers are non-serializable and `Debug` redacts bytes and KEK references. **`mlock`/secure memory remains deferred** (swap/coredump exposure window).
 - Never log/emit plaintext keys, DEKs, wrapped DEKs, ciphertext, provider credentials, Authorization headers, or raw KMS/Vault error bodies (per #711/#974).
 
 ## 7. Startup reachability probe
@@ -120,6 +132,8 @@ Hosted boot performs a **round-trip** that proves data-key generation **and** de
 - **AWS KMS:** `GenerateDataKey` (with `DryRun` where available) + a `Decrypt` of a startup canary using the actual `EncryptionContext`.
 - **Vault Transit (OpenBao):** `encrypt` + `decrypt` round-trip on the transit key with the actual `context`.
 - **Result:** auth-denied / unreachable / context-mismatch / disabled-or-sealed-key → **fail closed** (block hosted startup). Transient-but-recoverable conditions may mark health degraded per the matrix below; hosted does not start in a state that cannot perform key ops.
+
+The trait and `EnvKeyProvider` round-trip health contract exist. Hosted startup invocation and external-provider canaries remain outside the bounded #734 crate/docs scope.
 
 ## 8. Fail-closed degraded-mode matrix
 
@@ -137,19 +151,21 @@ Hosted boot performs a **round-trip** that proves data-key generation **and** de
 ## 9. Rotation / rewrap
 
 - Model rotation as **provider metadata + key version**, not "new `kek_id`". AWS KMS automatic/on-demand rotation changes key material transparently — decrypt does not select a version; do not treat rotation as a new key id. Vault Transit rotation creates a new key **version**; old versions still decrypt.
-- **Rewrap** is an online background job: read each `WrappedKey` → `unwrap_dek` (old version) → `generate_dek`/`rewrap` under current version → atomic row update; record `rewrapped_at` + updated `provider_metadata`. Tests prove old blobs decrypt before and after rotation and that new encryptions carry current metadata.
+- **Rewrap preserves the existing DEK:** unwrap with the old provider/version, wrap the same DEK under the current provider/version, then atomically replace only wrapped-key fields. Generating a replacement DEK without re-encrypting the payload is invalid. Foundation tests prove old versions decrypt after rotation and payload ciphertext survives cross-provider rewrap.
 - `EnvKeyProvider` rotation is a manual, downtime runbook (re-wrap with new master). Not for multi-tenant.
+- Persistence enumeration, transactions, checkpoints, audit receipts, and rollback orchestration remain consumer-owned acceptance gaps.
 
 ## 10. Test fixtures & live-dev boundary
 
-- **Unit:** an in-memory/mock `KeyProvider` for envelope/AAD/rotation logic with no network.
+- **Unit:** deterministic provider coverage for envelope/AAD/context mismatch/rotation/rewrap, plus `EnvKeyProvider` purpose-separation and redaction coverage.
 - **Vault Transit:** a dev OpenBao (or SoftHSM-backed dev seal) integration profile mirroring the itops topology.
 - **AWS KMS:** LocalStack / `DryRun` for CI; a gated live-KMS profile for release verification.
 - Rotation tests assert old wrapped DEKs decrypt after rotate; context-mismatch / decrypt-denied / disabled-key / startup-check failures emit **metadata-only** audit events (no raw key/ciphertext).
 
 ## 11. Follow-ups
 
-- Update #734 to implement this provider-neutral, configurable-strategy contract (Vault-Transit **and** AWS KMS at launch), superseding the AWS-only framing.
+- Land a real AWS SDK-backed provider behind an optional feature and injectable client boundary in a separately authorized dependency change; require LocalStack plus gated live-KMS evidence.
+- Implement Vault Transit and application startup/audit/persistence wiring before any hosted readiness claim.
 - Link this doc from #730/#731 before their implementation starts.
 - File/keep follow-on issues for GCP KMS and any HSM-direct backend; reserve the `key.*` audit taxonomy now (#711) so wiring is mechanical when #734 lands.
 

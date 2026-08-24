@@ -1,0 +1,40 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T16:42:18Z"
+  updated_at: "2026-08-24T16:42:18Z"
+  description: "Provenance for the staged request-owned tenant transaction coordinator"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/middleware/tenant_scope.rs"
+  type: source_code
+  checksum: "sha256:32730798cb4f989c2b584d9caacfb0648b181867552efa30ab708ff50995f75c"
+  size_bytes: 18857
+  attributes:
+    change_scope: "fortemi-728-tenant-request-scope-foundation"
+    readiness: "staged-not-layered"
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-tenant-scope-728:001"
+  type: generation
+  started_at: "2026-08-24T14:00:00Z"
+  ended_at: "2026-08-24T16:42:18Z"
+  description: "Implement fail-closed request transaction ownership and finalization"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/middleware/tenant_scope.rs"
+    activity: "urn:aiwg:activity:generation:fortemi-tenant-scope-728:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/middleware/tenant_scope.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:728"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:generation:fortemi-tenant-scope-728:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-tenant-scope-728:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/middleware/tenant_scope.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

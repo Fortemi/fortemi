@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T16:42:18Z"
+  updated_at: "2026-08-24T16:42:18Z"
+  description: "Provenance for key-provider contract and fail-closed tests"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-crypto/src/provider/tests.rs"
+  type: test_code
+  checksum: "sha256:d35ad7b500e44159c1849519bd7e0a993e8dd2cffaaebcec85d73570e2e6c769"
+  size_bytes: 13872
+  attributes:
+    change_scope: "fortemi-734-key-provider-tests"
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-key-provider-tests-734:001"
+  type: generation
+  started_at: "2026-08-24T14:00:00Z"
+  ended_at: "2026-08-24T16:42:18Z"
+  description: "Test provider binding, envelope encryption, rewrap, and redaction"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-crypto/src/provider/tests.rs"
+    activity: "urn:aiwg:activity:generation:fortemi-key-provider-tests-734:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-crypto/src/provider/tests.rs"
+      source: "urn:aiwg:artifact:crates/matric-crypto/src/provider.rs"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:generation:fortemi-key-provider-tests-734:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-key-provider-tests-734:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-crypto/src/provider/tests.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

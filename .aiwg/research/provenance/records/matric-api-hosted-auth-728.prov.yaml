@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T16:42:18Z"
+  updated_at: "2026-08-24T16:42:18Z"
+  description: "Provenance for the Fortemi hosted authentication adapter"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/hosted_auth.rs"
+  type: source_code
+  checksum: "sha256:cd8b2f10c3e8c352fb1507b3739a51bdc88716d79459000a62b3c2f44532eaf5"
+  size_bytes: 5281
+  attributes:
+    change_scope: "fortemi-728-hosted-auth-boundary"
+    authority_release: "v2026.7.0"
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-hosted-auth-728:001"
+  type: generation
+  started_at: "2026-08-24T14:00:00Z"
+  ended_at: "2026-08-24T16:42:18Z"
+  description: "Implement the feature-gated Clerk authenticator and PostgreSQL tenant store"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/hosted_auth.rs"
+    activity: "urn:aiwg:activity:generation:fortemi-hosted-auth-728:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/hosted_auth.rs"
+      source: "urn:git:https://git.integrolabs.net/Fortemi/fortemi-auth.git:v2026.7.0"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:generation:fortemi-hosted-auth-728:001"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/hosted_auth.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:728"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:generation:fortemi-hosted-auth-728:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-hosted-auth-728:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/hosted_auth.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

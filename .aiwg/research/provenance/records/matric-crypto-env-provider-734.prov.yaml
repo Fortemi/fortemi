@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T16:42:18Z"
+  updated_at: "2026-08-24T16:42:18Z"
+  description: "Provenance for the community-only environment key provider"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-crypto/src/provider/env.rs"
+  type: source_code
+  checksum: "sha256:3a1b0ac8fd5b8cce437155353361665f6af5ddec1dfc6c749dbf760e7c8a84bc"
+  size_bytes: 10815
+  attributes:
+    change_scope: "fortemi-734-env-key-provider"
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-env-key-provider-734:001"
+  type: generation
+  started_at: "2026-08-24T14:00:00Z"
+  ended_at: "2026-08-24T16:42:18Z"
+  description: "Implement an explicit community-only environment key provider"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-crypto/src/provider/env.rs"
+    activity: "urn:aiwg:activity:generation:fortemi-env-key-provider-734:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-crypto/src/provider/env.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:734"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:generation:fortemi-env-key-provider-734:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-env-key-provider-734:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-crypto/src/provider/env.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

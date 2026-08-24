@@ -20,6 +20,8 @@ matric-search.workspace = true
 matric-jobs.workspace = true
 matric-inference = { workspace = true, features = ["openai"] }
 matric-crypto.workspace = true
+fortemi-auth-clerk = { workspace = true, optional = true }
+fortemi-auth-core = { workspace = true, optional = true }
 
 # Web framework
 axum = { version = "0.8", features = ["json", "tower-log", "multipart", "ws"] }
@@ -110,6 +112,9 @@ matric-db = { path = "../matric-db", features = ["test-fault-injection"] }
 
 [features]
 mock-rtp = []
+# Internal/hosted build profile. The community binary remains the local OAuth
+# and personal-server surface unless this feature is selected explicitly.
+hosted-auth = ["dep:fortemi-auth-clerk", "dep:fortemi-auth-core"]
 # Inbound Kafka connector (#836) — off by default; opt-in on high-end tiers.
 # Forwards to matric-jobs/kafka (bundles librdkafka via cmake).
 kafka = ["matric-jobs/kafka"]

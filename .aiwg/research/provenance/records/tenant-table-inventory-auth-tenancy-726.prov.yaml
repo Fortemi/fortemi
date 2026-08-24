@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T16:42:18Z"
+  updated_at: "2026-08-24T16:42:18Z"
+  description: "Provenance for the reviewed tenant table and RLS inventory"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/architecture/tenant-table-inventory-2026-08.md"
+  type: architecture_document
+  checksum: "sha256:af64b205be46dac7ee6c90aa46488d30c96599f9a50bdf861f5ef99d802cfdf6"
+  size_bytes: 5064
+  attributes:
+    change_scope: "fortemi-726-tenant-schema-rls"
+activity: &activity
+  id: "urn:aiwg:activity:generation:fortemi-auth-tenancy-726:001"
+  type: generation
+  started_at: "2026-08-24T14:00:00Z"
+  ended_at: "2026-08-24T16:42:18Z"
+  description: "Inventory tenant-scoped tables and explicit hosted exemptions"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/architecture/tenant-table-inventory-2026-08.md"
+    activity: "urn:aiwg:activity:generation:fortemi-auth-tenancy-726:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/architecture/tenant-table-inventory-2026-08.md"
+      source: "urn:gitea:Fortemi/fortemi:issue:726"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:generation:fortemi-auth-tenancy-726:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-auth-tenancy-726:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/architecture/tenant-table-inventory-2026-08.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"
