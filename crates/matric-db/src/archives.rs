@@ -136,6 +136,7 @@ pub(crate) const SHARED_TABLES: &[&str] = &[
     "api_key",
     "archive_registry",
     "archive_inference_override",
+    "audit_event",
     "call_sessions",
     "document_type",
     "embedding_config",

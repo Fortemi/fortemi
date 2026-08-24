@@ -32,6 +32,7 @@
 //! }
 //! ```
 pub mod archives;
+pub mod audit;
 pub mod call_sessions;
 pub mod chunking;
 pub mod colbert;
@@ -106,6 +107,7 @@ pub use incoming_webhooks::{
 
 // Re-export repository implementations
 pub use archives::PgArchiveRepository;
+pub use audit::{AuditSinkHealth, AuditSinkHealthStatus, PostgresAuditSink};
 pub use call_sessions::PgCallSessionRepository;
 pub use colbert::{ColBERTRepository, ColBERTStats, TokenEmbedding};
 pub use collections::PgCollectionRepository;

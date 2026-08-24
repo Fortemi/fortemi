@@ -8,7 +8,7 @@
 
 ## July 2026 checkpoint rebaseline
 
-The core audit seam is partially implemented: `AuditEvent`, `AuditSink`, `TracingSink`, bounded buffering, and many metadata-only API audit producers exist. This ADR is not yet a compliance-ready hosted audit claim because mandatory hosted audit health, KMS lifecycle audit, tamper-evident retention, and private EE sinks remain open.
+The core audit seam is partially implemented: `AuditEvent`, `AuditSink`, `TracingSink`, bounded buffering, and many metadata-only API audit producers exist. A tenant-scoped append-only PostgreSQL sink now provides a durable foundation without changing the CE default. This ADR is not yet a compliance-ready hosted audit claim because runtime/API wiring, mandatory producer coverage, retention/export controls, KMS lifecycle audit, tamper-evident retention, and operational receipts remain open.
 
 - **Decision status:** Proposed; core audit seam partially implemented.
 - **Implementation phase:** Core close-out and hosted sink construction.
@@ -137,6 +137,18 @@ The core wraps the configured `AuditSink` in an `AuditBuffer` that:
 - Drops oldest with a `audit.buffer_overflow` warning on prolonged failure
 - Persists buffer to disk on shutdown if sink unreachable (CE option)
 - For EE: a "guaranteed delivery" mode writes events to a local durable queue (sqlite or PG `audit_outbox` table) before acknowledging the request
+
+### PostgreSQL durability foundation
+
+`matric-db` provides an optional `PostgresAuditSink`. It sanitizes at the sink
+boundary, requires tenant context, uses tenant-scoped idempotency, reports
+health/failure state, and writes to a forced-RLS table whose rows reject update
+and delete. `TracingSink` remains the CE default.
+
+Append-only PostgreSQL storage is not WORM or tamper evidence. Database owners,
+superusers, migration code, and infrastructure operators remain in the threat
+model. See `docs/ops/postgresql-audit-sink.md` for deployment and rollback
+requirements.
 
 ### Tamper-evidence (optional, EE)
 

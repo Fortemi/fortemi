@@ -1,7 +1,9 @@
 use std::str::FromStr;
 
+use matric_core::audit::{AuditEvent, AuditOutcome, AuditSink};
 use matric_db::{
-    assert_hosted_runtime_role, create_pool, inspect_tenant_catalog, Database, TenantScopedConn,
+    assert_hosted_runtime_role, create_pool, inspect_tenant_catalog, Database, PostgresAuditSink,
+    TenantScopedConn,
 };
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::Executor;
@@ -180,5 +182,45 @@ async fn tenant_qualified_foreign_key_rejects_cross_tenant_association() {
     .execute(scope_b.executor())
     .await;
     assert!(result.is_err(), "cross-tenant foreign key must be rejected");
+    scope_b.rollback().await.unwrap();
+}
+
+#[tokio::test]
+async fn audit_sink_rows_are_visible_only_in_the_emitting_tenant() {
+    let Some((admin, runtime)) = setup().await else {
+        eprintln!("skipping tenant isolation test: DATABASE_URL unavailable or setup failed");
+        return;
+    };
+
+    let tenant_a = Uuid::new_v4();
+    let tenant_b = Uuid::new_v4();
+    register_tenant(&admin, tenant_a, &format!("test-{tenant_a}")).await;
+    register_tenant(&admin, tenant_b, &format!("test-{tenant_b}")).await;
+
+    let event_id = Uuid::new_v4();
+    let mut event = AuditEvent::new("authorization", "auth.decision", AuditOutcome::Denied)
+        .with_tenant(tenant_a.to_string());
+    event.id = event_id;
+    PostgresAuditSink::new(runtime.clone())
+        .emit(event)
+        .await
+        .unwrap();
+
+    let mut scope_a = TenantScopedConn::begin(&runtime, tenant_a).await.unwrap();
+    let visible_a: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_event WHERE id = $1")
+        .bind(event_id)
+        .fetch_one(scope_a.executor())
+        .await
+        .unwrap();
+    assert_eq!(visible_a, 1);
+    scope_a.rollback().await.unwrap();
+
+    let mut scope_b = TenantScopedConn::begin(&runtime, tenant_b).await.unwrap();
+    let visible_b: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_event WHERE id = $1")
+        .bind(event_id)
+        .fetch_one(scope_b.executor())
+        .await
+        .unwrap();
+    assert_eq!(visible_b, 0);
     scope_b.rollback().await.unwrap();
 }

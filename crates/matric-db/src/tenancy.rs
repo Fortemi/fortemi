@@ -33,6 +33,7 @@ pub const TENANT_SCOPED_TABLES: &[&str] = &[
     "api_key",
     "archive_inference_override",
     "archive_registry",
+    "audit_event",
     "attachment",
     "attachment_blob",
     "attachment_embedding",
