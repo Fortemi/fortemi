@@ -1,21 +1,21 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-08-24T16:42:18Z"
-  updated_at: "2026-08-24T16:42:18Z"
-  description: "Provenance for hosted authentication and migration-role startup wiring"
+  updated_at: "2026-08-24T17:13:07Z"
+  description: "Provenance for hosted authentication, migration-role startup wiring, and tenant-scoped note routes"
 entity:
   id: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
   type: source_code
-  checksum: "sha256:e99178b596234bc894c83efbde132ae932523bd13dc6c16d83a489ff68a3450c"
-  size_bytes: 2709211
+  checksum: "sha256:2aeae952d7ee8d8ea6323c65b9a2959ed9a661c52b0fd6daf3b1e13a11b8fa13"
+  size_bytes: 2710582
   attributes:
     change_scope: "fortemi-727-728-hosted-runtime"
 activity:
   id: "urn:aiwg:activity:modification:fortemi-hosted-runtime-727-728:001"
   type: modification
   started_at: "2026-08-24T14:00:00Z"
-  ended_at: "2026-08-24T16:42:18Z"
-  description: "Wire signed auth contracts, hosted mode, and split migration/runtime roles"
+  ended_at: "2026-08-24T17:13:07Z"
+  description: "Wire signed auth contracts, hosted mode, split roles, and initial transaction-scoped note handlers"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant

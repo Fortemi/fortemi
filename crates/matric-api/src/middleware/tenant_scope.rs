@@ -34,6 +34,11 @@ const COMMAND_CAPACITY: usize = 1;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct VerifiedRequestTenant(Uuid);
 
+/// Marker inserted by authentication when a route must execute inside a
+/// tenant-bound database transaction.
+#[derive(Clone, Copy, Debug)]
+pub struct TenantScopeRequired;
+
 impl VerifiedRequestTenant {
     /// Mark an already authenticated and admitted tenant as verified.
     pub fn from_verified(tenant_id: Uuid) -> Result<Self> {
@@ -134,6 +139,38 @@ impl TenantRequestScope {
         value.downcast::<T>().map(|value| *value).map_err(|_| {
             Error::Internal("tenant request scope returned an invalid operation result".to_string())
         })
+    }
+
+    /// Execute an operation with archive and tenant scope on the same
+    /// transaction-owned connection.
+    pub async fn with_schema_connection<T, F>(
+        &self,
+        schema: impl Into<String>,
+        operation: F,
+    ) -> Result<T>
+    where
+        T: Send + 'static,
+        F: for<'connection> FnOnce(
+                &'connection mut PgConnection,
+            ) -> TenantConnectionFuture<'connection, T>
+            + Send
+            + 'static,
+    {
+        let schema = schema.into();
+        matric_db::validate_schema_name(&schema)?;
+        let search_path = format!("{schema}, public");
+
+        self.with_connection(move |connection| {
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path', $1, true)")
+                    .bind(search_path)
+                    .execute(&mut *connection)
+                    .await
+                    .map_err(Error::Database)?;
+                operation(connection).await
+            })
+        })
+        .await
     }
 }
 
@@ -298,14 +335,18 @@ fn internal_scope_response(type_suffix: &'static str, detail: &'static str) -> R
 
 /// Own one tenant-bound transaction for an authenticated Axum request.
 ///
-/// Apply this middleware only to authenticated, non-streaming hosted routes and
-/// place it inside the authentication layer so [`VerifiedRequestTenant`] is
-/// present before this function runs.
+/// Place this middleware inside the authentication layer so
+/// [`VerifiedRequestTenant`] is present before this function runs. Requests are
+/// scoped only when authentication inserts [`TenantScopeRequired`].
 pub async fn tenant_scope_middleware(
     State(pool): State<PgPool>,
     mut request: Request,
     next: Next,
 ) -> Response {
+    if request.extensions().get::<TenantScopeRequired>().is_none() {
+        return next.run(request).await;
+    }
+
     let tenant = match tenant_for_request(request.extensions()) {
         Ok(tenant) => tenant,
         Err(RequestScopeRejection::MissingTenant) => {
@@ -415,9 +456,19 @@ pub async fn tenant_scope_middleware(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::{
+        str::FromStr,
+        sync::{Arc, Mutex},
+    };
 
-    use axum::body::Body;
+    use axum::{
+        body::{to_bytes, Body},
+        middleware::from_fn,
+        routing::get,
+        Extension, Router,
+    };
+    use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+    use tower::ServiceExt;
 
     use super::*;
 
@@ -451,6 +502,110 @@ mod tests {
             tenant: verified_tenant(),
             commands,
         }
+    }
+
+    async fn require_tenant_scope(mut request: Request, next: Next) -> Response {
+        request.extensions_mut().insert(TenantScopeRequired);
+        next.run(request).await
+    }
+
+    fn lazy_test_pool() -> PgPool {
+        PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/tenant-scope-tests")
+            .unwrap()
+    }
+
+    async fn live_test_pools() -> Option<(PgPool, PgPool)> {
+        const ROLE: &str = "fortemi_tenant_scope_api_test";
+        const PASSWORD: &str = "fortemi-tenant-scope-api-test-only";
+
+        let database_url = std::env::var("DATABASE_URL").ok()?;
+        let admin = matric_db::create_pool(&database_url).await.ok()?;
+        matric_db::Database::new(admin.clone())
+            .migrate()
+            .await
+            .ok()?;
+        sqlx::query(&format!(
+            r#"
+            DO $$
+            BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{ROLE}') THEN
+                CREATE ROLE {ROLE}
+                  LOGIN PASSWORD '{PASSWORD}'
+                  NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+              ELSE
+                ALTER ROLE {ROLE}
+                  WITH LOGIN PASSWORD '{PASSWORD}'
+                  NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+              END IF;
+            END
+            $$;
+            "#
+        ))
+        .execute(&admin)
+        .await
+        .ok()?;
+        sqlx::query(&format!("GRANT USAGE ON SCHEMA public TO {ROLE}"))
+            .execute(&admin)
+            .await
+            .ok()?;
+        sqlx::query(&format!(
+            "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {ROLE}"
+        ))
+        .execute(&admin)
+        .await
+        .ok()?;
+        sqlx::query(&format!(
+            "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {ROLE}"
+        ))
+        .execute(&admin)
+        .await
+        .ok()?;
+
+        let options = PgConnectOptions::from_str(&database_url)
+            .ok()?
+            .username(ROLE)
+            .password(PASSWORD);
+        let runtime = PgPoolOptions::new()
+            .max_connections(1)
+            .min_connections(1)
+            .connect_with(options)
+            .await
+            .ok()?;
+        Some((admin, runtime))
+    }
+
+    async fn visible_note_count(Extension(scope): Extension<TenantRequestScope>) -> Response {
+        match scope
+            .with_schema_connection("public", |connection| {
+                Box::pin(async move {
+                    let (count, tenant): (i64, String) = sqlx::query_as(
+                        "SELECT count(*), current_setting('app.current_tenant') FROM note",
+                    )
+                    .fetch_one(connection)
+                    .await
+                    .map_err(Error::Database)?;
+                    Ok(json!({ "count": count, "tenant": tenant }))
+                })
+            })
+            .await
+        {
+            Ok(value) => Json(value).into_response(),
+            Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        }
+    }
+
+    fn tenant_request(tenant_id: Uuid) -> Request {
+        let mut request = Request::builder()
+            .uri("/visible-notes")
+            .body(Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(TenantScopeRequired);
+        request.extensions_mut().insert(
+            VerifiedRequestTenant::from_verified(tenant_id)
+                .expect("test tenant identity must be valid"),
+        );
+        request
     }
 
     async fn owner_action(
@@ -509,6 +664,114 @@ mod tests {
             tenant_for_request(&extensions),
             Err(RequestScopeRejection::ReusedScope)
         );
+    }
+
+    #[tokio::test]
+    async fn unmarked_request_bypasses_database_scope() {
+        let app = Router::new()
+            .route("/public", get(|| async { "community" }))
+            .layer(axum::middleware::from_fn_with_state(
+                lazy_test_pool(),
+                tenant_scope_middleware,
+            ));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/public")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            to_bytes(response.into_body(), usize::MAX).await.unwrap(),
+            "community"
+        );
+    }
+
+    #[tokio::test]
+    async fn marked_request_without_verified_tenant_fails_before_database_access() {
+        let app = Router::new()
+            .route("/hosted", get(|| async { "unreachable" }))
+            .layer(axum::middleware::from_fn_with_state(
+                lazy_test_pool(),
+                tenant_scope_middleware,
+            ))
+            .layer(from_fn(require_tenant_scope));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/hosted")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert!(std::str::from_utf8(&body)
+            .unwrap()
+            .contains("tenant-context-required"));
+    }
+
+    #[tokio::test]
+    async fn router_binds_each_tenant_to_the_reused_transaction_connection() {
+        let Some((admin, runtime)) = live_test_pools().await else {
+            eprintln!("skipping live tenant scope test: DATABASE_URL unavailable or setup failed");
+            return;
+        };
+        let tenant_a = Uuid::new_v4();
+        let tenant_b = Uuid::new_v4();
+        for tenant_id in [tenant_a, tenant_b] {
+            sqlx::query(
+                "INSERT INTO tenant_registry (id, slug, display_name, status) VALUES ($1, $2, $2, 'active')",
+            )
+            .bind(tenant_id)
+            .bind(format!("api-scope-{tenant_id}"))
+            .execute(&admin)
+            .await
+            .unwrap();
+        }
+
+        let note_id = Uuid::new_v4();
+        let mut seed = TenantScopedConn::begin(&runtime, tenant_a).await.unwrap();
+        sqlx::query(
+            r#"
+            INSERT INTO note (id, format, source, created_at_utc, updated_at_utc, title)
+            VALUES ($1, 'markdown', 'tenant-scope-api-test', now(), now(), 'tenant A')
+            "#,
+        )
+        .bind(note_id)
+        .execute(seed.executor())
+        .await
+        .unwrap();
+        seed.commit().await.unwrap();
+
+        let app = Router::new()
+            .route("/visible-notes", get(visible_note_count))
+            .layer(axum::middleware::from_fn_with_state(
+                runtime,
+                tenant_scope_middleware,
+            ));
+
+        let response_a = app.clone().oneshot(tenant_request(tenant_a)).await.unwrap();
+        assert_eq!(response_a.status(), StatusCode::OK);
+        let body_a: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response_a.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(body_a, json!({ "count": 1, "tenant": tenant_a }));
+
+        let response_b = app.oneshot(tenant_request(tenant_b)).await.unwrap();
+        assert_eq!(response_b.status(), StatusCode::OK);
+        let body_b: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response_b.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(body_b, json!({ "count": 0, "tenant": tenant_b }));
     }
 
     #[tokio::test]

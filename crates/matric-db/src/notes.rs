@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use hex;
 use sha2::{Digest, Sha256};
-use sqlx::{Pool, Postgres, Row, Transaction};
+use sqlx::{PgConnection, Pool, Postgres, Row};
 use std::{collections::HashSet, fmt};
 use uuid::Uuid;
 
@@ -478,11 +478,7 @@ impl NoteRepository for PgNoteRepository {
 /// within a transactional boundary.
 impl PgNoteRepository {
     /// Insert a note within an existing transaction.
-    pub async fn insert_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        req: CreateNoteRequest,
-    ) -> Result<Uuid> {
+    pub async fn insert_tx(&self, tx: &mut PgConnection, req: CreateNoteRequest) -> Result<Uuid> {
         self.insert_with_id_tx(tx, new_v7(), req).await
     }
 
@@ -492,7 +488,7 @@ impl PgNoteRepository {
     /// records can retain their source note references.
     pub async fn insert_with_id_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         note_id: Uuid,
         req: CreateNoteRequest,
     ) -> Result<Uuid> {
@@ -518,7 +514,7 @@ impl PgNoteRepository {
         .bind(req.metadata.as_ref().unwrap_or(&serde_json::json!({})))
         .bind(req.document_type_id)
         .bind(req.title.as_deref())
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -530,7 +526,7 @@ impl PgNoteRepository {
         .bind(note_id)
         .bind(&req.content)
         .bind(&hash)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -543,7 +539,7 @@ impl PgNoteRepository {
         .bind(note_id)
         .bind(&req.content)
         .bind(now)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -554,7 +550,7 @@ impl PgNoteRepository {
         .bind(note_id)
         .bind(&req.content)
         .bind(revision_id)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -566,7 +562,7 @@ impl PgNoteRepository {
         .bind(new_v7())
         .bind(now)
         .bind(note_id)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -585,7 +581,7 @@ impl PgNoteRepository {
             )
             .bind(&tag)
             .bind(now)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -594,7 +590,7 @@ impl PgNoteRepository {
                 .bind(note_id)
                 .bind(&tag)
                 .bind(source)
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await
                 .map_err(Error::Database)?;
         }
@@ -605,7 +601,7 @@ impl PgNoteRepository {
     /// Insert multiple notes within an existing transaction.
     pub async fn insert_bulk_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         notes: Vec<CreateNoteRequest>,
     ) -> Result<Vec<Uuid>> {
         if notes.is_empty() {
@@ -636,7 +632,7 @@ impl PgNoteRepository {
             .bind(req.metadata.as_ref().unwrap_or(&serde_json::json!({})))
             .bind(req.document_type_id)
             .bind(req.title.as_deref())
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -648,7 +644,7 @@ impl PgNoteRepository {
             .bind(note_id)
             .bind(&req.content)
             .bind(&hash)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -661,7 +657,7 @@ impl PgNoteRepository {
             .bind(note_id)
             .bind(&req.content)
             .bind(now)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -672,7 +668,7 @@ impl PgNoteRepository {
             .bind(note_id)
             .bind(&req.content)
             .bind(revision_id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -690,7 +686,7 @@ impl PgNoteRepository {
                 )
                 .bind(tag)
                 .bind(now)
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await
                 .map_err(Error::Database)?;
 
@@ -698,7 +694,7 @@ impl PgNoteRepository {
                     .bind(note_id)
                     .bind(tag)
                     .bind(source)
-                    .execute(&mut **tx)
+                    .execute(&mut *tx)
                     .await
                     .map_err(Error::Database)?;
             }
@@ -714,7 +710,7 @@ impl PgNoteRepository {
         .bind(new_v7())
         .bind(now)
         .bind(serde_json::json!({ "count": ids.len() }))
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -722,14 +718,14 @@ impl PgNoteRepository {
     }
 
     /// Fetch a note within an existing transaction.
-    pub async fn fetch_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<NoteFull> {
+    pub async fn fetch_tx(&self, tx: &mut PgConnection, id: Uuid) -> Result<NoteFull> {
         self.fetch_tx_with_access(tx, id, "direct_get", None).await
     }
 
     /// Fetch a note and record the access event with type and source.
     pub async fn fetch_tx_with_access(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         id: Uuid,
         access_type: &str,
         source: Option<&str>,
@@ -742,7 +738,7 @@ impl PgNoteRepository {
         )
         .bind(now)
         .bind(id)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -750,7 +746,7 @@ impl PgNoteRepository {
         // The note_access_log table may not exist in older schemas that haven't been
         // migrated yet — the savepoint ensures the outer transaction survives.
         let _ = sqlx::query("SAVEPOINT access_log_insert")
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await;
         let log_result = sqlx::query(
             "INSERT INTO note_access_log (note_id, accessed_at, access_type, source) VALUES ($1, $2, $3::note_access_type, $4)",
@@ -759,15 +755,15 @@ impl PgNoteRepository {
         .bind(now)
         .bind(access_type)
         .bind(Self::access_source_metadata(source))
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await;
         if log_result.is_err() {
             let _ = sqlx::query("ROLLBACK TO SAVEPOINT access_log_insert")
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await;
         } else {
             let _ = sqlx::query("RELEASE SAVEPOINT access_log_insert")
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await;
         }
 
@@ -778,7 +774,7 @@ impl PgNoteRepository {
              FROM note WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(id)
-        .fetch_optional(&mut **tx)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(Error::Database)?
         .ok_or_else(|| Self::note_not_found_error(id))?;
@@ -789,7 +785,7 @@ impl PgNoteRepository {
              FROM note_original WHERE note_id = $1",
         )
         .bind(id)
-        .fetch_one(&mut **tx)
+        .fetch_one(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -801,14 +797,14 @@ impl PgNoteRepository {
              WHERE nrc.note_id = $1",
         )
         .bind(id)
-        .fetch_one(&mut **tx)
+        .fetch_one(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
         // Fetch flat tags (user-created/legacy)
         let tags: Vec<String> = sqlx::query("SELECT tag_name FROM note_tag WHERE note_id = $1")
             .bind(id)
-            .fetch_all(&mut **tx)
+            .fetch_all(&mut *tx)
             .await
             .map_err(Error::Database)?
             .into_iter()
@@ -830,7 +826,7 @@ impl PgNoteRepository {
                ORDER BY nc.is_primary DESC, nc.relevance_score DESC"#,
         )
         .bind(id)
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -859,7 +855,7 @@ impl PgNoteRepository {
                ORDER BY l.score DESC, l.created_at_utc DESC"#,
         )
         .bind(id)
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -922,7 +918,7 @@ impl PgNoteRepository {
     /// List notes within an existing transaction.
     pub async fn list_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         req: ListNotesRequest,
     ) -> Result<ListNotesResponse> {
         let sort_by = req.sort_by.as_deref().unwrap_or("created_at_utc");
@@ -956,7 +952,7 @@ impl PgNoteRepository {
         let total: i64 = {
             let q = sqlx::query_scalar(&count_query);
             let q = bind_list_request_params!(q, req);
-            q.fetch_one(&mut **tx).await.map_err(Error::Database)?
+            q.fetch_one(&mut *tx).await.map_err(Error::Database)?
         };
 
         // Build notes query
@@ -1004,7 +1000,7 @@ impl PgNoteRepository {
             let mut q = sqlx::query(&notes_query);
             q = bind_list_request_params!(q, req);
             q = q.bind(limit).bind(offset);
-            q.fetch_all(&mut **tx).await.map_err(Error::Database)?
+            q.fetch_all(&mut *tx).await.map_err(Error::Database)?
         };
 
         let notes: Vec<NoteSummary> = rows.into_iter().map(map_row_to_note_summary).collect();
@@ -1013,34 +1009,34 @@ impl PgNoteRepository {
     }
 
     /// Soft delete a note within an existing transaction.
-    pub async fn soft_delete_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<()> {
+    pub async fn soft_delete_tx(&self, tx: &mut PgConnection, id: Uuid) -> Result<()> {
         let now = Utc::now();
         sqlx::query("UPDATE note SET deleted_at = $1, updated_at_utc = $1 WHERE id = $2")
             .bind(now)
             .bind(id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
         Ok(())
     }
 
     /// Hard delete a note within an existing transaction.
-    pub async fn hard_delete_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<()> {
+    pub async fn hard_delete_tx(&self, tx: &mut PgConnection, id: Uuid) -> Result<()> {
         sqlx::query("DELETE FROM note WHERE id = $1")
             .bind(id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
         Ok(())
     }
 
     /// Restore a soft-deleted note within an existing transaction.
-    pub async fn restore_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<()> {
+    pub async fn restore_tx(&self, tx: &mut PgConnection, id: Uuid) -> Result<()> {
         let now = Utc::now();
         sqlx::query("UPDATE note SET deleted_at = NULL, updated_at_utc = $1 WHERE id = $2")
             .bind(now)
             .bind(id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
         Ok(())
@@ -1049,7 +1045,7 @@ impl PgNoteRepository {
     /// Update note status within an existing transaction.
     pub async fn update_status_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         id: Uuid,
         req: UpdateNoteStatusRequest,
     ) -> Result<()> {
@@ -1091,14 +1087,14 @@ impl PgNoteRepository {
             q = q.bind(metadata);
         }
 
-        q.execute(&mut **tx).await.map_err(Error::Database)?;
+        q.execute(&mut *tx).await.map_err(Error::Database)?;
         Ok(())
     }
 
     /// Update original note content within an existing transaction.
     pub async fn update_original_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         id: Uuid,
         content: &str,
     ) -> Result<()> {
@@ -1116,14 +1112,14 @@ impl PgNoteRepository {
         .bind(&hash)
         .bind(now)
         .bind(id)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
         sqlx::query("UPDATE note SET updated_at_utc = $1 WHERE id = $2")
             .bind(now)
             .bind(id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -1134,7 +1130,7 @@ impl PgNoteRepository {
         .bind(new_v7())
         .bind(now)
         .bind(id)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -1144,7 +1140,7 @@ impl PgNoteRepository {
     /// Update revised note content within an existing transaction.
     pub async fn update_revised_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         id: Uuid,
         content: &str,
         rationale: Option<&str>,
@@ -1162,7 +1158,7 @@ impl PgNoteRepository {
         .bind(content)
         .bind(rationale)
         .bind(now)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -1173,7 +1169,7 @@ impl PgNoteRepository {
         .bind(content)
         .bind(revision_id)
         .bind(id)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -1181,7 +1177,7 @@ impl PgNoteRepository {
         sqlx::query("UPDATE note SET updated_at_utc = $1 WHERE id = $2")
             .bind(now)
             .bind(id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -1193,7 +1189,7 @@ impl PgNoteRepository {
         .bind(new_v7())
         .bind(now)
         .bind(id)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -1205,7 +1201,7 @@ impl PgNoteRepository {
     /// to keep FTS up-to-date without implying that AI revision ran (#625).
     pub async fn sync_revised_to_original_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         note_id: Uuid,
         content: &str,
     ) -> Result<()> {
@@ -1214,7 +1210,7 @@ impl PgNoteRepository {
         )
         .bind(content)
         .bind(note_id)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
         Ok(())
@@ -1226,7 +1222,7 @@ impl PgNoteRepository {
     /// when Phase 2 is skipped (so users see an accurate description of what happened).
     pub async fn update_revision_note_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         note_id: Uuid,
         rationale: &str,
     ) -> Result<()> {
@@ -1237,17 +1233,17 @@ impl PgNoteRepository {
         )
         .bind(rationale)
         .bind(note_id)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
         Ok(())
     }
 
     /// Check if note exists within an existing transaction.
-    pub async fn exists_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<bool> {
+    pub async fn exists_tx(&self, tx: &mut PgConnection, id: Uuid) -> Result<bool> {
         let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM note WHERE id = $1)")
             .bind(id)
-            .fetch_one(&mut **tx)
+            .fetch_one(&mut *tx)
             .await
             .map_err(Error::Database)?;
         Ok(exists)
@@ -1256,7 +1252,7 @@ impl PgNoteRepository {
     /// Update note title within an existing transaction.
     pub async fn update_title_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         id: Uuid,
         title: &str,
     ) -> Result<()> {
@@ -1265,17 +1261,17 @@ impl PgNoteRepository {
             .bind(title)
             .bind(now)
             .bind(id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
         Ok(())
     }
 
     /// List all note IDs within an existing transaction.
-    pub async fn list_all_ids_tx(&self, tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Uuid>> {
+    pub async fn list_all_ids_tx(&self, tx: &mut PgConnection) -> Result<Vec<Uuid>> {
         let sql = "SELECT id FROM note WHERE deleted_at IS NULL ORDER BY created_at_utc DESC";
         let rows = sqlx::query(sql)
-            .fetch_all(&mut **tx)
+            .fetch_all(&mut *tx)
             .await
             .map_err(Error::Database)?;
         Ok(rows.into_iter().map(|r| r.get("id")).collect())

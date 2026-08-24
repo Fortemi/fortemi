@@ -72,7 +72,9 @@ use matric_db::{
 use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
 };
-use middleware::tenant_scope::VerifiedRequestTenant;
+use middleware::tenant_scope::{
+    tenant_scope_middleware, TenantRequestScope, TenantScopeRequired, VerifiedRequestTenant,
+};
 use oauth_profile::{active_oauth_capabilities, is_allowed_oauth_scope};
 use tokio::sync::RwLock;
 use trusted_proxy::{ExternalRequestContext, SocketPeer, TrustedProxyConfig};
@@ -4662,6 +4664,10 @@ async fn main() -> anyhow::Result<()> {
             authorize_middleware,
         ))
         .layer(axum::middleware::from_fn_with_state(
+            state.db.pool.clone(),
+            tenant_scope_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
         ))
@@ -8815,6 +8821,9 @@ async fn auth_middleware(
                 };
                 request.extensions_mut().insert(tenant);
             }
+            if state.multi_tenant && requires_bearer {
+                request.extensions_mut().insert(TenantScopeRequired);
+            }
             #[cfg(feature = "hosted-auth")]
             if let Some(context) = identity.canonical_context {
                 request.extensions_mut().insert(context);
@@ -12893,6 +12902,31 @@ impl fmt::Debug for ListNotesQuery {
     }
 }
 
+async fn with_request_schema<T, F>(
+    state: &AppState,
+    scope: Option<TenantRequestScope>,
+    schema: String,
+    operation: F,
+) -> matric_core::Result<T>
+where
+    T: Send + 'static,
+    F: for<'connection> FnOnce(
+            &'connection mut sqlx::PgConnection,
+        )
+            -> middleware::tenant_scope::TenantConnectionFuture<'connection, T>
+        + Send
+        + 'static,
+{
+    if let Some(scope) = scope {
+        scope.with_schema_connection(schema, operation).await
+    } else {
+        let context = state.db.for_schema(&schema)?;
+        context
+            .execute(move |transaction| operation(transaction))
+            .await
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/notes",
@@ -12903,6 +12937,7 @@ impl fmt::Debug for ListNotesQuery {
 )]
 async fn list_notes(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<ListNotesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -12943,11 +12978,14 @@ async fn list_notes(
         updated_before: query.updated_before.map(|dt| dt.into_inner()),
     };
 
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
-    let response = ctx
-        .query(move |tx| Box::pin(async move { notes.list_tx(tx, req).await }))
-        .await?;
+    let response = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| Box::pin(async move { notes.list_tx(connection, req).await }),
+    )
+    .await?;
     Ok(Json(response))
 }
 
@@ -13545,14 +13583,18 @@ async fn bulk_create_notes(
 )]
 async fn get_note(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
-    let note = ctx
-        .query(move |tx| Box::pin(async move { notes.fetch_tx(tx, id).await }))
-        .await?;
+    let note = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema,
+        move |connection| Box::pin(async move { notes.fetch_tx(connection, id).await }),
+    )
+    .await?;
     Ok(Json(note))
 }
 
@@ -13764,13 +13806,18 @@ async fn update_note(
 async fn delete_note(
     _auth: Auth,
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
-    ctx.execute(move |tx| Box::pin(async move { notes.soft_delete_tx(tx, id).await }))
-        .await?;
+    with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| Box::pin(async move { notes.soft_delete_tx(connection, id).await }),
+    )
+    .await?;
 
     // Emit NoteDeleted event (Issue #453, scoped via #452)
     state.event_bus.emit_with_context(
