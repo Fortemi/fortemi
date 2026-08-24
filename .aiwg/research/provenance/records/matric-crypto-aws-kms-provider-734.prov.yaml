@@ -1,13 +1,13 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-08-24T17:07:43Z"
-  updated_at: "2026-08-24T17:07:43Z"
+  updated_at: "2026-08-24T17:38:18Z"
   description: "Provenance for the AWS KMS KeyProvider implementation"
 entity:
   id: "urn:aiwg:artifact:crates/matric-crypto/src/provider/aws_kms.rs"
   type: source_code
-  checksum: "sha256:f0c61d3870102bafbad0b2164efe3ab8bf5eeb041da5749e97bcb9808ae62945"
-  size_bytes: 15943
+  checksum: "sha256:68b770faea184a920e9d54088c130419a698147b2a8f0d14431021e23e601418"
+  size_bytes: 16428
   attributes:
     change_scope: "fortemi-734-aws-kms-provider"
     feature: "kms-aws"
@@ -15,8 +15,8 @@ activity:
   id: "urn:aiwg:activity:generation:fortemi-key-provider-734:aws-kms"
   type: generation
   started_at: "2026-08-24T16:00:00Z"
-  ended_at: "2026-08-24T17:07:43Z"
-  description: "Implement the feature-gated AWS SDK KMS provider and canary hook"
+  ended_at: "2026-08-24T17:38:18Z"
+  description: "Implement the feature-gated AWS SDK KMS provider, environment client, and canary hook"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant

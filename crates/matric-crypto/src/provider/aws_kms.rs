@@ -92,6 +92,17 @@ impl AwsKmsProvider {
         Ok(Self { client, key_id })
     }
 
+    /// Build the production SDK client from the standard AWS region and
+    /// credential provider chains.
+    #[cfg(feature = "kms-aws")]
+    pub async fn from_environment(key_id: impl Into<String>) -> Result<Self, KeyError> {
+        let config = aws_config::defaults(aws_config::BehaviorVersion::v2026_01_12())
+            .load()
+            .await;
+        let client = aws_sdk_kms::Client::new(&config);
+        Self::new(Arc::new(AwsSdkKmsClient::new(client)), key_id)
+    }
+
     fn encryption_context(
         &self,
         context: &KeyContext,

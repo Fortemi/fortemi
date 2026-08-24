@@ -12,7 +12,7 @@ Existing `/health` responses expose useful operational status, but they are not 
 GET /api/v1/system/compatibility
 ```
 
-Implementation status at checkpoint: initial Fortemi endpoint slice is implemented in `crates/matric-api/src/main.rs`. It intentionally reports conservative `preview`/`unavailable` states for enterprise/backoffice capabilities until RLS, KMS, audit, quota, MCP gate, and EE package gates close.
+Implementation status at checkpoint: the Fortemi endpoint is implemented in `crates/matric-api/src/main.rs`. The 2026-08-24 revision identifies the pinned hosted auth claim authority and whether the mandatory runtime KMS provider initialized. It still reports conservative `preview`/`unavailable` states until tenant route coverage, KMS rotation, quota, MCP gate, and enterprise distribution gates close.
 
 | Property | Contract |
 |---|---|
@@ -27,7 +27,7 @@ Implementation status at checkpoint: initial Fortemi endpoint slice is implement
 ```json
 {
   "schema_version": 1,
-  "contract_revision": "2026-07-06",
+  "contract_revision": "2026-08-24",
   "api": {
     "name": "fortemi",
     "version": "2026.7.0",
@@ -56,7 +56,7 @@ Implementation status at checkpoint: initial Fortemi endpoint slice is implement
     "backoffice_api": { "state": "unavailable", "reason_code": "contract_not_implemented" },
     "audit_posture": { "state": "preview", "reason_code": "hosted_audit_gate_open" },
     "quota_status": { "state": "unavailable", "reason_code": "quota_policy_not_implemented" },
-    "kms_status": { "state": "unavailable", "reason_code": "key_provider_not_implemented" },
+    "kms_status": { "state": "unavailable", "reason_code": "key_provider_not_configured" },
     "mcp_scope_gate": { "state": "preview", "reason_code": "enterprise_gate_not_implemented" }
   },
   "backoffice": {
@@ -98,7 +98,7 @@ Implementation status at checkpoint: initial Fortemi endpoint slice is implement
       {
         "key": "kms_status",
         "state": "unavailable",
-        "reason_code": "key_provider_not_implemented",
+        "reason_code": "kms_backoffice_not_implemented",
         "endpoint": "/api/v1/admin/kms/status",
         "required_scopes": ["admin:kms:read"],
         "actions": ["kms.status.read"],
@@ -152,6 +152,7 @@ Implementation status at checkpoint: initial Fortemi endpoint slice is implement
 | Value | Meaning |
 |---|---|
 | `community` | Open-BSL/community build. |
+| `internal` | Internal hosted build. This does not assert enterprise distribution readiness. |
 | `enterprise` | Enterprise distribution build. Must not be claimed until private distribution evidence exists. |
 | `unknown` | Edition cannot be verified. |
 
@@ -164,6 +165,11 @@ Implementation status at checkpoint: initial Fortemi endpoint slice is implement
 | `oauth` | OAuth/JWT auth is active. |
 | `hosted_oauth` | Hosted OAuth with tenant context is active. |
 | `unknown` | Auth mode cannot be classified. |
+
+Hosted auth responses additionally include `claim_contract_version`,
+`claim_contract_profile`, and `authority_release`. The 2026-08-24 hosted profile
+pins contract `1.0.0`, profile `rust-node-jwt-v1`, and signed authority release
+`v2026.7.0`. Community and legacy single-tenant OAuth responses omit these fields.
 
 ### Capability `state`
 
@@ -207,7 +213,10 @@ Fortemi must include these keys even when unavailable so HotM does not branch on
 | `contract_not_implemented` | The backend endpoint/API contract does not exist yet. |
 | `hosted_auth_not_configured` | Hosted OAuth/tenant context is not configured. |
 | `rls_gate_open` | Hosted multi-tenant isolation evidence is incomplete. |
-| `key_provider_not_implemented` | ADR-093 KeyProvider/KMS implementation is incomplete. |
+| `key_provider_not_configured` | The deployment did not initialize a hosted key provider. |
+| `kms_runtime_configured_rotation_gate_open` | Hosted startup validated KMS, but rotation and consumer coverage remain incomplete. |
+| `kms_backoffice_not_implemented` | The KMS runtime exists, but the authenticated operator status contract is not implemented. |
+| `tenant_route_coverage_incomplete` | Hosted auth is active, but not every tenant-bearing route has transaction-scoped isolation evidence. |
 | `hosted_audit_gate_open` | Mandatory hosted audit implementation or health evidence is incomplete. |
 | `quota_policy_not_implemented` | Usage metering/quota policy is not implemented. |
 | `enterprise_gate_not_implemented` | EE implementation belongs to private repo work that is not ready. |

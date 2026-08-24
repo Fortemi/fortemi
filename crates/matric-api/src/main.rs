@@ -64,6 +64,9 @@ use matric_core::{
     UsageProducer, UsageQuantity, UsageSource, UsageSubject, UsageUnit,
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
+use matric_crypto::KeyProvider;
+#[cfg(feature = "kms-aws")]
+use matric_crypto::{HealthStatus as KeyHealthStatus, KeyContext, KeyPurpose};
 use matric_db::{
     assert_hosted_runtime_role, Database, FileSource, FilesystemBackend, PoolConfig,
     PostgresAuditSink, ShardImportJournal, ShardImportJournalLease, SkosCollectionRepository,
@@ -1147,6 +1150,8 @@ struct AppState {
     usage_meter: Arc<dyn UsageMeter>,
     /// Runtime-selected audit sink. Hosted mode requires durable PostgreSQL storage.
     audit_sink: Arc<dyn AuditSink>,
+    /// Hosted envelope-key boundary. Community mode does not initialize a KMS client.
+    key_provider: Option<Arc<dyn KeyProvider>>,
     /// OAuth access token lifetime (standard clients).
     oauth_token_lifetime: chrono::Duration,
     /// OAuth access token lifetime (MCP clients).
@@ -2643,6 +2648,37 @@ async fn audit_sink_for_mode(
     Ok(Arc::new(sink))
 }
 
+async fn key_provider_for_mode(multi_tenant: bool) -> anyhow::Result<Option<Arc<dyn KeyProvider>>> {
+    if !multi_tenant {
+        return Ok(None);
+    }
+
+    #[cfg(not(feature = "kms-aws"))]
+    anyhow::bail!(
+        "FORTEMI_MULTI_TENANT=true requires an internal build compiled with the kms-aws feature"
+    );
+
+    #[cfg(feature = "kms-aws")]
+    {
+        let key_id = std::env::var("FORTEMI_AWS_KMS_KEY_ID").map_err(|_| {
+            anyhow::anyhow!("FORTEMI_MULTI_TENANT=true requires FORTEMI_AWS_KMS_KEY_ID")
+        })?;
+        let provider = matric_crypto::AwsKmsProvider::from_environment(key_id)
+            .await
+            .map_err(|_| anyhow::anyhow!("AWS KMS provider configuration is invalid"))?;
+        let context = KeyContext::new(KeyPurpose::USER_SECRET, "hosted_startup_canary")?
+            .with_resource_id("kms_health")?;
+        match provider.health_check(&context).await {
+            Ok(KeyHealthStatus::Ready) => Ok(Some(Arc::new(provider))),
+            Ok(KeyHealthStatus::Degraded { .. })
+            | Ok(KeyHealthStatus::Unavailable { .. })
+            | Err(_) => {
+                anyhow::bail!("AWS KMS provider health check failed")
+            }
+        }
+    }
+}
+
 fn startup_log_format_class(log_format: &str) -> &'static str {
     match log_format {
         "json" => "json",
@@ -3137,6 +3173,7 @@ async fn main() -> anyhow::Result<()> {
         assert_hosted_runtime_role(&db.pool).await?;
     }
     let audit_sink = audit_sink_for_mode(&db, security_config.multi_tenant).await?;
+    let key_provider = key_provider_for_mode(security_config.multi_tenant).await?;
 
     #[cfg(feature = "hosted-auth")]
     let hosted_auth = if security_config.multi_tenant {
@@ -3961,6 +3998,7 @@ async fn main() -> anyhow::Result<()> {
         authorization_policy: authorization_policy_for_mode(security_config.multi_tenant),
         usage_meter,
         audit_sink,
+        key_provider,
         oauth_token_lifetime,
         oauth_mcp_token_lifetime,
         max_memories: std::env::var("MAX_MEMORIES")
@@ -11207,6 +11245,12 @@ struct CompatibilityAuth {
     mode: &'static str,
     oauth_issuer_configured: bool,
     tenant_context_available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    claim_contract_version: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    claim_contract_profile: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    authority_release: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -11241,6 +11285,8 @@ struct BackofficeSurface {
 #[derive(Debug, Clone, Copy)]
 struct CompatibilityInputs<'a> {
     require_auth: bool,
+    multi_tenant: bool,
+    key_provider_configured: bool,
     git_sha: &'a str,
     build_date: &'a str,
 }
@@ -11259,16 +11305,20 @@ fn capability_state_with_reason(
     })
 }
 
-fn compatibility_auth_mode(require_auth: bool) -> &'static str {
-    if require_auth {
+fn compatibility_auth_mode(require_auth: bool, multi_tenant: bool) -> &'static str {
+    if multi_tenant {
+        "hosted_oauth"
+    } else if require_auth {
         "oauth"
     } else {
         "anonymous_local"
     }
 }
 
-fn compatibility_deployment_mode(require_auth: bool) -> &'static str {
-    if require_auth {
+fn compatibility_deployment_mode(require_auth: bool, multi_tenant: bool) -> &'static str {
+    if multi_tenant {
+        "hosted_multi_tenant"
+    } else if require_auth {
         "single_tenant_server"
     } else {
         "local_sidecar"
@@ -11315,7 +11365,7 @@ fn build_backoffice_compatibility() -> BackofficeCompatibility {
             BackofficeSurface {
                 key: "kms_status",
                 state: "unavailable",
-                reason_code: "key_provider_not_implemented",
+                reason_code: "kms_backoffice_not_implemented",
                 endpoint: "/api/v1/admin/kms/status",
                 required_scopes: &["admin:kms:read"],
                 actions: &["kms.status.read"],
@@ -11352,7 +11402,7 @@ fn build_compatibility_response_from_inputs(
 ) -> CompatibilityResponse {
     CompatibilityResponse {
         schema_version: 1,
-        contract_revision: "2026-07-06",
+        contract_revision: "2026-08-24",
         api: CompatibilityApi {
             name: "fortemi",
             version: env!("CARGO_PKG_VERSION"),
@@ -11362,15 +11412,22 @@ fn build_compatibility_response_from_inputs(
                 && inputs.build_date != "unknown",
         },
         deployment: CompatibilityDeployment {
-            mode: compatibility_deployment_mode(inputs.require_auth),
-            edition: "community",
+            mode: compatibility_deployment_mode(inputs.require_auth, inputs.multi_tenant),
+            edition: if inputs.multi_tenant {
+                "internal"
+            } else {
+                "community"
+            },
             hosted_multi_tenant_ready: false,
         },
         auth: CompatibilityAuth {
             required: inputs.require_auth,
-            mode: compatibility_auth_mode(inputs.require_auth),
+            mode: compatibility_auth_mode(inputs.require_auth, inputs.multi_tenant),
             oauth_issuer_configured: inputs.require_auth,
-            tenant_context_available: false,
+            tenant_context_available: inputs.multi_tenant,
+            claim_contract_version: inputs.multi_tenant.then_some("1.0.0"),
+            claim_contract_profile: inputs.multi_tenant.then_some("rust-node-jwt-v1"),
+            authority_release: inputs.multi_tenant.then_some("v2026.7.0"),
         },
         capabilities: serde_json::json!({
             "core_notes": capability_state("available"),
@@ -11378,8 +11435,10 @@ fn build_compatibility_response_from_inputs(
             "jobs": capability_state("available"),
             "realtime_activity": capability_state("available"),
             "hosted_auth": capability_state_with_reason(
-                "unavailable",
-                if inputs.require_auth {
+                if inputs.multi_tenant { "preview" } else { "unavailable" },
+                if inputs.multi_tenant {
+                    "tenant_route_coverage_incomplete"
+                } else if inputs.require_auth {
                     "rls_gate_open"
                 } else {
                     "hosted_auth_not_configured"
@@ -11402,8 +11461,12 @@ fn build_compatibility_response_from_inputs(
                 "quota_policy_not_implemented",
             ),
             "kms_status": capability_state_with_reason(
-                "unavailable",
-                "key_provider_not_implemented",
+                if inputs.key_provider_configured { "preview" } else { "unavailable" },
+                if inputs.key_provider_configured {
+                    "kms_runtime_configured_rotation_gate_open"
+                } else {
+                    "key_provider_not_configured"
+                },
             ),
             "mcp_scope_gate": capability_state_with_reason(
                 "preview",
@@ -11421,8 +11484,11 @@ fn build_compatibility_response_from_inputs(
 }
 
 fn build_compatibility_response(state: &AppState) -> CompatibilityResponse {
+    let multi_tenant = state.key_provider.is_some();
     build_compatibility_response_from_inputs(CompatibilityInputs {
         require_auth: state.require_auth,
+        multi_tenant,
+        key_provider_configured: multi_tenant,
         git_sha: &state.git_sha,
         build_date: &state.build_date,
     })
@@ -43025,10 +43091,17 @@ mod tests {
         serde_json::from_slice(&body).unwrap()
     }
 
+    #[tokio::test]
+    async fn community_mode_does_not_initialize_a_key_provider() {
+        assert!(key_provider_for_mode(false).await.unwrap().is_none());
+    }
+
     #[test]
     fn compatibility_response_defaults_enterprise_surfaces_to_safe_states() {
         let response = build_compatibility_response_from_inputs(CompatibilityInputs {
             require_auth: false,
+            multi_tenant: false,
+            key_provider_configured: false,
             git_sha: "abc123",
             build_date: "2026-07-06T00:00:00Z",
         });
@@ -43040,6 +43113,7 @@ mod tests {
         assert_eq!(body["deployment"]["hosted_multi_tenant_ready"], false);
         assert_eq!(body["auth"]["mode"], "anonymous_local");
         assert_eq!(body["auth"]["tenant_context_available"], false);
+        assert!(body["auth"].get("claim_contract_version").is_none());
         assert_eq!(body["capabilities"]["core_notes"]["state"], "available");
         assert_eq!(body["capabilities"]["search"]["state"], "available");
         assert_eq!(
@@ -43109,6 +43183,8 @@ mod tests {
     fn compatibility_response_does_not_expose_raw_build_provenance() {
         let response = build_compatibility_response_from_inputs(CompatibilityInputs {
             require_auth: true,
+            multi_tenant: false,
+            key_provider_configured: false,
             git_sha: "private-sha-123456789",
             build_date: "2026-07-06T18:00:00Z",
         });
@@ -43126,6 +43202,46 @@ mod tests {
         assert_eq!(body["api"]["build_date_present"], true);
         assert!(!rendered.contains("private-sha-123456789"));
         assert!(!rendered.contains("2026-07-06T18:00:00Z"));
+    }
+
+    #[test]
+    fn compatibility_response_identifies_hosted_auth_without_claiming_readiness() {
+        let response = build_compatibility_response_from_inputs(CompatibilityInputs {
+            require_auth: true,
+            multi_tenant: true,
+            key_provider_configured: true,
+            git_sha: "hosted-build",
+            build_date: "2026-08-24T00:00:00Z",
+        });
+        let body = serde_json::to_value(response).unwrap();
+
+        assert_eq!(body["contract_revision"], "2026-08-24");
+        assert_eq!(body["deployment"]["mode"], "hosted_multi_tenant");
+        assert_eq!(body["deployment"]["edition"], "internal");
+        assert_eq!(body["deployment"]["hosted_multi_tenant_ready"], false);
+        assert_eq!(body["auth"]["mode"], "hosted_oauth");
+        assert_eq!(body["auth"]["tenant_context_available"], true);
+        assert_eq!(body["auth"]["claim_contract_version"], "1.0.0");
+        assert_eq!(body["auth"]["claim_contract_profile"], "rust-node-jwt-v1");
+        assert_eq!(body["auth"]["authority_release"], "v2026.7.0");
+        assert_eq!(body["capabilities"]["hosted_auth"]["state"], "preview");
+        assert_eq!(
+            body["capabilities"]["hosted_auth"]["reason_code"],
+            "tenant_route_coverage_incomplete"
+        );
+        assert_eq!(body["capabilities"]["kms_status"]["state"], "preview");
+        assert_eq!(
+            body["capabilities"]["kms_status"]["reason_code"],
+            "kms_runtime_configured_rotation_gate_open"
+        );
+        let kms_surface = body["backoffice"]["surfaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|surface| surface["key"] == "kms_status")
+            .unwrap();
+        assert_eq!(kms_surface["state"], "unavailable");
+        assert_eq!(kms_surface["reason_code"], "kms_backoffice_not_implemented");
     }
 
     async fn route_problem_contract_test_handler() -> Result<Json<serde_json::Value>, ApiError> {
@@ -58998,6 +59114,7 @@ not-json
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
             audit_sink: Arc::new(TracingSink),
+            key_provider: None,
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -64367,6 +64484,7 @@ not-json
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
             audit_sink: Arc::new(TracingSink),
+            key_provider: None,
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -66157,6 +66275,7 @@ not-json
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
             audit_sink: Arc::new(TracingSink),
+            key_provider: None,
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -66498,6 +66617,7 @@ not-json
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
             audit_sink: Arc::new(TracingSink),
+            key_provider: None,
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),

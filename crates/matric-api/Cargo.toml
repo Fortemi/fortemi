@@ -115,6 +115,9 @@ mock-rtp = []
 # Internal/hosted build profile. The community binary remains the local OAuth
 # and personal-server surface unless this feature is selected explicitly.
 hosted-auth = ["dep:fortemi-auth-clerk", "dep:fortemi-auth-core"]
+# Internal hosted key-custody profile. Kept separate so community builds do not
+# compile or initialize the AWS credential/provider chain.
+kms-aws = ["matric-crypto/kms-aws"]
 # Inbound Kafka connector (#836) — off by default; opt-in on high-end tiers.
 # Forwards to matric-jobs/kafka (bundles librdkafka via cmake).
 kafka = ["matric-jobs/kafka"]
