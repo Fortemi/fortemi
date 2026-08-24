@@ -549,9 +549,12 @@ if response.status_code == 403:
 
 ## Rate Limiting
 
-The current CE limiter is process-wide. API-key-specific limit metadata is not
-enforced by this limiter and must not be treated as tenant or principal
-isolation.
+The CE limiter is process-wide. API-key-specific limit metadata is not enforced
+by this limiter and must not be treated as tenant or principal isolation.
+Hosted multi-tenant mode has a separate Redis-backed preview gate for
+authenticated non-exempt API routes. It uses an opaque key over tenant,
+principal, client, route class, and policy dimensions; it does not expose those
+identifiers in response headers.
 
 ### Default Limits
 
@@ -561,15 +564,18 @@ isolation.
 
 ### Rate Limit Headers
 
-The global rate limiter does **not** emit quota-capacity headers. There are no
+The CE global rate limiter does **not** emit quota-capacity headers. There are no
 `X-RateLimit-Limit`, `X-RateLimit-Remaining`, or `X-RateLimit-Reset` headers, or
 draft `RateLimit` / `RateLimit-Policy` fields. Its 429 response includes only
 `Retry-After` with a whole-number delay in seconds. Clients cannot read a
 remaining-quota value; wait at least the indicated delay before retrying.
 
-Future hosted tenant-aware quotas are tracked by ADR-098 and #714. They target
-the combined `RateLimit` and `RateLimit-Policy` draft fields and do not add
-legacy `X-RateLimit-*` compatibility headers.
+The hosted preview emits bounded combined `RateLimit` and `RateLimit-Policy`
+draft fields on admitted and denied authenticated routes. A hosted denial also
+includes `Retry-After`; an unavailable Redis store or missing trusted request
+context returns a non-cacheable 503 without capacity fields. These fields are
+draft hints, not evidence of a billing balance or a complete tenant plan. The
+remaining quota dimensions and policy work are tracked by ADR-098 and #714.
 
 ### Handling Rate Limits
 
@@ -588,7 +594,8 @@ legacy `X-RateLimit-*` compatibility headers.
 - Honor `Retry-After` and retain a bounded exponential-backoff policy
 - Cache frequently accessed data
 - Batch operations when possible (e.g., `bulk_create_notes`)
-- Back off on HTTP `429`; there is no remaining-quota header to monitor
+- In CE, back off on HTTP `429`; there is no remaining-quota header to monitor
+- In hosted preview mode, treat `RateLimit` fields as bounded hints and honor `Retry-After`
 
 **Python Example:**
 ```python

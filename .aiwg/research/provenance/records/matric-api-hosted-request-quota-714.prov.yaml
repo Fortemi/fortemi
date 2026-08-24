@@ -1,0 +1,48 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T17:59:19Z"
+  updated_at: "2026-08-24T17:59:19Z"
+  description: "Provenance for hosted quota startup and request middleware integration"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+  type: source_code
+  checksum: "sha256:0ea60515f73a752d6e2c543ab535ed61576767e62e1a1a66e7acc142052e6085"
+  size_bytes: 2728122
+  attributes:
+    change_scope: "fortemi-714-hosted-request-quota"
+    deployment_mode: "hosted-multi-tenant"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-quota-714:api-integration"
+  type: modification
+  started_at: "2026-08-24T17:20:00Z"
+  ended_at: "2026-08-24T17:59:19Z"
+  description: "Require shared quota state at hosted startup and enforce fail-closed authenticated request admission"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-quota-714:api-integration"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:714"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-quota-714:api-integration"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:707"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:fortemi-quota-714:api-integration"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:710"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:fortemi-quota-714:api-integration"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-quota-714:api-integration"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

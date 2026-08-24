@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T17:59:19Z"
+  updated_at: "2026-08-24T17:59:19Z"
+  description: "Provenance for the ADR-098 bounded implementation checkpoint"
+entity:
+  id: "urn:aiwg:artifact:docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md"
+  type: architecture_document
+  checksum: "sha256:a01b36b6a3b7c02760295193589f95cb16bc17517a56c3dc55dbc721e964d79e"
+  size_bytes: 7322
+  attributes:
+    change_scope: "fortemi-714-hosted-request-quota"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-quota-714:adr-checkpoint"
+  type: modification
+  started_at: "2026-08-24T17:45:00Z"
+  ended_at: "2026-08-24T17:59:19Z"
+  description: "Replace the stale design-only status with an explicit partial implementation and remaining-gap statement"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md"
+    activity: "urn:aiwg:activity:modification:fortemi-quota-714:adr-checkpoint"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md"
+      source: "urn:gitea:Fortemi/fortemi:issue:714"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-quota-714:adr-checkpoint"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-quota-714:adr-checkpoint"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

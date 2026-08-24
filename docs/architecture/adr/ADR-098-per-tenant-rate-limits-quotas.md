@@ -5,14 +5,27 @@
 **Deciders:** roctinam, reliability/product review TBD
 **Related:** ADR-088, ADR-090 (tenancy), ADR-092 (UsageMeter+QuotaPolicy), ADR-097 (statelessness)
 
-## July 2026 checkpoint rebaseline
+## August 2026 implementation checkpoint
 
-This ADR remains design-only at the July 2026 checkpoint. The quota/rate-limit design depends on ADR-092, and no `UsageMeter` or `QuotaPolicy` implementation was found in `crates/`.
+The first bounded hosted request-admission slice is implemented. When
+`FORTEMI_MULTI_TENANT=true`, authenticated non-exempt API routes require a
+healthy Redis connection at startup and use an atomic fixed-window counter
+keyed by opaque tenant, principal, client, route-class, and policy dimensions.
+Redis loss or missing authenticated tenant context fails closed with HTTP 503.
+CE continues to use the existing optional process-local limiter without Redis.
 
-- **Decision status:** Proposed; design only and dependency-blocked.
-- **Implementation phase:** Per-tenant quota middleware after ADR-092 construction.
+This is not the complete quota plane. The current policy uses one configured
+request limit and always selects the full identity tuple. Tier-plan lookup,
+selectable dimensions, token/storage/job/stream reservations, MCP per-tool
+classes, concurrency limits, quota-specific audit events, administrative
+visibility, and emergency bypass policy remain open in #714 and its linked
+issues. Generic request usage metering observes the resulting HTTP status but
+is not a quota reservation or reconciliation ledger.
+
+- **Decision status:** Proposed; first hosted request-count slice implemented.
+- **Implementation phase:** Extend the atomic request gate into the ADR-092 policy, reservation, and reconciliation model.
 - **Phase owner:** `Fortemi/fortemi#714`, with private billing integration in `Fortemi-Enterprise/billing#1`.
-- **Checkpoint decision date:** 2026-07-14.
+- **Checkpoint decision date:** 2026-08-24.
 
 ## Context
 
@@ -64,14 +77,14 @@ Failure modes:
 CE single-instance: in-process token bucket. Acceptable because there is only one process, and CE has no quotas anyway.
 
 EE / multi-instance:
-- **Redis** (primary recommendation): atomic INCR with PEXPIRE for sliding windows; well-supported in Rust ecosystem (`tower-governor`, `redis-rs`); ops familiar
+- **Redis** (implemented request-count slice): atomic INCR with first-write PEXPIRE for fixed windows; well-supported in Rust ecosystem (`redis-rs`); ops familiar
 - **PostgreSQL** (alternative): leverage existing PG cluster; `advisory locks` + table-based counters; higher latency but no new dep
 
 The choice is configurable via a `QuotaPolicy` impl. The trait abstracts the backing store from the middleware.
 
 ### Rate-limit response headers
 
-This is future hosted behavior, not the current CE response contract. The target
+This is hosted-preview behavior, not the current CE response contract. The target
 uses the combined fields from `draft-ietf-httpapi-ratelimit-headers-11` behind a
 formatter boundary because the specification is still an Internet-Draft:
 
@@ -134,14 +147,15 @@ MCP tools (43 of them per README) may have per-tool quotas distinct from general
 ## Implementation
 
 **Code location:**
-- Middleware: `crates/matric-api/src/middleware/quota.rs` (new)
+- Shared Redis gate: `crates/matric-api/src/services/quota.rs`
+- Middleware integration: `crates/matric-api/src/main.rs`
 - QuotaPolicy impls: in EE crates per ADR-088 (`fortemi-enterprise-quota-static`, `-dynamic`)
 
 **Phases:**
-1. Land middleware shell with `UnlimitedQuota` default
-2. Add Redis-backed quota policy as a feature-gated CE option
+1. Land the shared Redis request-count gate for hosted mode (implemented)
+2. Preserve the process-local limiter for CE (implemented)
 3. Land tier plans table + read-through cache
-4. Cut over from old `rate_limit_middleware` to new quota middleware
+4. Add selectable dimensions, reservation/reconciliation, and quota audit events
 5. EE plans served via control-plane
 
 ## References

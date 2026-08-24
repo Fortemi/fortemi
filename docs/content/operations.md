@@ -547,6 +547,14 @@ All environment variables are optional unless marked as required. The API reads 
 | `RATE_LIMIT_ENABLED` | `true` | Enable rate limiting | `false` |
 | `RATE_LIMIT_REQUESTS` | `100` | Max requests per period | `1000` |
 | `RATE_LIMIT_PERIOD_SECS` | `60` | Rate limit period in seconds | `300` |
+| `FORTEMI_QUOTA_REDIS_URL` | None | Required shared quota store for hosted multi-tenant mode | `redis://quota.internal:6379/0` |
+| `FORTEMI_QUOTA_REQUESTS` | `600` | Hosted request limit per fixed identity window (`1..1000000`) | `1200` |
+| `FORTEMI_QUOTA_WINDOW_SECS` | `60` | Hosted fixed-window duration (`1..86400`) | `60` |
+
+The `FORTEMI_QUOTA_*` settings are an internal hosted preview. CE does not
+connect to this Redis store. Hosted startup fails when the URL is missing,
+invalid, or unavailable; runtime store loss fails authenticated admission
+closed with a non-cacheable HTTP 503.
 
 #### CORS Configuration
 

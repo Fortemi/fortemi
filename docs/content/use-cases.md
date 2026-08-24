@@ -436,9 +436,10 @@ RATE_LIMIT_REQUESTS=1000
 RATE_LIMIT_PERIOD_SECS=60
 ```
 
-These variables configure the current process-local limiter across all requests;
-they do not enable per-tenant isolation. Tenant-aware hosted quota enforcement is
-the future target tracked by ADR-098 and issue #714.
+These variables configure the CE process-local limiter across all requests;
+they do not enable per-tenant isolation. Hosted multi-tenant mode instead
+requires the Redis-backed authenticated request-admission preview documented in
+ADR-098. Tier policies and non-request quota dimensions remain tracked by #714.
 
 ### Multi-Tenancy with SKOS Schemes
 

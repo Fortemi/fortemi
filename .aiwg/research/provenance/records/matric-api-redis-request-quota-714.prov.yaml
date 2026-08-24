@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T17:59:19Z"
+  updated_at: "2026-08-24T17:59:19Z"
+  description: "Provenance for the atomic Redis hosted request-admission gate"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/services/quota.rs"
+  type: source_code
+  checksum: "sha256:88b2df1ec8c5c439989ee87d10803e245127a2a0921fc78ea32936ea85a223d8"
+  size_bytes: 8690
+  attributes:
+    change_scope: "fortemi-714-hosted-request-quota"
+    algorithm: "redis-fixed-window-v1"
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-quota-714:redis-gate"
+  type: generation
+  started_at: "2026-08-24T17:20:00Z"
+  ended_at: "2026-08-24T17:59:19Z"
+  description: "Implement opaque multi-dimensional keys, atomic fixed-window admission, bounded decisions, and live multi-instance tests"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/services/quota.rs"
+    activity: "urn:aiwg:activity:generation:fortemi-quota-714:redis-gate"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/services/quota.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:714"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:generation:fortemi-quota-714:redis-gate"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/services/quota.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:713"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:generation:fortemi-quota-714:redis-gate"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-quota-714:redis-gate"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/services/quota.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

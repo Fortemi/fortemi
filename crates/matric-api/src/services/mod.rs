@@ -5,6 +5,7 @@ pub mod chunking_service;
 pub mod idempotency_store;
 pub mod ingest_cursor_store;
 pub mod ingest_token_store;
+pub mod quota;
 pub mod reconstruction_service;
 pub mod search_cache;
 pub mod tag_resolver;
@@ -14,6 +15,10 @@ pub use chunking_service::ChunkingService;
 pub use idempotency_store::{IdempotencyRecord, IdempotencyStore};
 pub use ingest_cursor_store::IngestCursorStore;
 pub use ingest_token_store::IngestTokenStore;
+pub use quota::{
+    QuotaStoreError, RedisRequestQuotaGate, RequestQuotaDecision, RequestQuotaIdentity,
+    RequestQuotaPolicy,
+};
 pub use reconstruction_service::ReconstructionService;
 pub use search_cache::{SearchCache, SearchCacheKeyInput};
 pub use tag_resolver::TagResolver;

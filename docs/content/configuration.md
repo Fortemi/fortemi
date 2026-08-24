@@ -219,6 +219,9 @@ firewall must limit direct API/MCP access.
 | `RATE_LIMIT_ENABLED` | Boolean | `true` | Enable the current process-local API rate limiter. Accepts only `true`, `false`, `1`, or `0`; invalid values fail startup. |
 | `RATE_LIMIT_REQUESTS` | Integer | `100` | Maximum requests per time window. Must be `1..1000000`; parse failures, zero, and overflow fail startup. |
 | `RATE_LIMIT_PERIOD_SECS` | Integer | `60` | Rate limit time window in seconds. Must be `1..86400`; parse failures and zero fail startup. |
+| `FORTEMI_QUOTA_REDIS_URL` | Redis URL | None | Required when `FORTEMI_MULTI_TENANT=true`. Hosted startup sends `PING` and fails closed when shared quota state is unavailable. Not used by CE. |
+| `FORTEMI_QUOTA_REQUESTS` | Integer | `600` | Hosted authenticated request limit per fixed window and identity tuple. Must be `1..1000000`. This preview is not a tenant plan or billing limit. |
+| `FORTEMI_QUOTA_WINDOW_SECS` | Integer | `60` | Hosted fixed-window duration in seconds. Must be `1..86400`. |
 
 **Example:**
 ```bash
@@ -226,6 +229,22 @@ RATE_LIMIT_ENABLED=true
 RATE_LIMIT_REQUESTS=1000
 RATE_LIMIT_PERIOD_SECS=60
 ```
+
+Hosted multi-tenant mode ignores the process-local limiter for authenticated
+non-exempt API routes and requires shared Redis admission instead:
+
+```bash
+FORTEMI_MULTI_TENANT=true
+FORTEMI_QUOTA_REDIS_URL=redis://quota.internal:6379/0
+FORTEMI_QUOTA_REQUESTS=600
+FORTEMI_QUOTA_WINDOW_SECS=60
+```
+
+The Redis URL may contain credentials and must be injected through the hosted
+secret-management path, not committed to an environment file. Health probes
+are exempt. Public authentication/bootstrap routes, policy-driven dimension
+selection, non-request resources, and administrative quota status remain
+outside this preview; see ADR-098 and #714.
 
 ### Logging
 

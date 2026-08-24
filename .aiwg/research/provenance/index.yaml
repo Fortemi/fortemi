@@ -1,7 +1,13 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-24T17:43:03Z"
+  updated_at: "2026-08-24T17:59:19Z"
 records:
+  - entity: "docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md"
+    record: "records/adr-098-request-quota-checkpoint-714.prov.yaml"
+  - entity: "crates/matric-api/src/main.rs"
+    record: "records/matric-api-hosted-request-quota-714.prov.yaml"
+  - entity: "crates/matric-api/src/services/quota.rs"
+    record: "records/matric-api-redis-request-quota-714.prov.yaml"
   - entity: ".aiwg/architecture/api-compatibility-discovery-contract-2026-07.md"
     record: "records/api-compatibility-hosted-auth-kms-728-734.prov.yaml"
   - entity: "crates/matric-api/src/main.rs"

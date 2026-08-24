@@ -49,6 +49,9 @@ use uuid::Uuid;
 
 #[cfg(feature = "hosted-auth")]
 use matric_api::hosted_auth::{build_clerk_authenticator, HostedAuthConfig, HostedAuthenticator};
+use matric_api::services::{
+    RedisRequestQuotaGate, RequestQuotaDecision, RequestQuotaIdentity, RequestQuotaPolicy,
+};
 use matric_core::{
     AllowAllPolicy, ArchiveRepository, AttachmentScanStatus, AttachmentStatus, AuditEvent,
     AuditFailurePolicy, AuditOutcome, AuditSeverity, AuditSink, AuditSource, AuditVisibilityClass,
@@ -1116,6 +1119,8 @@ struct AppState {
     issuer: String,
     /// Global rate limiter (None if rate limiting is disabled).
     rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    /// Shared atomic request admission required by hosted multi-instance mode.
+    hosted_quota: Option<Arc<RedisRequestQuotaGate>>,
     /// Tag resolver for strict filter resolution.
     tag_resolver: TagResolver,
     /// Redis search cache (reduces latency for repeated queries).
@@ -2679,6 +2684,41 @@ async fn key_provider_for_mode(multi_tenant: bool) -> anyhow::Result<Option<Arc<
     }
 }
 
+async fn request_quota_for_mode(
+    multi_tenant: bool,
+) -> anyhow::Result<Option<Arc<RedisRequestQuotaGate>>> {
+    if !multi_tenant {
+        return Ok(None);
+    }
+
+    let redis_url = std::env::var("FORTEMI_QUOTA_REDIS_URL").map_err(|_| {
+        anyhow::anyhow!("FORTEMI_MULTI_TENANT=true requires FORTEMI_QUOTA_REDIS_URL")
+    })?;
+    let limit = std::env::var("FORTEMI_QUOTA_REQUESTS")
+        .unwrap_or_else(|_| "600".to_string())
+        .parse::<u64>()
+        .map_err(|_| anyhow::anyhow!("FORTEMI_QUOTA_REQUESTS must be a positive integer"))?;
+    let window_secs = std::env::var("FORTEMI_QUOTA_WINDOW_SECS")
+        .unwrap_or_else(|_| "60".to_string())
+        .parse::<u64>()
+        .map_err(|_| anyhow::anyhow!("FORTEMI_QUOTA_WINDOW_SECS must be a positive integer"))?;
+    let policy = RequestQuotaPolicy {
+        id: "hosted-api".to_string(),
+        version: 1,
+        limit,
+        window: std::time::Duration::from_secs(window_secs),
+    };
+    policy.validate().map_err(|_| {
+        anyhow::anyhow!(
+            "FORTEMI_QUOTA_REQUESTS must be 1..1000000 and FORTEMI_QUOTA_WINDOW_SECS must be 1..86400"
+        )
+    })?;
+    let gate = RedisRequestQuotaGate::connect(&redis_url, policy)
+        .await
+        .map_err(|_| anyhow::anyhow!("hosted quota state is unavailable"))?;
+    Ok(Some(Arc::new(gate)))
+}
+
 fn startup_log_format_class(log_format: &str) -> &'static str {
     match log_format {
         "json" => "json",
@@ -3174,6 +3214,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let audit_sink = audit_sink_for_mode(&db, security_config.multi_tenant).await?;
     let key_provider = key_provider_for_mode(security_config.multi_tenant).await?;
+    let hosted_quota = request_quota_for_mode(security_config.multi_tenant).await?;
 
     #[cfg(feature = "hosted-auth")]
     let hosted_auth = if security_config.multi_tenant {
@@ -3976,6 +4017,7 @@ async fn main() -> anyhow::Result<()> {
         search,
         issuer,
         rate_limiter,
+        hosted_quota,
         tag_resolver,
         search_cache,
         chat_stream_store,
@@ -8466,13 +8508,133 @@ async fn rate_limit_middleware(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    if !is_orchestrator_probe_path(request.uri().path()) {
-        if let Some(response) = current_rate_limit_rejection(state.rate_limiter.as_deref()) {
-            tracing::warn!("Rate limit exceeded");
-            return response;
-        }
+    let path = request.uri().path();
+    if is_orchestrator_probe_path(path) {
+        return next.run(request).await;
+    }
+
+    if state.multi_tenant && !is_auth_exempt(request.method(), path) {
+        return hosted_quota_response(&state, request, next).await;
+    }
+
+    if let Some(response) = current_rate_limit_rejection(state.rate_limiter.as_deref()) {
+        tracing::warn!("Rate limit exceeded");
+        return response;
     }
     next.run(request).await
+}
+
+async fn hosted_quota_response(
+    state: &AppState,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let Some(gate) = state.hosted_quota.as_ref() else {
+        return quota_unavailable_response();
+    };
+    let Some(tenant) = request.extensions().get::<VerifiedRequestTenant>().copied() else {
+        return quota_unavailable_response();
+    };
+    let Some(auth) = request.extensions().get::<Auth>() else {
+        return quota_unavailable_response();
+    };
+    let Some((principal, client)) = quota_principal_parts(&auth.principal) else {
+        return quota_unavailable_response();
+    };
+    let route_class = route_policy::route_policy_for_path(request.uri().path())
+        .map(|policy| usage_route_class_label(policy.class))
+        .unwrap_or("unclassified");
+    let tenant = tenant.tenant_id().to_string();
+    let decision = gate
+        .admit(&RequestQuotaIdentity {
+            tenant: &tenant,
+            principal: &principal,
+            client: &client,
+            route_class,
+        })
+        .await;
+
+    match decision {
+        Ok(decision) if decision.allowed => {
+            let mut response = next.run(request).await;
+            append_quota_headers(&mut response, &decision);
+            response
+        }
+        Ok(decision) => quota_rejection_response(&decision),
+        Err(_) => quota_unavailable_response(),
+    }
+}
+
+fn quota_principal_parts(principal: &AuthPrincipal) -> Option<(String, String)> {
+    match principal {
+        AuthPrincipal::OAuthClient {
+            client_id, user_id, ..
+        } => Some((
+            user_id.clone().unwrap_or_else(|| client_id.clone()),
+            client_id.clone(),
+        )),
+        AuthPrincipal::ApiKey { key_id, .. } => {
+            let identity = format!("api-key:{key_id}");
+            Some((identity.clone(), identity))
+        }
+        AuthPrincipal::Anonymous => None,
+    }
+}
+
+fn quota_unavailable_response() -> axum::response::Response {
+    let mut response = problem_response(
+        StatusCode::SERVICE_UNAVAILABLE,
+        ProblemType::ServiceUnavailable,
+        "Request quota state is temporarily unavailable.".to_string(),
+        None,
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+fn quota_rejection_response(decision: &RequestQuotaDecision) -> axum::response::Response {
+    let mut response = problem_response(
+        StatusCode::TOO_MANY_REQUESTS,
+        ProblemType::RateLimit,
+        "The request quota is exhausted.".to_string(),
+        None,
+    );
+    response.headers_mut().insert(
+        header::RETRY_AFTER,
+        HeaderValue::from_str(&retry_after_delay_seconds(decision.retry_after).to_string())
+            .expect("bounded Retry-After must be valid"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    append_quota_headers(&mut response, decision);
+    response
+}
+
+fn append_quota_headers(response: &mut axum::response::Response, decision: &RequestQuotaDecision) {
+    let visible_limit = decision.limit.min(10_000);
+    let visible_remaining = decision.remaining.min(visible_limit);
+    let window = decision.window.as_secs().max(1);
+    let reset = retry_after_delay_seconds(decision.retry_after);
+    let policy = format!(
+        "\"{}\";q={visible_limit};w={window};v={}",
+        decision.policy_id, decision.policy_version
+    );
+    let state = format!("\"{}\";r={visible_remaining};t={reset}", decision.policy_id);
+    if let (Ok(policy), Ok(state)) = (
+        HeaderValue::from_str(&policy),
+        HeaderValue::from_str(&state),
+    ) {
+        response.headers_mut().insert(
+            axum::http::HeaderName::from_static("ratelimit-policy"),
+            policy,
+        );
+        response
+            .headers_mut()
+            .insert(axum::http::HeaderName::from_static("ratelimit"), state);
+    }
 }
 
 fn is_orchestrator_probe_path(path: &str) -> bool {
@@ -43094,6 +43256,46 @@ mod tests {
     #[tokio::test]
     async fn community_mode_does_not_initialize_a_key_provider() {
         assert!(key_provider_for_mode(false).await.unwrap().is_none());
+        assert!(request_quota_for_mode(false).await.unwrap().is_none());
+    }
+
+    #[test]
+    fn hosted_quota_headers_are_bounded_and_do_not_expose_identity() {
+        let decision = RequestQuotaDecision {
+            allowed: false,
+            remaining: 75_000,
+            retry_after: std::time::Duration::from_millis(1_250),
+            policy_id: "hosted-api".to_string(),
+            policy_version: 1,
+            limit: 100_000,
+            window: std::time::Duration::from_secs(60),
+        };
+        let response = quota_rejection_response(&decision);
+
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers()[header::RETRY_AFTER], "2");
+        assert_eq!(
+            response.headers()["ratelimit-policy"],
+            "\"hosted-api\";q=10000;w=60;v=1"
+        );
+        assert_eq!(
+            response.headers()["ratelimit"],
+            "\"hosted-api\";r=10000;t=2"
+        );
+        let rendered = format!("{:?}", response.headers());
+        assert!(!rendered.contains("tenant"));
+        assert!(!rendered.contains("principal"));
+    }
+
+    #[test]
+    fn hosted_quota_store_failure_is_fail_closed_and_not_cacheable() {
+        let response = quota_unavailable_response();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(!response.headers().contains_key(header::RETRY_AFTER));
+        assert!(!response.headers().contains_key("ratelimit"));
+        assert!(!response.headers().contains_key("ratelimit-policy"));
     }
 
     #[test]
@@ -59101,6 +59303,7 @@ not-json
             search: Arc::new(matric_search::HybridSearchEngine::new(db.clone())),
             issuer: "http://localhost:3000".to_string(),
             rate_limiter: None,
+            hosted_quota: None,
             tag_resolver: matric_api::services::TagResolver::new(db.clone()),
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus: Arc::new(EventBus::new(matric_core::defaults::EVENT_BUS_CAPACITY)),
@@ -64469,6 +64672,7 @@ not-json
             )),
             issuer: "http://localhost:3000".to_string(),
             rate_limiter: None,
+            hosted_quota: None,
             tag_resolver: matric_api::services::TagResolver::new(
                 Database::connect(&database_url).await.unwrap(),
             ),
@@ -66260,6 +66464,7 @@ not-json
             )),
             issuer: "http://localhost:3000".to_string(),
             rate_limiter: None,
+            hosted_quota: None,
             tag_resolver: matric_api::services::TagResolver::new(
                 Database::connect(&database_url).await.unwrap(),
             ),
@@ -66604,6 +66809,7 @@ not-json
             ))),
             issuer: "http://localhost:3000".to_string(),
             rate_limiter: None,
+            hosted_quota: None,
             tag_resolver: matric_api::services::TagResolver::new(Database::new(pool.clone())),
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus,
