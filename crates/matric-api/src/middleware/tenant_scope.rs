@@ -39,6 +39,11 @@ pub struct VerifiedRequestTenant(Uuid);
 #[derive(Clone, Copy, Debug)]
 pub struct TenantScopeRequired;
 
+/// Marks a streaming response whose handler completed all tenant-scoped DB
+/// work before returning the body.
+#[derive(Clone, Copy, Debug)]
+pub struct TenantScopeReleasedBeforeStreaming;
+
 impl VerifiedRequestTenant {
     /// Mark an already authenticated and admitted tenant as verified.
     pub fn from_verified(tenant_id: Uuid) -> Result<Self> {
@@ -217,7 +222,15 @@ fn response_disposition(response: &Response) -> ResponseDisposition {
         || response.headers().contains_key(header::UPGRADE);
     let has_fixed_body = response.body().size_hint().exact().is_some();
 
-    if is_upgrade || (response.status().is_success() && (content_type_is_stream || !has_fixed_body))
+    let released_before_streaming = response
+        .extensions()
+        .get::<TenantScopeReleasedBeforeStreaming>()
+        .is_some();
+
+    if response.status().is_success() && content_type_is_stream && released_before_streaming {
+        ResponseDisposition::Finish(FinishAction::Commit)
+    } else if is_upgrade
+        || (response.status().is_success() && (content_type_is_stream || !has_fixed_body))
     {
         ResponseDisposition::RejectStreaming
     } else if response.status().is_success() {
@@ -502,6 +515,26 @@ mod tests {
             tenant: verified_tenant(),
             commands,
         }
+    }
+
+    #[test]
+    fn explicitly_released_stream_commits_before_body_delivery() {
+        let mut response = (
+            [(header::CONTENT_TYPE, "text/event-stream")],
+            Body::from("data: ready\n\n"),
+        )
+            .into_response();
+        assert_eq!(
+            response_disposition(&response),
+            ResponseDisposition::RejectStreaming
+        );
+        response
+            .extensions_mut()
+            .insert(TenantScopeReleasedBeforeStreaming);
+        assert_eq!(
+            response_disposition(&response),
+            ResponseDisposition::Finish(FinishAction::Commit)
+        );
     }
 
     async fn require_tenant_scope(mut request: Request, next: Next) -> Response {

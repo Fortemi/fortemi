@@ -1,0 +1,64 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T21:00:27Z"
+  updated_at: "2026-08-24T21:12:17Z"
+  description: "Provenance for hosted stored-secret inference handlers"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+  type: code
+  checksum: "sha256:c843bf588af75d68c876e72511e6c7896f6e02ef6e1f2625bd47c0b6b2281c8e"
+  size_bytes: 67482
+  attributes:
+    change_scope: "fortemi-731-hosted-stored-inference"
+    readiness_claim: "internal-enterprise-preview"
+activity:
+  id: "urn:aiwg:activity:implementation:fortemi-731:stored-inference-handlers"
+  type: modification
+  started_at: "2026-08-24T19:45:00Z"
+  ended_at: "2026-08-24T21:12:17Z"
+  description: "Implement stored-secret generation, streaming, embedding, discovery, audit, metering, and key-use updates"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+    activity: "urn:aiwg:activity:implementation:fortemi-731:stored-inference-handlers"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:731"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:implementation:fortemi-731:stored-inference-handlers"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:710"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:implementation:fortemi-731:stored-inference-handlers"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:711"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:implementation:fortemi-731:stored-inference-handlers"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:714"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:implementation:fortemi-731:stored-inference-handlers"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:730"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:implementation:fortemi-731:stored-inference-handlers"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:734"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:implementation:fortemi-731:stored-inference-handlers"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:920"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:implementation:fortemi-731:stored-inference-handlers"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:implementation:fortemi-731:stored-inference-handlers"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "software_implementer"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

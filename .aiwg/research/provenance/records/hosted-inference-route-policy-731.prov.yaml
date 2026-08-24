@@ -1,0 +1,9 @@
+metadata: { schema_version: "1.0.0", created_at: "2026-08-24T21:00:27Z", updated_at: "2026-08-24T21:07:19Z", description: "Provenance for hosted inference authorization inventory" }
+entity: { id: "urn:aiwg:artifact:crates/matric-api/src/route_policy.rs", type: code, checksum: "sha256:2e0e28b3dc5b041b58be65c0281a7862b7df217133605bff15e7941652f4343c", size_bytes: 58321, attributes: { change_scope: "fortemi-731-route-policy" } }
+activity: { id: "urn:aiwg:activity:implementation:fortemi-731:route-policy", type: modification, started_at: "2026-08-24T19:45:00Z", ended_at: "2026-08-24T21:07:19Z", description: "Classify hosted embedding and catalog routes with hidden no-store/private authorization policy" }
+agent: { id: "urn:aiwg:agent:codex-gpt-5", type: ai_assistant, name: "Codex", version: "gpt-5" }
+relationships:
+  wasGeneratedBy: { entity: "urn:aiwg:artifact:crates/matric-api/src/route_policy.rs", activity: "urn:aiwg:activity:implementation:fortemi-731:route-policy" }
+  wasDerivedFrom: [{ entity: "urn:aiwg:artifact:crates/matric-api/src/route_policy.rs", source: "urn:gitea:Fortemi/fortemi:issue:731", derivation_type: implements, activity: "urn:aiwg:activity:implementation:fortemi-731:route-policy" }, { entity: "urn:aiwg:artifact:crates/matric-api/src/route_policy.rs", source: "urn:gitea:Fortemi/fortemi:issue:710", derivation_type: depends, activity: "urn:aiwg:activity:implementation:fortemi-731:route-policy" }]
+  wasAssociatedWith: { activity: "urn:aiwg:activity:implementation:fortemi-731:route-policy", agent: "urn:aiwg:agent:codex-gpt-5", role: "security_implementer" }
+  wasAttributedTo: { entity: "urn:aiwg:artifact:crates/matric-api/src/route_policy.rs", agent: "urn:aiwg:agent:codex-gpt-5" }

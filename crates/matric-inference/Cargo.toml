@@ -19,6 +19,7 @@ reqwest = { workspace = true, features = ["stream", "multipart"] }
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
+zeroize = { version = "1", features = ["derive"] }
 
 # Error handling
 thiserror.workspace = true

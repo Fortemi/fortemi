@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use std::{fmt, time::Duration};
 use tracing::{debug, info, warn};
+use zeroize::Zeroize;
 
 use crate::diagnostics::{backend_parse_error, backend_request_error, backend_status_error};
 use matric_core::{EmbeddingBackend, Error, GenerationBackend, InferenceBackend, Result, Vector};
@@ -54,7 +55,6 @@ impl fmt::Debug for OpenAIConfig {
         f.debug_struct("OpenAIConfig")
             .field("base_url_len", &self.base_url.len())
             .field("api_key_present", &self.api_key.is_some())
-            .field("api_key_len", &self.api_key.as_ref().map(String::len))
             .field("embed_model_len", &self.embed_model.len())
             .field("gen_model_len", &self.gen_model.len())
             .field("embed_dimension", &self.embed_dimension)
@@ -89,6 +89,14 @@ impl Default for OpenAIConfig {
 pub struct OpenAIBackend {
     client: Client,
     config: OpenAIConfig,
+}
+
+impl Drop for OpenAIBackend {
+    fn drop(&mut self) {
+        if let Some(api_key) = &mut self.config.api_key {
+            api_key.zeroize();
+        }
+    }
 }
 
 impl OpenAIBackend {
@@ -719,7 +727,7 @@ mod tests {
         assert!(debug.contains("OpenAIConfig"));
         assert!(debug.contains("base_url_len"));
         assert!(debug.contains("api_key_present"));
-        assert!(debug.contains("api_key_len"));
+        assert!(!debug.contains("api_key_len"));
         assert!(debug.contains("embed_model_len"));
         assert!(debug.contains("gen_model_len"));
         assert!(debug.contains("http_referer_len"));

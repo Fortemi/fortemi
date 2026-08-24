@@ -1,0 +1,9 @@
+metadata: { schema_version: "1.0.0", created_at: "2026-08-24T21:00:27Z", updated_at: "2026-08-24T21:00:27Z", description: "Provenance for provider-key drop zeroization" }
+entity: { id: "urn:aiwg:artifact:crates/matric-inference/src/openai/backend.rs", type: code, checksum: "sha256:7eaef1329d3f33e5afd0b489765dbef99f6856f4ea0ec21013cc9292f566d84a", size_bytes: 26306, attributes: { change_scope: "fortemi-731-provider-key-zeroize" } }
+activity: { id: "urn:aiwg:activity:implementation:fortemi-731:key-zeroize", type: modification, started_at: "2026-08-24T19:45:00Z", ended_at: "2026-08-24T21:00:27Z", description: "Zeroize the OpenAI-compatible backend credential when the request backend drops" }
+agent: { id: "urn:aiwg:agent:codex-gpt-5", type: ai_assistant, name: "Codex", version: "gpt-5" }
+relationships:
+  wasGeneratedBy: { entity: "urn:aiwg:artifact:crates/matric-inference/src/openai/backend.rs", activity: "urn:aiwg:activity:implementation:fortemi-731:key-zeroize" }
+  wasDerivedFrom: [{ entity: "urn:aiwg:artifact:crates/matric-inference/src/openai/backend.rs", source: "urn:gitea:Fortemi/fortemi:issue:731", derivation_type: implements, activity: "urn:aiwg:activity:implementation:fortemi-731:key-zeroize" }, { entity: "urn:aiwg:artifact:crates/matric-inference/src/openai/backend.rs", source: "urn:gitea:Fortemi/fortemi:issue:734", derivation_type: depends, activity: "urn:aiwg:activity:implementation:fortemi-731:key-zeroize" }]
+  wasAssociatedWith: { activity: "urn:aiwg:activity:implementation:fortemi-731:key-zeroize", agent: "urn:aiwg:agent:codex-gpt-5", role: "security_implementer" }
+  wasAttributedTo: { entity: "urn:aiwg:artifact:crates/matric-inference/src/openai/backend.rs", agent: "urn:aiwg:agent:codex-gpt-5" }

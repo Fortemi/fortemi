@@ -819,6 +819,13 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         NoStore,
     ),
     r(
+        "/api/v1/inference/catalog",
+        AuthenticatedRead,
+        "ai_execution",
+        Hidden,
+        PrivateUserData,
+    ),
+    r(
         "/api/v1/inference/config",
         AdminOperator,
         "model_config",
@@ -830,6 +837,13 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         AdminOperator,
         "model_config",
         Operator,
+        NoStore,
+    ),
+    r(
+        "/api/v1/inference/embed",
+        AuthenticatedWrite,
+        "ai_execution",
+        Hidden,
         NoStore,
     ),
     r(

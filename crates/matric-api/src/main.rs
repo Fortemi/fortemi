@@ -80,7 +80,8 @@ use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
 };
 use middleware::tenant_scope::{
-    tenant_scope_middleware, TenantRequestScope, TenantScopeRequired, VerifiedRequestTenant,
+    tenant_scope_middleware, TenantRequestScope, TenantScopeReleasedBeforeStreaming,
+    TenantScopeRequired, VerifiedRequestTenant,
 };
 use oauth_profile::{active_oauth_capabilities, is_allowed_oauth_scope};
 use tokio::sync::RwLock;
@@ -89,6 +90,14 @@ use trusted_proxy::{ExternalRequestContext, SocketPeer, TrustedProxyConfig};
 #[cfg(feature = "hosted-auth")]
 fn hosted_user_secret_routes() -> Router<AppState> {
     Router::new()
+        .route(
+            "/api/v1/inference/embed",
+            post(handlers::inference_complete::embed_stored),
+        )
+        .route(
+            "/api/v1/inference/catalog",
+            get(handlers::inference_complete::list_hosted_catalog),
+        )
         .route(
             "/api/v1/user/secrets",
             post(handlers::user_secrets::create_user_secret)
@@ -4312,9 +4321,8 @@ async fn main() -> anyhow::Result<()> {
         )
         // Inference connection testing (Issue #570)
         .route("/api/v1/inference/test-connection", post(test_connection))
-        // Provider-agnostic chat completion (Issue #628) — stateless;
-        // accepts optional per-request {provider_id, api_key, base_url}
-        // accepts optional per-request BYOK credentials from downstream clients
+        // Provider-agnostic chat completion. Community Edition accepts
+        // transient BYOK; hosted mode requires caller-owned stored secrets.
         .route(
             "/api/v1/inference/complete",
             post(inference_complete_handler),

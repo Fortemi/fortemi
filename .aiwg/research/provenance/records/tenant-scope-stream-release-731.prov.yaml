@@ -1,0 +1,9 @@
+metadata: { schema_version: "1.0.0", created_at: "2026-08-24T21:00:27Z", updated_at: "2026-08-24T21:00:27Z", description: "Provenance for explicit tenant transaction release before SSE delivery" }
+entity: { id: "urn:aiwg:artifact:crates/matric-api/src/middleware/tenant_scope.rs", type: code, checksum: "sha256:e5b175154ed111d8621ab35b98b122acd08730b91548de85bff947b3a0ce218c", size_bytes: 28967, attributes: { change_scope: "fortemi-731-stream-tenant-scope" } }
+activity: { id: "urn:aiwg:activity:implementation:fortemi-731:stream-tenant-release", type: modification, started_at: "2026-08-24T19:45:00Z", ended_at: "2026-08-24T21:00:27Z", description: "Commit verified tenant scope before marked SSE body delivery" }
+agent: { id: "urn:aiwg:agent:codex-gpt-5", type: ai_assistant, name: "Codex", version: "gpt-5" }
+relationships:
+  wasGeneratedBy: { entity: "urn:aiwg:artifact:crates/matric-api/src/middleware/tenant_scope.rs", activity: "urn:aiwg:activity:implementation:fortemi-731:stream-tenant-release" }
+  wasDerivedFrom: [{ entity: "urn:aiwg:artifact:crates/matric-api/src/middleware/tenant_scope.rs", source: "urn:gitea:Fortemi/fortemi:issue:731", derivation_type: implements, activity: "urn:aiwg:activity:implementation:fortemi-731:stream-tenant-release" }, { entity: "urn:aiwg:artifact:crates/matric-api/src/middleware/tenant_scope.rs", source: "urn:gitea:Fortemi/fortemi:issue:728", derivation_type: depends, activity: "urn:aiwg:activity:implementation:fortemi-731:stream-tenant-release" }]
+  wasAssociatedWith: { activity: "urn:aiwg:activity:implementation:fortemi-731:stream-tenant-release", agent: "urn:aiwg:agent:codex-gpt-5", role: "software_implementer" }
+  wasAttributedTo: { entity: "urn:aiwg:artifact:crates/matric-api/src/middleware/tenant_scope.rs", agent: "urn:aiwg:agent:codex-gpt-5" }

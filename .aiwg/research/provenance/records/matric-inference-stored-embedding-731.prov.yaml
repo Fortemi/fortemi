@@ -1,0 +1,9 @@
+metadata: { schema_version: "1.0.0", created_at: "2026-08-24T21:00:27Z", updated_at: "2026-08-24T21:00:27Z", description: "Provenance for approved-client transient embedding resolution" }
+entity: { id: "urn:aiwg:artifact:crates/matric-inference/src/provider.rs", type: code, checksum: "sha256:113c7fc50c842f54c6e361386a522a3cfdbaefbc3a2a7fa929201f2178f0adcb", size_bytes: 71395, attributes: { change_scope: "fortemi-731-stored-embedding-provider" } }
+activity: { id: "urn:aiwg:activity:implementation:fortemi-731:embedding-provider", type: modification, started_at: "2026-08-24T19:45:00Z", ended_at: "2026-08-24T21:00:27Z", description: "Resolve embedding backends using a pre-authorized pinned HTTP client and transient credential" }
+agent: { id: "urn:aiwg:agent:codex-gpt-5", type: ai_assistant, name: "Codex", version: "gpt-5" }
+relationships:
+  wasGeneratedBy: { entity: "urn:aiwg:artifact:crates/matric-inference/src/provider.rs", activity: "urn:aiwg:activity:implementation:fortemi-731:embedding-provider" }
+  wasDerivedFrom: [{ entity: "urn:aiwg:artifact:crates/matric-inference/src/provider.rs", source: "urn:gitea:Fortemi/fortemi:issue:731", derivation_type: implements, activity: "urn:aiwg:activity:implementation:fortemi-731:embedding-provider" }, { entity: "urn:aiwg:artifact:crates/matric-inference/src/provider.rs", source: "urn:gitea:Fortemi/fortemi:issue:920", derivation_type: depends, activity: "urn:aiwg:activity:implementation:fortemi-731:embedding-provider" }]
+  wasAssociatedWith: { activity: "urn:aiwg:activity:implementation:fortemi-731:embedding-provider", agent: "urn:aiwg:agent:codex-gpt-5", role: "software_implementer" }
+  wasAttributedTo: { entity: "urn:aiwg:artifact:crates/matric-inference/src/provider.rs", agent: "urn:aiwg:agent:codex-gpt-5" }

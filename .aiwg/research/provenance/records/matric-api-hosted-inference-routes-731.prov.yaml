@@ -1,0 +1,9 @@
+metadata: { schema_version: "1.0.0", created_at: "2026-08-24T21:00:27Z", updated_at: "2026-08-24T21:07:19Z", description: "Provenance for hosted inference route assembly" }
+entity: { id: "urn:aiwg:artifact:crates/matric-api/src/main.rs", type: code, checksum: "sha256:322eea5ce4cbb7b693b08d668bf5bdd30ac031ce93ee036d7abdb725650c6921", size_bytes: 2730329, attributes: { change_scope: "fortemi-731-hosted-route-assembly" } }
+activity: { id: "urn:aiwg:activity:implementation:fortemi-731:hosted-routes", type: modification, started_at: "2026-08-24T19:45:00Z", ended_at: "2026-08-24T21:07:19Z", description: "Compile the stored-secret embedding and catalog routes only into hosted-auth builds" }
+agent: { id: "urn:aiwg:agent:codex-gpt-5", type: ai_assistant, name: "Codex", version: "gpt-5" }
+relationships:
+  wasGeneratedBy: { entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs", activity: "urn:aiwg:activity:implementation:fortemi-731:hosted-routes" }
+  wasDerivedFrom: [{ entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs", source: "urn:gitea:Fortemi/fortemi:issue:731", derivation_type: implements, activity: "urn:aiwg:activity:implementation:fortemi-731:hosted-routes" }]
+  wasAssociatedWith: { activity: "urn:aiwg:activity:implementation:fortemi-731:hosted-routes", agent: "urn:aiwg:agent:codex-gpt-5", role: "software_implementer" }
+  wasAttributedTo: { entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs", agent: "urn:aiwg:agent:codex-gpt-5" }

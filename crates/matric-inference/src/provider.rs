@@ -538,6 +538,77 @@ impl ProviderRegistry {
             .map(|resolved| resolved.backend)
     }
 
+    /// Resolve a transient embedding backend with a policy-approved HTTP client.
+    ///
+    /// The caller must authorize and pin `base_url` before calling this method.
+    /// Credentials are copied only into the short-lived backend configuration and
+    /// are zeroized when the backend is dropped.
+    pub fn resolve_embedding_inline_approved(
+        &self,
+        provider_id: &str,
+        api_key: Option<&str>,
+        base_url: &str,
+        model: &str,
+        dimension: usize,
+        client: reqwest::Client,
+    ) -> Result<Box<dyn EmbeddingBackend>> {
+        if model.trim().is_empty() {
+            return Err(Error::Config(
+                "Embedding model must not be empty".to_string(),
+            ));
+        }
+        if dimension == 0 {
+            return Err(Error::Config(
+                "Embedding dimension must be greater than zero".to_string(),
+            ));
+        }
+        let profile = crate::provider_profiles::lookup(provider_id)
+            .ok_or_else(|| Error::Config(format!("Unknown provider: {provider_id}")))?;
+        if !profile.supports(ProviderCapability::Embedding) {
+            return Err(Error::Config(format!(
+                "Provider '{provider_id}' does not support embeddings"
+            )));
+        }
+        let registered = self.providers.get(provider_id);
+
+        match provider_id {
+            #[cfg(feature = "ollama")]
+            "ollama" => {
+                let generation_model = std::env::var("OLLAMA_GEN_MODEL")
+                    .unwrap_or_else(|_| matric_core::defaults::GEN_MODEL.to_string());
+                let mut backend = crate::OllamaBackend::with_config(
+                    base_url.to_string(),
+                    model.to_string(),
+                    generation_model,
+                    dimension,
+                );
+                backend.set_http_client(client);
+                Ok(Box::new(backend))
+            }
+            #[cfg(feature = "openai")]
+            "openai" | "openrouter" | "llamacpp" => {
+                let config = crate::OpenAIConfig {
+                    base_url: base_url.to_string(),
+                    api_key: api_key.map(str::to_string),
+                    embed_model: model.to_string(),
+                    embed_dimension: dimension,
+                    timeout_seconds: registered
+                        .map(|provider| provider.timeout.as_secs())
+                        .unwrap_or(profile.default_timeout_secs),
+                    http_referer: registered.and_then(|provider| provider.http_referer.clone()),
+                    x_title: registered.and_then(|provider| provider.x_title.clone()),
+                    ..Default::default()
+                };
+                Ok(Box::new(crate::OpenAIBackend::new_with_client(
+                    config, client,
+                )?))
+            }
+            _ => Err(Error::Config(format!(
+                "Provider '{provider_id}' not compiled in (check feature flags)"
+            ))),
+        }
+    }
+
     /// Resolve an explicit embedding contract through registry-owned credentials.
     pub fn resolve_embedding_contract_boxed(
         &self,
@@ -1610,6 +1681,39 @@ mod tests {
             reg.get_provider("openai").unwrap().api_key,
             Some("sk-test-key".to_string())
         );
+    }
+
+    #[cfg(feature = "openai")]
+    #[test]
+    fn resolve_approved_inline_embedding_enforces_profile_capability_and_contract() {
+        let registry = test_registry();
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .build()
+            .unwrap();
+        let backend = registry
+            .resolve_embedding_inline_approved(
+                "openai",
+                Some("sk-transient-test-key"),
+                "https://api.openai.com/v1",
+                "text-embedding-3-small",
+                1536,
+                client.clone(),
+            )
+            .unwrap();
+        assert_eq!(backend.model_name(), "text-embedding-3-small");
+        assert_eq!(backend.dimension(), 1536);
+
+        let rejected = registry.resolve_embedding_inline_approved(
+            "openrouter",
+            Some("sk-transient-test-key"),
+            "https://openrouter.ai/api/v1",
+            "caller-model",
+            1536,
+            client,
+        );
+        assert!(matches!(rejected, Err(Error::Config(_))));
     }
 
     #[test]
