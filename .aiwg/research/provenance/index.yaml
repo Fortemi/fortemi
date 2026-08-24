@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-24T17:17:53Z"
+  updated_at: "2026-08-24T17:25:31Z"
 records:
+  - entity: "crates/matric-api/src/main.rs"
+    record: "records/matric-api-durable-authz-audit-711.prov.yaml"
   - entity: ".aiwg/architecture/tenant-table-inventory-2026-08.md"
     record: "records/tenant-table-inventory-auth-tenancy-726.prov.yaml"
   - entity: ".aiwg/security/multi-tenant-threat-model.md"

@@ -66,8 +66,9 @@ use matric_core::{
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_db::{
     assert_hosted_runtime_role, Database, FileSource, FilesystemBackend, PoolConfig,
-    ShardImportJournal, ShardImportJournalLease, SkosCollectionRepository, SkosConceptRepository,
-    SkosConceptSchemeRepository, StagedShardBlob, StagedShardBlobPromotion, StorageBackend,
+    PostgresAuditSink, ShardImportJournal, ShardImportJournalLease, SkosCollectionRepository,
+    SkosConceptRepository, SkosConceptSchemeRepository, StagedShardBlob, StagedShardBlobPromotion,
+    StorageBackend,
 };
 use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
@@ -1144,6 +1145,8 @@ struct AppState {
     authorization_policy: Arc<dyn AuthorizationPolicy>,
     /// Runtime-selected recorder. CE defaults to `NoOpMeter`; durable mode is startup-required.
     usage_meter: Arc<dyn UsageMeter>,
+    /// Runtime-selected audit sink. Hosted mode requires durable PostgreSQL storage.
+    audit_sink: Arc<dyn AuditSink>,
     /// OAuth access token lifetime (standard clients).
     oauth_token_lifetime: chrono::Duration,
     /// OAuth access token lifetime (MCP clients).
@@ -2625,6 +2628,21 @@ fn authorization_policy_for_mode(multi_tenant: bool) -> Arc<dyn AuthorizationPol
     }
 }
 
+async fn audit_sink_for_mode(
+    db: &Database,
+    multi_tenant: bool,
+) -> anyhow::Result<Arc<dyn AuditSink>> {
+    if !multi_tenant {
+        return Ok(Arc::new(TracingSink));
+    }
+
+    let sink = PostgresAuditSink::new(db.pool.clone());
+    sink.check_health()
+        .await
+        .map_err(|_| anyhow::anyhow!("durable hosted audit sink is unavailable during startup"))?;
+    Ok(Arc::new(sink))
+}
+
 fn startup_log_format_class(log_format: &str) -> &'static str {
     match log_format {
         "json" => "json",
@@ -3118,6 +3136,7 @@ async fn main() -> anyhow::Result<()> {
     if security_config.multi_tenant {
         assert_hosted_runtime_role(&db.pool).await?;
     }
+    let audit_sink = audit_sink_for_mode(&db, security_config.multi_tenant).await?;
 
     #[cfg(feature = "hosted-auth")]
     let hosted_auth = if security_config.multi_tenant {
@@ -3941,6 +3960,7 @@ async fn main() -> anyhow::Result<()> {
         call_recording_require_confirmation: security_config.call_recording_require_confirmation,
         authorization_policy: authorization_policy_for_mode(security_config.multi_tenant),
         usage_meter,
+        audit_sink,
         oauth_token_lifetime,
         oauth_mcp_token_lifetime,
         max_memories: std::env::var("MAX_MEMORIES")
@@ -6053,9 +6073,14 @@ async fn sse_events(
         if let Some(input) =
             route_policy::authorization_input_for_request(&Method::GET, "/api/v1/events", None)
         {
-            authorize_policy_input(state.authorization_policy.as_ref(), &auth, &input)
-                .await
-                .map_err(|_| ApiError::Forbidden("SSE stream authorization denied".to_string()))?;
+            authorize_policy_input(
+                state.authorization_policy.as_ref(),
+                state.audit_sink.as_ref(),
+                &auth,
+                &input,
+            )
+            .await
+            .map_err(|_| ApiError::Forbidden("SSE stream authorization denied".to_string()))?;
         }
         if let Some(memory_name) = memory_filter.as_deref() {
             authorize_sse_memory_subscription(&state, &auth, memory_name).await?;
@@ -6316,9 +6341,14 @@ async fn authorize_sse_memory_subscription(
             state.db.archives.get_archive_by_name(&archive_name).await
         })
         .await;
-        authorize_policy_input(state.authorization_policy.as_ref(), auth, &input)
-            .await
-            .map_err(|_| ApiError::Forbidden("SSE memory authorization denied".to_string()))?;
+        authorize_policy_input(
+            state.authorization_policy.as_ref(),
+            state.audit_sink.as_ref(),
+            auth,
+            &input,
+        )
+        .await
+        .map_err(|_| ApiError::Forbidden("SSE memory authorization denied".to_string()))?;
     }
     Ok(())
 }
@@ -8988,9 +9018,15 @@ async fn authorize_middleware(
     let decision = if route_policy::is_operator_docs_route(input.policy.path) {
         // Generated API inventory is operator-only even when personal mode uses
         // AllowAllPolicy for the rest of the application.
-        authorize_policy_input(&RoleBasedPolicy, &auth, &input).await
+        authorize_policy_input(&RoleBasedPolicy, state.audit_sink.as_ref(), &auth, &input).await
     } else {
-        authorize_policy_input(state.authorization_policy.as_ref(), &auth, &input).await
+        authorize_policy_input(
+            state.authorization_policy.as_ref(),
+            state.audit_sink.as_ref(),
+            &auth,
+            &input,
+        )
+        .await
     };
 
     match decision {
@@ -10736,18 +10772,22 @@ where
 
 async fn authorize_policy_input(
     policy: &dyn AuthorizationPolicy,
+    audit_sink: &dyn AuditSink,
     auth: &Auth,
     input: &route_policy::RoutePolicyInput,
 ) -> Result<(), axum::response::Response> {
     if hosted_policy_requires_normalized_resource(policy, input) {
-        emit_auth_decision_audit_event(auth_decision_audit_event(
-            auth,
-            input,
-            AuditOutcome::Denied,
-            Some(DenyReason::InvalidResource),
-            policy.policy_id(),
-            policy.policy_version(),
-        ))
+        let _ = emit_auth_decision_audit_event(
+            audit_sink,
+            auth_decision_audit_event(
+                auth,
+                input,
+                AuditOutcome::Denied,
+                Some(DenyReason::InvalidResource),
+                policy.policy_id(),
+                policy.policy_version(),
+            ),
+        )
         .await;
         tracing::warn!("authorization denied: resource requires backing-store normalization");
         return Err(problem_response(
@@ -10772,15 +10812,27 @@ async fn authorize_policy_input(
             policy_version,
             ..
         }) => {
-            emit_auth_decision_audit_event(auth_decision_audit_event(
-                auth,
-                input,
-                AuditOutcome::Success,
-                None,
-                &policy_id,
-                &policy_version,
-            ))
-            .await;
+            if emit_auth_decision_audit_event(
+                audit_sink,
+                auth_decision_audit_event(
+                    auth,
+                    input,
+                    AuditOutcome::Success,
+                    None,
+                    &policy_id,
+                    &policy_version,
+                ),
+            )
+            .await
+            .is_err()
+            {
+                return Err(problem_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    ProblemType::ServiceUnavailable,
+                    "Authorization audit storage is unavailable.".to_string(),
+                    None,
+                ));
+            }
             Ok(())
         }
         Ok(
@@ -10795,14 +10847,17 @@ async fn authorize_policy_input(
                 policy_version,
             },
         ) => {
-            emit_auth_decision_audit_event(auth_decision_audit_event(
-                auth,
-                input,
-                AuditOutcome::Denied,
-                Some(reason.clone()),
-                &policy_id,
-                &policy_version,
-            ))
+            let _ = emit_auth_decision_audit_event(
+                audit_sink,
+                auth_decision_audit_event(
+                    auth,
+                    input,
+                    AuditOutcome::Denied,
+                    Some(reason.clone()),
+                    &policy_id,
+                    &policy_version,
+                ),
+            )
             .await;
             tracing::warn!(
                 reason_len = telemetry_text_len(&format!("{reason:?}")),
@@ -10816,14 +10871,17 @@ async fn authorize_policy_input(
             ))
         }
         Err(err) => {
-            emit_auth_decision_audit_event(auth_decision_audit_event(
-                auth,
-                input,
-                AuditOutcome::Error,
-                None,
-                policy.policy_id(),
-                policy.policy_version(),
-            ))
+            let _ = emit_auth_decision_audit_event(
+                audit_sink,
+                auth_decision_audit_event(
+                    auth,
+                    input,
+                    AuditOutcome::Error,
+                    None,
+                    policy.policy_id(),
+                    policy.policy_version(),
+                ),
+            )
             .await;
             error!(
                 error_len = telemetry_text_len(&err.to_string()),
@@ -10860,15 +10918,20 @@ fn hosted_policy_requires_normalized_resource(
             .unwrap_or(false)
 }
 
-async fn emit_auth_decision_audit_event(event: AuditEvent) {
-    if let Err(err) = TracingSink.emit(event).await {
+async fn emit_auth_decision_audit_event(
+    audit_sink: &dyn AuditSink,
+    event: AuditEvent,
+) -> Result<(), ()> {
+    if let Err(err) = audit_sink.emit(event).await {
         warn!(
             error_len = telemetry_text_len(&err.to_string()),
             detail = API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL,
             operation = "emit_auth_decision_audit_event",
             "failed to emit authorization decision audit event"
         );
+        return Err(());
     }
+    Ok(())
 }
 
 fn auth_decision_audit_event(
@@ -10885,6 +10948,7 @@ fn auth_decision_audit_event(
         "decision"
     };
     let mut event = AuditEvent::new("auth", action_name, outcome)
+        .with_failure_policy(AuditFailurePolicy::FailClosed)
         .with_principal(auth_principal_audit_id(&auth.principal))
         .with_attr("policy_id", policy_id.to_string())
         .with_attr("policy_version", policy_version.to_string())
@@ -39563,6 +39627,23 @@ mod tests {
     use super::*;
     use tower::ServiceExt;
 
+    struct FailingAuditSink;
+
+    #[async_trait::async_trait]
+    impl AuditSink for FailingAuditSink {
+        async fn emit(&self, _event: AuditEvent) -> Result<(), matric_core::audit::AuditError> {
+            Err(matric_core::audit::AuditError::Sink(
+                "test_sink_unavailable".to_string(),
+            ))
+        }
+
+        async fn flush(&self) -> Result<(), matric_core::audit::AuditError> {
+            Err(matric_core::audit::AuditError::Sink(
+                "test_sink_unavailable".to_string(),
+            ))
+        }
+    }
+
     static SHARD_INTEGRATION_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     const TUS_MEMORY_CHILD_BYTES_ENV: &str = "FORTEMI_TEST_TUS_MEMORY_CHILD_BYTES";
     const TUS_MEMORY_CHILD_RECEIPT_ENV: &str = "FORTEMI_TEST_TUS_MEMORY_CHILD_RECEIPT";
@@ -45784,7 +45865,7 @@ mod tests {
             route_policy::authorization_input_for_request(&Method::POST, "/api/v1/api-keys", None)
                 .expect("api key route has policy input");
 
-        let response = authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+        let response = authorize_policy_input(&RoleBasedPolicy, &TracingSink, &auth, &input)
             .await
             .expect_err("missing admin scope should deny");
         let status = response.status();
@@ -45815,9 +45896,10 @@ mod tests {
                     scope: "read".to_string(),
                 },
             };
-            let response = authorize_policy_input(&RoleBasedPolicy, &read_auth, &input)
-                .await
-                .expect_err("non-admin bearer must not read generated API inventory");
+            let response =
+                authorize_policy_input(&RoleBasedPolicy, &TracingSink, &read_auth, &input)
+                    .await
+                    .expect_err("non-admin bearer must not read generated API inventory");
             assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
             let admin_auth = Auth {
@@ -45826,7 +45908,7 @@ mod tests {
                     scope: "admin".to_string(),
                 },
             };
-            authorize_policy_input(&RoleBasedPolicy, &admin_auth, &input)
+            authorize_policy_input(&RoleBasedPolicy, &TracingSink, &admin_auth, &input)
                 .await
                 .expect("admin bearer should read generated API inventory");
         }
@@ -58915,6 +58997,7 @@ not-json
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
+            audit_sink: Arc::new(TracingSink),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -59620,7 +59703,7 @@ not-json
             route_policy::authorization_input_for_request(&Method::POST, "/api/v1/notes", None)
                 .expect("notes route has policy input");
 
-        let response = authorize_policy_input(&DenyAllPolicy, &auth, &input)
+        let response = authorize_policy_input(&DenyAllPolicy, &TracingSink, &auth, &input)
             .await
             .expect_err("deny policy should produce a forbidden response");
 
@@ -63922,7 +64005,7 @@ not-json
         )
         .expect("note route has policy input");
 
-        let response = authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+        let response = authorize_policy_input(&RoleBasedPolicy, &TracingSink, &auth, &input)
             .await
             .expect_err("hosted policy must not trust route-param object ids");
 
@@ -63946,7 +64029,7 @@ not-json
         )
         .expect("note route has policy input");
 
-        authorize_policy_input(&AllowAllPolicy, &auth, &input)
+        authorize_policy_input(&AllowAllPolicy, &TracingSink, &auth, &input)
             .await
             .expect("personal mode preserves current local object-route behavior");
     }
@@ -63963,7 +64046,7 @@ not-json
             route_policy::authorization_input_for_request(&Method::POST, "/api/v1/notes", None)
                 .expect("notes route has policy input");
 
-        let response = authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+        let response = authorize_policy_input(&RoleBasedPolicy, &TracingSink, &auth, &input)
             .await
             .expect_err("read-only principal must not mutate notes");
 
@@ -63982,9 +64065,58 @@ not-json
             route_policy::authorization_input_for_request(&Method::POST, "/api/v1/notes", None)
                 .expect("notes route has policy input");
 
-        authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+        authorize_policy_input(&RoleBasedPolicy, &TracingSink, &auth, &input)
             .await
             .expect("write principal should mutate notes");
+    }
+
+    #[tokio::test]
+    async fn allowed_authorization_fails_closed_when_mandatory_audit_is_unavailable() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "write".to_string(),
+            },
+        };
+        let input = route_policy::authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/notes",
+            Some("018fd1a0-0000-7000-8000-000000000001"),
+        )
+        .expect("notes route has policy input");
+
+        let response = authorize_policy_input(&RoleBasedPolicy, &FailingAuditSink, &auth, &input)
+            .await
+            .expect_err("an allowed operation must fail when its audit write fails");
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let problem = read_response_json(response).await;
+        assert_eq!(
+            problem["detail"],
+            "Authorization audit storage is unavailable."
+        );
+    }
+
+    #[tokio::test]
+    async fn denied_authorization_remains_denied_when_audit_is_unavailable() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "read".to_string(),
+            },
+        };
+        let input = route_policy::authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/notes",
+            Some("018fd1a0-0000-7000-8000-000000000001"),
+        )
+        .expect("notes route has policy input");
+
+        let response = authorize_policy_input(&RoleBasedPolicy, &FailingAuditSink, &auth, &input)
+            .await
+            .expect_err("a denied operation remains fail closed");
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
@@ -63999,7 +64131,7 @@ not-json
             route_policy::authorization_input_for_request(&Method::POST, "/api/v1/api-keys", None)
                 .expect("api key route has policy input");
 
-        let response = authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+        let response = authorize_policy_input(&RoleBasedPolicy, &TracingSink, &auth, &input)
             .await
             .expect_err("non-admin principal must not manage credentials");
 
@@ -64018,7 +64150,7 @@ not-json
             route_policy::authorization_input_for_request(&Method::POST, "/api/v1/api-keys", None)
                 .expect("api key route has policy input");
 
-        authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+        authorize_policy_input(&RoleBasedPolicy, &TracingSink, &auth, &input)
             .await
             .expect("admin principal should manage credentials");
     }
@@ -64038,7 +64170,7 @@ not-json
         )
         .expect("backup restore route has policy input");
 
-        let response = authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+        let response = authorize_policy_input(&RoleBasedPolicy, &TracingSink, &auth, &input)
             .await
             .expect_err("non-admin principal must not restore database backups");
 
@@ -64060,7 +64192,7 @@ not-json
         )
         .expect("backup restore route has policy input");
 
-        authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+        authorize_policy_input(&RoleBasedPolicy, &TracingSink, &auth, &input)
             .await
             .expect("admin principal should restore database backups");
     }
@@ -64077,7 +64209,7 @@ not-json
             route_policy::authorization_input_for_request(&Method::GET, "/api/v1/events", None)
                 .expect("event stream route has policy input");
 
-        let response = authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+        let response = authorize_policy_input(&RoleBasedPolicy, &TracingSink, &auth, &input)
             .await
             .expect_err("read scope must not imply realtime transport access");
 
@@ -64096,7 +64228,7 @@ not-json
             route_policy::authorization_input_for_request(&Method::GET, "/api/v1/events", None)
                 .expect("event stream route has policy input");
 
-        authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+        authorize_policy_input(&RoleBasedPolicy, &TracingSink, &auth, &input)
             .await
             .expect("mcp scope should allow realtime transport access");
     }
@@ -64234,6 +64366,7 @@ not-json
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
+            audit_sink: Arc::new(TracingSink),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -66023,6 +66156,7 @@ not-json
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
+            audit_sink: Arc::new(TracingSink),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -66363,6 +66497,7 @@ not-json
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
+            audit_sink: Arc::new(TracingSink),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),

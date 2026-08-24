@@ -1,0 +1,45 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T17:25:31Z"
+  updated_at: "2026-08-24T17:25:31Z"
+  description: "Provenance for hosted durable authorization audit selection and fail-closed enforcement"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+  type: source_code
+  checksum: "sha256:727f07943185bb953cfb6fcb95958011ccb6b79ecb7eeed2c7abe02a2889b971"
+  size_bytes: 2715134
+  attributes:
+    change_scope: "fortemi-711-hosted-durable-authorization-audit"
+    community_sink: "tracing"
+    hosted_sink: "postgresql-required"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-durable-authz-audit-711:001"
+  type: modification
+  started_at: "2026-08-24T17:19:00Z"
+  ended_at: "2026-08-24T17:25:31Z"
+  description: "Select the durable sink in hosted mode and reject allowed operations when mandatory audit persistence fails"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-durable-authz-audit-711:001"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:711"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-durable-authz-audit-711:001"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:710"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:fortemi-durable-authz-audit-711:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-durable-authz-audit-711:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"
