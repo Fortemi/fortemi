@@ -1,8 +1,8 @@
 # Key Rotation and DEK Rewrap
 
-This runbook covers the #734 `KeyProvider` foundation and AWS KMS provider. It does not make hosted
-rotation operational by itself. Hosted execution still requires audited application wiring,
-transactional persistence, startup enforcement, and release evidence.
+This runbook covers the #734 `KeyProvider` foundation, AWS KMS provider, and the first #730
+`user_secrets` persistence consumer. It does not make hosted rotation operational by itself.
+Hosted execution still requires a resumable audited batch worker and live-provider release evidence.
 
 ## AWS Provider Construction and Canary
 
@@ -57,7 +57,7 @@ Do not place master material in shell arguments, tickets, logs, command history,
 ## Current Acceptance Gaps
 
 - Vault Transit and GCP KMS implementations are not present.
-- No application-owned row enumeration, atomic update, checkpoint, audit-event, or startup enforcement is wired in this bounded scope.
+- `user_secrets` supports an atomic per-row `wrapped_key` update and has a database-backed same-DEK rewrap test. Application-owned row enumeration, resumable checkpoints, and rotation lifecycle audit events are not wired.
 - AWS KMS has mock-client contract coverage, but no LocalStack/OpenBao/live-KMS rotation receipt exists.
 - `mlock`/non-dumpable process hardening is not implemented; zeroize-on-drop does not eliminate swap, coredump, allocator-copy, or provider-SDK exposure.
 - Managed signing remains unsupported by `EnvKeyProvider`; the foundation does not substitute a symmetric MAC for a real KMS signing key.

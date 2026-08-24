@@ -164,6 +164,7 @@ pub(crate) const SHARED_TABLES: &[&str] = &[
     "usage_sink",
     "user_config",
     "user_metadata_label",
+    "user_secrets",
 ];
 
 /// Map PostgreSQL foreign key action code to SQL clause.

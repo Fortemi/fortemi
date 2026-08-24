@@ -112,6 +112,7 @@ pub const TENANT_SCOPED_TABLES: &[&str] = &[
     "usage_event_ledger",
     "user_config",
     "user_metadata_label",
+    "user_secrets",
     "webhook",
     "webhook_delivery",
 ];

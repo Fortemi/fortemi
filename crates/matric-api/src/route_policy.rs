@@ -1379,6 +1379,20 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         NoStore,
     ),
     r(
+        "/api/v1/user/secrets",
+        TenantObject,
+        "user_secret",
+        Hidden,
+        NoStore,
+    ),
+    r(
+        "/api/v1/user/secrets/{id}",
+        TenantObject,
+        "user_secret",
+        Hidden,
+        NoStore,
+    ),
+    r(
         "/api/v1/vision/describe",
         AuthenticatedWrite,
         "ai_execution",
@@ -1765,6 +1779,11 @@ fn resource_id_for_policy(
 }
 
 fn requires_backing_resource_normalization(policy: &RoutePolicy, param_name: &str) -> bool {
+    if policy.action_family == "user_secret" {
+        // DELETE is intentionally idempotent and non-enumerating. Tenant RLS and
+        // the user predicate are the ownership boundary for this opaque UUID.
+        return false;
+    }
     matches!(
         policy.class,
         TenantObject | AdminOperator | AuthenticatedWrite
@@ -1938,6 +1957,40 @@ mod tests {
         assert_eq!(
             input.resource.attrs["requires_backing_resource_normalization"],
             json!(false)
+        );
+    }
+
+    #[test]
+    fn hosted_user_secret_routes_are_hidden_tenant_objects_without_enumeration_lookup() {
+        let list = authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/user/secrets",
+            Some("018fd1a0-0000-7000-8000-000000000201"),
+        )
+        .unwrap();
+        assert_eq!(list.policy.class, TenantObject);
+        assert_eq!(list.policy.docs, Hidden);
+        assert_eq!(list.policy.cache, NoStore);
+        assert_eq!(list.action.required_scopes, vec!["read"]);
+        assert_eq!(
+            list.resource.kind,
+            ResourceKind::Other("user_secret".into())
+        );
+
+        let revoke = authorization_input_for_request(
+            &Method::DELETE,
+            "/api/v1/user/secrets/018fd1a0-0000-7000-8000-000000000202",
+            Some("018fd1a0-0000-7000-8000-000000000201"),
+        )
+        .unwrap();
+        assert_eq!(revoke.action.required_scopes, vec!["write"]);
+        assert_eq!(
+            revoke.resource.id.as_deref(),
+            Some("018fd1a0-0000-7000-8000-000000000202")
+        );
+        assert_eq!(
+            revoke.resource.attrs["requires_backing_resource_normalization"],
+            false
         );
     }
 

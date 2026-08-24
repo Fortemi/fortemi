@@ -15,6 +15,8 @@ pub mod jobs;
 pub mod models;
 pub mod pke;
 pub mod provenance;
+#[cfg(feature = "hosted-auth")]
+pub mod user_secrets;
 pub mod vision;
 
 // Re-export job handlers for backwards compatibility

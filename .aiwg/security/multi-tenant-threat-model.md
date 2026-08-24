@@ -12,6 +12,7 @@ This document was drafted before HotM ADR-MOBILE-001 and Gitea Fortemi/fortemi#7
 
 - **Tenancy isolation** — now shared-schema + Postgres RLS per ADR-090 Rev 1. References to `TenantScopedDb` (a newtype originally proposed for schema-per-tenant) should be read as `TenantScopedConn` (the RLS equivalent — opens a transaction and `SET LOCAL app.current_tenant = ...`). The threat-model rationale (defense-in-depth, type-enforced scope) still applies; the implementation mechanism changed.
 - **Key custody** — KMS at launch per ADR-093 Rev 1; `EnvKeyProvider` is single-tenant-only. References to "KEK rotation procedure" should be read as referring to the KMS-backed rotation path (online, no downtime) rather than the env-key path (manual, requires downtime).
+- **Stored provider credentials** — #730 now provides a hosted-only, forced-RLS, KMS-enveloped storage preview with user-scoped metadata CRUD and fail-closed audit. The #731 outbound proxy consumer, OpenBao backend, batch rotation, and live-provider receipts remain open; the local HotM `agent-proxy` is still not a hosted path.
 
 Schema-per-tenant remains a documented escalation trigger; the threat-model
 section that compares isolation options is retained as decision history. The
@@ -178,7 +179,7 @@ Risk levels assume **EE multi-tenant context with `REQUIRE_AUTH=true`**. Where a
 | I-3 | Cross-tenant embedding similarity: a vector search that joins or scans across schemas returns rows belonging to other tenants | **HIGH** | Vector queries must execute under `TenantScopedDb`; never via `state.db`. Add integration test: tenant A's `search()` cannot surface tenant B's vectors even if the test forces a name collision. | ADR-090 |
 | I-4 | Error message leakage: SQL error containing schema names or table names returned in HTTP body | MED | Sanitize error responses in production mode; map DB errors to opaque codes. | matric-api error layer |
 | I-5 | Backup/export crossing tenant boundary: an admin export operation that reads from `public` and includes archive_registry, leaking tenant list | MED | Export endpoints require `system:*` scope and are themselves audited (§3.3 R-1). | ADR-100 |
-| I-6 | Plaintext provider keys in `agent-proxy`: today's HotM sidecar holds raw model keys. In a hosted EE this is a tenant-aggregation risk — one process compromise exposes every tenant's BYOK keys. | **HIGH** | `agent-proxy` is out-of-scope for EE multi-tenant (see §1.2). EE must use the ADR-093 KMS-backed key plane. | ADR-093 |
+| I-6 | Plaintext provider keys in `agent-proxy`: today's HotM sidecar holds raw model keys. Reusing that process for hosted tenants would aggregate plaintext credentials across trust boundaries. | **HIGH** | `agent-proxy` remains out-of-scope for hosted multi-tenant (see §1.2). #730 stores per-user credentials through the ADR-093 KMS envelope behind forced RLS; #731 must resolve only active rows through that boundary and zeroize after the provider call. | ADR-093, #730, #731 |
 
 ### 3.5 Denial of Service
 
@@ -305,9 +306,9 @@ Today `matric-crypto` (ADR-006/007/010) supplies envelope encryption with an in-
 
 ### 6.1 Requirements
 
-- **Per-tenant KEK.** Each tenant has its own Key Encryption Key. The KEK never leaves the KMS/HSM. The application uses the KMS API to wrap/unwrap data keys.
+- **Configured KEK strategy.** The provider supports per-purpose, per-tenant, or shared-with-context mapping. Tenant/user/resource identity is always bound through canonical AAD; the KEK never leaves KMS/HSM custody.
 - **Per-archive (and possibly per-record-class) DEKs**, derived from the tenant KEK via **HKDF with explicit domain separation** per `no-adhoc-kdf` and `no-key-reuse-across-purposes` rules. Distinct `info` labels for `enc`, `mac`, `embedding`, `export`, etc. Versioned (`-v1`) so rotation is a re-derive with `-v2`.
-- **BYOK option.** Enterprise tenants may bring their own KMS-resident KEK (AWS KMS, GCP KMS, HashiCorp Vault Transit, YubiHSM2 are the supported plugins).
+- **Future BYOK option.** Enterprise tenants may later bring a KMS-resident KEK through an explicitly supported provider. AWS KMS is implemented; OpenBao/Vault Transit, GCP KMS, YubiHSM2, and customer-key release evidence remain open.
 - **Default CE.** Single env-var key, current behavior preserved. ADR-093 must explicitly state that CE is not BYOK and that this is a deliberate scope choice.
 
 ### 6.2 EE plugin shape
@@ -333,7 +334,7 @@ Implementations:
 
 ### 6.4 Out-of-scope key paths
 
-The current `agent-proxy` (Node sidecar, localhost-bound, raw Anthropic/OpenAI keys in memory) is not an acceptable key path in EE. ADR-093 must replace it with a tenant-aware proxy whose secrets resolve through the KMS plane. This is called out in §1.2 and §3.4 I-6 and is *not* re-litigated here.
+The current `agent-proxy` (Node sidecar, localhost-bound, raw provider keys in memory) is not an acceptable hosted key path. #730 now supplies the tenant/user-scoped KMS-enveloped storage boundary; #731 must provide the tenant-aware outbound consumer that loads only active rows and limits plaintext lifetime to the provider call. This is called out in §1.2 and §3.4 I-6 and is *not* re-litigated here.
 
 ---
 

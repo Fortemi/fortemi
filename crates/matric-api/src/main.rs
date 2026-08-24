@@ -86,6 +86,25 @@ use oauth_profile::{active_oauth_capabilities, is_allowed_oauth_scope};
 use tokio::sync::RwLock;
 use trusted_proxy::{ExternalRequestContext, SocketPeer, TrustedProxyConfig};
 
+#[cfg(feature = "hosted-auth")]
+fn hosted_user_secret_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/api/v1/user/secrets",
+            post(handlers::user_secrets::create_user_secret)
+                .get(handlers::user_secrets::list_user_secrets),
+        )
+        .route(
+            "/api/v1/user/secrets/{id}",
+            delete(handlers::user_secrets::revoke_user_secret),
+        )
+}
+
+#[cfg(not(feature = "hosted-auth"))]
+fn hosted_user_secret_routes() -> Router<AppState> {
+    Router::new()
+}
+
 // ---------------------------------------------------------------------------
 // Hot-swappable inference runtime (#569)
 // ---------------------------------------------------------------------------
@@ -4185,6 +4204,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/v1/operator/openapi.yaml", get(openapi_yaml))
         .route("/api/v1/operator/asyncapi.yaml", get(asyncapi_yaml))
+        .merge(hosted_user_secret_routes())
         // Notes CRUD
         .route("/api/v1/notes", get(list_notes).post(create_note))
         .route("/api/v1/notes/bulk", post(bulk_create_notes))

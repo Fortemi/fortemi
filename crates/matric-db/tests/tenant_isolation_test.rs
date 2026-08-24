@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use matric_core::audit::{AuditEvent, AuditOutcome, AuditSink};
 use matric_db::{
-    assert_hosted_runtime_role, create_pool, inspect_tenant_catalog, Database, PostgresAuditSink,
-    TenantScopedConn,
+    assert_hosted_runtime_role, create_pool, inspect_tenant_catalog, Database,
+    PgUserSecretRepository, PostgresAuditSink, TenantScopedConn,
 };
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::Executor;
@@ -223,4 +223,118 @@ async fn audit_sink_rows_are_visible_only_in_the_emitting_tenant() {
         .unwrap();
     assert_eq!(visible_b, 0);
     scope_b.rollback().await.unwrap();
+}
+
+#[tokio::test]
+async fn user_secret_repository_isolates_tenant_and_user_and_revokes_idempotently() {
+    let Some((admin, runtime)) = setup().await else {
+        eprintln!("skipping tenant isolation test: DATABASE_URL unavailable or setup failed");
+        return;
+    };
+
+    let tenant_a = Uuid::new_v4();
+    let tenant_b = Uuid::new_v4();
+    register_tenant(&admin, tenant_a, &format!("test-{tenant_a}")).await;
+    register_tenant(&admin, tenant_b, &format!("test-{tenant_b}")).await;
+
+    let credential_id = Uuid::now_v7();
+    let encrypted_blob = serde_json::json!({
+        "version": 1,
+        "ciphertext": "test-envelope-ciphertext",
+        "wrapped_key": {"provider": "test"}
+    });
+    let mut scope_a = TenantScopedConn::begin(&runtime, tenant_a).await.unwrap();
+    let created = PgUserSecretRepository::create_tx(
+        scope_a.executor(),
+        credential_id,
+        tenant_a,
+        "user_a",
+        "openai",
+        "personal",
+        encrypted_blob,
+    )
+    .await
+    .unwrap();
+    assert_eq!(created.id, credential_id);
+
+    let stored = PgUserSecretRepository::get_active_tx(
+        scope_a.executor(),
+        tenant_a,
+        "user_a",
+        credential_id,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let debug = format!("{stored:?}");
+    assert!(debug.contains("[REDACTED]"));
+    assert!(!debug.contains("test-envelope-ciphertext"));
+    assert!(
+        PgUserSecretRepository::get_active_tx(
+            scope_a.executor(),
+            tenant_a,
+            "user_b",
+            credential_id,
+        )
+        .await
+        .unwrap()
+        .is_none(),
+        "a second user in the tenant must not see the credential"
+    );
+    scope_a.commit().await.unwrap();
+
+    let mut scope_b = TenantScopedConn::begin(&runtime, tenant_b).await.unwrap();
+    assert!(
+        PgUserSecretRepository::list_tx(scope_b.executor(), tenant_b, "user_a")
+            .await
+            .unwrap()
+            .is_empty(),
+        "a second tenant must not see the credential"
+    );
+    assert!(
+        !PgUserSecretRepository::revoke_tx(scope_b.executor(), tenant_b, "user_a", credential_id,)
+            .await
+            .unwrap(),
+        "cross-tenant revocation must not find the credential"
+    );
+    scope_b.commit().await.unwrap();
+
+    let mut scope_a = TenantScopedConn::begin(&runtime, tenant_a).await.unwrap();
+    assert!(PgUserSecretRepository::revoke_tx(
+        scope_a.executor(),
+        tenant_a,
+        "user_a",
+        credential_id,
+    )
+    .await
+    .unwrap());
+    assert!(
+        PgUserSecretRepository::revoke_tx(scope_a.executor(), tenant_a, "user_a", credential_id,)
+            .await
+            .unwrap(),
+        "repeated revocation must remain idempotent"
+    );
+    assert!(PgUserSecretRepository::get_active_tx(
+        scope_a.executor(),
+        tenant_a,
+        "user_a",
+        credential_id,
+    )
+    .await
+    .unwrap()
+    .is_none());
+    let listed = PgUserSecretRepository::list_tx(scope_a.executor(), tenant_a, "user_a")
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].revoked_at.is_some());
+    scope_a.commit().await.unwrap();
+
+    let missing_scope = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM user_secrets")
+        .fetch_one(&runtime)
+        .await;
+    assert!(
+        missing_scope.is_err(),
+        "an unscoped credential query must fail"
+    );
 }

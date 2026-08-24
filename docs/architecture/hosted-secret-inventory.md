@@ -42,8 +42,8 @@ Hosted secret handling must account for these surfaces:
 - API request/response DTOs, including manual `Debug`/`Display`
   implementations and test assertion output.
 - Database columns and JSON blobs, including config history, job payloads,
-  outbox payloads, DLQ payload/error fields, localized audit stores, and future
-  `user_secrets` rows.
+  outbox payloads, DLQ payload/error fields, localized audit stores, and the
+  KMS-enveloped forced-RLS `user_secrets` rows.
 - Environment variables, mounted secret files, subprocess environments,
   command arguments, shell history, crash dumps, temporary directories, and
   cleanup traps.
@@ -98,6 +98,16 @@ Hosted secret handling must account for these surfaces:
   where the owning audit/KMS contract explicitly permits it.
 - Local/dev defaults may exist only under explicit local-development profiles
   and must be blocked or rejected in hosted/production mode.
+
+### Stored provider credential preview
+
+The `user_secrets` table is a `retrievable_secret` store. Its internal hosted
+routes are compiled only with `hosted-auth`; the community build does not mount
+them. The persisted `encrypted_blob` is the provider-neutral #897 envelope and
+is never part of a response DTO. The display mask is currently
+`<provider>:configured`; it is not derived from the submitted key and must not
+be treated as a fingerprint. Revocation is a Fortemi database lifecycle state,
+not a claim that provider-side or KMS key material was destroyed.
 
 ## Cross-Issue Contract
 

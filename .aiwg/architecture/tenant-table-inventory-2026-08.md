@@ -60,8 +60,11 @@ unconstrained `note.collection_id` relationship.
 | `tenant_registry` | system-scoped | Active-tenant authority queried before request tenant scope exists. Runtime receives read access only. |
 | `usage_sink` | system-scoped | Deployment-wide delivery destination registry. Tenant usage events remain in RLS-protected ledgers. Configuration is operator-only. |
 
-`user_secrets` is not present yet. Issue #730 owns its schema and must add it to
-the executable tenant inventory in the same migration that creates it.
+`user_secrets` is a shared-schema tenant table created by
+`20260824010400_tenant_user_secrets.sql`. It carries `tenant_id NOT NULL`,
+forced RLS, and is included in the executable tenant inventory. Access is also
+filtered by the authenticated user identifier; archive schemas do not clone
+this table.
 
 ## Archive schemas
 

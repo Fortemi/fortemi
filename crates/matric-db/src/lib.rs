@@ -68,6 +68,7 @@ pub mod tenancy;
 pub mod tus;
 pub mod unified_filter;
 pub mod usage_ledger;
+pub mod user_secrets;
 pub mod versioning;
 pub mod webhooks;
 
@@ -150,6 +151,7 @@ pub use unified_filter::{UnifiedFilterQueryBuilder, UnifiedFilterResult};
 pub use usage_ledger::{
     PgUsageLedgerRepository, UsageDeliveryClaim, UsageLedgerRecord, UsageRecordOutcome,
 };
+pub use user_secrets::{PgUserSecretRepository, StoredUserSecret, UserSecretMetadata};
 pub use versioning::{
     NoteVersions, OriginalVersion, RevisionVersionSummary, VersionSummary, VersioningRepository,
 };

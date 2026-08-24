@@ -14,6 +14,7 @@
 |---|---|---|
 | 0 | 2026-05-20 | Initial draft framed KMS as an EE plugin upgrade; `EnvKeyProvider` as CE default |
 | 1 | 2026-05-20 | **Revised** to align with HotM ADR-MOBILE-001 Decision 4: KMS required for hosted multi-tenant at launch. `EnvKeyProvider` retained only for the HotM desktop sidecar (single-tenant local install) and explicit dev-only opt-out. "KEK file on disk" launch posture is rejected for hosted. |
+| 2 | 2026-08-24 | Rebaselined implementation evidence: provider-neutral envelope foundation, AWS KMS startup enforcement, and hosted `user_secrets` preview landed. OpenBao/Vault Transit, live-provider receipts, and batch rotation remain launch gaps. |
 
 ## July 2026 checkpoint rebaseline
 
@@ -23,6 +24,21 @@ Accepted status means the KMS-required hosted target is accepted; it does not me
 - **Implementation phase:** KeyProvider and AWS KMS hosted-launch construction.
 - **Phase owner:** `Fortemi/fortemi#734`; follow-on provider work remains separately tracked.
 - **Checkpoint decision date:** 2026-07-14.
+
+## August 2026 implementation checkpoint
+
+The accepted target is now partially implemented. `matric-crypto` provides the
+object-safe `KeyProvider`, canonical `KeyContext`, provider-neutral encrypted
+envelope, zeroizing plaintext boundaries, AWS KMS provider, and same-DEK rewrap
+primitive. Hosted startup constructs and probes AWS KMS and refuses the local
+environment provider.
+
+Issue #730 adds a forced-RLS `user_secrets` table and internal hosted-only
+create/list/revoke routes. They derive context from authenticated tenant/user
+state and the allocated row ID, return metadata only, and use a per-row atomic
+wrapped-key replacement path covered by a stored-row rewrap test. This is not a
+hosted GA claim: OpenBao/Vault Transit, a resumable audited batch rewrap worker,
+live-provider receipts, and the #731 outbound consumer remain open.
 
 ## Context
 

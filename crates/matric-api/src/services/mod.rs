@@ -9,6 +9,7 @@ pub mod quota;
 pub mod reconstruction_service;
 pub mod search_cache;
 pub mod tag_resolver;
+pub mod user_secrets;
 
 pub use chat_stream_store::ChatStreamStore;
 pub use chunking_service::ChunkingService;
@@ -22,3 +23,8 @@ pub use quota::{
 pub use reconstruction_service::ReconstructionService;
 pub use search_cache::{SearchCache, SearchCacheKeyInput};
 pub use tag_resolver::TagResolver;
+pub use user_secrets::{
+    normalize_user_secret_name, normalize_user_secret_provider, seal_user_secret,
+    unseal_user_secret, user_secret_context, user_secret_mask, validate_user_secret_value,
+    SealedUserSecret, UserSecretServiceError,
+};
