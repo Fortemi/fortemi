@@ -10,7 +10,14 @@ async fn setup() -> Option<(sqlx::PgPool, Uuid)> {
         return None;
     };
     let pool = create_pool(&database_url).await.ok()?;
-    Database::new(pool.clone()).migrate().await.ok()?;
+    let schema_is_provisioned =
+        sqlx::query_scalar::<_, bool>("SELECT to_regclass('public.tenant_registry') IS NOT NULL")
+            .fetch_one(&pool)
+            .await
+            .ok()?;
+    if !schema_is_provisioned {
+        Database::new(pool.clone()).migrate().await.ok()?;
+    }
     let tenant_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO tenant_registry (id, slug, display_name, status) VALUES ($1, $2, $2, 'active')",

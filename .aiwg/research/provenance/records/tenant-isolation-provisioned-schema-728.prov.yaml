@@ -1,0 +1,40 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T04:56:33Z"
+  updated_at: "2026-08-25T04:56:33Z"
+  description: "Provenance for hosted tenant-isolation tests against a provisioned CI schema"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-db/tests/tenant_isolation_test.rs"
+  type: source_code
+  checksum: "sha256:1a66438debde3dd989c854daeb3c4b0e7810f36fae64329173afb8f29d965b61"
+  size_bytes: 11565
+  attributes:
+    change_scope: "fortemi-728-provisioned-schema-tests"
+    feature: "hosted-tenant-isolation"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-tenancy-728:provisioned-schema-tests"
+  type: modification
+  started_at: "2026-08-25T04:40:00Z"
+  ended_at: "2026-08-25T04:56:33Z"
+  description: "Run hosted tenant-isolation tests against either a fresh database or the CI-provisioned schema without replaying migrations"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-db/tests/tenant_isolation_test.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-tenancy-728:provisioned-schema-tests"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-db/tests/tenant_isolation_test.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:728"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-tenancy-728:provisioned-schema-tests"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-tenancy-728:provisioned-schema-tests"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-db/tests/tenant_isolation_test.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

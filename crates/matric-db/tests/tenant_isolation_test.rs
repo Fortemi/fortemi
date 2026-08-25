@@ -19,7 +19,14 @@ async fn setup() -> Option<(sqlx::PgPool, sqlx::PgPool)> {
         return None;
     };
     let admin = create_pool(&database_url).await.unwrap();
-    Database::new(admin.clone()).migrate().await.unwrap();
+    let schema_is_provisioned =
+        sqlx::query_scalar::<_, bool>("SELECT to_regclass('public.tenant_registry') IS NOT NULL")
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+    if !schema_is_provisioned {
+        Database::new(admin.clone()).migrate().await.unwrap();
+    }
 
     sqlx::query(&format!(
         r#"
