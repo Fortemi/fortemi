@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-25T05:31:40Z"
+  updated_at: "2026-08-25T05:40:27Z"
 records:
+  - entity: "crates/matric-api/tests/user_secret_storage_test.rs"
+    record: "records/user-secret-storage-role-setup-concurrency-731.prov.yaml"
   - entity: "Dockerfile"
     record: "records/dockerfile-rust-1-92-builder-714.prov.yaml"
   - entity: "Dockerfile.bundle"

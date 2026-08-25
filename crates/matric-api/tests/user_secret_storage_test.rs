@@ -10,8 +10,7 @@ use matric_db::{
     create_pool, Database, PgUserSecretRepository, PostgresAuditSink, TenantScopedConn,
 };
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::Executor;
-use sqlx::Row;
+use sqlx::{Executor, Row};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -32,6 +31,13 @@ async fn setup() -> Option<(sqlx::PgPool, sqlx::PgPool)> {
         Database::new(admin.clone()).migrate().await.unwrap();
     }
 
+    let mut role_setup = admin.begin().await.unwrap();
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('fortemi.user-secret-storage-test-role', 0))",
+    )
+    .execute(&mut *role_setup)
+    .await
+    .unwrap();
     sqlx::query(&format!(
         r#"
         DO $$
@@ -49,14 +55,14 @@ async fn setup() -> Option<(sqlx::PgPool, sqlx::PgPool)> {
         $$;
         "#
     ))
-    .execute(&admin)
+    .execute(&mut *role_setup)
     .await
     .unwrap();
-    admin
+    role_setup
         .execute(format!("GRANT USAGE ON SCHEMA public TO {TEST_RUNTIME_ROLE}").as_str())
         .await
         .unwrap();
-    admin
+    role_setup
         .execute(
             format!(
                 "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {TEST_RUNTIME_ROLE}"
@@ -65,6 +71,7 @@ async fn setup() -> Option<(sqlx::PgPool, sqlx::PgPool)> {
         )
         .await
         .unwrap();
+    role_setup.commit().await.unwrap();
 
     let options = PgConnectOptions::from_str(&database_url)
         .unwrap()
