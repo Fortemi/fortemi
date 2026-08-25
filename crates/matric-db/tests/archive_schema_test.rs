@@ -8,6 +8,8 @@ use matric_db::{create_pool, inspect_tenant_catalog, ArchiveRepository, Database
 use sqlx::PgPool;
 use uuid::Uuid;
 
+static ARCHIVE_SCHEMA_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Helper to create a test database pool.
 async fn setup_test_db() -> PgPool {
     let database_url = std::env::var("DATABASE_URL")
@@ -19,6 +21,7 @@ async fn setup_test_db() -> PgPool {
 
 #[tokio::test]
 async fn test_create_archive_schema() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 
@@ -96,6 +99,7 @@ async fn test_create_archive_schema() {
 
 #[tokio::test]
 async fn test_list_archive_schemas() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 
@@ -142,6 +146,7 @@ async fn test_list_archive_schemas() {
 
 #[tokio::test]
 async fn test_get_archive_by_name() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 
@@ -177,6 +182,7 @@ async fn test_get_archive_by_name() {
 
 #[tokio::test]
 async fn test_default_archive_uniqueness() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 
@@ -243,6 +249,7 @@ async fn test_default_archive_uniqueness() {
 
 #[tokio::test]
 async fn test_archive_schema_isolation() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 
@@ -303,6 +310,7 @@ async fn test_archive_schema_isolation() {
 
 #[tokio::test]
 async fn test_duplicate_archive_name_fails() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 
@@ -331,6 +339,7 @@ async fn test_duplicate_archive_name_fails() {
 
 #[tokio::test]
 async fn test_update_archive_metadata() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 
@@ -376,6 +385,7 @@ async fn test_update_archive_metadata() {
 /// the public schema (evolved by migrations) and the dynamic cloning logic.
 #[tokio::test]
 async fn test_schema_drift_detection() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 
@@ -560,6 +570,7 @@ async fn test_schema_drift_detection() {
 
 #[tokio::test]
 async fn test_clone_archive_schema() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 
@@ -646,6 +657,7 @@ async fn test_clone_archive_schema() {
 
 #[tokio::test]
 async fn test_clone_nonexistent_source() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 
@@ -678,6 +690,7 @@ async fn test_clone_nonexistent_source() {
 
 #[tokio::test]
 async fn test_clone_duplicate_target() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 
@@ -714,6 +727,7 @@ async fn test_clone_duplicate_target() {
 
 #[tokio::test]
 async fn test_sync_archive_schema() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 
@@ -760,6 +774,7 @@ async fn test_sync_archive_schema() {
 
 #[tokio::test]
 async fn test_schema_version_tracking() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 
@@ -803,6 +818,7 @@ async fn test_schema_version_tracking() {
 /// embeddings, returning "No default embedding set found".
 #[tokio::test]
 async fn test_new_archive_has_default_embedding_set() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 
@@ -877,6 +893,7 @@ async fn test_new_archive_has_default_embedding_set() {
 /// "No default embedding set found" because the default embedding set wasn't seeded.
 #[tokio::test]
 async fn test_archive_can_store_embeddings() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
 

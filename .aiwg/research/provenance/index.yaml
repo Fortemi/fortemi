@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-25T06:40:17Z"
+  updated_at: "2026-08-25T06:44:54Z"
 records:
+  - entity: "crates/matric-db/tests/archive_schema_test.rs"
+    record: "records/archive-schema-test-ddl-serialization-729.prov.yaml"
   - entity: ".gitea/workflows/ci-builder.yaml"
     record: "records/ci-builder-isolated-api-key-tenant-scope-729.prov.yaml"
   - entity: "crates/matric-api/tests/user_secret_storage_test.rs"

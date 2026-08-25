@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T06:44:54Z"
+  updated_at: "2026-08-25T06:44:54Z"
+  description: "Provenance for process-local serialization of archive schema DDL integration tests"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-db/tests/archive_schema_test.rs"
+  type: source_code
+  checksum: "sha256:e3944dd10fa2037be1b6db9a07217e2f9979bc20be3478f891d42047348682a1"
+  size_bytes: 31465
+  attributes:
+    change_scope: "fortemi-729-archive-schema-test-serialization"
+    feature: "tenant-isolation-release-gate"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-729:archive-schema-test-serialization"
+  type: modification
+  started_at: "2026-08-25T06:41:30Z"
+  ended_at: "2026-08-25T06:44:54Z"
+  description: "Prevent catalog validation from observing sibling archive schemas between table cloning and forced-RLS policy installation"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-db/tests/archive_schema_test.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-729:archive-schema-test-serialization"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-db/tests/archive_schema_test.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:729"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:modification:fortemi-729:archive-schema-test-serialization"
+    - entity: "urn:aiwg:artifact:crates/matric-db/src/archives.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:726"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:fortemi-729:archive-schema-test-serialization"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-729:archive-schema-test-serialization"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-db/tests/archive_schema_test.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"
