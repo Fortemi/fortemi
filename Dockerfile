@@ -13,6 +13,10 @@ FROM rust:1.92.0-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c
 ARG VERSION=dev
 ARG GIT_SHA=unknown
 ARG BUILD_DATE=unknown
+# rustc 1.92 can exhaust its default worker-thread stack while compiling the
+# release binary with thin LTO. Keep this configurable while using rustc's
+# documented diagnostic recommendation as the deterministic default.
+ARG RUST_MIN_STACK=16777216
 
 WORKDIR /app
 
@@ -50,7 +54,8 @@ ENV MATRIC_VERSION=${VERSION}
 ENV MATRIC_GIT_SHA=${GIT_SHA}
 ENV MATRIC_BUILD_DATE=${BUILD_DATE}
 
-RUN cargo build --release --package matric-api && \
+RUN RUST_MIN_STACK="${RUST_MIN_STACK}" \
+    cargo build --locked --release --package matric-api && \
     cp target/release/matric-api /app/matric-api
 
 # Runtime stage

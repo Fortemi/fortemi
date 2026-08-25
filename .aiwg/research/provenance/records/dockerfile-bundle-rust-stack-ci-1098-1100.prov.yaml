@@ -1,0 +1,50 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T20:54:56Z"
+  description: "Provenance for the bundle release-image rustc stack hardening"
+entity:
+  id: "urn:aiwg:artifact:Dockerfile.bundle:sha256:29baa282897f1c4335f658891d0e2b92eef53c730c6d31270ab182a9f2a174e6"
+  type: configuration
+  created_at: "2026-08-25T20:54:56Z"
+  checksum: "sha256:29baa282897f1c4335f658891d0e2b92eef53c730c6d31270ab182a9f2a174e6"
+  size_bytes: 10047
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:dockerfile-bundle-rust-stack-ci-1098-1100:001"
+  type: modification
+  started_at: "2026-08-25T20:49:00Z"
+  ended_at: "2026-08-25T20:54:56Z"
+  description: "Apply the same rustc worker-thread stack guard to the bundle builder used by the tag release pipeline"
+  attributes:
+    verification:
+      - "docker build --target builder -f Dockerfile.bundle: passed"
+      - "docker build --check -f Dockerfile.bundle .: passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:Dockerfile.bundle:sha256:29baa282897f1c4335f658891d0e2b92eef53c730c6d31270ab182a9f2a174e6"
+    activity: "urn:aiwg:activity:modification:dockerfile-bundle-rust-stack-ci-1098-1100:001"
+    time: "2026-08-25T20:54:56Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:dockerfile-bundle-rust-stack-ci-1098-1100:001"
+      entity: "urn:aiwg:artifact:Dockerfile:sha256:4bab3f934e6671eea33f47c6d0a44b606cea1ed73c56bbc4c2fea0f69664673d"
+      role: release_build_guard
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:Dockerfile.bundle:sha256:29baa282897f1c4335f658891d0e2b92eef53c730c6d31270ab182a9f2a174e6"
+      source: "urn:gitea:actions:Fortemi/fortemi:6906"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:dockerfile-bundle-rust-stack-ci-1098-1100:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:dockerfile-bundle-rust-stack-ci-1098-1100:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:Dockerfile.bundle:sha256:29baa282897f1c4335f658891d0e2b92eef53c730c6d31270ab182a9f2a174e6"
+    agent: "urn:aiwg:agent:codex-gpt-5"

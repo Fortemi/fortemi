@@ -9,4 +9,5 @@ repos:
       - commit
       - push
       - issue-comment
-    notes: Authorized by the operator for address-issues work on Fortemi.
+      - service-action
+    notes: Authorized by the operator for Fortemi implementation, CI, release, and issue-comment work.

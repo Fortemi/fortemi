@@ -14,6 +14,7 @@ ARG VERSION=dev
 ARG GIT_SHA=unknown
 ARG BUILD_DATE=unknown
 ARG CARGO_BUILD_JOBS=8
+ARG RUST_MIN_STACK=16777216
 ARG TARGETARCH
 
 WORKDIR /app
@@ -35,6 +36,7 @@ ENV MATRIC_BUILD_DATE=${BUILD_DATE}
 
 RUN --mount=type=cache,id=fortemi-bundle-cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=fortemi-bundle-target-${TARGETARCH},target=/app/target,sharing=locked \
+    RUST_MIN_STACK="${RUST_MIN_STACK}" \
     cargo build --locked --release --jobs ${CARGO_BUILD_JOBS} --package matric-api --package matric-crypto && \
     cp target/release/matric-api /app/matric-api && \
     cp target/release/matric-pke /app/matric-pke

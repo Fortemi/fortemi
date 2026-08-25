@@ -606,3 +606,7 @@ records:
     record: "records/aiwg-repo-access-config-1098-1100.prov.yaml"
   - entity: ".aiwg/security/repo-access.manifest.yaml"
     record: "records/repo-access-manifest-1098-1100.prov.yaml"
+  - entity: "Dockerfile"
+    record: "records/dockerfile-rust-stack-ci-1098-1100.prov.yaml"
+  - entity: "Dockerfile.bundle"
+    record: "records/dockerfile-bundle-rust-stack-ci-1098-1100.prov.yaml"
