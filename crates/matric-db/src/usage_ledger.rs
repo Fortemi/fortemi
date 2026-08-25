@@ -903,7 +903,7 @@ mod tests {
             eprintln!("Skipping usage ledger DB test: DATABASE_URL not set");
             return;
         };
-        let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+        let pool = crate::create_pool(&database_url).await.unwrap();
         let repo = PgUsageLedgerRepository::new(pool.clone());
         let sink_name = format!("test_sink_{}", Uuid::now_v7().simple());
         let event = test_event();
@@ -988,7 +988,7 @@ mod tests {
             eprintln!("Skipping usage delivery lease DB test: DATABASE_URL not set");
             return;
         };
-        let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+        let pool = crate::create_pool(&database_url).await.unwrap();
         let repo = PgUsageLedgerRepository::new(pool.clone());
         let sink_name = format!("lease_sink_{}", Uuid::now_v7().simple());
         let event = test_event();
@@ -1182,7 +1182,7 @@ mod tests {
             eprintln!("Skipping usage concurrency/backfill DB test: DATABASE_URL not set");
             return;
         };
-        let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+        let pool = crate::create_pool(&database_url).await.unwrap();
         let repo = PgUsageLedgerRepository::new(pool.clone());
         let concurrent_sink = format!("concurrent_sink_{}", Uuid::now_v7().simple());
         repo.register_sink(&concurrent_sink, true).await.unwrap();

@@ -229,6 +229,8 @@ DECLARE
     parent_columns TEXT;
     unique_index_name TEXT;
     guard_name TEXT;
+    update_action_sql TEXT;
+    delete_action_sql TEXT;
 BEGIN
     FOR fk IN
         SELECT con.oid,
@@ -236,7 +238,9 @@ BEGIN
                child.relname AS child_table,
                parent.relname AS parent_table,
                con.conkey,
-               con.confkey
+               con.confkey,
+               con.confupdtype::TEXT AS update_action,
+               con.confdeltype::TEXT AS delete_action
           FROM pg_constraint con
           JOIN pg_class child ON child.oid = con.conrelid
           JOIN pg_class parent ON parent.oid = con.confrelid
@@ -287,6 +291,22 @@ BEGIN
             left(fk.child_table, 20),
             left(md5(fk.child_table || ':' || fk.conname), 10)
         );
+        update_action_sql := CASE fk.update_action
+            WHEN 'c' THEN 'CASCADE'
+            WHEN 'n' THEN 'SET NULL'
+            WHEN 'd' THEN 'SET DEFAULT'
+            WHEN 'r' THEN 'RESTRICT'
+            ELSE 'NO ACTION'
+        END;
+        delete_action_sql := CASE fk.delete_action
+            WHEN 'c' THEN 'CASCADE'
+            -- Preserve the tenant discriminator while nulling only the source
+            -- FK columns, matching the original relationship semantics.
+            WHEN 'n' THEN format('SET NULL (%s)', child_columns)
+            WHEN 'd' THEN 'SET DEFAULT'
+            WHEN 'r' THEN 'RESTRICT'
+            ELSE 'NO ACTION'
+        END;
         IF NOT EXISTS (
             SELECT 1
               FROM pg_constraint
@@ -294,12 +314,14 @@ BEGIN
                AND conname = guard_name
         ) THEN
             EXECUTE format(
-                'ALTER TABLE public.%I ADD CONSTRAINT %I FOREIGN KEY (tenant_id, %s) REFERENCES public.%I (tenant_id, %s) NOT VALID',
+                'ALTER TABLE public.%I ADD CONSTRAINT %I FOREIGN KEY (tenant_id, %s) REFERENCES public.%I (tenant_id, %s) ON UPDATE %s ON DELETE %s NOT VALID',
                 fk.child_table,
                 guard_name,
                 child_columns,
                 fk.parent_table,
-                parent_columns
+                parent_columns,
+                update_action_sql,
+                delete_action_sql
             );
             EXECUTE format(
                 'ALTER TABLE public.%I VALIDATE CONSTRAINT %I',

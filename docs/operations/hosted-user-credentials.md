@@ -79,20 +79,38 @@ provider, and audit debug output records only bounded metadata and stable reason
 codes. The global authorization inventory, hosted Redis request quota gate, and
 usage meter continue to wrap these routes.
 
-This is an internal enterprise preview, not hosted production approval. A
-provider/model/account circuit breaker, live KMS/provider failure receipts, and
-UMG-compatible public protocol surfaces remain separate launch work. Provider
-timeouts and the bounded SSE channel are active, but they are not a substitute
-for those production gates.
+This remains an internal enterprise surface, not an unqualified hosted
+production approval. Generation, SSE, and embedding stored-secret calls share
+a bounded provider/model/account circuit-breaker registry as documented in
+`docs/operations/hosted-inference-resilience.md`. Live KMS/provider receipts and
+UMG-compatible public protocol surfaces remain separate launch evidence.
 
 ## Rotation And Recovery
 
-The repository can atomically replace only the envelope's `wrapped_key` for an
-active tenant/user row. The test receipt proves that same-DEK rewrap preserves
-payload ciphertext and remains decryptable through the replacement provider.
-Production rotation still requires the resumable batch, checkpoint, lifecycle
-audit, rollback window, and live-provider evidence in
-`docs/operations/key-rotation.md`.
+The hosted worker enumerates active and revoked rows in bounded batches,
+rewraps the same DEK, compare-and-swap replaces only the envelope's
+`wrapped_key`, sets `rewrapped_at`, and persists leased checkpoints plus
+metadata-only lifecycle audit. The tests prove that payload ciphertext is
+unchanged and remains decryptable. Environment-specific rollback and live
+provider evidence remain required by `docs/operations/key-rotation.md`.
+
+## Confirmed DSAR Erasure
+
+The ordinary DELETE route remains non-enumerating revocation and is not hard
+deletion. A confirmed DSAR workflow calls the internal erasure service after
+identity, tenant, request authority, and audit availability have been
+established. The service emits a fail-closed start receipt, hard-deletes all
+active and revoked `user_secrets` rows for that tenant/user, then emits a
+metadata-only completion receipt.
+
+The erasure receipt distinguishes four outcomes: local encrypted secret rows
+are deleted; aggregate rotation-job history is retained on a security basis;
+durable audit history is retained on its compliance/security basis; and the
+external provider account still requires provider-side user/operator action.
+Neither local revocation nor hard deletion claims destruction of an upstream
+credential, provider account, KMS version, backup copy governed by retention,
+or audit record. DSAR tooling must surface these distinctions without exposing
+envelopes, key references, contexts, or raw provider errors.
 
 Encrypted `user_secrets` rows are not currently an authorized complete-backup
 or portability profile. Recovery requires the matching provider/key versions,

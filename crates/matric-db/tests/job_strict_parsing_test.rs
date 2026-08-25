@@ -1,5 +1,5 @@
 use matric_core::{Error, JobRepository, TierGroup};
-use matric_db::PgJobRepository;
+use matric_db::{PgJobRepository, LOCAL_TENANT_ID};
 use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
@@ -8,6 +8,15 @@ async fn isolated_job_pool() -> sqlx::PgPool {
         .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
     let pool = PgPoolOptions::new()
         .max_connections(1)
+        .after_connect(|connection, _metadata| {
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('app.current_tenant', $1, false)")
+                    .bind(LOCAL_TENANT_ID)
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
         .connect(&database_url)
         .await
         .expect("connect to migrated test database");

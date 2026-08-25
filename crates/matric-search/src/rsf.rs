@@ -1,6 +1,6 @@
 //! Relative Score Fusion (RSF) for combining search results.
 //!
-//! RSF normalizes actual similarity scores to [0,1] via min-max scaling,
+//! RSF normalizes actual similarity scores to `[0,1]` via min-max scaling,
 //! then combines with weighted sum. Unlike RRF which only uses rank position,
 //! RSF preserves score magnitude — top results with large score gaps maintain
 //! that distinction.
@@ -25,7 +25,7 @@ struct HitMetadata {
 
 /// Fuse multiple scored lists using Relative Score Fusion.
 ///
-/// Each input list has scores normalized to [0,1] via min-max scaling,
+/// Each input list has scores normalized to `[0,1]` via min-max scaling,
 /// then combined with weighted sum. Weights must sum to 1.0.
 ///
 /// # Arguments

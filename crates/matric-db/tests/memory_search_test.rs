@@ -8,7 +8,7 @@
 //! These tests run as regular integration tests in CI.
 
 use chrono::{Duration, Utc};
-use matric_db::Database;
+use matric_db::{create_pool, Database};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -16,7 +16,7 @@ use uuid::Uuid;
 async fn setup_test_db() -> PgPool {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
-    PgPool::connect(&database_url)
+    create_pool(&database_url)
         .await
         .expect("Failed to connect to test database")
 }

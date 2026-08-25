@@ -1,5 +1,6 @@
 //! matric-api - HTTP API server for matric-memory
 
+mod audit_policy;
 mod handlers;
 mod middleware;
 mod oauth_profile;
@@ -50,12 +51,14 @@ use uuid::Uuid;
 #[cfg(feature = "hosted-auth")]
 use matric_api::hosted_auth::{build_clerk_authenticator, HostedAuthConfig, HostedAuthenticator};
 use matric_api::services::{
-    RedisRequestQuotaGate, RequestQuotaDecision, RequestQuotaIdentity, RequestQuotaPolicy,
+    InferenceBreakerConfig, InferenceCircuitBreakerRegistry, RedisRequestQuotaGate,
+    RequestQuotaDecision, RequestQuotaIdentity, RequestQuotaPolicy, UserSecretRewrapWorkerConfig,
 };
 use matric_core::{
-    AllowAllPolicy, ArchiveRepository, AttachmentScanStatus, AttachmentStatus, AuditEvent,
-    AuditFailurePolicy, AuditOutcome, AuditSeverity, AuditSink, AuditSource, AuditVisibilityClass,
-    AuthPrincipal, AuthorizationPolicy, AuthorizationServerMetadata, BatchTagNoteRequest,
+    AllowAllPolicy, ArchiveRepository, AttachmentScanStatus, AttachmentStatus,
+    AuditAvailabilityPhase, AuditEvent, AuditFailureDisposition, AuditFailurePolicy, AuditOutcome,
+    AuditSeverity, AuditSink, AuditSource, AuditVisibilityClass, AuthPrincipal,
+    AuthorizationPolicy, AuthorizationServerMetadata, BatchTagNoteRequest,
     ClientRegistrationRequest, CollectionRepository, CreateApiKeyRequest, CreateNoteRequest,
     Decision, DenyReason, DocumentTypeRepository, EmbeddingConfigProfile, EventBus, EventContext,
     EventEnvelope, ExtractionAdapter, ExtractionStrategy, Job, JobRepository, JobStatus, JobType,
@@ -1174,6 +1177,8 @@ struct AppState {
     /// Shared outbound inference destination policy (#920).
     inference_destination_policy:
         Arc<matric_inference::destination_policy::OutboundDestinationPolicy>,
+    /// Bounded shared provider-health state for hosted stored inference (#1099).
+    inference_breakers: Option<Arc<InferenceCircuitBreakerRegistry>>,
     /// Signed-release OIDC verifier and active-tenant lookup boundary.
     #[cfg(feature = "hosted-auth")]
     hosted_auth: Option<Arc<dyn HostedAuthenticator>>,
@@ -1613,17 +1618,18 @@ fn openapi_yaml_with_problem_contract() -> String {
         .expect("OpenAPI document must be a mapping");
     root.insert(
         serde_yaml::Value::String("x-fortemi-error-contract".to_string()),
-        serde_yaml::to_value(contract).expect("Problem contract extension must serialize"),
+        serde_yaml::to_value(canonicalize_json_value(contract))
+            .expect("Problem contract extension must serialize"),
     );
     root.insert(
         serde_yaml::Value::String("x-fortemi-contract".to_string()),
-        serde_yaml::to_value(serde_json::json!({
+        serde_yaml::to_value(canonicalize_json_value(serde_json::json!({
             "artifact_path": "contracts/openapi/openapi.yaml",
             "contract_revision": "1",
             "producer": "Fortemi/Fortemi",
             "producer_commit": "Use the immutable Git commit containing this artifact.",
             "receipt_path": "openapi-contract-receipt.json",
-        }))
+        })))
         .expect("Contract metadata extension must serialize"),
     );
 
@@ -1714,7 +1720,7 @@ fn apply_openapi_problem_responses(value: &mut serde_yaml::Value) {
                 .expect("OpenAPI operation responses must be a mapping");
             responses.insert(
                 yaml_key("429"),
-                serde_yaml::to_value(serde_json::json!({
+                serde_yaml::to_value(canonicalize_json_value(serde_json::json!({
                     "description": "Global request rate limit exceeded",
                     "content": {
                         "application/problem+json": {
@@ -1723,7 +1729,7 @@ fn apply_openapi_problem_responses(value: &mut serde_yaml::Value) {
                             },
                         },
                     },
-                }))
+                })))
                 .expect("OpenAPI rate-limit response must serialize"),
             );
         }
@@ -1745,11 +1751,11 @@ fn apply_openapi_route_security(value: &mut serde_yaml::Value) {
         .expect("OpenAPI securitySchemes must be a mapping");
     security_schemes.insert(
         yaml_key("bearerAuth"),
-        serde_yaml::to_value(serde_json::json!({
+        serde_yaml::to_value(canonicalize_json_value(serde_json::json!({
             "type": "http",
             "scheme": "bearer",
             "bearerFormat": "JWT",
-        }))
+        })))
         .expect("Bearer security scheme must serialize"),
     );
 
@@ -1775,8 +1781,10 @@ fn apply_openapi_route_security(value: &mut serde_yaml::Value) {
             let requirement = if public {
                 serde_yaml::Value::Sequence(Vec::new())
             } else {
-                serde_yaml::to_value(vec![serde_json::json!({"bearerAuth": []})])
-                    .expect("Bearer security requirement must serialize")
+                serde_yaml::to_value(vec![canonicalize_json_value(
+                    serde_json::json!({"bearerAuth": []}),
+                )])
+                .expect("Bearer security requirement must serialize")
             };
             operation.insert(yaml_key("security"), requirement);
         }
@@ -2750,6 +2758,79 @@ async fn request_quota_for_mode(
     Ok(Some(Arc::new(gate)))
 }
 
+fn inference_breakers_for_mode(
+    multi_tenant: bool,
+) -> anyhow::Result<Option<Arc<InferenceCircuitBreakerRegistry>>> {
+    if !multi_tenant {
+        return Ok(None);
+    }
+    let failure_threshold = std::env::var("FORTEMI_INFERENCE_BREAKER_FAILURE_THRESHOLD")
+        .ok()
+        .map(|value| value.parse::<u32>())
+        .transpose()
+        .map_err(|_| anyhow::anyhow!("invalid inference breaker failure threshold"))?
+        .unwrap_or(3);
+    let cooldown_secs = std::env::var("FORTEMI_INFERENCE_BREAKER_COOLDOWN_SECS")
+        .ok()
+        .map(|value| value.parse::<u64>())
+        .transpose()
+        .map_err(|_| anyhow::anyhow!("invalid inference breaker cooldown"))?
+        .unwrap_or(30);
+    let capacity = std::env::var("FORTEMI_INFERENCE_BREAKER_CAPACITY")
+        .ok()
+        .map(|value| value.parse::<usize>())
+        .transpose()
+        .map_err(|_| anyhow::anyhow!("invalid inference breaker capacity"))?
+        .unwrap_or(4096);
+    let config = InferenceBreakerConfig::from_values(
+        failure_threshold,
+        std::time::Duration::from_secs(cooldown_secs),
+        capacity,
+    )
+    .map_err(|_| anyhow::anyhow!("invalid inference breaker configuration"))?;
+    Ok(Some(Arc::new(InferenceCircuitBreakerRegistry::new(config))))
+}
+
+fn user_secret_rewrap_worker_config(
+    multi_tenant: bool,
+) -> anyhow::Result<Option<UserSecretRewrapWorkerConfig>> {
+    if !multi_tenant {
+        return Ok(None);
+    }
+    let tenant = std::env::var("FORTEMI_USER_SECRET_REWRAP_TENANT_ID").ok();
+    let job = std::env::var("FORTEMI_USER_SECRET_REWRAP_JOB_ID").ok();
+    let (tenant, job) = match (tenant, job) {
+        (Some(tenant), Some(job)) => (tenant, job),
+        (None, None) => return Ok(None),
+        _ => {
+            anyhow::bail!(
+                "user-secret rewrap tenant and job identifiers must be configured together"
+            )
+        }
+    };
+    let tenant_id = tenant
+        .parse::<Uuid>()
+        .map_err(|_| anyhow::anyhow!("invalid user-secret rewrap tenant identifier"))?;
+    let job_id = job
+        .parse::<Uuid>()
+        .map_err(|_| anyhow::anyhow!("invalid user-secret rewrap job identifier"))?;
+    let batch_size = std::env::var("FORTEMI_USER_SECRET_REWRAP_BATCH_SIZE")
+        .ok()
+        .map(|value| value.parse::<usize>())
+        .transpose()
+        .map_err(|_| anyhow::anyhow!("invalid user-secret rewrap batch size"))?
+        .unwrap_or(100);
+    if tenant_id.is_nil() || job_id.is_nil() || !(1..=1000).contains(&batch_size) {
+        anyhow::bail!("invalid user-secret rewrap worker configuration");
+    }
+    Ok(Some(UserSecretRewrapWorkerConfig {
+        tenant_id,
+        job_id,
+        batch_size,
+        retry_delay: std::time::Duration::from_secs(30),
+    }))
+}
+
 fn startup_log_format_class(log_format: &str) -> &'static str {
     match log_format {
         "json" => "json",
@@ -3246,6 +3327,8 @@ async fn main() -> anyhow::Result<()> {
     let audit_sink = audit_sink_for_mode(&db, security_config.multi_tenant).await?;
     let key_provider = key_provider_for_mode(security_config.multi_tenant).await?;
     let hosted_quota = request_quota_for_mode(security_config.multi_tenant).await?;
+    let inference_breakers = inference_breakers_for_mode(security_config.multi_tenant)?;
+    let user_secret_rewrap = user_secret_rewrap_worker_config(security_config.multi_tenant)?;
 
     #[cfg(feature = "hosted-auth")]
     let hosted_auth = if security_config.multi_tenant {
@@ -4072,6 +4155,7 @@ async fn main() -> anyhow::Result<()> {
         require_auth: security_config.require_auth, // ADR-094: fail-closed default — see startup validation block in main()
         multi_tenant: security_config.multi_tenant,
         inference_destination_policy,
+        inference_breakers,
         #[cfg(feature = "hosted-auth")]
         hosted_auth,
         call_recording_require_confirmation: security_config.call_recording_require_confirmation,
@@ -4115,6 +4199,39 @@ async fn main() -> anyhow::Result<()> {
         lifecycle: lifecycle.clone(),
         trusted_proxy_config,
     };
+
+    if let Some(config) = user_secret_rewrap {
+        let pool = state.db.pool.clone();
+        let audit_sink = state.audit_sink.clone();
+        let key_provider = state
+            .key_provider
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("user-secret rewrap requires hosted key custody"))?;
+        tokio::spawn(async move {
+            match matric_api::services::run_user_secret_rewrap_worker(
+                pool,
+                audit_sink,
+                key_provider,
+                config,
+            )
+            .await
+            {
+                Ok(receipt) => info!(
+                    target: "fortemi.security",
+                    job_id_present = !receipt.job_id.is_nil(),
+                    scanned_count = receipt.scanned_count,
+                    rewrapped_count = receipt.rewrapped_count,
+                    skipped_count = receipt.skipped_count,
+                    "User-secret rewrap job completed"
+                ),
+                Err(error) => error!(
+                    target: "fortemi.security",
+                    error_class = ?error,
+                    "User-secret rewrap worker stopped"
+                ),
+            }
+        });
+    }
 
     // Spawn the inbound external event source supervisor (#833, Phase D).
     // Opt-in via INBOUND_EXTERNAL_SOURCES_ENABLED (default false / standby cost
@@ -8582,6 +8699,7 @@ async fn hosted_quota_response(
     let route_class = route_policy::route_policy_for_path(request.uri().path())
         .map(|policy| usage_route_class_label(policy.class))
         .unwrap_or("unclassified");
+    let correlation_id = canonical_usage_request_id(request.headers());
     let tenant = tenant.tenant_id().to_string();
     let decision = gate
         .admit(&RequestQuotaIdentity {
@@ -8594,13 +8712,127 @@ async fn hosted_quota_response(
 
     match decision {
         Ok(decision) if decision.allowed => {
+            if emit_quota_audit_event(
+                state.audit_sink.as_ref(),
+                state.multi_tenant,
+                quota_audit_event(
+                    &tenant,
+                    &principal,
+                    correlation_id.as_deref(),
+                    route_class,
+                    "decision_allow",
+                    AuditOutcome::Success,
+                    "within_limit",
+                    Some((&decision.policy_id, decision.policy_version)),
+                ),
+            )
+            .await
+            .is_err()
+            {
+                return quota_audit_unavailable_response();
+            }
             let mut response = next.run(request).await;
             append_quota_headers(&mut response, &decision);
             response
         }
-        Ok(decision) => quota_rejection_response(&decision),
-        Err(_) => quota_unavailable_response(),
+        Ok(decision) => {
+            let _ = emit_quota_audit_event(
+                state.audit_sink.as_ref(),
+                state.multi_tenant,
+                quota_audit_event(
+                    &tenant,
+                    &principal,
+                    correlation_id.as_deref(),
+                    route_class,
+                    "decision_deny",
+                    AuditOutcome::Denied,
+                    "hard_limit",
+                    Some((&decision.policy_id, decision.policy_version)),
+                ),
+            )
+            .await;
+            quota_rejection_response(&decision)
+        }
+        Err(_) => {
+            let _ = emit_quota_audit_event(
+                state.audit_sink.as_ref(),
+                state.multi_tenant,
+                quota_audit_event(
+                    &tenant,
+                    &principal,
+                    correlation_id.as_deref(),
+                    route_class,
+                    "state_unavailable",
+                    AuditOutcome::Error,
+                    "shared_state_unavailable",
+                    Some((&gate.policy().id, gate.policy().version)),
+                ),
+            )
+            .await;
+            quota_unavailable_response()
+        }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn quota_audit_event(
+    tenant_id: &str,
+    principal_id: &str,
+    correlation_id: Option<&str>,
+    route_class: &str,
+    action: &str,
+    outcome: AuditOutcome,
+    reason: &str,
+    policy: Option<(&str, u32)>,
+) -> AuditEvent {
+    let producer = audit_policy::producer_policy("quota_decision")
+        .expect("quota decision audit producer must be inventoried");
+    let mut event = AuditEvent::new("quota", action, outcome)
+        .with_failure_policy(producer.failure_policy)
+        .with_tenant(tenant_id)
+        .with_principal(principal_id)
+        .with_attr("route_class", route_class)
+        .with_attr("reason_code", reason)
+        .with_attr("producer_family", producer.event_family);
+    if let Some(correlation_id) = correlation_id {
+        event = event.with_correlation_id(correlation_id);
+    }
+    if let Some((policy_id, policy_version)) = policy {
+        event = event
+            .with_resource("quota_policy", policy_id)
+            .with_attr("policy_version", u64::from(policy_version));
+    }
+    event.source = AuditSource::Api;
+    event.visibility = AuditVisibilityClass::SecurityRestricted;
+    event.severity = match outcome {
+        AuditOutcome::Denied => AuditSeverity::Warn,
+        AuditOutcome::Error | AuditOutcome::Failure => AuditSeverity::Error,
+        _ => AuditSeverity::Info,
+    };
+    event.sanitized()
+}
+
+async fn emit_quota_audit_event(
+    audit_sink: &dyn AuditSink,
+    hosted: bool,
+    event: AuditEvent,
+) -> Result<(), AuditFailureDisposition> {
+    let producer = audit_policy::producer_policy("quota_decision")
+        .expect("quota decision audit producer must be inventoried");
+    if let Err(error) = audit_sink.emit(event).await {
+        let disposition = producer.outage_disposition(hosted, AuditAvailabilityPhase::Ready);
+        warn!(
+            error_len = telemetry_text_len(&error.to_string()),
+            ?disposition,
+            detail = API_AUDIT_EMIT_DIAGNOSTIC_FAILURE_DETAIL,
+            operation = "emit_quota_audit_event",
+            "failed to emit quota decision audit event"
+        );
+        if disposition == AuditFailureDisposition::RejectOperation {
+            return Err(disposition);
+        }
+    }
+    Ok(())
 }
 
 fn quota_principal_parts(principal: &AuthPrincipal) -> Option<(String, String)> {
@@ -8624,6 +8856,19 @@ fn quota_unavailable_response() -> axum::response::Response {
         StatusCode::SERVICE_UNAVAILABLE,
         ProblemType::ServiceUnavailable,
         "Request quota state is temporarily unavailable.".to_string(),
+        None,
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+fn quota_audit_unavailable_response() -> axum::response::Response {
+    let mut response = problem_response(
+        StatusCode::SERVICE_UNAVAILABLE,
+        ProblemType::ServiceUnavailable,
+        "Quota audit storage is unavailable.".to_string(),
         None,
     );
     response
@@ -9090,6 +9335,15 @@ async fn auth_middleware(
                 request.extensions_mut().insert(tenant);
             }
             if state.multi_tenant && requires_bearer {
+                if !route_policy::hosted_tenant_transaction_ready(&method, &path) {
+                    return problem_response(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        ProblemType::ServiceUnavailable,
+                        "This hosted route has not completed tenant transaction migration."
+                            .to_string(),
+                        None,
+                    );
+                }
                 request.extensions_mut().insert(TenantScopeRequired);
             }
             #[cfg(feature = "hosted-auth")]
@@ -11280,17 +11534,49 @@ fn is_public_incoming_webhook_route(method: &axum::http::Method, path: &str) -> 
 #[utoipa::path(get, path = "/api/v1/rate-limit/status", tag = "System",
     responses((status = 200, description = "Success")))]
 async fn rate_limit_status(State(state): State<AppState>) -> impl IntoResponse {
-    if let Some(_limiter) = &state.rate_limiter {
+    if let Some(gate) = &state.hosted_quota {
+        Json(hosted_rate_limit_status_payload(
+            gate.policy(),
+            &gate.health(),
+        ))
+    } else if state.rate_limiter.is_some() {
         Json(serde_json::json!({
             "enabled": true,
-            "message": "Rate limiting is active"
+            "mode": "community_process_local",
+            "shared_state": "not_required",
+            "reservation_reconciliation": "not_required",
         }))
     } else {
         Json(serde_json::json!({
             "enabled": false,
-            "message": "Rate limiting is disabled"
+            "mode": "disabled",
+            "shared_state": "not_required",
+            "reservation_reconciliation": "not_required",
         }))
     }
+}
+
+fn hosted_rate_limit_status_payload(
+    policy: &RequestQuotaPolicy,
+    health: &matric_api::services::QuotaStoreHealth,
+) -> serde_json::Value {
+    serde_json::json!({
+        "enabled": true,
+        "mode": "hosted_shared",
+        "shared_state": match health.status {
+            matric_api::services::QuotaStoreHealthStatus::Ready => "ready",
+            matric_api::services::QuotaStoreHealthStatus::Unavailable => "unavailable",
+        },
+        "shared_state_checked_at": health.checked_at,
+        "shared_state_consecutive_failures": health.consecutive_failures,
+        "policy": {
+            "id": policy.id,
+            "version": policy.version,
+        },
+        "identity_dimensions": ["tenant", "principal", "client", "route_class"],
+        "tenant_plan_selection": "not_configured",
+        "reservation_reconciliation": "foundation_available_not_runtime_configured",
+    })
 }
 
 // =============================================================================
@@ -11451,6 +11737,12 @@ struct CompatibilityAuth {
     claim_contract_profile: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     authority_release: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    authority_commit: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    manifest_sha256: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    release_policy_sha256: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -11625,9 +11917,18 @@ fn build_compatibility_response_from_inputs(
             mode: compatibility_auth_mode(inputs.require_auth, inputs.multi_tenant),
             oauth_issuer_configured: inputs.require_auth,
             tenant_context_available: inputs.multi_tenant,
-            claim_contract_version: inputs.multi_tenant.then_some("1.0.0"),
+            claim_contract_version: inputs.multi_tenant.then_some("1.1.0"),
             claim_contract_profile: inputs.multi_tenant.then_some("rust-node-jwt-v1"),
-            authority_release: inputs.multi_tenant.then_some("v2026.7.0"),
+            authority_release: inputs.multi_tenant.then_some("v2026.8.1"),
+            authority_commit: inputs
+                .multi_tenant
+                .then_some("1b6ddb1b58a12efc5b631386ad783cb12edec518"),
+            manifest_sha256: inputs
+                .multi_tenant
+                .then_some("2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"),
+            release_policy_sha256: inputs
+                .multi_tenant
+                .then_some("d70491c336a62508ef3c7937af709dd121a6ec4f421ceab66486af3f371de8db"),
         },
         capabilities: serde_json::json!({
             "core_notes": capability_state("available"),
@@ -11975,14 +12276,31 @@ async fn readiness_probe(State(state): State<AppState>) -> impl IntoResponse {
 
 /// Check required dependencies without coupling readiness to optional backends.
 async fn dependencies_ready(state: &AppState) -> bool {
-    matches!(
+    let database_ready = matches!(
         tokio::time::timeout(
             std::time::Duration::from_secs(5),
             sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&state.db.pool),
         )
         .await,
         Ok(Ok(_))
-    )
+    );
+    if !database_ready || !state.multi_tenant {
+        return database_ready;
+    }
+
+    let audit_ready = matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), state.audit_sink.flush()).await,
+        Ok(Ok(()))
+    );
+    let quota_ready = match &state.hosted_quota {
+        Some(gate) => matches!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), gate.check_health()).await,
+            Ok(Ok(_))
+        ),
+        None => false,
+    };
+
+    audit_ready && quota_ready
 }
 
 // =============================================================================
@@ -13249,6 +13567,10 @@ where
 {
     if let Some(scope) = scope {
         scope.with_schema_connection(schema, operation).await
+    } else if state.multi_tenant {
+        Err(matric_core::Error::Config(
+            "hosted tenant-data handler is missing its request transaction".to_string(),
+        ))
     } else {
         let context = state.db.for_schema(&schema)?;
         context
@@ -13435,6 +13757,7 @@ impl fmt::Debug for CreateNoteBody {
 async fn create_note(
     _auth: Auth,
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CreateNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -13500,13 +13823,16 @@ async fn create_note(
         title: body.title,
     };
 
-    // Insert note (archive-scoped via SchemaContext)
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    // Insert note through the request-owned tenant transaction in hosted mode.
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
     let req_clone = req.clone();
-    let note_id = ctx
-        .execute(move |tx| Box::pin(async move { notes.insert_tx(tx, req_clone).await }))
-        .await?;
+    let note_id = with_request_schema(
+        &state,
+        scope.as_ref().map(|Extension(scope)| scope.clone()),
+        archive_ctx.schema.clone(),
+        move |connection| Box::pin(async move { notes.insert_tx(connection, req_clone).await }),
+    )
+    .await?;
 
     // Determine schema for background jobs (Issue #109)
     let schema_for_jobs = if archive_ctx.schema != "public" {
@@ -13715,6 +14041,7 @@ impl fmt::Debug for BulkCreateNotesBody {
 async fn bulk_create_notes(
     _auth: Auth,
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<BulkCreateNotesBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -13803,13 +14130,16 @@ async fn bulk_create_notes(
         })
         .collect();
 
-    // Bulk insert all notes (archive-scoped via SchemaContext)
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    // Bulk insert through the request-owned tenant transaction in hosted mode.
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
     let reqs = requests.clone();
-    let ids = ctx
-        .execute(move |tx| Box::pin(async move { notes.insert_bulk_tx(tx, reqs).await }))
-        .await?;
+    let ids = with_request_schema(
+        &state,
+        scope.as_ref().map(|Extension(scope)| scope.clone()),
+        archive_ctx.schema.clone(),
+        move |connection| Box::pin(async move { notes.insert_bulk_tx(connection, reqs).await }),
+    )
+    .await?;
 
     // Resolve tags via SKOS for each note (fixes #393: required_tags filter
     // returned 0 for bulk_create notes because SKOS concepts were never created)
@@ -13998,6 +14328,7 @@ impl fmt::Debug for UpdateNoteBody {
 async fn update_note(
     _auth: Auth,
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateNoteBody>,
@@ -14006,17 +14337,26 @@ async fn update_note(
     validate_chunking_params(body.chunk_max_chars, body.chunk_overlap)
         .map_err(ApiError::BadRequest)?;
 
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let pool = state.db.pool.clone();
+    let request_scope = scope.map(|Extension(scope)| scope);
 
     // Update content if provided
     let content_changed = body.content.is_some();
     if let Some(content) = &body.content {
         let notes = matric_db::PgNoteRepository::new(pool.clone());
         let content_clone = content.clone();
-        ctx.execute(move |tx| {
-            Box::pin(async move { notes.update_original_tx(tx, id, &content_clone).await })
-        })
+        with_request_schema(
+            &state,
+            request_scope.clone(),
+            archive_ctx.schema.clone(),
+            move |connection| {
+                Box::pin(async move {
+                    notes
+                        .update_original_tx(connection, id, &content_clone)
+                        .await
+                })
+            },
+        )
         .await?;
     }
 
@@ -14028,8 +14368,15 @@ async fn update_note(
             metadata: body.metadata,
         };
         let notes = matric_db::PgNoteRepository::new(pool.clone());
-        ctx.execute(move |tx| Box::pin(async move { notes.update_status_tx(tx, id, req).await }))
-            .await?;
+        with_request_schema(
+            &state,
+            request_scope.clone(),
+            archive_ctx.schema.clone(),
+            move |connection| {
+                Box::pin(async move { notes.update_status_tx(connection, id, req).await })
+            },
+        )
+        .await?;
     }
 
     // Update tags if provided (#226)
@@ -14041,9 +14388,14 @@ async fn update_note(
             }
         }
         let repo = matric_db::PgTagRepository::new(pool.clone());
-        ctx.execute(move |tx| {
-            Box::pin(async move { repo.set_for_note_tx(tx, id, tags, "api").await })
-        })
+        with_request_schema(
+            &state,
+            request_scope.clone(),
+            archive_ctx.schema.clone(),
+            move |connection| {
+                Box::pin(async move { repo.set_for_note_tx(connection, id, tags, "api").await })
+            },
+        )
         .await?;
     }
 
@@ -14064,15 +14416,19 @@ async fn update_note(
             if let Some(content) = &body.content {
                 let notes = matric_db::PgNoteRepository::new(pool.clone());
                 let content_clone = content.clone();
-                let _ = ctx
-                    .execute(move |tx| {
+                let _ = with_request_schema(
+                    &state,
+                    request_scope.clone(),
+                    archive_ctx.schema.clone(),
+                    move |connection| {
                         Box::pin(async move {
                             notes
-                                .sync_revised_to_original_tx(tx, id, &content_clone)
+                                .sync_revised_to_original_tx(connection, id, &content_clone)
                                 .await
                         })
-                    })
-                    .await;
+                    },
+                )
+                .await;
             }
         }
 
@@ -14099,9 +14455,13 @@ async fn update_note(
 
     // Fetch and return the updated note
     let notes = matric_db::PgNoteRepository::new(pool);
-    let note = ctx
-        .query(move |tx| Box::pin(async move { notes.fetch_tx(tx, id).await }))
-        .await?;
+    let note = with_request_schema(
+        &state,
+        request_scope,
+        archive_ctx.schema.clone(),
+        move |connection| Box::pin(async move { notes.fetch_tx(connection, id).await }),
+    )
+    .await?;
 
     // Emit NoteUpdated event (Issue #41, scoped via #452)
     state.event_bus.emit_with_context(
@@ -14178,6 +14538,7 @@ async fn delete_note(
 async fn purge_note(
     _auth: Auth,
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -14186,11 +14547,14 @@ async fn purge_note(
     // See: issue #129, commit 49d9f3f
 
     // Verify note exists first
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
-    let exists = ctx
-        .query(move |tx| Box::pin(async move { notes.exists_tx(tx, id).await }))
-        .await?;
+    let exists = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| Box::pin(async move { notes.exists_tx(connection, id).await }),
+    )
+    .await?;
 
     if !exists {
         return Err(note_not_found());
@@ -14241,6 +14605,7 @@ struct UpdateStatusBody {
 )]
 async fn update_note_status(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateStatusBody>,
@@ -14251,10 +14616,16 @@ async fn update_note_status(
         archived: body.archived,
         metadata: None,
     };
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
-    ctx.execute(move |tx| Box::pin(async move { notes.update_status_tx(tx, id, req).await }))
-        .await?;
+    with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move { notes.update_status_tx(connection, id, req).await })
+        },
+    )
+    .await?;
 
     // Emit archive/restore events (Issue #453, scoped via #452)
     let evt_ctx = event_context_for(&archive_ctx);
@@ -14300,14 +14671,19 @@ impl fmt::Debug for RestoreNoteQuery {
 )]
 async fn restore_note(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Query(query): Query<RestoreNoteQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
-    ctx.execute(move |tx| Box::pin(async move { notes.restore_tx(tx, id).await }))
-        .await?;
+    with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| Box::pin(async move { notes.restore_tx(connection, id).await }),
+    )
+    .await?;
 
     // Emit NoteRestored event (Issue #453, scoped via #452)
     state.event_bus.emit_with_context(
@@ -14402,16 +14778,20 @@ impl fmt::Debug for ReprocessNoteBody {
 )]
 async fn reprocess_note(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     body: Option<Json<ReprocessNoteBody>>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Verify note exists
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
-    let _ = ctx
-        .query(move |tx| Box::pin(async move { notes.fetch_tx(tx, id).await }))
-        .await?;
+    let _ = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| Box::pin(async move { notes.fetch_tx(connection, id).await }),
+    )
+    .await?;
 
     let body = body.map(|b| b.0);
 
@@ -14594,6 +14974,7 @@ impl fmt::Debug for BulkReprocessBody {
 )]
 async fn bulk_reprocess_notes(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     body: Option<Json<BulkReprocessBody>>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -14630,7 +15011,7 @@ async fn bulk_reprocess_notes(
         // Fetch all active note IDs from this archive. The listing repo caps
         // each page at 100 rows, so paginate until `limit` or exhaustion —
         // a single call silently truncated bulk reprocess to 100 notes (#1052).
-        let ctx = state.db.for_schema(&archive_ctx.schema)?;
+        let request_scope = scope.map(|Extension(scope)| scope);
         let mut ids: Vec<Uuid> = Vec::new();
         let mut offset: i64 = 0;
         loop {
@@ -14639,12 +15020,15 @@ async fn bulk_reprocess_notes(
                 break;
             }
             let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
-            let page = ctx
-                .query(move |tx| {
+            let page = with_request_schema(
+                &state,
+                request_scope.clone(),
+                archive_ctx.schema.clone(),
+                move |connection| {
                     Box::pin(async move {
                         notes_repo
                             .list_tx(
-                                tx,
+                                connection,
                                 ListNotesRequest {
                                     limit: Some(page_limit),
                                     offset: Some(offset),
@@ -14654,8 +15038,9 @@ async fn bulk_reprocess_notes(
                             )
                             .await
                     })
-                })
-                .await?;
+                },
+            )
+            .await?;
             let fetched = page.notes.len() as i64;
             ids.extend(page.notes.into_iter().map(|n| n.id));
             if fetched < page_limit {
@@ -14852,14 +15237,18 @@ async fn bulk_reprocess_notes(
 )]
 async fn get_note_tags(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgTagRepository::new(state.db.pool.clone());
-    let tags = ctx
-        .query(move |tx| Box::pin(async move { repo.get_for_note_tx(tx, id).await }))
-        .await?;
+    let tags = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| Box::pin(async move { repo.get_for_note_tx(connection, id).await }),
+    )
+    .await?;
     Ok(Json(tags))
 }
 
@@ -14891,6 +15280,7 @@ impl fmt::Debug for SetTagsBody {
 )]
 async fn set_note_tags(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<SetTagsBody>,
@@ -14909,12 +15299,16 @@ async fn set_note_tags(
             return Err(tag_depth_validation_error(None));
         }
     }
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgTagRepository::new(state.db.pool.clone());
     let tags_clone = body.tags.clone();
-    ctx.execute(move |tx| {
-        Box::pin(async move { repo.set_for_note_tx(tx, id, body.tags, "api").await })
-    })
+    with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move { repo.set_for_note_tx(connection, id, body.tags, "api").await })
+        },
+    )
     .await?;
 
     // Emit NoteTagsUpdated event (Issue #463)
@@ -14937,13 +15331,17 @@ async fn set_note_tags(
 )]
 async fn list_tags(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgTagRepository::new(state.db.pool.clone());
-    let tags = ctx
-        .query(move |tx| Box::pin(async move { repo.list_tx(tx).await }))
-        .await?;
+    let tags = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| Box::pin(async move { repo.list_tx(connection).await }),
+    )
+    .await?;
     Ok(Json(tags))
 }
 
@@ -16558,15 +16956,19 @@ impl fmt::Debug for ListCollectionsQuery {
     responses((status = 200, description = "Success")))]
 async fn list_collections(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<ListCollectionsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
     let parent_id = query.parent_id;
-    let collections = ctx
-        .query(move |tx| Box::pin(async move { repo.list_tx(tx, parent_id).await }))
-        .await?;
+    let collections = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| Box::pin(async move { repo.list_tx(connection, parent_id).await }),
+    )
+    .await?;
     Ok(Json(collections))
 }
 
@@ -16594,23 +16996,32 @@ impl fmt::Debug for CreateCollectionBody {
     responses((status = 201, description = "Success")))]
 async fn create_collection(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CreateCollectionBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
-    let collection = ctx
-        .query(move |tx| {
+    let collection = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| {
             Box::pin(async move {
                 let id = repo
-                    .create_tx(tx, &body.name, body.description.as_deref(), body.parent_id)
+                    .create_tx(
+                        connection,
+                        &body.name,
+                        body.description.as_deref(),
+                        body.parent_id,
+                    )
                     .await?;
-                repo.get_tx(tx, id)
+                repo.get_tx(connection, id)
                     .await?
                     .ok_or_else(|| matric_core::Error::NotFound("Collection not found".into()))
             })
-        })
-        .await?;
+        },
+    )
+    .await?;
 
     // Emit CollectionCreated event (Issue #454, scoped via #452)
     state.event_bus.emit_with_context(
@@ -16629,15 +17040,19 @@ async fn create_collection(
     responses((status = 200, description = "Success")))]
 async fn get_collection(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
-    let collection = ctx
-        .query(move |tx| Box::pin(async move { repo.get_tx(tx, id).await }))
-        .await?
-        .ok_or_else(collection_not_found)?;
+    let collection = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| Box::pin(async move { repo.get_tx(connection, id).await }),
+    )
+    .await?
+    .ok_or_else(collection_not_found)?;
     Ok(Json(collection))
 }
 
@@ -16664,19 +17079,24 @@ impl fmt::Debug for UpdateCollectionBody {
     responses((status = 204, description = "Success")))]
 async fn update_collection(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateCollectionBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let collection_name = body.name.clone();
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
-    ctx.execute(move |tx| {
-        Box::pin(async move {
-            repo.update_tx(tx, id, &body.name, body.description.as_deref())
-                .await
-        })
-    })
+    with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move {
+                repo.update_tx(connection, id, &body.name, body.description.as_deref())
+                    .await
+            })
+        },
+    )
     .await?;
 
     // Emit CollectionUpdated event (Issue #454, scoped via #452)
@@ -16700,24 +17120,29 @@ async fn update_collection(
 )]
 async fn delete_collection(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Query(query): Query<DeleteCollectionQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
     let force = query.force;
-    ctx.execute(move |tx| {
-        Box::pin(async move {
-            if !force {
-                let count = repo.count_notes_tx(tx, id).await?;
-                if count > 0 {
-                    return Err(collection_not_empty_error(count));
+    with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move {
+                if !force {
+                    let count = repo.count_notes_tx(connection, id).await?;
+                    if count > 0 {
+                        return Err(collection_not_empty_error(count));
+                    }
                 }
-            }
-            repo.delete_tx(tx, id).await
-        })
-    })
+                repo.delete_tx(connection, id).await
+            })
+        },
+    )
     .await
     .map_err(|err| match &err {
         matric_core::Error::InvalidInput(msg) if msg.contains("force_required=true") => {
@@ -16752,17 +17177,23 @@ struct CollectionNotesQuery {
     responses((status = 200, description = "Success")))]
 async fn get_collection_notes(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Query(query): Query<CollectionNotesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
     let limit = query.limit.unwrap_or(matric_core::defaults::PAGE_LIMIT);
     let offset = query.offset.unwrap_or(matric_core::defaults::PAGE_OFFSET);
-    let notes = ctx
-        .query(move |tx| Box::pin(async move { repo.get_notes_tx(tx, id, limit, offset).await }))
-        .await?;
+    let notes = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move { repo.get_notes_tx(connection, id, limit, offset).await })
+        },
+    )
+    .await?;
     Ok(Json(
         serde_json::json!({ "notes": notes, "collection_id": id }),
     ))
@@ -16774,19 +17205,24 @@ async fn get_collection_notes(
     responses((status = 200, description = "Success")))]
 async fn export_collection(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(collection_id): Path<Uuid>,
     Query(query): Query<ExportQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let request_scope = scope.map(|Extension(scope)| scope);
 
     // Fetch all notes in this collection
     let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
-    let notes_in_collection = ctx
-        .query(move |tx| {
-            Box::pin(async move { repo.get_notes_tx(tx, collection_id, 10000, 0).await })
-        })
-        .await?;
+    let notes_in_collection = with_request_schema(
+        &state,
+        request_scope.clone(),
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move { repo.get_notes_tx(connection, collection_id, 10000, 0).await })
+        },
+    )
+    .await?;
 
     let mut output = String::new();
 
@@ -16794,15 +17230,19 @@ async fn export_collection(
         let note_id = note_summary.id;
         let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
         let tag_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
-        let result = ctx
-            .query(move |tx| {
+        let result = with_request_schema(
+            &state,
+            request_scope.clone(),
+            archive_ctx.schema.clone(),
+            move |connection| {
                 Box::pin(async move {
-                    let note = notes.fetch_tx(tx, note_id).await?;
-                    let tags = tag_repo.get_for_note_tx(tx, note_id).await?;
+                    let note = notes.fetch_tx(connection, note_id).await?;
+                    let tags = tag_repo.get_for_note_tx(connection, note_id).await?;
                     Ok((note, tags))
                 })
-            })
-            .await;
+            },
+        )
+        .await;
 
         if let Ok((note_full, tags)) = result {
             // Add YAML frontmatter
@@ -16874,16 +17314,21 @@ impl fmt::Debug for MoveNoteBody {
     responses((status = 204, description = "Success")))]
 async fn move_note_to_collection(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(note_id): Path<Uuid>,
     Json(body): Json<MoveNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
     let collection_id = body.collection_id;
-    ctx.execute(move |tx| {
-        Box::pin(async move { repo.move_note_tx(tx, note_id, collection_id).await })
-    })
+    with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move { repo.move_note_tx(connection, note_id, collection_id).await })
+        },
+    )
     .await?;
 
     // Emit CollectionMembershipChanged event (Issue #454, scoped via #452)
@@ -24881,6 +25326,42 @@ fn validate_shard_export_record_count(record_count: usize) -> Result<(), ApiErro
     }
 }
 
+fn canonicalize_json_value(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(object) => {
+            let mut entries = object.into_iter().collect::<Vec<_>>();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            let mut canonical = serde_json::Map::new();
+            for (key, value) in entries {
+                canonical.insert(key, canonicalize_json_value(value));
+            }
+            serde_json::Value::Object(canonical)
+        }
+        serde_json::Value::Array(values) => {
+            serde_json::Value::Array(values.into_iter().map(canonicalize_json_value).collect())
+        }
+        scalar => scalar,
+    }
+}
+
+fn serialize_canonical_shard_value(
+    value: serde_json::Value,
+    pretty: bool,
+) -> Result<Vec<u8>, serde_json::Error> {
+    let canonical = canonicalize_json_value(value);
+    if pretty {
+        serde_json::to_vec_pretty(&canonical)
+    } else {
+        serde_json::to_vec(&canonical)
+    }
+}
+
+fn serialize_canonical_shard_value_string(
+    value: serde_json::Value,
+) -> Result<String, serde_json::Error> {
+    serde_json::to_string(&canonicalize_json_value(value))
+}
+
 fn serialize_shard_export_jsonl<T: Serialize>(
     records: &[T],
     context: &'static str,
@@ -25003,7 +25484,7 @@ fn serialize_shard_manifest(manifest: &ShardManifest) -> Result<Vec<u8>, serde_j
                 .or_insert(serde_json::Value::from(0));
         }
     }
-    serde_json::to_vec_pretty(&value)
+    serialize_canonical_shard_value(value, true)
 }
 const LEGACY_CORE_V1_MANIFEST_SCHEMA: &str =
     include_str!("../../../contracts/knowledge-shard/1.0.0/core-v1/manifest.schema.json");
@@ -27866,13 +28347,16 @@ fn serialize_shard_component_records(
         "notes" | "links" | "embeddings" => {
             let lines = records
                 .iter()
-                .map(serde_json::to_string)
+                .cloned()
+                .map(serialize_canonical_shard_value_string)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|_| "Knowledge shard migration serialization failed.".to_string())?;
             Ok(lines.join("\n").into_bytes())
         }
-        "collections" | "tags" | "templates" => serde_json::to_vec(records)
-            .map_err(|_| "Knowledge shard migration serialization failed.".to_string()),
+        "collections" | "tags" | "templates" => {
+            serialize_canonical_shard_value(serde_json::Value::Array(records.to_vec()), false)
+                .map_err(|_| "Knowledge shard migration serialization failed.".to_string())
+        }
         _ => Err("Unsupported knowledge shard component.".to_string()),
     }
 }
@@ -28332,7 +28816,8 @@ async fn knowledge_shard(
                             .expect("serialized shard note must be an object")
                             .remove("deleted_at");
                     }
-                    notes_json.push(serde_json::to_string(&note_obj).unwrap_or_default());
+                    notes_json
+                        .push(serialize_canonical_shard_value_string(note_obj).unwrap_or_default());
                 }
 
                 if (rows.len() as i64) < page_size {
@@ -29378,7 +29863,9 @@ async fn knowledge_shard(
                     })
                 })
                 .collect();
-            let data = serde_json::to_vec_pretty(&collections_json).unwrap_or_default();
+            let data =
+                serialize_canonical_shard_value(serde_json::Value::Array(collections_json), true)
+                    .unwrap_or_default();
             add_json_file("collections.json", &data)
                 .map_err(|e| shard_operation_failed("add collections to shard", e))?;
         }
@@ -29397,7 +29884,8 @@ async fn knowledge_shard(
                     })
                 })
                 .collect();
-            let data = serde_json::to_vec_pretty(&tags_json).unwrap_or_default();
+            let data = serialize_canonical_shard_value(serde_json::Value::Array(tags_json), true)
+                .unwrap_or_default();
             add_json_file("tags.json", &data)
                 .map_err(|e| shard_operation_failed("add tags to shard", e))?;
         }
@@ -29423,7 +29911,9 @@ async fn knowledge_shard(
                     })
                 })
                 .collect();
-            let data = serde_json::to_vec_pretty(&templates_json).unwrap_or_default();
+            let data =
+                serialize_canonical_shard_value(serde_json::Value::Array(templates_json), true)
+                    .unwrap_or_default();
             add_json_file("templates.json", &data)
                 .map_err(|e| shard_operation_failed("add templates to shard", e))?;
         }
@@ -29448,7 +29938,8 @@ async fn knowledge_shard(
                     "created_at": link.created_at_utc,
                     "metadata": link.metadata,
                 });
-                links_jsonl.push(serde_json::to_string(&link_obj).unwrap_or_default());
+                links_jsonl
+                    .push(serialize_canonical_shard_value_string(link_obj).unwrap_or_default());
             }
             let data = links_jsonl.join("\n").into_bytes();
             add_json_file("links.jsonl", &data)
@@ -29669,7 +30160,7 @@ async fn knowledge_shard(
                         .remove("contract_fingerprint");
                 }
                 embeddings_jsonl.push(
-                    serde_json::to_string(&record)
+                    serialize_canonical_shard_value_string(record)
                         .map_err(|error| shard_operation_failed("serialize embedding", error))?,
                 );
             }
@@ -43337,6 +43828,93 @@ mod tests {
     }
 
     #[test]
+    fn quota_audit_event_uses_the_mandatory_metadata_contract() {
+        let event = quota_audit_event(
+            "tenant-a",
+            "principal-a",
+            Some("request-a"),
+            "authenticated_write",
+            "decision_allow",
+            AuditOutcome::Success,
+            "within_limit",
+            Some(("hosted-api", 3)),
+        );
+
+        assert_eq!(event.category, "quota");
+        assert_eq!(event.action, "decision_allow");
+        assert_eq!(event.failure_policy, AuditFailurePolicy::FailClosed);
+        assert_eq!(event.visibility, AuditVisibilityClass::SecurityRestricted);
+        assert_eq!(event.source, AuditSource::Api);
+        assert_eq!(event.tenant_id.as_deref(), Some("tenant-a"));
+        assert_eq!(event.principal_id.as_deref(), Some("principal-a"));
+        assert_eq!(event.correlation_id.as_deref(), Some("request-a"));
+        assert_eq!(event.resource_kind.as_deref(), Some("quota_policy"));
+        assert_eq!(event.resource_id.as_deref(), Some("hosted-api"));
+        assert_eq!(event.attrs["policy_version"], serde_json::json!(3));
+        assert_eq!(
+            event.attrs["producer_family"],
+            serde_json::json!("quota.decision")
+        );
+    }
+
+    #[tokio::test]
+    async fn hosted_quota_allow_fails_closed_when_mandatory_audit_is_unavailable() {
+        let event = quota_audit_event(
+            "tenant-a",
+            "principal-a",
+            None,
+            "authenticated_read",
+            "decision_allow",
+            AuditOutcome::Success,
+            "within_limit",
+            Some(("hosted-api", 1)),
+        );
+
+        assert_eq!(
+            emit_quota_audit_event(&FailingAuditSink, true, event.clone()).await,
+            Err(AuditFailureDisposition::RejectOperation)
+        );
+        assert_eq!(
+            emit_quota_audit_event(&FailingAuditSink, false, event).await,
+            Ok(())
+        );
+
+        let response = quota_audit_unavailable_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    }
+
+    #[test]
+    fn hosted_quota_status_is_operational_and_does_not_claim_plan_readiness() {
+        let policy = RequestQuotaPolicy {
+            id: "hosted-api".to_string(),
+            version: 2,
+            limit: 42_000,
+            window: std::time::Duration::from_secs(60),
+        };
+        let health = matric_api::services::QuotaStoreHealth {
+            status: matric_api::services::QuotaStoreHealthStatus::Unavailable,
+            checked_at: DateTime::parse_from_rfc3339("2026-08-24T20:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            consecutive_failures: 3,
+        };
+        let body = hosted_rate_limit_status_payload(&policy, &health);
+
+        assert_eq!(body["mode"], "hosted_shared");
+        assert_eq!(body["shared_state"], "unavailable");
+        assert_eq!(body["shared_state_consecutive_failures"], 3);
+        assert_eq!(body["policy"]["id"], "hosted-api");
+        assert_eq!(body["policy"]["version"], 2);
+        assert_eq!(body["tenant_plan_selection"], "not_configured");
+        assert_eq!(
+            body["reservation_reconciliation"],
+            "foundation_available_not_runtime_configured"
+        );
+        assert!(body["policy"].get("limit").is_none());
+    }
+
+    #[test]
     fn compatibility_response_defaults_enterprise_surfaces_to_safe_states() {
         let response = build_compatibility_response_from_inputs(CompatibilityInputs {
             require_auth: false,
@@ -43354,6 +43932,10 @@ mod tests {
         assert_eq!(body["auth"]["mode"], "anonymous_local");
         assert_eq!(body["auth"]["tenant_context_available"], false);
         assert!(body["auth"].get("claim_contract_version").is_none());
+        assert!(body["auth"].get("authority_release").is_none());
+        assert!(body["auth"].get("authority_commit").is_none());
+        assert!(body["auth"].get("manifest_sha256").is_none());
+        assert!(body["auth"].get("release_policy_sha256").is_none());
         assert_eq!(body["capabilities"]["core_notes"]["state"], "available");
         assert_eq!(body["capabilities"]["search"]["state"], "available");
         assert_eq!(
@@ -43461,9 +44043,21 @@ mod tests {
         assert_eq!(body["deployment"]["hosted_multi_tenant_ready"], false);
         assert_eq!(body["auth"]["mode"], "hosted_oauth");
         assert_eq!(body["auth"]["tenant_context_available"], true);
-        assert_eq!(body["auth"]["claim_contract_version"], "1.0.0");
+        assert_eq!(body["auth"]["claim_contract_version"], "1.1.0");
         assert_eq!(body["auth"]["claim_contract_profile"], "rust-node-jwt-v1");
-        assert_eq!(body["auth"]["authority_release"], "v2026.7.0");
+        assert_eq!(body["auth"]["authority_release"], "v2026.8.1");
+        assert_eq!(
+            body["auth"]["authority_commit"],
+            "1b6ddb1b58a12efc5b631386ad783cb12edec518"
+        );
+        assert_eq!(
+            body["auth"]["manifest_sha256"],
+            "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"
+        );
+        assert_eq!(
+            body["auth"]["release_policy_sha256"],
+            "d70491c336a62508ef3c7937af709dd121a6ec4f421ceab66486af3f371de8db"
+        );
         assert_eq!(body["capabilities"]["hosted_auth"]["state"], "preview");
         assert_eq!(
             body["capabilities"]["hosted_auth"]["reason_code"],
@@ -43482,6 +44076,21 @@ mod tests {
             .unwrap();
         assert_eq!(kms_surface["state"], "unavailable");
         assert_eq!(kms_surface["reason_code"], "kms_backoffice_not_implemented");
+    }
+
+    #[cfg(feature = "hosted-auth")]
+    #[test]
+    fn hosted_tenant_store_unavailability_maps_to_redacted_503() {
+        let failure = BearerValidationFailure::from_contract(
+            fortemi_auth_core::AuthError::TenantStoreUnavailable,
+        );
+        assert_eq!(failure.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(failure.problem_type, ProblemType::ServiceUnavailable);
+        assert_eq!(
+            failure.detail,
+            "The authentication authority is temporarily unavailable."
+        );
+        assert!(!failure.detail.contains("tenant_store"));
     }
 
     async fn route_problem_contract_test_handler() -> Result<Json<serde_json::Value>, ApiError> {
@@ -52941,7 +53550,10 @@ not-json
             for record in &mut records {
                 normalize_temporal_strings(record);
             }
-            records.sort_by_cached_key(|record| serde_json::to_string(record).unwrap());
+            records.sort_by_cached_key(|record| {
+                let canonical = canonicalize_json_value(record.clone());
+                serde_json::to_string(&canonical).unwrap()
+            });
             records
         }
 
@@ -59353,6 +59965,7 @@ not-json
                 matric_inference::destination_policy::OutboundDestinationPolicy::new(false, None)
                     .expect("valid test destination policy"),
             ),
+            inference_breakers: None,
             #[cfg(feature = "hosted-auth")]
             hosted_auth: None,
             call_recording_require_confirmation: false,
@@ -64728,6 +65341,7 @@ not-json
                 matric_inference::destination_policy::OutboundDestinationPolicy::new(false, None)
                     .expect("valid test destination policy"),
             ),
+            inference_breakers: None,
             #[cfg(feature = "hosted-auth")]
             hosted_auth: None,
             call_recording_require_confirmation: false,
@@ -66524,6 +67138,7 @@ not-json
                 matric_inference::destination_policy::OutboundDestinationPolicy::new(false, None)
                     .expect("valid test destination policy"),
             ),
+            inference_breakers: None,
             #[cfg(feature = "hosted-auth")]
             hosted_auth: None,
             call_recording_require_confirmation: false,
@@ -66845,7 +67460,7 @@ not-json
     async fn spawn_memory_search_test_server() -> (String, sqlx::PgPool) {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
-        let pool = sqlx::PgPool::connect(&database_url)
+        let pool = matric_db::create_pool(&database_url)
             .await
             .expect("Failed to connect to test DB");
         let db = Database::new(pool.clone());
@@ -66871,6 +67486,7 @@ not-json
                 matric_inference::destination_policy::OutboundDestinationPolicy::new(false, None)
                     .expect("valid test destination policy"),
             ),
+            inference_breakers: None,
             #[cfg(feature = "hosted-auth")]
             hosted_auth: None,
             call_recording_require_confirmation: false,

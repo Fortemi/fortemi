@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T01:18:54Z"
+  updated_at: "2026-08-25T01:18:54Z"
+  description: "Final-state provenance for the auth and tenancy production-gate implementation"
+entity:
+  id: "urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md"
+  type: document
+  checksum: "sha256:fc1a5249f17acfc5764b6d26f1d986eb89875d70c44dac9326e09a80d14f3aee"
+  size_bytes: 14819
+  attributes:
+    change_scope: "fortemi-auth-tenancy-production-gates"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-726:production-gates-9bcd64ddfbee"
+  type: modification
+  started_at: "2026-08-24T21:15:00Z"
+  ended_at: "2026-08-25T01:18:54Z"
+  description: "Complete and verify the authorized internal enterprise auth and tenancy production gates"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md"
+    activity: "urn:aiwg:activity:modification:fortemi-726:production-gates-9bcd64ddfbee"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md"
+      source: "urn:gitea:Fortemi/fortemi:issue:726"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-726:production-gates-9bcd64ddfbee"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-726:production-gates-9bcd64ddfbee"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: technical_writer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

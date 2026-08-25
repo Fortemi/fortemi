@@ -2,7 +2,8 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
-use sqlx::{Pool, Postgres, Row, Transaction};
+use sqlx::postgres::PgConnection;
+use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
 use matric_core::{new_v7, Collection, CollectionRepository, Error, NoteSummary, Result};
@@ -262,7 +263,7 @@ impl PgCollectionRepository {
     /// Create a collection within an existing transaction.
     pub async fn create_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         name: &str,
         description: Option<&str>,
         parent_id: Option<Uuid>,
@@ -279,7 +280,7 @@ impl PgCollectionRepository {
         .bind(description)
         .bind(parent_id)
         .bind(now)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -287,11 +288,7 @@ impl PgCollectionRepository {
     }
 
     /// Get a collection by ID within an existing transaction.
-    pub async fn get_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        id: Uuid,
-    ) -> Result<Option<Collection>> {
+    pub async fn get_tx(&self, tx: &mut PgConnection, id: Uuid) -> Result<Option<Collection>> {
         let row = sqlx::query(
             r#"
             SELECT c.id, c.name, c.description, c.parent_id, c.created_at_utc,
@@ -301,7 +298,7 @@ impl PgCollectionRepository {
             "#,
         )
         .bind(id)
-        .fetch_optional(&mut **tx)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -318,7 +315,7 @@ impl PgCollectionRepository {
     /// List collections within an existing transaction.
     pub async fn list_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         parent_id: Option<Uuid>,
     ) -> Result<Vec<Collection>> {
         let rows = if let Some(pid) = parent_id {
@@ -332,7 +329,7 @@ impl PgCollectionRepository {
                 "#,
             )
             .bind(pid)
-            .fetch_all(&mut **tx)
+            .fetch_all(&mut *tx)
             .await
             .map_err(Error::Database)?
         } else {
@@ -345,7 +342,7 @@ impl PgCollectionRepository {
                 ORDER BY c.name
                 "#,
             )
-            .fetch_all(&mut **tx)
+            .fetch_all(&mut *tx)
             .await
             .map_err(Error::Database)?
         };
@@ -367,7 +364,7 @@ impl PgCollectionRepository {
     ///
     /// Knowledge Shard export uses this instead of `list_tx(None)`, which
     /// intentionally returns roots only for the interactive hierarchy API.
-    pub async fn list_all_tx(&self, tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Collection>> {
+    pub async fn list_all_tx(&self, tx: &mut PgConnection) -> Result<Vec<Collection>> {
         let rows = sqlx::query(
             r#"
             SELECT c.id, c.name, c.description, c.parent_id, c.created_at_utc,
@@ -376,7 +373,7 @@ impl PgCollectionRepository {
             ORDER BY c.created_at_utc, c.id
             "#,
         )
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -396,7 +393,7 @@ impl PgCollectionRepository {
     /// Update a collection within an existing transaction.
     pub async fn update_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         id: Uuid,
         name: &str,
         description: Option<&str>,
@@ -405,47 +402,43 @@ impl PgCollectionRepository {
             .bind(name)
             .bind(description)
             .bind(id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
         Ok(())
     }
 
     /// Count notes in a collection within an existing transaction.
-    pub async fn count_notes_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        id: Uuid,
-    ) -> Result<i64> {
+    pub async fn count_notes_tx(&self, tx: &mut PgConnection, id: Uuid) -> Result<i64> {
         let row =
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM note WHERE collection_id = $1")
                 .bind(id)
-                .fetch_one(&mut **tx)
+                .fetch_one(&mut *tx)
                 .await
                 .map_err(Error::Database)?;
         Ok(row)
     }
 
     /// Delete a collection within an existing transaction.
-    pub async fn delete_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<()> {
+    pub async fn delete_tx(&self, tx: &mut PgConnection, id: Uuid) -> Result<()> {
         // Move notes to uncategorized
         sqlx::query("UPDATE note SET collection_id = NULL WHERE collection_id = $1")
             .bind(id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
         // Move child collections to root
         sqlx::query("UPDATE collection SET parent_id = NULL WHERE parent_id = $1")
             .bind(id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
         // Delete the collection
         sqlx::query("DELETE FROM collection WHERE id = $1")
             .bind(id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -455,7 +448,7 @@ impl PgCollectionRepository {
     /// Move a note to a collection within an existing transaction.
     pub async fn move_note_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         note_id: Uuid,
         collection_id: Option<Uuid>,
     ) -> Result<()> {
@@ -464,7 +457,7 @@ impl PgCollectionRepository {
             .bind(collection_id)
             .bind(now)
             .bind(note_id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
         Ok(())
@@ -475,7 +468,7 @@ impl PgCollectionRepository {
     /// a descendant of the collection being moved.
     pub async fn move_collection_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         id: Uuid,
         new_parent_id: Option<Uuid>,
     ) -> Result<()> {
@@ -505,7 +498,7 @@ impl PgCollectionRepository {
             )
             .bind(parent_id)
             .bind(id)
-            .fetch_one(&mut **tx)
+            .fetch_one(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -520,7 +513,7 @@ impl PgCollectionRepository {
         sqlx::query("UPDATE collection SET parent_id = $1 WHERE id = $2")
             .bind(new_parent_id)
             .bind(id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -530,7 +523,7 @@ impl PgCollectionRepository {
     /// Get notes for a collection within an existing transaction.
     pub async fn get_notes_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         id: Uuid,
         limit: i64,
         offset: i64,
@@ -557,7 +550,7 @@ impl PgCollectionRepository {
         .bind(id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 

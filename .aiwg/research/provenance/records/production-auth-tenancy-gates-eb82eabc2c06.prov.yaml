@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T01:18:54Z"
+  updated_at: "2026-08-25T01:18:54Z"
+  description: "Final-state provenance for the auth and tenancy production-gate implementation"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/services/user_secret_rotation.rs"
+  type: code
+  checksum: "sha256:f0fd926e8d00992f979382c4aa1116cc8711b2bca9a0766222825079b6d5a153"
+  size_bytes: 14841
+  attributes:
+    change_scope: "fortemi-auth-tenancy-production-gates"
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-730:production-gates-eb82eabc2c06"
+  type: generation
+  started_at: "2026-08-24T21:15:00Z"
+  ended_at: "2026-08-25T01:18:54Z"
+  description: "Complete and verify the authorized internal enterprise auth and tenancy production gates"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/services/user_secret_rotation.rs"
+    activity: "urn:aiwg:activity:generation:fortemi-730:production-gates-eb82eabc2c06"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/services/user_secret_rotation.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:730"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:generation:fortemi-730:production-gates-eb82eabc2c06"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-730:production-gates-eb82eabc2c06"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: software_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/services/user_secret_rotation.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

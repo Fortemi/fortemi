@@ -122,7 +122,7 @@ REASONING: <brief explanation>
 
 /// Parses LLM response to extract semantic link type.
 ///
-/// Looks for "CLASSIFICATION: <type>" in response, defaulting to Related if not found.
+/// Looks for `CLASSIFICATION: <type>` in response, defaulting to Related if not found.
 pub fn parse_link_type(response: &str) -> SemanticLinkType {
     let response_lower = response.to_lowercase();
 

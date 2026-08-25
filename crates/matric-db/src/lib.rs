@@ -151,7 +151,10 @@ pub use unified_filter::{UnifiedFilterQueryBuilder, UnifiedFilterResult};
 pub use usage_ledger::{
     PgUsageLedgerRepository, UsageDeliveryClaim, UsageLedgerRecord, UsageRecordOutcome,
 };
-pub use user_secrets::{PgUserSecretRepository, StoredUserSecret, UserSecretMetadata};
+pub use user_secrets::{
+    PgUserSecretRepository, StoredUserSecret, UserSecretMetadata, UserSecretRewrapCandidate,
+    UserSecretRewrapJob,
+};
 pub use versioning::{
     NoteVersions, OriginalVersion, RevisionVersionSummary, VersionSummary, VersioningRepository,
 };

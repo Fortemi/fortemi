@@ -14,13 +14,27 @@ keyed by opaque tenant, principal, client, route-class, and policy dimensions.
 Redis loss or missing authenticated tenant context fails closed with HTTP 503.
 CE continues to use the existing optional process-local limiter without Redis.
 
-This is not the complete quota plane. The current policy uses one configured
-request limit and always selects the full identity tuple. Tier-plan lookup,
-selectable dimensions, token/storage/job/stream reservations, MCP per-tool
-classes, concurrency limits, quota-specific audit events, administrative
-visibility, and emergency bypass policy remain open in #714 and its linked
-issues. Generic request usage metering observes the resulting HTTP status but
-is not a quota reservation or reconciliation ledger.
+The shared quota service now also provides a policy-driven coordinator over the
+ADR-092 `UsageDimension`, `UsageSubject`, `UsageQuantity`, `QuotaDecision`, and
+reservation contracts. A policy selects tenant plus optional principal, client,
+or archive identity dimensions. Redis Lua operations atomically check, reserve,
+finalize, and release whole-unit usage with opaque keys, bounded expiry,
+idempotent exact replay, conflicting-replay rejection, and stable reset times.
+The request gate and generic coordinator expose health snapshots and PING checks.
+Hosted readiness now includes PostgreSQL, durable audit flush, and Redis quota
+health; CE readiness remains PostgreSQL-only.
+
+This is not the complete quota plane. The runtime still configures only the
+fixed-window request gate; generic dimension policies and reservations are not
+selected from tenant plans or wired to token, storage, job, stream, or MCP
+producers. Hosted request allow/deny/store-outage decisions now emit mandatory
+quota audit events and allowed requests fail closed if audit storage is
+unavailable. `/api/v1/rate-limit/status` exposes bounded request-policy and
+shared-state health metadata while explicitly reporting tenant-plan selection
+as unconfigured and reservation/reconciliation as a non-runtime foundation.
+Tier plans, usage ledger persistence, override governance, backoffice admin
+authorization, retention, and billing reconciliation remain open in #714 and
+linked issues.
 
 - **Decision status:** Proposed; first hosted request-count slice implemented.
 - **Implementation phase:** Extend the atomic request gate into the ADR-092 policy, reservation, and reconciliation model.
@@ -155,7 +169,7 @@ MCP tools (43 of them per README) may have per-tool quotas distinct from general
 1. Land the shared Redis request-count gate for hosted mode (implemented)
 2. Preserve the process-local limiter for CE (implemented)
 3. Land tier plans table + read-through cache
-4. Add selectable dimensions, reservation/reconciliation, and quota audit events
+4. Add selectable dimensions, reservation/reconciliation, and quota audit events (shared foundation implemented; runtime producer integration remains open)
 5. EE plans served via control-plane
 
 ## References

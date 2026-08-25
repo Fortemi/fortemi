@@ -1,15 +1,28 @@
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use sha2::{Digest, Sha256};
 
 use super::*;
 use crate::provider::{decrypt_blob, encrypt_blob, KeyPurpose};
+use crate::DegradedMode;
 
 const KEY_ID: &str = "arn:aws:kms:us-east-1:123456789012:key/test-key";
 
-#[derive(Default)]
 struct MockKmsClient {
     contexts: Mutex<Vec<BTreeMap<String, String>>>,
+    material_version: AtomicU8,
+    unavailable: AtomicBool,
+}
+
+impl Default for MockKmsClient {
+    fn default() -> Self {
+        Self {
+            contexts: Mutex::new(Vec::new()),
+            material_version: AtomicU8::new(1),
+            unavailable: AtomicBool::new(false),
+        }
+    }
 }
 
 impl MockKmsClient {
@@ -24,20 +37,41 @@ impl MockKmsClient {
         hasher.finalize().into()
     }
 
-    fn encrypt_value(plaintext: &[u8], context: &BTreeMap<String, String>) -> Vec<u8> {
+    fn encrypt_value(
+        plaintext: &[u8],
+        context: &BTreeMap<String, String>,
+        material_version: u8,
+    ) -> Vec<u8> {
         let mask = Self::mask(context);
         let mut ciphertext = mask.to_vec();
+        ciphertext.push(material_version);
         ciphertext.extend(
             plaintext
                 .iter()
                 .enumerate()
-                .map(|(index, byte)| byte ^ mask[index % mask.len()]),
+                .map(|(index, byte)| byte ^ mask[index % mask.len()] ^ material_version),
         );
         ciphertext
     }
 
     fn record(&self, context: &BTreeMap<String, String>) {
         self.contexts.lock().unwrap().push(context.clone());
+    }
+
+    fn rotate(&self) {
+        self.material_version.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn set_unavailable(&self, unavailable: bool) {
+        self.unavailable.store(unavailable, Ordering::SeqCst);
+    }
+
+    fn check_available(&self) -> Result<(), AwsKmsClientError> {
+        if self.unavailable.load(Ordering::SeqCst) {
+            Err(AwsKmsClientError::new(KeyFailureClass::ProviderUnavailable))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -48,13 +82,15 @@ impl AwsKmsClient for MockKmsClient {
         encryption_context: &'a BTreeMap<String, String>,
     ) -> AwsKmsFuture<'a, AwsKmsGenerateDataKeyOutput> {
         Box::pin(async move {
+            self.check_available()?;
             self.record(encryption_context);
+            let material_version = self.material_version.load(Ordering::SeqCst);
             let plaintext = vec![0x42; 32];
             Ok(AwsKmsGenerateDataKeyOutput {
-                ciphertext: Self::encrypt_value(&plaintext, encryption_context),
+                ciphertext: Self::encrypt_value(&plaintext, encryption_context, material_version),
                 plaintext: Zeroizing::new(plaintext),
                 key_id: key_id.to_string(),
-                key_material_id: Some("material-v1".to_string()),
+                key_material_id: Some(format!("material-v{material_version}")),
             })
         })
     }
@@ -66,9 +102,11 @@ impl AwsKmsClient for MockKmsClient {
         encryption_context: &'a BTreeMap<String, String>,
     ) -> AwsKmsFuture<'a, AwsKmsWrapOutput> {
         Box::pin(async move {
+            self.check_available()?;
             self.record(encryption_context);
+            let material_version = self.material_version.load(Ordering::SeqCst);
             Ok(AwsKmsWrapOutput {
-                ciphertext: Self::encrypt_value(plaintext, encryption_context),
+                ciphertext: Self::encrypt_value(plaintext, encryption_context, material_version),
                 key_id: key_id.to_string(),
             })
         })
@@ -81,20 +119,22 @@ impl AwsKmsClient for MockKmsClient {
         encryption_context: &'a BTreeMap<String, String>,
     ) -> AwsKmsFuture<'a, AwsKmsDecryptOutput> {
         Box::pin(async move {
+            self.check_available()?;
             self.record(encryption_context);
             let mask = Self::mask(encryption_context);
-            if ciphertext.len() < mask.len() || ciphertext[..mask.len()] != mask {
+            if ciphertext.len() <= mask.len() || ciphertext[..mask.len()] != mask {
                 return Err(AwsKmsClientError::new(KeyFailureClass::ContextMismatch));
             }
-            let plaintext = ciphertext[mask.len()..]
+            let material_version = ciphertext[mask.len()];
+            let plaintext = ciphertext[(mask.len() + 1)..]
                 .iter()
                 .enumerate()
-                .map(|(index, byte)| byte ^ mask[index % mask.len()])
+                .map(|(index, byte)| byte ^ mask[index % mask.len()] ^ material_version)
                 .collect();
             Ok(AwsKmsDecryptOutput {
                 plaintext: Zeroizing::new(plaintext),
                 key_id: Some(key_id.to_string()),
-                key_material_id: Some("material-v1".to_string()),
+                key_material_id: Some(format!("material-v{material_version}")),
             })
         })
     }
@@ -197,6 +237,63 @@ async fn wrap_unwrap_and_rewrap_preserve_the_dek() {
             .expose_secret(),
         plaintext.expose_secret()
     );
+}
+
+#[tokio::test]
+async fn material_rotation_receipt_preserves_old_decrypt_and_rewraps_same_dek() {
+    let client = Arc::new(MockKmsClient::default());
+    let provider = provider(client.clone());
+    let context = context("tenant-a", "secret-rotation");
+    let plaintext = PlaintextDek::new(vec![0xa5; 32]).unwrap();
+    let old = provider.wrap_dek(&plaintext, &context).await.unwrap();
+    let old_ciphertext = old.wrapped_dek().to_vec();
+
+    client.rotate();
+    assert_eq!(
+        provider
+            .unwrap_dek(&old, &context)
+            .await
+            .unwrap()
+            .expose_secret(),
+        plaintext.expose_secret()
+    );
+    let next = provider.rewrap_dek(&old, &context).await.unwrap();
+
+    assert_ne!(next.wrapped_dek(), old_ciphertext);
+    assert!(next.rewrapped_at().is_some());
+    assert_eq!(
+        provider
+            .unwrap_dek(&next, &context)
+            .await
+            .unwrap()
+            .expose_secret(),
+        plaintext.expose_secret()
+    );
+}
+
+#[tokio::test]
+async fn kms_outage_receipt_is_retryable_and_fails_closed() {
+    let client = Arc::new(MockKmsClient::default());
+    let provider = provider(client.clone());
+    let context = context("tenant-a", "secret-outage");
+    let wrapped = provider.generate_dek(&context, 32).await.unwrap();
+    client.set_unavailable(true);
+
+    for error in [
+        provider.health_check(&context).await.unwrap_err(),
+        provider
+            .unwrap_dek(wrapped.wrapped_key(), &context)
+            .await
+            .unwrap_err(),
+        provider
+            .rewrap_dek(wrapped.wrapped_key(), &context)
+            .await
+            .unwrap_err(),
+    ] {
+        assert_eq!(error.class(), KeyFailureClass::ProviderUnavailable);
+        assert_eq!(error.degraded_mode(), DegradedMode::RetryableFailClosed);
+        assert!(error.is_retryable());
+    }
 }
 
 #[test]

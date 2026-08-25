@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T23:27:25Z"
+  updated_at: "2026-08-24T23:27:25Z"
+  description: "Provenance for single-probe half-open circuit behavior"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-inference/src/circuit_breaker.rs"
+  type: code
+  checksum: "sha256:736e934f70590b45d50663014410f9f3287f509a5beac0193d2e043863cbd515"
+  size_bytes: 18213
+  attributes:
+    change_scope: "fortemi-1099-shared-inference-breaker"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-1099:half-open-probe"
+  type: modification
+  started_at: "2026-08-24T21:15:00Z"
+  ended_at: "2026-08-24T23:27:25Z"
+  description: "Enforce one half-open probe and neutral client-abandon recovery"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-inference/src/circuit_breaker.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-1099:half-open-probe"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-inference/src/circuit_breaker.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:1099"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-1099:half-open-probe"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-1099:half-open-probe"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "software_implementer"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-inference/src/circuit_breaker.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

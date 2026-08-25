@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T01:18:54Z"
+  updated_at: "2026-08-25T01:18:54Z"
+  description: "Final-state provenance for the auth and tenancy production-gate implementation"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md"
+  type: document
+  checksum: "sha256:21ff479707fd948590f1e346828c5b214917ba107f7d929e2f7ee43d1928533c"
+  size_bytes: 3611
+  attributes:
+    change_scope: "fortemi-auth-tenancy-production-gates"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-728:production-gates-d8ebcfb058ad"
+  type: modification
+  started_at: "2026-08-24T21:15:00Z"
+  ended_at: "2026-08-25T01:18:54Z"
+  description: "Complete and verify the authorized internal enterprise auth and tenancy production gates"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md"
+    activity: "urn:aiwg:activity:modification:fortemi-728:production-gates-d8ebcfb058ad"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md"
+      source: "urn:gitea:Fortemi/fortemi:issue:728"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-728:production-gates-d8ebcfb058ad"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-728:production-gates-d8ebcfb058ad"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: technical_writer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

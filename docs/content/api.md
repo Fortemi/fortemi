@@ -3408,16 +3408,22 @@ Returns system memory usage information.
 GET /api/v1/rate-limit/status
 ```
 
-Returns current rate limit status for the authenticated client.
+Returns bounded rate-limit and quota readiness metadata. It does not disclose
+tenant capacity, usage, identities, or Redis connection details.
 
 **Response:**
 
 ```json
 {
-  "limit": 100,
-  "remaining": 87,
-  "reset_at": "2026-01-24T12:01:00Z",
-  "retry_after_seconds": 45
+  "enabled": true,
+  "mode": "hosted_shared",
+  "shared_state": "ready",
+  "shared_state_checked_at": "2026-08-24T20:00:00Z",
+  "shared_state_consecutive_failures": 0,
+  "policy": { "id": "hosted-api", "version": 1 },
+  "identity_dimensions": ["tenant", "principal", "client", "route_class"],
+  "tenant_plan_selection": "not_configured",
+  "reservation_reconciliation": "foundation_available_not_runtime_configured"
 }
 ```
 

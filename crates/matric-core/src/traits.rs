@@ -549,7 +549,7 @@ pub trait GenerationBackend: Send + Sync {
 
     /// Generate text with system context and JSON format enforcement.
     ///
-    /// See [`generate_json`] for details on format enforcement.
+    /// See [`Self::generate_json`] for details on format enforcement.
     async fn generate_json_with_system(&self, system: &str, prompt: &str) -> Result<String> {
         self.generate_with_system(system, prompt).await
     }
@@ -559,7 +559,7 @@ pub trait GenerationBackend: Send + Sync {
     /// Backends that support native streaming (Ollama `stream: true`,
     /// OpenAI `stream: true` SSE) should override this to emit one item
     /// per token-ish chunk. The default implementation calls the blocking
-    /// [`generate`] and yields one final chunk — wire-compatible but
+    /// [`Self::generate`] and yields one final chunk — wire-compatible but
     /// non-progressive.
     ///
     /// Consumers (e.g., `POST /api/v1/inference/stream`) emit each chunk
@@ -570,7 +570,7 @@ pub trait GenerationBackend: Send + Sync {
         Ok(Box::pin(futures::stream::once(async move { Ok(full) })))
     }
 
-    /// Stream generated text with a system context. See [`stream_generate`].
+    /// Stream generated text with a system context. See [`Self::stream_generate`].
     async fn stream_generate_with_system(
         &self,
         system: &str,
@@ -866,7 +866,7 @@ pub trait ExtractionAdapter: Send + Sync {
     /// should be in the 0-100 range within the adapter's scope — the caller
     /// is responsible for mapping to the overall job progress range.
     ///
-    /// Default implementation delegates to [`extract`] (no granular progress).
+    /// Default implementation delegates to [`Self::extract`] (no granular progress).
     async fn extract_with_progress(
         &self,
         data: &[u8],

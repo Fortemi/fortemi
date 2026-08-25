@@ -15,18 +15,16 @@
 //! Run migrations first: `sqlx migrate run`
 
 use matric_db::{
-    test_fixtures::DEFAULT_TEST_DATABASE_URL, AutoEmbedRules, CreateEmbeddingSetRequest, Database,
-    EmbeddingSetAgentMetadata, EmbeddingSetCriteria, EmbeddingSetMode, EmbeddingSetType,
-    NoteRepository,
+    create_pool, test_fixtures::DEFAULT_TEST_DATABASE_URL, AutoEmbedRules,
+    CreateEmbeddingSetRequest, Database, EmbeddingSetAgentMetadata, EmbeddingSetCriteria,
+    EmbeddingSetMode, EmbeddingSetType, NoteRepository,
 };
-use sqlx::PgPool;
-
 /// Helper to create a test database connection.
 async fn setup_test_db() -> Database {
     let database_url =
         std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_TEST_DATABASE_URL.to_string());
 
-    let pool = PgPool::connect(&database_url)
+    let pool = create_pool(&database_url)
         .await
         .expect("Failed to connect to test database");
 

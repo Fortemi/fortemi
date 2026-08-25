@@ -1,6 +1,6 @@
 # Cryptographic Decisions — KeyProvider / KMS Launch Contract
 
-> **Status:** Accepted (2026-06-29); foundation, AWS KMS startup, and first `user_secrets` consumer implemented (2026-08-24). Hosted acceptance remains blocked on OpenBao, batch rotation, #731, and live-provider evidence.
+> **Status:** Accepted (2026-06-29); foundation, AWS KMS startup, stored-secret inference, DSAR erasure, and resumable `user_secrets` rewrap implemented (2026-08-24). Hosted acceptance remains blocked on OpenBao and live-provider evidence.
 > **Consumes:** ADR-093 (`KeyProvider` trait). **Implemented by:** #734. **Consumed by:** #730 (secret storage), #731 (BYO-LLM proxy). **Audit taxonomy:** #711/#910.
 > **Scope:** the implementation contract #734/#730/#731 build against — provider model, configurable key strategy, versioned AAD/context schema, provider-neutral `EncryptedBlob`/`WrappedKey`, DEK/secret lifetime, startup reachability, fail-closed matrix, and rotation/rewrap.
 
@@ -29,13 +29,15 @@ an emulator adapter can exercise the same provider behavior.
 
 The first application consumer now persists provider-neutral envelopes in the forced-RLS
 `user_secrets` table. Its hosted-only CRUD preview uses server-derived context, fail-closed durable
-lifecycle audit, metadata-only responses, and an atomic per-row wrapped-key replacement operation.
-A database-backed test proves same-DEK rewrap preserves payload ciphertext and decrypts through the
+lifecycle audit, metadata-only responses, confirmed-DSAR hard deletion, and an atomic per-row
+wrapped-key replacement operation. A leased, resumable batch lifecycle persists checkpoints,
+aggregate counts, retryable/terminal failure classes, and lifecycle audit without key material. A
+database-backed test proves same-DEK rewrap preserves payload ciphertext and decrypts through the
 replacement provider. AWS KMS startup wiring invokes the provider canary.
 
-Not implemented: Vault Transit/OpenBao, GCP KMS, resumable application-wide row enumeration and
-batch rewrap, rotation audit/checkpoint jobs, and LocalStack/live-KMS release evidence. The #731
-proxy consumer is also still open. Hosted multi-tenant is therefore not launch-ready.
+Not implemented: Vault Transit/OpenBao, GCP KMS, and LocalStack/live-KMS policy, outage, rotation,
+rollback, and recovery release evidence. Deterministic injectable-client receipts are CI evidence,
+not live infrastructure evidence. Hosted multi-tenant is therefore not launch-ready.
 
 ## 1. Why provider-neutral, not AWS-first
 

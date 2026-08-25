@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use matric_core::{AttachmentScanStatus, Job, JobRepository, JobStatus, JobType};
-use matric_db::Database;
+use matric_db::{create_pool, Database};
 use matric_jobs::{
     AttachmentScanFailure, AttachmentScanHandler, AttachmentScanMetrics, AttachmentScanOutcome,
     AttachmentScanner, JobContext, JobHandler, JobResult,
@@ -55,7 +55,7 @@ impl AttachmentScanner for MockScanner {
 async fn setup_attachment() -> (Database, TempDir, Uuid, Uuid) {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
-    let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let pool = create_pool(&database_url).await.unwrap();
     let temp_dir = TempDir::new().unwrap();
     let db = Database::new(pool.clone())
         .with_filesystem_storage(temp_dir.path().to_str().unwrap(), 10_485_760);

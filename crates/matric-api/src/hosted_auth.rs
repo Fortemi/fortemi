@@ -104,19 +104,21 @@ impl TenantStore for PgTenantStore {
                 .bind(tenant_id)
                 .fetch_optional(&self.pool)
                 .await
-                .map_err(|_| AuthError::InternalError)?;
+                .map_err(|_| AuthError::TenantStoreUnavailable)?;
 
-        row.map(|(id, status)| {
-            let status = match status.as_str() {
-                "active" => TenantStatus::Active,
-                "suspended" => TenantStatus::Suspended,
-                "soft_deleted" => TenantStatus::SoftDeleted,
-                _ => return Err(AuthError::InternalError),
-            };
-            Ok(TenantRecord { id, status })
-        })
-        .transpose()
+        row.map(|(id, status)| tenant_record_from_row(id, &status))
+            .transpose()
     }
+}
+
+fn tenant_record_from_row(id: Uuid, status: &str) -> Result<TenantRecord, AuthError> {
+    let status = match status {
+        "active" => TenantStatus::Active,
+        "suspended" => TenantStatus::Suspended,
+        "soft_deleted" => TenantStatus::SoftDeleted,
+        _ => return Err(AuthError::TenantStoreUnavailable),
+    };
+    Ok(TenantRecord { id, status })
 }
 
 #[async_trait]
@@ -165,5 +167,35 @@ mod tests {
             _ => None,
         })
         .is_err());
+    }
+
+    #[test]
+    fn tenant_store_rows_preserve_state_and_fail_closed_on_malformed_status() {
+        let id = Uuid::new_v4();
+        assert_eq!(
+            tenant_record_from_row(id, "active").unwrap(),
+            TenantRecord {
+                id,
+                status: TenantStatus::Active,
+            }
+        );
+        assert_eq!(
+            tenant_record_from_row(id, "suspended").unwrap(),
+            TenantRecord {
+                id,
+                status: TenantStatus::Suspended,
+            }
+        );
+        assert_eq!(
+            tenant_record_from_row(id, "soft_deleted").unwrap(),
+            TenantRecord {
+                id,
+                status: TenantStatus::SoftDeleted,
+            }
+        );
+        assert_eq!(
+            tenant_record_from_row(id, "unexpected").unwrap_err(),
+            AuthError::TenantStoreUnavailable
+        );
     }
 }

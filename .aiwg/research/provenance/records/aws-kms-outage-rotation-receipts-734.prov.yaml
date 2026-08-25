@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T23:27:25Z"
+  updated_at: "2026-08-24T23:27:25Z"
+  description: "Provenance for deterministic AWS KMS outage and material-rotation receipts"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-crypto/src/provider/aws_kms/tests.rs"
+  type: test_code
+  checksum: "sha256:ada6c19db6cf1f57c2aa04f990a952f0eeb6899f8b9c8c0967a286eaf5dbf575"
+  size_bytes: 10199
+  attributes:
+    change_scope: "fortemi-734-kms-release-receipts"
+    test_boundary: "injectable-mock-client"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-734:kms-receipts"
+  type: modification
+  started_at: "2026-08-24T21:15:00Z"
+  ended_at: "2026-08-24T23:27:25Z"
+  description: "Test retryable fail-closed outage and same-DEK material rotation without credentials or network"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-crypto/src/provider/aws_kms/tests.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-734:kms-receipts"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-crypto/src/provider/aws_kms/tests.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:734"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:modification:fortemi-734:kms-receipts"
+    - entity: "urn:aiwg:artifact:crates/matric-crypto/src/provider/aws_kms/tests.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:897"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:modification:fortemi-734:kms-receipts"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-734:kms-receipts"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "test_engineer"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-crypto/src/provider/aws_kms/tests.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

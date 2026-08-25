@@ -109,6 +109,13 @@ is never part of a response DTO. The display mask is currently
 be treated as a fingerprint. Revocation is a Fortemi database lifecycle state,
 not a claim that provider-side or KMS key material was destroyed.
 
+Ordinary API deletion is non-enumerating revocation. Confirmed DSAR processing
+uses a separate internal boundary that hard-deletes active and revoked encrypted
+rows after a fail-closed audit-start receipt. Aggregate rotation-job metadata
+and durable audit history are retained under their declared security/compliance
+bases; provider-account deletion remains an external action. Receipts must name
+those outcomes separately and must not imply provider-side or KMS destruction.
+
 ## Cross-Issue Contract
 
 - #897 owns `KeyProvider`/KMS availability, key purpose, wrapping, and rotation

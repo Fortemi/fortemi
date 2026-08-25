@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T01:18:54Z"
+  updated_at: "2026-08-25T01:18:54Z"
+  description: "Final-state provenance for the auth and tenancy production-gate implementation"
+entity:
+  id: "urn:aiwg:artifact:docs/architecture/hosted-secret-inventory.md"
+  type: document
+  checksum: "sha256:469c758d5dcc71dfe821579712eb6129152462ce87ba5bfa453d5eda35d5053c"
+  size_bytes: 10035
+  attributes:
+    change_scope: "fortemi-auth-tenancy-production-gates"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-730:production-gates-4ab4ac45460f"
+  type: modification
+  started_at: "2026-08-24T21:15:00Z"
+  ended_at: "2026-08-25T01:18:54Z"
+  description: "Complete and verify the authorized internal enterprise auth and tenancy production gates"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/architecture/hosted-secret-inventory.md"
+    activity: "urn:aiwg:activity:modification:fortemi-730:production-gates-4ab4ac45460f"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docs/architecture/hosted-secret-inventory.md"
+      source: "urn:gitea:Fortemi/fortemi:issue:730"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-730:production-gates-4ab4ac45460f"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-730:production-gates-4ab4ac45460f"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: technical_writer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/architecture/hosted-secret-inventory.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

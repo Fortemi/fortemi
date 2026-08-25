@@ -1559,6 +1559,43 @@ pub fn route_policy_for_path(path: &str) -> Option<&'static RoutePolicy> {
         .find(|route| route_template_matches(route.path, path))
 }
 
+/// Whether an authenticated hosted route has completed request-transaction migration.
+///
+/// Unknown and unreleased routes fail closed in `auth_middleware`; community mode
+/// does not consult this gate.
+pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
+    let Some(policy) = route_policy_for_path(path) else {
+        return false;
+    };
+
+    matches!(
+        (method, policy.path),
+        (&Method::GET, "/api/v1/notes")
+            | (&Method::GET, "/api/v1/notes/{id}")
+            | (&Method::DELETE, "/api/v1/notes/{id}")
+            | (&Method::POST, "/api/v1/notes/{id}/move")
+            | (&Method::PATCH, "/api/v1/notes/{id}/status")
+            | (&Method::GET, "/api/v1/notes/{id}/tags")
+            | (&Method::PUT, "/api/v1/notes/{id}/tags")
+            | (&Method::GET, "/api/v1/tags")
+            | (&Method::GET, "/api/v1/collections")
+            | (&Method::POST, "/api/v1/collections")
+            | (&Method::GET, "/api/v1/collections/{id}")
+            | (&Method::PATCH, "/api/v1/collections/{id}")
+            | (&Method::DELETE, "/api/v1/collections/{id}")
+            | (&Method::GET, "/api/v1/collections/{id}/export")
+            | (&Method::GET, "/api/v1/collections/{id}/notes")
+            | (&Method::POST, "/api/v1/inference/complete")
+            | (&Method::GET, "/api/v1/inference/catalog")
+            | (&Method::POST, "/api/v1/inference/embed")
+            | (&Method::GET, "/api/v1/inference/providers")
+            | (&Method::POST, "/api/v1/inference/stream")
+            | (&Method::GET, "/api/v1/user/secrets")
+            | (&Method::POST, "/api/v1/user/secrets")
+            | (&Method::DELETE, "/api/v1/user/secrets/{id}")
+    )
+}
+
 pub fn is_operator_docs_route(path: &str) -> bool {
     route_policy_for_path(path).is_some_and(|policy| {
         policy.action_family == "docs_schema"
@@ -1883,6 +1920,57 @@ mod tests {
             unregistered.is_empty(),
             "policy inventory rows without registered routes: {unregistered:?}"
         );
+    }
+
+    #[test]
+    fn registered_route_operations_build_complete_policy_inputs() {
+        let operations = extract_registered_route_operations(include_str!("main.rs"));
+        assert!(
+            operations.len() > extract_registered_routes(include_str!("main.rs")).len(),
+            "method-level inventory must expand multi-method routes"
+        );
+
+        for (path, method_name) in operations {
+            let method = Method::from_bytes(method_name.as_bytes()).expect("known HTTP method");
+            let request_path = materialize_route_template(path);
+            let input = authorization_input_for_request(&method, &request_path, Some("tenant-a"))
+                .unwrap_or_else(|| panic!("{method_name} {path} has no policy input"));
+            let action_family = input.resource.attrs["action_family"]
+                .as_str()
+                .expect("action family must be structured policy metadata");
+
+            assert_eq!(input.policy.path, path);
+            assert_eq!(
+                input.action.name,
+                format!("{}:{}", action_family, method_name.to_ascii_lowercase()),
+                "{method_name} {path} action drifted from the route inventory"
+            );
+            assert_eq!(input.resource.attrs["route_template"], json!(path));
+            assert_eq!(
+                input.resource.attrs["inventory_policy_class"],
+                json!(format!("{:?}", input.policy.class))
+            );
+            assert_eq!(input.resource.tenant_id.as_deref(), Some("tenant-a"));
+            assert_eq!(input.context.tenant_id.as_deref(), Some("tenant-a"));
+
+            let effective_class = input.resource.attrs["policy_class"]
+                .as_str()
+                .expect("effective policy class must be recorded");
+            if matches!(
+                effective_class,
+                "Public" | "PublicWithInlineProof" | "OAuth"
+            ) {
+                assert!(
+                    input.action.required_scopes.is_empty(),
+                    "{method_name} {path} public operation unexpectedly requires bearer scopes"
+                );
+            } else {
+                assert!(
+                    !input.action.required_scopes.is_empty(),
+                    "{method_name} {path} protected operation has no required scope"
+                );
+            }
+        }
     }
 
     #[test]
@@ -2235,6 +2323,65 @@ mod tests {
         assert_eq!(input.resource.kind, ResourceKind::McpTool);
     }
 
+    #[test]
+    fn hosted_tenant_transaction_gate_admits_only_migrated_methods() {
+        for (method, path) in [
+            (Method::GET, "/api/v1/notes"),
+            (
+                Method::DELETE,
+                "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001",
+            ),
+            (
+                Method::PUT,
+                "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/tags",
+            ),
+            (Method::POST, "/api/v1/collections"),
+            (
+                Method::GET,
+                "/api/v1/collections/018fd1a0-0000-7000-8000-000000000002/export",
+            ),
+            (Method::POST, "/api/v1/inference/complete"),
+            (Method::POST, "/api/v1/inference/stream"),
+            (Method::POST, "/api/v1/user/secrets"),
+            (
+                Method::DELETE,
+                "/api/v1/user/secrets/018fd1a0-0000-7000-8000-000000000003",
+            ),
+        ] {
+            assert!(
+                hosted_tenant_transaction_ready(&method, path),
+                "migrated hosted route was not admitted: {method} {path}"
+            );
+        }
+
+        for (method, path) in [
+            (Method::POST, "/api/v1/notes"),
+            (Method::POST, "/api/v1/notes/bulk"),
+            (
+                Method::PATCH,
+                "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001",
+            ),
+            (
+                Method::POST,
+                "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/restore",
+            ),
+            (
+                Method::POST,
+                "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/purge",
+            ),
+            (Method::POST, "/api/v1/notes/reprocess"),
+            (Method::GET, "/api/v1/concepts"),
+            (Method::GET, "/api/v1/attachments"),
+            (Method::GET, "/api/v1/jobs"),
+            (Method::GET, "/api/v1/not-in-the-inventory"),
+        ] {
+            assert!(
+                !hosted_tenant_transaction_ready(&method, path),
+                "unmigrated hosted route was admitted: {method} {path}"
+            );
+        }
+    }
+
     fn extract_registered_routes(source: &'static str) -> BTreeSet<&'static str> {
         let mut routes = BTreeSet::new();
         let mut remaining = source;
@@ -2268,5 +2415,108 @@ mod tests {
         }
 
         routes
+    }
+
+    fn extract_registered_route_operations(
+        source: &'static str,
+    ) -> BTreeSet<(&'static str, &'static str)> {
+        const METHODS: [(&str, &str); 9] = [
+            ("connect(", "CONNECT"),
+            ("delete(", "DELETE"),
+            ("get(", "GET"),
+            ("head(", "HEAD"),
+            ("options(", "OPTIONS"),
+            ("patch(", "PATCH"),
+            ("post(", "POST"),
+            ("put(", "PUT"),
+            ("trace(", "TRACE"),
+        ];
+
+        let mut operations = BTreeSet::new();
+        let mut remaining = source;
+        while let Some(route_pos) = remaining.find(".route(") {
+            remaining = &remaining[route_pos + ".route(".len()..];
+            let Some(call_end) = matching_call_end(remaining) else {
+                break;
+            };
+            let call = &remaining[..call_end];
+            let Some(first_quote) = call.find('"') else {
+                remaining = &remaining[call_end + 1..];
+                continue;
+            };
+            let path_start = first_quote + 1;
+            let Some(path_len) = call[path_start..].find('"') else {
+                remaining = &remaining[call_end + 1..];
+                continue;
+            };
+            let path = &call[path_start..path_start + path_len];
+            for (token, method) in METHODS {
+                if call.contains(token) {
+                    operations.insert((path, method));
+                }
+            }
+            remaining = &remaining[call_end + 1..];
+        }
+
+        let mut remaining = source;
+        while let Some(swagger_pos) = remaining.find("SwaggerUi::new(") {
+            remaining = &remaining[swagger_pos + "SwaggerUi::new(".len()..];
+            let Some(first_quote) = remaining.find('"') else {
+                continue;
+            };
+            remaining = &remaining[first_quote + 1..];
+            let Some(second_quote) = remaining.find('"') else {
+                continue;
+            };
+            operations.insert((&remaining[..second_quote], "GET"));
+            remaining = &remaining[second_quote + 1..];
+        }
+
+        operations
+    }
+
+    fn matching_call_end(call: &str) -> Option<usize> {
+        let mut depth = 1_u32;
+        let mut quoted = false;
+        let mut escaped = false;
+
+        for (index, byte) in call.bytes().enumerate() {
+            if quoted {
+                if escaped {
+                    escaped = false;
+                } else if byte == b'\\' {
+                    escaped = true;
+                } else if byte == b'"' {
+                    quoted = false;
+                }
+                continue;
+            }
+            match byte {
+                b'"' => quoted = true,
+                b'(' => depth = depth.saturating_add(1),
+                b')' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return Some(index);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn materialize_route_template(template: &str) -> String {
+        template
+            .split('/')
+            .map(|segment| {
+                if is_template_param(segment) {
+                    "policy-test-value"
+                } else {
+                    segment
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("/")
     }
 }

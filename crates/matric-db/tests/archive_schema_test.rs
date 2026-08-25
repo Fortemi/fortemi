@@ -396,6 +396,7 @@ async fn test_schema_drift_detection() {
         "api_key",
         "archive_registry",
         "archive_inference_override",
+        "audit_event",
         "call_sessions",
         "document_type",
         "embedding_config",
@@ -413,6 +414,8 @@ async fn test_schema_drift_detection() {
         "oauth_token",
         "pke_public_keys",
         "realtime_media_stream_attempt",
+        "system_config",
+        "tenant_registry",
         "transcript_segments",
         "usage_event_conflict",
         "usage_event_delivery",
@@ -421,6 +424,7 @@ async fn test_schema_drift_detection() {
         "usage_sink",
         "user_config",
         "user_metadata_label",
+        "user_secrets",
     ]
     .into_iter()
     .map(String::from)

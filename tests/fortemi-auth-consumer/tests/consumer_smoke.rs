@@ -1,4 +1,4 @@
-//! Downstream smoke for the public `fortemi-auth` v0.1 contract.
+//! Downstream smoke for the public `fortemi-auth` v1.1 contract.
 //!
 //! Full hosted router and tenant-transaction integration remains owned by
 //! #728 after its RLS and hardened-role prerequisites are complete.
@@ -15,7 +15,8 @@ use chrono::{Duration, Utc};
 use fortemi_auth_axum::{auth_layer, AuthState, NoApiKeys};
 use fortemi_auth_clerk::{ClerkConfig, ClerkProvider};
 use fortemi_auth_core::{
-    AuthContext, AuthError, Credential, JwtToken, OAuthProvider, VerifiedClaims,
+    extract_tenant_id_strategy_a, AuthContext, AuthError, Credential, JwtToken, OAuthProvider,
+    TenantRecord, TenantStatus, TenantStore, VerifiedClaims,
 };
 use fortemi_auth_mock::MemoryTenantStore;
 use serde::Deserialize;
@@ -26,9 +27,10 @@ use uuid::Uuid;
 use xjp_oidc::{HttpClient, HttpClientError, JwtVerifier, MemoryCache};
 
 const TENANT_ID: Uuid = Uuid::from_u128(0x00000000000040008000000000000001);
-const MANIFEST_SHA256: &str = "dbd7fff6370d8a0c55d2c7e4ad311d3ddd1796815e2caff6dc05501cdf417a38";
+const AUTHORITY_COMMIT: &str = "1b6ddb1b58a12efc5b631386ad783cb12edec518";
+const MANIFEST_SHA256: &str = "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242";
 const RELEASE_POLICY_SHA256: &str =
-    "c8c6e2fd9237ddf238f74376aad841c53fce86885f95c982befdcbcd24880e5b";
+    "d70491c336a62508ef3c7937af709dd121a6ec4f421ceab66486af3f371de8db";
 
 struct FixtureClaims(AuthContext);
 
@@ -167,7 +169,21 @@ struct CorpusManifest {
     profile: String,
     config: CorpusConfig,
     jwks: Value,
+    tenant_store_cases: Vec<TenantStoreCase>,
     cases: Vec<CorpusCase>,
+}
+
+#[derive(Deserialize)]
+struct TenantStoreCase {
+    id: String,
+    store_result: String,
+    expected: TenantStoreExpected,
+}
+
+#[derive(Deserialize)]
+struct TenantStoreExpected {
+    error: String,
+    http_status: u16,
 }
 
 #[derive(Deserialize)]
@@ -273,7 +289,7 @@ async fn fortemi_executes_the_canonical_v1_corpus() {
     let manifest: CorpusManifest =
         serde_json::from_slice(manifest_bytes).expect("canonical auth manifest must parse");
     assert_eq!(manifest.contract_id, "fortemi-auth-conformance");
-    assert_eq!(manifest.contract_version, "1.0.0");
+    assert_eq!(manifest.contract_version, "1.1.0");
     assert_eq!(manifest.profile, "rust-node-jwt-v1");
     let config = ClerkConfig {
         issuer: manifest.config.issuer.clone(),
@@ -354,6 +370,59 @@ async fn fortemi_executes_the_canonical_v1_corpus() {
     }
 }
 
+struct FixtureTenantStore<'a>(&'a str);
+
+impl TenantStore for FixtureTenantStore<'_> {
+    async fn lookup(&self, tenant_id: Uuid) -> Result<Option<TenantRecord>, AuthError> {
+        match self.0 {
+            "unavailable" | "timeout" | "malformed_response" => {
+                Err(AuthError::TenantStoreUnavailable)
+            }
+            "inactive" => Ok(Some(TenantRecord {
+                id: tenant_id,
+                status: TenantStatus::Suspended,
+            })),
+            "not_found" => Ok(None),
+            _ => Err(AuthError::InternalError),
+        }
+    }
+}
+
+#[tokio::test]
+async fn fortemi_executes_the_canonical_tenant_store_cases() {
+    let manifest_bytes = include_bytes!("../fixtures/fortemi-auth-v1.json");
+    assert_eq!(sha256(manifest_bytes), MANIFEST_SHA256);
+    let manifest: CorpusManifest =
+        serde_json::from_slice(manifest_bytes).expect("canonical auth manifest must parse");
+
+    for case in manifest.tenant_store_cases {
+        let claims = FixtureClaims(AuthContext {
+            tenant_id: TENANT_ID,
+            principal_id: "fixture-user-001".into(),
+            credential: Credential::Bearer(JwtToken {
+                jti: Some("fixture-jti-001".into()),
+                algorithm: "RS256".into(),
+                key_id: "fixture-key-1".into(),
+            }),
+            issued_at: Utc::now(),
+            expires_at: Utc::now() + Duration::hours(1),
+            scopes: vec!["read:note".into()],
+            session_id: None,
+        });
+        let error =
+            extract_tenant_id_strategy_a(&claims, &FixtureTenantStore(case.store_result.as_str()))
+                .await
+                .expect_err("tenant store fixture must reject");
+        assert_eq!(error.code(), case.expected.error, "{}", case.id);
+        assert_eq!(
+            error.http_status(),
+            case.expected.http_status,
+            "{}",
+            case.id
+        );
+    }
+}
+
 #[test]
 fn fortemi_enforces_the_calver_release_policy() {
     let policy_bytes = include_bytes!("../fixtures/fortemi-auth-release-policy-v1.json");
@@ -362,10 +431,14 @@ fn fortemi_enforces_the_calver_release_policy() {
         serde_json::from_slice(policy_bytes).expect("release policy must parse");
 
     assert_eq!(policy.policy_id, "fortemi-auth-release-compatibility");
-    assert_eq!(policy.policy_version, "1.0.0");
+    assert_eq!(AUTHORITY_COMMIT.len(), 40);
+    assert_eq!(policy.policy_version, "1.1.0");
     assert_eq!(policy.release_scheme, "calver-yyyy-m-patch");
-    assert_eq!(policy.current_release.version, "2026.7.0");
-    assert_eq!(policy.current_release.tag.as_deref(), Some("v2026.7.0"));
+    assert_eq!(policy.current_release.version, "2026.8.1");
+    assert_eq!(policy.current_release.tag.as_deref(), Some("v2026.8.1"));
+    assert_eq!(policy.current_release.contract_version, "1.1.0");
+    assert_eq!(policy.current_release.profile, "rust-node-jwt-v1");
+    assert_eq!(policy.current_release.manifest_sha256, MANIFEST_SHA256);
     assert_calver(&policy.current_release.version);
 
     for case in &policy.compatibility_cases {
@@ -381,6 +454,18 @@ fn fortemi_enforces_the_calver_release_policy() {
             );
         }
     }
+}
+
+#[test]
+fn fortemi_pins_the_signed_authority_release_commit() {
+    let lock = include_str!("../Cargo.lock");
+    let source = format!(
+        "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.8.1#{AUTHORITY_COMMIT}"
+    );
+    assert!(
+        lock.contains(&source),
+        "consumer lock must pin the signed authority release commit"
+    );
 }
 
 fn evaluate_release<'a>(

@@ -51,7 +51,7 @@ impl ExtractionRegistry {
     ///
     /// Adapters that support per-item progress (video keyframes, PDF pages,
     /// chunked documents) will report through the callback. Others delegate
-    /// to [`extract`] and ignore the callback.
+    /// to [`Self::extract`] and ignore the callback.
     pub async fn extract_with_progress(
         &self,
         strategy: ExtractionStrategy,

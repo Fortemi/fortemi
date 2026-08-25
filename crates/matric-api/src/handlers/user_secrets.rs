@@ -50,6 +50,7 @@ pub struct UserSecretResponse {
     created_at: DateTime<Utc>,
     last_used_at: Option<DateTime<Utc>>,
     revoked_at: Option<DateTime<Utc>>,
+    rewrapped_at: Option<DateTime<Utc>>,
 }
 
 impl From<UserSecretMetadata> for UserSecretResponse {
@@ -63,6 +64,7 @@ impl From<UserSecretMetadata> for UserSecretResponse {
             created_at: metadata.created_at,
             last_used_at: metadata.last_used_at,
             revoked_at: metadata.revoked_at,
+            rewrapped_at: metadata.rewrapped_at,
         }
     }
 }
@@ -478,6 +480,7 @@ mod tests {
             created_at: Utc::now(),
             last_used_at: None,
             revoked_at: None,
+            rewrapped_at: None,
         };
         let serialized = serde_json::to_string(&response).unwrap();
         assert!(!serialized.contains("encrypted"));

@@ -378,12 +378,12 @@ impl ProviderRegistry {
     // Backend resolution
     // -----------------------------------------------------------------------
 
-    /// Resolve a provider-qualified slug to an [`OllamaBackend`] generation backend.
+    /// Resolve a provider-qualified slug to an [`crate::OllamaBackend`] generation backend.
     ///
     /// Returns `Ok(Some(backend))` if the slug targets the Ollama provider,
     /// or `Ok(None)` if no override is needed (bare slug matching default model).
     ///
-    /// For non-Ollama providers, use [`resolve_generation_boxed`].
+    /// For non-Ollama providers, use [`Self::resolve_generation_boxed`].
     #[cfg(feature = "ollama")]
     pub fn resolve_ollama_gen_override(
         &self,
@@ -403,7 +403,7 @@ impl ProviderRegistry {
         }
     }
 
-    /// Resolve a provider-qualified slug to a boxed [`GenerationBackend`].
+    /// Resolve a provider-qualified slug to a boxed [`matric_core::GenerationBackend`].
     ///
     /// This creates a new backend instance for the resolved provider with
     /// the specified model. The backend lives on the caller's stack/heap
@@ -569,6 +569,9 @@ impl ProviderRegistry {
                 "Provider '{provider_id}' does not support embeddings"
             )));
         }
+        #[cfg(not(feature = "openai"))]
+        let _ = api_key;
+        #[cfg(feature = "openai")]
         let registered = self.providers.get(provider_id);
 
         match provider_id {
@@ -703,7 +706,7 @@ impl ProviderRegistry {
 
     /// Resolve a generation backend from transient credentials.
     ///
-    /// Unlike [`resolve_generation_boxed`] which reads from the registered
+    /// Unlike [`Self::resolve_generation_boxed`] which reads from the registered
     /// provider config, this constructs a fresh backend from caller-supplied
     /// `api_key` + `base_url`. The registry is not mutated and no state is
     /// cached between calls — each request gets an independent backend.

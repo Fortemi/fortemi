@@ -242,9 +242,13 @@ FORTEMI_QUOTA_WINDOW_SECS=60
 
 The Redis URL may contain credentials and must be injected through the hosted
 secret-management path, not committed to an environment file. Health probes
-are exempt. Public authentication/bootstrap routes, policy-driven dimension
-selection, non-request resources, and administrative quota status remain
-outside this preview; see ADR-098 and #714.
+are exempt. Hosted `/readyz` checks PostgreSQL, durable audit flush, and Redis
+quota health; CE readiness checks PostgreSQL only. `/api/v1/rate-limit/status`
+reports bounded policy identity and shared-state health metadata without limits,
+credentials, or tenant identifiers. The generic dimension and reservation
+coordinator is implemented and live-Redis tested, but tenant-plan selection and
+non-request producer integration are not runtime-configured; see ADR-098 and
+#714.
 
 ### Logging
 

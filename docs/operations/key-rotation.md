@@ -1,8 +1,9 @@
 # Key Rotation and DEK Rewrap
 
-This runbook covers the #734 `KeyProvider` foundation, AWS KMS provider, and the first #730
-`user_secrets` persistence consumer. It does not make hosted rotation operational by itself.
-Hosted execution still requires a resumable audited batch worker and live-provider release evidence.
+This runbook covers the #734 `KeyProvider` foundation, AWS KMS provider, and the #730
+`user_secrets` persistence consumer. Hosted builds include a resumable, leased, audited batch
+rewrap worker. Production release still requires environment-specific KMS policy, outage, rotation,
+rollback, and recovery receipts.
 
 ## AWS Provider Construction and Canary
 
@@ -41,6 +42,34 @@ hosted multi-tenant mode.
 
 Rollback stops the job and keeps reads on both old and current versions. Restore prior `WrappedKey` values from transactional history only if the new wrapping is unusable; payload ciphertext does not change during rewrap.
 
+## Fortemi Rewrap Worker
+
+The worker is internal application state, not an HTTP route. It is absent from the Community
+Edition path and starts only in hosted mode when both of these non-secret identifiers are present:
+
+- `FORTEMI_USER_SECRET_REWRAP_TENANT_ID`
+- `FORTEMI_USER_SECRET_REWRAP_JOB_ID`
+
+`FORTEMI_USER_SECRET_REWRAP_BATCH_SIZE` defaults to `100` and is bounded to `1..=1000`. Generate a
+fresh opaque job ID for each approved lifecycle. Reusing the same tenant/job pair resumes its
+persisted cursor and aggregate counts. Each claim has a 120-second lease; retryable KMS failures are
+recorded as `retryable`, release the lease, and use a bounded worker delay. Invalid envelopes,
+context failures, access denial, and disabled/unavailable key versions stop the lifecycle according
+to their stable failure class. A concurrent row change causes a compare-and-swap skip instead of
+overwriting newer state.
+
+The `user_secret_rewrap_job` row and `key_lifecycle` audit events contain only the opaque job ID,
+status, cursor row identifiers/timestamps, aggregate counts, attempts, and stable reason codes.
+They must never contain envelope JSON, wrapped keys, KEK references, contexts, provider errors, or
+plaintext. Completion means enumeration reached the end for that job; operators must still verify
+the normal decrypt path and approved rollback window before retiring old key material.
+
+For an emulator receipt, run the same startup canary and worker against the emulator-backed
+`AwsKmsClient`, force an outage, verify `provider_unavailable` is persisted as retryable and no row
+changes, restore the emulator, rotate material, resume the same job, and verify ciphertext remains
+unchanged while `wrapped_key` and `rewrapped_at` advance. Do not describe the injectable in-process
+mock tests as LocalStack or live-KMS evidence.
+
 ## EnvKeyProvider Procedure
 
 `EnvKeyProvider` is limited to explicit single-tenant desktop/development mode and does not implement `rotate()`. Plan downtime.
@@ -57,7 +86,10 @@ Do not place master material in shell arguments, tickets, logs, command history,
 ## Current Acceptance Gaps
 
 - Vault Transit and GCP KMS implementations are not present.
-- `user_secrets` supports an atomic per-row `wrapped_key` update and has a database-backed same-DEK rewrap test. Application-owned row enumeration, resumable checkpoints, and rotation lifecycle audit events are not wired.
-- AWS KMS has mock-client contract coverage, but no LocalStack/OpenBao/live-KMS rotation receipt exists.
+- `user_secrets` has application-owned row enumeration, leased resumable checkpoints,
+  compare-and-swap wrapped-key updates, and fail-closed lifecycle audit. The local PostgreSQL test
+  receipt still requires a configured test DSN.
+- AWS KMS has deterministic injectable-client outage and material-rotation receipts, but no
+  LocalStack/OpenBao/live-KMS policy, outage, rotation, rollback, or recovery receipt exists.
 - `mlock`/non-dumpable process hardening is not implemented; zeroize-on-drop does not eliminate swap, coredump, allocator-copy, or provider-SDK exposure.
 - Managed signing remains unsupported by `EnvKeyProvider`; the foundation does not substitute a symmetric MAC for a real KMS signing key.

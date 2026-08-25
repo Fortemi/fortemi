@@ -15,9 +15,10 @@ ALTER TABLE note
 ALTER TABLE note VALIDATE CONSTRAINT fk_note_collection;
 
 ALTER TABLE note
-    ADD CONSTRAINT fk_note_tenant_collection
+    ADD CONSTRAINT fk_tenant_guard_note_b87789e99d
     FOREIGN KEY (tenant_id, collection_id)
     REFERENCES collection(tenant_id, id)
+    ON DELETE SET NULL (collection_id)
     NOT VALID;
 
-ALTER TABLE note VALIDATE CONSTRAINT fk_note_tenant_collection;
+ALTER TABLE note VALIDATE CONSTRAINT fk_tenant_guard_note_b87789e99d;

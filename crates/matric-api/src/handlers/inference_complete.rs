@@ -13,7 +13,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::Json;
 use chrono::{DateTime, Utc};
-use matric_api::services::unseal_user_secret;
+use matric_api::services::{unseal_user_secret, InferenceBreakerScope};
 use matric_core::{
     AuditEvent, AuditFailurePolicy, AuditOutcome, AuditSeverity, AuditSink, AuditSource,
     AuditVisibilityClass, AuthPrincipal, GenerationBackend, MeteringError, UsageAttributeKey,
@@ -25,6 +25,7 @@ use matric_core::{
 use matric_core::{EmbeddingBackend, UsageQuantity};
 use matric_db::{PgUserSecretRepository, TenantScopedConn};
 use matric_inference::destination_policy::DestinationSource;
+use matric_inference::CircuitBreaker;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::convert::Infallible;
@@ -578,7 +579,7 @@ pub async fn complete(
         return Err(ApiError::BadRequest("model is required".to_string()).into_response());
     }
 
-    let backend = match resolve_request_backend(
+    let resolved = match resolve_request_backend(
         &state,
         RequestBackendInput {
             provider_id: &provider_id,
@@ -592,7 +593,7 @@ pub async fn complete(
     )
     .await
     {
-        Ok(b) => b,
+        Ok(resolved) => resolved,
         Err(e) => {
             warn!(
                 provider_id_len = complete_text_len(&provider_id),
@@ -605,6 +606,13 @@ pub async fn complete(
             .into_response());
         }
     };
+    if resolved
+        .circuit_breaker
+        .as_ref()
+        .is_some_and(|breaker| breaker.check_request().is_err())
+    {
+        return Err(stored_inference_unavailable_response());
+    }
 
     let (system, prompt) = flatten_messages(&req.messages);
     let metering = inference_usage_context(&state, &auth, &headers, &provider_id, Utc::now())
@@ -624,13 +632,19 @@ pub async fn complete(
     );
 
     let result = if system.is_empty() {
-        backend.generate(&prompt).await
+        resolved.backend.generate(&prompt).await
     } else {
-        backend.generate_with_system(&system, &prompt).await
+        resolved
+            .backend
+            .generate_with_system(&system, &prompt)
+            .await
     };
 
     match result {
         Ok(content) => {
+            if let Some(breaker) = &resolved.circuit_breaker {
+                breaker.record_success();
+            }
             if let Ok(context) = &metering {
                 context.record(UsageOutcome::Completed).await;
             }
@@ -648,6 +662,9 @@ pub async fn complete(
             }))
         }
         Err(e) => {
+            if let Some(breaker) = &resolved.circuit_breaker {
+                record_stored_inference_error(breaker, &e);
+            }
             if let Ok(context) = &metering {
                 context.record(UsageOutcome::FailedAfterPartialUsage).await;
             }
@@ -704,7 +721,7 @@ pub async fn embed_stored(
         return Err(ApiError::BadRequest("Invalid embedding request".to_string()).into_response());
     }
 
-    let backend = resolve_stored_embedding_backend(
+    let resolved = resolve_stored_embedding_backend(
         &state,
         &auth,
         &scope,
@@ -725,8 +742,11 @@ pub async fn embed_stored(
         )
         .into_response()
     })?;
+    if resolved.breaker.check_request().is_err() {
+        return Err(stored_inference_unavailable_response());
+    }
 
-    let result = backend.embed_texts(&req.input).await;
+    let result = resolved.backend.embed_texts(&req.input).await;
     match result {
         Ok(vectors)
             if vectors.len() == req.input.len()
@@ -734,6 +754,7 @@ pub async fn embed_stored(
                     .iter()
                     .all(|vector| vector.as_slice().len() == req.dimension) =>
         {
+            resolved.breaker.record_success();
             record_embedding_usage(
                 &state,
                 &auth,
@@ -753,7 +774,8 @@ pub async fn embed_stored(
                     .collect(),
             }))
         }
-        Ok(_) | Err(_) => {
+        Ok(_) => {
+            resolved.breaker.record_failure();
             record_embedding_usage(
                 &state,
                 &auth,
@@ -774,6 +796,29 @@ pub async fn embed_stored(
             }
             .into_response())
         }
+        Err(error) => {
+            record_stored_inference_error(&resolved.breaker, &error);
+            record_embedding_usage(
+                &state,
+                &auth,
+                &headers,
+                &req.provider_id,
+                None,
+                UsageOutcome::FailedAfterPartialUsage,
+            )
+            .await;
+            error!(
+                provider_id_len = complete_text_len(&req.provider_id),
+                model_len = complete_text_len(&req.model),
+                error_len = complete_text_len(&error.to_string()),
+                "Stored-secret embedding failed"
+            );
+            Err(ApiError::ProviderFailure {
+                capability: "Inference embedding",
+                detail: INFERENCE_COMPLETION_PROVIDER_DETAIL.to_string(),
+            }
+            .into_response())
+        }
     }
 }
 
@@ -786,7 +831,7 @@ async fn resolve_stored_embedding_backend(
     provider_id: &str,
     model: &str,
     dimension: usize,
-) -> Result<Box<dyn EmbeddingBackend>, &'static str> {
+) -> Result<ResolvedEmbeddingBackend, &'static str> {
     let (stored_key, context) =
         load_stored_inference_key(state, auth, scope, secret_id, provider_id).await?;
     if !hosted_model_allowed(provider_id, model, true) {
@@ -827,8 +872,15 @@ async fn resolve_stored_embedding_backend(
         }
     };
     emit_stored_inference_audit(state.audit_sink.as_ref(), &context, None).await?;
+    let breaker = stored_inference_breaker(state, &context, model)?;
     mark_stored_inference_key_used(state, context);
-    Ok(backend)
+    Ok(ResolvedEmbeddingBackend { backend, breaker })
+}
+
+#[cfg(feature = "hosted-auth")]
+struct ResolvedEmbeddingBackend {
+    backend: Box<dyn EmbeddingBackend>,
+    breaker: CircuitBreaker,
 }
 
 fn hosted_model_allowed(provider_id: &str, model: &str, embedding: bool) -> bool {
@@ -1069,7 +1121,7 @@ pub async fn stream(
         return Err(ApiError::BadRequest("model is required".to_string()).into_response());
     }
 
-    let backend = match resolve_request_backend(
+    let resolved = match resolve_request_backend(
         &state,
         RequestBackendInput {
             provider_id: &provider_id,
@@ -1083,7 +1135,7 @@ pub async fn stream(
     )
     .await
     {
-        Ok(b) => b,
+        Ok(resolved) => resolved,
         Err(e) => {
             warn!(
                 provider_id_len = complete_text_len(&provider_id),
@@ -1096,6 +1148,13 @@ pub async fn stream(
             .into_response());
         }
     };
+    if resolved
+        .circuit_breaker
+        .as_ref()
+        .is_some_and(|breaker| breaker.check_request().is_err())
+    {
+        return Err(stored_inference_unavailable_response());
+    }
 
     let (system, prompt) = flatten_messages(&req.messages);
     let metering = inference_usage_context(&state, &auth, &headers, &provider_id, Utc::now())
@@ -1109,6 +1168,8 @@ pub async fn stream(
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(32);
     let model_name = req.model.clone();
     let pid_clone = provider_id.clone();
+    let circuit_breaker = resolved.circuit_breaker;
+    let backend = resolved.backend;
 
     tokio::spawn(async move {
         // Ask the backend for a chunk stream. The trait default wraps
@@ -1131,6 +1192,9 @@ pub async fn stream(
                                 .await
                                 .is_err()
                             {
+                                if let Some(breaker) = &circuit_breaker {
+                                    breaker.abandon_probe();
+                                }
                                 if let Ok(context) = &metering {
                                     context.record(UsageOutcome::ClientInterrupted).await;
                                 }
@@ -1138,6 +1202,9 @@ pub async fn stream(
                             }
                         }
                         Err(e) => {
+                            if let Some(breaker) = &circuit_breaker {
+                                record_stored_inference_error(breaker, &e);
+                            }
                             if let Ok(context) = &metering {
                                 context.record(UsageOutcome::ProviderInterrupted).await;
                             }
@@ -1158,6 +1225,9 @@ pub async fn stream(
                 if let Ok(context) = &metering {
                     context.record(UsageOutcome::Completed).await;
                 }
+                if let Some(breaker) = &circuit_breaker {
+                    breaker.record_success();
+                }
                 let done_payload = serde_json::json!({
                     "finish_reason": "stop",
                     "model": model_name,
@@ -1169,6 +1239,9 @@ pub async fn stream(
                     .await;
             }
             Err(e) => {
+                if let Some(breaker) = &circuit_breaker {
+                    record_stored_inference_error(breaker, &e);
+                }
                 if let Ok(context) = &metering {
                     context.record(UsageOutcome::FailedAfterPartialUsage).await;
                 }
@@ -1206,12 +1279,17 @@ struct RequestBackendInput<'a> {
     model: &'a str,
 }
 
+struct ResolvedGenerationBackend {
+    backend: Box<dyn GenerationBackend>,
+    circuit_breaker: Option<CircuitBreaker>,
+}
+
 async fn resolve_request_backend(
     state: &AppState,
     input: RequestBackendInput<'_>,
     auth: &Auth,
     scope: Option<&TenantRequestScope>,
-) -> Result<Box<dyn GenerationBackend>, &'static str> {
+) -> Result<ResolvedGenerationBackend, &'static str> {
     let RequestBackendInput {
         provider_id,
         api_key,
@@ -1268,11 +1346,18 @@ async fn resolve_request_backend(
 
     match resolved {
         Ok(backend) => {
+            let circuit_breaker = match stored_use.as_ref() {
+                Some(context) => Some(stored_inference_breaker(state, context, model)?),
+                None => None,
+            };
             if let Some(context) = stored_use {
                 emit_stored_inference_audit(state.audit_sink.as_ref(), &context, None).await?;
                 mark_stored_inference_key_used(state, context);
             }
-            Ok(backend)
+            Ok(ResolvedGenerationBackend {
+                backend,
+                circuit_breaker,
+            })
         }
         Err(reason) => {
             if let Some(context) = stored_use {
@@ -1289,6 +1374,59 @@ struct StoredInferenceUse {
     user_id: String,
     secret_id: Uuid,
     provider: String,
+}
+
+fn stored_inference_breaker(
+    state: &AppState,
+    context: &StoredInferenceUse,
+    model: &str,
+) -> Result<CircuitBreaker, &'static str> {
+    let registry = state
+        .inference_breakers
+        .as_ref()
+        .ok_or("circuit_state_unavailable")?;
+    Ok(registry.breaker_for(InferenceBreakerScope {
+        tenant_id: context.tenant_id,
+        user_id: &context.user_id,
+        secret_id: context.secret_id,
+        provider_id: &context.provider,
+        model,
+    }))
+}
+
+fn stored_inference_unavailable_response() -> axum::response::Response {
+    ApiError::ServiceUnavailable("Inference provider is temporarily unavailable.".to_string())
+        .into_response()
+}
+
+fn record_stored_inference_error(breaker: &CircuitBreaker, error: &matric_core::Error) {
+    if stored_inference_error_trips_breaker(error) {
+        breaker.record_failure();
+    } else {
+        // A non-retryable 4xx still proves the dependency is reachable and
+        // must release an admitted half-open probe.
+        breaker.record_success();
+    }
+}
+
+fn stored_inference_error_trips_breaker(error: &matric_core::Error) -> bool {
+    match error {
+        matric_core::Error::Request(_) => true,
+        matric_core::Error::Inference(detail) | matric_core::Error::Embedding(detail) => {
+            dependency_status(detail).is_none_or(|status| status == 429 || status >= 500)
+        }
+        _ => false,
+    }
+}
+
+fn dependency_status(detail: &str) -> Option<u16> {
+    let value = detail.split_once("status=")?.1;
+    let digits = value
+        .as_bytes()
+        .iter()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    value.get(..digits)?.parse().ok()
 }
 
 async fn emit_hosted_override_audit(
@@ -1763,6 +1901,27 @@ mod tests {
         assert!(models.contains(&"gpt-4o-mini".to_string()));
         assert!(models.contains(&"text-embedding-3-small".to_string()));
         assert_eq!(models.len(), models.iter().collect::<HashSet<_>>().len());
+    }
+
+    #[test]
+    fn stored_inference_breaker_counts_only_dependency_failures() {
+        for error in [
+            matric_core::Error::Request("error_reason=timeout".to_string()),
+            matric_core::Error::Inference("status=429; body_reason=unavailable".to_string()),
+            matric_core::Error::Inference("status=503; body_reason=other".to_string()),
+            matric_core::Error::Embedding("response parse failed; error_len=12".to_string()),
+        ] {
+            assert!(stored_inference_error_trips_breaker(&error), "{error:?}");
+        }
+
+        for error in [
+            matric_core::Error::Inference("status=400; body_reason=invalid_response".to_string()),
+            matric_core::Error::Inference("status=401; body_reason=auth_or_permission".to_string()),
+            matric_core::Error::Inference("status=404; body_reason=not_found".to_string()),
+            matric_core::Error::Config("caller credential rejected".to_string()),
+        ] {
+            assert!(!stored_inference_error_trips_breaker(&error), "{error:?}");
+        }
     }
 
     #[tokio::test]

@@ -67,6 +67,35 @@ for hosted mandatory audit behavior:
 This keeps KMS/key-provider startup able to emit through a bootstrap path while
 still giving post-ready hosted operations a deterministic fail-closed contract.
 
+## Mandatory Producer Matrix
+
+`crates/matric-api/src/audit_policy.rs` is the executable API-side inventory for
+mandatory producer families and outage behavior. Coverage is intentionally
+machine-visible: `Wired` means the named API producer family uses the shared
+contract, not that retention, operator evidence, or every domain call site is
+complete.
+
+| Producer key | Event family | Hosted ready outage | Coverage |
+|---|---|---|---|
+| `auth_lifecycle` | `auth.lifecycle` | Fail closed | Partial |
+| `authorization` | `auth.decision` | Fail closed | Wired |
+| `tenant_boundary` | `system.cross_tenant_access` | Fail closed | Partial |
+| `key_lifecycle` | `key.lifecycle` | Fail closed | Partial |
+| `mcp_tool` | `mcp.tool` | Fail closed | Pending |
+| `admin_config` | `admin.config` | Fail closed | Partial |
+| `plugin_lifecycle` | `plugin.lifecycle` | Fail closed | External |
+| `privacy_dsar` | `privacy.dsar` | Fail closed | Pending |
+| `data_lifecycle` | `data.lifecycle` | Fail closed | Partial |
+| `quota_decision` | `quota.decision` | Fail closed | Wired |
+| `runtime_lifecycle` | `process.lifecycle` | Continue | Wired |
+| `dependency_degradation` | `system.dependency` | Degrade with alert | Partial |
+
+Hosted quota allow, deny, and shared-state-outage decisions emit sanitized
+metadata-only events. An allowed operation returns 503 if its mandatory audit
+write fails; a quota denial or unavailable quota store remains rejected. CE
+continues best-effort behavior. Matrix tests cover every producer across hosted
+`Bootstrap`, hosted `Ready`, and CE outage phases.
+
 ## CE Operator Routing
 
 Operator-facing routing guidance lives in

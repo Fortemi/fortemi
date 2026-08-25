@@ -15,6 +15,7 @@
 | 0 | 2026-05-20 | Initial draft framed KMS as an EE plugin upgrade; `EnvKeyProvider` as CE default |
 | 1 | 2026-05-20 | **Revised** to align with HotM ADR-MOBILE-001 Decision 4: KMS required for hosted multi-tenant at launch. `EnvKeyProvider` retained only for the HotM desktop sidecar (single-tenant local install) and explicit dev-only opt-out. "KEK file on disk" launch posture is rejected for hosted. |
 | 2 | 2026-08-24 | Rebaselined implementation evidence: provider-neutral envelope foundation, AWS KMS startup enforcement, and hosted `user_secrets` preview landed. OpenBao/Vault Transit, live-provider receipts, and batch rotation remain launch gaps. |
+| 3 | 2026-08-24 | Recorded hosted no-DEK-cache policy, round-trip canary, stored-secret inference consumer, resumable audited same-DEK rewrap, DSAR erasure, and deterministic outage/rotation tests. OpenBao and live infrastructure receipts remain gaps. |
 
 ## July 2026 checkpoint rebaseline
 
@@ -33,12 +34,14 @@ envelope, zeroizing plaintext boundaries, AWS KMS provider, and same-DEK rewrap
 primitive. Hosted startup constructs and probes AWS KMS and refuses the local
 environment provider.
 
-Issue #730 adds a forced-RLS `user_secrets` table and internal hosted-only
-create/list/revoke routes. They derive context from authenticated tenant/user
-state and the allocated row ID, return metadata only, and use a per-row atomic
-wrapped-key replacement path covered by a stored-row rewrap test. This is not a
-hosted GA claim: OpenBao/Vault Transit, a resumable audited batch rewrap worker,
-live-provider receipts, and the #731 outbound consumer remain open.
+Issue #730 adds a forced-RLS `user_secrets` table, internal hosted-only
+create/list/revoke routes, stored-secret inference use, confirmed-DSAR hard
+deletion, and a leased resumable batch rewrap lifecycle. Context is derived
+from authenticated tenant/user state and the allocated row ID; responses and
+audit are metadata-only. Rewrap preserves the DEK and payload ciphertext while
+compare-and-swap replacing only the wrapped key. This is not a hosted GA claim:
+OpenBao/Vault Transit and live provider policy/outage/rotation/recovery receipts
+remain open.
 
 ## Context
 
@@ -196,15 +199,14 @@ Three backends ship in the core crate behind Cargo features. The customer choose
 pub struct AwsKmsKeyProvider {
     client: aws_sdk_kms::Client,
     key_id_map: HashMap<KeyPurpose, String>,  // KMS key ARN per purpose
-    dek_cache: Mutex<LruCache<DekCacheKey, Zeroizing<Vec<u8>>>>,
 }
 ```
 
 - Per-purpose KMS key (separate ARN for `ContentBlob`, `UserSecret`, `OAuthRefreshToken`, `PluginJwt`, `AuditChain`, `ApiKeyHmac`)
 - Per-tenant scoping via `EncryptionContext` (AWS KMS) / `additionalAuthenticatedData` (GCP KMS) / context (Vault)
-- DEK cache (LRU, 5-min TTL) for hot-path performance — invalidated on `rotate()`
+- No plaintext DEK cache in hosted v1; every operation crosses the provider boundary
 - `wrap_dek` / `unwrap_dek` / `sign` calls are KMS API operations; cost is 5-50ms typical, 100+ms cross-region
-- `health_check()` calls KMS `DescribeKey`
+- `health_check()` performs a production-shaped generate-data-key/decrypt round trip
 
 ### BYO-LLM provider key storage (the user-facing surface)
 
@@ -226,7 +228,8 @@ User makes inference request:
   → Zeroize the unwrapped DEK and provider key after the request
 ```
 
-DEK cache hit rate is the operational dial. With per-user DEKs and 5-min TTL, an active user pays one KMS round-trip per 5 minutes — negligible at scale.
+Hosted v1 deliberately pays the KMS round trip for each key operation. A cache requires a separate
+decision with explicit TTL, message/byte/capacity bounds, zeroize-on-evict behavior, and outage semantics.
 
 ### Wrapped key format
 
@@ -264,7 +267,10 @@ KMS-backed providers support rotation natively:
 - **GCP KMS**: `gcloud kms keys versions create` — same semantics
 - **Vault Transit**: `vault write -f transit/keys/<name>/rotate` — same semantics
 
-Re-wrap procedure: read each WrappedKey, unwrap_dek (uses old KEK version), generate_dek with new version, atomic UPDATE on the user_secrets row. This is a background job; can run online.
+Re-wrap procedure: read each `WrappedKey`, reconstruct trusted context, unwrap the existing DEK
+through the old material version, wrap that same DEK through the current material version, and
+compare-and-swap only the wrapped-key field. Do not generate a replacement DEK unless a separately
+approved process also decrypts and re-encrypts the payload.
 
 `EnvKeyProvider` rotation is a manual operator procedure documented in the runbook — read each WrappedKey, unwrap with old master, re-wrap with new master, update rows. Service downtime required.
 
@@ -283,9 +289,9 @@ Re-wrap procedure: read each WrappedKey, unwrap_dek (uses old KEK version), gene
 
 ### Negative
 
-- (-) KMS-backed operations add latency (5–50 ms per `wrap`/`unwrap` typical; 100+ ms cross-region). Mitigated by per-user DEK cache (5-min TTL).
+- (-) KMS-backed operations add latency (5–50 ms per `wrap`/`unwrap` typical; 100+ ms cross-region). Hosted v1 accepts this cost to avoid plaintext-DEK caching.
 - (-) Three KMS backends to maintain in core (`kms-aws`, `kms-gcp`, `kms-vault`). Vault chosen specifically so on-prem hosted deployments are not blocked on cloud KMS access.
-- (-) Operational dependency on KMS uptime — outages block decrypt operations. Mitigation: DEK cache keeps recently-active users servable for 5 minutes during a KMS blip.
+- (-) Operational dependency on KMS uptime: outages fail closed for decrypt and rewrap operations. Retryable classes resume through persisted worker checkpoints.
 - (-) Cost: AWS KMS at $1/key/month + $0.03 per 10k requests, GCP KMS comparable, Vault Transit free if self-hosted (but adds Vault ops burden)
 - (-) Cross-region KMS replication is operator's responsibility; document in runbook
 - (-) `EnvKeyProvider` is now a development/desktop-only tool, not a CE production option for hosted
@@ -310,7 +316,7 @@ Re-wrap procedure: read each WrappedKey, unwrap_dek (uses old KEK version), gene
 
 1. Land trait + EnvKeyProvider (with multi-tenant refusal)
 2. Refactor existing `matric-crypto` encrypt/decrypt to use `KeyProvider::generate_dek` + `unwrap_dek`
-3. DEK cache (LRU, 5-min TTL, per-tenant per-purpose)
+3. Preserve no-cache hosted v1 behavior; reconsider only through a separate accepted decision
 4. Wire `KeyProvider` into `AppState`
 5. **`KmsKeyProvider` for AWS KMS** (first launch backend — Fortemi/fortemi#707 sub-item 5)
 6. KAT (Known Answer Test) suite verifies HKDF derivation matches RFC 5869 vectors

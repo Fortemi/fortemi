@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T01:18:54Z"
+  updated_at: "2026-08-25T01:18:54Z"
+  description: "Final-state provenance for the auth and tenancy production-gate implementation"
+entity:
+  id: "urn:aiwg:artifact:docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md"
+  type: document
+  checksum: "sha256:ac88d78bb143b1daa1869438e86728c122e110d9699b147a4ec81d145f4fca33"
+  size_bytes: 8349
+  attributes:
+    change_scope: "fortemi-auth-tenancy-production-gates"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-714:production-gates-a4900cbac3e1"
+  type: modification
+  started_at: "2026-08-24T21:15:00Z"
+  ended_at: "2026-08-25T01:18:54Z"
+  description: "Complete and verify the authorized internal enterprise auth and tenancy production gates"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md"
+    activity: "urn:aiwg:activity:modification:fortemi-714:production-gates-a4900cbac3e1"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md"
+      source: "urn:gitea:Fortemi/fortemi:issue:714"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-714:production-gates-a4900cbac3e1"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-714:production-gates-a4900cbac3e1"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: technical_writer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

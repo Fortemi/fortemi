@@ -504,7 +504,7 @@ impl OllamaBackend {
     /// they arrive (#812).
     ///
     /// Messages are `(role, content)` pairs where role is "system", "user", or
-    /// "assistant" — identical to [`chat_multi_turn`], but progressive. The
+    /// "assistant" — identical to [`Self::chat_multi_turn`], but progressive. The
     /// returned [`matric_core::GenerationStream`] yields each NDJSON chunk's
     /// `message.content` and terminates when the upstream `"done": true` line
     /// arrives or the connection closes.

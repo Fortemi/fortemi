@@ -5,14 +5,14 @@
 
 use chrono::Utc;
 use matric_core::{CreateNoteRequest, NoteRepository, TagRepository};
-use matric_db::{PgNoteRepository, PgTagRepository};
+use matric_db::{create_pool, PgNoteRepository, PgTagRepository};
 use sqlx::PgPool;
 
 /// Helper to create a test database pool
 async fn setup_test_db() -> PgPool {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
-    PgPool::connect(&database_url)
+    create_pool(&database_url)
         .await
         .expect("Failed to connect to test database")
 }

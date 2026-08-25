@@ -6,7 +6,7 @@
 //! or custom — are validated through the `jsonschema` crate, so there is a
 //! single validation path. Built-in schemas are embedded JSON Schema documents
 //! (converted from the previous hand-coded validators), pre-registered in
-//! [`built_in_schema`].
+//! the internal `built_in_schema` registry.
 
 use chrono::Utc;
 use serde_json::{json, Value};

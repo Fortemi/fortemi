@@ -234,6 +234,14 @@ jobs:
           cargo test --package matric-jobs --test worker_integration_test -- --test-threads=1
         timeout-minutes: 10
 
+      - name: Run ADR-090 tenant isolation and role catalog gate
+        run: |
+          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
+          export FORTEMI_REQUIRE_LIVE_POSTGRES_TESTS=1
+          cargo test --package matric-db --features migrations --test tenant_isolation_matrix_test -- --test-threads=1 --nocapture
+        timeout-minutes: 15
+
       - name: Run other integration tests
         run: |
           DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))

@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T01:18:54Z"
+  updated_at: "2026-08-25T01:18:54Z"
+  description: "Final-state provenance for the auth and tenancy production-gate implementation"
+entity:
+  id: "urn:aiwg:artifact:docs/architecture/audit-event-mapping.md"
+  type: document
+  checksum: "sha256:361624e57836692a80b159eeb936a624bd76c2f30157d110564196004239f4f2"
+  size_bytes: 6783
+  attributes:
+    change_scope: "fortemi-auth-tenancy-production-gates"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-711:production-gates-0595fcef635e"
+  type: modification
+  started_at: "2026-08-24T21:15:00Z"
+  ended_at: "2026-08-25T01:18:54Z"
+  description: "Complete and verify the authorized internal enterprise auth and tenancy production gates"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/architecture/audit-event-mapping.md"
+    activity: "urn:aiwg:activity:modification:fortemi-711:production-gates-0595fcef635e"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docs/architecture/audit-event-mapping.md"
+      source: "urn:gitea:Fortemi/fortemi:issue:711"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-711:production-gates-0595fcef635e"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-711:production-gates-0595fcef635e"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: technical_writer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/architecture/audit-event-mapping.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

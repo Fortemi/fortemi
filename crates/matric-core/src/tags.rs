@@ -6,8 +6,8 @@
 //!
 //! # Standards Compliance
 //!
-//! - W3C SKOS Reference: https://www.w3.org/TR/skos-reference/
-//! - SKOS-XL (eXtension for Labels): https://www.w3.org/TR/skos-reference/skos-xl.html
+//! - W3C SKOS Reference: <https://www.w3.org/TR/skos-reference/>
+//! - SKOS-XL (eXtension for Labels): <https://www.w3.org/TR/skos-reference/skos-xl.html>
 //!
 //! # Key Features
 //!
@@ -427,6 +427,7 @@ impl std::str::FromStr for TagAntipattern {
 pub struct SkosConceptScheme {
     pub id: Uuid,
 
+    #[allow(rustdoc::bare_urls)]
     /// Canonical URI for the scheme (e.g., "https://matric.io/schemes/topics").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uri: Option<String>,

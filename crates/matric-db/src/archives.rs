@@ -178,6 +178,26 @@ fn fk_action_sql(code: &str) -> &str {
     }
 }
 
+/// Render an `ON DELETE` action without nulling a tenant discriminator that was
+/// added to a composite tenant-guard foreign key.
+fn fk_delete_action_sql(code: &str, source_columns: &[String]) -> String {
+    if code != "n" || !source_columns.iter().any(|column| column == "tenant_id") {
+        return fk_action_sql(code).to_string();
+    }
+
+    let nullable_columns: Vec<&str> = source_columns
+        .iter()
+        .map(String::as_str)
+        .filter(|column| *column != "tenant_id")
+        .collect();
+
+    if nullable_columns.is_empty() {
+        "NO ACTION".to_string()
+    } else {
+        format!("SET NULL ({})", nullable_columns.join(", "))
+    }
+}
+
 /// PostgreSQL implementation of ArchiveRepository.
 pub struct PgArchiveRepository {
     pool: Pool<Postgres>,
@@ -487,7 +507,7 @@ impl PgArchiveRepository {
                 ref_schema,
                 ref_table,
                 ref_columns.join(", "),
-                fk_action_sql(delete_action),
+                fk_delete_action_sql(delete_action, &source_columns),
                 fk_action_sql(update_action),
             );
 
@@ -851,7 +871,7 @@ impl PgArchiveRepository {
                 ref_schema,
                 ref_table,
                 ref_columns.join(", "),
-                fk_action_sql(delete_action),
+                fk_delete_action_sql(delete_action, &source_columns),
                 fk_action_sql(update_action),
             );
 
@@ -1462,6 +1482,24 @@ impl ArchiveRepository for PgArchiveRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tenant_guard_set_null_preserves_tenant_discriminator() {
+        let columns = vec!["tenant_id".to_string(), "source_note_id".to_string()];
+
+        assert_eq!(
+            fk_delete_action_sql("n", &columns),
+            "SET NULL (source_note_id)"
+        );
+    }
+
+    #[test]
+    fn ordinary_foreign_key_actions_remain_unchanged() {
+        let columns = vec!["source_note_id".to_string()];
+
+        assert_eq!(fk_delete_action_sql("n", &columns), "SET NULL");
+        assert_eq!(fk_delete_action_sql("c", &columns), "CASCADE");
+    }
 
     #[test]
     fn archive_not_found_errors_report_metadata_without_raw_values() {

@@ -640,7 +640,7 @@ curl -X DELETE http://localhost:3000/api/v1/embedding-sets/my-set-slug
 |----------|---------|-------|
 | `GET /health` | Aggregate diagnostics | Capability and subsystem summary; not an orchestrator probe |
 | `GET /livez` | Process liveness | Cheap process-local check; `/health/live` is a compatibility alias |
-| `GET /readyz` | Traffic readiness | Returns 503 during drain or when PostgreSQL is unavailable |
+| `GET /readyz` | Traffic readiness | Returns 503 during drain or when a required dependency is unavailable. CE checks PostgreSQL; hosted multi-tenant mode also checks durable audit flush and Redis quota health. |
 
 The `/health` response includes capability flags that reflect what is actually running:
 
@@ -694,6 +694,14 @@ accepting connections. In-flight requests drain for up to
 `MATRIC_SHUTDOWN_GRACE_SECS` (default 30 seconds), while `/livez` remains
 successful until process exit. Configure the Docker or Kubernetes termination
 grace period to be at least as long.
+
+Authenticated operators can use `/api/v1/rate-limit/status` for bounded quota
+readiness metadata. Hosted responses identify the request policy version,
+identity dimensions, Redis health timestamp, and consecutive health failures.
+They deliberately omit capacity, Redis connection details, and tenant or
+principal identifiers. A reservation status of
+`foundation_available_not_runtime_configured` is not evidence that tenant plans
+or non-request usage producers are active.
 
 ### Check Extraction Capabilities
 

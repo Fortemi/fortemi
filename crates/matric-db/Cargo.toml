@@ -19,6 +19,11 @@ path = "tests/tenant_isolation_test.rs"
 required-features = ["migrations"]
 
 [[test]]
+name = "tenant_isolation_matrix_test"
+path = "tests/tenant_isolation_matrix_test.rs"
+required-features = ["migrations"]
+
+[[test]]
 name = "audit_sink_test"
 path = "tests/audit_sink_test.rs"
 required-features = ["migrations"]

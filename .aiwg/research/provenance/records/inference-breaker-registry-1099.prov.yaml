@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T23:27:25Z"
+  updated_at: "2026-08-24T23:27:25Z"
+  description: "Provenance for bounded hosted inference breaker registry"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/services/inference_breaker.rs"
+  type: code
+  checksum: "sha256:a7ff1fc4a41ed1a0a0bdbfb91011f1db10a918e13c6a4b86a566e5809d78c084"
+  size_bytes: 6099
+  attributes:
+    change_scope: "fortemi-1099-shared-inference-breaker"
+activity:
+  id: "urn:aiwg:activity:implementation:fortemi-1099:breaker-registry"
+  type: generation
+  started_at: "2026-08-24T21:15:00Z"
+  ended_at: "2026-08-24T23:27:25Z"
+  description: "Implement bounded redacted breaker state keyed by trusted hosted inference scope"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/services/inference_breaker.rs"
+    activity: "urn:aiwg:activity:implementation:fortemi-1099:breaker-registry"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/services/inference_breaker.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:1099"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:implementation:fortemi-1099:breaker-registry"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:implementation:fortemi-1099:breaker-registry"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "software_implementer"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/services/inference_breaker.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

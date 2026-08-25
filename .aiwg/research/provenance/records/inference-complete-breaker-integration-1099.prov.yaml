@@ -1,0 +1,43 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-24T23:27:25Z"
+  updated_at: "2026-08-25T01:27:05Z"
+  description: "Provenance for generation, SSE, and embedding breaker integration"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+  type: code
+  checksum: "sha256:42dc9b25abe1bdd5efc1016fa7cecdf4fb50a6ebf0f83d6b27ced3e390142229"
+  size_bytes: 73445
+  attributes:
+    change_scope: "fortemi-1099-shared-inference-breaker"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-1099:inference-surfaces"
+  type: modification
+  started_at: "2026-08-24T21:15:00Z"
+  ended_at: "2026-08-24T23:27:25Z"
+  description: "Apply shared fail-fast state after trusted credential, KMS, model, and destination gates"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-1099:inference-surfaces"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:1099"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-1099:inference-surfaces"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:920"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:fortemi-1099:inference-surfaces"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-1099:inference-surfaces"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "software_implementer"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/inference_complete.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

@@ -78,6 +78,7 @@ struct BreakerState {
     state: CircuitState,
     consecutive_failures: u32,
     last_failure_time: Option<Instant>,
+    half_open_probe_in_flight: bool,
     total_trips: u64,
 }
 
@@ -87,6 +88,7 @@ impl Default for BreakerState {
             state: CircuitState::Closed,
             consecutive_failures: 0,
             last_failure_time: None,
+            half_open_probe_in_flight: false,
             total_trips: 0,
         }
     }
@@ -109,6 +111,10 @@ impl fmt::Debug for CircuitBreaker {
             .field("state", &state.state)
             .field("consecutive_failures", &state.consecutive_failures)
             .field("last_failure_recorded", &state.last_failure_time.is_some())
+            .field(
+                "half_open_probe_in_flight",
+                &state.half_open_probe_in_flight,
+            )
             .field("total_trips", &state.total_trips)
             .finish()
     }
@@ -143,32 +149,17 @@ impl CircuitBreaker {
         match inner.state {
             CircuitState::Closed => Ok(()),
             CircuitState::HalfOpen => {
+                if inner.half_open_probe_in_flight {
+                    return Err(self.fast_fail_error(&inner));
+                }
+                inner.half_open_probe_in_flight = true;
                 debug!(
                     service = %self.config.service_name,
                     "Circuit half-open, allowing probe request"
                 );
                 Ok(())
             }
-            CircuitState::Open => {
-                let remaining = inner
-                    .last_failure_time
-                    .map(|t| {
-                        self.config
-                            .cooldown
-                            .checked_sub(t.elapsed())
-                            .unwrap_or(Duration::ZERO)
-                    })
-                    .unwrap_or(Duration::ZERO);
-
-                Err(matric_core::Error::Internal(format!(
-                    "{} circuit breaker is open (fast-fail). \
-                     {} consecutive failures, cooldown remaining: {:.0}s. \
-                     The sidecar may be down — it will be probed after cooldown.",
-                    self.config.service_name,
-                    inner.consecutive_failures,
-                    remaining.as_secs_f64()
-                )))
-            }
+            CircuitState::Open => Err(self.fast_fail_error(&inner)),
         }
     }
 
@@ -185,6 +176,7 @@ impl CircuitBreaker {
         inner.consecutive_failures = 0;
         inner.state = CircuitState::Closed;
         inner.last_failure_time = None;
+        inner.half_open_probe_in_flight = false;
     }
 
     /// Record a failed request. May trip the circuit to Open.
@@ -192,6 +184,7 @@ impl CircuitBreaker {
         let mut inner = self.state.lock().unwrap();
         inner.consecutive_failures += 1;
         inner.last_failure_time = Some(Instant::now());
+        inner.half_open_probe_in_flight = false;
 
         if inner.consecutive_failures >= self.config.failure_threshold
             && inner.state != CircuitState::Open
@@ -204,6 +197,24 @@ impl CircuitBreaker {
                 total_trips = inner.total_trips,
                 cooldown_secs = self.config.cooldown.as_secs(),
                 "Circuit breaker OPEN — fast-failing requests"
+            );
+        }
+    }
+
+    /// Release an inconclusive half-open probe without blaming the dependency.
+    ///
+    /// This is used when the caller disconnects before a probe can establish
+    /// dependency health. The circuit reopens for one cooldown so another
+    /// caller cannot immediately consume a second probe slot.
+    pub fn abandon_probe(&self) {
+        let mut inner = self.state.lock().unwrap();
+        if inner.state == CircuitState::HalfOpen && inner.half_open_probe_in_flight {
+            inner.state = CircuitState::Open;
+            inner.last_failure_time = Some(Instant::now());
+            inner.half_open_probe_in_flight = false;
+            debug!(
+                service = %self.config.service_name,
+                "Half-open probe abandoned, restarting cooldown"
             );
         }
     }
@@ -238,9 +249,29 @@ impl CircuitBreaker {
                         "Cooldown elapsed, transitioning to half-open"
                     );
                     inner.state = CircuitState::HalfOpen;
+                    inner.half_open_probe_in_flight = false;
                 }
             }
         }
+    }
+
+    fn fast_fail_error(&self, inner: &BreakerState) -> matric_core::Error {
+        let remaining = inner
+            .last_failure_time
+            .map(|time| {
+                self.config
+                    .cooldown
+                    .checked_sub(time.elapsed())
+                    .unwrap_or(Duration::ZERO)
+            })
+            .unwrap_or(Duration::ZERO);
+        matric_core::Error::Internal(format!(
+            "{} circuit breaker is open (fast-fail). {} consecutive failures, \
+             cooldown remaining: {:.0}s. The dependency will be probed after cooldown.",
+            self.config.service_name,
+            inner.consecutive_failures,
+            remaining.as_secs_f64()
+        ))
     }
 }
 
@@ -368,6 +399,41 @@ mod tests {
     }
 
     #[test]
+    fn test_half_open_allows_only_one_probe() {
+        let cb = CircuitBreaker::new(CircuitBreakerConfig {
+            failure_threshold: 1,
+            cooldown: Duration::from_millis(1),
+            service_name: "test".to_string(),
+        });
+        cb.record_failure();
+        std::thread::sleep(Duration::from_millis(5));
+
+        assert!(cb.check_request().is_ok());
+        assert!(cb.check_request().is_err());
+
+        cb.record_success();
+        assert!(cb.check_request().is_ok());
+    }
+
+    #[test]
+    fn test_abandoned_half_open_probe_restarts_cooldown_without_failure() {
+        let cb = CircuitBreaker::new(CircuitBreakerConfig {
+            failure_threshold: 1,
+            cooldown: Duration::from_millis(20),
+            service_name: "test".to_string(),
+        });
+        cb.record_failure();
+        std::thread::sleep(Duration::from_millis(25));
+
+        assert!(cb.check_request().is_ok());
+        cb.abandon_probe();
+
+        assert_eq!(cb.current_state(), CircuitState::Open);
+        assert_eq!(cb.consecutive_failures(), 1);
+        assert!(cb.check_request().is_err());
+    }
+
+    #[test]
     fn test_success_resets_failure_count() {
         let cb = test_breaker("test");
 
@@ -478,6 +544,7 @@ mod tests {
         assert!(breaker_debug.contains("state"));
         assert!(breaker_debug.contains("consecutive_failures"));
         assert!(breaker_debug.contains("last_failure_recorded"));
+        assert!(breaker_debug.contains("half_open_probe_in_flight"));
         assert!(breaker_debug.contains("total_trips"));
         assert!(!breaker_debug.contains("tenant.example.com"));
         assert!(!breaker_debug.contains("token=secret"));

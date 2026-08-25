@@ -10,7 +10,7 @@
 //! Run migrations first: `sqlx migrate run`
 
 use chrono::Utc;
-use matric_db::Database;
+use matric_db::{create_pool, Database};
 use serde_json::json;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -34,7 +34,7 @@ impl TestContext {
     async fn new() -> Self {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
-        let pool = PgPool::connect(&database_url)
+        let pool = create_pool(&database_url)
             .await
             .expect("Failed to connect to test database");
         let db = Database::new(pool.clone());

@@ -2,7 +2,8 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
-use sqlx::{Pool, Postgres, Row, Transaction};
+use sqlx::postgres::PgConnection;
+use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
 use matric_core::{Error, Result, Tag, TagRepository};
@@ -210,7 +211,7 @@ impl TagRepository for PgTagRepository {
 /// Transaction-aware variants for tag operations.
 impl PgTagRepository {
     /// Create a tag within an existing transaction.
-    pub async fn create_tx(&self, tx: &mut Transaction<'_, Postgres>, name: &str) -> Result<()> {
+    pub async fn create_tx(&self, tx: &mut PgConnection, name: &str) -> Result<()> {
         validate_tag_name(name).map_err(Error::InvalidInput)?;
         let now = Utc::now();
         sqlx::query(
@@ -218,14 +219,14 @@ impl PgTagRepository {
         )
         .bind(name)
         .bind(now)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
         Ok(())
     }
 
     /// List all tags within an existing transaction.
-    pub async fn list_tx(&self, tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Tag>> {
+    pub async fn list_tx(&self, tx: &mut PgConnection) -> Result<Vec<Tag>> {
         let rows = sqlx::query(
             r#"
             SELECT
@@ -239,7 +240,7 @@ impl PgTagRepository {
             ORDER BY t.name
             "#,
         )
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -258,7 +259,7 @@ impl PgTagRepository {
     /// Add a tag to a note within an existing transaction.
     pub async fn add_to_note_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         note_id: Uuid,
         tag_name: &str,
         source: &str,
@@ -272,7 +273,7 @@ impl PgTagRepository {
         )
         .bind(tag_name)
         .bind(now)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -284,7 +285,7 @@ impl PgTagRepository {
         .bind(note_id)
         .bind(tag_name)
         .bind(source)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -294,14 +295,14 @@ impl PgTagRepository {
     /// Remove a tag from a note within an existing transaction.
     pub async fn remove_from_note_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         note_id: Uuid,
         tag_name: &str,
     ) -> Result<()> {
         sqlx::query("DELETE FROM note_tag WHERE note_id = $1 AND LOWER(tag_name) = LOWER($2)")
             .bind(note_id)
             .bind(tag_name)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
         Ok(())
@@ -310,13 +311,13 @@ impl PgTagRepository {
     /// Get tags for a note within an existing transaction.
     pub async fn get_for_note_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         note_id: Uuid,
     ) -> Result<Vec<String>> {
         let rows =
             sqlx::query("SELECT tag_name FROM note_tag WHERE note_id = $1 ORDER BY tag_name")
                 .bind(note_id)
-                .fetch_all(&mut **tx)
+                .fetch_all(&mut *tx)
                 .await
                 .map_err(Error::Database)?;
 
@@ -327,7 +328,7 @@ impl PgTagRepository {
     /// Set tags for a note within an existing transaction.
     pub async fn set_for_note_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         note_id: Uuid,
         tags: Vec<String>,
         source: &str,
@@ -342,7 +343,7 @@ impl PgTagRepository {
         // Remove existing tags
         sqlx::query("DELETE FROM note_tag WHERE note_id = $1")
             .bind(note_id)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -354,7 +355,7 @@ impl PgTagRepository {
             )
             .bind(&tag_name)
             .bind(now)
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -363,7 +364,7 @@ impl PgTagRepository {
                 .bind(note_id)
                 .bind(&tag_name)
                 .bind(source)
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await
                 .map_err(Error::Database)?;
         }

@@ -1,0 +1,39 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T01:18:54Z"
+  updated_at: "2026-08-25T01:18:54Z"
+  description: "Final-state provenance for the auth and tenancy production-gate implementation"
+entity:
+  id: "urn:aiwg:artifact:tests/fortemi-auth-consumer/Cargo.lock"
+  type: configuration
+  checksum: "sha256:2b505480282b9570c4076c4ca98b6518a04d05809219c3663f5a0db4a2cad9dd"
+  size_bytes: 57168
+  attributes:
+    change_scope: "fortemi-auth-tenancy-production-gates"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-728:production-gates-db62a304ec36"
+  type: modification
+  started_at: "2026-08-24T21:15:00Z"
+  ended_at: "2026-08-25T01:18:54Z"
+  description: "Complete and verify the authorized internal enterprise auth and tenancy production gates"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:tests/fortemi-auth-consumer/Cargo.lock"
+    activity: "urn:aiwg:activity:modification:fortemi-728:production-gates-db62a304ec36"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:tests/fortemi-auth-consumer/Cargo.lock"
+      source: "urn:gitea:Fortemi/fortemi:issue:728"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-728:production-gates-db62a304ec36"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-728:production-gates-db62a304ec36"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: software_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:tests/fortemi-auth-consumer/Cargo.lock"
+    agent: "urn:aiwg:agent:codex-gpt-5"

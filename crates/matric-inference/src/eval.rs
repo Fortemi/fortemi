@@ -601,7 +601,7 @@ pub fn parse_judge_score(output: &str, config: &ScoringConfig) -> Option<f32> {
 }
 
 /// Parse the winner from a pairwise comparison.
-/// Looks for [[A]], [[B]], or [[C]] (tie).
+/// Looks for `[[A]]`, `[[B]]`, or `[[C]]` (tie).
 pub fn parse_pairwise_winner(output: &str) -> Option<String> {
     if output.contains("[[A]]") {
         Some("A".to_string())

@@ -167,9 +167,14 @@ Implementation status at checkpoint: the Fortemi endpoint is implemented in `cra
 | `unknown` | Auth mode cannot be classified. |
 
 Hosted auth responses additionally include `claim_contract_version`,
-`claim_contract_profile`, and `authority_release`. The additive 2026-08-24 update
-pins contract `1.0.0`, profile `rust-node-jwt-v1`, and signed authority release
-`v2026.7.0`. Community and legacy single-tenant OAuth responses omit these fields.
+`claim_contract_profile`, `authority_release`, `authority_commit`,
+`manifest_sha256`, and `release_policy_sha256`. The additive 2026-08-24 update
+pins contract `1.1.0`, profile `rust-node-jwt-v1`, signed authority release
+`v2026.8.1`, commit `1b6ddb1b58a12efc5b631386ad783cb12edec518`, manifest SHA-256
+`2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242`, and
+release-policy SHA-256
+`d70491c336a62508ef3c7937af709dd121a6ec4f421ceab66486af3f371de8db`.
+Community and legacy single-tenant OAuth responses omit these fields.
 
 ### Capability `state`
 

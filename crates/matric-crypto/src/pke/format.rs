@@ -257,7 +257,7 @@ mod base64_bytes {
     }
 }
 
-/// Serde helper for base64-encoded Vec<u8>.
+/// Serde helper for base64-encoded `Vec<u8>`.
 mod base64_bytes_vec {
     use base64::Engine;
     use serde::{Deserialize, Deserializer, Serializer};

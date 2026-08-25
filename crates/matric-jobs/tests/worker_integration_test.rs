@@ -21,7 +21,7 @@
 //! handler types). See the type assignment table in the source.
 
 use matric_core::{JobRepository, JobRetryPolicy, JobStatus, JobType};
-use matric_db::{create_pool, Database};
+use matric_db::{create_pool, Database, LOCAL_TENANT_ID};
 use matric_jobs::{
     install_redacted_panic_hook, JobContext, JobHandler, JobResult, NoOpHandler, WorkerBuilder,
     WorkerConfig, WorkerEvent,
@@ -78,7 +78,11 @@ async fn setup_isolated_worker_pool() -> (PgPool, PgPool, String) {
         .after_connect(move |connection, _metadata| {
             let search_path = search_path.clone();
             Box::pin(async move {
-                sqlx::query(&search_path).execute(connection).await?;
+                sqlx::query(&search_path).execute(&mut *connection).await?;
+                sqlx::query("SELECT set_config('app.current_tenant', $1, false)")
+                    .bind(LOCAL_TENANT_ID)
+                    .execute(connection)
+                    .await?;
                 Ok(())
             })
         })

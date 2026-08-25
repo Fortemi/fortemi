@@ -1,8 +1,8 @@
 {
   "contract_id": "fortemi-auth-conformance",
-  "contract_version": "1.0.0",
+  "contract_version": "1.1.0",
   "profile": "rust-node-jwt-v1",
-  "generated_at": "2026-07-26T00:00:00Z",
+  "generated_at": "2026-08-24T23:56:07Z",
   "test_only": true,
   "config": {
     "issuer": "https://issuer.fixture.invalid",
@@ -31,6 +31,33 @@
       }
     ]
   },
+  "tenant_store_cases": [
+    {
+      "id": "tenant-store-unavailable",
+      "store_result": "unavailable",
+      "expected": {"error": "tenant_store_unavailable", "http_status": 503}
+    },
+    {
+      "id": "tenant-store-timeout",
+      "store_result": "timeout",
+      "expected": {"error": "tenant_store_unavailable", "http_status": 503}
+    },
+    {
+      "id": "tenant-store-malformed-response",
+      "store_result": "malformed_response",
+      "expected": {"error": "tenant_store_unavailable", "http_status": 503}
+    },
+    {
+      "id": "tenant-inactive",
+      "store_result": "inactive",
+      "expected": {"error": "unknown_tenant", "http_status": 403}
+    },
+    {
+      "id": "tenant-not-found",
+      "store_result": "not_found",
+      "expected": {"error": "unknown_tenant", "http_status": 403}
+    }
+  ],
   "cases": [
     {
       "id": "valid",
@@ -78,6 +105,57 @@
       "id": "wrong-algorithm",
       "token": "eyJhbGciOiJIUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZDpub3RlIHdyaXRlOm5vdGUifQ.BjFgg_L2mFmz7NEIu9GbeO4o6VXhunPVH6m6G2gp_8mYx9m7jk0ftCLdp5MWHrSjO2-ozM_lGHf6YkDNaE0ObITc5OWFP6ZD_0CXKa8wjy1I6iy1DyfVfY8VgeX3JYbawsVLEz_mufuzA_HGcQl4Qmnq9pzyvmQM13aOoRKtyn77kuhyw_zh58PzOYxi6lSfvHKGfOy__UOD66Z3vbkA-DRR5iZSDb4-j5pTkl2O_ZBX-tdLv0BzeiW20RBiKGbzcvlvQ_OSyov0chmgfZ3X6CYABDda3jgxC5weGjUuBd5d6Bv7dlslPBJtndHaPN-z-uAxqxhgDtuDf2bhA3KezQ",
       "expected": {"outcome": "rejected", "error": "unsupported_algorithm"}
+    },
+    {
+      "id": "algorithm-none",
+      "token": "eyJhbGciOiJub25lIiwia2lkIjoiZml4dHVyZS1rZXktMSJ9.e30.x",
+      "expected": {"outcome": "rejected", "error": "unsupported_algorithm"}
+    },
+    {
+      "id": "algorithm-rs384",
+      "token": "eyJhbGciOiJSUzM4NCIsImtpZCI6ImZpeHR1cmUta2V5LTEifQ.e30.x",
+      "expected": {"outcome": "rejected", "error": "unsupported_algorithm"}
+    },
+    {
+      "id": "algorithm-ps256",
+      "token": "eyJhbGciOiJQUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEifQ.e30.x",
+      "expected": {"outcome": "rejected", "error": "unsupported_algorithm"}
+    },
+    {
+      "id": "algorithm-es256",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEifQ.e30.x",
+      "expected": {"outcome": "rejected", "error": "unsupported_algorithm"}
+    },
+    {
+      "id": "rsa-public-key-as-hs256-secret",
+      "token": "eyJhbGciOiJIUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZDpub3RlIHdyaXRlOm5vdGUifQ.oguwalQ1NUfxQ29lLOWzgMPMh1uq4w7pWO0_7glaqkQ",
+      "generation": {
+        "recipe": "Export fixture-key-1 JWK as SPKI PEM, then HMAC-SHA-256 the encoded header and payload with those public PEM bytes",
+        "node_api": "crypto.createPublicKey({key:jwk,format:'jwk'}).export({type:'spki',format:'pem'}); crypto.createHmac('sha256',pem)",
+        "public_key_pem_sha256": "ccbc6e5aafbf62aee3cb15a1281198fd9f32285b5755b80abf7c720013a112f0",
+        "signature_bytes": 32
+      },
+      "expected": {"outcome": "rejected", "error": "unsupported_algorithm"}
+    },
+    {
+      "id": "missing-algorithm",
+      "token": "eyJraWQiOiJmaXh0dXJlLWtleS0xIn0.e30.x",
+      "expected": {"outcome": "rejected", "error": "malformed_token"}
+    },
+    {
+      "id": "duplicate-algorithm",
+      "token": "eyJhbGciOiJSUzI1NiIsImFsZyI6IkhTMjU2Iiwia2lkIjoiZml4dHVyZS1rZXktMSJ9.e30.x",
+      "expected": {"outcome": "rejected", "error": "malformed_token"}
+    },
+    {
+      "id": "missing-key-id",
+      "token": "eyJhbGciOiJSUzI1NiJ9.e30.x",
+      "expected": {"outcome": "rejected", "error": "key_not_found"}
+    },
+    {
+      "id": "duplicate-key-id",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJraWQiOiJmaXh0dXJlLWtleS0yIn0.e30.x",
+      "expected": {"outcome": "rejected", "error": "malformed_token"}
     },
     {
       "id": "missing-tenant",

@@ -2,7 +2,7 @@ use chrono::{Duration, Utc};
 use matric_core::{
     JobFailureClass, JobRepository, JobRetryOutcome, JobRetryPolicy, JobStatus, JobType,
 };
-use matric_db::PgJobRepository;
+use matric_db::{PgJobRepository, LOCAL_TENANT_ID};
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 
@@ -11,6 +11,15 @@ async fn isolated_job_pool() -> sqlx::PgPool {
         .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
     let pool = PgPoolOptions::new()
         .max_connections(1)
+        .after_connect(|connection, _metadata| {
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('app.current_tenant', $1, false)")
+                    .bind(LOCAL_TENANT_ID)
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
         .connect(&database_url)
         .await
         .expect("connect to migrated test database");
@@ -58,7 +67,11 @@ async fn isolated_concurrent_job_pool() -> (sqlx::PgPool, sqlx::PgPool, String) 
         .after_connect(move |connection, _metadata| {
             let search_path = search_path.clone();
             Box::pin(async move {
-                sqlx::query(&search_path).execute(connection).await?;
+                sqlx::query(&search_path).execute(&mut *connection).await?;
+                sqlx::query("SELECT set_config('app.current_tenant', $1, false)")
+                    .bind(LOCAL_TENANT_ID)
+                    .execute(connection)
+                    .await?;
                 Ok(())
             })
         })
