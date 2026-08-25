@@ -656,3 +656,7 @@ records:
     record: "records/asyncapi-checksum-release-2026-7-23-1098-1100.prov.yaml"
   - entity: ".aiwg/releases/evidence/v2026.7.23-release-note-threat-assessment.json"
     record: "records/release-note-threat-assessment-2026-7-23-1098-1100.prov.yaml"
+  - entity: "docker/seed-data/fortemi-docs.shard"
+    record: "records/fortemi-docs-shard-release-2026-7-23-1098-1100.prov.yaml"
+  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
+    record: "records/fortemi-docs-shard-receipt-release-2026-7-23-1098-1100.prov.yaml"
