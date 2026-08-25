@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T06:40:17Z"
+  updated_at: "2026-08-25T06:40:17Z"
+  description: "Provenance for transaction-local tenant binding during isolated-container API key provisioning"
+entity:
+  id: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+  type: source_code
+  checksum: "sha256:cde0f6f644a5b79a487ac6bc49cf24d87f0faec72e1f9fdcd7f4e25c55984b29"
+  size_bytes: 68790
+  attributes:
+    change_scope: "fortemi-729-isolated-container-tenant-scope"
+    feature: "tenant-isolation-release-gate"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-729:isolated-api-key-tenant-scope"
+  type: modification
+  started_at: "2026-08-25T06:37:00Z"
+  ended_at: "2026-08-25T06:40:17Z"
+  description: "Bind the synthetic Community tenant transaction-locally before provisioning an ephemeral API key in the forced-RLS isolated test database"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+    activity: "urn:aiwg:activity:modification:fortemi-729:isolated-api-key-tenant-scope"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+      source: "urn:gitea:Fortemi/fortemi:issue:729"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:modification:fortemi-729:isolated-api-key-tenant-scope"
+    - entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+      source: "urn:gitea:Fortemi/fortemi:issue:726"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:fortemi-729:isolated-api-key-tenant-scope"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-729:isolated-api-key-tenant-scope"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+    agent: "urn:aiwg:agent:codex-gpt-5"

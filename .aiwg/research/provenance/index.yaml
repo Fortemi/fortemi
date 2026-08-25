@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-25T05:40:27Z"
+  updated_at: "2026-08-25T06:40:17Z"
 records:
+  - entity: ".gitea/workflows/ci-builder.yaml"
+    record: "records/ci-builder-isolated-api-key-tenant-scope-729.prov.yaml"
   - entity: "crates/matric-api/tests/user_secret_storage_test.rs"
     record: "records/user-secret-storage-role-setup-concurrency-731.prov.yaml"
   - entity: "Dockerfile"

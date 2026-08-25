@@ -891,14 +891,21 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -U "${TEST_DB_USER}" \
             -d "${TEST_DB_NAME}" \
-            -c "INSERT INTO api_key (
+            -c "BEGIN;
+                SELECT set_config(
+                  'app.current_tenant',
+                  '00000000-0000-0000-0000-000000000000',
+                  true
+                );
+                INSERT INTO api_key (
                   id, key_hash, key_prefix, name, description, scope,
                   is_active, created_at, updated_at
                 ) VALUES (
                   gen_random_uuid(), '${CONTRACT_KEY_HASH}', '${CONTRACT_KEY_PREFIX}',
                   'CI contract export', 'Ephemeral isolated-container verifier',
                   'admin', true, NOW(), NOW()
-                )"
+                );
+                COMMIT;"
           printf '%s' "${CONTRACT_KEY}" |
             docker exec -i ${TEST_API} sh -c \
               'umask 077; cat > /tmp/fortemi-ci-contract-key'
