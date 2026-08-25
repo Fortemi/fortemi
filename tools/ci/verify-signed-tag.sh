@@ -22,8 +22,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 GNUPGHOME="$VERIFY_HOME" gpg --batch --import .gitea/keys/maintainers.asc >/dev/null 2>&1
+GPG_BIN="$(command -v gpg)"
 
-if ! output="$(GNUPGHOME="$VERIFY_HOME" git verify-tag --raw "$TAG" 2>&1)"; then
+# Ignore any repository- or user-level signing adapter here. Verification must
+# use the public-key keyring imported into VERIFY_HOME, never the OpenBao-backed
+# private-key adapter configured for commit and tag creation.
+if ! output="$(GNUPGHOME="$VERIFY_HOME" git -c gpg.program="$GPG_BIN" verify-tag --raw "$TAG" 2>&1)"; then
   echo "$output" >&2
   echo "FAIL: signature verification failed for $TAG." >&2
   exit 1

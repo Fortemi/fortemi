@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-25T21:16:51Z"
+  updated_at: "2026-08-25T23:42:27Z"
 records:
   - entity: ".gitea/workflows/test.yml"
     record: "records/protected-slow-tests-redis-fixture-714.prov.yaml"
@@ -660,3 +660,7 @@ records:
     record: "records/fortemi-docs-shard-release-2026-7-23-1098-1100.prov.yaml"
   - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
     record: "records/fortemi-docs-shard-receipt-release-2026-7-23-1098-1100.prov.yaml"
+  - entity: "tools/ci/verify-signed-tag.sh"
+    record: "records/verify-signed-tag-isolated-keyring-1098.prov.yaml"
+  - entity: "tests/test_verify_signed_tag.py"
+    record: "records/test-verify-signed-tag-isolated-keyring-1098.prov.yaml"
