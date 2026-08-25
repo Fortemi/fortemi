@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-25T04:06:55Z"
+  updated_at: "2026-08-25T04:45:01Z"
 records:
+  - entity: ".gitea/workflows/ci-builder.yaml"
+    record: "records/ci-builder-cargo-audit-bootstrap-714.prov.yaml"
   - entity: "crates/matric-db/tests/tenant_isolation_matrix_test.rs"
     record: "records/tenant-isolation-matrix-provisioned-schema-728.prov.yaml"
   - entity: "crates/matric-crypto/Cargo.toml"

@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T04:45:01Z"
+  updated_at: "2026-08-25T04:45:01Z"
+  description: "Provenance for deterministic cargo-audit bootstrap on the protected Rust 1.92 builder"
+entity:
+  id: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+  type: source_code
+  checksum: "sha256:cf9d18fa2ce52405d95785485fed9bf90d2c5928e4d0b3f272bbc3bf50ada608"
+  size_bytes: 68567
+  attributes:
+    change_scope: "fortemi-714-cargo-audit-bootstrap"
+    feature: "protected-ci"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-714:cargo-audit-bootstrap"
+  type: modification
+  started_at: "2026-08-25T04:41:00Z"
+  ended_at: "2026-08-25T04:45:01Z"
+  description: "Pin cargo-audit and bound audit-tool compilation optimization and parallelism to avoid a GCC 12 aws-lc-sys compiler crash"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+    activity: "urn:aiwg:activity:modification:fortemi-714:cargo-audit-bootstrap"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+      source: "urn:gitea:Fortemi/fortemi:issue:714"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-714:cargo-audit-bootstrap"
+    - entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+      source: "urn:gitea:Fortemi/fortemi:issue:1099"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:fortemi-714:cargo-audit-bootstrap"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-714:cargo-audit-bootstrap"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+    agent: "urn:aiwg:agent:codex-gpt-5"
