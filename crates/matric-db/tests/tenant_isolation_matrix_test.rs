@@ -44,8 +44,19 @@ async fn setup() -> Option<TestDatabase> {
         Ok(pool) => pool,
         Err(error) => return setup_failure(error),
     };
-    if let Err(error) = Database::new(admin.clone()).migrate().await {
-        return setup_failure(error);
+    let schema_is_provisioned = match sqlx::query_scalar::<_, bool>(
+        "SELECT to_regclass('public.tenant_registry') IS NOT NULL",
+    )
+    .fetch_one(&admin)
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => return setup_failure(error),
+    };
+    if !schema_is_provisioned {
+        if let Err(error) = Database::new(admin.clone()).migrate().await {
+            return setup_failure(error);
+        }
     }
 
     sqlx::query(&format!(

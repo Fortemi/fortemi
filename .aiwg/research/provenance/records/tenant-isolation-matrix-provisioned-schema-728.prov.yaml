@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T04:06:55Z"
+  updated_at: "2026-08-25T04:06:55Z"
+  description: "Provenance for tenant-isolation matrix setup on CI-provisioned and fresh databases"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-db/tests/tenant_isolation_matrix_test.rs"
+  type: source_code
+  checksum: "sha256:939e73237ae3a98dbf9a9f71fe08638bfcf1e14e87f2c7aab8c6634fabcb9937"
+  size_bytes: 26857
+  attributes:
+    change_scope: "fortemi-728-tenant-matrix-provisioned-schema"
+    feature: "hosted-tenancy"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-728:tenant-matrix-provisioned-schema"
+  type: modification
+  started_at: "2026-08-25T04:03:00Z"
+  ended_at: "2026-08-25T04:06:55Z"
+  description: "Avoid replaying SQLx migrations when the CI workflow already provisioned the complete schema directly"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-db/tests/tenant_isolation_matrix_test.rs"
+    activity: "urn:aiwg:activity:modification:fortemi-728:tenant-matrix-provisioned-schema"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-db/tests/tenant_isolation_matrix_test.rs"
+      source: "urn:gitea:Fortemi/fortemi:issue:728"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:modification:fortemi-728:tenant-matrix-provisioned-schema"
+    - entity: "urn:aiwg:artifact:crates/matric-db/tests/tenant_isolation_matrix_test.rs"
+      source: "urn:aiwg:artifact:.gitea/workflows/test.yml"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:fortemi-728:tenant-matrix-provisioned-schema"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-728:tenant-matrix-provisioned-schema"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-db/tests/tenant_isolation_matrix_test.rs"
+    agent: "urn:aiwg:agent:codex-gpt-5"

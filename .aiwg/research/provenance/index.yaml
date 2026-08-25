@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-25T04:02:05Z"
+  updated_at: "2026-08-25T04:06:55Z"
 records:
+  - entity: "crates/matric-db/tests/tenant_isolation_matrix_test.rs"
+    record: "records/tenant-isolation-matrix-provisioned-schema-728.prov.yaml"
   - entity: "crates/matric-crypto/Cargo.toml"
     record: "records/matric-crypto-aws-sdk-rust-1-92-734.prov.yaml"
   - entity: "Cargo.lock"
