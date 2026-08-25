@@ -585,7 +585,7 @@ CREDS
         echo ""
     else
         echo "  WARNING: MCP client auto-registration failed"
-        echo "  Response: $REGISTER_RESPONSE"
+        echo "  Registration response omitted because it may contain credentials"
         echo "  MCP server will start but token introspection will fail"
         echo "  Fix: manually register via POST /oauth/register"
     fi

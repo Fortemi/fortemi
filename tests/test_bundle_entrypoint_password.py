@@ -55,5 +55,40 @@ class BundleEntrypointPasswordTests(unittest.TestCase):
         self.assertNotIn(password, result.stdout + result.stderr)
 
 
+class BundleEntrypointMcpSecretLoggingTests(unittest.TestCase):
+    def test_mcp_secret_values_are_never_sent_to_output_commands(self) -> None:
+        content = ENTRYPOINT.read_text(encoding="utf-8")
+        sensitive_variables = (
+            "$MCP_CLIENT_SECRET",
+            "${MCP_CLIENT_SECRET",
+            "$NEW_CLIENT_SECRET",
+            "${NEW_CLIENT_SECRET",
+        )
+        output_commands = []
+
+        for line_number, line in enumerate(content.splitlines(), start=1):
+            command = line.strip()
+            if not command.startswith(("echo ", "printf ")):
+                continue
+            if any(variable in command for variable in sensitive_variables):
+                output_commands.append(f"{line_number}: {command}")
+
+        self.assertEqual([], output_commands)
+
+    def test_registration_response_is_not_logged(self) -> None:
+        content = ENTRYPOINT.read_text(encoding="utf-8")
+        response_logs = []
+
+        for line_number, line in enumerate(content.splitlines(), start=1):
+            command = line.strip()
+            if not command.startswith(("echo ", "printf ")):
+                continue
+            if "REGISTER_RESPONSE" in command and "|" not in command:
+                response_logs.append(f"{line_number}: {command}")
+
+        self.assertEqual([], response_logs)
+        self.assertIn("Secret: (masked", content)
+
+
 if __name__ == "__main__":
     unittest.main()
