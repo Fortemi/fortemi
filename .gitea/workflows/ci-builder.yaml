@@ -526,7 +526,8 @@ jobs:
             tests/inference-requests.test.js \
             tests/uat-core-coverage.test.js \
             tests/branding.test.js \
-            tests/error-responses.test.js
+            tests/error-responses.test.js \
+            tests/session-expiry.test.js
 
   build:
     name: Build & Unit Test
