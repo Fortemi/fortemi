@@ -3,12 +3,12 @@ metadata:
   created_at: "2026-08-25T16:32:35Z"
   description: "Provenance for embedding-job chunking boundary regression and byte-unit diagnostics"
 entity:
-  id: "urn:aiwg:artifact:crates/matric-api/src/handlers/jobs.rs:sha256:f4742983f099fe69afedf5a8cd3309e60ca81bf8f547908ea50aa38c6bbd8a8a"
+  id: "urn:aiwg:artifact:crates/matric-api/src/handlers/jobs.rs:sha256:bca2e864aa29bff168cf19dffe28de598d81a95a97c30d5ed63044f7e847304c"
   type: code
   created_at: "2026-08-25T16:32:35Z"
-  updated_at: "2026-08-25T16:32:35Z"
-  checksum: "sha256:f4742983f099fe69afedf5a8cd3309e60ca81bf8f547908ea50aa38c6bbd8a8a"
-  size_bytes: 407968
+  updated_at: "2026-08-25T16:57:29Z"
+  checksum: "sha256:bca2e864aa29bff168cf19dffe28de598d81a95a97c30d5ed63044f7e847304c"
+  size_bytes: 407963
   attributes:
     language: rust
     issue: "Fortemi/fortemi#1100"
@@ -17,7 +17,7 @@ activity:
   id: "urn:aiwg:activity:modification:matric-api-embedding-chunking-1100:001"
   type: modification
   started_at: "2026-08-25T16:18:00Z"
-  ended_at: "2026-08-25T16:32:35Z"
+  ended_at: "2026-08-25T16:57:29Z"
   description: "Route semantic chunks through a testable embedding boundary and report configured chunking units as UTF-8 bytes"
   attributes:
     verification:
@@ -32,9 +32,9 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/jobs.rs:sha256:f4742983f099fe69afedf5a8cd3309e60ca81bf8f547908ea50aa38c6bbd8a8a"
+    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/jobs.rs:sha256:bca2e864aa29bff168cf19dffe28de598d81a95a97c30d5ed63044f7e847304c"
     activity: "urn:aiwg:activity:modification:matric-api-embedding-chunking-1100:001"
-    time: "2026-08-25T16:32:35Z"
+    time: "2026-08-25T16:57:29Z"
   used:
     - activity: "urn:aiwg:activity:modification:matric-api-embedding-chunking-1100:001"
       entity: "urn:gitea:issue:Fortemi/fortemi:1100"
@@ -43,7 +43,7 @@ relationships:
       entity: "urn:aiwg:artifact:crates/matric-db/src/chunking.rs:sha256:47a4168fb422bcd442d4721ef54b2a3026b82fa60a548f26dd91d9f39b55a426"
       role: production_dependency
   wasDerivedFrom:
-    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/jobs.rs:sha256:f4742983f099fe69afedf5a8cd3309e60ca81bf8f547908ea50aa38c6bbd8a8a"
+    - entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/jobs.rs:sha256:bca2e864aa29bff168cf19dffe28de598d81a95a97c30d5ed63044f7e847304c"
       source: "urn:gitea:issue:Fortemi/fortemi:1100"
       derivation_type: tests
       activity: "urn:aiwg:activity:modification:matric-api-embedding-chunking-1100:001"
@@ -52,5 +52,5 @@ relationships:
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/jobs.rs:sha256:f4742983f099fe69afedf5a8cd3309e60ca81bf8f547908ea50aa38c6bbd8a8a"
+    entity: "urn:aiwg:artifact:crates/matric-api/src/handlers/jobs.rs:sha256:bca2e864aa29bff168cf19dffe28de598d81a95a97c30d5ed63044f7e847304c"
     agent: "urn:aiwg:agent:codex-gpt-5"

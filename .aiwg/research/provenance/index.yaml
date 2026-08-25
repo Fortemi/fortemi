@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-25T16:32:35Z"
+  updated_at: "2026-08-25T16:57:29Z"
 records:
   - entity: ".gitea/workflows/test.yml"
     record: "records/protected-slow-tests-redis-fixture-714.prov.yaml"

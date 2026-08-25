@@ -8546,7 +8546,7 @@ mod tests {
         let db = Database::connect(&database_url)
             .await
             .expect("connect test database");
-        let archive_name = format!("embedding_crlf_utf8_{}", uuid::Uuid::now_v7());
+        let archive_name = format!("embedding_crlf_{}", uuid::Uuid::now_v7());
         let archive = db
             .archives
             .create_archive_schema(&archive_name, Some("CRLF UTF-8 embedding regression test"))
