@@ -6,7 +6,7 @@ const CURRENT_CE_ENV_VARS = Object.freeze([
   "RATE_LIMIT_PERIOD_SECS",
 ]);
 const CURRENT_CE_HEADERS = Object.freeze(["Retry-After"]);
-const FUTURE_HOSTED_HEADERS = Object.freeze(["RateLimit", "RateLimit-Policy"]);
+const CURRENT_HOSTED_HEADERS = Object.freeze(["RateLimit", "RateLimit-Policy"]);
 const LEGACY_HEADERS = Object.freeze([
   "X-RateLimit-*",
   "RateLimit-Limit",
@@ -43,7 +43,7 @@ module.exports = {
   inventory: {
     currentCeEnvVars: CURRENT_CE_ENV_VARS,
     currentCeHeaders: CURRENT_CE_HEADERS,
-    futureHostedHeaders: FUTURE_HOSTED_HEADERS,
+    currentHostedHeaders: CURRENT_HOSTED_HEADERS,
     legacyHeaders: LEGACY_HEADERS,
   },
   positiveFixtures: [
@@ -58,7 +58,7 @@ module.exports = {
     "RATE_LIMIT_PERIOD_SECS=60",
     "Legacy compatibility only: X-RateLimit-Limit",
     "Historical only: RateLimit-Remaining",
-    "Future target: RateLimit-Policy and RateLimit",
+    "Current hosted response: RateLimit-Policy and RateLimit",
   ],
   contracts: [
     {
@@ -85,11 +85,15 @@ module.exports = {
         return (
           CURRENT_CE_ENV_VARS.every((name) => content.includes(`\`${name}\``)) &&
           /carries only\s+`Retry-After`/.test(content) &&
-          content.includes("future hosted quota")
+          content.includes("Internal hosted mode") &&
+          CURRENT_HOSTED_HEADERS.every((name) => content.includes(`\`${name}\``)) &&
+          /Hosted startup and readiness fail closed when Redis is\s+unavailable/.test(
+            content
+          )
         );
       },
       remediation:
-        "Document all three current CE env vars, the current Retry-After-only 429, and a separately labeled future hosted contract.",
+        "Document all three CE env vars and Retry-After-only response separately from the current feature-gated hosted Redis contract.",
     },
     {
       id: "rate-limit-future-header-contract",
@@ -98,7 +102,7 @@ module.exports = {
       category: "rate_limit_future_header_contract_drift",
       validate(content) {
         return (
-          FUTURE_HOSTED_HEADERS.every((name) => content.includes(`${name}:`)) &&
+          CURRENT_HOSTED_HEADERS.every((name) => content.includes(`${name}:`)) &&
           !/\bRateLimit-(?:Limit|Remaining|Reset):/.test(content) &&
           content.includes("not emit legacy `X-RateLimit-*`") &&
           /(?:coarsen|omit).*(?:capacity|quota)|(?:capacity|quota).*(?:coarsen|omit)/i.test(

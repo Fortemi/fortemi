@@ -7,6 +7,55 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.7.23] - 2026-08-25
+
+### Added
+
+- Add the feature-gated internal hosted foundation: canonical tenant scope
+  with shared-schema forced RLS, separate migration/runtime PostgreSQL roles,
+  durable authorization audit, AWS KMS startup validation, Redis request
+  admission, encrypted user credentials, outbound inference destination
+  policy, and account-scoped inference circuit breakers. Community Edition
+  remains the default public path; these routes require an internal hosted
+  build and deployment-specific identity, database, Redis, KMS, scanning, and
+  receipt evidence (#710, #714, #728, #729, #730, #731, #734, #920).
+
+### Fixed
+
+- Preserve exact UTF-8 byte spans while semantic chunking Markdown with LF,
+  CRLF, lone-CR, mixed line endings, and non-ASCII content. The former CRLF
+  drift into a U+2028 byte sequence no longer panics, and the embedding job now
+  reaches the provider boundary with the original text (#1100, #1098).
+- Return `404` for an unknown Streamable HTTP `Mcp-Session-Id` so clients can
+  initialize a new session after a server restart instead of remaining stuck
+  on an uninitialized transport.
+- Mask auto-registered MCP client secrets in bundle boot logs and omit the
+  registration response, which may contain credentials.
+- Give rustc release-build worker threads a 16 MiB stack in both release
+  Dockerfiles. This prevents the observed Rust 1.92 thin-LTO compiler crash
+  without changing the locked dependency graph.
+
+### Changed
+
+- Pin release builders to Rust 1.92 and require locked release builds.
+- Harden hosted CI fixtures for provisioned schemas and database-role
+  concurrency, provide Redis to protected quota tests, regression-test MCP
+  session expiry, and use system Git for authenticated sidecar fetches.
+
+### Upgrade notes
+
+- This release contains six forward migrations,
+  `20260824010000` through `20260824010500`. Normal startup applies them
+  automatically. Back up the database and verify the hosted role/KMS/Redis
+  prerequisites before enabling the internal hosted profile.
+- There are no destructive down migrations for this change set. Roll back by
+  stopping writes and restoring the pre-migration snapshot to a separate
+  destination before starting the prior release; do not disable RLS or grant
+  `BYPASSRLS` to the runtime role in place.
+- After upgrading, retry one note formerly affected by CRLF/non-ASCII
+  chunking and confirm that its embedding job completes or reaches the bounded
+  retry/terminal-failure behavior delivered in v2026.7.22.
+
 ## [2026.7.22] - 2026-08-22
 
 Corrective publication for `2026.7.21`. The implementation and canonical
@@ -1985,7 +2034,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.7.22...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.7.23...HEAD
+[2026.7.23]: https://github.com/fortemi/fortemi/compare/v2026.7.22...v2026.7.23
 [2026.7.22]: https://github.com/fortemi/fortemi/compare/v2026.7.21...v2026.7.22
 [2026.7.21]: https://github.com/fortemi/fortemi/compare/v2026.7.20...v2026.7.21
 [2026.7.20]: https://github.com/fortemi/fortemi/compare/v2026.7.19...v2026.7.20

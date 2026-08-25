@@ -317,9 +317,11 @@ docker compose -f docker-compose.bundle.yml logs matric | grep -E "MCP|credentia
   Credentials persisted to /var/lib/postgresql/data/.fortemi-mcp-credentials
 
   ================================================================
-  NOTE: To persist across volume wipes, update your .env file:
-    MCP_CLIENT_ID=mm_abc123def456
-    MCP_CLIENT_SECRET=<MCP_CLIENT_SECRET>
+  MCP credentials registered and persisted (mode 600):
+    /var/lib/postgresql/data/.fortemi-mcp-credentials
+  Client ID: mm_abc123def456
+  Secret: (masked — never logged; read from the credentials file only
+          when an operator must move it into an approved secret store)
   ================================================================
 
 >>> Starting MCP Server...
@@ -344,7 +346,7 @@ docker compose -f docker-compose.bundle.yml logs matric | grep -E "MCP|credentia
 ```
 >>> Auto-registering MCP OAuth client...
   WARNING: MCP client auto-registration failed
-  Response: application/problem+json invalid-request problem
+  Registration response omitted because it may contain credentials
   MCP server will start but token introspection will fail
   Fix: manually register via POST /oauth/register
 ```
@@ -352,8 +354,9 @@ docker compose -f docker-compose.bundle.yml logs matric | grep -E "MCP|credentia
 **Cause:** API not ready, database migration failed, or registration validation
 returned a Problem Details response.
 
-**Fix:** Check the problem `type` and `request_id`, inspect API logs for that
-request id, and ensure migrations completed successfully.
+**Fix:** Inspect the API logs around the registration timestamp and ensure
+migrations completed successfully. The bundle intentionally does not print the
+registration response because a successful response contains a client secret.
 
 ### Health Checks
 
@@ -456,8 +459,16 @@ docker compose -f docker-compose.bundle.yml ps
 # Check startup logs
 docker compose -f docker-compose.bundle.yml logs matric | tail -50
 
-# Check MCP credentials in container
-docker exec fortemi-matric-1 printenv | grep -E 'ISSUER_URL|MCP_CLIENT'
+# Report configuration presence without printing credential values
+docker exec fortemi-matric-1 sh -c '
+  for name in ISSUER_URL MCP_CLIENT_ID MCP_CLIENT_SECRET; do
+    if [ -n "$(printenv "$name")" ]; then
+      printf "%s=set\n" "$name"
+    else
+      printf "%s=unset\n" "$name"
+    fi
+  done
+'
 
 # Test MCP health
 curl http://localhost:3001/health
@@ -472,6 +483,15 @@ curl http://localhost:3001/.well-known/oauth-protected-resource
 2. **"unauthorized" with valid token** - MCP credentials not configured
 3. **MCP not responding** - MCP server crashed, check logs
 4. **Token validation fails** - Stale credentials, delete persisted file and restart
+
+### Streamable HTTP session recovery
+
+After an MCP server restart, a client may present a session ID that is no
+longer in memory. `POST /mcp` and `GET /mcp` return `404` for that unknown
+`Mcp-Session-Id`; conforming clients must initialize a new session without the
+stale header and retry. A request with no session ID where an established
+session is required remains a `400` error. Custom clients should treat only the
+unknown-session `404` as a reinitialization signal, not retry it indefinitely.
 
 ## Related Documentation
 

@@ -182,7 +182,7 @@ ISSUER_URL=http://localhost:3000
 FORTEMI_ALLOW_LOCAL_ISSUER=true
 ```
 
-**Example (Hosted/team deployment):**
+**Example (shared Community Edition deployment):**
 ```bash
 scripts/init-bundle-env.sh
 cat >> .env <<'EOF'
@@ -211,6 +211,38 @@ The `shared` profile fails validation unless authentication, public HTTPS
 issuer/resource/origin metadata, and a generated or operator-supplied database
 password are all present. A reverse proxy must terminate TLS and the host
 firewall must limit direct API/MCP access.
+
+### Internal hosted startup profile
+
+Hosted multi-tenant mode is an internal, feature-gated deployment profile; the
+public Community Edition bundle is not a hosted-ready image. Startup fails
+closed unless all of the following classes are configured and healthy:
+
+- a binary built with `hosted-auth` and `kms-aws`;
+- `FORTEMI_MULTI_TENANT=true`, `REQUIRE_AUTH=true`, a hosted-safe
+  `ISSUER_URL`, and the external OIDC settings below;
+- distinct `MIGRATION_DATABASE_URL` and `DATABASE_URL` credentials following
+  `docs/deployment/hosted-postgresql-role.md`;
+- a durable PostgreSQL audit sink and an AWS KMS startup canary using
+  `FORTEMI_AWS_KMS_KEY_ID`;
+- shared Redis admission, required attachment scanning, and the outbound
+  inference destination policy.
+
+| Variable | Default | Hosted contract |
+|---|---|---|
+| `FORTEMI_AUTH_AUDIENCE` | None | Required external OIDC audience. |
+| `FORTEMI_AUTH_TENANT_CLAIM` | `fortemi:tenant_id` | Claim containing the canonical tenant identifier. |
+| `FORTEMI_AUTH_CLOCK_SKEW_SECONDS` | `60` | Accepted clock skew, bounded to `0..60`. |
+| `FORTEMI_AUTH_JWKS_CACHE_CAPACITY` | `128` | JWKS cache entries, bounded to `1..4096`. |
+| `FORTEMI_AUTH_HTTP_TIMEOUT_SECONDS` | `5` | OIDC/JWKS HTTP timeout, bounded to `1..30`. |
+| `MIGRATION_DATABASE_URL` | None | Privileged migration connection; must differ from `DATABASE_URL`. |
+| `FORTEMI_AWS_KMS_KEY_ID` | None | Required KMS key identifier, injected by the hosted secret/configuration authority. |
+
+These are configuration names, not example credential values. Inject database,
+Redis, identity-provider, and cloud credentials from the hosted secret manager.
+See `docs/operations/hosted-user-credentials.md`,
+`docs/operations/key-rotation.md`, `docs/ops/postgresql-audit-sink.md`, and
+`docs/operations/inference-destination-policy.md`.
 
 ### Rate Limiting
 
@@ -249,6 +281,25 @@ credentials, or tenant identifiers. The generic dimension and reservation
 coordinator is implemented and live-Redis tested, but tenant-plan selection and
 non-request producer integration are not runtime-configured; see ADR-098 and
 #714.
+
+### Hosted inference and credential lifecycle controls
+
+| Variable | Default | Description |
+|---|---|---|
+| `FORTEMI_INFERENCE_BREAKER_FAILURE_THRESHOLD` | `3` | Consecutive failures before the account-scoped circuit opens. |
+| `FORTEMI_INFERENCE_BREAKER_COOLDOWN_SECS` | `30` | Open-state cooldown before a bounded half-open probe. |
+| `FORTEMI_INFERENCE_BREAKER_CAPACITY` | `4096` | Maximum bounded provider/model/account breaker entries. |
+| `FORTEMI_USER_SECRET_REWRAP_TENANT_ID` | None | Internal tenant UUID for one leased rewrap job; must be paired with the job ID. |
+| `FORTEMI_USER_SECRET_REWRAP_JOB_ID` | None | Internal rewrap job UUID; must be paired with the tenant ID. |
+| `FORTEMI_USER_SECRET_REWRAP_BATCH_SIZE` | `100` | Rewrap rows per batch, bounded to `1..1000`. |
+
+These controls are hosted-only and are read at process startup. Restart after
+changing them. Configure both rewrap identifiers or neither; a partial pair,
+nil UUID, invalid breaker value, or out-of-range batch size fails startup. See
+`docs/operations/hosted-inference-resilience.md` and
+`docs/operations/hosted-user-credentials.md`. These
+controls do not by themselves establish hosted launch approval, a complete
+backup profile, or tenant plan/billing integration.
 
 ### Logging
 

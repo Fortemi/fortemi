@@ -936,17 +936,32 @@ docker exec Fortémi-matric-1 printenv ISSUER_URL
 
 **Diagnosis:**
 ```bash
-# Check MCP_CLIENT_ID and MCP_CLIENT_SECRET
-docker exec Fortémi-matric-1 printenv | grep MCP_CLIENT
+# Report credential presence without printing either value
+docker exec fortemi-matric-1 sh -c '
+  for name in MCP_CLIENT_ID MCP_CLIENT_SECRET; do
+    if [ -n "$(printenv "$name")" ]; then
+      printf "%s=set\n" "$name"
+    else
+      printf "%s=unset\n" "$name"
+    fi
+  done
+'
 
-# Test token introspection manually
-curl -X POST http://localhost:3000/oauth/introspect \
-  -u "$MCP_CLIENT_ID:$MCP_CLIENT_SECRET" \
-  -d "token=<your-token>"
+# Confirm the persisted bundle credential file exists and is mode 600
+docker exec fortemi-matric-1 sh -c '
+  test -s /var/lib/postgresql/data/.fortemi-mcp-credentials &&
+  stat -c "%a %n" /var/lib/postgresql/data/.fortemi-mcp-credentials
+'
 
 # Check MCP server logs
 docker compose -f docker-compose.bundle.yml logs | grep -i mcp
 ```
+
+Do not run broad `printenv` filters or place `MCP_CLIENT_SECRET` in a command
+argument. Both can expose the secret through terminal capture, shell history,
+or process inspection. Use the presence and file-permission checks above; if
+manual introspection is required, retrieve the secret through the approved
+secret store and a tool that accepts it via protected standard input.
 
 **Fix:**
 
@@ -981,6 +996,12 @@ docker compose -f docker-compose.bundle.yml up -d
 ### Authentication Succeeds but Connection Drops
 
 **Symptom:** Claude Code shows "Authentication successful" but then reconnection fails.
+
+If the failure follows a Fortemi restart and the server returns `404` for an
+old `Mcp-Session-Id`, the client must initialize a new Streamable HTTP session
+without that header. A no-session request to an endpoint that requires an
+established session still returns `400`. Upgrade or reconnect custom clients
+that keep retrying the stale session ID.
 
 **Diagnosis:**
 ```bash

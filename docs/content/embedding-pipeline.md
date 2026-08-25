@@ -196,8 +196,8 @@ note.title = "neural_networks.md"
   → Pattern: *.md
   → Document type: markdown
   → Chunking strategy: semantic
-  → Chunk size: 1000
-  → Chunk overlap: 100
+  → Chunk size target: 1000 UTF-8 bytes
+  → Chunk overlap target: 100 UTF-8 bytes
 ```
 
 ### Step 2: Chunking
@@ -230,7 +230,7 @@ let chunks = chunker.chunk(&note.content);
 **Example output:**
 
 ```rust
-// Document: 5000 char markdown with 3 sections
+// Document: approximately 5000 UTF-8 bytes of Markdown with 3 sections
 chunks = vec![
     Chunk {
         text: "# Introduction\n\nNeural networks are...",
@@ -240,7 +240,7 @@ chunks = vec![
     },
     Chunk {
         text: "## Architecture\n\nLayers consist of...",
-        start_offset: 1100,  // 100 char overlap
+        start_offset: 1100,  // 100-byte overlap target
         end_offset: 2400,
         metadata: { "type": "heading" }
     },
@@ -252,6 +252,12 @@ chunks = vec![
     }
 ];
 ```
+
+Chunk size, overlap, and source offsets are UTF-8 byte units. Semantic
+chunking derives spans from the original bytes, preserves LF, CRLF, lone CR,
+and an unterminated final line, and emits only ordered in-range offsets at UTF-8
+scalar boundaries. Targets may be adjusted to retain a complete Markdown
+element; they are not Unicode-scalar, grapheme-cluster, or model-token counts.
 
 ### Step 3: Embedding Generation
 

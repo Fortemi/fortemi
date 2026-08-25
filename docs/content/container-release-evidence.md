@@ -27,10 +27,14 @@ credentials are fetched from Vault. The GitHub PAT authorizes writes to GHCR;
 it does not establish source provenance and must never be described as an OIDC
 or workload identity.
 
-The approved Docker build arguments (`VERSION`, `GIT_SHA`, and `BUILD_DATE`)
-are public metadata. Registry credentials, the Hugging Face token, and all
-other secrets remain runtime or login inputs and must not be passed as Docker
-build arguments.
+The approved Docker build arguments `VERSION`, `GIT_SHA`, and `BUILD_DATE` are
+public metadata. `RUST_MIN_STACK` is also approved non-secret build
+configuration: both release Dockerfiles default it to 16 MiB for rustc worker
+threads, preventing the observed Rust 1.92 thin-LTO stack failure while keeping
+the locked dependency graph unchanged. The release builders are pinned to Rust
+1.92. Registry credentials, the Hugging Face token, and all other secrets
+remain runtime or login inputs and must not be passed as Docker build
+arguments.
 
 ### GitHub/OIDC-capable path
 

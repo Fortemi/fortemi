@@ -1,0 +1,53 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T21:47:44Z"
+  description: "Provenance for the v2026.7.23 corrective release"
+entity:
+  id: "urn:aiwg:artifact:contracts/asyncapi/asyncapi.sha256:sha256:0ec0c997e64de5178b1d77d4f9c153161545149235ea37785e1e2986094d4d5d"
+  type: checksum
+  created_at: "2026-08-25T21:47:44Z"
+  checksum: "sha256:0ec0c997e64de5178b1d77d4f9c153161545149235ea37785e1e2986094d4d5d"
+  size_bytes: 80
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    release: "2026.7.23"
+    change_type: generation
+activity:
+  id: "urn:aiwg:activity:generation:asyncapi-checksum-release-2026-7-23-1098-1100:001"
+  type: generation
+  started_at: "2026-08-25T21:35:00Z"
+  ended_at: "2026-08-25T21:47:44Z"
+  description: "Prepare and validate contracts/asyncapi/asyncapi.sha256 for the v2026.7.23 corrective release"
+  attributes:
+    verification:
+      - "release version lockstep: prepared"
+      - "release-note threat assessment: proceed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:contracts/asyncapi/asyncapi.sha256:sha256:0ec0c997e64de5178b1d77d4f9c153161545149235ea37785e1e2986094d4d5d"
+    activity: "urn:aiwg:activity:generation:asyncapi-checksum-release-2026-7-23-1098-1100:001"
+    time: "2026-08-25T21:47:44Z"
+  used:
+    - activity: "urn:aiwg:activity:generation:asyncapi-checksum-release-2026-7-23-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: release_requirement
+    - activity: "urn:aiwg:activity:generation:asyncapi-checksum-release-2026-7-23-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1100"
+      role: corrective_change
+    - activity: "urn:aiwg:activity:generation:asyncapi-checksum-release-2026-7-23-1098-1100:001"
+      entity: "urn:git:Fortemi/fortemi:9a43c75587647d046da94bb48fdfedffe2b9f06e"
+      role: ci_fix
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:asyncapi-checksum-release-2026-7-23-1098-1100:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:contracts/asyncapi/asyncapi.sha256:sha256:0ec0c997e64de5178b1d77d4f9c153161545149235ea37785e1e2986094d4d5d"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+

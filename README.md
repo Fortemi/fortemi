@@ -93,10 +93,10 @@ Notes, meeting minutes, code documentation, research papers, and movie reviews a
 - **131 document types** — Auto-detection with content-type-aware chunking and revision
 - **13 extraction adapters** — Image vision, audio transcription, speaker diarization, video scene analysis, 3D model rendering, email parsing, spreadsheet extraction, archive listing
 - **Synchronous chat** — Direct LLM conversation with GPU concurrency gating and multi-turn history
-- **Multi-memory archives** — Schema-isolated parallel memories with federated cross-archive search
+- **Multi-memory archives** — Per-memory schemas for Community Edition data organization, with federated cross-archive search
 - **Embedding sets** — Matryoshka Representation Learning for 12x storage savings, auto-embed rules, two-stage retrieval
 - **Multi-provider inference** — Ollama, OpenAI, OpenRouter, llama.cpp with hot-swap runtime configuration
-- **OAuth2 + API keys** — Opt-in authentication with client credentials and authorization code grants
+- **OAuth2 + API keys** — Fail-closed authentication by default, with an explicit local-only anonymous development mode
 - **Public-key encryption** — X25519/AES-256-GCM for secure note sharing
 - **Real-time events** — SSE + WebSocket + webhook notifications
 - **Spatial-temporal search** — PostGIS location + time range queries
@@ -854,7 +854,10 @@ disable/override guidance, and routing verification.
 
 ## Multi-Memory Archives
 
-Parallel memory archives with schema-level isolation for tenant separation, project segmentation, or context switching.
+Parallel memory archives with schema-level boundaries for project segmentation
+or context switching. In Community Edition these schemas are memory
+boundaries, not hosted tenant-security boundaries. The internal hosted profile
+uses shared-schema forced RLS with a canonical authenticated tenant context.
 
 - `X-Fortemi-Memory` header selects target memory per request
 - Default memory maps to `public` schema (no header needed)
@@ -913,8 +916,8 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 
 | Feature | Description |
 |---------|-------------|
-| **Opt-in auth** | OAuth2 (client credentials + auth code) and API keys |
-| **Schema isolation** | Per-memory PostgreSQL schemas for tenant separation |
+| **Fail-closed auth** | OAuth2 and API keys are required by default; anonymous operation requires explicit local-only development flags. |
+| **Memory vs tenant boundaries** | Community Edition uses per-memory schemas for organization. Internal hosted builds use feature-gated shared-schema forced RLS and separate deployment evidence. |
 | **PKE encryption** | X25519/AES-256-GCM public-key encryption for notes |
 | **MCP credential auto-management** | Auto-registers OAuth client on startup; credentials persisted across restarts |
 | **Input validation** | Request validation at API boundary |
@@ -995,6 +998,18 @@ Tests run against real PostgreSQL (not mocks). CI provides dedicated test contai
 - **[Hardware Planning](docs/content/hardware-planning.md)** — Sizing and capacity
 - **[Backup & Restore](docs/content/backup.md)** — Database recovery
 - **[Troubleshooting](docs/content/troubleshooting.md)** — Diagnostics
+
+### Internal Hosted Operations
+
+These runbooks describe feature-gated internal deployment work; they do not
+make the public Community Edition image hosted-ready.
+
+- **[Hosted PostgreSQL Roles](docs/deployment/hosted-postgresql-role.md)** — Migration/runtime role split and forced-RLS checks
+- **[Durable Audit Sink](docs/ops/postgresql-audit-sink.md)** — Hosted authorization evidence
+- **[Key Rotation](docs/operations/key-rotation.md)** — KMS lifecycle and recovery boundaries
+- **[Hosted User Credentials](docs/operations/hosted-user-credentials.md)** — Stored provider credentials and DSAR behavior
+- **[Inference Destination Policy](docs/operations/inference-destination-policy.md)** — Approved outbound destinations
+- **[Hosted Inference Resilience](docs/operations/hosted-inference-resilience.md)** — Account-scoped circuit breakers
 
 ### Technical
 

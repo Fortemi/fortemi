@@ -2,6 +2,14 @@
 
 Fortémi supports two authentication mechanisms: **API Keys** (simple, token-based) and **OAuth2** (full authorization flow with PKCE). Choose the method that best fits your use case.
 
+The public Community Edition profile uses Fortemi's self-hosted OAuth/API-key
+compatibility layer. Internal hosted deployments use a separate `hosted-auth`
+build profile: external OIDC bearer tokens are verified against the configured
+issuer and audience, a canonical tenant claim is required, and hosted startup
+fails closed when identity configuration or tenant lookup is unavailable. The
+hosted routes and requirements described below are not mounted by the public
+Community Edition image.
+
 ## Table of Contents
 
 - [Quick Start](#quick-start)
@@ -58,6 +66,26 @@ curl -X POST http://localhost:3000/oauth/register \
     "scope": "read write"
   }'
 ```
+
+### Internal hosted OIDC profile
+
+The hosted profile requires all of the following at startup:
+
+```text
+FORTEMI_MULTI_TENANT=true
+REQUIRE_AUTH=true
+ISSUER_URL=https://identity.example.com/
+FORTEMI_AUTH_AUDIENCE=<DEPLOYMENT_AUDIENCE>
+FORTEMI_AUTH_TENANT_CLAIM=fortemi:tenant_id
+```
+
+`FORTEMI_AUTH_CLOCK_SKEW_SECONDS` defaults to 60 and is bounded to `0..60`;
+`FORTEMI_AUTH_JWKS_CACHE_CAPACITY` defaults to 128 and is bounded to
+`1..4096`; `FORTEMI_AUTH_HTTP_TIMEOUT_SECONDS` defaults to 5 and is bounded to
+`1..30`. The issuer and audience are required and cannot be blank. Values and
+identity-provider credentials must come from the hosted configuration/secret
+authority, not committed examples. This profile is distinct from Fortemi's
+self-hosted `/oauth/*` authorization-code and client-credentials flows.
 
 ---
 

@@ -1,0 +1,53 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T21:16:51Z"
+  description: "Provenance for bounded documentation synchronization before v2026.7.23"
+entity:
+  id: "urn:aiwg:artifact:docs/content/troubleshooting.md:sha256:59f7b5f95a046b667701d212d7fb70b4b8daef4d80f3ff62d317bded73e771d0"
+  type: documentation
+  created_at: "2026-08-25T21:16:51Z"
+  checksum: "sha256:59f7b5f95a046b667701d212d7fb70b4b8daef4d80f3ff62d317bded73e771d0"
+  size_bytes: 46342
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:troubleshooting-doc-sync-1098-1100:001"
+  type: modification
+  started_at: "2026-08-25T21:08:00Z"
+  ended_at: "2026-08-25T21:16:51Z"
+  description: "Reconcile release-scoped product documentation with implemented authentication, quota, MCP, chunking, and container build behavior"
+  attributes:
+    verification:
+      - "docs contract self-test: passed"
+      - "hosted_strict docs contract: zero findings"
+      - "documentation site build: passed"
+      - "git diff --check: passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/content/troubleshooting.md:sha256:59f7b5f95a046b667701d212d7fb70b4b8daef4d80f3ff62d317bded73e771d0"
+    activity: "urn:aiwg:activity:modification:troubleshooting-doc-sync-1098-1100:001"
+    time: "2026-08-25T21:16:51Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:troubleshooting-doc-sync-1098-1100:001"
+      entity: "urn:git:Fortemi/fortemi:v2026.7.22..9a43c755"
+      role: source_change_range
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docs/content/troubleshooting.md:sha256:59f7b5f95a046b667701d212d7fb70b4b8daef4d80f3ff62d317bded73e771d0"
+      source: "urn:git:Fortemi/fortemi:v2026.7.22..9a43c755"
+      derivation_type: documents
+      activity: "urn:aiwg:activity:modification:troubleshooting-doc-sync-1098-1100:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:troubleshooting-doc-sync-1098-1100:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/content/troubleshooting.md:sha256:59f7b5f95a046b667701d212d7fb70b4b8daef4d80f3ff62d317bded73e771d0"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+

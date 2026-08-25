@@ -1,0 +1,53 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T21:47:44Z"
+  description: "Provenance for the v2026.7.23 corrective release"
+entity:
+  id: "urn:aiwg:artifact:Cargo.toml:sha256:90a2dfc8147920668cef446057692b7cab7cf49a36a036ab5967f4f93a514e3d"
+  type: software_manifest
+  created_at: "2026-08-25T21:47:44Z"
+  checksum: "sha256:90a2dfc8147920668cef446057692b7cab7cf49a36a036ab5967f4f93a514e3d"
+  size_bytes: 3286
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    release: "2026.7.23"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:cargo-manifest-release-2026-7-23-1098-1100:001"
+  type: modification
+  started_at: "2026-08-25T21:35:00Z"
+  ended_at: "2026-08-25T21:47:44Z"
+  description: "Prepare and validate Cargo.toml for the v2026.7.23 corrective release"
+  attributes:
+    verification:
+      - "release version lockstep: prepared"
+      - "release-note threat assessment: proceed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:Cargo.toml:sha256:90a2dfc8147920668cef446057692b7cab7cf49a36a036ab5967f4f93a514e3d"
+    activity: "urn:aiwg:activity:modification:cargo-manifest-release-2026-7-23-1098-1100:001"
+    time: "2026-08-25T21:47:44Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:cargo-manifest-release-2026-7-23-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: release_requirement
+    - activity: "urn:aiwg:activity:modification:cargo-manifest-release-2026-7-23-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1100"
+      role: corrective_change
+    - activity: "urn:aiwg:activity:modification:cargo-manifest-release-2026-7-23-1098-1100:001"
+      entity: "urn:git:Fortemi/fortemi:9a43c75587647d046da94bb48fdfedffe2b9f06e"
+      role: ci_fix
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:cargo-manifest-release-2026-7-23-1098-1100:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:Cargo.toml:sha256:90a2dfc8147920668cef446057692b7cab7cf49a36a036ab5967f4f93a514e3d"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+

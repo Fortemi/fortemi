@@ -3383,6 +3383,27 @@ Webhook deliveries include `X-Fortemi-Event` header and optional `X-Fortemi-Sign
 
 ## System
 
+### Internal hosted credential and inference preview
+
+The internal `hosted-auth` build mounts additional tenant/user-scoped routes;
+they are intentionally absent from Community Edition and generated public
+OpenAPI output:
+
+| Endpoint | Method | Hosted behavior |
+|---|---|---|
+| `/api/v1/user/secrets` | POST | Store a provider credential through the configured KMS provider. |
+| `/api/v1/user/secrets` | GET | Return metadata only for the authenticated user. |
+| `/api/v1/user/secrets/{id}` | DELETE | Idempotently revoke an opaque credential row. |
+| `/api/v1/inference/embed` | POST | Embed with a stored credential and operator-approved provider/model profile. |
+| `/api/v1/inference/catalog` | GET | Return caller-available profiles and approved generation/embedding defaults. |
+
+Hosted completion, streaming, and embedding reject inline credentials and
+caller-owned destinations. Responses never include plaintext keys, encrypted
+envelopes, wrapped keys, or KMS references. See the internal
+`docs/operations/hosted-user-credentials.md` and
+`docs/operations/inference-destination-policy.md` runbooks. These routes do not
+constitute unqualified hosted launch approval.
+
 ### Memory Info
 
 ```http
@@ -3511,23 +3532,28 @@ catalog and the redaction boundary.
 
 ## Rate Limiting
 
-A single global rate limiter applies across all routes (there are no per-route
-tiers). Limits are configured by environment variables:
+Community Edition uses a single process-local limiter across protected routes
+(there are no per-route tiers). It is configured by environment variables:
 
 - `RATE_LIMIT_ENABLED`: enable or disable the current process-local limiter
 - `RATE_LIMIT_REQUESTS`: maximum requests per window
 - `RATE_LIMIT_PERIOD_SECS`: window length in seconds
 
-The 429 response is `problem+json`
+The Community Edition 429 response is `problem+json`
 (`type=https://fortemi.com/problems/rate-limit-exceeded`) and carries only
 `Retry-After` with a whole-number delay in seconds. It does not include
 `X-RateLimit-*`, `RateLimit`, or `RateLimit-Policy` fields. Clients should wait
 at least that delay before retrying and continue to use bounded backoff.
 
-The future hosted quota contract is tracked separately by ADR-098 and #714. Its
-target fields are the combined `RateLimit` and `RateLimit-Policy` draft fields,
-with `Retry-After` when a retry time is known. Those fields are not current CE
-behavior, and Fortemi will not emit legacy `X-RateLimit-*` compatibility headers.
+Internal hosted mode replaces that limiter for authenticated, non-exempt API
+routes with a Redis-backed fixed-window gate keyed by tenant, principal,
+client, and route class. Hosted startup and readiness fail closed when Redis is
+unavailable. Hosted `429` responses include the combined `RateLimit` and
+`RateLimit-Policy` draft fields plus `Retry-After` when a retry time is known;
+quota-state failure returns `503`. Those fields are not Community Edition
+behavior, and neither profile emits legacy `X-RateLimit-*` compatibility
+headers. Tenant-plan selection, billing limits, and non-request producer
+integration remain unavailable; see ADR-098 and #714.
 
 ## Versioning
 
