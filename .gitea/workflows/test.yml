@@ -418,16 +418,22 @@ jobs:
           DB_USER="matric"
           DB_PASSWORD="fortemi-ci-${GITHUB_RUN_ID}-${DB_PORT}"
           DB_NAME="matric_test"
+          REDIS_CONTAINER="matric-slow-redis-${GITHUB_RUN_ID}"
+          REDIS_PORT=$((16632 + (GITHUB_RUN_ID % 1000)))
           echo "DB_CONTAINER=${DB_CONTAINER}" >> $GITHUB_ENV
           echo "DB_PORT=${DB_PORT}" >> $GITHUB_ENV
           echo "DB_USER=${DB_USER}" >> $GITHUB_ENV
           echo "DB_PASSWORD=${DB_PASSWORD}" >> $GITHUB_ENV
           echo "DB_NAME=${DB_NAME}" >> $GITHUB_ENV
+          echo "REDIS_CONTAINER=${REDIS_CONTAINER}" >> $GITHUB_ENV
+          echo "REDIS_PORT=${REDIS_PORT}" >> $GITHUB_ENV
 
           # Kill any container occupying our target port (stale containers from other runs)
           docker ps --format '{{.ID}}\t{{.Ports}}' | grep ":${DB_PORT}->" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
           docker stop ${DB_CONTAINER} 2>/dev/null || true
           docker rm ${DB_CONTAINER} 2>/dev/null || true
+          docker stop ${REDIS_CONTAINER} 2>/dev/null || true
+          docker rm ${REDIS_CONTAINER} 2>/dev/null || true
 
           docker run -d --name ${DB_CONTAINER} \
             -p ${DB_PORT}:5432 \
@@ -436,11 +442,22 @@ jobs:
             -e POSTGRES_DB="${DB_NAME}" \
             matric-testdb:local
 
+          docker run -d --name ${REDIS_CONTAINER} \
+            -p ${REDIS_PORT}:6379 \
+            redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+
           for i in {1..30}; do
             if docker exec ${DB_CONTAINER} pg_isready -U "${DB_USER}" 2>/dev/null; then
               break
             fi
             sleep 2
+          done
+
+          for i in {1..30}; do
+            if docker exec ${REDIS_CONTAINER} redis-cli ping 2>/dev/null | grep -q PONG; then
+              break
+            fi
+            sleep 1
           done
 
       - name: Run migrations
@@ -458,8 +475,10 @@ jobs:
       - name: Run slow/ignored tests
         run: |
           DB_PORT=$((15632 + (GITHUB_RUN_ID % 1000)))
+          REDIS_PORT=$((16632 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           export INTEGRATION_TEST_DB=1
+          export TEST_REDIS_URL="redis://localhost:${REDIS_PORT}"
 
           # Run tests marked with #[ignore] serially to avoid database state conflicts
           # (spatial search tests share the same tables and need isolation)
@@ -471,6 +490,9 @@ jobs:
         if: always()
         run: |
           DB_CONTAINER="matric-slow-db-${GITHUB_RUN_ID}"
+          REDIS_CONTAINER="matric-slow-redis-${GITHUB_RUN_ID}"
+          docker stop ${REDIS_CONTAINER} 2>/dev/null || true
+          docker rm ${REDIS_CONTAINER} 2>/dev/null || true
           docker stop ${DB_CONTAINER} 2>/dev/null || true
           docker rm ${DB_CONTAINER} 2>/dev/null || true
 

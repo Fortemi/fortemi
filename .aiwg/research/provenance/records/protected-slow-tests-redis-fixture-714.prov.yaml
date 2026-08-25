@@ -1,0 +1,40 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T07:51:04Z"
+  updated_at: "2026-08-25T07:51:04Z"
+  description: "Provenance for the protected slow-test Redis quota fixture"
+entity:
+  id: "urn:aiwg:artifact:.gitea/workflows/test.yml"
+  type: source_code
+  checksum: "sha256:a853f2ded0ffd35c55c5fe8399fc6bcdb6222af5f91dadd583e5a1f48aa3919e"
+  size_bytes: 24204
+  attributes:
+    change_scope: "fortemi-714-protected-slow-test-redis"
+    feature: "redis-backed-quotas"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-714:protected-slow-test-redis"
+  type: modification
+  started_at: "2026-08-25T07:47:00Z"
+  ended_at: "2026-08-25T07:51:04Z"
+  description: "Provision digest-pinned Redis and expose TEST_REDIS_URL to the ignored quota integration suite"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.gitea/workflows/test.yml"
+    activity: "urn:aiwg:activity:modification:fortemi-714:protected-slow-test-redis"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.gitea/workflows/test.yml"
+      source: "urn:gitea:Fortemi/fortemi:issue:714"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:modification:fortemi-714:protected-slow-test-redis"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-714:protected-slow-test-redis"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.gitea/workflows/test.yml"
+    agent: "urn:aiwg:agent:codex-gpt-5"
