@@ -38,11 +38,15 @@ use std::fmt;
 /// Configuration for chunking strategies.
 #[derive(Debug, Clone)]
 pub struct ChunkerConfig {
-    /// Maximum size of a chunk in characters.
+    /// Target maximum size of a chunk in UTF-8 bytes.
+    ///
+    /// A chunk containing a single scalar value may exceed this target when the
+    /// configured value is smaller than that scalar's encoded width.
     pub max_chunk_size: usize,
-    /// Minimum size of a chunk in characters (chunks smaller than this may be merged).
+    /// Minimum size of a chunk in UTF-8 bytes (chunks smaller than this may be merged).
     pub min_chunk_size: usize,
-    /// Number of characters to overlap between chunks (for context preservation).
+    /// Target number of UTF-8 bytes to overlap between chunks (for context preservation).
+    /// Actual overlap is adjusted to UTF-8 scalar boundaries.
     pub overlap: usize,
 }
 
@@ -374,114 +378,189 @@ impl SemanticChunker {
         }
     }
 
-    /// Identify semantic boundaries and element types.
-    fn find_semantic_elements(&self, text: &str) -> Vec<(usize, usize, String)> {
+    /// Scan physical lines while retaining their exact source byte spans.
+    ///
+    /// `str::lines` intentionally normalizes line endings, so reconstructing
+    /// offsets from its results drifts on CRLF input. This scanner recognizes LF,
+    /// CRLF, and lone CR without treating Unicode U+2028/U+2029 as byte delimiters.
+    fn source_lines(text: &str) -> Vec<(usize, usize, usize)> {
+        let bytes = text.as_bytes();
+        let mut lines = Vec::new();
+        let mut start = 0;
+
+        while start < bytes.len() {
+            let mut content_end = start;
+            while content_end < bytes.len()
+                && bytes[content_end] != b'\n'
+                && bytes[content_end] != b'\r'
+            {
+                content_end += 1;
+            }
+
+            let end = if content_end == bytes.len() {
+                content_end
+            } else if bytes[content_end] == b'\r' && bytes.get(content_end + 1) == Some(&b'\n') {
+                content_end + 2
+            } else {
+                content_end + 1
+            };
+
+            lines.push((start, content_end, end));
+            start = end;
+        }
+
+        lines
+    }
+
+    /// Identify semantic boundaries and element types using source-derived spans.
+    fn find_semantic_elements(&self, text: &str) -> Option<Vec<(usize, usize, &'static str)>> {
+        let lines = Self::source_lines(text);
         let mut elements = Vec::new();
-        let lines: Vec<&str> = text.lines().collect();
         let mut i = 0;
-        let mut current_offset = 0;
 
         while i < lines.len() {
-            let line = lines[i];
-            let line_start = current_offset;
-            let line_end = current_offset + line.len() + 1; // +1 for newline
+            let (line_start, content_end, line_end) = lines[i];
+            let line = text.get(line_start..content_end)?;
+            let trimmed = line.trim();
 
-            // Check for various Markdown elements
-            if line.starts_with('#') {
-                elements.push((line_start, line_end, "heading".to_string()));
-            } else if line.starts_with("```") {
-                // Code block
-                let code_start = line_start;
+            let (element_end, element_type) = if line.starts_with("```") {
+                let mut code_end = line_end;
                 i += 1;
-                current_offset = line_end;
-
-                while i < lines.len() && !lines[i].starts_with("```") {
-                    current_offset += lines[i].len() + 1;
-                    i += 1;
-                }
-
-                if i < lines.len() {
-                    current_offset += lines[i].len() + 1;
-                }
-
-                elements.push((code_start, current_offset, "code".to_string()));
-                i += 1;
-                continue;
-            } else if line.trim().starts_with('-')
-                || line.trim().starts_with('*')
-                || line.trim().starts_with('+')
-            {
-                // List item
-                let list_start = line_start;
-                let mut list_end = line_end;
-
-                i += 1;
-                current_offset = line_end;
-
                 while i < lines.len() {
-                    let next_line = lines[i].trim();
+                    let (next_start, next_content_end, next_end) = lines[i];
+                    let next_line = text.get(next_start..next_content_end)?;
+                    code_end = next_end;
+                    i += 1;
+                    if next_line.starts_with("```") {
+                        break;
+                    }
+                }
+                (code_end, "code")
+            } else if line.starts_with('#') {
+                i += 1;
+                (line_end, "heading")
+            } else if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+                i += 1;
+                (line_end, "hr")
+            } else if trimmed.starts_with('-')
+                || trimmed.starts_with('*')
+                || trimmed.starts_with('+')
+            {
+                let mut list_end = line_end;
+                i += 1;
+                while i < lines.len() {
+                    let (next_start, next_content_end, next_end) = lines[i];
+                    let next_line = text.get(next_start..next_content_end)?.trim();
                     if next_line.starts_with('-')
                         || next_line.starts_with('*')
                         || next_line.starts_with('+')
                     {
-                        list_end = current_offset + lines[i].len() + 1;
-                        current_offset = list_end;
+                        list_end = next_end;
                         i += 1;
                     } else {
                         break;
                     }
                 }
-
-                elements.push((list_start, list_end, "list".to_string()));
-                continue;
-            } else if Self::is_numbered_list_item(line.trim()) {
-                // Numbered list
-                let list_start = line_start;
+                (list_end, "list")
+            } else if Self::is_numbered_list_item(trimmed) {
                 let mut list_end = line_end;
-
                 i += 1;
-                current_offset = line_end;
-
                 while i < lines.len() {
-                    let next_line = lines[i].trim();
+                    let (next_start, next_content_end, next_end) = lines[i];
+                    let next_line = text.get(next_start..next_content_end)?.trim();
                     if Self::is_numbered_list_item(next_line) {
-                        list_end = current_offset + lines[i].len() + 1;
-                        current_offset = list_end;
+                        list_end = next_end;
                         i += 1;
                     } else {
                         break;
                     }
                 }
-
-                elements.push((list_start, list_end, "numbered_list".to_string()));
-                continue;
-            } else if line.trim().starts_with('>') {
-                // Blockquote
-                let quote_start = line_start;
+                (list_end, "numbered_list")
+            } else if trimmed.starts_with('>') {
                 let mut quote_end = line_end;
-
                 i += 1;
-                current_offset = line_end;
-
-                while i < lines.len() && lines[i].trim().starts_with('>') {
-                    quote_end = current_offset + lines[i].len() + 1;
-                    current_offset = quote_end;
-                    i += 1;
+                while i < lines.len() {
+                    let (next_start, next_content_end, next_end) = lines[i];
+                    let next_line = text.get(next_start..next_content_end)?.trim();
+                    if next_line.starts_with('>') {
+                        quote_end = next_end;
+                        i += 1;
+                    } else {
+                        break;
+                    }
                 }
+                (quote_end, "blockquote")
+            } else {
+                i += 1;
+                (line_end, if trimmed.is_empty() { "blank" } else { "text" })
+            };
 
-                elements.push((quote_start, quote_end, "blockquote".to_string()));
-                continue;
-            } else if line.trim() == "---" || line.trim() == "***" || line.trim() == "___" {
-                elements.push((line_start, line_end, "hr".to_string()));
-            } else if !line.trim().is_empty() {
-                elements.push((line_start, line_end, "text".to_string()));
-            }
-
-            current_offset = line_end;
-            i += 1;
+            elements.push((line_start, element_end, element_type));
         }
 
-        elements
+        Some(elements)
+    }
+
+    /// Materialize a source span as one or more UTF-8-safe chunks.
+    fn chunks_for_span(
+        &self,
+        text: &str,
+        start: usize,
+        end: usize,
+        element_type: &str,
+    ) -> Option<Vec<Chunk>> {
+        let source = text.get(start..end)?;
+        let max_size = self.config.max_chunk_size.max(1);
+
+        if source.len() <= max_size {
+            let mut metadata = HashMap::new();
+            metadata.insert("type".to_string(), element_type.to_string());
+            return Some(vec![Chunk::with_metadata(
+                source.to_string(),
+                start,
+                end,
+                metadata,
+            )]);
+        }
+
+        let overlap = self.config.overlap.min(max_size.saturating_sub(1));
+        let mut chunks = Vec::new();
+        let mut relative_start = 0;
+
+        while relative_start < source.len() {
+            let target_end = relative_start.saturating_add(max_size).min(source.len());
+            let mut relative_end = find_char_boundary_before(source, target_end);
+            if relative_end <= relative_start {
+                let width = source.get(relative_start..)?.chars().next()?.len_utf8();
+                relative_end = relative_start.checked_add(width)?.min(source.len());
+            }
+
+            let absolute_start = start.checked_add(relative_start)?;
+            let absolute_end = start.checked_add(relative_end)?;
+            let chunk_text = text.get(absolute_start..absolute_end)?;
+            let mut metadata = HashMap::new();
+            metadata.insert("type".to_string(), format!("{element_type}_split"));
+            chunks.push(Chunk::with_metadata(
+                chunk_text.to_string(),
+                absolute_start,
+                absolute_end,
+                metadata,
+            ));
+
+            if relative_end == source.len() {
+                break;
+            }
+
+            let desired_start = relative_end.saturating_sub(overlap);
+            let next_start = find_char_boundary_after(source, desired_start);
+            relative_start = if next_start > relative_start {
+                next_start
+            } else {
+                relative_end
+            };
+        }
+
+        Some(chunks)
     }
 }
 
@@ -491,94 +570,70 @@ impl Chunker for SemanticChunker {
             return vec![];
         }
 
-        let elements = self.find_semantic_elements(text);
+        let Some(elements) = self.find_semantic_elements(text) else {
+            tracing::error!("semantic chunker rejected an invalid source line span");
+            return vec![];
+        };
         let mut chunks = Vec::new();
-        let mut current_chunk = String::new();
-        let mut current_start = 0;
-        let mut current_type = String::new();
+        let mut current: Option<(usize, usize, &'static str)> = None;
 
-        for (start, end, elem_type) in elements {
-            let elem_text = if end <= text.len() {
-                &text[start..end.min(text.len())]
-            } else {
-                &text[start..]
+        let flush =
+            |chunks: &mut Vec<Chunk>, current: &mut Option<(usize, usize, &'static str)>| -> bool {
+                let Some((start, end, element_type)) = current.take() else {
+                    return true;
+                };
+                let Some(mut emitted) = self.chunks_for_span(text, start, end, element_type) else {
+                    tracing::error!(
+                        start,
+                        end,
+                        "semantic chunker rejected an invalid chunk span"
+                    );
+                    return false;
+                };
+                chunks.append(&mut emitted);
+                true
             };
 
-            // Horizontal rules and headings trigger chunk boundaries
-            if elem_type == "hr" || elem_type == "heading" {
-                if !current_chunk.is_empty() {
-                    let mut metadata = HashMap::new();
-                    metadata.insert("type".to_string(), current_type.clone());
-                    chunks.push(Chunk::with_metadata(
-                        current_chunk.trim().to_string(),
-                        current_start,
-                        current_start + current_chunk.len(),
-                        metadata,
-                    ));
-                    current_chunk.clear();
-                }
-                if elem_type == "hr" {
-                    continue;
-                }
-                // For headings, start a new chunk with the heading
-                current_chunk = elem_text.to_string();
-                current_start = start;
-                current_type = elem_type.clone();
-                continue;
+        for (start, end, element_type) in elements {
+            if element_type == "heading" && !flush(&mut chunks, &mut current) {
+                return vec![];
             }
 
-            if current_chunk.is_empty() {
-                current_chunk = elem_text.to_string();
-                current_start = start;
-                current_type = elem_type.clone();
-            } else if current_chunk.len() + elem_text.len() < self.config.max_chunk_size {
-                current_chunk.push('\n');
-                current_chunk.push_str(elem_text);
-            } else {
-                // Save current chunk
-                let mut metadata = HashMap::new();
-                metadata.insert("type".to_string(), current_type.clone());
-                chunks.push(Chunk::with_metadata(
-                    current_chunk.trim().to_string(),
-                    current_start,
-                    current_start + current_chunk.len(),
-                    metadata,
-                ));
-
-                current_chunk = elem_text.to_string();
-                current_start = start;
-                current_type = elem_type.clone();
+            match current.as_mut() {
+                Some((current_start, current_end, _))
+                    if *current_end == start
+                        && end.saturating_sub(*current_start)
+                            <= self.config.max_chunk_size.max(1) =>
+                {
+                    *current_end = end;
+                }
+                Some(_) => {
+                    if !flush(&mut chunks, &mut current) {
+                        return vec![];
+                    }
+                    current = Some((start, end, element_type));
+                }
+                None => current = Some((start, end, element_type)),
             }
 
-            // Handle oversized elements
-            if current_chunk.len() > self.config.max_chunk_size {
-                let para_chunker = ParagraphChunker::new(self.config.clone());
-                let sub_chunks = para_chunker.chunk(&current_chunk);
+            if current
+                .as_ref()
+                .is_some_and(|(current_start, current_end, _)| {
+                    current_end.saturating_sub(*current_start) > self.config.max_chunk_size.max(1)
+                })
+                && !flush(&mut chunks, &mut current)
+            {
+                return vec![];
+            }
 
-                for sub_chunk in sub_chunks {
-                    let mut metadata = HashMap::new();
-                    metadata.insert("type".to_string(), format!("{}_split", current_type));
-                    chunks.push(Chunk::with_metadata(
-                        sub_chunk.text,
-                        current_start + sub_chunk.start_offset,
-                        current_start + sub_chunk.end_offset,
-                        metadata,
-                    ));
-                }
-                current_chunk.clear();
+            // A horizontal rule belongs to the preceding source span and closes it.
+            if element_type == "hr" && !flush(&mut chunks, &mut current) {
+                return vec![];
             }
         }
 
-        // Add final chunk
-        if !current_chunk.is_empty() {
-            let mut metadata = HashMap::new();
-            metadata.insert("type".to_string(), current_type);
-            chunks.push(Chunk::with_metadata(
-                current_chunk.trim().to_string(),
-                current_start,
-                current_start + current_chunk.len(),
-                metadata,
-            ));
+        if !flush(&mut chunks, &mut current) {
+            return vec![];
         }
 
         chunks
@@ -787,6 +842,29 @@ mod tests {
             min_chunk_size: 20,
             overlap: 10,
         }
+    }
+
+    fn assert_exact_source_partition(text: &str, chunks: &[Chunk]) {
+        if text.is_empty() {
+            assert!(chunks.is_empty());
+            return;
+        }
+
+        assert!(!chunks.is_empty());
+        let mut expected_start = 0;
+        for chunk in chunks {
+            assert_eq!(chunk.start_offset, expected_start, "source gap or overlap");
+            assert!(chunk.start_offset <= chunk.end_offset);
+            assert!(chunk.end_offset <= text.len());
+            assert!(text.is_char_boundary(chunk.start_offset));
+            assert!(text.is_char_boundary(chunk.end_offset));
+            assert_eq!(
+                chunk.text,
+                text.get(chunk.start_offset..chunk.end_offset).unwrap()
+            );
+            expected_start = chunk.end_offset;
+        }
+        assert_eq!(expected_start, text.len(), "trailing source bytes omitted");
     }
 
     // ============================================================================
@@ -1216,6 +1294,196 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_semantic_chunker_crlf_drift_does_not_split_unicode_separator() {
+        let chunker = SemanticChunker::new(default_config());
+        let text = "a\r\nb\r\nc\r\nX\u{2028}Y";
+
+        let chunks = chunker.chunk(text);
+
+        for chunk in &chunks {
+            assert!(chunk.start_offset <= chunk.end_offset);
+            assert!(chunk.end_offset <= text.len());
+            assert!(text.is_char_boundary(chunk.start_offset));
+            assert!(text.is_char_boundary(chunk.end_offset));
+            assert_eq!(chunk.text, &text[chunk.start_offset..chunk.end_offset]);
+        }
+    }
+
+    #[test]
+    fn test_semantic_source_lines_preserve_exact_newline_bytes() {
+        let cases = [
+            "alpha\nbeta\n",
+            "alpha\r\nbeta\r\n",
+            "alpha\rbeta\r",
+            "alpha\r\nbeta\rgamma\ndelta",
+            "X\u{2028}Y\u{2029}Z",
+        ];
+
+        for text in cases {
+            let lines = SemanticChunker::source_lines(text);
+            let mut expected_start = 0;
+            let mut reconstructed = String::new();
+            for (start, content_end, end) in lines {
+                assert_eq!(start, expected_start);
+                assert!(start <= content_end && content_end <= end && end <= text.len());
+                assert!(text.is_char_boundary(start));
+                assert!(text.is_char_boundary(content_end));
+                assert!(text.is_char_boundary(end));
+                reconstructed.push_str(text.get(start..end).unwrap());
+                expected_start = end;
+            }
+            assert_eq!(reconstructed, text);
+            assert_eq!(expected_start, text.len());
+        }
+    }
+
+    #[test]
+    fn test_semantic_markdown_newline_matrix_preserves_exact_source() {
+        let line_endings = ["\n", "\r\n", "\r"];
+        let lines = [
+            "# Heading",
+            "plain ¢界😀e\u{301}",
+            "- item 👩\u{200d}💻",
+            "- second",
+            "1. first",
+            "2. second",
+            "> quote",
+            "> continued",
+            "---",
+            "```rust",
+            "let s = \"X\u{2028}Y\u{2029}Z\";",
+            "```",
+            "tail",
+        ];
+        let chunker = SemanticChunker::new(ChunkerConfig {
+            max_chunk_size: 4096,
+            min_chunk_size: 0,
+            overlap: 0,
+        });
+
+        for newline in line_endings {
+            for final_newline in [false, true] {
+                let mut text = lines.join(newline);
+                if final_newline {
+                    text.push_str(newline);
+                }
+
+                let elements = chunker.find_semantic_elements(&text).unwrap();
+                let element_types: Vec<_> = elements.iter().map(|(_, _, kind)| *kind).collect();
+                let mut expected_element_start = 0;
+                for (start, end, _) in &elements {
+                    assert_eq!(
+                        *start, expected_element_start,
+                        "element source discontinuity"
+                    );
+                    assert!(start <= end && *end <= text.len());
+                    assert!(text.is_char_boundary(*start));
+                    assert!(text.is_char_boundary(*end));
+                    expected_element_start = *end;
+                }
+                assert_eq!(expected_element_start, text.len());
+                for expected in [
+                    "heading",
+                    "text",
+                    "list",
+                    "numbered_list",
+                    "blockquote",
+                    "hr",
+                    "code",
+                ] {
+                    assert!(element_types.contains(&expected), "missing {expected}");
+                }
+
+                let chunks = chunker.chunk(&text);
+                assert_exact_source_partition(&text, &chunks);
+            }
+        }
+    }
+
+    #[test]
+    fn test_semantic_mixed_newlines_and_unicode_property_invariants() {
+        let fragments = [
+            "# H",
+            "text",
+            "¢",
+            "界",
+            "😀",
+            "e\u{301}",
+            "👩\u{200d}💻",
+            "X\u{2028}Y",
+            "X\u{2029}Y",
+            "- item",
+            "1. item",
+            "> quote",
+            "---",
+            "```",
+        ];
+        let line_endings = ["\n", "\r\n", "\r"];
+        let chunker = SemanticChunker::new(ChunkerConfig {
+            max_chunk_size: 31,
+            min_chunk_size: 7,
+            overlap: 0,
+        });
+        let mut state = 0x9e37_79b9_u32;
+
+        for case in 0..256 {
+            let mut text = String::new();
+            let line_count = 1 + (case % 19);
+            for line in 0..line_count {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                text.push_str(fragments[state as usize % fragments.len()]);
+                if line + 1 < line_count || state & 1 == 0 {
+                    state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    text.push_str(line_endings[state as usize % line_endings.len()]);
+                }
+            }
+
+            let result = std::panic::catch_unwind(|| chunker.chunk(&text));
+            assert!(result.is_ok(), "valid UTF-8 panicked for case {case}");
+            assert_exact_source_partition(&text, &result.unwrap());
+        }
+    }
+
+    #[test]
+    fn test_semantic_chunk_size_and_overlap_are_utf8_byte_targets() {
+        let chunker = SemanticChunker::new(ChunkerConfig {
+            max_chunk_size: 12,
+            min_chunk_size: 4,
+            overlap: 5,
+        });
+        let text = "界😀abcdef界😀abcdef";
+        let chunks = chunker.chunk(text);
+
+        assert!(chunks.len() > 1);
+        for chunk in &chunks {
+            assert!(chunk.len() <= 12);
+            assert_eq!(chunk.text, &text[chunk.start_offset..chunk.end_offset]);
+        }
+        for pair in chunks.windows(2) {
+            assert!(pair[1].start_offset < pair[0].end_offset);
+            assert!(pair[0].end_offset - pair[1].start_offset <= 5);
+        }
+        assert_eq!(chunks.first().unwrap().start_offset, 0);
+        assert_eq!(chunks.last().unwrap().end_offset, text.len());
+    }
+
+    #[test]
+    fn test_semantic_checked_slicing_rejects_invalid_spans() {
+        let chunker = SemanticChunker::new(default_config());
+        let text = "界";
+
+        assert!(chunker
+            .chunks_for_span(text, 1, text.len(), "text")
+            .is_none());
+        assert!(chunker
+            .chunks_for_span(text, 0, text.len() + 1, "text")
+            .is_none());
+        assert!(chunker
+            .chunks_for_span(text, text.len(), 0, "text")
+            .is_none());
     }
 
     #[test]

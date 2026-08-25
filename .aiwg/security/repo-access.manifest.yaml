@@ -1,0 +1,12 @@
+version: "1"
+default_policy: deny
+repos:
+  - name: fortemi
+    path: .
+    actions:
+      - read
+      - write
+      - commit
+      - push
+      - issue-comment
+    notes: Authorized by the operator for address-issues work on Fortemi.

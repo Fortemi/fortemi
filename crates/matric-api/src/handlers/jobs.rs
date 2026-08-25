@@ -2520,6 +2520,14 @@ fn validate_embedding_job_vectors(
     Ok(())
 }
 
+fn chunk_embedding_content(content: &str, config: &ChunkerConfig) -> Vec<String> {
+    SemanticChunker::new(config.clone())
+        .chunk(content)
+        .into_iter()
+        .map(|chunk| chunk.text)
+        .collect()
+}
+
 struct EmbeddingUsageContext {
     meter: Arc<dyn UsageMeter>,
     subject: UsageSubject,
@@ -2887,25 +2895,19 @@ impl JobHandler for EmbeddingHandler {
             ChunkerConfig::default()
         };
 
-        let chunker = SemanticChunker::new(chunker_config.clone());
-        let semantic_chunks = chunker.chunk(&content);
-        let chunks: Vec<String> = semantic_chunks.into_iter().map(|c| c.text).collect();
-        let chunk_total_chars: usize = chunks.iter().map(|chunk| chunk.chars().count()).sum();
-        let chunk_max_chars = chunks
-            .iter()
-            .map(|chunk| chunk.chars().count())
-            .max()
-            .unwrap_or(0);
+        let chunks = chunk_embedding_content(&content, &chunker_config);
+        let chunk_total_bytes: usize = chunks.iter().map(String::len).sum();
+        let chunk_max_bytes = chunks.iter().map(String::len).max().unwrap_or(0);
         debug!(
             stage = "chunking",
             job_correlation,
             composed_chars = content.chars().count(),
             chunk_count = chunks.len(),
-            chunk_total_chars,
-            chunk_max_chars,
-            max_chunk_chars = chunker_config.max_chunk_size,
-            min_chunk_chars = chunker_config.min_chunk_size,
-            overlap_chars = chunker_config.overlap,
+            chunk_total_bytes,
+            chunk_max_bytes,
+            max_chunk_bytes = chunker_config.max_chunk_size,
+            min_chunk_bytes = chunker_config.min_chunk_size,
+            overlap_bytes = chunker_config.overlap,
             duration_ms = chunk_started.elapsed().as_millis() as u64,
             "Embedding chunking completed"
         );
@@ -2935,8 +2937,8 @@ impl JobHandler for EmbeddingHandler {
             stage = "embed_request",
             job_correlation,
             input_count = chunks.len(),
-            input_total_chars = chunk_total_chars,
-            input_max_chars = chunk_max_chars,
+            input_total_bytes = chunk_total_bytes,
+            input_max_bytes = chunk_max_bytes,
             provider_id_len = diagnostic_len(resolved_backend.contract.provider_id()),
             model_len = diagnostic_len(resolved_backend.contract.model()),
             configured_dimension = resolved_backend.contract.dimension(),
@@ -8275,6 +8277,36 @@ mod tests {
         }
     }
 
+    struct RecordingEmbeddingBackend {
+        dimension: usize,
+        inputs: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl EmbeddingBackend for RecordingEmbeddingBackend {
+        async fn embed_texts(
+            &self,
+            texts: &[String],
+        ) -> matric_core::Result<Vec<matric_core::Vector>> {
+            self.inputs
+                .lock()
+                .expect("record embedding inputs")
+                .extend_from_slice(texts);
+            Ok(texts
+                .iter()
+                .map(|_| matric_core::Vector::from(vec![0.25_f32; self.dimension]))
+                .collect())
+        }
+
+        fn dimension(&self) -> usize {
+            self.dimension
+        }
+
+        fn model_name(&self) -> &str {
+            "recording-test-embedding-model"
+        }
+    }
+
     #[test]
     fn embedding_job_rejects_partial_extra_and_wrong_dimension_batches() {
         let contract =
@@ -8353,6 +8385,35 @@ mod tests {
         assert_eq!(first.contract.dimension(), 3);
         assert_eq!(first.contract.embedding_set_id(), Some(first_set));
         assert_ne!(first.contract.fingerprint(), second.contract.fingerprint());
+    }
+
+    #[tokio::test]
+    async fn embedding_chunking_crlf_unicode_regression_reaches_provider_boundary() {
+        let content = "a\r\nb\r\nc\r\nX\u{2028}Y";
+        let inputs = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let backend = RecordingEmbeddingBackend {
+            dimension: 3,
+            inputs: inputs.clone(),
+        };
+        let chunks = chunk_embedding_content(
+            content,
+            &ChunkerConfig {
+                max_chunk_size: 100,
+                min_chunk_size: 10,
+                overlap: 0,
+            },
+        );
+
+        let vectors = backend
+            .embed_texts(&chunks)
+            .await
+            .expect("embed regression content");
+
+        assert_eq!(vectors.len(), chunks.len());
+        assert_eq!(
+            inputs.lock().expect("read embedding inputs").as_slice(),
+            &[content.to_string()]
+        );
     }
 
     #[tokio::test]
@@ -8470,6 +8531,98 @@ mod tests {
             )],
             "failed replacement must preserve the prior embedding"
         );
+
+        db.archives
+            .drop_archive_schema(&archive_name)
+            .await
+            .expect("drop test archive");
+    }
+
+    #[tokio::test]
+    async fn embedding_job_crlf_unicode_regression_reaches_provider_boundary() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let archive_name = format!("embedding_crlf_utf8_{}", uuid::Uuid::now_v7());
+        let archive = db
+            .archives
+            .create_archive_schema(&archive_name, Some("CRLF UTF-8 embedding regression test"))
+            .await
+            .expect("create test archive");
+        let schema = archive.schema_name;
+        let schema_ctx = db.for_schema(&schema).expect("create schema context");
+        let content = "a\r\nb\r\nc\r\nX\u{2028}Y";
+
+        let notes = matric_db::PgNoteRepository::new(db.pool.clone());
+        let note_id = schema_ctx
+            .execute(move |tx| {
+                Box::pin(async move {
+                    notes
+                        .insert_tx(
+                            tx,
+                            matric_core::CreateNoteRequest {
+                                content: content.to_string(),
+                                format: "markdown".to_string(),
+                                source: "test".to_string(),
+                                collection_id: None,
+                                tags: None,
+                                metadata: None,
+                                document_type_id: None,
+                                title: None,
+                            },
+                        )
+                        .await
+                })
+            })
+            .await
+            .expect("seed CRLF UTF-8 note");
+
+        let now = Utc::now();
+        let job = matric_core::Job {
+            id: uuid::Uuid::now_v7(),
+            note_id: Some(note_id),
+            job_type: JobType::Embedding,
+            status: matric_core::JobStatus::Running,
+            priority: 1,
+            payload: Some(serde_json::json!({"schema": schema})),
+            result: None,
+            error_message: None,
+            progress_percent: 0,
+            progress_message: None,
+            retry_count: 0,
+            max_retries: 1,
+            created_at: now,
+            started_at: Some(now),
+            completed_at: None,
+            cost_tier: None,
+        };
+        let inputs = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let handler = EmbeddingHandler::new(
+            db.clone(),
+            Arc::new(ProviderRegistry::from_env()),
+            Arc::new(matric_core::InMemoryMeter::default()),
+        )
+        .with_backend_override(Arc::new(RecordingEmbeddingBackend {
+            dimension: 768,
+            inputs: inputs.clone(),
+        }));
+
+        let result = handler.execute(JobContext::new(job)).await;
+        assert!(
+            matches!(result, JobResult::Success(_)),
+            "expected successful embedding job, got {result:?}"
+        );
+        {
+            let recorded = inputs.lock().expect("read embedding inputs");
+            assert!(!recorded.is_empty(), "provider boundary was not reached");
+            assert!(
+                recorded.iter().any(|input| input.contains("X\u{2028}Y")),
+                "regression scalar did not reach the provider boundary"
+            );
+        }
 
         db.archives
             .drop_archive_schema(&archive_name)

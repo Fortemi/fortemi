@@ -1,0 +1,51 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T16:32:35Z"
+  description: "Provenance for the deny-by-default Fortemi repository access manifest"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/security/repo-access.manifest.yaml:sha256:8706645f0d70660989be4a731a3c6c212e919b74e804b402766023e2f4100093"
+  type: configuration
+  created_at: "2026-08-25T16:32:35Z"
+  checksum: "sha256:8706645f0d70660989be4a731a3c6c212e919b74e804b402766023e2f4100093"
+  size_bytes: 235
+  attributes:
+    issues:
+      - "Fortemi/fortemi#1098"
+      - "Fortemi/fortemi#1100"
+    change_type: generation
+activity:
+  id: "urn:aiwg:activity:generation:repo-access-manifest-1098-1100:001"
+  type: generation
+  started_at: "2026-08-25T16:18:00Z"
+  ended_at: "2026-08-25T16:32:35Z"
+  description: "Create a deny-by-default repository manifest permitting only the operator-authorized Fortemi actions"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/security/repo-access.manifest.yaml:sha256:8706645f0d70660989be4a731a3c6c212e919b74e804b402766023e2f4100093"
+    activity: "urn:aiwg:activity:generation:repo-access-manifest-1098-1100:001"
+    time: "2026-08-25T16:32:35Z"
+  used:
+    - activity: "urn:aiwg:activity:generation:repo-access-manifest-1098-1100:001"
+      entity: "urn:aiwg:authorization:Fortemi/fortemi:1098:2026-08-25"
+      role: operator_authorization
+    - activity: "urn:aiwg:activity:generation:repo-access-manifest-1098-1100:001"
+      entity: "urn:aiwg:rule:respect-repo-access-manifest"
+      role: policy_authority
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/security/repo-access.manifest.yaml:sha256:8706645f0d70660989be4a731a3c6c212e919b74e804b402766023e2f4100093"
+      source: "urn:aiwg:authorization:Fortemi/fortemi:1098:2026-08-25"
+      derivation_type: conforms_to
+      activity: "urn:aiwg:activity:generation:repo-access-manifest-1098-1100:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:repo-access-manifest-1098-1100:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/security/repo-access.manifest.yaml:sha256:8706645f0d70660989be4a731a3c6c212e919b74e804b402766023e2f4100093"
+    agent: "urn:aiwg:agent:codex-gpt-5"

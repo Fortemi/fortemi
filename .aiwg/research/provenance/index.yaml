@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-25T07:51:04Z"
+  updated_at: "2026-08-25T16:32:35Z"
 records:
   - entity: ".gitea/workflows/test.yml"
     record: "records/protected-slow-tests-redis-fixture-714.prov.yaml"
@@ -598,3 +598,11 @@ records:
     record: "records/verify-bidirectional-asset-lifecycle-1081.prov.yaml"
   - entity: ".gitea/workflows/publish-sidecar.yml"
     record: "records/publish-sidecar-system-git-auth-fetch-728.prov.yaml"
+  - entity: "crates/matric-db/src/chunking.rs"
+    record: "records/matric-db-semantic-chunking-1100.prov.yaml"
+  - entity: "crates/matric-api/src/handlers/jobs.rs"
+    record: "records/matric-api-embedding-chunking-1100.prov.yaml"
+  - entity: ".aiwg/aiwg.config"
+    record: "records/aiwg-repo-access-config-1098-1100.prov.yaml"
+  - entity: ".aiwg/security/repo-access.manifest.yaml"
+    record: "records/repo-access-manifest-1098-1100.prov.yaml"
