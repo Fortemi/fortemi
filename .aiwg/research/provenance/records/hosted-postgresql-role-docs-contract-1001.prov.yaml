@@ -1,0 +1,43 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T03:36:41Z"
+  updated_at: "2026-08-25T03:36:41Z"
+  description: "Provenance for credential-safe hosted PostgreSQL role configuration examples"
+entity:
+  id: "urn:aiwg:artifact:docs/deployment/hosted-postgresql-role.md"
+  type: deployment_runbook
+  checksum: "sha256:be7881073ecc24a4dfec6457c96487c4931e14ce55dbb34d39f2556475561be7"
+  size_bytes: 4337
+  attributes:
+    change_scope: "hosted-strict-docs-contract"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-1001:postgres-url-placeholders"
+  type: modification
+  started_at: "2026-08-25T03:35:30Z"
+  ended_at: "2026-08-25T03:36:41Z"
+  description: "Replace credential-shaped role DSNs with canonical deployment secret placeholders"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/deployment/hosted-postgresql-role.md"
+    activity: "urn:aiwg:activity:modification:fortemi-1001:postgres-url-placeholders"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docs/deployment/hosted-postgresql-role.md"
+      source: "urn:aiwg:artifact:scripts/ci/docs-contract.cjs"
+      derivation_type: remediates
+      activity: "urn:aiwg:activity:modification:fortemi-1001:postgres-url-placeholders"
+    - entity: "urn:aiwg:artifact:docs/deployment/hosted-postgresql-role.md"
+      source: "urn:gitea:Fortemi/fortemi:issue:1001"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-1001:postgres-url-placeholders"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-1001:postgres-url-placeholders"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: technical_writer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/deployment/hosted-postgresql-role.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

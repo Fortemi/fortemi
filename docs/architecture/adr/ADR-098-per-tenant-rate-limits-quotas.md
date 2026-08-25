@@ -5,6 +5,18 @@
 **Deciders:** roctinam, reliability/product review TBD
 **Related:** ADR-088, ADR-090 (tenancy), ADR-092 (UsageMeter+QuotaPolicy), ADR-097 (statelessness)
 
+## July 2026 checkpoint rebaseline
+
+At the July checkpoint, this ADR remained design-only and depended on ADR-092;
+no `UsageMeter` or `QuotaPolicy` implementation had been found in `crates/`.
+The August checkpoint below records the later bounded request gate and shared
+quota foundation without rewriting that governed checkpoint.
+
+- **Decision status:** Proposed; design only and dependency-blocked.
+- **Implementation phase:** Per-tenant quota middleware after ADR-092 construction.
+- **Phase owner:** `Fortemi/fortemi#714`, with private billing integration in `Fortemi-Enterprise/billing#1`.
+- **Checkpoint decision date:** 2026-07-14.
+
 ## August 2026 implementation checkpoint
 
 The first bounded hosted request-admission slice is implemented. When

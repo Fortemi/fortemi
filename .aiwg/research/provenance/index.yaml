@@ -1,7 +1,13 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-25T03:24:52Z"
+  updated_at: "2026-08-25T03:36:41Z"
 records:
+  - entity: "docs/deployment/hosted-postgresql-role.md"
+    record: "records/hosted-postgresql-role-docs-contract-1001.prov.yaml"
+  - entity: "docs/architecture/adr/ADR-094-fail-closed-authentication-default.md"
+    record: "records/adr-094-checkpoint-history-restoration-1017.prov.yaml"
+  - entity: "docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md"
+    record: "records/adr-098-checkpoint-history-restoration-714.prov.yaml"
   - entity: "crates/matric-db/src/call_sessions.rs"
     record: "records/matric-db-call-sessions-personal-tenant-pool-728.prov.yaml"
   - entity: "crates/matric-db/src/tests/oauth_token_lifetime_tests.rs"

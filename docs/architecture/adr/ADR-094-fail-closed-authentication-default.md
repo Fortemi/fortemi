@@ -6,6 +6,19 @@
 **Related:** ADR-071 (auth middleware), ADR-089 (authorization), ADR-090 (tenancy)
 **Related docs:** `.aiwg/architecture/ce-ee-audit-2026-05.md` finding S-1 (CRITICAL)
 
+## July 2026 checkpoint rebaseline
+
+At the July checkpoint, this ADR remained proposed for the default-auth
+inversion. The multi-tenant guard was partially implemented, while the general
+CE default change and explicit `I_UNDERSTAND_NO_AUTH` flow were still open.
+The August receipt below records the later implementation without rewriting
+that governed checkpoint.
+
+- **Decision status:** Proposed; multi-tenant guard partially implemented.
+- **Implementation phase:** Default-auth inversion awaiting a dedicated construction split.
+- **Phase owner:** `Fortemi/fortemi#1017` until the construction issue is split.
+- **Checkpoint decision date:** 2026-07-14.
+
 ## August 2026 implementation receipt
 
 The default-auth inversion, explicit anonymous acknowledgement, strict security-boolean parsing, issuer validation, and multi-tenant anonymous-mode rejection are implemented in `crates/matric-api/src/main.rs`. Configuration documentation and the February-upgrade smoke receipt cover the CE migration path.

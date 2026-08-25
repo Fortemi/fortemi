@@ -59,8 +59,8 @@ Hosted startup requires both URLs and rejects identical values:
 ```text
 FORTEMI_MULTI_TENANT=true
 REQUIRE_AUTH=true
-MIGRATION_DATABASE_URL=postgres://fortemi_migrator:...@db/fortemi
-DATABASE_URL=postgres://fortemi_runtime:...@db/fortemi
+MIGRATION_DATABASE_URL=<MIGRATION_DATABASE_URL>
+DATABASE_URL=<DATABASE_URL>
 ```
 
 Startup runs migrations with `MIGRATION_DATABASE_URL`, closes that pool, then
