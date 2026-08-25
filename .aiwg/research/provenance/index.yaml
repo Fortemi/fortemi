@@ -1,7 +1,13 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-25T04:56:33Z"
+  updated_at: "2026-08-25T05:31:40Z"
 records:
+  - entity: "Dockerfile"
+    record: "records/dockerfile-rust-1-92-builder-714.prov.yaml"
+  - entity: "Dockerfile.bundle"
+    record: "records/dockerfile-bundle-rust-1-92-builder-714.prov.yaml"
+  - entity: "docker/third-party-dependencies.json"
+    record: "records/third-party-rust-1-92-builder-authority-990.prov.yaml"
   - entity: "crates/matric-api/tests/user_secret_storage_test.rs"
     record: "records/user-secret-storage-provisioned-schema-731.prov.yaml"
   - entity: "crates/matric-db/tests/tenant_isolation_test.rs"

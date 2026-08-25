@@ -7,7 +7,7 @@
 # For all-in-one deployment with embedded PostgreSQL, use Dockerfile.bundle instead.
 #
 # Build stage
-FROM rust:slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777 AS builder
+FROM rust:1.92.0-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c55646516e5b17b321b6c9b AS builder
 
 # Build arguments for version stamping
 ARG VERSION=dev

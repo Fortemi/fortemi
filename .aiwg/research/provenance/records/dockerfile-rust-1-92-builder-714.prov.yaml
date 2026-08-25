@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T05:31:40Z"
+  updated_at: "2026-08-25T05:31:40Z"
+  description: "Provenance for the Rust 1.92 API container builder pin"
+entity:
+  id: "urn:aiwg:artifact:Dockerfile"
+  type: build_configuration
+  checksum: "sha256:edf9f240a5919a8caabae04bf96ffbc85f07f35b1a5910b5f84507d87416ab1f"
+  size_bytes: 6655
+  attributes:
+    change_scope: "fortemi-714-rust-1-92-container-build"
+    feature: "api-container"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-ci-714:rust-1-92-api-builder"
+  type: modification
+  started_at: "2026-08-25T05:27:00Z"
+  ended_at: "2026-08-25T05:31:40Z"
+  description: "Pin the API container builder to the supported Rust 1.92.0 multi-architecture digest after a Rust 1.97.1 thin-LTO compiler crash"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:Dockerfile"
+    activity: "urn:aiwg:activity:modification:fortemi-ci-714:rust-1-92-api-builder"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:Dockerfile"
+      source: "urn:gitea:Fortemi/fortemi:issue:714"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-ci-714:rust-1-92-api-builder"
+    - entity: "urn:aiwg:artifact:Dockerfile"
+      source: "urn:gitea:Fortemi/fortemi:issue:734"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:fortemi-ci-714:rust-1-92-api-builder"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-ci-714:rust-1-92-api-builder"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:Dockerfile"
+    agent: "urn:aiwg:agent:codex-gpt-5"

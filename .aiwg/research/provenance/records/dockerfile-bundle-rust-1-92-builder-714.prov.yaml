@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T05:31:40Z"
+  updated_at: "2026-08-25T05:31:40Z"
+  description: "Provenance for the Rust 1.92 bundle container builder pin"
+entity:
+  id: "urn:aiwg:artifact:Dockerfile.bundle"
+  type: build_configuration
+  checksum: "sha256:d8b9fde2adc926a38368f3ed0355be7c2f4c7d56ed3f0026ba28b4186d981bde"
+  size_bytes: 9978
+  attributes:
+    change_scope: "fortemi-714-rust-1-92-container-build"
+    feature: "bundle-container"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-ci-714:rust-1-92-bundle-builder"
+  type: modification
+  started_at: "2026-08-25T05:27:00Z"
+  ended_at: "2026-08-25T05:31:40Z"
+  description: "Pin the bundle container builder to the same supported Rust 1.92.0 multi-architecture digest as the API container"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:Dockerfile.bundle"
+    activity: "urn:aiwg:activity:modification:fortemi-ci-714:rust-1-92-bundle-builder"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:Dockerfile.bundle"
+      source: "urn:gitea:Fortemi/fortemi:issue:714"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-ci-714:rust-1-92-bundle-builder"
+    - entity: "urn:aiwg:artifact:Dockerfile.bundle"
+      source: "urn:gitea:Fortemi/fortemi:issue:734"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:fortemi-ci-714:rust-1-92-bundle-builder"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-ci-714:rust-1-92-bundle-builder"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:Dockerfile.bundle"
+    agent: "urn:aiwg:agent:codex-gpt-5"

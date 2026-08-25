@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T05:31:40Z"
+  updated_at: "2026-08-25T05:31:40Z"
+  description: "Provenance for the reviewed Rust 1.92 container builder authority"
+entity:
+  id: "urn:aiwg:artifact:docker/third-party-dependencies.json"
+  type: supply_chain_manifest
+  checksum: "sha256:f5cb28545dde68c3cd6060e572dbaaefd04044d29564a63c4787b8cb4bf2e89f"
+  size_bytes: 12218
+  attributes:
+    change_scope: "fortemi-990-rust-1-92-container-authority"
+    feature: "third-party-image-policy"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-supply-chain-990:rust-1-92-builder"
+  type: modification
+  started_at: "2026-08-25T05:27:00Z"
+  ended_at: "2026-08-25T05:31:40Z"
+  description: "Replace the retired version-floating Rust builder entry with the reviewed Rust 1.92.0 multi-architecture digest and declared consumers"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docker/third-party-dependencies.json"
+    activity: "urn:aiwg:activity:modification:fortemi-supply-chain-990:rust-1-92-builder"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docker/third-party-dependencies.json"
+      source: "urn:gitea:Fortemi/fortemi:issue:990"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-supply-chain-990:rust-1-92-builder"
+    - entity: "urn:aiwg:artifact:docker/third-party-dependencies.json"
+      source: "urn:gitea:Fortemi/fortemi:issue:714"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:fortemi-supply-chain-990:rust-1-92-builder"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-supply-chain-990:rust-1-92-builder"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docker/third-party-dependencies.json"
+    agent: "urn:aiwg:agent:codex-gpt-5"

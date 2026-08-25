@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "policy_issue": 990,
-  "reviewed_at": "2026-08-22",
+  "reviewed_at": "2026-08-25",
   "related_package_lock_manifests": [
     {
       "path": "docker/python-sidecar-locks.json",
@@ -11,16 +11,16 @@
   ],
   "images": [
     {
-      "id": "rust-bookworm-build",
-      "tag": "docker.io/library/rust:slim-bookworm",
-      "digest": "sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777",
-      "immutable_reference": "rust:slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777",
+      "id": "rust192-slim-bookworm-build",
+      "tag": "docker.io/library/rust:1.92.0-slim-bookworm",
+      "digest": "sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c55646516e5b17b321b6c9b",
+      "immutable_reference": "rust:1.92.0-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c55646516e5b17b321b6c9b",
       "role": "build-only",
       "privilege_boundary": ["build-network", "source-and-lockfile-input"],
       "source_class": "docker-official-image",
       "upstream": "https://hub.docker.com/_/rust",
       "surfaces": ["Dockerfile", "Dockerfile.bundle"],
-      "reviewed_at": "2026-08-22",
+      "reviewed_at": "2026-08-25",
       "update_cadence_days": 30,
       "rollback": "Restore the prior reviewed digest and rebuild all affected Fortemi images.",
       "mirror_policy": "Mirror the exact tag and multi-architecture digest; builds must retain @sha256 verification."
