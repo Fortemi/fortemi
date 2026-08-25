@@ -1,0 +1,44 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T04:02:05Z"
+  updated_at: "2026-08-25T04:02:05Z"
+  description: "Provenance for the Rust 1.92-compatible AWS KMS SDK dependency pins"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-crypto/Cargo.toml"
+  type: source_code
+  checksum: "sha256:925bb463fad63de1fa7ea8c5cf3f6fda75d47e89d5d8c6d8b2e26d90d06a8489"
+  size_bytes: 1227
+  attributes:
+    change_scope: "fortemi-734-aws-sdk-rust-1-92"
+    feature: "kms-aws"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-734:aws-sdk-rust-1-92"
+  type: modification
+  started_at: "2026-08-25T03:40:00Z"
+  ended_at: "2026-08-25T04:02:05Z"
+  description: "Pin AWS KMS SDK releases whose declared minimum Rust versions are compatible with the protected Rust 1.92 builder"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-crypto/Cargo.toml"
+    activity: "urn:aiwg:activity:modification:fortemi-734:aws-sdk-rust-1-92"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-crypto/Cargo.toml"
+      source: "urn:gitea:Fortemi/fortemi:issue:734"
+      derivation_type: implements
+      activity: "urn:aiwg:activity:modification:fortemi-734:aws-sdk-rust-1-92"
+    - entity: "urn:aiwg:artifact:crates/matric-crypto/Cargo.toml"
+      source: "urn:aiwg:artifact:build/Dockerfile.builder"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:fortemi-734:aws-sdk-rust-1-92"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-734:aws-sdk-rust-1-92"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: "primary_author"
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-crypto/Cargo.toml"
+    agent: "urn:aiwg:agent:codex-gpt-5"

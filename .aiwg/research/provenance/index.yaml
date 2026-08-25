@@ -1,7 +1,11 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-25T03:36:41Z"
+  updated_at: "2026-08-25T04:02:05Z"
 records:
+  - entity: "crates/matric-crypto/Cargo.toml"
+    record: "records/matric-crypto-aws-sdk-rust-1-92-734.prov.yaml"
+  - entity: "Cargo.lock"
+    record: "records/cargo-lock-aws-sdk-rust-1-92-734.prov.yaml"
   - entity: "docs/deployment/hosted-postgresql-role.md"
     record: "records/hosted-postgresql-role-docs-contract-1001.prov.yaml"
   - entity: "docs/architecture/adr/ADR-094-fail-closed-authentication-default.md"
