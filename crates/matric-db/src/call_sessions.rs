@@ -769,6 +769,10 @@ mod tests {
             .await
     }
 
+    async fn connect_personal_test_pool(database_url: &str) -> PgPool {
+        crate::create_pool(database_url).await.unwrap()
+    }
+
     #[test]
     fn repository_is_clone_send_sync() {
         fn assert_clone_send_sync<T: Clone + Send + Sync>() {}
@@ -847,7 +851,7 @@ mod tests {
             Err(_) => return,
         };
         let _guard = call_session_db_test_guard().await;
-        let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+        let pool = connect_personal_test_pool(&database_url).await;
         let repo = PgCallSessionRepository::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let backend = format!("mock-metrics-{suffix}");
@@ -935,7 +939,7 @@ mod tests {
             Err(_) => return,
         };
         let _guard = call_session_db_test_guard().await;
-        let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+        let pool = connect_personal_test_pool(&database_url).await;
         let repo = PgCallSessionRepository::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let provider_call_id = format!("outbox-{suffix}");
@@ -1015,7 +1019,7 @@ mod tests {
             Err(_) => return,
         };
         let _guard = call_session_db_test_guard().await;
-        let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+        let pool = connect_personal_test_pool(&database_url).await;
         let repo = PgCallSessionRepository::new(pool.clone());
         let suffix = Uuid::new_v4();
         let session = repo
@@ -1243,7 +1247,7 @@ mod tests {
             Ok(value) => value,
             Err(_) => return,
         };
-        let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+        let pool = connect_personal_test_pool(&database_url).await;
         let repo = PgCallSessionRepository::new(pool);
         let metrics = repo.realtime_metrics().await.unwrap();
 

@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-25T01:43:31Z"
+  updated_at: "2026-08-25T03:24:52Z"
 records:
+  - entity: "crates/matric-db/src/call_sessions.rs"
+    record: "records/matric-db-call-sessions-personal-tenant-pool-728.prov.yaml"
   - entity: "crates/matric-db/src/tests/oauth_token_lifetime_tests.rs"
     record: "records/production-auth-tenancy-gates-99b53438f6ea.prov.yaml"
   - entity: "crates/matric-db/src/usage_ledger.rs"
