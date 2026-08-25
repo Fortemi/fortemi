@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-25T01:18:54Z"
+  updated_at: "2026-08-25T01:43:31Z"
 records:
   - entity: "crates/matric-db/src/tests/oauth_token_lifetime_tests.rs"
     record: "records/production-auth-tenancy-gates-99b53438f6ea.prov.yaml"
@@ -560,3 +560,5 @@ records:
     record: "records/bidirectional-asset-lifecycle-audit-plan-1081.prov.yaml"
   - entity: "scripts/ci/verify-bidirectional-asset-lifecycle.sh"
     record: "records/verify-bidirectional-asset-lifecycle-1081.prov.yaml"
+  - entity: ".gitea/workflows/publish-sidecar.yml"
+    record: "records/publish-sidecar-system-git-auth-fetch-728.prov.yaml"

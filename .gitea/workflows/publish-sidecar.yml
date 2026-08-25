@@ -448,6 +448,7 @@ jobs:
           # Environment — mutsu's Rust toolchain lives on the build volume
           export PATH="/Volumes/build/bt6/cargo/bin:/opt/homebrew/bin:/opt/homebrew/sbin:\$PATH"
           export CARGO_HOME="/Volumes/build/bt6/cargo"
+          export CARGO_NET_GIT_FETCH_WITH_CLI=true
           export RUSTUP_HOME="/Volumes/build/bt6/cargo/rustup"
           . /Volumes/build/bt6/cargo/env 2>/dev/null || true
 

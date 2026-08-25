@@ -1,0 +1,43 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-25T01:43:31Z"
+  updated_at: "2026-08-25T01:43:31Z"
+  description: "Provenance for the macOS sidecar system-Git auth dependency fetch correction"
+entity:
+  id: "urn:aiwg:artifact:.gitea/workflows/publish-sidecar.yml"
+  type: ci_workflow
+  checksum: "sha256:53c46b1388e54f25ef15ae055a3c5a61efaa16cef68a99b0de3ef892897d7dfa"
+  size_bytes: 33552
+  attributes:
+    change_scope: "fortemi-auth-v2026.8.1-macos-sidecar"
+activity:
+  id: "urn:aiwg:activity:modification:fortemi-728:macos-system-git-fetch"
+  type: modification
+  started_at: "2026-08-25T01:42:00Z"
+  ended_at: "2026-08-25T01:43:31Z"
+  description: "Use the system Git TLS transport for Cargo auth dependency fetches on mutsu"
+agent: &agent
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.gitea/workflows/publish-sidecar.yml"
+    activity: "urn:aiwg:activity:modification:fortemi-728:macos-system-git-fetch"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.gitea/workflows/publish-sidecar.yml"
+      source: "urn:gitea:Fortemi/fortemi:actions:job:132827"
+      derivation_type: remediates
+      activity: "urn:aiwg:activity:modification:fortemi-728:macos-system-git-fetch"
+    - entity: "urn:aiwg:artifact:.gitea/workflows/publish-sidecar.yml"
+      source: "urn:git:Fortemi/fortemi-auth:v2026.8.1"
+      derivation_type: depends
+      activity: "urn:aiwg:activity:modification:fortemi-728:macos-system-git-fetch"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:fortemi-728:macos-system-git-fetch"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: ci_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.gitea/workflows/publish-sidecar.yml"
+    agent: "urn:aiwg:agent:codex-gpt-5"
