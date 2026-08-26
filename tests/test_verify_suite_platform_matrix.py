@@ -379,6 +379,27 @@ class SuitePlatformMatrixTests(unittest.TestCase):
             runner,
         )
 
+    def test_runner_honors_pinned_asyncapi_fixture_capability(self):
+        runner = (
+            ROOT / "scripts/ci/run-suite-platform-contract.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "if [[ -e scripts/ci/asyncapi-event-fixtures.sh ]]",
+            runner,
+        )
+        self.assertIn(
+            "if [[ ! -x scripts/ci/asyncapi-event-fixtures.sh ]]",
+            runner,
+        )
+        self.assertIn(
+            "scripts/ci/asyncapi-event-fixtures.sh check",
+            runner,
+        )
+        self.assertIn(
+            "Pinned authority runtime ${AUTHORITY_RUNTIME_COMMIT}",
+            runner,
+        )
+
     def test_ci_builder_serializes_shared_database_tests(self):
         workflow = (
             ROOT / ".gitea/workflows/ci-builder.yaml"

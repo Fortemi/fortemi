@@ -557,7 +557,15 @@ provision_database
   cd "$AUTHORITY_DIR"
   scripts/ci/openapi-contract.sh check
   scripts/ci/asyncapi-contract.sh check
-  scripts/ci/asyncapi-event-fixtures.sh check
+  if [[ -e scripts/ci/asyncapi-event-fixtures.sh ]]; then
+    if [[ ! -x scripts/ci/asyncapi-event-fixtures.sh ]]; then
+      echo "Pinned authority AsyncAPI event fixture verifier is not executable" >&2
+      exit 1
+    fi
+    scripts/ci/asyncapi-event-fixtures.sh check
+  else
+    echo "Pinned authority runtime ${AUTHORITY_RUNTIME_COMMIT} does not define the optional AsyncAPI event fixture verifier"
+  fi
   python3 scripts/ci/verify-knowledge-shard-presence.py
   python3 -m unittest \
     tests/test_verify_knowledge_shard_matrix.py \
