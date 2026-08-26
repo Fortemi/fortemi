@@ -1,0 +1,49 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T03:30:30Z"
+  description: "Provenance for the hosted rustc 64 MiB release-stack correction"
+entity:
+  id: "urn:aiwg:artifact:Dockerfile:sha256:274424d7a6d44b11e81b11c1157dec424fa8d88c0dfe0fc541eaf0e56d32e80c"
+  type: container_build_definition
+  created_at: "2026-08-26T03:30:30Z"
+  checksum: "sha256:274424d7a6d44b11e81b11c1157dec424fa8d88c0dfe0fc541eaf0e56d32e80c"
+  size_bytes: 6954
+  attributes:
+    issues: ["Fortemi/fortemi#1098"]
+    change_type: modification
+    hosted_diagnostic_bytes: 67108864
+activity:
+  id: "urn:aiwg:activity:modification:dockerfile-rust-stack-release-64m-1098:001"
+  type: modification
+  started_at: "2026-08-26T03:27:19Z"
+  ended_at: "2026-08-26T03:30:30Z"
+  description: "Raise and enforce the release-build stack from 32 MiB to the hosted rustc diagnostic requirement of 64 MiB"
+  attributes:
+    verification:
+      - "container release evidence verifier: passed"
+      - "container release evidence regression tests: 7 passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:Dockerfile:sha256:274424d7a6d44b11e81b11c1157dec424fa8d88c0dfe0fc541eaf0e56d32e80c"
+    activity: "urn:aiwg:activity:modification:dockerfile-rust-stack-release-64m-1098:001"
+    time: "2026-08-26T03:30:30Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:dockerfile-rust-stack-release-64m-1098:001"
+      entity: "urn:gitea:job:Fortemi/fortemi:134562"
+      role: hosted_ci_diagnostic
+    - activity: "urn:aiwg:activity:modification:dockerfile-rust-stack-release-64m-1098:001"
+      entity: "urn:git:Fortemi/fortemi:c56143103e488b939c35983b6b552308605346c8"
+      role: failed_release_revision
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:dockerfile-rust-stack-release-64m-1098:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:Dockerfile:sha256:274424d7a6d44b11e81b11c1157dec424fa8d88c0dfe0fc541eaf0e56d32e80c"
+    agent: "urn:aiwg:agent:codex-gpt-5"

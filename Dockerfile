@@ -16,7 +16,7 @@ ARG BUILD_DATE=unknown
 # rustc 1.92 can exhaust its default worker-thread stack while compiling the
 # release binary with thin LTO. Keep this configurable while using rustc's
 # documented diagnostic recommendation as the deterministic default.
-ARG RUST_MIN_STACK=33554432
+ARG RUST_MIN_STACK=67108864
 
 WORKDIR /app
 

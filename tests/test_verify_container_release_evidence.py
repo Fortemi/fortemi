@@ -93,14 +93,14 @@ class VerifyContainerReleaseEvidenceTests(unittest.TestCase):
         dockerfile = self.root / "Dockerfile"
         dockerfile.write_text(
             dockerfile.read_text().replace(
+                "ARG RUST_MIN_STACK=67108864",
                 "ARG RUST_MIN_STACK=33554432",
-                "ARG RUST_MIN_STACK=16777216",
             )
         )
         result = self.run_verifier()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(
-            "Dockerfile: RUST_MIN_STACK must be at least 33554432 bytes",
+            "Dockerfile: RUST_MIN_STACK must be at least 67108864 bytes",
             result.stderr,
         )
 

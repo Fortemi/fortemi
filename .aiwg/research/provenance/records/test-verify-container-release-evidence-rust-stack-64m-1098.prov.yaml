@@ -1,0 +1,49 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T03:30:30Z"
+  description: "Provenance for the hosted rustc 64 MiB release-stack correction"
+entity:
+  id: "urn:aiwg:artifact:tests/test_verify_container_release_evidence.py:sha256:e0d0bc647349a790f968618488672f43bfa7324bd669069301ad0e3651bc88a8"
+  type: test_source
+  created_at: "2026-08-26T03:30:30Z"
+  checksum: "sha256:e0d0bc647349a790f968618488672f43bfa7324bd669069301ad0e3651bc88a8"
+  size_bytes: 4837
+  attributes:
+    issues: ["Fortemi/fortemi#1098"]
+    change_type: modification
+    hosted_diagnostic_bytes: 67108864
+activity:
+  id: "urn:aiwg:activity:modification:test-verify-container-release-evidence-rust-stack-64m-1098:001"
+  type: modification
+  started_at: "2026-08-26T03:27:19Z"
+  ended_at: "2026-08-26T03:30:30Z"
+  description: "Raise and enforce the release-build stack from 32 MiB to the hosted rustc diagnostic requirement of 64 MiB"
+  attributes:
+    verification:
+      - "container release evidence verifier: passed"
+      - "container release evidence regression tests: 7 passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:tests/test_verify_container_release_evidence.py:sha256:e0d0bc647349a790f968618488672f43bfa7324bd669069301ad0e3651bc88a8"
+    activity: "urn:aiwg:activity:modification:test-verify-container-release-evidence-rust-stack-64m-1098:001"
+    time: "2026-08-26T03:30:30Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:test-verify-container-release-evidence-rust-stack-64m-1098:001"
+      entity: "urn:gitea:job:Fortemi/fortemi:134562"
+      role: hosted_ci_diagnostic
+    - activity: "urn:aiwg:activity:modification:test-verify-container-release-evidence-rust-stack-64m-1098:001"
+      entity: "urn:git:Fortemi/fortemi:c56143103e488b939c35983b6b552308605346c8"
+      role: failed_release_revision
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:test-verify-container-release-evidence-rust-stack-64m-1098:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:tests/test_verify_container_release_evidence.py:sha256:e0d0bc647349a790f968618488672f43bfa7324bd669069301ad0e3651bc88a8"
+    agent: "urn:aiwg:agent:codex-gpt-5"
