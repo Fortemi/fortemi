@@ -1,7 +1,11 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-26T17:04:47Z"
+  updated_at: "2026-08-26T17:11:31Z"
 records:
+  - entity: "docker/seed-data/fortemi-docs.shard"
+    record: "records/fortemi-docs-shard-release-2026-7-27-1098-1100.prov.yaml"
+  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
+    record: "records/fortemi-docs-shard-receipt-release-2026-7-27-1098-1100.prov.yaml"
   - entity: ".gitea/workflows/build-builder.yaml"
     record: "records/release-workflow-qualified-ref-handoff-1098.prov.yaml"
   - entity: ".gitea/workflows/ci-builder.yaml"
