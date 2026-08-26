@@ -1,0 +1,52 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T03:46:00Z"
+  description: "Provenance for the v2026.7.25 corrective release"
+entity:
+  id: "urn:aiwg:artifact:contracts/asyncapi/asyncapi.yaml:sha256:e5410274780552248e74386bc3c5d4269babb8dea97267c14aeb91587298b7bc"
+  type: interface_contract
+  created_at: "2026-08-26T03:46:00Z"
+  checksum: "sha256:e5410274780552248e74386bc3c5d4269babb8dea97267c14aeb91587298b7bc"
+  size_bytes: 45160
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    release: "2026.7.25"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:asyncapi-contract-release-2026-7-25-1098-1100:001"
+  type: modification
+  started_at: "2026-08-26T03:33:00Z"
+  ended_at: "2026-08-26T03:46:00Z"
+  description: "Prepare and validate contracts/asyncapi/asyncapi.yaml for the v2026.7.25 corrective release"
+  attributes:
+    verification:
+      - "deterministic release gates: passed"
+      - "release-note threat assessment: proceed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:contracts/asyncapi/asyncapi.yaml:sha256:e5410274780552248e74386bc3c5d4269babb8dea97267c14aeb91587298b7bc"
+    activity: "urn:aiwg:activity:modification:asyncapi-contract-release-2026-7-25-1098-1100:001"
+    time: "2026-08-26T03:46:00Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:asyncapi-contract-release-2026-7-25-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: release_requirement
+    - activity: "urn:aiwg:activity:modification:asyncapi-contract-release-2026-7-25-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1100"
+      role: corrective_change
+    - activity: "urn:aiwg:activity:modification:asyncapi-contract-release-2026-7-25-1098-1100:001"
+      entity: "urn:git:Fortemi/fortemi:d3846315a608632fa1555b9483cf4f4711cca4d8"
+      role: ci_fix
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:asyncapi-contract-release-2026-7-25-1098-1100:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:contracts/asyncapi/asyncapi.yaml:sha256:e5410274780552248e74386bc3c5d4269babb8dea97267c14aeb91587298b7bc"
+    agent: "urn:aiwg:agent:codex-gpt-5"

@@ -1,0 +1,52 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T03:46:00Z"
+  description: "Provenance for the v2026.7.25 corrective release"
+entity:
+  id: "urn:aiwg:artifact:mcp-server/package-lock.json:sha256:1f4e4580573c269b4014e5a30b9781fc8c68aedf708ee4fe0c43d6f309781adb"
+  type: dependency_lockfile
+  created_at: "2026-08-26T03:46:00Z"
+  checksum: "sha256:1f4e4580573c269b4014e5a30b9781fc8c68aedf708ee4fe0c43d6f309781adb"
+  size_bytes: 55972
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    release: "2026.7.25"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:mcp-package-lock-release-2026-7-25-1098-1100:001"
+  type: modification
+  started_at: "2026-08-26T03:33:00Z"
+  ended_at: "2026-08-26T03:46:00Z"
+  description: "Prepare and validate mcp-server/package-lock.json for the v2026.7.25 corrective release"
+  attributes:
+    verification:
+      - "deterministic release gates: passed"
+      - "release-note threat assessment: proceed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:mcp-server/package-lock.json:sha256:1f4e4580573c269b4014e5a30b9781fc8c68aedf708ee4fe0c43d6f309781adb"
+    activity: "urn:aiwg:activity:modification:mcp-package-lock-release-2026-7-25-1098-1100:001"
+    time: "2026-08-26T03:46:00Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:mcp-package-lock-release-2026-7-25-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: release_requirement
+    - activity: "urn:aiwg:activity:modification:mcp-package-lock-release-2026-7-25-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1100"
+      role: corrective_change
+    - activity: "urn:aiwg:activity:modification:mcp-package-lock-release-2026-7-25-1098-1100:001"
+      entity: "urn:git:Fortemi/fortemi:d3846315a608632fa1555b9483cf4f4711cca4d8"
+      role: ci_fix
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:mcp-package-lock-release-2026-7-25-1098-1100:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:mcp-server/package-lock.json:sha256:1f4e4580573c269b4014e5a30b9781fc8c68aedf708ee4fe0c43d6f309781adb"
+    agent: "urn:aiwg:agent:codex-gpt-5"

@@ -7,6 +7,19 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.7.25] - 2026-08-26
+
+Corrective publication for `2026.7.24`. The signed `v2026.7.24` tag published
+native sidecar assets, but its hosted container build exhausted the 32 MiB
+rustc worker stack and did not pass the release gate. It must not be treated as
+a completed release.
+
+This patch raises the Rust 1.92 release-build worker stack to the exact 64 MiB
+requirement reported by the hosted runner. The application changes, six
+forward migrations, and `core-v1` Knowledge Shard application contract remain
+unchanged. Use `v2026.7.25` for the corrected container and release artifacts
+(#1098, #1100).
+
 ## [2026.7.24] - 2026-08-25
 
 Corrective publication for `2026.7.23`. The application changes, six forward
