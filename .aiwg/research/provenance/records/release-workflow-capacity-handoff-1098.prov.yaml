@@ -1,0 +1,68 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T07:38:46Z"
+  description: "Provenance for the capacity-one cross-workflow delivery chain"
+entity:
+  id: "urn:aiwg:artifact:scripts/ci/verify-mutsu-build-serialization.sh:sha256:1b7f726e743f99c11a618337e3eb188f57ed7b76396fe11c080f9fb7f170ec53"
+  type: ci_policy_verifier
+  created_at: "2026-08-26T07:38:46Z"
+  checksum: "sha256:1b7f726e743f99c11a618337e3eb188f57ed7b76396fe11c080f9fb7f170ec53"
+  size_bytes: 3554
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    release: "2026.7.26"
+    change_type: modification
+    subjects:
+      - ".gitea/workflows/build-builder.yaml sha256:eb58858c6c5b5980c8a942b45b236afff7acc8e2149889aefafbddcd1e3c3438"
+      - ".gitea/workflows/ci-builder.yaml sha256:4afe9451207ab39723025b7fa9da24f29619dc54445fe16981561d36c03d4490"
+      - ".gitea/workflows/test.yml sha256:e6c3a7cd5fd06be8e9004fa133b079743f947743e5e4eda8754a9375cbfe2341"
+      - ".gitea/workflows/publish-sidecar.yml sha256:585dc6e815dc8e3301d8863d8f6e859258fd9cd634850fd67280c66908ffa1ea"
+      - ".gitea/workflows/docsite-build.yml sha256:fbe19910bb99e9d59ec2e65337f1178e2a55d107f9049d627d716f8a1908f2e2"
+      - ".gitea/workflows/docsite-deploy.yml sha256:e18065f065df4a31042b65eb5564dcfc68de9b139c8481b58ab394aca155d215"
+      - "scripts/ci/verify-release-asset-mirror.py sha256:25150fbc91a46161d9e347c61753442fe623c04d7ec9dd68ba0d9e541381c039"
+      - "scripts/ci/verify-release-job-guards.py sha256:06348b3c45bfde327ec2a8f4a3abf2d8dc4495339ba2bcd351e851530cda7fee"
+      - "CHANGELOG.md sha256:0e2165826e45f02e336aad754306dfadc1e89077548eee3f96998a971aa137c3"
+      - "docs/releases/v2026.7.26-announcement.md sha256:dfba70f274ffbff65a76f2fc1c92c541e7c1c0a593fb7983c4539d3dae330023"
+activity:
+  id: "urn:aiwg:activity:modification:release-workflow-capacity-handoff-1098:001"
+  type: modification
+  started_at: "2026-08-26T07:27:31Z"
+  ended_at: "2026-08-26T07:38:46Z"
+  description: "Replace competing push and tag starts with CI-to-Tests-to-Sidecar-to-Docsite success-gated dispatch"
+  attributes:
+    trigger: "Live main run assigned four workflows concurrently despite identical concurrency group names"
+    authority: "ITOps titan-host-runner capacity 1"
+    verification:
+      - "all Gitea workflow YAML parsed"
+      - "shellcheck scripts/ci/verify-mutsu-build-serialization.sh"
+      - "scripts/ci/verify-mutsu-build-serialization.sh"
+      - "tests/test_mutsu_build_lock.sh"
+      - "release-note threat assessment: proceed, zero findings"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-mutsu-build-serialization.sh:sha256:1b7f726e743f99c11a618337e3eb188f57ed7b76396fe11c080f9fb7f170ec53"
+    activity: "urn:aiwg:activity:modification:release-workflow-capacity-handoff-1098:001"
+    time: "2026-08-26T07:38:46Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:release-workflow-capacity-handoff-1098:001"
+      entity: "urn:git:Fortemi/fortemi:aaa3bc7c1951a7f17c6d38609b14ec200b1948d1"
+      role: observed_concurrent_workflow_revision
+    - activity: "urn:aiwg:activity:modification:release-workflow-capacity-handoff-1098:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: release_requirement
+    - activity: "urn:aiwg:activity:modification:release-workflow-capacity-handoff-1098:001"
+      entity: "urn:itops:runner:titan-host-runner:capacity-1"
+      role: infrastructure_authority
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:release-workflow-capacity-handoff-1098:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-mutsu-build-serialization.sh:sha256:1b7f726e743f99c11a618337e3eb188f57ed7b76396fe11c080f9fb7f170ec53"
+    agent: "urn:aiwg:agent:codex-gpt-5"

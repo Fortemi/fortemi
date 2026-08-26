@@ -15,8 +15,6 @@
 name: Tests
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -36,6 +34,9 @@ env:
   CARGO_INCREMENTAL: 0
   RUSTFLAGS: "-Cinstrument-coverage"
   LLVM_PROFILE_FILE: "target/coverage/profile-%p-%m.profraw"
+  VAULT_ADDR: ${{ vars.VAULT_ADDR }}
+  BUILD_REPO_TOKEN_VAULT_PATH: ${{ vars.BUILD_REPO_TOKEN_VAULT_PATH }}
+  BUILD_REPO_TOKEN_VAULT_FIELD: ${{ vars.BUILD_REPO_TOKEN_VAULT_FIELD }}
 
 jobs:
   runner-capacity:
@@ -399,7 +400,7 @@ jobs:
   slow-tests:
     name: Slow Tests
     runs-on: matric-builder
-    needs: [integration-tests, build-testdb]
+    needs: [coverage, build-testdb]
     if: github.event_name == 'push' || github.event.inputs.test_category == 'slow' || github.event.inputs.test_category == 'all'
     steps:
       - name: Checkout
@@ -507,7 +508,8 @@ jobs:
   validate-intel-overlay:
     name: Validate Intel Compose Overlay
     runs-on: matric-builder
-    needs: [runner-capacity]
+    needs: [slow-tests]
+    if: always() && needs.slow-tests.result != 'failure' && needs.slow-tests.result != 'cancelled'
     steps:
       - name: Checkout
         run: |
@@ -542,7 +544,7 @@ jobs:
   test-summary:
     name: Test Summary
     runs-on: matric-builder
-    needs: [fast-tests, integration-tests, coverage, validate-intel-overlay]
+    needs: [fast-tests, integration-tests, coverage, slow-tests, validate-intel-overlay]
     if: always()
     steps:
       - name: Check test results
@@ -557,9 +559,47 @@ jobs:
 
           if [ "${{ needs.fast-tests.result }}" != "success" ] || \
              [ "${{ needs.integration-tests.result }}" != "success" ] || \
+             [ "${{ needs.coverage.result }}" != "success" ] || \
+             { [ "${{ needs.slow-tests.result }}" != "success" ] && [ "${{ needs.slow-tests.result }}" != "skipped" ]; } || \
              [ "${{ needs.validate-intel-overlay.result }}" != "success" ]; then
             echo "❌ Tests failed"
             exit 1
           else
             echo "✅ Tests passed"
           fi
+
+  handoff-sidecar:
+    name: Dispatch Native Sidecar Builds
+    runs-on: matric-builder
+    needs: [test-summary]
+    if: github.event_name == 'workflow_dispatch' && needs.test-summary.result == 'success'
+    steps:
+      - name: Checkout dispatch tooling
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Fetch Gitea trigger token
+        env:
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.gitea-release.spec
+
+      - name: Dispatch sidecar builds at the tested ref
+        run: |
+          set -euo pipefail
+          jq -n --arg ref "${GITHUB_REF_NAME:?GITHUB_REF_NAME is required}" \
+            '{ref: $ref}' > dispatch.json
+          curl --fail-with-body --silent --show-error -X POST \
+            -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/publish-sidecar.yml/dispatches" \
+            --data-binary @dispatch.json
+
+      - name: Cleanup trigger token
+        if: always()
+        run: ci/vault-fetch.sh --cleanup

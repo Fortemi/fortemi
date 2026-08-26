@@ -11,9 +11,6 @@
 name: Docsite Build
 
 on:
-  push:
-    branches: [main]
-    paths: ['docs/**', 'scheduled-docs/**', 'scripts/docs/**', 'tenants.json', 'package.json', 'package-lock.json']
   pull_request:
     branches: [main]
     paths: ['docs/**', 'scheduled-docs/**', 'scripts/docs/**', 'tenants.json', 'package.json', 'package-lock.json']

@@ -295,24 +295,25 @@ jobs:
           VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
         run: ci/vault-fetch.sh --spec ci/vault-fetch.gitea-release.spec
 
-      - name: Trigger CI workflows
+      - name: Trigger CI workflow
         run: |
-          echo "Triggering CI workflows to use new builder image..."
+          set -euo pipefail
+          echo "Triggering CI to use the new builder image..."
 
-          # Trigger ci-builder.yaml via workflow_dispatch
+          PUBLISH_DEV=false
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            PUBLISH_DEV=true
+          fi
+          jq -n \
+            --arg ref "${GITHUB_REF_NAME:?GITHUB_REF_NAME is required}" \
+            --arg publish_dev "${PUBLISH_DEV}" \
+            '{ref: $ref, inputs: {publish_dev: $publish_dev}}' > dispatch.json
+
           curl --fail-with-body --silent --show-error -X POST \
             -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
             -H "Accept: application/json" \
             -H "Content-Type: application/json" \
             "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/ci-builder.yaml/dispatches" \
-            -d '{"ref":"main"}'
+            --data-binary @dispatch.json
 
-          # Also trigger the comprehensive test workflow
-          curl --fail-with-body --silent --show-error -X POST \
-            -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
-            -H "Accept: application/json" \
-            -H "Content-Type: application/json" \
-            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/test.yml/dispatches" \
-            -d '{"ref":"main"}'
-
-          echo "CI workflows triggered"
+          echo "CI workflow triggered for ${GITHUB_REF_NAME}"

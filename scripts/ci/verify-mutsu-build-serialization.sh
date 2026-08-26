@@ -38,6 +38,42 @@ for workflow in \
   grep -qF "cancel-in-progress: false" "$path"
 done
 
+# Gitea scopes concurrency groups to one workflow. The capacity-one runner is
+# protected across workflow files by a success-gated dispatch chain, not by the
+# shared spelling of those groups.
+ci_workflow="$ROOT/.gitea/workflows/ci-builder.yaml"
+test_workflow="$ROOT/.gitea/workflows/test.yml"
+sidecar_workflow="$ROOT/.gitea/workflows/publish-sidecar.yml"
+docsite_build="$ROOT/.gitea/workflows/docsite-build.yml"
+docsite_deploy="$ROOT/.gitea/workflows/docsite-deploy.yml"
+builder_workflow="$ROOT/.gitea/workflows/build-builder.yaml"
+
+grep -qF "handoff-tests:" "$ci_workflow"
+grep -qF "actions/workflows/test.yml/dispatches" "$ci_workflow"
+grep -qF "handoff-sidecar:" "$test_workflow"
+grep -qF "actions/workflows/publish-sidecar.yml/dispatches" "$test_workflow"
+grep -qF "handoff-docsite:" "$sidecar_workflow"
+grep -qF "actions/workflows/docsite-deploy.yml/dispatches" "$sidecar_workflow"
+
+for manually_chained in "$test_workflow" "$sidecar_workflow" "$docsite_build" "$docsite_deploy"; do
+  if grep -qE '^  push:' "$manually_chained"; then
+    echo "${manually_chained#"$ROOT/"} bypasses the capacity-one dispatch chain" >&2
+    exit 1
+  fi
+done
+
+if grep -qF "actions/workflows/test.yml/dispatches" "$builder_workflow"; then
+  echo "build-builder dispatches Tests in parallel with CI" >&2
+  exit 1
+fi
+# Assert the literal workflow expression.
+# shellcheck disable=SC2016
+grep -qF '"${GITHUB_REF_NAME:?GITHUB_REF_NAME is required}"' "$builder_workflow"
+grep -qF "needs: [coverage, build-testdb]" "$test_workflow"
+grep -qF "needs: [slow-tests]" "$test_workflow"
+grep -qF "needs: [fast-tests, integration-tests, coverage, slow-tests, validate-intel-overlay]" "$test_workflow"
+grep -qF "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'" "$sidecar_workflow"
+
 sidecar="$ROOT/.gitea/workflows/publish-sidecar.yml"
 awk '
   /^  build-linux-arm64:/ { in_job = 1; next }

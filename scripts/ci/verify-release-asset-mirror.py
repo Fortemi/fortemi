@@ -19,13 +19,13 @@ def main() -> int:
     mirror = MIRROR.read_text()
 
     checks = {
-        WORKFLOW: (
-            "scripts/ci/mirror-release-assets-to-github.sh",
-            "GITEA_TOKEN: ${{ github.token }}",
-        ),
+        WORKFLOW: (),
         SIDECAR: (
             "publish-sidecar-release.sh prepare",
             "sidecar-provenance.intoto.json",
+            "scripts/ci/mirror-release-assets-to-github.sh",
+            "GITEA_TOKEN: ${{ github.token }}",
+            "ci/vault-fetch.github-release.spec",
         ),
         MIRROR: (
             "SHA256SUMS.txt",

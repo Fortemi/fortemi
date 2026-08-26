@@ -36,7 +36,6 @@ FINALIZER_REQUIRED_FRAGMENTS = (
     "ci/vault-fetch.gitea-release.spec",
     'API="https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}"',
     "https://api.github.com/repos/Fortemi/fortemi/releases",
-    "scripts/ci/mirror-release-assets-to-github.sh",
 )
 RETRYABLE_DEV_PUBLISH_JOBS = {
     "publish-dev",

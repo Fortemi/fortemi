@@ -16,7 +16,12 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    paths-ignore:
+      - 'build/Dockerfile.builder'
+      - 'build/Dockerfile.testdb'
+      - 'build/scripts/**'
+      - 'build/gliner/**'
+      - 'build/pyannote/**'
   workflow_dispatch:
     inputs:
       publish_dev:
@@ -36,9 +41,9 @@ on:
       # pyannote sidecar built by build-pyannote.yaml
       - 'build/pyannote/**'
 
-# ITOps configures titan-host-runner with capacity 1. Queue the release-critical
-# workflows together so assigned jobs cannot expire before act_runner receives
-# them.
+# Suppress duplicate runs of this workflow. Cross-workflow serialization is
+# enforced by the explicit CI -> Tests -> Sidecar -> Docsite dispatch chain;
+# Gitea scopes concurrency groups to a workflow and cannot provide that chain.
 concurrency:
   group: fortemi-shared-runner
   cancel-in-progress: false
@@ -1606,7 +1611,41 @@ jobs:
             exit 1
           fi
 
-      - name: Mirror native release assets to GitHub
+  # Gitea does not serialize a concurrency-group name across workflow files.
+  # Dispatch the next capacity-1 workflow only after the main or tag publication
+  # gate succeeds, so the runner can receive every assigned job.
+  handoff-tests:
+    name: Dispatch Comprehensive Tests
+    runs-on: matric-builder
+    needs: [publish-github-dev, finalize-releases]
+    if: always() && github.event_name != 'pull_request' && ((github.ref == 'refs/heads/main' && needs.publish-github-dev.result == 'success') || (startsWith(github.ref, 'refs/tags/v') && needs.finalize-releases.result == 'success'))
+    steps:
+      - name: Checkout dispatch tooling
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Fetch Gitea trigger token
         env:
-          GITEA_TOKEN: ${{ github.token }}
-        run: scripts/ci/mirror-release-assets-to-github.sh
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.gitea-release.spec
+
+      - name: Dispatch comprehensive tests at the verified ref
+        run: |
+          set -euo pipefail
+          jq -n --arg ref "${GITHUB_REF_NAME:?GITHUB_REF_NAME is required}" \
+            '{ref: $ref, inputs: {test_category: "all"}}' > dispatch.json
+          curl --fail-with-body --silent --show-error -X POST \
+            -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/test.yml/dispatches" \
+            --data-binary @dispatch.json
+
+      - name: Cleanup trigger token
+        if: always()
+        run: ci/vault-fetch.sh --cleanup

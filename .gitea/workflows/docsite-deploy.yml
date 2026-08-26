@@ -25,10 +25,8 @@
 name: Docsite Deploy
 
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
-  # Manual trigger to publish the current ref's docs (e.g. main) between releases.
+  # CI dispatches this only after Tests and Sidecar complete. Operators can
+  # still publish an explicitly selected ref between releases.
   workflow_dispatch:
 
 concurrency:

@@ -15,8 +15,11 @@ release jobs concurrently to the ITOps-authoritative capacity-1 titan runner.
 Jobs that could not reach `act_runner` within the assignment window failed
 without logs, so the container and native release were not finalized.
 
-This patch places release-critical workflows in one non-cancelling concurrency
-group and serializes the three sidecar platform builds on the shared runner.
+This patch replaces competing automatic workflow starts with an explicit
+capacity-one handoff chain: CI, comprehensive tests, native sidecars, then
+documentation deployment. It also serializes the three sidecar platform
+builds on the shared runner. Per-workflow concurrency groups remain
+non-cancelling, but are not treated as cross-workflow compatibility evidence.
 The 64 MiB Rust 1.92 release-build stack correction, application behavior, six
 forward migrations, and `core-v1` Knowledge Shard application contract are
 otherwise unchanged. Use `v2026.7.26` for corrected release artifacts
