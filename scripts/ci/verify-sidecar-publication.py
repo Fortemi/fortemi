@@ -24,7 +24,7 @@ def main() -> int:
     boot_auth = BOOT_AUTH.read_text()
 
     for needle in (
-        "- 'scripts/ci/ensure-mutsu-boot-auth.sh'",
+        "\n  workflow_dispatch:\n",
         "publish-sidecar-release.sh prepare",
         "publish-sidecar-release.sh immutable",
         "publish-sidecar-release.sh rolling",
@@ -36,6 +36,11 @@ def main() -> int:
         "for attempt in $(seq 1 60)",
     ):
         require(workflow, needle, WORKFLOW, failures)
+
+    if "\n  push:" in workflow:
+        failures.append(
+            f"{WORKFLOW}: automatic push trigger bypasses the capacity-one dispatch chain"
+        )
 
     for forbidden in (
         'legacy_colima_home="${HOME}/.colima"',
