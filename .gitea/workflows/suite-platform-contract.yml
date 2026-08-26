@@ -1,17 +1,6 @@
 name: Suite Platform Contract
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.gitea/workflows/suite-platform-contract.yml'
-      - 'contracts/suite-conformance/**'
-      - 'scripts/ci/run-suite-platform-contract.sh'
-      - 'scripts/ci/mutsu-build-lock.sh'
-      - 'scripts/ci/verify-mutsu-build-serialization.sh'
-      - 'scripts/ci/verify-suite-platform-matrix.py'
-      - 'tests/test_mutsu_build_lock.sh'
-      - 'tests/test_verify_suite_platform_matrix.py'
   workflow_dispatch: {}
 
 concurrency:
@@ -24,6 +13,8 @@ env:
   VAULT_ADDR: ${{ vars.VAULT_ADDR }}
   MUTSU_SSH_KEY_VAULT_PATH: ${{ vars.MUTSU_SSH_KEY_VAULT_PATH }}
   MUTSU_SSH_KEY_VAULT_FIELD: ${{ vars.MUTSU_SSH_KEY_VAULT_FIELD }}
+  BUILD_REPO_TOKEN_VAULT_PATH: ${{ vars.BUILD_REPO_TOKEN_VAULT_PATH }}
+  BUILD_REPO_TOKEN_VAULT_FIELD: ${{ vars.BUILD_REPO_TOKEN_VAULT_FIELD }}
   VAULT_CACERT: ${{ github.workspace }}/ci/trust/integro-labs-root-ca-g2.crt
   VAULT_SKIP_VERIFY: "0"
 
@@ -69,6 +60,7 @@ jobs:
   linux-arm64:
     name: mutsu Linux arm64 authority-to-consumer contract
     runs-on: ubuntu-22.04
+    needs: [linux-x86_64]
     timeout-minutes: 240
     steps:
       - name: Checkout coordinator tooling
@@ -667,3 +659,39 @@ jobs:
           path: |
             suite-platform-aggregate.json
             hotm-platform-matrix.json
+
+  handoff-docsite:
+    name: Dispatch Documentation Deployment
+    runs-on: matric-builder
+    needs: [aggregate]
+    if: github.event_name == 'workflow_dispatch' && needs.aggregate.result == 'success'
+    steps:
+      - name: Checkout dispatch tooling
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Fetch Gitea trigger token
+        env:
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.gitea-release.spec
+
+      - name: Dispatch documentation deployment at the verified ref
+        run: |
+          set -euo pipefail
+          jq -n --arg ref "${GITHUB_REF_NAME:?GITHUB_REF_NAME is required}" \
+            '{ref: $ref}' > dispatch.json
+          curl --fail-with-body --silent --show-error -X POST \
+            -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/docsite-deploy.yml/dispatches" \
+            --data-binary @dispatch.json
+
+      - name: Cleanup trigger token
+        if: always()
+        run: ci/vault-fetch.sh --cleanup

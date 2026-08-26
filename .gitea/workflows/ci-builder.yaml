@@ -42,7 +42,7 @@ on:
       - 'build/pyannote/**'
 
 # Suppress duplicate runs of this workflow. Cross-workflow serialization is
-# enforced by the explicit CI -> Tests -> Sidecar -> Docsite dispatch chain;
+# enforced by the explicit CI -> Tests -> Sidecar -> Suite -> Docsite chain;
 # Gitea scopes concurrency groups to a workflow and cannot provide that chain.
 concurrency:
   group: fortemi-shared-runner

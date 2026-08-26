@@ -16,8 +16,8 @@ Jobs that could not reach `act_runner` within the assignment window failed
 without logs, so the container and native release were not finalized.
 
 This patch replaces competing automatic workflow starts with an explicit
-capacity-one handoff chain: CI, comprehensive tests, native sidecars, then
-documentation deployment. It also serializes the three sidecar platform
+capacity-one handoff chain: CI, comprehensive tests, native sidecars, the
+supported-platform suite contract, then documentation deployment. It also serializes the three sidecar platform
 builds on the shared runner. Per-workflow concurrency groups remain
 non-cancelling, but are not treated as cross-workflow compatibility evidence.
 The 128 MiB Rust 1.92 release-build stack correction, application behavior, six

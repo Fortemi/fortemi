@@ -44,6 +44,7 @@ done
 ci_workflow="$ROOT/.gitea/workflows/ci-builder.yaml"
 test_workflow="$ROOT/.gitea/workflows/test.yml"
 sidecar_workflow="$ROOT/.gitea/workflows/publish-sidecar.yml"
+suite_workflow="$ROOT/.gitea/workflows/suite-platform-contract.yml"
 docsite_build="$ROOT/.gitea/workflows/docsite-build.yml"
 docsite_deploy="$ROOT/.gitea/workflows/docsite-deploy.yml"
 builder_workflow="$ROOT/.gitea/workflows/build-builder.yaml"
@@ -52,10 +53,12 @@ grep -qF "handoff-tests:" "$ci_workflow"
 grep -qF "actions/workflows/test.yml/dispatches" "$ci_workflow"
 grep -qF "handoff-sidecar:" "$test_workflow"
 grep -qF "actions/workflows/publish-sidecar.yml/dispatches" "$test_workflow"
-grep -qF "handoff-docsite:" "$sidecar_workflow"
-grep -qF "actions/workflows/docsite-deploy.yml/dispatches" "$sidecar_workflow"
+grep -qF "handoff-suite:" "$sidecar_workflow"
+grep -qF "actions/workflows/suite-platform-contract.yml/dispatches" "$sidecar_workflow"
+grep -qF "handoff-docsite:" "$suite_workflow"
+grep -qF "actions/workflows/docsite-deploy.yml/dispatches" "$suite_workflow"
 
-for manually_chained in "$test_workflow" "$sidecar_workflow" "$docsite_build" "$docsite_deploy"; do
+for manually_chained in "$test_workflow" "$sidecar_workflow" "$suite_workflow" "$docsite_build" "$docsite_deploy"; do
   if grep -qE '^  push:' "$manually_chained"; then
     echo "${manually_chained#"$ROOT/"} bypasses the capacity-one dispatch chain" >&2
     exit 1
@@ -73,6 +76,7 @@ grep -qF "needs: [coverage, build-testdb]" "$test_workflow"
 grep -qF "needs: [slow-tests]" "$test_workflow"
 grep -qF "needs: [fast-tests, integration-tests, coverage, slow-tests, validate-intel-overlay]" "$test_workflow"
 grep -qF "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'" "$sidecar_workflow"
+grep -qF "needs: [linux-x86_64]" "$suite_workflow"
 
 sidecar="$ROOT/.gitea/workflows/publish-sidecar.yml"
 awk '

@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-26T07:53:10Z"
+  updated_at: "2026-08-26T07:58:48Z"
 records:
   - entity: "Dockerfile"
     record: "records/rust-stack-release-128m-1098.prov.yaml"
@@ -21,6 +21,8 @@ records:
   - entity: ".gitea/workflows/test.yml"
     record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
   - entity: ".gitea/workflows/publish-sidecar.yml"
+    record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
+  - entity: ".gitea/workflows/suite-platform-contract.yml"
     record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
   - entity: ".gitea/workflows/docsite-build.yml"
     record: "records/release-workflow-capacity-handoff-1098.prov.yaml"

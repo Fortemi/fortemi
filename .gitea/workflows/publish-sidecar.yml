@@ -779,8 +779,8 @@ jobs:
         if: always()
         run: ci/vault-fetch.sh --cleanup
 
-  handoff-docsite:
-    name: Dispatch Documentation Deployment
+  handoff-suite:
+    name: Dispatch Suite Platform Contract
     runs-on: matric-builder
     needs: [publish-sidecar-latest, publish-versioned]
     if: >-
@@ -802,7 +802,7 @@ jobs:
           VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
         run: ci/vault-fetch.sh --spec ci/vault-fetch.gitea-release.spec
 
-      - name: Dispatch documentation deployment at the published ref
+      - name: Dispatch suite contract at the published ref
         run: |
           set -euo pipefail
           jq -n --arg ref "${GITHUB_REF_NAME:?GITHUB_REF_NAME is required}" \
@@ -811,7 +811,7 @@ jobs:
             -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
             -H "Accept: application/json" \
             -H "Content-Type: application/json" \
-            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/docsite-deploy.yml/dispatches" \
+            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/suite-platform-contract.yml/dispatches" \
             --data-binary @dispatch.json
 
       - name: Cleanup trigger token
