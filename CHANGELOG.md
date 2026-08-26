@@ -20,7 +20,7 @@ capacity-one handoff chain: CI, comprehensive tests, native sidecars, then
 documentation deployment. It also serializes the three sidecar platform
 builds on the shared runner. Per-workflow concurrency groups remain
 non-cancelling, but are not treated as cross-workflow compatibility evidence.
-The 64 MiB Rust 1.92 release-build stack correction, application behavior, six
+The 128 MiB Rust 1.92 release-build stack correction, application behavior, six
 forward migrations, and `core-v1` Knowledge Shard application contract are
 otherwise unchanged. Use `v2026.7.26` for corrected release artifacts
 (#1098, #1100).
@@ -32,8 +32,8 @@ native sidecar assets, but its hosted container build exhausted the 32 MiB
 rustc worker stack and did not pass the release gate. It must not be treated as
 a completed release.
 
-This patch raises the Rust 1.92 release-build worker stack to the exact 64 MiB
-requirement reported by the hosted runner. The application changes, six
+This patch raises the Rust 1.92 release-build worker stack to the exact 128 MiB
+requirement reported by the final exact-source build. The application changes, six
 forward migrations, and `core-v1` Knowledge Shard application contract remain
 unchanged. Use `v2026.7.25` for the corrected container and release artifacts
 (#1098, #1100).

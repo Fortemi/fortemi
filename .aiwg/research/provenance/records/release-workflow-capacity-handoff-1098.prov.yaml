@@ -21,8 +21,8 @@ entity:
       - ".gitea/workflows/docsite-deploy.yml sha256:e18065f065df4a31042b65eb5564dcfc68de9b139c8481b58ab394aca155d215"
       - "scripts/ci/verify-release-asset-mirror.py sha256:25150fbc91a46161d9e347c61753442fe623c04d7ec9dd68ba0d9e541381c039"
       - "scripts/ci/verify-release-job-guards.py sha256:06348b3c45bfde327ec2a8f4a3abf2d8dc4495339ba2bcd351e851530cda7fee"
-      - "CHANGELOG.md sha256:0e2165826e45f02e336aad754306dfadc1e89077548eee3f96998a971aa137c3"
-      - "docs/releases/v2026.7.26-announcement.md sha256:dfba70f274ffbff65a76f2fc1c92c541e7c1c0a593fb7983c4539d3dae330023"
+      - "CHANGELOG.md sha256:7839c1eae97db8d28e053f92db75150bae061e07b1443f0b6d376dc0ea2573f1"
+      - "docs/releases/v2026.7.26-announcement.md sha256:d5fb0576e2c682ffaf0ad9c6329b922a9311c3536fe13a921b18a9bf2bc2422e"
 activity:
   id: "urn:aiwg:activity:modification:release-workflow-capacity-handoff-1098:001"
   type: modification

@@ -1,0 +1,57 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T07:45:36Z"
+  description: "Provenance for the Rust 1.92 thin-LTO 128 MiB worker-stack correction"
+entity:
+  id: "urn:aiwg:artifact:Dockerfile:sha256:6be2b590fbeea2513316c9fce86be85cfa870617c41582738950973b608ca03e"
+  type: build_definition
+  created_at: "2026-08-26T07:45:36Z"
+  checksum: "sha256:6be2b590fbeea2513316c9fce86be85cfa870617c41582738950973b608ca03e"
+  size_bytes: 6955
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    release: "2026.7.26"
+    hosted_diagnostic_bytes: 134217728
+    subjects:
+      - "Dockerfile.bundle sha256:c2a87c8ab336adb117b5054a847cd0b78602a683d57e1c49860d81143ee9a6f0"
+      - "scripts/ci/verify-container-release-evidence.py sha256:b31e355a137aca63c8271f1c5bfbdbf6b990ddbbf8e1c32d3349bc1fd573aa99"
+      - "tests/test_verify_container_release_evidence.py sha256:cf0fb6ced140527c44881168b3d2217545dde0cc95efd090d663bc3e953f8e54"
+      - "CHANGELOG.md sha256:7839c1eae97db8d28e053f92db75150bae061e07b1443f0b6d376dc0ea2573f1"
+      - "docs/releases/v2026.7.26-announcement.md sha256:d5fb0576e2c682ffaf0ad9c6329b922a9311c3536fe13a921b18a9bf2bc2422e"
+activity:
+  id: "urn:aiwg:activity:modification:rust-stack-release-128m-1098:001"
+  type: modification
+  started_at: "2026-08-26T07:44:00Z"
+  ended_at: "2026-08-26T07:45:36Z"
+  description: "Raise and enforce release-build worker stacks from 64 MiB to the exact-source rustc diagnostic requirement of 128 MiB"
+  attributes:
+    verification:
+      - "exact-source Docker build e062c2d13953cdce403e763f07ebf4d266826260 reproduced rustc SIGSEGV"
+      - "rustc diagnostic: RUST_MIN_STACK=134217728"
+      - "scripts/ci/verify-container-release-evidence.py: passed"
+      - "tests/test_verify_container_release_evidence.py: 7 passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:Dockerfile:sha256:6be2b590fbeea2513316c9fce86be85cfa870617c41582738950973b608ca03e"
+    activity: "urn:aiwg:activity:modification:rust-stack-release-128m-1098:001"
+    time: "2026-08-26T07:45:36Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:rust-stack-release-128m-1098:001"
+      entity: "urn:git:Fortemi/fortemi:e062c2d13953cdce403e763f07ebf4d266826260"
+      role: reproduced_source_revision
+    - activity: "urn:aiwg:activity:modification:rust-stack-release-128m-1098:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: release_requirement
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:rust-stack-release-128m-1098:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:Dockerfile:sha256:6be2b590fbeea2513316c9fce86be85cfa870617c41582738950973b608ca03e"
+    agent: "urn:aiwg:agent:codex-gpt-5"
