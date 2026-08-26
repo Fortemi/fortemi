@@ -1,0 +1,67 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T07:08:07Z"
+  description: "Provenance for the v2026.7.26 corrective release preparation"
+entity:
+  id: "urn:aiwg:artifact:docs/releases/v2026.7.26-announcement.md:sha256:9a2281e5592ebae80569cd6f677b8cad165d0a4ffab782d9fb804ae0113b8080"
+  type: release_documentation
+  created_at: "2026-08-26T07:08:07Z"
+  checksum: "sha256:9a2281e5592ebae80569cd6f677b8cad165d0a4ffab782d9fb804ae0113b8080"
+  size_bytes: 3537
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    release: "2026.7.26"
+    change_type: generation
+    knowledge_shard_profile: "core-v1"
+    subjects:
+      - "Cargo.toml sha256:de8b2c2275505bcd8b34f73b5ecafa6eded53089b90d3abca1a2e8dbb9c8f2d5"
+      - "Cargo.lock sha256:ce1feb0e4db79382c2eaeb4885411e154afae5558618dbcd09f79ecf36b5d8c7"
+      - "mcp-server/package.json sha256:1d450dcdcc3a21469b3bbab60cde2ec6bd597cce60ed4193ad72508ea0a076d0"
+      - "mcp-server/package-lock.json sha256:435d1bec4002ec724bdfbd711586157274cc371a94c0f8d11fc29f37732c2800"
+      - "CHANGELOG.md sha256:1fa88ff601d67ca4da15daeff332db96f44f4d31622304df840183131c8c6a5b"
+      - "contracts/asyncapi/asyncapi.yaml sha256:749bf7bc29a2f2edde722919331b8d97e604184f3fb03279aeee15d74e6b0b70"
+      - "contracts/asyncapi/asyncapi.sha256 sha256:c36edc37641250ce213fc7fe9a592daf42d41f592c2d3f0331cfe2ecc100832b"
+      - ".aiwg/releases/evidence/v2026.7.26-release-note-threat-assessment.json sha256:8fbad47aecd856275c3918dec3379f77154fe42ecb24a375d4cacffd73fddcf4"
+activity:
+  id: "urn:aiwg:activity:generation:release-preparation-2026-7-26-1098-1100:001"
+  type: generation
+  started_at: "2026-08-26T06:58:21Z"
+  ended_at: "2026-08-26T07:08:07Z"
+  description: "Prepare and validate the v2026.7.26 corrective release authorities"
+  attributes:
+    verification:
+      - "cargo fmt and clippy: passed"
+      - "cargo-deny producer and auth consumer checks: passed"
+      - "workspace library tests: passed"
+      - "MCP server tests: 63 passed, 1 skipped"
+      - "AsyncAPI deterministic regeneration: passed"
+      - "hosted-strict docs contract: passed"
+      - "release-note threat assessment: proceed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/releases/v2026.7.26-announcement.md:sha256:9a2281e5592ebae80569cd6f677b8cad165d0a4ffab782d9fb804ae0113b8080"
+    activity: "urn:aiwg:activity:generation:release-preparation-2026-7-26-1098-1100:001"
+    time: "2026-08-26T07:08:07Z"
+  used:
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-7-26-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: release_requirement
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-7-26-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1100"
+      role: corrective_change
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-7-26-1098-1100:001"
+      entity: "urn:git:Fortemi/fortemi:db20f795eb149e0604c4608ab390d5db57e8176b"
+      role: superseded_release_revision
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:release-preparation-2026-7-26-1098-1100:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/releases/v2026.7.26-announcement.md:sha256:9a2281e5592ebae80569cd6f677b8cad165d0a4ffab782d9fb804ae0113b8080"
+    agent: "urn:aiwg:agent:codex-gpt-5"

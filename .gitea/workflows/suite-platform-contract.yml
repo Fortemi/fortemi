@@ -15,7 +15,7 @@ on:
   workflow_dispatch: {}
 
 concurrency:
-  group: suite-platform-contract
+  group: fortemi-shared-runner
   cancel-in-progress: false
 
 env:

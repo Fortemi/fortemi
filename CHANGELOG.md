@@ -7,6 +7,21 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.7.26] - 2026-08-26
+
+Corrective publication for `2026.7.25`. The signed `v2026.7.25` tag passed
+the application and native-platform build gates, but Gitea assigned several
+release jobs concurrently to the ITOps-authoritative capacity-1 titan runner.
+Jobs that could not reach `act_runner` within the assignment window failed
+without logs, so the container and native release were not finalized.
+
+This patch places release-critical workflows in one non-cancelling concurrency
+group and serializes the three sidecar platform builds on the shared runner.
+The 64 MiB Rust 1.92 release-build stack correction, application behavior, six
+forward migrations, and `core-v1` Knowledge Shard application contract are
+otherwise unchanged. Use `v2026.7.26` for corrected release artifacts
+(#1098, #1100).
+
 ## [2026.7.25] - 2026-08-26
 
 Corrective publication for `2026.7.24`. The signed `v2026.7.24` tag published
@@ -2059,7 +2074,10 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.7.23...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.7.26...HEAD
+[2026.7.26]: https://github.com/fortemi/fortemi/compare/v2026.7.25...v2026.7.26
+[2026.7.25]: https://github.com/fortemi/fortemi/compare/v2026.7.24...v2026.7.25
+[2026.7.24]: https://github.com/fortemi/fortemi/compare/v2026.7.23...v2026.7.24
 [2026.7.23]: https://github.com/fortemi/fortemi/compare/v2026.7.22...v2026.7.23
 [2026.7.22]: https://github.com/fortemi/fortemi/compare/v2026.7.21...v2026.7.22
 [2026.7.21]: https://github.com/fortemi/fortemi/compare/v2026.7.20...v2026.7.21

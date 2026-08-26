@@ -1,0 +1,60 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T07:08:07Z"
+  description: "Provenance for the capacity-1 release workflow serialization correction"
+entity:
+  id: "urn:aiwg:artifact:scripts/ci/verify-mutsu-build-serialization.sh:sha256:150c21a5e21832bf72cad8a77f053952a0ffced0f02aa5b754549582def68b18"
+  type: ci_verifier
+  created_at: "2026-08-26T07:08:07Z"
+  checksum: "sha256:150c21a5e21832bf72cad8a77f053952a0ffced0f02aa5b754549582def68b18"
+  size_bytes: 1773
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    change_type: modification
+    runner_authority: "ITOps capacity: 1"
+    subjects:
+      - ".gitea/workflows/build-builder.yaml sha256:665f8582683f8f6f73a985590746ee044b4ff9454e155c0e29a66128b3bab437"
+      - ".gitea/workflows/ci-builder.yaml sha256:b82b69e387378c827649e03d8b24b7a8c4219d5132158bed7cba285b62e4d6df"
+      - ".gitea/workflows/publish-sidecar.yml sha256:2d0612500b0f81818ef1ede38162a9c42c88c7a628e9c082ccdbe2e58d220db5"
+      - ".gitea/workflows/suite-platform-contract.yml sha256:9ef6cdbee26d6501cbca7b43c3d792b396447e8b52823633d85b6a388a7137ad"
+      - ".gitea/workflows/test.yml sha256:66ea3fedff4a001946fceadf8ac7c697240b143d612f043aa6d00446b76bc242"
+activity:
+  id: "urn:aiwg:activity:modification:release-workflow-capacity-serialization-1098:001"
+  type: modification
+  started_at: "2026-08-26T06:08:26Z"
+  ended_at: "2026-08-26T07:08:07Z"
+  description: "Serialize release-critical workflows and native sidecar builds for the capacity-1 titan runner"
+  attributes:
+    verification:
+      - "five workflow concurrency guards: passed"
+      - "sidecar dependency-order checks: passed"
+      - "mutsu build lock tests: passed"
+      - "YAML parsing and shellcheck: passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-mutsu-build-serialization.sh:sha256:150c21a5e21832bf72cad8a77f053952a0ffced0f02aa5b754549582def68b18"
+    activity: "urn:aiwg:activity:modification:release-workflow-capacity-serialization-1098:001"
+    time: "2026-08-26T07:08:07Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:release-workflow-capacity-serialization-1098:001"
+      entity: "urn:gitea:job:Fortemi/fortemi:134810"
+      role: interrupted_runner_evidence
+    - activity: "urn:aiwg:activity:modification:release-workflow-capacity-serialization-1098:001"
+      entity: "urn:gitea:job:Fortemi/fortemi:134980"
+      role: assignment_timeout_evidence
+    - activity: "urn:aiwg:activity:modification:release-workflow-capacity-serialization-1098:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: release_requirement
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:release-workflow-capacity-serialization-1098:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-mutsu-build-serialization.sh:sha256:150c21a5e21832bf72cad8a77f053952a0ffced0f02aa5b754549582def68b18"
+    agent: "urn:aiwg:agent:codex-gpt-5"

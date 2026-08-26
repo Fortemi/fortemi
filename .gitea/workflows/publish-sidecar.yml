@@ -49,6 +49,10 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+concurrency:
+  group: fortemi-shared-runner
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
   GITEA_API: https://git.integrolabs.net/api/v1
@@ -123,6 +127,7 @@ jobs:
   build-linux-arm64:
     name: Build Linux aarch64 on mutsu
     runs-on: titan
+    needs: [build-linux]
     timeout-minutes: 180
     steps:
       - name: Checkout coordinator tooling
@@ -328,6 +333,7 @@ jobs:
   build-macos:
     name: Build macOS aarch64
     runs-on: titan
+    needs: [build-linux-arm64]
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4

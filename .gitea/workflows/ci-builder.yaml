@@ -36,6 +36,13 @@ on:
       # pyannote sidecar built by build-pyannote.yaml
       - 'build/pyannote/**'
 
+# ITOps configures titan-host-runner with capacity 1. Queue the release-critical
+# workflows together so assigned jobs cannot expire before act_runner receives
+# them.
+concurrency:
+  group: fortemi-shared-runner
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
