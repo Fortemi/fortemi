@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-26T07:58:48Z"
+  updated_at: "2026-08-26T08:03:10Z"
 records:
   - entity: "Dockerfile"
     record: "records/rust-stack-release-128m-1098.prov.yaml"
