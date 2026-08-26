@@ -1,0 +1,57 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T03:43:22Z"
+  description: "Provenance for the core-v1 documentation Knowledge Shard regenerated for v2026.7.25"
+entity:
+  id: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:e89462bc3f2f0f28d4aa33ae8202e635a5d78bc58f1aeb39424019b2f1e117a0"
+  type: knowledge_shard
+  created_at: "2026-08-26T03:43:22Z"
+  checksum: "sha256:e89462bc3f2f0f28d4aa33ae8202e635a5d78bc58f1aeb39424019b2f1e117a0"
+  size_bytes: 2466764
+  attributes:
+    contract_profile: "core-v1"
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    release: "2026.7.25"
+    producer_revision: "4930b217e044af27fb2fcb1710668a9307ebe05f"
+activity:
+  id: "urn:aiwg:activity:generation:fortemi-docs-shard-release-2026-7-25-1098-1100:001"
+  type: generation
+  started_at: "2026-08-26T03:42:35Z"
+  ended_at: "2026-08-26T03:43:22Z"
+  description: "Regenerate and verify docker/seed-data/fortemi-docs.shard with the v2026.7.25 producer image"
+  attributes:
+    verification:
+      - "source coverage: 376/376"
+      - "import failures: 0"
+      - "receipt server_version: 2026.7.25"
+      - "receipt source_commit and server_commit: 4930b217e044af27fb2fcb1710668a9307ebe05f"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:e89462bc3f2f0f28d4aa33ae8202e635a5d78bc58f1aeb39424019b2f1e117a0"
+    activity: "urn:aiwg:activity:generation:fortemi-docs-shard-release-2026-7-25-1098-1100:001"
+    time: "2026-08-26T03:43:22Z"
+  used:
+    - activity: "urn:aiwg:activity:generation:fortemi-docs-shard-release-2026-7-25-1098-1100:001"
+      entity: "urn:git:Fortemi/fortemi:4930b217e044af27fb2fcb1710668a9307ebe05f"
+      role: producer_revision
+    - activity: "urn:aiwg:activity:generation:fortemi-docs-shard-release-2026-7-25-1098-1100:001"
+      entity: "urn:container:fortemi-docs-rebuild:2026.7.25"
+      role: producer_image
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:e89462bc3f2f0f28d4aa33ae8202e635a5d78bc58f1aeb39424019b2f1e117a0"
+      source: "urn:git:Fortemi/fortemi:4930b217e044af27fb2fcb1710668a9307ebe05f"
+      derivation_type: generated_release_artifact
+      activity: "urn:aiwg:activity:generation:fortemi-docs-shard-release-2026-7-25-1098-1100:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:fortemi-docs-shard-release-2026-7-25-1098-1100:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:e89462bc3f2f0f28d4aa33ae8202e635a5d78bc58f1aeb39424019b2f1e117a0"
+    agent: "urn:aiwg:agent:codex-gpt-5"
