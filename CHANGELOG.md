@@ -7,6 +7,18 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.7.24] - 2026-08-25
+
+Corrective publication for `2026.7.23`. The application changes, six forward
+migrations, and `core-v1` Knowledge Shard contract are unchanged. The signed
+`v2026.7.23` tag published native sidecar assets, but its container build did
+not pass the release gate and must not be treated as a completed release.
+
+This patch raises the Rust 1.92 release-build worker stack from 16 MiB to the
+32 MiB requirement reported by the tag build and adds a fail-closed CI check
+that rejects a lower API or bundle Dockerfile default. Use `v2026.7.24` for
+the corrected container and release artifacts (#1098, #1100).
+
 ## [2026.7.23] - 2026-08-25
 
 ### Added

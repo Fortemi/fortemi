@@ -1,0 +1,52 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T01:36:47Z"
+  description: "Provenance for the v2026.7.24 corrective release"
+entity:
+  id: "urn:aiwg:artifact:CHANGELOG.md:sha256:11a6d549c3a5169cf0b9eee6e100e060a5f17b3b4b64df707a9b063bc7df1635"
+  type: release_documentation
+  created_at: "2026-08-26T01:36:47Z"
+  checksum: "sha256:11a6d549c3a5169cf0b9eee6e100e060a5f17b3b4b64df707a9b063bc7df1635"
+  size_bytes: 161260
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    release: "2026.7.24"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:changelog-release-2026-7-24-1098-1100:001"
+  type: modification
+  started_at: "2026-08-26T01:20:00Z"
+  ended_at: "2026-08-26T01:36:47Z"
+  description: "Prepare and validate CHANGELOG.md for the v2026.7.24 corrective release"
+  attributes:
+    verification:
+      - "deterministic release gates: passed"
+      - "release-note threat assessment: proceed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:CHANGELOG.md:sha256:11a6d549c3a5169cf0b9eee6e100e060a5f17b3b4b64df707a9b063bc7df1635"
+    activity: "urn:aiwg:activity:modification:changelog-release-2026-7-24-1098-1100:001"
+    time: "2026-08-26T01:36:47Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:changelog-release-2026-7-24-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: release_requirement
+    - activity: "urn:aiwg:activity:modification:changelog-release-2026-7-24-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1100"
+      role: corrective_change
+    - activity: "urn:aiwg:activity:modification:changelog-release-2026-7-24-1098-1100:001"
+      entity: "urn:git:Fortemi/fortemi:e9a359f42bb256e2c56321f373e69351eae06481"
+      role: ci_fix
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:changelog-release-2026-7-24-1098-1100:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:CHANGELOG.md:sha256:11a6d549c3a5169cf0b9eee6e100e060a5f17b3b4b64df707a9b063bc7df1635"
+    agent: "urn:aiwg:agent:codex-gpt-5"

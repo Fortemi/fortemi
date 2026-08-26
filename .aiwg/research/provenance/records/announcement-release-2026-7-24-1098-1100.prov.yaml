@@ -1,0 +1,52 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T01:36:47Z"
+  description: "Provenance for the v2026.7.24 corrective release"
+entity:
+  id: "urn:aiwg:artifact:docs/releases/v2026.7.24-announcement.md:sha256:fb64a4655b4e10d4309f968bb39af92c369027c1c796ed3704fcce0bbe71898c"
+  type: release_documentation
+  created_at: "2026-08-26T01:36:47Z"
+  checksum: "sha256:fb64a4655b4e10d4309f968bb39af92c369027c1c796ed3704fcce0bbe71898c"
+  size_bytes: 2966
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    release: "2026.7.24"
+    change_type: generation
+activity:
+  id: "urn:aiwg:activity:generation:announcement-release-2026-7-24-1098-1100:001"
+  type: generation
+  started_at: "2026-08-26T01:20:00Z"
+  ended_at: "2026-08-26T01:36:47Z"
+  description: "Prepare and validate docs/releases/v2026.7.24-announcement.md for the v2026.7.24 corrective release"
+  attributes:
+    verification:
+      - "deterministic release gates: passed"
+      - "release-note threat assessment: proceed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/releases/v2026.7.24-announcement.md:sha256:fb64a4655b4e10d4309f968bb39af92c369027c1c796ed3704fcce0bbe71898c"
+    activity: "urn:aiwg:activity:generation:announcement-release-2026-7-24-1098-1100:001"
+    time: "2026-08-26T01:36:47Z"
+  used:
+    - activity: "urn:aiwg:activity:generation:announcement-release-2026-7-24-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: release_requirement
+    - activity: "urn:aiwg:activity:generation:announcement-release-2026-7-24-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1100"
+      role: corrective_change
+    - activity: "urn:aiwg:activity:generation:announcement-release-2026-7-24-1098-1100:001"
+      entity: "urn:git:Fortemi/fortemi:e9a359f42bb256e2c56321f373e69351eae06481"
+      role: ci_fix
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:announcement-release-2026-7-24-1098-1100:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/releases/v2026.7.24-announcement.md:sha256:fb64a4655b4e10d4309f968bb39af92c369027c1c796ed3704fcce0bbe71898c"
+    agent: "urn:aiwg:agent:codex-gpt-5"

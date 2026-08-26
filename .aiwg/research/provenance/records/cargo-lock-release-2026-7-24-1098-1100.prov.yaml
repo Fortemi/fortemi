@@ -1,0 +1,52 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T01:36:47Z"
+  description: "Provenance for the v2026.7.24 corrective release"
+entity:
+  id: "urn:aiwg:artifact:Cargo.lock:sha256:6bf135db06cdf7d051c79948a7501fbecb14f735b4c424ef49a35a7108e14e1e"
+  type: dependency_lockfile
+  created_at: "2026-08-26T01:36:47Z"
+  checksum: "sha256:6bf135db06cdf7d051c79948a7501fbecb14f735b4c424ef49a35a7108e14e1e"
+  size_bytes: 158151
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    release: "2026.7.24"
+    change_type: modification
+activity:
+  id: "urn:aiwg:activity:modification:cargo-lock-release-2026-7-24-1098-1100:001"
+  type: modification
+  started_at: "2026-08-26T01:20:00Z"
+  ended_at: "2026-08-26T01:36:47Z"
+  description: "Prepare and validate Cargo.lock for the v2026.7.24 corrective release"
+  attributes:
+    verification:
+      - "deterministic release gates: passed"
+      - "release-note threat assessment: proceed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:Cargo.lock:sha256:6bf135db06cdf7d051c79948a7501fbecb14f735b4c424ef49a35a7108e14e1e"
+    activity: "urn:aiwg:activity:modification:cargo-lock-release-2026-7-24-1098-1100:001"
+    time: "2026-08-26T01:36:47Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:cargo-lock-release-2026-7-24-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: release_requirement
+    - activity: "urn:aiwg:activity:modification:cargo-lock-release-2026-7-24-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1100"
+      role: corrective_change
+    - activity: "urn:aiwg:activity:modification:cargo-lock-release-2026-7-24-1098-1100:001"
+      entity: "urn:git:Fortemi/fortemi:e9a359f42bb256e2c56321f373e69351eae06481"
+      role: ci_fix
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:cargo-lock-release-2026-7-24-1098-1100:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:Cargo.lock:sha256:6bf135db06cdf7d051c79948a7501fbecb14f735b4c424ef49a35a7108e14e1e"
+    agent: "urn:aiwg:agent:codex-gpt-5"
