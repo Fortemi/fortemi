@@ -1,0 +1,29 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T01:27:59Z"
+  description: "Provenance for the container rustc stack policy regression test"
+entity:
+  id: "urn:aiwg:artifact:tests/test_verify_container_release_evidence.py:sha256:83bd2c307501e030faf5b252026ad5455d022df003711394d68475a41fdae024"
+  type: test
+  created_at: "2026-08-26T01:27:59Z"
+  checksum: "sha256:83bd2c307501e030faf5b252026ad5455d022df003711394d68475a41fdae024"
+  size_bytes: 4837
+  attributes: {issue: "Fortemi/fortemi#1098", minimum_rust_stack_bytes: 33554432}
+activity:
+  id: "urn:aiwg:activity:modification:test-verify-container-release-evidence-rust-stack-1098:001"
+  type: modification
+  started_at: "2026-08-26T01:25:00Z"
+  ended_at: "2026-08-26T01:27:59Z"
+  description: "Add a regression proving the verifier fails below the observed 32 MiB requirement"
+  attributes:
+    verification: ["python3 -m unittest tests.test_verify_container_release_evidence"]
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy: {entity: "urn:aiwg:artifact:tests/test_verify_container_release_evidence.py:sha256:83bd2c307501e030faf5b252026ad5455d022df003711394d68475a41fdae024", activity: "urn:aiwg:activity:modification:test-verify-container-release-evidence-rust-stack-1098:001", time: "2026-08-26T01:27:59Z"}
+  wasAssociatedWith: {activity: "urn:aiwg:activity:modification:test-verify-container-release-evidence-rust-stack-1098:001", agent: "urn:aiwg:agent:codex-gpt-5", role: test_engineer}
+  wasAttributedTo: {entity: "urn:aiwg:artifact:tests/test_verify_container_release_evidence.py:sha256:83bd2c307501e030faf5b252026ad5455d022df003711394d68475a41fdae024", agent: "urn:aiwg:agent:codex-gpt-5"}

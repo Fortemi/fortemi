@@ -24,6 +24,8 @@ class VerifyContainerReleaseEvidenceTests(unittest.TestCase):
         (self.root / "docker").mkdir()
         (self.root / "scripts/ci").mkdir(parents=True)
         (self.root / ".gitea/workflows").mkdir(parents=True)
+        for dockerfile in ("Dockerfile", "Dockerfile.bundle"):
+            shutil.copy2(ROOT / dockerfile, self.root / dockerfile)
         shutil.copy2(POLICY, self.root / POLICY.relative_to(ROOT))
         shutil.copy2(
             ROOT / "scripts/ci/promote-ghcr-images.sh",
@@ -86,6 +88,21 @@ class VerifyContainerReleaseEvidenceTests(unittest.TestCase):
         result = self.run_verifier()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must export VERSION", result.stderr)
+
+    def test_rust_stack_below_observed_release_requirement_fails_closed(self) -> None:
+        dockerfile = self.root / "Dockerfile"
+        dockerfile.write_text(
+            dockerfile.read_text().replace(
+                "ARG RUST_MIN_STACK=33554432",
+                "ARG RUST_MIN_STACK=16777216",
+            )
+        )
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "Dockerfile: RUST_MIN_STACK must be at least 33554432 bytes",
+            result.stderr,
+        )
 
     def test_missing_public_ghcr_gate_fails_closed(self) -> None:
         workflow = self.root / ".gitea/workflows/ci-builder.yaml"

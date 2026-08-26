@@ -1,0 +1,29 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T01:27:59Z"
+  description: "Provenance for fail-closed validation of the observed rustc stack requirement"
+entity:
+  id: "urn:aiwg:artifact:scripts/ci/verify-container-release-evidence.py:sha256:a7524f79f50e69a1697c362195c1735128a5f07a6601e025e1c9f761cb057e5a"
+  type: software
+  created_at: "2026-08-26T01:27:59Z"
+  checksum: "sha256:a7524f79f50e69a1697c362195c1735128a5f07a6601e025e1c9f761cb057e5a"
+  size_bytes: 10739
+  attributes: {issue: "Fortemi/fortemi#1098", minimum_rust_stack_bytes: 33554432}
+activity:
+  id: "urn:aiwg:activity:modification:verify-container-release-evidence-rust-stack-1098:001"
+  type: modification
+  started_at: "2026-08-26T01:25:00Z"
+  ended_at: "2026-08-26T01:27:59Z"
+  description: "Reject API or bundle Dockerfiles that omit or undercut the 32 MiB rustc stack requirement"
+  attributes:
+    verification: ["python3 scripts/ci/verify-container-release-evidence.py"]
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy: {entity: "urn:aiwg:artifact:scripts/ci/verify-container-release-evidence.py:sha256:a7524f79f50e69a1697c362195c1735128a5f07a6601e025e1c9f761cb057e5a", activity: "urn:aiwg:activity:modification:verify-container-release-evidence-rust-stack-1098:001", time: "2026-08-26T01:27:59Z"}
+  wasAssociatedWith: {activity: "urn:aiwg:activity:modification:verify-container-release-evidence-rust-stack-1098:001", agent: "urn:aiwg:agent:codex-gpt-5", role: release_engineer}
+  wasAttributedTo: {entity: "urn:aiwg:artifact:scripts/ci/verify-container-release-evidence.py:sha256:a7524f79f50e69a1697c362195c1735128a5f07a6601e025e1c9f761cb057e5a", agent: "urn:aiwg:agent:codex-gpt-5"}

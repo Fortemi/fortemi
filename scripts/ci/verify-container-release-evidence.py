@@ -14,6 +14,8 @@ POLICY = Path("docker/container-release-evidence-policy.json")
 CI_WORKFLOW = Path(".gitea/workflows/ci-builder.yaml")
 CAPTURE = "scripts/ci/capture-container-release-evidence.py"
 PUBLIC_VERIFY = "scripts/ci/verify-ghcr-publication.sh"
+RUST_DOCKERFILES = (Path("Dockerfile"), Path("Dockerfile.bundle"))
+MINIMUM_RUST_STACK_BYTES = 33_554_432
 EXPECTED_FAMILIES = {"api", "bundle", "gliner", "pyannote", "builder", "testdb"}
 EXPECTED_REGISTRIES = {"git.integrolabs.net", "ghcr.io"}
 EXPECTED_BUILD_ARGS = {"VERSION", "GIT_SHA", "BUILD_DATE"}
@@ -42,6 +44,21 @@ def main() -> int:
         failures.append("public Docker build arguments must use the reviewed allowlist")
     if build_inputs.get("secrets_as_build_args_allowed") is not False:
         failures.append("policy must forbid secrets in Docker build arguments")
+
+    for dockerfile in RUST_DOCKERFILES:
+        try:
+            dockerfile_text = dockerfile.read_text()
+        except OSError as error:
+            failures.append(f"cannot read {dockerfile}: {error}")
+            continue
+        match = re.search(r"^ARG RUST_MIN_STACK=(\d+)$", dockerfile_text, re.MULTILINE)
+        if not match or int(match.group(1)) < MINIMUM_RUST_STACK_BYTES:
+            failures.append(
+                f"{dockerfile}: RUST_MIN_STACK must be at least "
+                f"{MINIMUM_RUST_STACK_BYTES} bytes"
+            )
+        if 'RUST_MIN_STACK="${RUST_MIN_STACK}"' not in dockerfile_text:
+            failures.append(f"{dockerfile}: release build must apply RUST_MIN_STACK")
 
     controls = policy.get("controls", {})
     for name in ("digest", "sbom", "provenance", "signature"):

@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-25T23:42:27Z"
+  updated_at: "2026-08-26T01:27:59Z"
 records:
   - entity: ".gitea/workflows/test.yml"
     record: "records/protected-slow-tests-redis-fixture-714.prov.yaml"
@@ -664,3 +664,11 @@ records:
     record: "records/verify-signed-tag-isolated-keyring-1098.prov.yaml"
   - entity: "tests/test_verify_signed_tag.py"
     record: "records/test-verify-signed-tag-isolated-keyring-1098.prov.yaml"
+  - entity: "Dockerfile"
+    record: "records/dockerfile-rust-stack-release-32m-1098.prov.yaml"
+  - entity: "Dockerfile.bundle"
+    record: "records/dockerfile-bundle-rust-stack-release-32m-1098.prov.yaml"
+  - entity: "scripts/ci/verify-container-release-evidence.py"
+    record: "records/verify-container-release-evidence-rust-stack-1098.prov.yaml"
+  - entity: "tests/test_verify_container_release_evidence.py"
+    record: "records/test-verify-container-release-evidence-rust-stack-1098.prov.yaml"

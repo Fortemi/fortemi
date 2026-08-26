@@ -1,0 +1,27 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T01:27:59Z"
+  description: "Provenance for matching the bundle image rustc stack to the tag-build requirement"
+entity:
+  id: "urn:aiwg:artifact:Dockerfile.bundle:sha256:208c9d86045a69a3f758a284fb4e136886f1df8bfea6550946eb0446972d2fed"
+  type: build_configuration
+  created_at: "2026-08-26T01:27:59Z"
+  checksum: "sha256:208c9d86045a69a3f758a284fb4e136886f1df8bfea6550946eb0446972d2fed"
+  size_bytes: 10047
+  attributes: {issue: "Fortemi/fortemi#1098", failed_release: "2026.7.23", replacement_release: "2026.7.24"}
+activity:
+  id: "urn:aiwg:activity:modification:dockerfile-bundle-rust-stack-release-32m-1098:001"
+  type: modification
+  started_at: "2026-08-26T01:25:00Z"
+  ended_at: "2026-08-26T01:27:59Z"
+  description: "Raise the bundle RUST_MIN_STACK default from 16 MiB to 32 MiB"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy: {entity: "urn:aiwg:artifact:Dockerfile.bundle:sha256:208c9d86045a69a3f758a284fb4e136886f1df8bfea6550946eb0446972d2fed", activity: "urn:aiwg:activity:modification:dockerfile-bundle-rust-stack-release-32m-1098:001", time: "2026-08-26T01:27:59Z"}
+  wasAssociatedWith: {activity: "urn:aiwg:activity:modification:dockerfile-bundle-rust-stack-release-32m-1098:001", agent: "urn:aiwg:agent:codex-gpt-5", role: release_engineer}
+  wasAttributedTo: {entity: "urn:aiwg:artifact:Dockerfile.bundle:sha256:208c9d86045a69a3f758a284fb4e136886f1df8bfea6550946eb0446972d2fed", agent: "urn:aiwg:agent:codex-gpt-5"}
