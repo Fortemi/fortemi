@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "1",
+  "engineVersion": "1.0.1",
+  "policyVersion": "1",
+  "profileVersion": "1.0.0",
+  "policyHash": "47a7c0fb8b84c31524e93300665ee10811df3c4d8fcee44c76ba19cbf7d311fd",
+  "mode": "enforce",
+  "profile": "balanced",
+  "surface": "release-note",
+  "source": {
+    "kind": "repository-release-note",
+    "id": "v2026.7.27"
+  },
+  "actor": {
+    "id": "codex",
+    "trust": "operator-agent",
+    "provider": "codex"
+  },
+  "requestedAction": "publish signed corrective Fortemi release notes",
+  "policyProvenance": {
+    "source": "aiwg-default",
+    "path": "aiwg:balanced"
+  },
+  "assessed": true,
+  "findings": [],
+  "risk": {
+    "score": 0,
+    "severity": "informational",
+    "likelihood": 0,
+    "impact": 0
+  },
+  "decision": {
+    "action": "proceed",
+    "wouldAction": "proceed",
+    "interrupts": false,
+    "reason": "no active findings"
+  }
+}

@@ -1,0 +1,61 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T17:04:47Z"
+  description: "Provenance for the fully qualified release workflow ref handoff correction"
+entity:
+  id: "urn:aiwg:artifact:scripts/ci/verify-mutsu-build-serialization.sh:sha256:61d3c2f005dfb398a1b824b856f744229180b8dbc2e10e07a7b3c9235b634751"
+  type: ci_verifier
+  created_at: "2026-08-26T17:04:47Z"
+  checksum: "sha256:61d3c2f005dfb398a1b824b856f744229180b8dbc2e10e07a7b3c9235b634751"
+  size_bytes: 5121
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    change_type: modification
+    gitea_version: "1.25.4"
+    dispatch_contract: "fully-qualified refs/heads/* or refs/tags/*"
+    subjects:
+      - ".gitea/workflows/build-builder.yaml sha256:eff3d635d2194a147fdbdb19ebe31cb0fbf98bdb95001ecb085cc22f2326b72d"
+      - ".gitea/workflows/ci-builder.yaml sha256:e0a8aa5b2a976da81040466f76d11827c4a388f9b06aca72c63a1bf31b8ae36c"
+      - ".gitea/workflows/test.yml sha256:1a9e5c83f4993dd9e25ed5fe838dceb61a479d29bddb3931ac5c838d0a3259bd"
+      - ".gitea/workflows/publish-sidecar.yml sha256:5a3f3fa142180b53f2ac4fb88c7ab4c7d762e616fe65c34439b52b01977ae5c3"
+      - ".gitea/workflows/suite-platform-contract.yml sha256:891a9b9b97e6851439ba9439ff88f1a68f93174bc1689c9ea5f4da55aef10a8e"
+activity:
+  id: "urn:aiwg:activity:modification:release-workflow-qualified-ref-handoff-1098:001"
+  type: modification
+  started_at: "2026-08-26T16:56:42Z"
+  ended_at: "2026-08-26T17:04:47Z"
+  description: "Preserve immutable branch and tag refs across every release-critical Gitea workflow dispatch"
+  attributes:
+    verification:
+      - "five qualified-ref handoff assertions: passed"
+      - "workflow YAML parsing: passed"
+      - "checkout, release guard, and sidecar publication policy checks: passed"
+      - "suite platform matrix regression tests: 16 passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-mutsu-build-serialization.sh:sha256:61d3c2f005dfb398a1b824b856f744229180b8dbc2e10e07a7b3c9235b634751"
+    activity: "urn:aiwg:activity:modification:release-workflow-qualified-ref-handoff-1098:001"
+    time: "2026-08-26T17:04:47Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:release-workflow-qualified-ref-handoff-1098:001"
+      entity: "urn:gitea:job:Fortemi/fortemi:135578"
+      role: failed_short_tag_dispatch_evidence
+    - activity: "urn:aiwg:activity:modification:release-workflow-qualified-ref-handoff-1098:001"
+      entity: "urn:git:tag:Fortemi/fortemi:v2026.7.26"
+      role: immutable_release_ref
+    - activity: "urn:aiwg:activity:modification:release-workflow-qualified-ref-handoff-1098:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: release_requirement
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:release-workflow-qualified-ref-handoff-1098:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:scripts/ci/verify-mutsu-build-serialization.sh:sha256:61d3c2f005dfb398a1b824b856f744229180b8dbc2e10e07a7b3c9235b634751"
+    agent: "urn:aiwg:agent:codex-gpt-5"

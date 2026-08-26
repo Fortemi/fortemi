@@ -305,7 +305,7 @@ jobs:
             PUBLISH_DEV=true
           fi
           jq -n \
-            --arg ref "${GITHUB_REF_NAME:?GITHUB_REF_NAME is required}" \
+            --arg ref "${GITHUB_REF:?GITHUB_REF is required}" \
             --arg publish_dev "${PUBLISH_DEV}" \
             '{ref: $ref, inputs: {publish_dev: $publish_dev}}' > dispatch.json
 
@@ -316,4 +316,4 @@ jobs:
             "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/ci-builder.yaml/dispatches" \
             --data-binary @dispatch.json
 
-          echo "CI workflow triggered for ${GITHUB_REF_NAME}"
+          echo "CI workflow triggered for ${GITHUB_REF}"

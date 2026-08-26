@@ -69,9 +69,23 @@ if grep -qF "actions/workflows/test.yml/dispatches" "$builder_workflow"; then
   echo "build-builder dispatches Tests in parallel with CI" >&2
   exit 1
 fi
-# Assert the literal workflow expression.
-# shellcheck disable=SC2016
-grep -qF '"${GITHUB_REF_NAME:?GITHUB_REF_NAME is required}"' "$builder_workflow"
+# Gitea 1.25 treats an unqualified workflow-dispatch ref as a branch name.
+# Preserve refs/tags/v* across every handoff so release runs stay bound to the
+# signed tag rather than failing lookup or silently selecting a same-named branch.
+for dispatcher in \
+  "$builder_workflow" \
+  "$ci_workflow" \
+  "$test_workflow" \
+  "$sidecar_workflow" \
+  "$suite_workflow"; do
+  # Assert the literal workflow expression.
+  # shellcheck disable=SC2016
+  grep -qF -- '--arg ref "${GITHUB_REF:?GITHUB_REF is required}"' "$dispatcher"
+  if grep -qF -- '--arg ref "${GITHUB_REF_NAME:' "$dispatcher"; then
+    echo "${dispatcher#"$ROOT/"} truncates a workflow-dispatch ref" >&2
+    exit 1
+  fi
+done
 grep -qF "needs: [coverage, build-testdb]" "$test_workflow"
 grep -qF "needs: [slow-tests]" "$test_workflow"
 grep -qF "needs: [fast-tests, integration-tests, coverage, slow-tests, validate-intel-overlay]" "$test_workflow"

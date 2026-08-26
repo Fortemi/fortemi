@@ -1637,7 +1637,7 @@ jobs:
       - name: Dispatch comprehensive tests at the verified ref
         run: |
           set -euo pipefail
-          jq -n --arg ref "${GITHUB_REF_NAME:?GITHUB_REF_NAME is required}" \
+          jq -n --arg ref "${GITHUB_REF:?GITHUB_REF is required}" \
             '{ref: $ref, inputs: {test_category: "all"}}' > dispatch.json
           curl --fail-with-body --silent --show-error -X POST \
             -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
