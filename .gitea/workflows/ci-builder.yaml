@@ -106,8 +106,8 @@ jobs:
   sync-github-source:
     name: Sync Source to GitHub
     runs-on: matric-builder
-    needs: [runner-capacity, verify-release-ref]
-    if: github.event_name == 'push'
+    needs: [integration-test]
+    if: github.event_name != 'pull_request'
     steps:
       - name: Checkout complete repository
         run: |
@@ -149,7 +149,7 @@ jobs:
   build-testdb:
     name: Build Test Database Image
     runs-on: matric-builder
-    needs: [runner-capacity]
+    needs: [verify-release-ref]
     steps:
       - name: Checkout
         run: |
@@ -167,7 +167,7 @@ jobs:
   lint:
     name: Lint
     runs-on: matric-builder
-    needs: [runner-capacity]
+    needs: [build-testdb]
     steps:
       - name: Checkout
         run: |
@@ -396,7 +396,7 @@ jobs:
   audit:
     name: Security Audit (deps)
     runs-on: matric-builder
-    needs: [runner-capacity]
+    needs: [lint]
     # Advisory scan; runs in parallel with lint.
     # Fails on high/critical advisories. See .cargo/audit.toml for the allowlist
     # mechanism (accept individual advisories with documented expiry).
@@ -438,7 +438,7 @@ jobs:
   deny:
     name: Policy Check (cargo-deny)
     runs-on: matric-builder
-    needs: [runner-capacity]
+    needs: [audit]
     # License + advisory + duplicate + source policy enforcement.
     # See deny.toml at repo root for the active policies.
     steps:
@@ -469,7 +469,7 @@ jobs:
   auth-consumer:
     name: Fortemi Auth Consumer Conformance
     runs-on: matric-builder
-    needs: [runner-capacity]
+    needs: [deny]
     steps:
       - name: Checkout
         run: |
@@ -495,7 +495,7 @@ jobs:
   mcp-lockfile-sync:
     name: mcp-server Lockfile Sync
     runs-on: matric-builder
-    needs: [runner-capacity]
+    needs: [auth-consumer]
     # Verifies mcp-server/package-lock.json is in sync with package.json.
     # The audit job already runs `npm ci` implicitly, but this job exists
     # to surface drift with an explicit, actionable error message instead
@@ -544,7 +544,7 @@ jobs:
   build:
     name: Build & Unit Test
     runs-on: matric-builder
-    needs: [lint, build-testdb]
+    needs: [mcp-server-tests]
     # Note: services: directive doesn't work with Docker-based runners using host networking
     # We manually manage PostgreSQL container instead (see setup/teardown steps)
     steps:
@@ -760,7 +760,7 @@ jobs:
   test-container:
     name: Test Container (Isolated)
     runs-on: matric-builder
-    needs: [build-image, build-testdb]
+    needs: [build-image]
     steps:
       - name: Checkout
         run: |
@@ -985,7 +985,7 @@ jobs:
   integration-test:
     name: Integration Tests (GPU)
     runs-on: titan
-    needs: build
+    needs: test-container
     timeout-minutes: 30
     env:
       OLLAMA_HOST: http://localhost:11434
@@ -1028,7 +1028,7 @@ jobs:
   publish-dev:
     name: Publish Dev Image
     runs-on: matric-builder
-    needs: [verify-release-ref, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
+    needs: [verify-release-ref, sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
     # Belt-and-suspenders gating to exclude tag pushes. The branch-equality
     # check should be sufficient — `refs/tags/vX.Y.Z` is not equal to
     # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
@@ -1145,7 +1145,7 @@ jobs:
   publish-release:
     name: Publish Release Image
     runs-on: matric-builder
-    needs: [verify-release-ref, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
+    needs: [verify-release-ref, sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout

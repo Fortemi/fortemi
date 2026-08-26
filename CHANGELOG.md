@@ -18,7 +18,8 @@ without logs, so the container and native release were not finalized.
 This patch replaces competing automatic workflow starts with an explicit
 capacity-one handoff chain: CI, comprehensive tests, native sidecars, the
 supported-platform suite contract, then documentation deployment. It also serializes the three sidecar platform
-builds on the shared runner. Per-workflow concurrency groups remain
+builds and every Titan-backed CI job on the shared runner; the immutable
+`core-v1` matrix remains independent on a general runner. Per-workflow concurrency groups remain
 non-cancelling, but are not treated as cross-workflow compatibility evidence.
 The 128 MiB Rust 1.92 release-build stack correction, application behavior, six
 forward migrations, and `core-v1` Knowledge Shard application contract are

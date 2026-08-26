@@ -78,6 +78,30 @@ grep -qF "needs: [fast-tests, integration-tests, coverage, slow-tests, validate-
 grep -qF "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'" "$sidecar_workflow"
 grep -qF "needs: [linux-x86_64]" "$suite_workflow"
 
+# Every Titan-backed CI job is an explicit single-capacity chain. The immutable
+# Knowledge Shard matrix stays independent because it is routed to a separate
+# general runner, then joins the chain at publication.
+for dependency in \
+  "needs: [runner-capacity]" \
+  "needs: [verify-release-ref]" \
+  "needs: [build-testdb]" \
+  "needs: [lint]" \
+  "needs: [audit]" \
+  "needs: [deny]" \
+  "needs: [auth-consumer]" \
+  "needs: [mcp-lockfile-sync]" \
+  "needs: [mcp-server-tests]" \
+  "needs: build" \
+  "needs: [build-image]" \
+  "needs: test-container" \
+  "needs: [integration-test]" \
+  "sync-github-source" \
+  "publish-dev" \
+  "publish-release"; do
+  grep -qF "$dependency" "$ci_workflow"
+done
+grep -qF "if: github.event_name != 'pull_request'" "$ci_workflow"
+
 sidecar="$ROOT/.gitea/workflows/publish-sidecar.yml"
 awk '
   /^  build-linux-arm64:/ { in_job = 1; next }
