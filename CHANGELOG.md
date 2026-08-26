@@ -7,7 +7,7 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
-## [2026.7.27] - 2026-08-26
+## [2026.8.0] - 2026-08-26
 
 Corrective publication for `2026.7.26`. The signed `v2026.7.26` tag built and
 published the versioned builder and test-database images, but Gitea 1.25.4
@@ -19,7 +19,7 @@ release-critical workflow handoff and adds a fail-closed regression check for
 the builder, CI, comprehensive-test, native-sidecar, supported-platform, and
 documentation chain. Application behavior, six forward migrations, and the
 `core-v1` Knowledge Shard application contract are otherwise unchanged. Use
-`v2026.7.27` for corrected release artifacts (#1098, #1100).
+`v2026.8.0` for corrected release artifacts (#1098, #1100).
 
 ## [2026.7.26] - 2026-08-26
 
@@ -2092,8 +2092,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.7.27...HEAD
-[2026.7.27]: https://github.com/fortemi/fortemi/compare/v2026.7.26...v2026.7.27
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.8.0...HEAD
+[2026.8.0]: https://github.com/fortemi/fortemi/compare/v2026.7.26...v2026.8.0
 [2026.7.26]: https://github.com/fortemi/fortemi/compare/v2026.7.25...v2026.7.26
 [2026.7.25]: https://github.com/fortemi/fortemi/compare/v2026.7.24...v2026.7.25
 [2026.7.24]: https://github.com/fortemi/fortemi/compare/v2026.7.23...v2026.7.24

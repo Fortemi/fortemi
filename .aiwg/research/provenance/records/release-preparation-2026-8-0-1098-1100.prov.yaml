@@ -1,0 +1,101 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-26T20:04:13Z"
+  description: "Provenance for the v2026.8.0 corrective release preparation"
+entity:
+  id: "urn:aiwg:artifact:docs/releases/v2026.8.0-announcement.md"
+  type: document
+  created_at: "2026-08-26T20:04:13Z"
+  checksum: "sha256:bb707d1bde642b9cf614bdbd36a0ca319b2ffee0592eca444d08a90ef772c2ea"
+  size_bytes: 3896
+  attributes:
+    issues: ["Fortemi/fortemi#1098", "Fortemi/fortemi#1100"]
+    release: "2026.8.0"
+    change_type: generation
+    knowledge_shard_profile: "core-v1"
+    subjects:
+      - "Cargo.toml sha256:6b12d7fc801700ea250e71014de402228ba096a6b5465d1c6cb7d06e817bdc39"
+      - "Cargo.lock sha256:e81803f78a13b723e31504532409a075fc5465eb6f772dafacf066d97c448b60"
+      - "mcp-server/package.json sha256:754532bd185267a2718fd192bf9fa9f22bd6bfacc104cb5cd23808cd0dd437c8"
+      - "mcp-server/package-lock.json sha256:c275fbc2ee7141934e9a7f2661003ef569caf1739d76b6d55431c5bbf206d48e"
+      - "CHANGELOG.md sha256:6f07ff7b00dde830bb3164c544df1a4b2c7424ce13197e429cfc5a5fe80e7ee0"
+      - "contracts/asyncapi/asyncapi.yaml sha256:d35ee37fa46ce6a4a345a7d34483cc46e7fd989edb1939102395c993b2e325fb"
+      - "contracts/asyncapi/asyncapi.sha256 sha256:a6418edd614680fea221d3242c3c82ed7729bd959bfa0e0c47a851bba823154c"
+      - ".aiwg/releases/evidence/v2026.8.0-release-note-threat-assessment.json sha256:df084136043c7f1594d17b56be5ddc8e41b10a2868f6b905fb70f71e27824554"
+activity:
+  id: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+  type: generation
+  started_at: "2026-08-26T19:58:00Z"
+  ended_at: "2026-08-26T20:04:13Z"
+  description: "Prepare and validate the v2026.8.0 corrective release authorities"
+  attributes:
+    verification:
+      - "workspace library tests: passed"
+      - "MCP server-independent tests: 63 passed, 1 skipped"
+      - "AsyncAPI checksum and deterministic regeneration: passed"
+      - "hosted-strict docs contract: 0 findings"
+      - "release-note threat assessment: proceed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/releases/v2026.8.0-announcement.md"
+    activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+    time: "2026-08-26T20:04:13Z"
+  used:
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1098"
+      role: release_requirement
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1100"
+      role: corrective_change
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+      entity: "urn:git:Fortemi/fortemi:3897698faceb46a7cbc42e838305499ddce36ca0"
+      role: superseded_release_revision
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+      entity: "urn:git:Fortemi/fortemi:ac65e4f81bfb4198b8cb37358e9d699111631da3"
+      role: prior_candidate_revision
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+      entity: "urn:aiwg:artifact:CHANGELOG.md"
+      role: release_authority
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+      entity: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+      role: publication_authority
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+      entity: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml"
+      role: supported_platform_authority
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+      entity: "urn:aiwg:artifact:.aiwg/architecture/ADR-suite-contract-authority-and-profiles.md"
+      role: profile_claim_authority
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docs/releases/v2026.8.0-announcement.md"
+      source: "urn:git:Fortemi/fortemi:ac65e4f81bfb4198b8cb37358e9d699111631da3:docs/releases/v2026.7.27-announcement.md"
+      derivation_type: refines
+      activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+    - entity: "urn:aiwg:artifact:docs/releases/v2026.8.0-announcement.md"
+      source: "urn:aiwg:artifact:CHANGELOG.md"
+      derivation_type: conforms_to
+      activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+    - entity: "urn:aiwg:artifact:docs/releases/v2026.8.0-announcement.md"
+      source: "urn:aiwg:artifact:.gitea/workflows/ci-builder.yaml"
+      derivation_type: documents
+      activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+    - entity: "urn:aiwg:artifact:docs/releases/v2026.8.0-announcement.md"
+      source: "urn:aiwg:artifact:.gitea/workflows/suite-platform-contract.yml"
+      derivation_type: documents
+      activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+    - entity: "urn:aiwg:artifact:docs/releases/v2026.8.0-announcement.md"
+      source: "urn:aiwg:artifact:.aiwg/architecture/ADR-suite-contract-authority-and-profiles.md"
+      derivation_type: conforms_to
+      activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:release-preparation-2026-8-0-1098-1100:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/releases/v2026.8.0-announcement.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"
