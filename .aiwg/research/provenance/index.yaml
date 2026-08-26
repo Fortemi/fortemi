@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-26T08:30:40Z"
+  updated_at: "2026-08-26T08:34:18Z"
 records:
   - entity: "scripts/ci/verify-sidecar-publication.py"
     record: "records/sidecar-publication-dispatch-policy-1098.prov.yaml"
