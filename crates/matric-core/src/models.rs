@@ -1769,6 +1769,26 @@ impl Default for KeyframeStrategy {
 }
 
 impl ExtractionStrategy {
+    /// Canonical variants persisted by current Fortemi builds.
+    ///
+    /// Database parity tests use this inventory so adding a Rust variant without
+    /// a matching PostgreSQL enum label fails verification.
+    pub const ALL: [Self; 13] = [
+        Self::TextNative,
+        Self::PdfText,
+        Self::PdfOcr,
+        Self::Vision,
+        Self::AudioTranscribe,
+        Self::VideoMultimodal,
+        Self::CodeAst,
+        Self::OfficeConvert,
+        Self::StructuredExtract,
+        Self::Glb3DModel,
+        Self::Email,
+        Self::Spreadsheet,
+        Self::Archive,
+    ];
+
     /// Determine extraction strategy from MIME type alone.
     ///
     /// Pure function — no database lookup needed. Maps the container format
@@ -9777,19 +9797,7 @@ mod tests {
 
     #[test]
     fn test_extraction_strategy_display_fromstr_roundtrip() {
-        // Test all 9 variants
-        let variants = vec![
-            ExtractionStrategy::TextNative,
-            ExtractionStrategy::PdfText,
-            ExtractionStrategy::PdfOcr,
-            ExtractionStrategy::Vision,
-            ExtractionStrategy::AudioTranscribe,
-            ExtractionStrategy::VideoMultimodal,
-            ExtractionStrategy::CodeAst,
-            ExtractionStrategy::OfficeConvert,
-            ExtractionStrategy::StructuredExtract,
-        ];
-        for variant in variants {
+        for variant in ExtractionStrategy::ALL {
             let s = variant.to_string();
             let parsed: ExtractionStrategy = s.parse().unwrap();
             assert_eq!(parsed, variant, "Round-trip failed for {}", s);

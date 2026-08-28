@@ -3261,6 +3261,11 @@ paths:
             schema:
               type: object
               properties:
+                allow_aggressive_pruning:
+                  type:
+                  - boolean
+                  - 'null'
+                  description: Explicitly permit a plan that violates retention safety thresholds.
                 dry_run:
                   type:
                   - boolean
@@ -3282,6 +3287,16 @@ paths:
       responses:
         '200':
           description: SNN scores recomputed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnnResult'
+        '409':
+          description: SNN plan rejected by retention safety policy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnnResult'
         '500':
           description: Internal server error
         '429':
@@ -9903,6 +9918,11 @@ components:
     GraphMaintenanceBody:
       type: object
       properties:
+        allow_aggressive_pruning:
+          type:
+          - boolean
+          - 'null'
+          description: Explicitly permit an SNN plan that violates retention safety thresholds.
         steps:
           type:
           - array
@@ -12076,6 +12096,88 @@ components:
           - string
           - 'null'
           description: Human-readable title for the backup
+    SnnResult:
+      type: object
+      description: 'Result of SNN recomputation (#474, #1102).'
+      required:
+      - status
+      - total_edges
+      - retained
+      - updated
+      - pruned
+      - retention_ratio
+      - node_count
+      - retained_mean_degree
+      - k_used
+      - threshold_used
+      - dry_run
+      - snn_score_distribution
+      - minimum_retention_ratio
+      - minimum_retained_mean_degree
+      - aggressive_pruning_override
+      - safety_reasons
+      properties:
+        aggressive_pruning_override:
+          type: boolean
+        dry_run:
+          type: boolean
+        k_used:
+          type: integer
+          minimum: 0
+        minimum_retained_mean_degree:
+          type: number
+          format: double
+        minimum_retention_ratio:
+          type: number
+          format: double
+        node_count:
+          type: integer
+          minimum: 0
+        pruned:
+          type: integer
+          minimum: 0
+        remediation:
+          type:
+          - string
+          - 'null'
+        retained:
+          type: integer
+          minimum: 0
+        retained_mean_degree:
+          type: number
+          format: double
+        retention_ratio:
+          type: number
+          format: double
+        safety_reasons:
+          type: array
+          items:
+            type: string
+        snn_score_distribution:
+          type: array
+          items:
+            type: integer
+            format: int64
+          description: 10-bin histogram of SNN scores over [0.0, 1.0].
+        status:
+          $ref: '#/components/schemas/SnnStatus'
+        threshold_used:
+          type: number
+          format: float
+        total_edges:
+          type: integer
+          minimum: 0
+        updated:
+          type: integer
+          minimum: 0
+    SnnStatus:
+      type: string
+      description: Outcome of an SNN plan or execution.
+      enum:
+      - completed
+      - dry_run
+      - skipped_sparse
+      - safety_aborted
     StrictTagFilter:
       type: object
       description: |-

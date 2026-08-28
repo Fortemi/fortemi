@@ -12825,6 +12825,37 @@ fn tag_cooccurrence_health_telemetry(tag_a: &str, tag_b: &str, count: i64) -> se
     })
 }
 
+fn knowledge_health_ratio(count: i64, total_notes: i64) -> f64 {
+    if total_notes > 0 {
+        count as f64 / total_notes as f64
+    } else {
+        0.0
+    }
+}
+
+fn knowledge_health_score(counts: &matric_db::KnowledgeHealthCounts) -> i64 {
+    if counts.total_notes == 0 {
+        return 100;
+    }
+
+    let score = 100.0
+        - (knowledge_health_ratio(counts.stale_notes, counts.total_notes)
+            * matric_core::defaults::HEALTH_WEIGHT_STALE)
+        - (knowledge_health_ratio(counts.unlinked_notes, counts.total_notes)
+            * matric_core::defaults::HEALTH_WEIGHT_UNLINKED)
+        - (knowledge_health_ratio(counts.notes_without_tags, counts.total_notes)
+            * matric_core::defaults::HEALTH_WEIGHT_UNTAGGED);
+    score.clamp(0.0, 100.0) as i64
+}
+
+fn knowledge_health_recommendation_severity(count: i64, total_notes: i64) -> &'static str {
+    if knowledge_health_ratio(count, total_notes) > 0.5 {
+        "high"
+    } else {
+        "medium"
+    }
+}
+
 /// Get overall knowledge health metrics.
 #[utoipa::path(
     get,
@@ -12846,94 +12877,19 @@ async fn get_knowledge_health(
 
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
-    let links_repo = matric_db::PgLinkRepository::new(state.db.pool.clone());
-    let tags_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
-
     let mut tx = ctx.begin_tx().await?;
-
-    // Get total note count
-    let all_notes = notes_repo
-        .list_tx(
-            &mut tx,
-            ListNotesRequest {
-                limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
-                offset: None,
-                filter: None,
-                sort_by: None,
-                sort_order: None,
-                collection_id: None,
-                tags: None,
-                created_after: None,
-                created_before: None,
-                updated_after: None,
-                updated_before: None,
-            },
-        )
+    let counts = notes_repo
+        .knowledge_health_counts_tx(&mut tx, stale_threshold)
         .await?;
-
-    let total_notes = all_notes.total;
-
-    // Count stale notes
-    let stale_count = all_notes
-        .notes
-        .iter()
-        .filter(|n| n.updated_at_utc < stale_threshold)
-        .count();
-
-    // Get notes without any links (unlinked)
-    let all_links = links_repo
-        .list_all_tx(&mut tx, matric_core::defaults::INTERNAL_FETCH_LIMIT, 0)
-        .await
-        .unwrap_or_default();
-    let linked_note_ids: std::collections::HashSet<Uuid> = all_links
-        .iter()
-        .flat_map(|link| {
-            let mut ids = vec![link.from_note_id];
-            if let Some(to_id) = link.to_note_id {
-                ids.push(to_id);
-            }
-            ids
-        })
-        .collect();
-    let unlinked_count = all_notes
-        .notes
-        .iter()
-        .filter(|n| !linked_note_ids.contains(&n.id))
-        .count();
-
-    // Get orphan tags (tags with no notes) and notes-without-tags count
-    let all_tags = tags_repo.list_tx(&mut tx).await.unwrap_or_default();
-    let orphan_tag_count = all_tags.iter().filter(|t| t.note_count == 0).count();
-
-    // Count notes that have at least one tag
-    let mut notes_with_tags: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
-    for note in &all_notes.notes {
-        let note_tags = tags_repo
-            .get_for_note_tx(&mut tx, note.id)
-            .await
-            .unwrap_or_default();
-        if !note_tags.is_empty() {
-            notes_with_tags.insert(note.id);
-        }
-    }
-    let notes_without_tags = all_notes.notes.len() - notes_with_tags.len();
 
     drop(tx); // read-only, no commit needed
 
-    // Calculate health score (0-100)
-    let health_score = if total_notes > 0 {
-        let stale_ratio = stale_count as f64 / total_notes as f64;
-        let unlinked_ratio = unlinked_count as f64 / total_notes as f64;
-        let untagged_ratio = notes_without_tags as f64 / total_notes as f64;
-
-        let score = 100.0
-            - (stale_ratio * matric_core::defaults::HEALTH_WEIGHT_STALE)
-            - (unlinked_ratio * matric_core::defaults::HEALTH_WEIGHT_UNLINKED)
-            - (untagged_ratio * matric_core::defaults::HEALTH_WEIGHT_UNTAGGED);
-        score.clamp(0.0, 100.0) as i64
-    } else {
-        100
-    };
+    let health_score = knowledge_health_score(&counts);
+    let total_notes = counts.total_notes;
+    let stale_count = counts.stale_notes;
+    let unlinked_count = counts.unlinked_notes;
+    let notes_without_tags = counts.notes_without_tags;
+    let orphan_tag_count = counts.orphan_tags;
 
     // Generate actionable recommendations based on health data
     let mut recommendations: Vec<serde_json::Value> = Vec::new();
@@ -12943,7 +12899,7 @@ async fn get_knowledge_health(
                 "type": "stale_notes",
                 "message": format!("{} notes haven't been updated in {} days", stale_count, stale_days),
                 "action": "Review stale notes and update or archive them",
-                "severity": if stale_count as f64 / total_notes as f64 > 0.5 { "high" } else { "medium" }
+                "severity": knowledge_health_recommendation_severity(stale_count, total_notes)
             }));
         }
         if unlinked_count > 0 {
@@ -12951,7 +12907,7 @@ async fn get_knowledge_health(
                 "type": "unlinked_notes",
                 "message": format!("{} notes have no semantic links", unlinked_count),
                 "action": "Use reprocess_note with steps=[\"linking\"] to auto-link isolated notes",
-                "severity": if unlinked_count as f64 / total_notes as f64 > 0.5 { "high" } else { "medium" }
+                "severity": knowledge_health_recommendation_severity(unlinked_count, total_notes)
             }));
         }
         if notes_without_tags > 0 {
@@ -12959,7 +12915,7 @@ async fn get_knowledge_health(
                 "type": "untagged_notes",
                 "message": format!("{} notes have no tags or concepts", notes_without_tags),
                 "action": "Tag notes with relevant concepts for better discoverability",
-                "severity": if notes_without_tags as f64 / total_notes as f64 > 0.5 { "high" } else { "medium" }
+                "severity": knowledge_health_recommendation_severity(notes_without_tags, total_notes)
             }));
         }
     }
@@ -13001,8 +12957,8 @@ async fn get_knowledge_health(
         "unlinked_notes": unlinked_count,
         "notes_without_tags": notes_without_tags,
         "orphan_tags": orphan_tag_count,
-        "total_tags": all_tags.len(),
-        "total_links": all_links.len(),
+        "total_tags": counts.total_tags,
+        "total_links": counts.total_links,
         "blob_storage": {
             "total_blobs": blob_count,
             "total_size_bytes": blob_total_bytes,
@@ -13012,11 +12968,11 @@ async fn get_knowledge_health(
             "orphaned_size_human": format_size(orphaned_blob_bytes as u64),
         },
         "metrics": {
-            "stale_ratio": if total_notes > 0 { stale_count as f64 / total_notes as f64 } else { 0.0 },
-            "unlinked_ratio": if total_notes > 0 { unlinked_count as f64 / total_notes as f64 } else { 0.0 },
-            "untagged_ratio": if total_notes > 0 { notes_without_tags as f64 / total_notes as f64 } else { 0.0 },
-            "tag_coverage": if total_notes > 0 { 1.0 - (notes_without_tags as f64 / total_notes as f64) } else { 1.0 },
-            "link_coverage": if total_notes > 0 { 1.0 - (unlinked_count as f64 / total_notes as f64) } else { 1.0 }
+            "stale_ratio": knowledge_health_ratio(stale_count, total_notes),
+            "unlinked_ratio": knowledge_health_ratio(unlinked_count, total_notes),
+            "untagged_ratio": knowledge_health_ratio(notes_without_tags, total_notes),
+            "tag_coverage": if total_notes > 0 { 1.0 - knowledge_health_ratio(notes_without_tags, total_notes) } else { 1.0 },
+            "link_coverage": if total_notes > 0 { 1.0 - knowledge_health_ratio(unlinked_count, total_notes) } else { 1.0 }
         },
         "recommendations": recommendations
     })))
@@ -17614,17 +17570,26 @@ fn diagnostics_snapshot_not_found_error(side: &str, _id: Uuid) -> matric_db::Err
     ))
 }
 
+fn snn_response_status(status: matric_db::SnnStatus) -> StatusCode {
+    if status == matric_db::SnnStatus::SafetyAborted {
+        StatusCode::CONFLICT
+    } else {
+        StatusCode::OK
+    }
+}
+
 #[utoipa::path(post, path = "/api/v1/graph/snn/recompute", tag = "Graph",
     request_body(content = inline(RecomputeSnnBody), description = "SNN recomputation parameters"),
     responses(
-        (status = 200, description = "SNN scores recomputed"),
+        (status = 200, description = "SNN scores recomputed", body = matric_db::SnnResult),
+        (status = 409, description = "SNN plan rejected by retention safety policy", body = matric_db::SnnResult),
         (status = 500, description = "Internal server error")
     ))]
 async fn recompute_snn_scores(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<RecomputeSnnBody>,
-) -> Result<impl IntoResponse, ApiError> {
+) -> Result<axum::response::Response, ApiError> {
     let graph_config = matric_core::defaults::GraphConfig::from_env();
     // Use the note count to compute adaptive k if not provided.
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
@@ -17632,6 +17597,12 @@ async fn recompute_snn_scores(
     let k_override = body.k;
     let threshold = body.threshold.unwrap_or(graph_config.snn_threshold);
     let dry_run = body.dry_run.unwrap_or(false);
+    let safety_policy = matric_db::SnnSafetyPolicy {
+        minimum_retention_ratio: graph_config.snn_min_retention_ratio,
+        minimum_retained_mean_degree: graph_config.snn_min_retained_mean_degree,
+        allow_aggressive_pruning: graph_config.snn_allow_aggressive_pruning
+            || body.allow_aggressive_pruning.unwrap_or(false),
+    };
     let result = ctx
         .query(move |tx| {
             Box::pin(async move {
@@ -17643,12 +17614,13 @@ async fn recompute_snn_scores(
                     graph_config.effective_k(note_count)
                 };
                 links
-                    .recompute_snn_scores_tx(tx, k, threshold, dry_run)
+                    .recompute_snn_scores_tx(tx, k, threshold, dry_run, safety_policy)
                     .await
             })
         })
         .await?;
-    Ok(Json(result))
+    let status = snn_response_status(result.status);
+    Ok((status, Json(result)).into_response())
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -17659,6 +17631,8 @@ struct RecomputeSnnBody {
     threshold: Option<f32>,
     /// If true, compute scores but don't update/delete anything.
     dry_run: Option<bool>,
+    /// Explicitly permit a plan that violates retention safety thresholds.
+    allow_aggressive_pruning: Option<bool>,
 }
 
 #[utoipa::path(post, path = "/api/v1/graph/pfnet/sparsify", tag = "Graph",
@@ -17767,6 +17741,9 @@ async fn trigger_graph_maintenance(
         if let Some(ref steps) = b.steps {
             payload["steps"] = serde_json::json!(steps);
         }
+        if b.allow_aggressive_pruning.unwrap_or(false) {
+            payload["allow_aggressive_pruning"] = serde_json::json!(true);
+        }
     }
     payload["schema"] = serde_json::json!(archive_ctx.schema);
 
@@ -17816,12 +17793,18 @@ struct GraphMaintenanceBody {
     /// Steps to run. Default: ["normalize", "snn", "pfnet", "snapshot"].
     /// Valid values: "normalize", "snn", "pfnet", "snapshot".
     steps: Option<Vec<String>>,
+    /// Explicitly permit an SNN plan that violates retention safety thresholds.
+    allow_aggressive_pruning: Option<bool>,
 }
 
 impl fmt::Debug for GraphMaintenanceBody {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GraphMaintenanceBody")
             .field("steps_count", &self.steps.as_ref().map(Vec::len))
+            .field(
+                "allow_aggressive_pruning",
+                &self.allow_aggressive_pruning.unwrap_or(false),
+            )
             .field(
                 "step_lens",
                 &self.steps.as_ref().map(|steps| {
@@ -41962,6 +41945,7 @@ mod tests {
                 "normalize_privâté_customer".to_string(),
                 "snapshot_mm_key_grâph".to_string(),
             ]),
+            allow_aggressive_pruning: Some(false),
         };
         let cold_note_id = Uuid::new_v4();
         let cold_note = ColdNote {
@@ -70493,6 +70477,49 @@ not-json
         assert!(
             value.contains("expiration"),
             "missing 'expiration' extension"
+        );
+    }
+
+    #[test]
+    fn zero_link_corpus_has_zero_coverage_and_high_severity_recommendation() {
+        let counts = matric_db::KnowledgeHealthCounts {
+            total_notes: 1_583,
+            stale_notes: 0,
+            unlinked_notes: 1_583,
+            notes_without_tags: 0,
+            total_links: 0,
+            total_tags: 0,
+            orphan_tags: 0,
+        };
+
+        assert_eq!(
+            knowledge_health_ratio(counts.unlinked_notes, counts.total_notes),
+            1.0
+        );
+        assert_eq!(
+            1.0 - knowledge_health_ratio(counts.unlinked_notes, counts.total_notes),
+            0.0
+        );
+        assert_eq!(
+            knowledge_health_recommendation_severity(counts.unlinked_notes, counts.total_notes),
+            "high"
+        );
+        assert!(knowledge_health_score(&counts) < 95);
+    }
+
+    #[test]
+    fn snn_safety_abort_maps_to_conflict_response() {
+        assert_eq!(
+            snn_response_status(matric_db::SnnStatus::SafetyAborted),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            snn_response_status(matric_db::SnnStatus::DryRun),
+            StatusCode::OK
+        );
+        assert_eq!(
+            snn_response_status(matric_db::SnnStatus::Completed),
+            StatusCode::OK
         );
     }
 }

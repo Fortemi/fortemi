@@ -849,6 +849,9 @@ These variables tune the knowledge graph structure. All graph variables are read
 | `GRAPH_TAG_BOOST_WEIGHT` | Float | `0.3` | Weight for SKOS tag overlap in the blended linking score. `blended = (embedding_sim * (1 - w)) + (tag_overlap * w)`. Set to `0.0` to disable tag-based boost. Range: 0.0–1.0. |
 | `GRAPH_NORMALIZATION_GAMMA` | Float | `1.0` | Gamma exponent for edge weight normalization during graph traversal. Applied as `normalized = ((score - min) / (max - min)) ^ gamma`. Values >1.0 amplify top-end differences; <1.0 compress them. Range: 0.1–5.0. |
 | `GRAPH_SNN_THRESHOLD` | Float | `0.10` | Shared Nearest Neighbor pruning threshold. Edges with SNN score below this are pruned during `recompute_snn_scores`. SNN(A,B) = \|kNN(A) ∩ kNN(B)\| / k. Range: 0.0–1.0. |
+| `GRAPH_SNN_MIN_RETENTION_RATIO` | Float | `0.05` | Fail-closed minimum fraction of semantic edges an SNN plan may retain. A lower plan is safety-aborted before mutation. Range: 0.0–1.0. |
+| `GRAPH_SNN_MIN_RETAINED_MEAN_DEGREE` | Float | `1.0` | Fail-closed minimum mean degree after proposed SNN pruning across previously linked nodes. Range: 0.0–100.0. |
+| `GRAPH_SNN_ALLOW_AGGRESSIVE_PRUNING` | Boolean | `false` | Explicit job-time override for a plan that violates either SNN retention guard. Use only after reviewing a dry-run. |
 | `GRAPH_COMMUNITY_RESOLUTION` | Float | `1.0` | Louvain community detection resolution parameter. Higher = more, smaller communities; lower = fewer, larger communities. Range: 0.1–10.0. |
 | `GRAPH_PFNET_Q` | Integer | `2` | PFNET graph sparsification q parameter. q=2 is equivalent to the Relative Neighborhood Graph (Toussaint 1980). Higher q produces sparser graphs approaching the MST. Range: 2–10. |
 | `GRAPH_STRUCTURAL_SCORE` | Float | `0.5` | Edge score assigned to structural (same-collection) edges. Controls the "gravity well" strength pulling exploration toward notes in the same collection. Range: 0.0–1.0. |
@@ -863,6 +866,9 @@ GRAPH_KEEP_PRUNED=false
 GRAPH_TAG_BOOST_WEIGHT=0.3
 GRAPH_NORMALIZATION_GAMMA=1.0
 GRAPH_SNN_THRESHOLD=0.10
+GRAPH_SNN_MIN_RETENTION_RATIO=0.05
+GRAPH_SNN_MIN_RETAINED_MEAN_DEGREE=1.0
+GRAPH_SNN_ALLOW_AGGRESSIVE_PRUNING=false
 GRAPH_COMMUNITY_RESOLUTION=1.0
 GRAPH_PFNET_Q=2
 GRAPH_STRUCTURAL_SCORE=0.5

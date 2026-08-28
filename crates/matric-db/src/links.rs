@@ -2167,6 +2167,7 @@ impl PgLinkRepository {
         k: usize,
         threshold: f32,
         dry_run: bool,
+        safety_policy: SnnSafetyPolicy,
     ) -> Result<SnnResult> {
         use std::collections::{HashMap, HashSet};
 
@@ -2181,13 +2182,23 @@ impl PgLinkRepository {
 
         if rows.is_empty() {
             return Ok(SnnResult {
+                status: SnnStatus::Completed,
                 total_edges: 0,
+                retained: 0,
                 updated: 0,
                 pruned: 0,
+                retention_ratio: 1.0,
+                node_count: 0,
+                retained_mean_degree: 0.0,
                 k_used: k,
                 threshold_used: threshold,
                 dry_run,
                 snn_score_distribution: vec![0; 10],
+                minimum_retention_ratio: safety_policy.minimum_retention_ratio,
+                minimum_retained_mean_degree: safety_policy.minimum_retained_mean_degree,
+                aggressive_pruning_override: safety_policy.allow_aggressive_pruning,
+                safety_reasons: Vec::new(),
+                remediation: None,
             });
         }
 
@@ -2220,13 +2231,23 @@ impl PgLinkRepository {
                 k
             );
             return Ok(SnnResult {
+                status: SnnStatus::SkippedSparse,
                 total_edges: rows.len(),
+                retained: rows.len(),
                 updated: 0,
                 pruned: 0,
+                retention_ratio: 1.0,
+                node_count: adjacency.len(),
+                retained_mean_degree: mean_degree,
                 k_used: k,
                 threshold_used: threshold,
                 dry_run,
                 snn_score_distribution: vec![0; 10],
+                minimum_retention_ratio: safety_policy.minimum_retention_ratio,
+                minimum_retained_mean_degree: safety_policy.minimum_retained_mean_degree,
+                aggressive_pruning_override: safety_policy.allow_aggressive_pruning,
+                safety_reasons: Vec::new(),
+                remediation: None,
             });
         }
 
@@ -2274,6 +2295,52 @@ impl PgLinkRepository {
             }
         }
 
+        let retained = updates.len();
+        let retention_ratio = retained as f64 / total_edges as f64;
+        let retained_mean_degree = 2.0 * retained as f64 / node_count;
+        let safety_reasons = safety_policy.rejection_reasons(
+            retention_ratio,
+            retained_mean_degree,
+            total_edges,
+            retained,
+        );
+        let safety_aborted = !safety_reasons.is_empty() && !safety_policy.allow_aggressive_pruning;
+
+        if safety_aborted {
+            tracing::warn!(
+                total_edges,
+                retained,
+                pruned,
+                retention_ratio,
+                retained_mean_degree,
+                k,
+                threshold,
+                "SNN plan safety-aborted before link mutation"
+            );
+            return Ok(SnnResult {
+                status: SnnStatus::SafetyAborted,
+                total_edges,
+                retained,
+                updated,
+                pruned,
+                retention_ratio,
+                node_count: adjacency.len(),
+                retained_mean_degree,
+                k_used: k,
+                threshold_used: threshold,
+                dry_run,
+                snn_score_distribution: histogram,
+                minimum_retention_ratio: safety_policy.minimum_retention_ratio,
+                minimum_retained_mean_degree: safety_policy.minimum_retained_mean_degree,
+                aggressive_pruning_override: false,
+                safety_reasons,
+                remediation: Some(
+                    "Run a dry-run, review the SNN score distribution, lower the threshold or rebuild links, and set allow_aggressive_pruning=true only for an intentionally destructive run."
+                        .to_string(),
+                ),
+            });
+        }
+
         if !dry_run {
             // Batch update: store snn_score in metadata.
             for chunk in updates.chunks(500) {
@@ -2303,13 +2370,28 @@ impl PgLinkRepository {
         }
 
         Ok(SnnResult {
+            status: if dry_run {
+                SnnStatus::DryRun
+            } else {
+                SnnStatus::Completed
+            },
             total_edges,
+            retained,
             updated,
             pruned,
+            retention_ratio,
+            node_count: adjacency.len(),
+            retained_mean_degree,
             k_used: k,
             threshold_used: threshold,
             dry_run,
             snn_score_distribution: histogram,
+            minimum_retention_ratio: safety_policy.minimum_retention_ratio,
+            minimum_retained_mean_degree: safety_policy.minimum_retained_mean_degree,
+            aggressive_pruning_override: safety_policy.allow_aggressive_pruning
+                && !safety_reasons.is_empty(),
+            safety_reasons,
+            remediation: None,
         })
     }
 }
@@ -2552,28 +2634,109 @@ impl fmt::Debug for DiagnosticsDelta {
     }
 }
 
-/// Result of SNN recomputation (#474).
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+/// Operator-configurable, fail-closed SNN retention policy (#1102).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SnnSafetyPolicy {
+    pub minimum_retention_ratio: f64,
+    pub minimum_retained_mean_degree: f64,
+    pub allow_aggressive_pruning: bool,
+}
+
+impl Default for SnnSafetyPolicy {
+    fn default() -> Self {
+        Self {
+            minimum_retention_ratio: 0.05,
+            minimum_retained_mean_degree: 1.0,
+            allow_aggressive_pruning: false,
+        }
+    }
+}
+
+impl SnnSafetyPolicy {
+    pub fn rejection_reasons(
+        self,
+        retention_ratio: f64,
+        retained_mean_degree: f64,
+        total_edges: usize,
+        retained: usize,
+    ) -> Vec<String> {
+        let mut reasons = Vec::new();
+        if total_edges > 0 && retention_ratio < self.minimum_retention_ratio {
+            reasons.push("retention_ratio_below_minimum".to_string());
+        }
+        if total_edges > 0
+            && retained_mean_degree < self.minimum_retained_mean_degree
+            && retained < total_edges
+        {
+            reasons.push("retained_mean_degree_below_minimum".to_string());
+        }
+        reasons
+    }
+}
+
+/// Outcome of an SNN plan or execution.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum SnnStatus {
+    Completed,
+    DryRun,
+    SkippedSparse,
+    SafetyAborted,
+}
+
+/// Result of SNN recomputation (#474, #1102).
+#[derive(Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct SnnResult {
+    pub status: SnnStatus,
     pub total_edges: usize,
+    pub retained: usize,
     pub updated: usize,
     pub pruned: usize,
+    pub retention_ratio: f64,
+    pub node_count: usize,
+    pub retained_mean_degree: f64,
     pub k_used: usize,
     pub threshold_used: f32,
     pub dry_run: bool,
     /// 10-bin histogram of SNN scores over [0.0, 1.0].
     pub snn_score_distribution: Vec<i64>,
+    pub minimum_retention_ratio: f64,
+    pub minimum_retained_mean_degree: f64,
+    pub aggressive_pruning_override: bool,
+    pub safety_reasons: Vec<String>,
+    pub remediation: Option<String>,
 }
 
 impl fmt::Debug for SnnResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SnnResult")
+            .field("status", &self.status)
             .field("total_edges", &self.total_edges)
+            .field("retained", &self.retained)
             .field("updated", &self.updated)
             .field("pruned", &self.pruned)
+            .field("retention_ratio", &self.retention_ratio)
+            .field("node_count", &self.node_count)
+            .field("retained_mean_degree", &self.retained_mean_degree)
             .field("k_used", &self.k_used)
             .field("threshold_used", &self.threshold_used)
             .field("dry_run", &self.dry_run)
+            .field("minimum_retention_ratio", &self.minimum_retention_ratio)
+            .field(
+                "minimum_retained_mean_degree",
+                &self.minimum_retained_mean_degree,
+            )
+            .field(
+                "aggressive_pruning_override",
+                &self.aggressive_pruning_override,
+            )
+            .field("safety_reasons_count", &self.safety_reasons.len())
+            .field(
+                "remediation_len",
+                &self.remediation.as_ref().map(String::len),
+            )
             .field(
                 "snn_score_distribution_count",
                 &self.snn_score_distribution.len(),
@@ -3133,6 +3296,27 @@ mod tests {
         assert_eq!(histogram[9], 1); // 1.0 → bin 9
     }
 
+    #[test]
+    fn snn_reported_retention_plan_violates_ratio_and_topology_policy() {
+        let total_edges = 11_449;
+        let retained = 132;
+        let node_count = 1_583;
+        let reasons = SnnSafetyPolicy::default().rejection_reasons(
+            retained as f64 / total_edges as f64,
+            2.0 * retained as f64 / node_count as f64,
+            total_edges,
+            retained,
+        );
+
+        assert_eq!(
+            reasons,
+            vec![
+                "retention_ratio_below_minimum".to_string(),
+                "retained_mean_degree_below_minimum".to_string(),
+            ]
+        );
+    }
+
     // Louvain community detection tests (#473)
 
     fn make_community_node(id: u128) -> GraphNode {
@@ -3319,13 +3503,23 @@ mod tests {
     #[test]
     fn graph_maintenance_result_debug_summarizes_metric_distribution() {
         let snn = SnnResult {
+            status: SnnStatus::DryRun,
             total_edges: 123,
+            retained: 45,
             updated: 45,
             pruned: 6,
+            retention_ratio: 0.365,
+            node_count: 100,
+            retained_mean_degree: 0.9,
             k_used: 7,
             threshold_used: 0.33333,
             dry_run: true,
             snn_score_distribution: vec![101, 202, 303],
+            minimum_retention_ratio: 0.05,
+            minimum_retained_mean_degree: 1.0,
+            aggressive_pruning_override: false,
+            safety_reasons: vec!["retained_mean_degree_below_minimum".to_string()],
+            remediation: Some("private remediation customer@example.test".to_string()),
         };
         let pfnet = PfnetResult {
             total_edges: 123,
@@ -3349,6 +3543,9 @@ mod tests {
         assert!(snn_debug.contains("SnnResult"));
         assert!(snn_debug.contains("snn_score_distribution_count"));
         assert!(snn_debug.contains("snn_score_distribution_total"));
+        assert!(snn_debug.contains("safety_reasons_count"));
+        assert!(!snn_debug.contains("private remediation"));
+        assert!(!snn_debug.contains("customer@example.test"));
         assert!(pfnet_debug.contains("PfnetResult"));
         assert!(pfnet_debug.contains("retention_ratio"));
         assert!(pfnet_debug.contains("q_used"));

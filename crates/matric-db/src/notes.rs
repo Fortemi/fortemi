@@ -1,7 +1,7 @@
 //! Note repository implementation.
 
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use hex;
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, Pool, Postgres, Row};
@@ -23,10 +23,82 @@ pub struct PgNoteRepository {
     pool: Pool<Postgres>,
 }
 
+/// Complete archive-scoped counts used by the knowledge-health endpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KnowledgeHealthCounts {
+    pub total_notes: i64,
+    pub stale_notes: i64,
+    pub unlinked_notes: i64,
+    pub notes_without_tags: i64,
+    pub total_links: i64,
+    pub total_tags: i64,
+    pub orphan_tags: i64,
+}
+
 impl PgNoteRepository {
     /// Create a new PgNoteRepository with the given connection pool.
     pub fn new(pool: Pool<Postgres>) -> Self {
         Self { pool }
+    }
+
+    /// Aggregate knowledge-health metrics over the complete current schema.
+    ///
+    /// All counts share the caller's transaction, tenant, and archive search
+    /// path. The query deliberately avoids note pagination and per-note tag
+    /// lookups so corpus size cannot change the result or query count.
+    pub async fn knowledge_health_counts_tx(
+        &self,
+        tx: &mut PgConnection,
+        stale_threshold: DateTime<Utc>,
+    ) -> Result<KnowledgeHealthCounts> {
+        let row = sqlx::query(
+            r#"
+            WITH active_notes AS (
+                SELECT id, updated_at_utc
+                  FROM note
+                 WHERE deleted_at IS NULL
+            )
+            SELECT
+                (SELECT COUNT(*) FROM active_notes) AS total_notes,
+                (SELECT COUNT(*) FROM active_notes WHERE updated_at_utc < $1) AS stale_notes,
+                (SELECT COUNT(*)
+                   FROM active_notes n
+                  WHERE NOT EXISTS (
+                        SELECT 1
+                          FROM link l
+                         WHERE l.from_note_id = n.id OR l.to_note_id = n.id
+                  )) AS unlinked_notes,
+                (SELECT COUNT(*)
+                   FROM active_notes n
+                  WHERE NOT EXISTS (
+                        SELECT 1 FROM note_tag nt WHERE nt.note_id = n.id
+                  )) AS notes_without_tags,
+                (SELECT COUNT(*) FROM link) AS total_links,
+                (SELECT COUNT(*) FROM tag) AS total_tags,
+                (SELECT COUNT(*)
+                   FROM tag t
+                  WHERE NOT EXISTS (
+                        SELECT 1
+                          FROM note_tag nt
+                          JOIN active_notes n ON n.id = nt.note_id
+                         WHERE nt.tag_name = t.name
+                  )) AS orphan_tags
+            "#,
+        )
+        .bind(stale_threshold)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(KnowledgeHealthCounts {
+            total_notes: row.get("total_notes"),
+            stale_notes: row.get("stale_notes"),
+            unlinked_notes: row.get("unlinked_notes"),
+            notes_without_tags: row.get("notes_without_tags"),
+            total_links: row.get("total_links"),
+            total_tags: row.get("total_tags"),
+            orphan_tags: row.get("orphan_tags"),
+        })
     }
 
     /// Compute SHA256 hash of content.

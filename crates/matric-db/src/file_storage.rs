@@ -3261,6 +3261,9 @@ fn parse_extraction_strategy(s: Option<&str>) -> Option<ExtractionStrategy> {
         "office_convert" => Some(ExtractionStrategy::OfficeConvert),
         "structured_extract" => Some(ExtractionStrategy::StructuredExtract),
         "glb_3d_model" => Some(ExtractionStrategy::Glb3DModel),
+        "email" => Some(ExtractionStrategy::Email),
+        "spreadsheet" => Some(ExtractionStrategy::Spreadsheet),
+        "archive" => Some(ExtractionStrategy::Archive),
         _ => None,
     })
 }

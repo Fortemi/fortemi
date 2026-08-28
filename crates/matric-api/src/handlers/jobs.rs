@@ -447,6 +447,16 @@ fn graph_maintenance_snapshot_step_result() -> serde_json::Value {
     })
 }
 
+fn graph_maintenance_safety_abort_failure(snn: &matric_db::SnnResult) -> JobResult {
+    JobResult::Failed(
+        serde_json::json!({
+            "code": "snn_retention_safety_aborted",
+            "snn": snn,
+        })
+        .to_string(),
+    )
+}
+
 fn purge_job_result(affected_embedding_sets: usize, stats_updated: usize) -> serde_json::Value {
     serde_json::json!({
         "deleted_note_id_present": true,
@@ -8128,6 +8138,16 @@ impl JobHandler for GraphMaintenanceHandler {
             ctx.report_progress(30, Some("Step 2/4: Recomputing SNN scores..."));
             let links_clone = matric_db::PgLinkRepository::new(self.db.pool.clone());
             let threshold = graph_config.snn_threshold;
+            let safety_policy = matric_db::SnnSafetyPolicy {
+                minimum_retention_ratio: graph_config.snn_min_retention_ratio,
+                minimum_retained_mean_degree: graph_config.snn_min_retained_mean_degree,
+                allow_aggressive_pruning: graph_config.snn_allow_aggressive_pruning
+                    || ctx
+                        .payload()
+                        .and_then(|payload| payload.get("allow_aggressive_pruning"))
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false),
+            };
             let snn_result = schema_ctx
                 .query(move |tx| {
                     Box::pin(async move {
@@ -8139,7 +8159,7 @@ impl JobHandler for GraphMaintenanceHandler {
                             graph_config.k_min
                         };
                         links_clone
-                            .recompute_snn_scores_tx(tx, k, threshold, false)
+                            .recompute_snn_scores_tx(tx, k, threshold, false, safety_policy)
                             .await
                     })
                 })
@@ -8147,6 +8167,20 @@ impl JobHandler for GraphMaintenanceHandler {
 
             match snn_result {
                 Ok(snn) => {
+                    if snn.status == matric_db::SnnStatus::SafetyAborted {
+                        warn!(
+                            total_edges = snn.total_edges,
+                            retained = snn.retained,
+                            pruned = snn.pruned,
+                            retention_ratio = snn.retention_ratio,
+                            "Graph maintenance stopped by SNN retention safety policy"
+                        );
+                        ctx.report_progress(
+                            30,
+                            Some("Graph maintenance safety-aborted before link mutation"),
+                        );
+                        return graph_maintenance_safety_abort_failure(&snn);
+                    }
                     info!(
                         updated = snn.updated,
                         pruned = snn.pruned,
@@ -8886,6 +8920,47 @@ mod tests {
         assert!(!rendered.contains("/srv/fortemi"));
         assert!(!rendered.contains("sk-secret"));
         assert!(!rendered.contains(snapshot_id));
+    }
+
+    #[test]
+    fn graph_maintenance_safety_abort_is_a_structured_failed_job() {
+        let snn: matric_db::SnnResult = serde_json::from_value(serde_json::json!({
+            "status": "safety_aborted",
+            "total_edges": 11449,
+            "retained": 132,
+            "updated": 132,
+            "pruned": 11317,
+            "retention_ratio": 132.0 / 11449.0,
+            "node_count": 1583,
+            "retained_mean_degree": 264.0 / 1583.0,
+            "k_used": 11,
+            "threshold_used": 0.1,
+            "dry_run": false,
+            "snn_score_distribution": [11317, 132, 0, 0, 0, 0, 0, 0, 0, 0],
+            "minimum_retention_ratio": 0.05,
+            "minimum_retained_mean_degree": 1.0,
+            "aggressive_pruning_override": false,
+            "safety_reasons": [
+                "retention_ratio_below_minimum",
+                "retained_mean_degree_below_minimum"
+            ],
+            "remediation": "Review the dry-run before using the explicit override."
+        }))
+        .expect("deserialize SNN safety result fixture");
+
+        match graph_maintenance_safety_abort_failure(&snn) {
+            JobResult::Failed(message) => {
+                let result: serde_json::Value =
+                    serde_json::from_str(&message).expect("parse structured job failure");
+                assert_eq!(result["code"], "snn_retention_safety_aborted");
+                assert_eq!(result["snn"]["status"], "safety_aborted");
+                assert_eq!(result["snn"]["retained"], 132);
+                assert_eq!(result["snn"]["pruned"], 11_317);
+                assert_eq!(result["snn"]["k_used"], 11);
+                assert!(result["snn"]["remediation"].is_string());
+            }
+            other => panic!("expected failed graph-maintenance job, got {other:?}"),
+        }
     }
 
     #[test]

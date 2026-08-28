@@ -365,7 +365,7 @@ The knowledge graph connects notes by semantic similarity. Over time, as notes a
 Graph maintenance runs four steps in order:
 
 1. **Normalize** — Edge weights are normalized using a gamma correction curve. This step runs automatically during graph traversal; the maintenance job just records the current gamma setting.
-2. **SNN** (Shared Nearest Neighbors) — Edges are scored by how many neighbors the two endpoint notes share. Edges below a threshold are pruned. This removes spurious connections caused by embedding noise.
+2. **SNN** (Shared Nearest Neighbors) — Edges are scored by how many neighbors the two endpoint notes share. The complete prune plan is checked against retention-ratio and post-plan mean-degree guards before any row changes. Unsafe plans stop the job before PFNET or snapshot.
 3. **PFNET** (Pathfinder Network) — Geometrically redundant edges are pruned: if a shorter indirect path exists between two notes, the direct edge is removed. This reduces clutter in the graph while preserving all reachable paths.
 4. **Snapshot** — A diagnostics snapshot is saved so you can compare graph quality before and after.
 
@@ -387,6 +387,16 @@ curl -X POST http://localhost:3000/api/v1/graph/maintenance \
   -H "Content-Type: application/json" \
   -d '{"steps": ["snn", "pfnet"]}'
 ```
+
+Preview SNN directly before changing links:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/graph/snn/recompute \
+  -H "Content-Type: application/json" \
+  -d '{"dry_run": true}'
+```
+
+An unsafe plan returns HTTP 409 and `status: "safety_aborted"` with the proposed counts, ratio, topology, score distribution, and remediation. The link table remains unchanged. If the pruning is intentional, repeat the maintenance request with `"allow_aggressive_pruning": true`; this is an explicit destructive override and is recorded in the SNN result.
 
 Response when queued:
 ```json

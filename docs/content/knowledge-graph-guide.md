@@ -303,10 +303,13 @@ normalized_score = score ^ GRAPH_NORMALIZATION_GAMMA
 
 Normalizes per-note edge scores by comparing each note's neighborhood to its neighbors' neighborhoods. Notes that share many neighbors get stronger links; isolated connections are weakened.
 
-- **k parameter** (`GRAPH_SNN_K`): Number of nearest neighbors considered per node
-- **Prune threshold** (`GRAPH_SNN_PRUNE_THRESHOLD`): Minimum SNN score to retain an edge
+- **k parameter** (`GRAPH_K_NEIGHBORS`): Number of nearest neighbors considered per node; `0` uses adaptive k
+- **Prune threshold** (`GRAPH_SNN_THRESHOLD`): Minimum SNN score to retain an edge
+- **Retention guards** (`GRAPH_SNN_MIN_RETENTION_RATIO`, `GRAPH_SNN_MIN_RETAINED_MEAN_DEGREE`): reject destructive plans before any row changes
 
 SNN is effective at breaking the "seashell pattern" — a topology defect where one highly-connected hub pulls many notes into artificial proximity, producing a star-shaped cluster rather than a meaningful topic cluster.
+
+The API computes the complete plan before mutation. Unsafe dry-run or commit requests return HTTP 409 with `status: safety_aborted`, proposed retained/pruned counts and ratio, topology values, score distribution, and remediation. Graph-maintenance jobs stop at that point; PFNET and snapshot steps do not run. After reviewing a dry-run, an operator can intentionally permit the exact plan with `allow_aggressive_pruning: true`; the result records the override.
 
 ### Step 3: PFNET Sparsification
 
@@ -405,8 +408,11 @@ These are part of the `manage_graphs` discriminated-union tool group. The MCP se
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GRAPH_NORMALIZATION_GAMMA` | `1.0` | Score normalization exponent |
-| `GRAPH_SNN_K` | (system default) | Nearest neighbors for SNN computation |
-| `GRAPH_SNN_PRUNE_THRESHOLD` | (system default) | Minimum SNN score to retain an edge |
+| `GRAPH_K_NEIGHBORS` | `0` (adaptive) | Nearest neighbors for SNN computation |
+| `GRAPH_SNN_THRESHOLD` | `0.10` | Minimum SNN score to retain an edge |
+| `GRAPH_SNN_MIN_RETENTION_RATIO` | `0.05` | Minimum proposed edge-retention ratio |
+| `GRAPH_SNN_MIN_RETAINED_MEAN_DEGREE` | `1.0` | Minimum proposed mean degree |
+| `GRAPH_SNN_ALLOW_AGGRESSIVE_PRUNING` | `false` | Explicit job-time override for a rejected plan |
 | `GRAPH_PFNET_Q` | (system default) | PFNET pathfinder metric space parameter |
 | `GRAPH_COMMUNITY_RESOLUTION` | (system default) | Louvain community granularity |
 | `GRAPH_STRUCTURAL_SCORE` | (system default) | Weight for structural vs. similarity scores in linking |

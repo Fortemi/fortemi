@@ -1,0 +1,78 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-28T19:31:34Z"
+  description: "Final-state provenance for the safe Fortemi #1101-#1103 address-issues cycle"
+entity:
+  id: "urn:aiwg:artifact:crates/matric-db/tests/snn_retention_safety_test.rs:sha256:716cfd6b337f4aae72b4745748032a28120771199b66c658a0181543838b221a"
+  type: test_code
+  created_at: "2026-08-28T19:31:34Z"
+  checksum: "sha256:716cfd6b337f4aae72b4745748032a28120771199b66c658a0181543838b221a"
+  size_bytes: 6677
+  attributes:
+    issues: ["Fortemi/fortemi#1101", "Fortemi/fortemi#1102", "Fortemi/fortemi#1103"]
+    change_type: implementation_and_verification
+    subjects:
+      - "crates/matric-api/src/handlers/jobs.rs sha256:a351e2cc42481bf06567b69b6515d5c8aa690f84754766294efcce3aabf5ac5c"
+      - "crates/matric-api/src/main.rs sha256:34ee99411952ec5ffd1e8b9f834f731cae0f3394701726ac59492367d8d6717b"
+      - "crates/matric-core/src/defaults.rs sha256:c1b29686839c54159d9fd5948f65123c23592d17b29b87b4331f0d31a1c7b76d"
+      - "crates/matric-core/src/models.rs sha256:c5015606289c4e64cbe2ff511e7bec9eefd2de33aa0e872111e63ef666ad4ae3"
+      - "crates/matric-db/src/file_storage.rs sha256:ba7d03564004865caaac2dd7972bf0f554a302fcddb943ff51a396905c53ba6f"
+      - "crates/matric-db/src/lib.rs sha256:6c444fb7e6dc2ee94822a897359a3935606d3deae02cf2c54d9f7523813743dd"
+      - "crates/matric-db/src/links.rs sha256:c1bb3e49444d376fd8607c5de290d7034997f0399479903fd88cf94fdf08db65"
+      - "crates/matric-db/src/notes.rs sha256:b14002cbca6d087bb5c808e8759606f853bc1a46d9555f601f07f4eea98c3ea1"
+      - "crates/matric-db/tests/extraction_strategy_migration_test.rs sha256:d5aa2800e35699a97a319d2a989beb0a52f0f7ea6170c45da1ccd1069cda04fb"
+      - "crates/matric-db/tests/knowledge_health_counts_test.rs sha256:1de3c423c97cb60fdf4699d82f27e28c67abfc088d18ce19c5e7671a4fbfb2a5"
+      - "crates/matric-db/tests/snn_retention_safety_test.rs sha256:716cfd6b337f4aae72b4745748032a28120771199b66c658a0181543838b221a"
+      - "migrations/20260828190000_add_attachment_extraction_strategy_values.sql sha256:c2b98fce276baf1ed5d138e407e2b98a6441accab096f057e38120db3a2e38f7"
+      - "contracts/openapi/openapi.yaml sha256:f585c0f07ac477159ae86d42ac318e059a42b51f02c8c8a70d767c9fd1c5c9a1"
+      - "contracts/openapi/openapi.sha256 sha256:573b328da8d4ee94a4adee624cc8924ac0010ce6f0e76570dabfce64b7a9fc66"
+      - "docs/architecture/adr/ADR-078-snn-sparse-graph-guard.md sha256:01166931ccacb4ed7334564e14d56e9326ed37257f17e1e1810bbe4130d80a20"
+      - "docs/content/configuration.md sha256:6b394c7d79ed95415ec57080142216aeb5c0f32917bfee0ede28fcd723b03a56"
+      - "docs/content/knowledge-graph-guide.md sha256:d15e366b887ecf0b85822e65b0ffa67fc255a38d96d4042e67f77b8e4c8512aa"
+      - "docs/content/operators-guide.md sha256:e3a0351e7cc9d7d6ee2912756a56f013363bcdd2f089385cfc8b1ef1ab7ba1a0"
+activity:
+  id: "urn:aiwg:activity:implementation:address-issues-1101-1103:001"
+  type: modification
+  started_at: "2026-08-28T16:00:00Z"
+  ended_at: "2026-08-28T19:43:19Z"
+  description: "Align attachment extraction enums, fail closed on catastrophic SNN plans, and aggregate knowledge-health metrics over the complete archive scope"
+  attributes:
+    verification:
+      - "fresh PostgreSQL destination migrated through 20260828190000"
+      - "pre-v2026.7.19 enum upgrade and documented workaround: passed"
+      - "SNN dry-run/commit preservation, override, sparse, disconnected, and multi-domain cases: passed"
+      - "knowledge-health counts at 0, below, at, and above the internal fetch limit: passed"
+      - "generated OpenAPI exposes the typed 200/409 SNN result and request-scoped override"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:crates/matric-db/tests/snn_retention_safety_test.rs:sha256:716cfd6b337f4aae72b4745748032a28120771199b66c658a0181543838b221a"
+    activity: "urn:aiwg:activity:implementation:address-issues-1101-1103:001"
+    time: "2026-08-28T19:31:34Z"
+  used:
+    - activity: "urn:aiwg:activity:implementation:address-issues-1101-1103:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1101"
+      role: requirement
+    - activity: "urn:aiwg:activity:implementation:address-issues-1101-1103:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1102"
+      role: requirement
+    - activity: "urn:aiwg:activity:implementation:address-issues-1101-1103:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1103"
+      role: requirement
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:crates/matric-db/tests/snn_retention_safety_test.rs:sha256:716cfd6b337f4aae72b4745748032a28120771199b66c658a0181543838b221a"
+      source: "urn:gitea:issue:Fortemi/fortemi:1102"
+      derivation_type: tests
+      activity: "urn:aiwg:activity:implementation:address-issues-1101-1103:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:implementation:address-issues-1101-1103:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: software_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:crates/matric-db/tests/snn_retention_safety_test.rs:sha256:716cfd6b337f4aae72b4745748032a28120771199b66c658a0181543838b221a"
+    agent: "urn:aiwg:agent:codex-gpt-5"

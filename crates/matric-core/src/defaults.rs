@@ -710,6 +710,12 @@ pub struct GraphConfig {
     /// SNN threshold: edges with SNN score below this are pruned.
     /// SNN score = |kNN(A) ∩ kNN(B)| / k. Range: 0.0-1.0 (default: 0.10).
     pub snn_threshold: f32,
+    /// Minimum fraction of semantic edges an SNN plan may retain by default.
+    pub snn_min_retention_ratio: f64,
+    /// Minimum post-plan mean degree across previously linked nodes.
+    pub snn_min_retained_mean_degree: f64,
+    /// Explicit operator override for intentionally aggressive SNN pruning.
+    pub snn_allow_aggressive_pruning: bool,
     /// Louvain community resolution parameter (#473).
     /// Higher values produce more, smaller communities. Lower values merge more.
     /// 1.0 = standard modularity. Range: 0.1-10.0.
@@ -738,6 +744,9 @@ impl Default for GraphConfig {
             tag_boost_weight: 0.3,
             normalization_gamma: 1.0,
             snn_threshold: 0.10,
+            snn_min_retention_ratio: 0.05,
+            snn_min_retained_mean_degree: 1.0,
+            snn_allow_aggressive_pruning: false,
             community_resolution: 1.0,
             pfnet_q: 2,
             structural_score: 0.5,
@@ -809,6 +818,22 @@ impl GraphConfig {
             if let Ok(t) = val.parse::<f32>() {
                 config.snn_threshold = t.clamp(0.0, 1.0);
             }
+        }
+
+        if let Ok(val) = std::env::var("GRAPH_SNN_MIN_RETENTION_RATIO") {
+            if let Ok(ratio) = val.parse::<f64>() {
+                config.snn_min_retention_ratio = ratio.clamp(0.0, 1.0);
+            }
+        }
+
+        if let Ok(val) = std::env::var("GRAPH_SNN_MIN_RETAINED_MEAN_DEGREE") {
+            if let Ok(mean_degree) = val.parse::<f64>() {
+                config.snn_min_retained_mean_degree = mean_degree.clamp(0.0, 100.0);
+            }
+        }
+
+        if let Ok(val) = std::env::var("GRAPH_SNN_ALLOW_AGGRESSIVE_PRUNING") {
+            config.snn_allow_aggressive_pruning = val == "true" || val == "1";
         }
 
         if let Ok(val) = std::env::var("GRAPH_COMMUNITY_RESOLUTION") {
@@ -1101,6 +1126,9 @@ mod tests {
         assert!(!config.keep_pruned);
         assert!((config.normalization_gamma - 1.0).abs() < f32::EPSILON);
         assert!((config.snn_threshold - 0.10).abs() < f32::EPSILON);
+        assert!((config.snn_min_retention_ratio - 0.05).abs() < f64::EPSILON);
+        assert!((config.snn_min_retained_mean_degree - 1.0).abs() < f64::EPSILON);
+        assert!(!config.snn_allow_aggressive_pruning);
         assert!((config.community_resolution - 1.0).abs() < f64::EPSILON);
         assert_eq!(config.pfnet_q, 2);
         assert!((config.structural_score - 0.5).abs() < f32::EPSILON);
