@@ -1,23 +1,26 @@
 metadata:
   schema_version: "1.0.0"
   created_at: "2026-08-28T20:02:53Z"
+  updated_at: "2026-08-28T20:13:55Z"
   description: "Provenance for the HotM SNN retention safety consumer receipt"
 entity:
   id: "urn:aiwg:artifact:.aiwg/reports/snn-retention-hotm-consumer-receipt-2026-08.md"
   type: verification_report
   created_at: "2026-08-28T20:02:53Z"
-  checksum: "sha256:0f1d0900cf3ae9f3b40b9024d3464145c8f292e8eb824f1d53bd438b581fa3d1"
-  size_bytes: 1961
+  updated_at: "2026-08-28T20:13:55Z"
+  checksum: "sha256:55c2bc353ec911e0735c2b4cadf5216f7f447535bab669335707c3a7fd89c498"
+  size_bytes: 2175
   attributes:
     producer_issue: "Fortemi/fortemi#1102"
     consumer_issue: "Fortemi/HotM#287"
     producer_commit: "e09578e67732d2bd26cf7642ae9038a44a9b9e6c"
-    consumer_commit: "029f047f865b087d399ca596e2f45d0690c6b89f"
+    consumer_implementation_commit: "029f047f865b087d399ca596e2f45d0690c6b89f"
+    consumer_commit: "c8389ceb889a0b7eef741f478e287211e7e96c44"
 activity:
   id: "urn:aiwg:activity:verification:snn-retention-hotm-consumer:001"
   type: verification
   started_at: "2026-08-28T20:02:11Z"
-  ended_at: "2026-08-28T20:02:53Z"
+  ended_at: "2026-08-28T20:13:55Z"
   description: "Bind the exact Fortemi OpenAPI producer to the verified HotM consumer commit"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
@@ -41,11 +44,11 @@ relationships:
       entity: "urn:git:Fortemi/fortemi:e09578e67732d2bd26cf7642ae9038a44a9b9e6c:contracts/openapi/openapi.yaml"
       role: producer_contract
     - activity: "urn:aiwg:activity:verification:snn-retention-hotm-consumer:001"
-      entity: "urn:git:Fortemi/HotM:029f047f865b087d399ca596e2f45d0690c6b89f:ui/src/api/contracts/fortemi-openapi-receipt.json"
+      entity: "urn:git:Fortemi/HotM:c8389ceb889a0b7eef741f478e287211e7e96c44:ui/src/api/contracts/fortemi-openapi-receipt.json"
       role: consumer_receipt
   wasDerivedFrom:
     - entity: "urn:aiwg:artifact:.aiwg/reports/snn-retention-hotm-consumer-receipt-2026-08.md"
-      source: "urn:git:Fortemi/HotM:029f047f865b087d399ca596e2f45d0690c6b89f:ui/src/api/contracts/fortemi-openapi-receipt.json"
+      source: "urn:git:Fortemi/HotM:c8389ceb889a0b7eef741f478e287211e7e96c44:ui/src/api/contracts/fortemi-openapi-receipt.json"
       derivation_type: verifies
       activity: "urn:aiwg:activity:verification:snn-retention-hotm-consumer:001"
   wasAssociatedWith:

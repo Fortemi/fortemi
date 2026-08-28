@@ -11,8 +11,9 @@ consumer_issue: "Fortemi/HotM#287"
 
 Fortemi's authoritative producer change is commit
 `e09578e67732d2bd26cf7642ae9038a44a9b9e6c`, tracked by
-`Fortemi/fortemi#1102`. The declared HotM consumer is commit
-`029f047f865b087d399ca596e2f45d0690c6b89f`, linked to the existing umbrella
+`Fortemi/fortemi#1102`. The HotM contract implementation is commit
+`029f047f865b087d399ca596e2f45d0690c6b89f`; its declared delivery head is
+`c8389ceb889a0b7eef741f478e287211e7e96c44`, linked to the existing umbrella
 consumer tracker `Fortemi/HotM#287`.
 
 The consumer pins `contracts/openapi/openapi.yaml` byte-for-byte at SHA-256
@@ -35,6 +36,8 @@ projections.
   92 tests and TypeScript type checking.
 - HotM's clean-destination route, operation, disposition, receipt, and
   projection-drift checks passed with no generated diff.
+- Gitea checks on the consumer delivery head passed the OpenAPI consumer gate,
+  SDLC route/contract gate, and container-image build.
 
 ## Evidence Boundary
 

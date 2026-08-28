@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-28T20:02:53Z"
+  updated_at: "2026-08-28T20:13:55Z"
 records:
   - entity: ".aiwg/reports/snn-retention-hotm-consumer-receipt-2026-08.md"
     record: "records/snn-retention-hotm-consumer-receipt-2026-08.prov.yaml"
