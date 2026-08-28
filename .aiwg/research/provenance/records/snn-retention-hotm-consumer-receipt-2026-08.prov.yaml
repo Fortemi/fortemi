@@ -1,0 +1,57 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-28T20:02:53Z"
+  description: "Provenance for the HotM SNN retention safety consumer receipt"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/reports/snn-retention-hotm-consumer-receipt-2026-08.md"
+  type: verification_report
+  created_at: "2026-08-28T20:02:53Z"
+  checksum: "sha256:0f1d0900cf3ae9f3b40b9024d3464145c8f292e8eb824f1d53bd438b581fa3d1"
+  size_bytes: 1961
+  attributes:
+    producer_issue: "Fortemi/fortemi#1102"
+    consumer_issue: "Fortemi/HotM#287"
+    producer_commit: "e09578e67732d2bd26cf7642ae9038a44a9b9e6c"
+    consumer_commit: "029f047f865b087d399ca596e2f45d0690c6b89f"
+activity:
+  id: "urn:aiwg:activity:verification:snn-retention-hotm-consumer:001"
+  type: verification
+  started_at: "2026-08-28T20:02:11Z"
+  ended_at: "2026-08-28T20:02:53Z"
+  description: "Bind the exact Fortemi OpenAPI producer to the verified HotM consumer commit"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/reports/snn-retention-hotm-consumer-receipt-2026-08.md"
+    activity: "urn:aiwg:activity:verification:snn-retention-hotm-consumer:001"
+    time: "2026-08-28T20:02:53Z"
+  used:
+    - activity: "urn:aiwg:activity:verification:snn-retention-hotm-consumer:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1102"
+      role: producer_requirement
+    - activity: "urn:aiwg:activity:verification:snn-retention-hotm-consumer:001"
+      entity: "urn:gitea:issue:Fortemi/HotM:287"
+      role: consumer_tracker
+    - activity: "urn:aiwg:activity:verification:snn-retention-hotm-consumer:001"
+      entity: "urn:git:Fortemi/fortemi:e09578e67732d2bd26cf7642ae9038a44a9b9e6c:contracts/openapi/openapi.yaml"
+      role: producer_contract
+    - activity: "urn:aiwg:activity:verification:snn-retention-hotm-consumer:001"
+      entity: "urn:git:Fortemi/HotM:029f047f865b087d399ca596e2f45d0690c6b89f:ui/src/api/contracts/fortemi-openapi-receipt.json"
+      role: consumer_receipt
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/reports/snn-retention-hotm-consumer-receipt-2026-08.md"
+      source: "urn:git:Fortemi/HotM:029f047f865b087d399ca596e2f45d0690c6b89f:ui/src/api/contracts/fortemi-openapi-receipt.json"
+      derivation_type: verifies
+      activity: "urn:aiwg:activity:verification:snn-retention-hotm-consumer:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:verification:snn-retention-hotm-consumer:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: verifier
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/reports/snn-retention-hotm-consumer-receipt-2026-08.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

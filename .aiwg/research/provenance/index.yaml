@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-28T19:31:34Z"
+  updated_at: "2026-08-28T20:02:53Z"
 records:
+  - entity: ".aiwg/reports/snn-retention-hotm-consumer-receipt-2026-08.md"
+    record: "records/snn-retention-hotm-consumer-receipt-2026-08.prov.yaml"
   - entity: "crates/matric-api/src/handlers/jobs.rs"
     record: "records/address-issues-1101-1103.prov.yaml"
   - entity: "crates/matric-api/src/main.rs"
