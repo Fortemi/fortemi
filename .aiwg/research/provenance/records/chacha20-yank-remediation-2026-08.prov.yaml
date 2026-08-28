@@ -1,0 +1,57 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-28T20:24:00Z"
+  description: "Provenance for replacing the yanked chacha20 0.10.0 lock entry discovered by the final #1101-#1103 delivery pipeline"
+entity:
+  id: "urn:aiwg:artifact:Cargo.lock:sha256:3e514c2939aae59e3b0701edc445b9928d44144e1e02f5cdbdcbdcb8c9af3d0d"
+  type: dependency_lockfile
+  created_at: "2026-08-28T20:24:00Z"
+  checksum: "sha256:3e514c2939aae59e3b0701edc445b9928d44144e1e02f5cdbdcbdcb8c9af3d0d"
+  size_bytes: 158144
+  attributes:
+    package: "chacha20"
+    previous_version: "0.10.0"
+    replacement_version: "0.10.2"
+    reason: "0.10.0 was yanked in the current crates.io index"
+    issues: ["Fortemi/fortemi#1101", "Fortemi/fortemi#1102", "Fortemi/fortemi#1103"]
+activity:
+  id: "urn:aiwg:activity:remediation:chacha20-yank-2026-08:001"
+  type: modification
+  started_at: "2026-08-28T20:21:00Z"
+  ended_at: "2026-08-28T20:24:00Z"
+  description: "Update the root Rust lockfile to the compatible, non-yanked chacha20 0.10.2 release and re-run policy and workspace checks"
+  attributes:
+    verification:
+      - "cargo deny check: passed"
+      - "fortemi-auth consumer cargo deny check: passed"
+      - "cargo check --workspace --all-targets --all-features: passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:Cargo.lock:sha256:3e514c2939aae59e3b0701edc445b9928d44144e1e02f5cdbdcbdcb8c9af3d0d"
+    activity: "urn:aiwg:activity:remediation:chacha20-yank-2026-08:001"
+    time: "2026-08-28T20:24:00Z"
+  used:
+    - activity: "urn:aiwg:activity:remediation:chacha20-yank-2026-08:001"
+      entity: "urn:gitea:actions:Fortemi/fortemi:run:7013:job:7"
+      role: failure_evidence
+    - activity: "urn:aiwg:activity:remediation:chacha20-yank-2026-08:001"
+      entity: "urn:crates.io:crate:chacha20:0.10.2"
+      role: replacement_dependency
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:Cargo.lock:sha256:3e514c2939aae59e3b0701edc445b9928d44144e1e02f5cdbdcbdcb8c9af3d0d"
+      source: "urn:gitea:actions:Fortemi/fortemi:run:7013:job:7"
+      derivation_type: remediation
+      activity: "urn:aiwg:activity:remediation:chacha20-yank-2026-08:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:remediation:chacha20-yank-2026-08:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: software_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:Cargo.lock:sha256:3e514c2939aae59e3b0701edc445b9928d44144e1e02f5cdbdcbdcb8c9af3d0d"
+    agent: "urn:aiwg:agent:codex-gpt-5"
