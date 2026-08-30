@@ -295,7 +295,7 @@ jobs:
             -f "$build_dir/build/Dockerfile.testdb" \
             -t "$db_image" "$build_dir"
           network_subnet="$(
-            scripts/ci/create-explicit-docker-network.sh \
+            "$build_dir/scripts/ci/create-explicit-docker-network.sh" \
               "$network" "$run_id"
           )"
           echo "Created $network on explicit subnet $network_subnet"

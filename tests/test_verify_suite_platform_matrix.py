@@ -450,6 +450,10 @@ class SuitePlatformMatrixTests(unittest.TestCase):
         )[0]
 
         self.assertIn('run_id="$7"', remote_script)
+        self.assertIn(
+            '"$build_dir/scripts/ci/create-explicit-docker-network.sh"',
+            remote_script,
+        )
         self.assertIn('"$network" "$run_id"', remote_script)
         self.assertNotIn("${GITHUB_RUN_ID}", remote_script)
         self.assertIn('-e GITHUB_RUN_ID="$run_id"', remote_script)
