@@ -1573,8 +1573,8 @@ mod tests {
     fn archive_already_exists_error_reports_metadata_without_raw_name() {
         let raw_name = "tenant-archive-sk-live-123/path@example.com";
 
-        let Error::Internal(message) = archive_already_exists_error(raw_name) else {
-            panic!("expected internal error");
+        let Error::InvalidInput(message) = archive_already_exists_error(raw_name) else {
+            panic!("expected invalid-input error");
         };
 
         assert!(message.contains("Archive already exists"));
