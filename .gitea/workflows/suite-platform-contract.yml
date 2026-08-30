@@ -294,7 +294,11 @@ jobs:
           docker build --platform linux/arm64 \
             -f "$build_dir/build/Dockerfile.testdb" \
             -t "$db_image" "$build_dir"
-          docker network create "$network" >/dev/null
+          network_subnet="$(
+            scripts/ci/create-explicit-docker-network.sh \
+              "$network" "${GITHUB_RUN_ID}"
+          )"
+          echo "Created $network on explicit subnet $network_subnet"
           docker run -d --name "$db_container" --platform linux/arm64 \
             --network "$network" \
             -e POSTGRES_USER=matric \

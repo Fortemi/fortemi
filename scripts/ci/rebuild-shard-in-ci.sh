@@ -57,7 +57,8 @@ docker build -f build/Dockerfile.testdb -t "$TESTDB_IMAGE" .
 
 # 2. Isolated network so API can reach DB by container name
 echo ">>> Creating network $NETWORK..."
-docker network create "$NETWORK"
+NETWORK_SUBNET="$(scripts/ci/create-explicit-docker-network.sh "$NETWORK" "$RUN_ID")"
+echo ">>> Created $NETWORK on explicit subnet $NETWORK_SUBNET"
 
 # 3. Start Postgres
 echo ">>> Starting Postgres ($DB_NAME)..."

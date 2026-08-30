@@ -803,36 +803,8 @@ jobs:
           docker rm ${TEST_API} ${TEST_REDIS} ${TEST_DB} 2>/dev/null || true
           docker network rm ${TEST_NET} 2>/dev/null || true
 
-          # Allocate an explicit run-scoped subnet. Shared runners can exhaust
-          # Docker's predefined address pools even though private subnets remain
-          # available. Candidate creation is atomic, so concurrent runs that
-          # select the same starting slot safely advance to the next slot.
-          NETWORK_CREATED=false
-          NETWORK_START=$((GITHUB_RUN_ID % 4096))
-          for NETWORK_OFFSET in {0..255}; do
-            NETWORK_SLOT=$(((NETWORK_START + NETWORK_OFFSET) % 4096))
-            NETWORK_SECOND_OCTET=$((240 + (NETWORK_SLOT / 256)))
-            NETWORK_THIRD_OCTET=$((NETWORK_SLOT % 256))
-            TEST_NET_SUBNET="10.${NETWORK_SECOND_OCTET}.${NETWORK_THIRD_OCTET}.0/24"
-            if docker network create \
-              --driver bridge \
-              --subnet "${TEST_NET_SUBNET}" \
-              "${TEST_NET}" >/dev/null 2>&1; then
-              NETWORK_CREATED=true
-              break
-            fi
-          done
-          if [ "${NETWORK_CREATED}" != "true" ]; then
-            echo "ERROR: no collision-free explicit subnet was available for ${TEST_NET}" >&2
-            exit 1
-          fi
-          ACTUAL_NET_SUBNET=$(docker network inspect \
-            --format '{{(index .IPAM.Config 0).Subnet}}' \
-            "${TEST_NET}")
-          if [ "${ACTUAL_NET_SUBNET}" != "${TEST_NET_SUBNET}" ]; then
-            echo "ERROR: isolated network subnet verification failed" >&2
-            exit 1
-          fi
+          TEST_NET_SUBNET=$(scripts/ci/create-explicit-docker-network.sh \
+            "${TEST_NET}" "${GITHUB_RUN_ID}")
           echo "Created ${TEST_NET} on explicit subnet ${TEST_NET_SUBNET}"
 
           # Start PostgreSQL with pgvector

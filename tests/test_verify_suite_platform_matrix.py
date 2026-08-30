@@ -425,7 +425,9 @@ class SuitePlatformMatrixTests(unittest.TestCase):
             "/var/run/docker.sock:/var/run/docker.sock",
             workflow,
         )
-        self.assertIn('docker network create "$network"', workflow)
+        self.assertIn(
+            'scripts/ci/create-explicit-docker-network.sh', workflow
+        )
         self.assertIn(
             "-e SUITE_PLATFORM_DATABASE_PROVISIONING=managed-docker",
             workflow,
