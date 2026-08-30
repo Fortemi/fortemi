@@ -99,6 +99,85 @@ async fn test_create_archive_schema() {
 }
 
 #[tokio::test]
+async fn test_archive_creation_waits_for_global_ddl_lock() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
+    let pool = setup_test_db().await;
+    let db = Database::new(pool.clone());
+    let archive_name = format!("test-ddl-lock-{}", Uuid::now_v7());
+
+    let mut blocker = pool
+        .begin()
+        .await
+        .expect("Failed to begin archive DDL blocker transaction");
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('fortemi.archive-ddl', 0))")
+        .execute(&mut *blocker)
+        .await
+        .expect("Failed to acquire archive DDL blocker lock");
+
+    let create_name = archive_name.clone();
+    let create_db = db.clone();
+    let mut create_task = tokio::spawn(async move {
+        create_db
+            .archives
+            .create_archive_schema(&create_name, Some("Archive DDL lock regression test"))
+            .await
+    });
+
+    let observed_wait = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                r#"
+                SELECT EXISTS(
+                    SELECT 1
+                    FROM pg_stat_activity
+                    WHERE datname = current_database()
+                      AND pid <> pg_backend_pid()
+                      AND wait_event_type = 'Lock'
+                      AND wait_event = 'advisory'
+                      AND query LIKE '%fortemi.archive-ddl%'
+                )
+                "#,
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("Failed to inspect archive DDL lock waiters");
+
+            if waiting {
+                break true;
+            }
+            if create_task.is_finished() {
+                break false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .unwrap_or(false);
+
+    blocker
+        .commit()
+        .await
+        .expect("Failed to release archive DDL blocker lock");
+
+    let archive = tokio::time::timeout(std::time::Duration::from_secs(30), &mut create_task)
+        .await
+        .expect("Archive creation did not resume after releasing the DDL lock")
+        .expect("Archive creation task panicked")
+        .expect("Archive creation failed after releasing the DDL lock");
+
+    db.archives
+        .drop_archive_schema(&archive_name)
+        .await
+        .expect("Failed to drop archive DDL lock test schema");
+
+    assert!(
+        observed_wait,
+        "Archive creation must wait on the global archive DDL advisory lock"
+    );
+    assert_eq!(archive.name, archive_name);
+}
+
+#[tokio::test]
 async fn test_list_archive_schemas() {
     let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;

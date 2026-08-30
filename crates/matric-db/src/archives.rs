@@ -209,6 +209,21 @@ impl PgArchiveRepository {
         Self { pool }
     }
 
+    /// Serialize archive schema DDL across processes and repository instances.
+    ///
+    /// PostgreSQL can deadlock when concurrent archive operations clone, alter,
+    /// or drop the same set of public-schema dependencies in different orders.
+    /// A transaction-scoped advisory lock keeps the lock and the protected DDL
+    /// on the same connection, so it is always released on commit or rollback.
+    async fn lock_archive_ddl(tx: &mut sqlx::Transaction<'_, Postgres>) -> Result<()> {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('fortemi.archive-ddl', 0))")
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        Ok(())
+    }
+
     /// Generate a valid PostgreSQL schema name from an archive name.
     ///
     /// Sanitizes the input to only allow alphanumeric characters and underscores,
@@ -456,8 +471,15 @@ impl PgArchiveRepository {
         .await
         .map_err(Error::Database)?;
 
-        // Execute all DDL in a single transaction for atomicity.
+        // Execute all DDL in a single transaction for atomicity and serialize
+        // it with clone/sync/drop operations across all Fortemi processes.
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        Self::lock_archive_ddl(&mut tx).await?;
+
+        sqlx::query(&format!("CREATE SCHEMA {}", schema_name))
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
 
         // Step 5: Create tables using LIKE ... INCLUDING ALL.
         // Copies columns, defaults, CHECK/NOT NULL constraints, indexes,
@@ -792,6 +814,7 @@ impl PgArchiveRepository {
         .map_err(Error::Database)?;
 
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        Self::lock_archive_ddl(&mut tx).await?;
 
         // Create missing tables
         for table in &missing_tables {
@@ -1091,13 +1114,8 @@ impl ArchiveRepository for PgArchiveRepository {
         .await
         .map_err(Error::Database)?;
 
-        // Create the PostgreSQL schema
-        sqlx::query(&format!("CREATE SCHEMA {}", schema_name))
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
-
-        // Create all tables in the new schema
+        // Create the PostgreSQL schema and all of its tables atomically under
+        // the archive DDL advisory lock.
         if let Err(e) = self.create_archive_tables(&schema_name).await {
             // Rollback: drop the schema and registry entry
             let _ = sqlx::query(&format!("DROP SCHEMA IF EXISTS {} CASCADE", schema_name))
@@ -1138,6 +1156,9 @@ impl ArchiveRepository for PgArchiveRepository {
             ));
         }
 
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        Self::lock_archive_ddl(&mut tx).await?;
+
         // Clean up orphaned jobs BEFORE dropping schema (Issue #415).
         // Job queue, attempts, and history are shared tables not affected by DROP SCHEMA CASCADE.
         // Delete jobs referencing notes in this archive to prevent queue pollution.
@@ -1145,7 +1166,7 @@ impl ArchiveRepository for PgArchiveRepository {
             "DELETE FROM job_queue WHERE note_id IN (SELECT id FROM {}.note)",
             archive.schema_name
         ))
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -1154,16 +1175,18 @@ impl ArchiveRepository for PgArchiveRepository {
             "DROP SCHEMA IF EXISTS {} CASCADE",
             archive.schema_name
         ))
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
         // Remove the registry entry
         sqlx::query("DELETE FROM archive_registry WHERE name = $1")
             .bind(name)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
+
+        tx.commit().await.map_err(Error::Database)?;
 
         Ok(())
     }
@@ -1388,6 +1411,7 @@ impl ArchiveRepository for PgArchiveRepository {
 
             // Copy data in a single transaction.
             let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+            Self::lock_archive_ddl(&mut tx).await?;
 
             // Cloned trigger functions intentionally use unqualified table names.
             // Scope them to the target archive so reciprocal SKOS relations and
