@@ -4,6 +4,7 @@
 //! for parallel memory archives.
 
 use chrono::Utc;
+use matric_core::Error;
 use matric_db::{create_pool, inspect_tenant_catalog, ArchiveRepository, Database};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -611,6 +612,79 @@ async fn test_clone_archive_schema() {
     .await
     .expect("Failed to insert test note content");
 
+    let source_embedding_set_id: Uuid = sqlx::query_scalar(&format!(
+        "SELECT id FROM {}.embedding_set WHERE slug = 'default'",
+        source.schema_name
+    ))
+    .fetch_one(&pool)
+    .await
+    .expect("Failed to resolve source default embedding set");
+
+    sqlx::query(&format!(
+        "INSERT INTO {}.embedding_set_member (embedding_set_id, note_id, membership_type)
+         VALUES ($1, $2, 'explicit')",
+        source.schema_name
+    ))
+    .bind(source_embedding_set_id)
+    .bind(note_id)
+    .execute(&pool)
+    .await
+    .expect("Failed to seed source embedding-set membership");
+
+    // Seed a cyclic-capable SKOS graph. The semantic edge table sorts before
+    // skos_concept alphabetically, so this proves clone-time FK deferral copies
+    // the complete graph rather than relying on a fragile topological walk.
+    let source_scheme_id: Uuid = sqlx::query_scalar(&format!(
+        "SELECT id FROM {}.skos_concept_scheme WHERE notation = 'default'",
+        source.schema_name
+    ))
+    .fetch_one(&pool)
+    .await
+    .expect("Failed to resolve source default concept scheme");
+    let concept_a = Uuid::now_v7();
+    let concept_b = Uuid::now_v7();
+    let mut source_tx = pool
+        .begin()
+        .await
+        .expect("Failed to begin SKOS seed transaction");
+    sqlx::query(&format!(
+        "SET LOCAL search_path TO {}, public",
+        source.schema_name
+    ))
+    .execute(&mut *source_tx)
+    .await
+    .expect("Failed to scope SKOS seed transaction");
+    for (concept_id, notation) in [(concept_a, "clone-a"), (concept_b, "clone-b")] {
+        sqlx::query(&format!(
+            "INSERT INTO {}.skos_concept (id, primary_scheme_id, notation)
+             VALUES ($1, $2, $3)",
+            source.schema_name
+        ))
+        .bind(concept_id)
+        .bind(source_scheme_id)
+        .bind(notation)
+        .execute(&mut *source_tx)
+        .await
+        .expect("Failed to seed source SKOS concept");
+    }
+    let semantic_edge_id = Uuid::now_v7();
+    sqlx::query(&format!(
+        "INSERT INTO {}.skos_semantic_relation_edge
+         (id, subject_id, object_id, relation_type)
+         VALUES ($1, $2, $3, 'related')",
+        source.schema_name
+    ))
+    .bind(semantic_edge_id)
+    .bind(concept_a)
+    .bind(concept_b)
+    .execute(&mut *source_tx)
+    .await
+    .expect("Failed to seed source semantic relation");
+    source_tx
+        .commit()
+        .await
+        .expect("Failed to commit source semantic relation");
+
     // Clone the archive
     let clone = db
         .archives
@@ -650,9 +724,123 @@ async fn test_clone_archive_schema() {
         "Cloned note should have same content"
     );
 
+    let cloned_embedding_set_id: Uuid = sqlx::query_scalar(&format!(
+        "SELECT esm.embedding_set_id
+         FROM {}.embedding_set_member esm
+         WHERE esm.note_id = $1",
+        clone.schema_name
+    ))
+    .bind(note_id)
+    .fetch_one(&pool)
+    .await
+    .expect("Cloned note should retain embedding-set membership");
+    assert_eq!(
+        cloned_embedding_set_id, source_embedding_set_id,
+        "Clone should preserve the source embedding-set identity"
+    );
+
+    let cloned_concept_count: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM {}.skos_concept WHERE id = ANY($1)",
+        clone.schema_name
+    ))
+    .bind(vec![concept_a, concept_b])
+    .fetch_one(&pool)
+    .await
+    .expect("Failed to count cloned concepts");
+    assert_eq!(
+        cloned_concept_count, 2,
+        "Clone should preserve SKOS concepts"
+    );
+
+    let cloned_edge_count: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM {}.skos_semantic_relation_edge WHERE id = $1",
+        clone.schema_name
+    ))
+    .bind(semantic_edge_id)
+    .fetch_one(&pool)
+    .await
+    .expect("Failed to count cloned semantic relation");
+    assert_eq!(
+        cloned_edge_count, 1,
+        "Clone should preserve semantic relations after both concepts exist"
+    );
+
     // Cleanup
     let _ = db.archives.drop_archive_schema(&source_name).await;
     let _ = db.archives.drop_archive_schema(&clone_name).await;
+}
+
+#[tokio::test]
+async fn test_archive_provenance_activity_stays_schema_scoped() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
+    let pool = setup_test_db().await;
+    let db = Database::new(pool.clone());
+    let archive_name = format!("test-provenance-{}", Uuid::now_v7());
+    let archive = db
+        .archives
+        .create_archive_schema(&archive_name, Some("Schema-scoped provenance test"))
+        .await
+        .expect("Failed to create archive");
+    let note_id = Uuid::now_v7();
+    let now = Utc::now();
+
+    sqlx::query(&format!(
+        "INSERT INTO {}.note (id, format, source, created_at_utc, updated_at_utc, metadata)
+         VALUES ($1, 'markdown', 'test-source', $2, $2, '{{}}')",
+        archive.schema_name
+    ))
+    .bind(note_id)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .expect("Failed to insert archive note");
+
+    let schema_ctx = db
+        .for_schema(&archive.schema_name)
+        .expect("Failed to create archive schema context");
+    let mut tx = schema_ctx
+        .begin_tx()
+        .await
+        .expect("Failed to begin transaction");
+    let activity_id = db
+        .provenance
+        .start_activity_tx(&mut tx, note_id, "embedding", Some("test-model"))
+        .await
+        .expect("Failed to start archive provenance activity");
+    db.provenance
+        .complete_activity_tx(
+            &mut tx,
+            activity_id,
+            None,
+            Some(serde_json::json!({"test": true})),
+        )
+        .await
+        .expect("Failed to complete archive provenance activity");
+    tx.commit()
+        .await
+        .expect("Failed to commit provenance activity");
+
+    let archive_count: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM {}.provenance_activity WHERE id = $1",
+        archive.schema_name
+    ))
+    .bind(activity_id)
+    .fetch_one(&pool)
+    .await
+    .expect("Failed to count archive provenance activity");
+    let public_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM public.provenance_activity WHERE id = $1")
+            .bind(activity_id)
+            .fetch_one(&pool)
+            .await
+            .expect("Failed to count public provenance activity");
+    assert_eq!(archive_count, 1);
+    assert_eq!(public_count, 0);
+
+    db.archives
+        .drop_archive_schema(&archive_name)
+        .await
+        .expect("Failed to drop provenance test archive");
 }
 
 #[tokio::test]
@@ -715,10 +903,15 @@ async fn test_clone_duplicate_target() {
         .clone_archive_schema(&source_name, &target_name, Some("Should fail"))
         .await;
 
-    assert!(
-        result.is_err(),
-        "Cloning to existing archive name should fail"
-    );
+    match result {
+        Err(Error::InvalidInput(message)) => {
+            assert!(message.starts_with("Archive already exists; name_len="));
+            assert!(!message.contains(&target_name));
+        }
+        other => {
+            panic!("Expected a safe invalid-input error for duplicate clone target: {other:?}")
+        }
+    }
 
     // Cleanup
     let _ = db.archives.drop_archive_schema(&source_name).await;

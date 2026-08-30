@@ -19972,7 +19972,12 @@ async fn search_engine_for_schema(
         }
     }
     // Slow path: create pool + engine, insert into cache
-    let pool = matric_db::pool::create_pool_for_schema(&state.database_url, schema)
+    let tenant_mode = if state.multi_tenant {
+        matric_db::pool::TenantPoolMode::HostedUnscoped
+    } else {
+        matric_db::pool::TenantPoolMode::PersonalSynthetic
+    };
+    let pool = matric_db::pool::create_pool_for_schema(&state.database_url, schema, tenant_mode)
         .await
         .map_err(|e| search_operation_failed("create schema search pool", e))?;
     let db = Database::new(pool);
@@ -20546,10 +20551,10 @@ async fn memories_overview(
 
     // Count notes in public schema
     let public_notes: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM public.note WHERE soft_deleted = false")
+        sqlx::query_scalar("SELECT COUNT(*) FROM public.note WHERE deleted_at IS NULL")
             .fetch_one(state.db.pool())
             .await
-            .unwrap_or(0);
+            .map_err(matric_core::Error::Database)?;
 
     let public_size: i64 = sqlx::query_scalar(
         "SELECT pg_total_relation_size('public.note'::regclass) + pg_total_relation_size('public.embedding'::regclass)",

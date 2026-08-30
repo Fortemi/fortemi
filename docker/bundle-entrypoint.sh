@@ -144,10 +144,19 @@ database_has_sqlx_migrations_table() {
 database_has_user_data() {
     local tables
     tables="$(su postgres -c "psql -d ${POSTGRES_DB} -At -v ON_ERROR_STOP=1" <<'SQL'
-SELECT format('%I.%I', schemaname, tablename)
-FROM pg_tables
-WHERE schemaname = 'public'
-  AND tablename <> '_sqlx_migrations';
+SELECT format('%I.%I', n.nspname, c.relname)
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relkind IN ('r', 'p')
+  AND c.relname <> '_sqlx_migrations'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM pg_depend d
+      WHERE d.classid = 'pg_class'::regclass
+        AND d.objid = c.oid
+        AND d.deptype = 'e'
+  );
 SQL
 )"
 
@@ -278,7 +287,11 @@ ensure_pre_migration_backup() {
     backup_log="${BACKUP_DEST}/.${basename}.log"
 
     echo ">>> Pending migrations on non-empty database: creating verified pre-migration backup"
-    mkdir -p "$BACKUP_DEST"
+    # A full bundle backup is an administrative operation: the application
+    # role is intentionally NOBYPASSRLS and cannot dump forced-RLS tables.
+    # Restrict the local backup directory before delegating only the dump
+    # subprocess to PostgreSQL's local peer-authenticated OS account.
+    install -d -m 0700 -o postgres -g postgres "$BACKUP_DEST"
 
     # Pre-flight: the dump stages in BACKUP_TEMP_DIR before compression, and
     # Docker's default /dev/shm is only 64MB. Refuse to start a dump that
@@ -288,7 +301,7 @@ ensure_pre_migration_backup() {
     staging_dir="${BACKUP_TEMP_DIR:-/dev/shm/fortemi-pre-migration-backup}"
     staging_trusted="${BACKUP_TEMP_TRUSTED_ENCRYPTED:-false}"
     db_size=$(su postgres -c "psql -d ${POSTGRES_DB} -At -v ON_ERROR_STOP=1 -c 'SELECT pg_database_size(current_database())'" || echo "")
-    mkdir -p "$staging_dir" 2>/dev/null || true
+    install -d -m 0700 -o postgres -g postgres "$staging_dir" 2>/dev/null || true
     avail_staging=$(df -B1 --output=avail "$staging_dir" 2>/dev/null | tail -1 || echo "")
     if [ -n "$db_size" ] && [ -n "$avail_staging" ] && [ "$avail_staging" -lt "$db_size" ]; then
         echo "!!! WARNING: backup staging dir ${staging_dir} has ${avail_staging} bytes free"
@@ -299,7 +312,7 @@ ensure_pre_migration_backup() {
         echo "!!! shm_size on the fortemi service) or point BACKUP_TEMP_DIR at a larger tmpfs."
         staging_dir="${BACKUP_DEST}/.staging"
         staging_trusted=true
-        mkdir -p "$staging_dir"
+        install -d -m 0700 -o postgres -g postgres "$staging_dir"
         avail_disk=$(df -B1 --output=avail "$staging_dir" 2>/dev/null | tail -1 || echo "")
         if [ -n "$avail_disk" ] && [ "$avail_disk" -lt "$db_size" ]; then
             echo "ERROR: disk staging under ${BACKUP_DEST} also lacks space (${avail_disk} bytes free, database is ${db_size} bytes)." >&2
@@ -308,7 +321,7 @@ ensure_pre_migration_backup() {
         fi
     fi
 
-    if ! env \
+    if ! runuser -u postgres -- env -u PGPASSWORD -u PGPASSFILE \
         BACKUP_DEST="$BACKUP_DEST" \
         BACKUP_BASENAME="$basename" \
         BACKUP_CLEANUP_PATTERN='pre-migration-*.sql*' \
@@ -316,13 +329,16 @@ ensure_pre_migration_backup() {
         BACKUP_TEMP_DIR="$staging_dir" \
         BACKUP_TEMP_TRUSTED_ENCRYPTED="$staging_trusted" \
         BACKUP_COMPRESS="${BACKUP_COMPRESS:-gzip}" \
-        PGUSER="$POSTGRES_USER" \
-        PGPASSWORD="$POSTGRES_PASSWORD" \
-        PGHOST=localhost \
+        PGUSER=postgres \
+        PGHOST=/var/run/postgresql \
         PGPORT=5432 \
         PGDATABASE="$POSTGRES_DB" \
         LOG_FILE="${LOG_FILE:-/var/log/fortemi/backup.log}" \
         "$BACKUP_SCRIPT_PATH" -d local | tee "$backup_log"; then
+        # A failed verification must not leave an artifact that backup inventory
+        # can mistake for a recovery point. The basename is generated above and
+        # contains no glob characters, so cleanup is limited to this attempt.
+        find "$BACKUP_DEST" -maxdepth 1 -type f -name "${basename}.sql*" -delete
         echo "ERROR: verified pre-migration backup failed; aborting before checksum repair and migrations" >&2
         echo "Set PRE_MIGRATION_BACKUP_ACK_NO_BACKUP=true only for constrained environments with an external recovery point." >&2
         exit 1

@@ -74,6 +74,7 @@ TEST_FILES=(
 TOTAL=0
 PASSED=0
 FAILED=0
+MISSING=0
 FAILED_FILES=()
 
 echo "=== MCP Integration Test Suite ==="
@@ -83,14 +84,20 @@ echo ""
 for file in "${TEST_FILES[@]}"; do
   filepath="$SCRIPT_DIR/$file"
   if [ ! -f "$filepath" ]; then
-    echo "SKIP  $file (not found)"
+    echo "FAIL  $file (manifest entry not found)"
+    MISSING=$((MISSING + 1))
+    FAILED_FILES+=("$file")
     continue
   fi
 
   printf "%-45s " "$file"
 
+  # `set -e` would otherwise abort inside command substitution before the
+  # runner can record TAP diagnostics and continue with later files.
+  set +e
   output=$(FORTEMI_API_KEY="$FORTEMI_API_KEY" node --test "$filepath" 2>&1)
   exit_code=$?
+  set -e
 
   # Extract pass/fail counts from output
   tests=$(echo "$output" | grep -oP '(?<=ℹ tests )\d+' | tail -1 || echo "0")
@@ -105,6 +112,7 @@ for file in "${TEST_FILES[@]}"; do
     echo "PASS  ($pass/$tests)"
   else
     echo "FAIL  ($pass/$tests, $fail failed)"
+    printf '%s\n' "$output" | sed 's/^/    /'
     FAILED_FILES+=("$file")
   fi
 done
@@ -115,6 +123,7 @@ echo "Files:  ${#TEST_FILES[@]}"
 echo "Tests:  $TOTAL"
 echo "Passed: $PASSED"
 echo "Failed: $FAILED"
+echo "Missing: $MISSING"
 
 if [ ${#FAILED_FILES[@]} -gt 0 ]; then
   echo ""

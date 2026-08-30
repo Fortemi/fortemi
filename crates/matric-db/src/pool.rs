@@ -201,7 +201,11 @@ pub fn log_pool_metrics(pool: &PgPool) {
 ///
 /// Pool sizes are smaller than the default pool (max 3 connections) because
 /// archive pools are created on-demand and cached — most traffic stays on `public`.
-pub async fn create_pool_for_schema(database_url: &str, schema: &str) -> Result<PgPool> {
+pub async fn create_pool_for_schema(
+    database_url: &str,
+    schema: &str,
+    tenant_mode: TenantPoolMode,
+) -> Result<PgPool> {
     use sqlx::postgres::PgConnectOptions;
     use std::str::FromStr;
 
@@ -219,12 +223,26 @@ pub async fn create_pool_for_schema(database_url: &str, schema: &str) -> Result<
         .map_err(Error::Database)?
         .options([("search_path", search_path.as_str())]);
 
-    let pool = PgPoolOptions::new()
+    let mut pool_options = PgPoolOptions::new()
         .max_connections(3)
         .min_connections(0)
         .acquire_timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
         .idle_timeout(Duration::from_secs(300))
-        .max_lifetime(Some(Duration::from_secs(900)))
+        .max_lifetime(Some(Duration::from_secs(900)));
+
+    pool_options = pool_options.after_connect(move |connection, _metadata| {
+        Box::pin(async move {
+            if tenant_mode == TenantPoolMode::PersonalSynthetic {
+                sqlx::query("SELECT set_config('app.current_tenant', $1, false)")
+                    .bind(LOCAL_TENANT_ID)
+                    .execute(connection)
+                    .await?;
+            }
+            Ok(())
+        })
+    });
+
+    let pool = pool_options
         .connect_with(options)
         .await
         .map_err(Error::Database)?;

@@ -56,6 +56,17 @@ def main() -> None:
         "backup failure must abort startup before migrations",
     )
     require(
+        "runuser -u postgres -- env -u PGPASSWORD -u PGPASSFILE" in entrypoint
+        and "PGHOST=/var/run/postgresql" in entrypoint
+        and "PGUSER=postgres" in entrypoint,
+        "bundle pre-migration backup must use local postgres peer auth without a database secret",
+    )
+    require(
+        '[[ "$PGHOST" == /* ]]' in backup
+        and '[[ "$(id -un)" == "$PGUSER" ]]' in backup,
+        "passwordless backup auth must be limited to a matching OS/DB user over a Unix socket",
+    )
+    require(
         "set -eo pipefail" in entrypoint or "set -euo pipefail" in entrypoint,
         "entrypoint must enable pipefail so backup failures are not hidden by tee",
     )
@@ -95,7 +106,7 @@ def main() -> None:
         "simulated backup failure" in smoke_test
         and "backup failure did not abort" in smoke_test
         and "Pre-migration backup skipped: database has no user data" in smoke_test,
-        "pre-migration backup smoke test must cover fail-closed and empty-db paths",
+        "pre-migration backup smoke test must cover peer auth, fail-closed, and empty-db paths",
     )
     require(
         "BASELINE = 20260215000000" in migration_risk

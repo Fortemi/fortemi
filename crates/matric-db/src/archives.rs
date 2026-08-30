@@ -26,7 +26,7 @@ fn source_archive_not_found_error(name: &str) -> Error {
 }
 
 fn archive_already_exists_error(name: &str) -> Error {
-    Error::Internal(format!(
+    Error::InvalidInput(format!(
         "Archive already exists; name_len={}",
         name.chars().count()
     ))
@@ -1367,75 +1367,93 @@ impl ArchiveRepository for PgArchiveRepository {
         // Create the new archive with empty tables
         let new_archive = self.create_archive_schema(new_name, description).await?;
 
-        // Order tables by FK dependency (parents first) so inserts respect referential integrity
-        // without needing superuser privileges to disable triggers.
-        let ordered_tables: Vec<String> = sqlx::query_scalar(
-            r#"
-            WITH RECURSIVE
-            fk_deps AS (
-                SELECT DISTINCT
-                    c.relname::text AS child,
-                    pc.relname::text AS parent
-                FROM pg_constraint con
-                JOIN pg_class c ON con.conrelid = c.oid
-                JOIN pg_namespace n ON c.relnamespace = n.oid
-                JOIN pg_class pc ON con.confrelid = pc.oid
-                JOIN pg_namespace pn ON pc.relnamespace = pn.oid
-                WHERE n.nspname = $1 AND pn.nspname = $1
-                  AND con.contype = 'f'
-                  AND c.oid != con.confrelid
-            ),
-            levels AS (
-                -- Level 0: tables with no FK dependencies within this schema
-                SELECT t.relname::text AS table_name, 0 AS lvl
-                FROM pg_class t
-                JOIN pg_namespace n ON t.relnamespace = n.oid
-                WHERE n.nspname = $1 AND t.relkind = 'r'
-                  AND NOT EXISTS (
-                      SELECT 1 FROM fk_deps d WHERE d.child = t.relname::text
-                  )
-
-                UNION ALL
-
-                -- Level N+1: tables that reference a table at level N
-                SELECT d.child, l.lvl + 1
-                FROM fk_deps d
-                JOIN levels l ON l.table_name = d.parent
+        let copy_result: Result<()> = async {
+            // Copy every ordinary table. The archive graph contains self-references
+            // and may gain cycles over time, so a recursive topological query can
+            // silently omit tables. Foreign keys are deferred only for this copy
+            // transaction and restored to their original immediate posture below.
+            let tables: Vec<String> = sqlx::query_scalar(
+                r#"
+                SELECT c.relname::text
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = $1 AND c.relkind = 'r'
+                ORDER BY c.relname
+                "#,
             )
-            SELECT table_name
-            FROM levels
-            GROUP BY table_name
-            ORDER BY MAX(lvl), table_name
-            "#,
-        )
-        .bind(&source.schema_name)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(Error::Database)?;
+            .bind(&source.schema_name)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(Error::Database)?;
 
-        // Copy data in a single transaction
-        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+            // Copy data in a single transaction.
+            let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
-        // Delete the seeded default concept scheme so the source's scheme (with its UUIDs)
-        // gets copied instead. Cloned concepts reference source scheme UUIDs via FK, so we
-        // must preserve the source's IDs rather than using the freshly-seeded ones.
-        sqlx::query(&format!(
-            "DELETE FROM {}.skos_concept_scheme WHERE is_system = TRUE AND notation = 'default'",
-            new_archive.schema_name
-        ))
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
+            // Cloned trigger functions intentionally use unqualified table names.
+            // Scope them to the target archive so reciprocal SKOS relations and
+            // other trigger side effects cannot write into public.
+            sqlx::query(&format!(
+                "SET LOCAL search_path TO {}, public",
+                new_archive.schema_name
+            ))
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
 
-        for table in &ordered_tables {
-            // Skip embedding_set table - the new archive already has its own seeded default set.
-            // Copying would cause duplicate key violations since both have slug='default'.
-            if table == "embedding_set" {
-                continue;
+            let foreign_keys: Vec<(String, String)> = sqlx::query_as(
+                r#"
+                SELECT c.relname::text, con.conname::text
+                FROM pg_constraint con
+                JOIN pg_class c ON c.oid = con.conrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = $1 AND con.contype = 'f'
+                ORDER BY c.relname, con.conname
+                "#,
+            )
+            .bind(&new_archive.schema_name)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+            for (table, constraint) in &foreign_keys {
+                sqlx::query(&format!(
+                    "ALTER TABLE {}.{} ALTER CONSTRAINT {} DEFERRABLE INITIALLY IMMEDIATE",
+                    new_archive.schema_name, table, constraint
+                ))
+                .execute(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
             }
+            sqlx::query("SET CONSTRAINTS ALL DEFERRED")
+                .execute(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
 
-            // Get non-generated columns to avoid "cannot insert into generated column" errors
-            let columns: Vec<String> = sqlx::query_scalar(
+            // Delete the seeded default concept scheme so the source's scheme (with its UUIDs)
+            // gets copied instead. Cloned concepts reference source scheme UUIDs via FK, so we
+            // must preserve the source's IDs rather than using the freshly-seeded ones.
+            sqlx::query(&format!(
+                "DELETE FROM {}.skos_concept_scheme WHERE is_system = TRUE AND notation = 'default'",
+                new_archive.schema_name
+            ))
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+            // The target's seeded default embedding set has a new UUID. Remove it and
+            // copy the source sets verbatim so embedding_set_member foreign keys remain
+            // valid and custom sets are preserved.
+            sqlx::query(&format!(
+                "DELETE FROM {}.embedding_set WHERE is_system = TRUE AND slug = 'default'",
+                new_archive.schema_name
+            ))
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+            for table in &tables {
+                // Get non-generated columns to avoid "cannot insert into generated column" errors
+                let columns: Vec<String> = sqlx::query_scalar(
                 r#"
                 SELECT a.attname::text
                 FROM pg_attribute a
@@ -1449,28 +1467,54 @@ impl ArchiveRepository for PgArchiveRepository {
                     AND a.attidentity = ''
                 ORDER BY a.attnum
                 "#,
-            )
-            .bind(&source.schema_name)
-            .bind(table)
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
+                )
+                .bind(&source.schema_name)
+                .bind(table)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
 
-            if columns.is_empty() {
-                continue;
+                if columns.is_empty() {
+                    continue;
+                }
+
+                let col_list = columns.join(", ");
+                sqlx::query(&format!(
+                    "INSERT INTO {}.{} ({}) SELECT {} FROM {}.{}",
+                    new_archive.schema_name, table, col_list, col_list, source.schema_name, table
+                ))
+                .execute(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
             }
 
-            let col_list = columns.join(", ");
-            sqlx::query(&format!(
-                "INSERT INTO {}.{} ({}) SELECT {} FROM {}.{}",
-                new_archive.schema_name, table, col_list, col_list, source.schema_name, table
-            ))
-            .execute(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
-        }
+            // Validate the complete graph before returning each FK to the same
+            // non-deferrable posture produced by create_archive_schema.
+            sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
+                .execute(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
+            for (table, constraint) in &foreign_keys {
+                sqlx::query(&format!(
+                    "ALTER TABLE {}.{} ALTER CONSTRAINT {} NOT DEFERRABLE",
+                    new_archive.schema_name, table, constraint
+                ))
+                .execute(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
+            }
 
-        tx.commit().await.map_err(Error::Database)?;
+            tx.commit().await.map_err(Error::Database)?;
+            Ok(())
+        }
+        .await;
+
+        if let Err(error) = copy_result {
+            // create_archive_schema commits independently; compensate so a failed
+            // clone cannot leave an empty target in the registry.
+            let _ = self.drop_archive_schema(new_name).await;
+            return Err(error);
+        }
 
         // Update stats on the new archive
         let _ = self.update_archive_stats(new_name).await;

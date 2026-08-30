@@ -805,14 +805,22 @@ impl PgNoteRepository {
         let now = Utc::now();
 
         // Update last accessed timestamp and counter
-        sqlx::query(
-            "UPDATE note SET last_accessed_at = $1, access_count = access_count + 1 WHERE id = $2",
+        let update_result = sqlx::query(
+            "UPDATE note SET last_accessed_at = $1, access_count = access_count + 1
+             WHERE id = $2 AND deleted_at IS NULL",
         )
         .bind(now)
         .bind(id)
         .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
+
+        // Do not emit an access event for a resource that is absent or already
+        // deleted. Apart from noisy PostgreSQL diagnostics, the attempted row
+        // would necessarily violate note_access_log's note foreign key.
+        if update_result.rows_affected() == 0 {
+            return Err(Self::note_not_found_error(id));
+        }
 
         // Record access event in log (best-effort via savepoint, don't fail the fetch).
         // The note_access_log table may not exist in older schemas that haven't been

@@ -168,13 +168,11 @@ export class MCPTestClient {
           // - "deadlock detected": PostgreSQL transaction deadlock
           // - "Referenced resource not found": FK constraint violation (transient)
           // - "Note not found": Race condition where note isn't visible yet (transient)
-          // - "Export failed": Export races with note creation (transient)
           // - "does not exist": Schema/table deleted by parallel cleanup (transient)
           const retryablePatterns = [
             "deadlock detected",
             "Referenced resource not found",
             "Note not found",
-            "Export failed",
             "does not exist",
           ];
           if (retryablePatterns.some(pattern => text.includes(pattern))) {
@@ -222,7 +220,10 @@ export class MCPTestClient {
    */
   async callToolExpectError(name, args = {}) {
     try {
-      const result = await this.callTool(name, args);
+      // Expected negative cases are deterministic client errors. Retrying broad
+      // not-found text hides latency regressions and can turn a single assertion
+      // into a minute-long test without improving reliability.
+      const result = await this.callTool(name, args, { maxRetries: 0 });
       // Some errors come as successful results with error content
       if (typeof result === "string" && result.includes("error")) {
         return { error: result };

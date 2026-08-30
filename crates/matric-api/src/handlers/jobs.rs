@@ -676,6 +676,64 @@ fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResul
     })
 }
 
+async fn start_job_provenance(
+    db: &Database,
+    schema_ctx: &SchemaContext,
+    note_id: uuid::Uuid,
+    activity_type: &str,
+    model_name: Option<&str>,
+) -> Option<uuid::Uuid> {
+    let mut tx = schema_ctx.begin_tx().await.ok()?;
+    let activity_id = db
+        .provenance
+        .start_activity_tx(&mut tx, note_id, activity_type, model_name)
+        .await
+        .ok()?;
+    tx.commit().await.ok()?;
+    Some(activity_id)
+}
+
+async fn complete_job_provenance(
+    db: &Database,
+    schema_ctx: &SchemaContext,
+    activity_id: uuid::Uuid,
+    revision_id: Option<uuid::Uuid>,
+    metadata: Option<serde_json::Value>,
+) -> matric_core::Result<()> {
+    let mut tx = schema_ctx.begin_tx().await?;
+    db.provenance
+        .complete_activity_tx(&mut tx, activity_id, revision_id, metadata)
+        .await?;
+    tx.commit().await.map_err(matric_core::Error::Database)
+}
+
+async fn get_job_provenance_chain(
+    db: &Database,
+    schema_ctx: &SchemaContext,
+    note_id: uuid::Uuid,
+) -> matric_core::Result<Option<matric_core::ProvenanceChain>> {
+    let mut tx = schema_ctx.begin_tx().await?;
+    let chain = db.provenance.get_chain_tx(&mut tx, note_id).await?;
+    tx.commit().await.map_err(matric_core::Error::Database)?;
+    Ok(chain)
+}
+
+async fn record_job_provenance_edges(
+    db: &Database,
+    schema_ctx: &SchemaContext,
+    revision_id: uuid::Uuid,
+    source_note_ids: &[uuid::Uuid],
+    relation: &ProvRelation,
+) -> matric_core::Result<usize> {
+    let mut tx = schema_ctx.begin_tx().await?;
+    let count = db
+        .provenance
+        .record_edges_batch_tx(&mut tx, revision_id, source_note_ids, relation)
+        .await?;
+    tx.commit().await.map_err(matric_core::Error::Database)?;
+    Ok(count)
+}
+
 /// Extract an optional model override from a job's payload.
 ///
 /// When present, the job handler should use this model slug instead of the
@@ -1292,16 +1350,14 @@ impl JobHandler for AiRevisionHandler {
         };
 
         // Start provenance activity
-        let activity_id = self
-            .db
-            .provenance
-            .start_activity(
-                note_id,
-                "ai_revision",
-                Some(matric_core::GenerationBackend::model_name(backend)),
-            )
-            .await
-            .ok();
+        let activity_id = start_job_provenance(
+            &self.db,
+            &schema_ctx,
+            note_id,
+            "ai_revision",
+            Some(matric_core::GenerationBackend::model_name(backend)),
+        )
+        .await;
 
         // For contextual modes, Phase 1 runs Standard (isolated) first.
         // Phase 2 (AiRevisionContextual) is queued after saving Phase 1 output.
@@ -1596,7 +1652,7 @@ impl JobHandler for AiRevisionHandler {
         // Record W3C PROV provenance for the AI revision
         ctx.report_progress(90, Some("Recording provenance..."));
 
-        if let Ok(Some(chain)) = self.db.provenance.get_chain(note_id).await {
+        if let Ok(Some(chain)) = get_job_provenance_chain(&self.db, &schema_ctx, note_id).await {
             let rev_id = chain.revision_id;
 
             // Complete the provenance activity
@@ -1607,11 +1663,14 @@ impl JobHandler for AiRevisionHandler {
                     "revised_length": revised.len(),
                     "is_phase1": revision_mode.is_contextual(),
                 });
-                if let Err(e) = self
-                    .db
-                    .provenance
-                    .complete_activity(act_id, Some(rev_id), Some(metadata))
-                    .await
+                if let Err(e) = complete_job_provenance(
+                    &self.db,
+                    &schema_ctx,
+                    act_id,
+                    Some(rev_id),
+                    Some(metadata),
+                )
+                .await
                 {
                     warn!(
                         error_len = diagnostic_len(&e),
@@ -1952,16 +2011,14 @@ impl JobHandler for AiRevisionContextualHandler {
         }
 
         // Start provenance activity
-        let activity_id = self
-            .db
-            .provenance
-            .start_activity(
-                note_id,
-                "ai_revision_contextual",
-                Some(matric_core::GenerationBackend::model_name(backend)),
-            )
-            .await
-            .ok();
+        let activity_id = start_job_provenance(
+            &self.db,
+            &schema_ctx,
+            note_id,
+            "ai_revision_contextual",
+            Some(matric_core::GenerationBackend::model_name(backend)),
+        )
+        .await;
 
         // --- Intermediate step: embed Phase 1 output and find related notes ---
         ctx.report_progress(
@@ -2347,15 +2404,18 @@ Output the revised note in clean markdown format. Do not add any labels, markers
         // Record provenance: edges to each related note used as context
         ctx.report_progress(90, Some("Recording provenance..."));
 
-        if let Ok(Some(chain)) = self.db.provenance.get_chain(note_id).await {
+        if let Ok(Some(chain)) = get_job_provenance_chain(&self.db, &schema_ctx, note_id).await {
             let rev_id = chain.revision_id;
 
             if !related_note_ids.is_empty() {
-                if let Err(e) = self
-                    .db
-                    .provenance
-                    .record_edges_batch(rev_id, &related_note_ids, &ProvRelation::Used)
-                    .await
+                if let Err(e) = record_job_provenance_edges(
+                    &self.db,
+                    &schema_ctx,
+                    rev_id,
+                    &related_note_ids,
+                    &ProvRelation::Used,
+                )
+                .await
                 {
                     warn!(
                         error_len = diagnostic_len(&e),
@@ -2372,11 +2432,14 @@ Output the revised note in clean markdown format. Do not add any labels, markers
                     "revised_length": revised.len(),
                     "context_filtered": context_filter.is_some(),
                 });
-                if let Err(e) = self
-                    .db
-                    .provenance
-                    .complete_activity(act_id, Some(rev_id), Some(metadata))
-                    .await
+                if let Err(e) = complete_job_provenance(
+                    &self.db,
+                    &schema_ctx,
+                    act_id,
+                    Some(rev_id),
+                    Some(metadata),
+                )
+                .await
                 {
                     warn!(
                         error_len = diagnostic_len(&e),
@@ -2840,16 +2903,14 @@ impl JobHandler for EmbeddingHandler {
             Ok(resolved) => resolved,
             Err(error) => return error,
         };
-        let activity_id = self
-            .db
-            .provenance
-            .start_activity(
-                note_id,
-                "embedding",
-                Some(resolved_backend.contract.model()),
-            )
-            .await
-            .ok();
+        let activity_id = start_job_provenance(
+            &self.db,
+            &schema_ctx,
+            note_id,
+            "embedding",
+            Some(resolved_backend.contract.model()),
+        )
+        .await;
 
         // DOCUMENT COMPOSITION (#485):
         // Resolve embedding config to determine what properties go into the
@@ -3135,11 +3196,9 @@ impl JobHandler for EmbeddingHandler {
                 &composition,
                 embedding_set_id,
             );
-            if let Err(e) = self
-                .db
-                .provenance
-                .complete_activity(act_id, None, Some(prov_metadata))
-                .await
+            if let Err(e) =
+                complete_job_provenance(&self.db, &schema_ctx, act_id, None, Some(prov_metadata))
+                    .await
             {
                 warn!(
                     error_len = diagnostic_len(&e),
@@ -3315,16 +3374,14 @@ impl JobHandler for TitleGenerationHandler {
         };
 
         // Start provenance activity (#430)
-        let activity_id = self
-            .db
-            .provenance
-            .start_activity(
-                note_id,
-                "title_generation",
-                Some(matric_core::GenerationBackend::model_name(backend)),
-            )
-            .await
-            .ok();
+        let activity_id = start_job_provenance(
+            &self.db,
+            &schema_ctx,
+            note_id,
+            "title_generation",
+            Some(matric_core::GenerationBackend::model_name(backend)),
+        )
+        .await;
 
         let content_preview: String = content
             .chars()
@@ -3428,11 +3485,9 @@ Content:
             let prov_metadata = serde_json::json!({
                 "title_len": diagnostic_len(&title),
             });
-            if let Err(e) = self
-                .db
-                .provenance
-                .complete_activity(act_id, None, Some(prov_metadata))
-                .await
+            if let Err(e) =
+                complete_job_provenance(&self.db, &schema_ctx, act_id, None, Some(prov_metadata))
+                    .await
             {
                 warn!(
                     error_len = diagnostic_len(&e),
@@ -3951,12 +4006,8 @@ impl JobHandler for LinkingHandler {
         };
 
         // Start provenance activity (#430)
-        let activity_id = self
-            .db
-            .provenance
-            .start_activity(note_id, "linking", None)
-            .await
-            .ok();
+        let activity_id =
+            start_job_provenance(&self.db, &schema_ctx, note_id, "linking", None).await;
 
         let mut created = 0;
         #[allow(clippy::needless_late_init)]
@@ -4146,11 +4197,9 @@ impl JobHandler for LinkingHandler {
                 wiki_links_resolved,
                 graph_config.strategy,
             );
-            if let Err(e) = self
-                .db
-                .provenance
-                .complete_activity(act_id, None, Some(prov_metadata))
-                .await
+            if let Err(e) =
+                complete_job_provenance(&self.db, &schema_ctx, act_id, None, Some(prov_metadata))
+                    .await
             {
                 warn!(
                     error_len = diagnostic_len(&e),
@@ -5258,12 +5307,14 @@ impl JobHandler for ConceptTaggingHandler {
                 .unwrap_or_else(|| "fast".to_string()),
             _ => matric_core::GenerationBackend::model_name(&self.backend).to_string(),
         };
-        let activity_id = self
-            .db
-            .provenance
-            .start_activity(note_id, "concept_tagging", Some(&prov_model))
-            .await
-            .ok();
+        let activity_id = start_job_provenance(
+            &self.db,
+            &schema_ctx,
+            note_id,
+            "concept_tagging",
+            Some(&prov_model),
+        )
+        .await;
 
         ctx.report_progress(50, Some("Parsing concept suggestions..."));
 
@@ -5377,11 +5428,9 @@ impl JobHandler for ConceptTaggingHandler {
                 self.target_concepts,
                 Some(content_preview.len()),
             );
-            if let Err(e) = self
-                .db
-                .provenance
-                .complete_activity(act_id, None, Some(prov_metadata))
-                .await
+            if let Err(e) =
+                complete_job_provenance(&self.db, &schema_ctx, act_id, None, Some(prov_metadata))
+                    .await
             {
                 warn!(
                     error_len = diagnostic_len(&e),
@@ -5522,12 +5571,14 @@ impl JobHandler for ReferenceExtractionHandler {
         };
 
         // Start provenance activity
-        let activity_id = self
-            .db
-            .provenance
-            .start_activity(note_id, "reference_extraction", Some(&prov_model))
-            .await
-            .ok();
+        let activity_id = start_job_provenance(
+            &self.db,
+            &schema_ctx,
+            note_id,
+            "reference_extraction",
+            Some(&prov_model),
+        )
+        .await;
 
         ctx.report_progress(10, Some("Fetching note content..."));
 
@@ -5956,13 +6007,16 @@ impl JobHandler for ReferenceExtractionHandler {
 
             // Immediately promote to approved if still a candidate
             if tag_result.is_ok() {
-                let _ = sqlx::query(
-                    "UPDATE skos_concept SET status = 'approved'::concept_status, promoted_at = NOW() \
-                     WHERE id = $1 AND status = 'candidate'::concept_status"
+                let promotion_result = sqlx::query(
+                    "UPDATE skos_concept SET status = 'approved'::tag_status, promoted_at = NOW() \
+                     WHERE id = $1 AND status = 'candidate'::tag_status",
                 )
                 .bind(resolved.concept_id)
                 .execute(&mut *tx)
                 .await;
+                if let Err(error) = promotion_result {
+                    return reference_extraction_job_failure(error, "promote_reference_concept");
+                }
             }
 
             tx.commit().await.ok();
@@ -5993,11 +6047,9 @@ impl JobHandler for ReferenceExtractionHandler {
                 extraction_method,
                 Some(content_preview.len()),
             );
-            if let Err(e) = self
-                .db
-                .provenance
-                .complete_activity(act_id, None, Some(prov_metadata))
-                .await
+            if let Err(e) =
+                complete_job_provenance(&self.db, &schema_ctx, act_id, None, Some(prov_metadata))
+                    .await
             {
                 warn!(
                     error_len = diagnostic_len(&e),
@@ -6752,16 +6804,14 @@ impl JobHandler for MetadataExtractionHandler {
         };
 
         // Start provenance activity
-        let activity_id = self
-            .db
-            .provenance
-            .start_activity(
-                note_id,
-                "metadata_extraction",
-                Some(matric_core::GenerationBackend::model_name(backend)),
-            )
-            .await
-            .ok();
+        let activity_id = start_job_provenance(
+            &self.db,
+            &schema_ctx,
+            note_id,
+            "metadata_extraction",
+            Some(matric_core::GenerationBackend::model_name(backend)),
+        )
+        .await;
 
         // Use AI to extract structured metadata from content
         let prompt = format!(
@@ -6966,11 +7016,9 @@ Example output:
                 "fields_extracted": fields_extracted,
                 "content_preview_chars": content_preview.len(),
             });
-            if let Err(e) = self
-                .db
-                .provenance
-                .complete_activity(act_id, None, Some(prov_metadata))
-                .await
+            if let Err(e) =
+                complete_job_provenance(&self.db, &schema_ctx, act_id, None, Some(prov_metadata))
+                    .await
             {
                 warn!(
                     error_len = diagnostic_len(&e),
@@ -7041,12 +7089,14 @@ impl JobHandler for DocumentTypeInferenceHandler {
         };
 
         // Start provenance activity
-        let activity_id = self
-            .db
-            .provenance
-            .start_activity(note_id, "document_type_inference", None)
-            .await
-            .ok();
+        let activity_id = start_job_provenance(
+            &self.db,
+            &schema_ctx,
+            note_id,
+            "document_type_inference",
+            None,
+        )
+        .await;
 
         ctx.report_progress(10, Some("Fetching note..."));
 
@@ -7114,15 +7164,14 @@ impl JobHandler for DocumentTypeInferenceHandler {
             }
             Ok(None) => {
                 if let Some(act_id) = activity_id {
-                    let _ = self
-                        .db
-                        .provenance
-                        .complete_activity(
-                            act_id,
-                            None,
-                            Some(serde_json::json!({"detected": false})),
-                        )
-                        .await;
+                    let _ = complete_job_provenance(
+                        &self.db,
+                        &schema_ctx,
+                        act_id,
+                        None,
+                        Some(serde_json::json!({"detected": false})),
+                    )
+                    .await;
                 }
                 return JobResult::Success(Some(serde_json::json!({
                     "detected": false,
@@ -7160,11 +7209,9 @@ impl JobHandler for DocumentTypeInferenceHandler {
                 &detection_method,
                 confidence,
             );
-            if let Err(e) = self
-                .db
-                .provenance
-                .complete_activity(act_id, None, Some(prov_metadata))
-                .await
+            if let Err(e) =
+                complete_job_provenance(&self.db, &schema_ctx, act_id, None, Some(prov_metadata))
+                    .await
             {
                 warn!(
                     error_len = diagnostic_len(&e),

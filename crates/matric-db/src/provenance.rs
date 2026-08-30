@@ -303,6 +303,86 @@ impl PgProvenanceRepository {
 
 /// Transaction-aware variants for provenance operations.
 impl PgProvenanceRepository {
+    /// Record multiple provenance edges within an existing schema transaction.
+    pub async fn record_edges_batch_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        revision_id: Uuid,
+        source_note_ids: &[Uuid],
+        relation: &ProvRelation,
+    ) -> Result<usize> {
+        let mut count = 0;
+        for source_id in source_note_ids {
+            sqlx::query(
+                r#"
+                INSERT INTO provenance_edge (revision_id, source_note_id, relation)
+                VALUES ($1, $2, $3)
+                ON CONFLICT DO NOTHING
+                "#,
+            )
+            .bind(revision_id)
+            .bind(source_id)
+            .bind(relation.as_str())
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    /// Start a provenance activity within an existing schema transaction.
+    pub async fn start_activity_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        activity_type: &str,
+        model_name: Option<&str>,
+    ) -> Result<Uuid> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO provenance_activity (note_id, activity_type, model_name)
+            VALUES ($1, $2, $3)
+            RETURNING id
+            "#,
+        )
+        .bind(note_id)
+        .bind(activity_type)
+        .bind(model_name)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.get("id"))
+    }
+
+    /// Complete a provenance activity within an existing schema transaction.
+    pub async fn complete_activity_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        activity_id: Uuid,
+        revision_id: Option<Uuid>,
+        metadata: Option<serde_json::Value>,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE provenance_activity
+            SET ended_at = NOW(),
+                revision_id = COALESCE($2, revision_id),
+                metadata = COALESCE($3, metadata)
+            WHERE id = $1
+            "#,
+        )
+        .bind(activity_id)
+        .bind(revision_id)
+        .bind(metadata)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(())
+    }
+
     /// Get the full provenance chain for a note's current revision within an existing transaction.
     pub async fn get_chain_tx(
         &self,

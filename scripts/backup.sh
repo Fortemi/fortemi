@@ -19,6 +19,8 @@
 #   BACKUP_REMOTE_RSYNC  Rsync destination (user@host:/path)
 #   BACKUP_REMOTE_S3     S3 bucket path (s3://bucket/prefix)
 #   PGUSER, PGPASSWORD or PGPASSFILE, PGHOST, PGPORT, PGDATABASE
+#   Passwordless peer auth is accepted only when PGHOST is a Unix-socket
+#   directory and the operating-system user matches PGUSER.
 #
 
 set -euo pipefail
@@ -161,7 +163,8 @@ Environment Variables:
   BACKUP_REMOTE_RSYNC    Rsync destination (user@host:/path)
   BACKUP_REMOTE_S3       S3 bucket path (s3://bucket/prefix)
   PGUSER                 PostgreSQL user (default: matric)
-  PGPASSWORD             PostgreSQL password (required unless PGPASSFILE is set)
+  PGPASSWORD             PostgreSQL password (required unless PGPASSFILE is set
+                         or matching-user Unix-socket peer auth is used)
   PGPASSFILE             PostgreSQL password file path (alternative to PGPASSWORD)
   PGHOST                 PostgreSQL host (default: localhost)
   PGPORT                 PostgreSQL port (default: 5432)
@@ -317,7 +320,14 @@ require_database_secret() {
         return 0
     fi
 
-    error_exit "PGPASSWORD or PGPASSFILE must be set for database backup"
+    # Local administrative callers can use PostgreSQL peer authentication
+    # without manufacturing another database secret. Keep this exception
+    # deliberately narrow: a Unix-socket path plus an exact OS/DB user match.
+    if [[ "$PGHOST" == /* ]] && [[ "$(id -un)" == "$PGUSER" ]]; then
+        return 0
+    fi
+
+    error_exit "PGPASSWORD or PGPASSFILE must be set for database backup unless matching-user Unix-socket peer authentication is used"
 }
 
 backup_temp_path() {

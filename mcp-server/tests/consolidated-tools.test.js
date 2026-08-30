@@ -816,7 +816,8 @@ describe("Consolidated Tools", () => {
 
   test("MJ-002: manage_jobs list action returns jobs", async () => {
     const result = await client.callTool("manage_jobs", { action: "list", limit: 5 });
-    assert.ok(Array.isArray(result), "Should return array of jobs");
+    const jobs = Array.isArray(result) ? result : result.jobs;
+    assert.ok(Array.isArray(jobs), "Should return a job envelope or legacy array");
   });
 
   test("MJ-003: manage_jobs list with status filter", async () => {
@@ -825,7 +826,8 @@ describe("Consolidated Tools", () => {
       status: "completed",
       limit: 3,
     });
-    assert.ok(Array.isArray(result), "Should return filtered jobs");
+    const jobs = Array.isArray(result) ? result : result.jobs;
+    assert.ok(Array.isArray(jobs), "Should return a filtered job envelope or legacy array");
   });
 
   test("MJ-004: manage_jobs pending_count action returns count", async () => {
@@ -859,7 +861,8 @@ describe("Consolidated Tools", () => {
 
   test("MJ-007: manage_jobs get action retrieves job details", async () => {
     // Get a recent job from list
-    const jobs = await client.callTool("manage_jobs", { action: "list", limit: 1 });
+    const result = await client.callTool("manage_jobs", { action: "list", limit: 1 });
+    const jobs = Array.isArray(result) ? result : result.jobs;
     if (Array.isArray(jobs) && jobs.length > 0) {
       const job = await client.callTool("manage_jobs", { action: "get", id: jobs[0].id });
       assert.ok(job, "Should return job details");

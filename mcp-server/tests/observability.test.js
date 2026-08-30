@@ -199,10 +199,11 @@ describe("Phase 16: Observability", () => {
     // Workflow: identify orphans for cleanup
     if (tags.length > 0) {
       const first = tags[0];
-      assert.ok(
-        first.tag || first.name || typeof first === "string",
-        "Each orphan tag entry should have a tag identifier"
-      );
+      assert.equal(first.tag_present, true, "Entry should confirm a tag is present");
+      assert.equal(typeof first.tag_len, "number", "Entry should report tag length");
+      assert.ok(first.created_at, "Entry should report creation time");
+      assert.equal(first.tag, undefined, "Privacy-safe telemetry must not expose raw tags");
+      assert.equal(first.name, undefined, "Privacy-safe telemetry must not expose tag names");
     }
     console.log(`  Orphan tag workflow: ${tags.length} tags identified for potential cleanup`);
   });

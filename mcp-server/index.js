@@ -30,6 +30,10 @@ import { buildProtectedResourceMetadata } from "./lib/resource-metadata.js";
 // execSync removed — all PKE operations now use HTTP API instead of CLI binary
 import * as DEFAULTS from "./constants/defaults.js";
 
+const MCP_SERVER_VERSION = JSON.parse(
+  fs.readFileSync(new URL("./package.json", import.meta.url), "utf8")
+).version;
+
 // Prevent unhandled errors from crashing the MCP server process (issue #131)
 process.on("uncaughtException", (err) => {
   console.error("[mcp] Uncaught exception (process kept alive):", err.message);
@@ -165,7 +169,7 @@ function createMcpServer() {
   const mcpServer = new Server(
     {
       name: "fortemi",
-      version: "0.1.0",
+      version: MCP_SERVER_VERSION,
     },
     {
       capabilities: {
@@ -663,14 +667,13 @@ function createMcpServer() {
             exportParams.set("include_frontmatter", args.include_frontmatter.toString());
           }
           if (args.content) exportParams.set("content", args.content);
-          // Fetch as text since this returns markdown, not JSON
-          const exportResponse = await fetch(`${API_BASE}/api/v1/notes/${args.id}/export?${exportParams}`, {
-            headers: { "Accept": "text/markdown" },
-          });
-          if (!exportResponse.ok) {
-            throw new Error(`Export failed: ${exportResponse.status}`);
-          }
-          result = { markdown: await exportResponse.text() };
+          // apiRequest preserves bearer authorization and X-Fortemi-Memory and
+          // already returns raw text for text/markdown responses.
+          const markdown = await apiRequest(
+            "GET",
+            `/api/v1/notes/${args.id}/export?${exportParams}`
+          );
+          result = { markdown };
           break;
         }
 
@@ -5251,13 +5254,15 @@ Use \`get_system_info\` to verify vision is configured:
 
 \`\`\`json
 {
-  "extraction": {
-    "vision": { "available": true, "model": "qwen3-vl" }
+  "infrastructure": {
+    "extraction": {
+      "vision": { "enabled": true, "model": "qwen3-vl", "provider": "Ollama" }
+    }
   }
 }
 \`\`\`
 
-If vision shows \`"available": false\`, check that:
+If vision shows \`"enabled": false\`, check that:
 1. \`OLLAMA_VISION_MODEL\` is set in the environment
 2. Ollama is running and accessible at \`OLLAMA_URL\`
 3. The specified model is pulled (\`ollama list\`)

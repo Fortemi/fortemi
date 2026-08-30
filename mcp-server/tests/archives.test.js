@@ -338,8 +338,8 @@ describe("Phase 12: Memory Archives", () => {
       step_types: ["embedding"],
     });
     assert.ok(result, "Should return bulk reprocess result");
-    assert.ok(result.queued !== undefined, "Should have queued count");
-    console.log(`  ✓ Bulk reprocess in archive: queued=${result.queued}`);
+    assert.ok(result.jobs_queued !== undefined, "Should have jobs_queued count");
+    console.log(`  ✓ Bulk reprocess in archive: queued=${result.jobs_queued}`);
 
     // Switch back to public
     await client.callTool("select_memory", { name: "public" });

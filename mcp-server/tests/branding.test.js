@@ -48,6 +48,19 @@ test("index.js has correct server name", () => {
   );
 });
 
+test("index.js derives serverInfo version from package.json", () => {
+  const indexPath = path.join(projectRoot, "index.js");
+  const indexContent = fs.readFileSync(indexPath, "utf8");
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(projectRoot, "package.json"), "utf8")
+  );
+
+  assert.match(indexContent, /MCP_SERVER_VERSION/);
+  assert.match(indexContent, /\.\/package\.json/);
+  assert.doesNotMatch(indexContent, /version:\s*["']0\.1\.0["']/);
+  assert.match(packageJson.version, /^\d{4}\.\d+\.\d+$/);
+});
+
 test("index.js uses FORTEMI_URL environment variable", () => {
   const indexPath = path.join(projectRoot, "index.js");
   const indexContent = fs.readFileSync(indexPath, "utf8");

@@ -21,7 +21,7 @@
  */
 
 import { strict as assert } from "node:assert";
-import { test, describe, before, after } from "node:test";
+import { test, describe, before, after, afterEach } from "node:test";
 import { MCPTestClient } from "./helpers/mcp-client.js";
 
 describe("Multi-Memory Features (UAT)", () => {
@@ -33,8 +33,8 @@ describe("Multi-Memory Features (UAT)", () => {
     await client.initialize();
   });
 
-  after(async () => {
-    // Cleanup all created resources
+  async function cleanupResources() {
+    if (cleanup.memoryNames.length === 0 && cleanup.noteIds.length === 0) return;
     console.log(`  Cleaning up ${cleanup.memoryNames.length} memories and ${cleanup.noteIds.length} notes...`);
 
     // Select public memory before cleanup (ensure we're not in a memory we're deleting)
@@ -59,6 +59,19 @@ describe("Multi-Memory Features (UAT)", () => {
         // Ignore cleanup errors
       }
     }
+
+    cleanup.memoryNames.length = 0;
+    cleanup.noteIds.length = 0;
+  }
+
+  // Every scenario is independent. Releasing fixtures after each test keeps
+  // the suite inside the production default MAX_MEMORIES=10 contract.
+  afterEach(async () => {
+    await cleanupResources();
+  });
+
+  after(async () => {
+    await cleanupResources();
 
     await client.close();
   });
@@ -543,6 +556,13 @@ describe("Multi-Memory Features (UAT)", () => {
   // ==========================================================================
 
   test("MEM-015: Get memories overview shows capacity and breakdown", async () => {
+    await client.callTool("select_memory", { name: "public" });
+    const note = await client.callTool("create_note", {
+      content: `Public overview count ${MCPTestClient.uniqueId()}`,
+      revision_mode: "none",
+    });
+    cleanup.noteIds.push(note.id);
+
     const result = await client.callTool("get_memories_overview", {});
 
     assert.ok(result, "Should return result");
@@ -551,6 +571,9 @@ describe("Multi-Memory Features (UAT)", () => {
     assert.ok(typeof result.remaining_slots === "number", "Should have remaining_slots");
     assert.ok(typeof result.total_notes === "number", "Should have total_notes");
     assert.ok(Array.isArray(result.memories), "Should have memories array");
+    const publicMemory = result.memories.find((memory) => memory.name === "public");
+    assert.ok(publicMemory, "Overview should include public memory");
+    assert.ok(publicMemory.note_count >= 1, "Overview should count live public notes");
 
     // Verify calculated fields
     assert.strictEqual(

@@ -16,6 +16,11 @@
 import { strict as assert } from "node:assert";
 import { test, describe, before, after } from "node:test";
 import { MCPTestClient } from "./helpers/mcp-client.js";
+import fs from "node:fs";
+
+const packageVersion = JSON.parse(
+  fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")
+).version;
 
 describe("Phase 0: Preflight Checks", () => {
   let client;
@@ -41,6 +46,11 @@ describe("Phase 0: Preflight Checks", () => {
     assert.ok(serverInfo.serverInfo, "Server info should contain serverInfo object");
     assert.ok(serverInfo.serverInfo.name, "Server info should contain name");
     assert.ok(serverInfo.serverInfo.version, "Server info should contain version");
+    assert.equal(
+      serverInfo.serverInfo.version,
+      packageVersion,
+      "MCP serverInfo should match the package release version"
+    );
 
     console.log(`  ✓ Server: ${serverInfo.serverInfo.name} v${serverInfo.serverInfo.version}`);
   });

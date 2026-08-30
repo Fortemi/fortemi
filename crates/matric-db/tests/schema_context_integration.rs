@@ -4,6 +4,8 @@
 //! the search_path and provides data isolation for parallel memory archives.
 
 use matric_core::Error;
+use matric_db::pool::{create_pool_for_schema, TenantPoolMode};
+use matric_db::tenancy::LOCAL_TENANT_ID;
 use matric_db::{validate_schema_name, Database, SchemaContext};
 
 #[test]
@@ -142,6 +144,34 @@ async fn test_schema_context_sets_search_path() {
         .execute(&pool)
         .await
         .expect("Failed to drop test schema");
+}
+
+#[tokio::test]
+async fn test_per_schema_pool_preserves_tenant_posture() {
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+
+    let personal =
+        create_pool_for_schema(&database_url, "public", TenantPoolMode::PersonalSynthetic)
+            .await
+            .expect("Failed to create personal per-schema pool");
+    let tenant: String = sqlx::query_scalar("SELECT current_setting('app.current_tenant')")
+        .fetch_one(&personal)
+        .await
+        .expect("Personal per-schema pool should bind the local tenant");
+    assert_eq!(tenant, LOCAL_TENANT_ID);
+    personal.close().await;
+
+    let hosted = create_pool_for_schema(&database_url, "public", TenantPoolMode::HostedUnscoped)
+        .await
+        .expect("Failed to create hosted per-schema pool");
+    let tenant: Option<String> =
+        sqlx::query_scalar("SELECT current_setting('app.current_tenant', true)")
+            .fetch_one(&hosted)
+            .await
+            .expect("Hosted per-schema pool should permit a missing tenant probe");
+    assert!(tenant.as_deref().is_none_or(str::is_empty));
+    hosted.close().await;
 }
 
 #[tokio::test]

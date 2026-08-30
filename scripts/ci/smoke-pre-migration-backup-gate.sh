@@ -15,6 +15,36 @@ awk '
 # shellcheck source=/dev/null
 source "$FUNCTIONS_FILE"
 
+if ! grep -q "d.classid = 'pg_class'::regclass" "$FUNCTIONS_FILE" \
+    || ! grep -q "d.deptype = 'e'" "$FUNCTIONS_FILE"; then
+    echo "FAIL: user-data detection does not exclude extension-owned relations" >&2
+    exit 1
+fi
+
+if ! grep -q 'runuser -u postgres -- env -u PGPASSWORD -u PGPASSFILE' "$FUNCTIONS_FILE" \
+    || ! grep -q 'PGHOST=/var/run/postgresql' "$FUNCTIONS_FILE"; then
+    echo "FAIL: pre-migration backup does not use local postgres peer authentication" >&2
+    exit 1
+fi
+
+# The entrypoint runs as root in the bundle. Keep this unit smoke test
+# unprivileged while preserving the administrative-user and environment
+# assertions made by ensure_pre_migration_backup.
+install() {
+    local path="${*: -1}"
+    mkdir -p "$path"
+    chmod 700 "$path"
+}
+
+runuser() {
+    if [[ "$1" != "-u" || "$2" != "postgres" || "$3" != "--" ]]; then
+        echo "FAIL: unexpected runuser invocation" >&2
+        return 97
+    fi
+    shift 3
+    "$@"
+}
+
 latest_available_migration_version() {
     echo "20260614140000"
 }
@@ -44,6 +74,16 @@ LOG_FILE="$TMP_DIR/backup.log"
 
 cat > "$BACKUP_SCRIPT_PATH" <<'SH'
 #!/usr/bin/env bash
+if [[ "$PGUSER" != "postgres" || "$PGHOST" != "/var/run/postgresql" ]]; then
+    echo "pre-migration backup did not select postgres peer authentication" >&2
+    exit 90
+fi
+if [[ -n "${PGPASSWORD:-}" || -n "${PGPASSFILE:-}" ]]; then
+    echo "pre-migration backup leaked a database secret to the peer-auth subprocess" >&2
+    exit 91
+fi
+mkdir -p "$BACKUP_DEST"
+touch "$BACKUP_DEST/${BACKUP_BASENAME}.sql.gz"
 echo "simulated backup failure"
 exit 42
 SH
@@ -56,6 +96,11 @@ fi
 
 if ! grep -q "verified pre-migration backup failed; aborting" "$TMP_DIR/fail.err"; then
     echo "FAIL: backup failure did not emit fail-closed diagnostic" >&2
+    exit 1
+fi
+
+if find "$BACKUP_DEST" -maxdepth 1 -type f -name 'pre-migration-*.sql*' | grep -q .; then
+    echo "FAIL: failed backup left an unverified dump artifact" >&2
     exit 1
 fi
 
