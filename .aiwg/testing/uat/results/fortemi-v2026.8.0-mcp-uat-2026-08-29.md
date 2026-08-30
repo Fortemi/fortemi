@@ -71,6 +71,11 @@ not provided. Redis, Whisper, GLiNER, the Fortemi API, and MCP were healthy. The
 UAT does not claim speaker-diarization parity or full suite portability from this
 environment.
 
+This limitation describes the original execution window. A separate
+post-IT-Ops-465 supplement records the later healthy Pyannote runtime, a real
+diarization request, and a fresh passing 31-file MCP regression run:
+`fortemi-v2026.8.0-mcp-uat-post-itops-465-2026-08-30.md`.
+
 ## Evidence boundary
 
 This result validates the live Fortemi persistence plane only. It does not treat

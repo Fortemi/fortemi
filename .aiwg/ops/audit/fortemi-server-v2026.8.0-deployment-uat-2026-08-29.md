@@ -125,3 +125,18 @@ To return to the signed release, restore the Compose image to
 The database volume must not be rolled backward after newer migrations without a
 verified compatible restore. Remove the Ollama systemd drop-in and restart Ollama
 to revoke the Docker-gateway listener.
+
+## Post-IT-Ops-465 supplement
+
+On 2026-08-30, after `roctinam/itops#465` closed, Pyannote was healthy with zero
+restarts and Fortemi advertised `speaker_diarization=true`. A real audio request
+returned valid RTTM output. A fresh full MCP regression then passed all 31 files:
+557 executed assertions passed, 0 failed, one skipped, no files were missing,
+and cleanup passed 3/3. API health, readiness, MCP health, and Pyannote health
+were HTTP 200 before and after the run. The restricted mode-0600 execution log
+had zero secret-pattern matches.
+
+The detailed supplement is
+`.aiwg/testing/uat/results/fortemi-v2026.8.0-mcp-uat-post-itops-465-2026-08-30.md`.
+The original signed-release disposition and the suite-audit `NO-GO` boundary
+remain unchanged.
