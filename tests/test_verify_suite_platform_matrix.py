@@ -441,6 +441,19 @@ class SuitePlatformMatrixTests(unittest.TestCase):
             runner,
         )
 
+    def test_linux_arm64_remote_script_uses_passed_run_id(self):
+        workflow = (
+            ROOT / ".gitea/workflows/suite-platform-contract.yml"
+        ).read_text(encoding="utf-8")
+        remote_script = workflow.split("<<'REMOTE_SCRIPT'", 1)[1].split(
+            "\n          REMOTE_SCRIPT", 1
+        )[0]
+
+        self.assertIn('run_id="$7"', remote_script)
+        self.assertIn('"$network" "$run_id"', remote_script)
+        self.assertNotIn("${GITHUB_RUN_ID}", remote_script)
+        self.assertIn('-e GITHUB_RUN_ID="$run_id"', remote_script)
+
     def test_accepts_exact_manifest_and_all_required_platforms(self):
         value = manifest()
         MODULE.validate_manifest(value)

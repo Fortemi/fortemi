@@ -296,7 +296,7 @@ jobs:
             -t "$db_image" "$build_dir"
           network_subnet="$(
             scripts/ci/create-explicit-docker-network.sh \
-              "$network" "${GITHUB_RUN_ID}"
+              "$network" "$run_id"
           )"
           echo "Created $network on explicit subnet $network_subnet"
           docker run -d --name "$db_container" --platform linux/arm64 \
