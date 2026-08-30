@@ -24112,16 +24112,7 @@ async fn backup_trigger(
     };
 
     // Run pg_dump
-    let pg = backup_pg_connection("Database backup")?;
-    let mut command = std::process::Command::new("pg_dump");
-    command.args([
-        "-U",
-        pg.user.as_str(),
-        "-h",
-        pg.host.as_str(),
-        pg.database.as_str(),
-    ]);
-    apply_backup_pg_env(&mut command, &pg);
+    let mut command = database_pg_dump_command("Database backup")?;
     let output = command
         .output()
         .map_err(|e| backup_operation_failed("Database backup", "spawn pg_dump", e))?;
@@ -24336,6 +24327,55 @@ fn apply_backup_pg_env(command: &mut std::process::Command, pg: &BackupPgConnect
     }
 }
 
+const BUNDLE_LOCAL_BACKUP_ADMIN_ENV: &str = "FORTEMI_BUNDLE_LOCAL_BACKUP_ADMIN";
+
+fn database_pg_dump_command(operation: &'static str) -> Result<std::process::Command, ApiError> {
+    database_pg_dump_command_with_env(operation, |name| std::env::var(name).ok())
+}
+
+fn database_pg_dump_command_with_env<F>(
+    operation: &'static str,
+    env: F,
+) -> Result<std::process::Command, ApiError>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    if env(BUNDLE_LOCAL_BACKUP_ADMIN_ENV).as_deref() == Some("true") {
+        let database = env("POSTGRES_DB")
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "matric".to_string());
+        let mut command = std::process::Command::new("runuser");
+        command.args([
+            "-u",
+            "postgres",
+            "--",
+            "pg_dump",
+            "--username",
+            "postgres",
+            "--host",
+            "/var/run/postgresql",
+            "--dbname",
+            database.as_str(),
+        ]);
+        command.env_remove("PGPASSWORD");
+        command.env_remove("PGPASSFILE");
+        command.env_remove("POSTGRES_PASSWORD");
+        return Ok(command);
+    }
+
+    let pg = backup_pg_connection_with_env(operation, |name| env(name))?;
+    let mut command = std::process::Command::new("pg_dump");
+    command.args([
+        "-U",
+        pg.user.as_str(),
+        "-h",
+        pg.host.as_str(),
+        pg.database.as_str(),
+    ]);
+    apply_backup_pg_env(&mut command, &pg);
+    Ok(command)
+}
+
 #[cfg(test)]
 mod backup_pg_connection_tests {
     use super::*;
@@ -24429,6 +24469,46 @@ mod backup_pg_connection_tests {
             Some(std::ffi::OsStr::new("fallback-value"))
         );
         assert!(!configured_env.contains_key(std::ffi::OsStr::new("POSTGRES_PASSWORD")));
+    }
+
+    #[test]
+    fn bundle_database_dump_uses_local_peer_admin_without_secret_environment() {
+        let command = database_pg_dump_command_with_env("Database backup", |name| match name {
+            BUNDLE_LOCAL_BACKUP_ADMIN_ENV => Some("true".to_string()),
+            "POSTGRES_DB" => Some("bundle-database".to_string()),
+            "POSTGRES_PASSWORD" => Some("fallback-value".to_string()),
+            _ => None,
+        })
+        .expect("bundle database dump command");
+
+        assert_eq!(command.get_program(), std::ffi::OsStr::new("runuser"));
+        let args: Vec<_> = command.get_args().collect();
+        assert_eq!(
+            args,
+            [
+                "-u",
+                "postgres",
+                "--",
+                "pg_dump",
+                "--username",
+                "postgres",
+                "--host",
+                "/var/run/postgresql",
+                "--dbname",
+                "bundle-database",
+            ]
+            .map(std::ffi::OsStr::new)
+        );
+        assert!(!args.iter().any(|arg| *arg == "fallback-value"));
+
+        let configured_env: std::collections::HashMap<_, _> = command.get_envs().collect();
+        for name in ["PGPASSWORD", "PGPASSFILE", "POSTGRES_PASSWORD"] {
+            assert_eq!(
+                configured_env.get(std::ffi::OsStr::new(name)),
+                Some(&None),
+                "{name} must be removed from the administrative child"
+            );
+        }
     }
 }
 
@@ -38746,16 +38826,7 @@ async fn database_backup_download(
     let filename = format!("{}_database_{}.sql.gz", backup_prefix::SNAPSHOT, timestamp);
 
     // Run pg_dump and stream output
-    let pg = backup_pg_connection("Database backup")?;
-    let mut command = std::process::Command::new("pg_dump");
-    command.args([
-        "-U",
-        pg.user.as_str(),
-        "-h",
-        pg.host.as_str(),
-        pg.database.as_str(),
-    ]);
-    apply_backup_pg_env(&mut command, &pg);
+    let mut command = database_pg_dump_command("Database backup")?;
     let output = command
         .output()
         .map_err(|e| backup_operation_failed("Database backup", "spawn pg_dump", e))?;
@@ -38846,16 +38917,7 @@ async fn database_backup_snapshot(
     let path = std::path::Path::new(&backup_dir).join(&filename);
 
     // Run pg_dump
-    let pg = backup_pg_connection("Database backup snapshot")?;
-    let mut command = std::process::Command::new("pg_dump");
-    command.args([
-        "-U",
-        pg.user.as_str(),
-        "-h",
-        pg.host.as_str(),
-        pg.database.as_str(),
-    ]);
-    apply_backup_pg_env(&mut command, &pg);
+    let mut command = database_pg_dump_command("Database backup snapshot")?;
     let output = command
         .output()
         .map_err(|e| backup_operation_failed("Database backup snapshot", "spawn pg_dump", e))?;
@@ -39320,16 +39382,7 @@ async fn database_backup_restore(
         );
         let prerestore_path = std::path::Path::new(&backup_dir).join(&filename);
 
-        let pg = backup_pg_connection("Database restore")?;
-        let mut command = std::process::Command::new("pg_dump");
-        command.args([
-            "-U",
-            pg.user.as_str(),
-            "-h",
-            pg.host.as_str(),
-            pg.database.as_str(),
-        ]);
-        apply_backup_pg_env(&mut command, &pg);
+        let mut command = database_pg_dump_command("Database restore")?;
         let output = command.output().map_err(|e| {
             backup_operation_failed("Database restore", "create pre-restore snapshot", e)
         })?;

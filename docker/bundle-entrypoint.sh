@@ -20,6 +20,13 @@ PGDATA="${PGDATA:-/var/lib/postgresql/data}"
 POSTGRES_USER="${POSTGRES_USER:-matric}"
 POSTGRES_DB="${POSTGRES_DB:-matric}"
 export POSTGRES_USER POSTGRES_DB
+
+# Whole-database backup operations need every tenant row while the application
+# role intentionally remains NOBYPASSRLS. This marker is set only by the
+# all-in-one bundle entrypoint and selects a fixed local peer-authenticated
+# postgres subprocess; native deployments retain their configured libpq path.
+FORTEMI_BUNDLE_LOCAL_BACKUP_ADMIN=true
+export FORTEMI_BUNDLE_LOCAL_BACKUP_ADMIN
 BACKUP_DEST="${BACKUP_DEST:-/var/backups/matric-memory}"
 BACKUP_SCRIPT_PATH="${BACKUP_SCRIPT_PATH:-/app/scripts/backup.sh}"
 PRE_MIGRATION_BACKUP_RETAIN="${PRE_MIGRATION_BACKUP_RETAIN:-7}"
