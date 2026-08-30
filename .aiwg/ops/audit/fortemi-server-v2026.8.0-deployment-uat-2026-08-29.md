@@ -52,8 +52,9 @@ PKE short-passphrase error contract. Therefore the UAT disposition remains
 - Docker's default address pools were exhausted. The project was assigned the
   explicit isolated subnet `10.200.0.0/24`; no existing Docker network was
   removed.
-- Host Ollama 0.33.2 was exposed only on `172.17.0.1:11434` for the container
-  gateway. The reviewed systemd drop-in is retained as rollback evidence.
+- Host Ollama 0.33.2 was exposed only on the resolved Docker host-gateway
+  address. The reviewed systemd drop-in is retained as rollback evidence; the
+  tracked audit intentionally does not hard-code a bridge address.
 - The release was first deployed from the immutable release image. After issue
   remediation, only the Fortemi container was replaced by `fortemi:uat-fix`;
   the persistent volume, network, Redis, and extraction services were preserved.
