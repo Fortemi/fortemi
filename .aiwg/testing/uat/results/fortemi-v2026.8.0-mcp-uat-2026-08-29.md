@@ -2,67 +2,73 @@
 
 ## Disposition
 
-`FAIL` — the signed release failed 14 assertions. The remediated local candidate
-reduced the result to 3 failed assertions across 2 authorization-gated findings,
-but it is not a published release and the acceptance criterion requires every
-assertion to pass.
+`PASS` for the remediated local candidate: all 31 declared files ran, 557
+executed assertions passed, 0 failed, 0 files were missing, one declared test was
+skipped, and cleanup passed 3/3. The signed `v2026.8.0` release remains the
+immutable release that failed its original UAT; this candidate result does not
+represent a new published release.
 
 ## Target identity
 
 | Field | Value |
 |---|---|
-| Release | `v2026.8.0` |
-| Commit | `c76e5ef72dcf039acfe78b1e7b254cba30a79b8d` |
+| Release under audit | `v2026.8.0` |
+| Release commit | `c76e5ef72dcf039acfe78b1e7b254cba30a79b8d` |
 | Release image | `ghcr.io/fortemi/fortemi:bundle-2026.8.0` |
 | Release OCI index | `sha256:195f95d689608c6b1f9c66565bdccc567d910dd2a33339081bffee223fed355b` |
 | Candidate image | `fortemi:uat-fix` |
-| Candidate image ID | `sha256:ef9e63af6e79e1168b31e28697b860aa605127f5f233c66a771581ace32c564d` |
+| Candidate image ID | `sha256:78bb6f8c76be0c40900af964e8b892486686e409b36aa62e0bea284eedfcb74d` |
+| Candidate version label | `2026.8.0-uatfix.3` |
+| Candidate revision | `82fd467f74b78829bd4cfc88b600c347600b43c0` |
 | API | `http://127.0.0.1:3000` |
 | MCP | `http://127.0.0.1:3001` |
 
 OAuth clients and bearer tokens were created dynamically for each run. Secret
-values were not written to this result or emitted in command output.
+values were held in memory, were not written to this result, and were not emitted
+in command output. The final mode-0600 execution log passed a secret-pattern scan.
 
 ## Run summary
 
-| Run | Files | Tests | Passed | Failed | Missing | Cleanup |
-|---|---:|---:|---:|---:|---:|---:|
-| Signed release discovery run | release-aligned subset | 284 | 270 | 14 | n/a | 3/3 |
-| Candidate run before final archive fixes | 31 | 558 | 551 | 6 | 0 | 3/3 |
-| Final candidate run | 31 | 558 | 554 | 3 | 0 | 3/3 |
+| Run | Files | Tests | Passed | Failed | Skipped | Missing | Cleanup |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Signed release discovery run | release-aligned subset | 284 | 270 | 14 | 0 | n/a | 3/3 |
+| Candidate before final archive fixes | 31 | 558 | 551 | 6 | 1 | 0 | 3/3 |
+| Candidate after archive fixes | 31 | 558 | 554 | 3 | 1 | 0 | 3/3 |
+| Fresh authorization baseline | 31 | 558 | 553 | 4 | 1 | 0 | 3/3 |
+| Credential and PKE candidate | 31 | 558 | 555 | 2 | 1 | 0 | 3/3 |
+| Final remediated candidate | 31 | 558 | 557 | 0 | 1 | 0 | 3/3 |
 
-The enhanced runner continued after failing files and reported missing declared
-files as failures. This ensured the final counts cover the complete manifest.
+The failure-complete runner continued after failing files and reported missing
+declared files as failures. In the final run, every file passed; the branding
+file reported 6/7 because one declared assertion was intentionally skipped.
 
 ## Final candidate phase results
 
-- Schema, branding, error responses, preflight, seed data, CRUD, attachments,
-  vision, search, memory search, tags, collections, links, embeddings, document
-  types, edge cases, templates, versioning, archives, SKOS, jobs, observability,
-  memories, OAuth, API management, feature chains, annotations, and cleanup all
-  passed.
-- Archive tests passed 24/24, SKOS 50/50, jobs 28/28, observability 18/18,
-  memories 21/21, OAuth 13/13, and API management 8/8.
-- Targeted vision plus multi-memory regression execution passed 24/24 before the
-  full run.
+- All 31 files passed, including PKE 22/22, consolidated tools 66/66, data export
+  19/19, archives 24/24, SKOS 50/50, jobs 28/28, and cleanup 3/3.
+- Both database snapshot surfaces passed after the bundle-local administrative
+  dump path was introduced.
+- API health, authenticated readiness, and MCP health returned HTTP 200 before
+  and after the run.
+- The application log contained no `fatal` or `panic` match during the run.
 
-## Remaining failures
+## Resolved findings
 
-| Test | Failure | Status |
+| Test | Resolution | Traceability |
 |---|---|---|
-| `PKE-002` | Short-passphrase rejection does not expose the required safe validation contract | Issue filing and implementation held for explicit security authorization |
-| `MB-002` | Consolidated backup snapshot cannot authenticate `pg_dump` in the bundle runtime | Same gated snapshot finding |
-| `BACK-013` | Data-export snapshot reaches the same runtime credential failure | Same gated snapshot finding |
+| `PKE-002`, `PKE-021` | Typed short-passphrase failures return safe HTTP 400 validation guidance; all other cryptographic diagnostics remain redacted | Issue #1121; signed commit `1c9730e1f687b15fbaaeef9b0802cb3aceaffc24` |
+| `MB-002`, `BACK-013` | Bundle authentication fallback was added, then whole-database bundle dumps were routed through a fixed local peer-authenticated administrator to include forced-RLS rows | Issue #1120; signed commits `1c9730e1f687b15fbaaeef9b0802cb3aceaffc24` and `82fd467f74b78829bd4cfc88b600c347600b43c0` |
 
-The snapshot failure appears through two MCP tool surfaces but is one underlying
-finding. Drafts are retained under `.aiwg/working/`; neither gated issue was filed
-or implemented without the required authorization.
+The bundle-only administrative child removes `PGPASSWORD`, `PGPASSFILE`, and
+`POSTGRES_PASSWORD` from its environment and places no secret in argv. The
+application role remains non-superuser and `NOBYPASSRLS`; non-bundle deployments
+retain their configured libpq path.
 
 ## Environment limitation
 
-Pyannote is an optional sidecar and remained unhealthy because `HF_TOKEN` was not
-provided. Redis, Whisper, GLiNER, the Fortemi API, and MCP were healthy. The UAT
-does not claim speaker-diarization parity or full suite portability from this
+Pyannote is an optional sidecar and remained unavailable because `HF_TOKEN` was
+not provided. Redis, Whisper, GLiNER, the Fortemi API, and MCP were healthy. The
+UAT does not claim speaker-diarization parity or full suite portability from this
 environment.
 
 ## Evidence boundary
