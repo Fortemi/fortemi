@@ -13,6 +13,7 @@ use matric_crypto::pke::{
     decrypt_pke, encrypt_pke, get_pke_recipients, key_storage, Address, Keypair, PrivateKey,
     PublicKey,
 };
+use matric_crypto::CryptoError;
 
 // =============================================================================
 // REQUEST/RESPONSE TYPES
@@ -219,6 +220,29 @@ fn invalid_pke_recipient_public_key_length() -> ApiError {
     ApiError::BadRequest("Recipient public key must be 32 bytes.".to_string())
 }
 
+fn pke_private_key_encryption_error(
+    error: CryptoError,
+    operation: &'static str,
+    failure_detail: &'static str,
+) -> ApiError {
+    let diagnostic = error.to_string();
+    warn!(
+        operation,
+        error_len = diagnostic.chars().count(),
+        "PKE private-key encryption failed"
+    );
+
+    match error {
+        CryptoError::PassphraseTooShort(min_len) => ApiError::BadRequest(format!(
+            "Passphrase must be at least {min_len} characters long."
+        )),
+        _ => ApiError::OperationFailed {
+            operation,
+            detail: failure_detail.to_string(),
+        },
+    }
+}
+
 // =============================================================================
 // HANDLERS
 // =============================================================================
@@ -239,16 +263,12 @@ pub async fn pke_keygen(Json(req): Json<PkeKeygenRequest>) -> Result<impl IntoRe
     // Encrypt private key with passphrase
     let encrypted_private =
         key_storage::encrypt_private_key(keypair.private.as_bytes(), &req.passphrase).map_err(
-            |e| {
-                let diagnostic = e.to_string();
-                warn!(
-                    error_len = diagnostic.chars().count(),
-                    "PKE key generation failed"
-                );
-                ApiError::OperationFailed {
-                    operation: "PKE key generation",
-                    detail: PKE_KEY_GENERATION_FAILURE_DETAIL.to_string(),
-                }
+            |error| {
+                pke_private_key_encryption_error(
+                    error,
+                    "PKE key generation",
+                    PKE_KEY_GENERATION_FAILURE_DETAIL,
+                )
             },
         )?;
     let encrypted_private_b64 = BASE64.encode(&encrypted_private);
@@ -578,16 +598,12 @@ pub async fn create_keyset(
     // Encrypt private key with passphrase
     let encrypted_private_key =
         key_storage::encrypt_private_key(keypair.private.as_bytes(), &req.passphrase).map_err(
-            |e| {
-                let diagnostic = e.to_string();
-                warn!(
-                    error_len = diagnostic.chars().count(),
-                    "PKE keyset creation failed"
-                );
-                ApiError::OperationFailed {
-                    operation: "PKE keyset creation",
-                    detail: PKE_KEYSET_CREATION_FAILURE_DETAIL.to_string(),
-                }
+            |error| {
+                pke_private_key_encryption_error(
+                    error,
+                    "PKE keyset creation",
+                    PKE_KEYSET_CREATION_FAILURE_DETAIL,
+                )
             },
         )?;
 
@@ -1141,5 +1157,42 @@ mod tests {
         assert!(!serialized.contains("private_key"));
         assert!(!serialized.contains("encrypted_private_key"));
         assert!(!serialized.contains("ciphertext"));
+    }
+
+    #[tokio::test]
+    async fn pke_short_passphrase_maps_to_safe_validation_problem() {
+        let error = pke_private_key_encryption_error(
+            CryptoError::PassphraseTooShort(12),
+            "PKE key generation",
+            PKE_KEY_GENERATION_FAILURE_DETAIL,
+        );
+        let (status, problem) = read_problem_response(error).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/validation-error"
+        );
+        assert_eq!(
+            problem["detail"],
+            "Passphrase must be at least 12 characters long."
+        );
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn pke_internal_encryption_error_remains_redacted() {
+        let raw_diagnostic = "backend diagnostic with passphrase material";
+        let error = pke_private_key_encryption_error(
+            CryptoError::Encryption(raw_diagnostic.to_string()),
+            "PKE keyset creation",
+            PKE_KEYSET_CREATION_FAILURE_DETAIL,
+        );
+        let (status, problem) = read_problem_response(error).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(problem["detail"], PKE_KEYSET_CREATION_FAILURE_DETAIL);
+        assert!(!problem.to_string().contains(raw_diagnostic));
     }
 }

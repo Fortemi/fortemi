@@ -24290,24 +24290,38 @@ struct BackupPgConnection {
 }
 
 fn backup_pg_connection(operation: &'static str) -> Result<BackupPgConnection, ApiError> {
-    let password = std::env::var("PGPASSWORD")
-        .ok()
-        .filter(|value| !value.is_empty());
-    let passfile = std::env::var("PGPASSFILE")
-        .ok()
-        .filter(|value| !value.is_empty());
+    backup_pg_connection_with_env(operation, |name| std::env::var(name).ok())
+}
+
+fn backup_pg_connection_with_env<F>(
+    operation: &'static str,
+    env: F,
+) -> Result<BackupPgConnection, ApiError>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let explicit_password = env("PGPASSWORD").filter(|value| !value.is_empty());
+    let passfile = env("PGPASSFILE").filter(|value| !value.is_empty());
+    let fallback_password = if explicit_password.is_none() && passfile.is_none() {
+        env("POSTGRES_PASSWORD").filter(|value| !value.is_empty())
+    } else {
+        None
+    };
+    let password = explicit_password.or(fallback_password);
 
     if password.is_none() && passfile.is_none() {
         return Err(ApiError::OperationFailed {
             operation,
-            detail: "database credential source missing; set PGPASSWORD or PGPASSFILE".to_string(),
+            detail:
+                "database credential source missing; set PGPASSWORD, PGPASSFILE, or POSTGRES_PASSWORD"
+                    .to_string(),
         });
     }
 
     Ok(BackupPgConnection {
-        user: std::env::var("PGUSER").unwrap_or_else(|_| "matric".to_string()),
-        host: std::env::var("PGHOST").unwrap_or_else(|_| "localhost".to_string()),
-        database: std::env::var("PGDATABASE").unwrap_or_else(|_| "matric".to_string()),
+        user: env("PGUSER").unwrap_or_else(|| "matric".to_string()),
+        host: env("PGHOST").unwrap_or_else(|| "localhost".to_string()),
+        database: env("PGDATABASE").unwrap_or_else(|| "matric".to_string()),
         password,
         passfile,
     })
@@ -24319,6 +24333,102 @@ fn apply_backup_pg_env(command: &mut std::process::Command, pg: &BackupPgConnect
     }
     if let Some(passfile) = &pg.passfile {
         command.env("PGPASSFILE", passfile);
+    }
+}
+
+#[cfg(test)]
+mod backup_pg_connection_tests {
+    use super::*;
+
+    fn connection_with(values: &[(&str, &str)]) -> Result<BackupPgConnection, ApiError> {
+        backup_pg_connection_with_env("Database backup", |name| {
+            values
+                .iter()
+                .find_map(|(key, value)| (*key == name).then(|| (*value).to_string()))
+        })
+    }
+
+    #[test]
+    fn backup_connection_uses_postgres_password_fallback() {
+        let connection = connection_with(&[
+            ("POSTGRES_PASSWORD", "fallback-value"),
+            ("PGUSER", "bundle-user"),
+            ("PGHOST", "bundle-db"),
+            ("PGDATABASE", "bundle-database"),
+        ])
+        .expect("backup connection");
+
+        assert_eq!(connection.password.as_deref(), Some("fallback-value"));
+        assert!(connection.passfile.is_none());
+        assert_eq!(connection.user, "bundle-user");
+        assert_eq!(connection.host, "bundle-db");
+        assert_eq!(connection.database, "bundle-database");
+    }
+
+    #[test]
+    fn backup_connection_prefers_explicit_pgpassword() {
+        let connection = connection_with(&[
+            ("PGPASSWORD", "explicit-value"),
+            ("PGPASSFILE", "/run/credentials/pgpass"),
+            ("POSTGRES_PASSWORD", "fallback-value"),
+        ])
+        .expect("backup connection");
+
+        assert_eq!(connection.password.as_deref(), Some("explicit-value"));
+        assert_eq!(
+            connection.passfile.as_deref(),
+            Some("/run/credentials/pgpass")
+        );
+    }
+
+    #[test]
+    fn backup_connection_prefers_explicit_pgpassfile_over_fallback() {
+        let connection = connection_with(&[
+            ("PGPASSFILE", "/run/credentials/pgpass"),
+            ("POSTGRES_PASSWORD", "fallback-value"),
+        ])
+        .expect("backup connection");
+
+        assert!(connection.password.is_none());
+        assert_eq!(
+            connection.passfile.as_deref(),
+            Some("/run/credentials/pgpass")
+        );
+    }
+
+    #[test]
+    fn backup_connection_requires_some_credential_source() {
+        let error = match connection_with(&[]) {
+            Ok(_) => panic!("missing credential source should fail"),
+            Err(error) => error,
+        };
+        match error {
+            ApiError::OperationFailed { detail, .. } => {
+                assert!(detail.contains("PGPASSWORD"));
+                assert!(detail.contains("PGPASSFILE"));
+                assert!(detail.contains("POSTGRES_PASSWORD"));
+            }
+            other => panic!("expected operation failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn backup_connection_passes_fallback_only_through_child_environment() {
+        let connection =
+            connection_with(&[("POSTGRES_PASSWORD", "fallback-value")]).expect("backup connection");
+        let mut command = std::process::Command::new("pg_dump");
+
+        apply_backup_pg_env(&mut command, &connection);
+
+        assert_eq!(command.get_args().count(), 0);
+        let configured_env: std::collections::HashMap<_, _> = command.get_envs().collect();
+        assert_eq!(
+            configured_env
+                .get(std::ffi::OsStr::new("PGPASSWORD"))
+                .and_then(|value| *value),
+            Some(std::ffi::OsStr::new("fallback-value"))
+        );
+        assert!(!configured_env.contains_key(std::ffi::OsStr::new("POSTGRES_PASSWORD")));
     }
 }
 

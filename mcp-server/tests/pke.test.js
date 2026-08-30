@@ -322,6 +322,11 @@ describe("Phase 17: Public Key Encryption (PKE)", () => {
       passphrase: "short",
     });
     assert.ok(error.error, "Should error for short passphrase");
+    assert.ok(
+      error.error.includes("12") || error.error.includes("passphrase") ||
+      error.error.includes("minimum") || error.error.includes("character"),
+      "Error should mention passphrase length requirement"
+    );
   });
 
   test("PKE-022: Set active to non-existent keyset errors", async () => {
