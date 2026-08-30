@@ -1017,7 +1017,6 @@ jobs:
     needs: test-container
     timeout-minutes: 30
     env:
-      OLLAMA_HOST: http://localhost:11434
       INFERENCE_BACKEND: ollama
       # Use smaller model for CI — the default qwen3.5:27b (22GB) doesn't fit
       # alongside GPU sidecars (Whisper ~4GB, pyannote ~2.5GB). Tests verify
@@ -1038,7 +1037,20 @@ jobs:
 
       - name: Verify Ollama
         run: |
-          curl -s http://localhost:11434/api/tags | jq '.models[].name'
+          set -euo pipefail
+          HOST_GATEWAY_IP=$(docker network inspect bridge \
+            --format '{{(index .IPAM.Config 0).Gateway}}')
+          if [ -z "${HOST_GATEWAY_IP}" ]; then
+            echo "ERROR: Docker host-gateway address could not be resolved" >&2
+            exit 1
+          fi
+          OLLAMA_HOST="http://${HOST_GATEWAY_IP}:11434"
+          curl -fsS \
+            --connect-timeout 3 \
+            --max-time 10 \
+            "${OLLAMA_HOST}/api/tags" |
+            jq -er '.models[].name'
+          echo "OLLAMA_HOST=${OLLAMA_HOST}" >> "${GITHUB_ENV}"
 
       - name: Run integration tests
         run: |
