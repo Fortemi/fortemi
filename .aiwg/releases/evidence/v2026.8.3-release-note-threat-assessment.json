@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "1",
+  "engineVersion": "1.0.1",
+  "policyVersion": "1",
+  "profileVersion": "1.0.0",
+  "policyHash": "47a7c0fb8b84c31524e93300665ee10811df3c4d8fcee44c76ba19cbf7d311fd",
+  "mode": "enforce",
+  "profile": "balanced",
+  "surface": "release-note",
+  "source": {
+    "kind": "repository",
+    "repository": "Fortemi/fortemi",
+    "ref": "v2026.8.3"
+  },
+  "actor": {
+    "kind": "maintainer",
+    "trust": "trusted"
+  },
+  "requestedAction": "publish-release",
+  "policyProvenance": {
+    "source": "aiwg-default",
+    "path": "aiwg:balanced"
+  },
+  "assessed": true,
+  "findings": [
+    {
+      "ruleId": "credential-or-env-probing",
+      "ruleProvenance": "aiwg:builtin",
+      "severity": "high",
+      "likelihood": 4,
+      "impact": 5,
+      "taxonomy": ["ASI03", "ASI09"],
+      "partId": "announcement",
+      "context": "documentation",
+      "evidence": "The fix does not relax Fortemi's existing secret-redaction rules. Public issue updates and failure output should include only bounded status and non-sensitive location/class evidence. Do not publish note bodies, extracted PDF text, raw database errors, credentials, tokens, or other user content.",
+      "suppressed": true,
+      "suppressionReason": "balanced contextual suppression: documentation content is evidence/documentation, not a requested action",
+      "matchedStatements": []
+    },
+    {
+      "ruleId": "credential-or-env-probing",
+      "ruleProvenance": "aiwg:builtin",
+      "severity": "high",
+      "likelihood": 4,
+      "impact": 5,
+      "taxonomy": ["ASI03", "ASI09"],
+      "partId": "changelog",
+      "context": "documentation",
+      "evidence": "- Publish the CRLF/UTF-8 semantic-chunking correction from commit `b6f528cd` under a fresh CalVer release. `v2026.7.22` bounded failed embedding jobs but did not remove the underlying panic: reconstructing source offsets after `str::lines()` normalized CRLF could place a byte range inside a multibyte Unicode scalar. The corrected chunker preserves exact source byte spans and uses checked, UTF-8-safe slicing for LF, CRLF, lone-CR, mixed-line-ending, U+2028/U+2029, and non-ASCII input. - Keep existing diagnostic redaction unchanged. Public failure output remains limited to non-sensitive location/class evidence rather than note content, extracted document text, database detail, or credentials.",
+      "suppressed": true,
+      "suppressionReason": "balanced contextual suppression: documentation content is evidence/documentation, not a requested action",
+      "matchedStatements": []
+    }
+  ],
+  "risk": {
+    "score": 0,
+    "severity": "informational",
+    "likelihood": 0,
+    "impact": 0
+  },
+  "decision": {
+    "action": "proceed",
+    "wouldAction": "proceed",
+    "interrupts": false,
+    "reason": "no active findings"
+  }
+}

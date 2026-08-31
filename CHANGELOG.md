@@ -7,6 +7,33 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.8.3] - 2026-08-31
+
+Customer-verification release for the semantic-chunking panic reported in
+GitHub #56 and tracked internally as #1100.
+
+### Fixed
+
+- Publish the CRLF/UTF-8 semantic-chunking correction from commit `b6f528cd`
+  under a fresh CalVer release. `v2026.7.22` bounded failed embedding jobs but
+  did not remove the underlying panic: reconstructing source offsets after
+  `str::lines()` normalized CRLF could place a byte range inside a multibyte
+  Unicode scalar. The corrected chunker preserves exact source byte spans and
+  uses checked, UTF-8-safe slicing for LF, CRLF, lone-CR, mixed-line-ending,
+  U+2028/U+2029, and non-ASCII input.
+- Keep existing diagnostic redaction unchanged. Public failure output remains
+  limited to non-sensitive location/class evidence rather than note content,
+  extracted document text, database detail, or credentials.
+
+### Verification
+
+- The focused semantic-chunking suite passes all 61 tests, including the
+  reproduced CRLF plus U+2028 boundary case. Use `v2026.8.3` as the retest
+  target for affected PDF-derived notes.
+- Application and persistence contracts, forward migrations, and the
+  profile-qualified `core-v1` Knowledge Shard application contract are
+  unchanged from `v2026.8.2`.
+
 ## [2026.8.2] - 2026-08-31
 
 Corrective publication for `2026.8.1`. The signed `v2026.8.1` tag passed its
@@ -2143,7 +2170,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.8.2...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.8.3...HEAD
+[2026.8.3]: https://github.com/fortemi/fortemi/compare/v2026.8.2...v2026.8.3
 [2026.8.2]: https://github.com/fortemi/fortemi/compare/v2026.8.1...v2026.8.2
 [2026.8.1]: https://github.com/fortemi/fortemi/compare/v2026.8.0...v2026.8.1
 [2026.8.0]: https://github.com/fortemi/fortemi/compare/v2026.7.26...v2026.8.0

@@ -1,0 +1,51 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-31T16:28:02Z"
+  description: "Provenance for the v2026.8.3 release-note threat assessment"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.8.3-release-note-threat-assessment.json"
+  type: data
+  created_at: "2026-08-31T16:28:02Z"
+  checksum: "sha256:292743361fbe146e8b0184f1ff9caf36a56b5e7bff5386a9106a1dff48dfe026"
+  size_bytes: 2803
+  attributes:
+    release: "2026.8.3"
+    mode: "enforce"
+    profile: "balanced"
+    decision: "proceed"
+activity:
+  id: "urn:aiwg:activity:review:v2026-8-3-release-note-threat-assessment:001"
+  type: review
+  started_at: "2026-08-31T16:20:00Z"
+  ended_at: "2026-08-31T16:20:01Z"
+  duration_seconds: 1
+  description: "Assess the v2026.8.3 release content for prompt-injection and disclosure risks"
+agent:
+  id: "urn:aiwg:agent:tool:aiwg-release-note-threat-assessment"
+  type: automated_tool
+  name: "AIWG Release Note Threat Assessment"
+  version: "1.0.1"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.8.3-release-note-threat-assessment.json"
+    activity: "urn:aiwg:activity:review:v2026-8-3-release-note-threat-assessment:001"
+    time: "2026-08-31T16:20:01Z"
+  used:
+    - activity: "urn:aiwg:activity:review:v2026-8-3-release-note-threat-assessment:001"
+      entity: "urn:aiwg:artifact:docs/releases/v2026.8.3-announcement.md"
+      role: assessed_release_note
+    - activity: "urn:aiwg:activity:review:v2026-8-3-release-note-threat-assessment:001"
+      entity: "urn:aiwg:artifact:CHANGELOG.md#2026.8.3"
+      role: assessed_release_changelog
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.8.3-release-note-threat-assessment.json"
+      source: "urn:aiwg:artifact:docs/releases/v2026.8.3-announcement.md"
+      derivation_type: derives_from
+      activity: "urn:aiwg:activity:review:v2026-8-3-release-note-threat-assessment:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:review:v2026-8-3-release-note-threat-assessment:001"
+    agent: "urn:aiwg:agent:tool:aiwg-release-note-threat-assessment"
+    role: assessor
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.8.3-release-note-threat-assessment.json"
+    agent: "urn:aiwg:agent:tool:aiwg-release-note-threat-assessment"
