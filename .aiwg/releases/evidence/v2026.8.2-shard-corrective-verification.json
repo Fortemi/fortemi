@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "1",
+  "release": "v2026.8.2",
+  "supersedes": "v2026.8.1",
+  "failedPublication": {
+    "giteaRunId": 48815,
+    "gate": "documentation shard freshness",
+    "result": "failed before application image and release-asset publication",
+    "observedServerVersion": "2026.8.0",
+    "expectedServerVersion": "2026.8.1"
+  },
+  "producer": {
+    "baselineCommit": "4eb15c1f5f4d9f7ebe9db814de8f336c5a87e678",
+    "version": "2026.8.2",
+    "image": "fortemi-docs-rebuild:2026.8.2"
+  },
+  "cleanDestination": {
+    "database": "fresh isolated PostgreSQL 18 test database",
+    "inference": "disabled",
+    "sourcesDiscovered": 405,
+    "sourcesImported": 405,
+    "sourceFailures": 0,
+    "coverage": "passed"
+  },
+  "artifact": {
+    "path": "docker/seed-data/fortemi-docs.shard",
+    "profile": "core-v1",
+    "manifestVersion": "1.2.0",
+    "byteLength": 2497699,
+    "sha256": "803b7df2c4be6dc1a95d4d70ac3c40dbd73c59dab890a3fc71f41754eb756800"
+  },
+  "receipt": {
+    "path": "docker/seed-data/fortemi-docs.shard.receipt.json",
+    "byteLength": 506,
+    "sha256": "551c8c6227a25eb4ea953a2d42f7f78bfdfd7c4559ce4ff7d273256b77f79e4a",
+    "freshness": "passed"
+  },
+  "knowledgeShardMatrix": {
+    "requiredCells": 9,
+    "passed": 9,
+    "pending": 0,
+    "failed": 0,
+    "registeredProfileClaimsAllowed": true,
+    "suiteClaimsAllowed": false
+  },
+  "decision": "proceed to corrective release gates"
+}

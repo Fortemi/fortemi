@@ -1,0 +1,65 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-31T04:32:59Z"
+  description: "Provenance for the v2026.8.2 clean-destination documentation shard correction"
+entity:
+  id: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard"
+  type: data
+  created_at: "2026-08-31T04:32:08Z"
+  checksum: "sha256:803b7df2c4be6dc1a95d4d70ac3c40dbd73c59dab890a3fc71f41754eb756800"
+  size_bytes: 2497699
+  attributes:
+    release: "2026.8.2"
+    profile: "core-v1"
+    manifest_version: "1.2.0"
+    producer_commit: "4eb15c1f5f4d9f7ebe9db814de8f336c5a87e678"
+    subjects:
+      - "docker/seed-data/fortemi-docs.shard.receipt.json sha256:551c8c6227a25eb4ea953a2d42f7f78bfdfd7c4559ce4ff7d273256b77f79e4a"
+      - ".aiwg/releases/evidence/v2026.8.2-shard-corrective-verification.json sha256:89c63d7dca426c45d556bef1af8d7c35c24e112a62192735d98266a7a30d543b"
+activity:
+  id: "urn:aiwg:activity:generation:release-shard-corrective-2026-8-2:001"
+  type: generation
+  started_at: "2026-08-31T04:30:00Z"
+  ended_at: "2026-08-31T04:32:59Z"
+  description: "Regenerate and verify the bundled documentation shard against the exact v2026.8.2 producer baseline"
+  attributes:
+    verification:
+      - "fresh isolated PostgreSQL destination: passed"
+      - "documentation import: 405/405 sources; 0 failures"
+      - "documentation shard source coverage: passed"
+      - "documentation shard freshness: passed"
+      - "Knowledge Shard exact-cell matrix: 9 passed, 0 pending, 0 failed"
+      - "registered profile claims allowed; suite claims not allowed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard"
+    activity: "urn:aiwg:activity:generation:release-shard-corrective-2026-8-2:001"
+    time: "2026-08-31T04:32:08Z"
+  used:
+    - activity: "urn:aiwg:activity:generation:release-shard-corrective-2026-8-2:001"
+      entity: "urn:git:Fortemi/fortemi:4eb15c1f5f4d9f7ebe9db814de8f336c5a87e678"
+      role: exact_producer_baseline
+    - activity: "urn:aiwg:activity:generation:release-shard-corrective-2026-8-2:001"
+      entity: "urn:gitea:actions:Fortemi/fortemi:48815"
+      role: failed_freshness_evidence
+    - activity: "urn:aiwg:activity:generation:release-shard-corrective-2026-8-2:001"
+      entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard.receipt.json"
+      role: producer_receipt
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard"
+      source: "urn:git:Fortemi/fortemi:4eb15c1f5f4d9f7ebe9db814de8f336c5a87e678"
+      derivation_type: generated_from_exact_source
+      activity: "urn:aiwg:activity:generation:release-shard-corrective-2026-8-2:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:release-shard-corrective-2026-8-2:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard"
+    agent: "urn:aiwg:agent:codex-gpt-5"

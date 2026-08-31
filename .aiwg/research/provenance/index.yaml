@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-31T04:22:09Z"
+  updated_at: "2026-08-31T04:32:59Z"
 records:
   - entity: "Cargo.lock"
     record: "records/chacha20-yank-remediation-2026-08.prov.yaml"
@@ -102,6 +102,12 @@ records:
     record: "records/doc-sync-release-2026-8-1.prov.yaml"
   - entity: ".aiwg/releases/evidence/v2026.8.2-release-note-threat-assessment.json"
     record: "records/v2026-8-2-release-note-threat-assessment.prov.yaml"
+  - entity: "docker/seed-data/fortemi-docs.shard"
+    record: "records/release-shard-corrective-2026-8-2.prov.yaml"
+  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
+    record: "records/release-shard-corrective-2026-8-2.prov.yaml"
+  - entity: ".aiwg/releases/evidence/v2026.8.2-shard-corrective-verification.json"
+    record: "records/release-shard-corrective-2026-8-2.prov.yaml"
   - entity: "scripts/ci/verify-sidecar-publication.py"
     record: "records/sidecar-publication-dispatch-policy-1098.prov.yaml"
   - entity: "Dockerfile"
