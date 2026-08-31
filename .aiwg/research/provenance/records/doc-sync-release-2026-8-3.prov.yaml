@@ -6,20 +6,20 @@ entity:
   id: "urn:aiwg:artifact:.aiwg/reports/doc-sync-audit-v2026.8.3-2026-08-31.md"
   type: document
   created_at: "2026-08-31T16:28:02Z"
-  checksum: "sha256:dff0f660070116dfd1ed2657c69a1d45dcb0a1747457ef1dea763b4143dd23ad"
-  size_bytes: 1537
+  checksum: "sha256:fb465008e9b9898af341f435cefcf4279b1523e884c900ee748301b64d1518cc"
+  size_bytes: 1587
   attributes:
     release: "2026.8.3"
     direction: code-to-docs
     change_type: generation
     subjects:
       - ".aiwg/.last-doc-sync sha256:a5166aa124e91cb9cd9924d156646aba72f102c1f637fde1adb3123789374d58"
-      - ".aiwg/working/doc-sync/release-v2026.8.3-dry-run-20260831.md sha256:93e4c0272aaf0b80b4230c25433006f93923fd58fb1c7873c17a3bee2bad7260"
+      - ".aiwg/working/doc-sync/release-v2026.8.3-dry-run-20260831.md sha256:9c433b055e79df1b74d72bb55dd59870fc488484f601e327e42e80c5597643f9"
 activity:
   id: "urn:aiwg:activity:review:doc-sync-release-2026-8-3:001"
   type: review
   started_at: "2026-08-31T16:21:00Z"
-  ended_at: "2026-08-31T16:28:02Z"
+  ended_at: "2026-08-31T16:47:00Z"
   description: "Audit the Fortemi v2026.8.3 delta for bounded code-to-docs drift"
   attributes:
     verification:
@@ -27,6 +27,7 @@ activity:
       - "documentation asset links: passed"
       - "documentation build: passed with one pre-existing advisory warning"
       - "AsyncAPI deterministic regeneration: passed"
+      - "tracked-source shard documentation and regression: passed"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant

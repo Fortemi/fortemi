@@ -6,10 +6,10 @@ entity:
   id: "urn:aiwg:artifact:docs/releases/v2026.8.3-announcement.md"
   type: document
   created_at: "2026-08-31T16:28:02Z"
-  checksum: "sha256:5da88d07e539f913f995b29f76f4ab62ad89e6d6e7c359ada5557c92baad34ac"
-  size_bytes: 2853
+  checksum: "sha256:5072577efd42e0c1a5ec1e77b11143c9863f57195b7a8b9503a5440b632621df"
+  size_bytes: 3408
   attributes:
-    issues: ["github:Fortemi/fortemi#56", "gitea:Fortemi/fortemi#1100"]
+    issues: ["github:Fortemi/fortemi#56", "gitea:Fortemi/fortemi#1100", "gitea:Fortemi/fortemi#1125"]
     release: "2026.8.3"
     change_type: generation
     fix_commit: "b6f528cdaf26b6f6dc1a99ab52ecb8736aa4cd9e"
@@ -18,15 +18,15 @@ entity:
       - "Cargo.lock sha256:10811694d384a6e89c5a19f0f0e21bd202d3758d382bcd354d128f6f3c9777f8"
       - "mcp-server/package.json sha256:1771df3503ffa1249f73699f1d6ceafd50cc2d1ace83d13656177c7e4543b78b"
       - "mcp-server/package-lock.json sha256:bdf7203d13114470eb021a4dc57e62773f723828ccaf150eabb43d2b44cd9a90"
-      - "CHANGELOG.md sha256:26004972514f137d59f66ac9bb4191bf8efee1e4927937facca301c665251b5a"
+      - "CHANGELOG.md sha256:5304be89d685eafc4a21f0620a08211f628fb7ede4460a8f44c1b8da08f705ec"
       - "contracts/asyncapi/asyncapi.yaml sha256:001974ab52c45462368217731cac00f292b80d88499a409634743d726545af18"
       - "contracts/asyncapi/asyncapi.sha256 sha256:0cb74ed72ee2bcff18cf624d4799bd46120a83b88b94ed6e730cea77aebfcce6"
-      - ".aiwg/releases/evidence/v2026.8.3-release-note-threat-assessment.json sha256:292743361fbe146e8b0184f1ff9caf36a56b5e7bff5386a9106a1dff48dfe026"
+      - ".aiwg/releases/evidence/v2026.8.3-release-note-threat-assessment.json sha256:9c6f0c562f81460f46e296d2291864f9566abb3c1310d1a1d0905574022ed7a0"
 activity:
   id: "urn:aiwg:activity:generation:release-preparation-2026-8-3-56-1100:001"
   type: generation
   started_at: "2026-08-31T16:18:00Z"
-  ended_at: "2026-08-31T16:28:02Z"
+  ended_at: "2026-08-31T16:47:00Z"
   description: "Prepare and validate the Fortemi v2026.8.3 customer-verification release authorities"
   attributes:
     verification:
@@ -39,6 +39,7 @@ activity:
       - "AsyncAPI checksum and deterministic regeneration: passed"
       - "hosted-strict docs contract: 0 findings"
       - "release-note threat assessment: proceed; no active findings"
+      - "tracked-source shard harness regression: 6 passed, 0 failed"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
   type: ai_assistant
@@ -57,6 +58,9 @@ relationships:
     - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-3-56-1100:001"
       entity: "urn:gitea:issue:Fortemi/fortemi:1100"
       role: implementation_tracker
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-3-56-1100:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1125"
+      role: release_artifact_source_boundary
     - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-3-56-1100:001"
       entity: "urn:git:Fortemi/fortemi:b6f528cdaf26b6f6dc1a99ab52ecb8736aa4cd9e"
       role: panic_fix

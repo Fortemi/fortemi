@@ -23,13 +23,16 @@
 - Knowledge Shard language remains limited to exact `core-v1` cells and
   immutable producer/consumer receipts. The release does not claim full parity,
   complete backup, or portability while the suite audit is `NO-GO`.
+- The documentation-shard release path now enumerates Git-tracked sources, and
+  regression coverage proves an untracked `.aiwg/working` draft is excluded.
+  A detached clean-worktree rebuild imported and verified 392/392 sources.
 
 ## Proposed changes
 
 No additional product, architecture, operator, or API documentation changes
 are required. The version files, changelog, announcement, AsyncAPI version and
-checksum, release evidence, and documentation-shard producer receipt are the
-intentional release artifacts.
+checksum, tracked-source enumerator and regression, release evidence, and
+documentation-shard producer receipt are the intentional release artifacts.
 
 ## Validation
 

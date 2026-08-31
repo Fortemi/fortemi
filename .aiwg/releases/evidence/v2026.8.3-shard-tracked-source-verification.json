@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "1",
+  "release": "v2026.8.3",
+  "issue": "Fortemi/fortemi#1125",
+  "producer": {
+    "baselineCommit": "ba93c573b3149ff8154806d0337077ea4cf474f0",
+    "version": "2026.8.3",
+    "image": "fortemi-docs-rebuild:2026.8.3"
+  },
+  "sourceBoundary": {
+    "initialLiveWorktreeDiscovery": 409,
+    "trackedSourceCount": 392,
+    "untrackedMarkdownExcluded": 17,
+    "enumerator": "git ls-files",
+    "trackedRootSourcesRequired": ["CHANGELOG.md", "README.md"]
+  },
+  "cleanDestination": {
+    "source": "detached clean worktree at the producer baseline",
+    "database": "fresh isolated PostgreSQL 18 test database",
+    "inference": "disabled",
+    "sourcesDiscovered": 392,
+    "sourcesImported": 392,
+    "sourceFailures": 0,
+    "coverage": "passed"
+  },
+  "regression": {
+    "command": "python3 -m unittest tests/test_rebuild_docs_shard.py tests/test_verify_docs_shard_freshness.py",
+    "testsPassed": 6,
+    "testsFailed": 0,
+    "trackedSourceIncluded": true,
+    "untrackedWorkingSourceExcluded": true,
+    "failClosedCoveragePreserved": true
+  },
+  "artifact": {
+    "path": "docker/seed-data/fortemi-docs.shard",
+    "profile": "core-v1",
+    "manifestVersion": "1.2.0",
+    "byteLength": 2493733,
+    "sha256": "d026295179073f040bf9c520dcc05c82eda24fed4f14fe27009b468d662fd947",
+    "notes": 392,
+    "tags": 20
+  },
+  "receipt": {
+    "path": "docker/seed-data/fortemi-docs.shard.receipt.json",
+    "byteLength": 506,
+    "sha256": "146a49ddeea97d232bdd80d8560a7a5fa2fc2a00dc1e136936671b1468d2145c",
+    "freshness": "passed"
+  },
+  "claims": {
+    "profile": "core-v1",
+    "registeredProfileClaimsAllowed": true,
+    "suiteClaimsAllowed": false
+  },
+  "decision": "proceed to final release commit"
+}

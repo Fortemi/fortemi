@@ -1,0 +1,71 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-31T16:47:00Z"
+  description: "Provenance for the v2026.8.3 tracked-source documentation shard and issue 1125 correction"
+entity:
+  id: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard"
+  type: data
+  created_at: "2026-08-31T16:37:40Z"
+  checksum: "sha256:d026295179073f040bf9c520dcc05c82eda24fed4f14fe27009b468d662fd947"
+  size_bytes: 2493733
+  attributes:
+    release: "2026.8.3"
+    profile: "core-v1"
+    manifest_version: "1.2.0"
+    producer_commit: "ba93c573b3149ff8154806d0337077ea4cf474f0"
+    source_boundary: git_tracked
+    tracked_sources: 392
+    excluded_untracked_markdown: 17
+    subjects:
+      - "scripts/rebuild-docs-shard.sh sha256:202a03b4190c329797288a405b30ba5716c405f73f0c9ff1e7bdc685b46aac38"
+      - "tests/test_rebuild_docs_shard.py sha256:f1361ff2561ec360e65d0451a0293844470ef6fddd52e3adb5be1ea98d434b24"
+      - "docker/seed-data/fortemi-docs.shard.receipt.json sha256:146a49ddeea97d232bdd80d8560a7a5fa2fc2a00dc1e136936671b1468d2145c"
+      - ".aiwg/releases/evidence/v2026.8.3-shard-tracked-source-verification.json sha256:0d22f41ff48277af7e20f57694fdb87b11ae12cfabd663e85a22d6781c3ddd08"
+activity:
+  id: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-8-3-1125:001"
+  type: generation
+  started_at: "2026-08-31T16:34:00Z"
+  ended_at: "2026-08-31T16:47:00Z"
+  description: "Constrain shard discovery to repository-controlled sources and regenerate v2026.8.3 from a clean destination"
+  attributes:
+    verification:
+      - "initial live-worktree discovery: 409 sources"
+      - "untracked Markdown excluded: 17 sources"
+      - "detached clean-worktree import: 392/392 sources; 0 failures"
+      - "documentation shard source coverage: passed"
+      - "documentation shard freshness: passed"
+      - "tracked-source and freshness regressions: 6 passed, 0 failed"
+      - "registered core-v1 profile claim allowed; suite claims not allowed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard"
+    activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-8-3-1125:001"
+    time: "2026-08-31T16:37:40Z"
+  used:
+    - activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-8-3-1125:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1125"
+      role: tracked_source_requirement
+    - activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-8-3-1125:001"
+      entity: "urn:git:Fortemi/fortemi:ba93c573b3149ff8154806d0337077ea4cf474f0"
+      role: exact_producer_baseline
+    - activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-8-3-1125:001"
+      entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard.receipt.json"
+      role: producer_receipt
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard"
+      source: "urn:git:Fortemi/fortemi:ba93c573b3149ff8154806d0337077ea4cf474f0"
+      derivation_type: generated_from_exact_source
+      activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-8-3-1125:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-8-3-1125:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard"
+    agent: "urn:aiwg:agent:codex-gpt-5"

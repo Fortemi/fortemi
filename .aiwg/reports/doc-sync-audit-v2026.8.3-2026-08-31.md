@@ -27,7 +27,8 @@
 - No additional product-documentation drift fixes were required.
 - Release authorities intentionally prepared by the surrounding workflow:
   `CHANGELOG.md`, `docs/releases/v2026.8.3-announcement.md`, the canonical
-  AsyncAPI version/checksum, and the exact-version documentation shard receipt.
+  AsyncAPI version/checksum, the tracked-source shard enumerator/regression,
+  and the exact-version documentation shard receipt.
 
 ## Human/release-owner items
 

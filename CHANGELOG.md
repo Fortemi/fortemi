@@ -24,6 +24,9 @@ GitHub #56 and tracked internally as #1100.
 - Keep existing diagnostic redaction unchanged. Public failure output remains
   limited to non-sensitive location/class evidence rather than note content,
   extracted document text, database detail, or credentials.
+- Build the bundled documentation shard from Git-tracked sources only. Local
+  untracked working drafts can no longer enter a release artifact when a
+  maintainer prepares a shard from a dirty worktree (#1125).
 
 ### Verification
 

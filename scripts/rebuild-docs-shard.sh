@@ -3,7 +3,7 @@
 #
 # Usage: ./scripts/rebuild-docs-shard.sh [API_URL]
 #
-# Sources:
+# Tracked sources:
 #   - docs/**/*.md       (user guides, architecture, research, ADRs)
 #   - .aiwg/**/*.md      (SDLC artifacts, analyses, reports, tracks)
 #   - CHANGELOG.md       (version history)
@@ -331,15 +331,28 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# docs/ — all markdown (include READMEs, exclude ADR template)
-find docs -type f -size +0c -name '*.md' -not -name 'ADR-TEMPLATE.md' | sort >> "$FILELIST"
+# Enumerate the repository-controlled source set rather than the live
+# filesystem. Release preparation often runs from a worktree containing local
+# drafts; those untracked files must never become product documentation.
+for source_root in docs .aiwg; do
+    git ls-files -- "$source_root" | while IFS= read -r filepath; do
+        case "$filepath" in
+            *.md) ;;
+            *) continue ;;
+        esac
+        case "$filepath" in
+            */ADR-TEMPLATE.md|*/node_modules/*) continue ;;
+        esac
+        [ ! -s "$filepath" ] || printf '%s\n' "$filepath"
+    done
+done > "$FILELIST"
 
-# .aiwg/ — all markdown
-find .aiwg -type f -size +0c -name '*.md' -not -path '*/node_modules/*' | sort >> "$FILELIST"
-
-# Root files
-[ ! -s CHANGELOG.md ] || echo "CHANGELOG.md" >> "$FILELIST"
-[ ! -s README.md ] || echo "README.md" >> "$FILELIST"
+# Root files are also required to be tracked and non-empty.
+for root_source in CHANGELOG.md README.md; do
+    if git ls-files --error-unmatch "$root_source" >/dev/null 2>&1 && [ -s "$root_source" ]; then
+        printf '%s\n' "$root_source" >> "$FILELIST"
+    fi
+done
 
 FILE_COUNT=$(wc -l < "$FILELIST")
 echo "  Found $FILE_COUNT files to import"

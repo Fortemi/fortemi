@@ -6,8 +6,8 @@ entity:
   id: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.8.3-release-note-threat-assessment.json"
   type: data
   created_at: "2026-08-31T16:28:02Z"
-  checksum: "sha256:292743361fbe146e8b0184f1ff9caf36a56b5e7bff5386a9106a1dff48dfe026"
-  size_bytes: 2803
+  checksum: "sha256:9c6f0c562f81460f46e296d2291864f9566abb3c1310d1a1d0905574022ed7a0"
+  size_bytes: 3010
   attributes:
     release: "2026.8.3"
     mode: "enforce"

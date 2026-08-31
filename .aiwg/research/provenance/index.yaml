@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-08-31T16:28:02Z"
+  updated_at: "2026-08-31T16:47:00Z"
 records:
   - entity: "Cargo.lock"
     record: "records/chacha20-yank-remediation-2026-08.prov.yaml"
@@ -928,3 +928,13 @@ records:
     record: "records/doc-sync-release-2026-8-3.prov.yaml"
   - entity: ".aiwg/reports/doc-sync-audit-v2026.8.3-2026-08-31.md"
     record: "records/doc-sync-release-2026-8-3.prov.yaml"
+  - entity: "scripts/rebuild-docs-shard.sh"
+    record: "records/release-shard-tracked-source-2026-8-3-1125.prov.yaml"
+  - entity: "tests/test_rebuild_docs_shard.py"
+    record: "records/release-shard-tracked-source-2026-8-3-1125.prov.yaml"
+  - entity: "docker/seed-data/fortemi-docs.shard"
+    record: "records/release-shard-tracked-source-2026-8-3-1125.prov.yaml"
+  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
+    record: "records/release-shard-tracked-source-2026-8-3-1125.prov.yaml"
+  - entity: ".aiwg/releases/evidence/v2026.8.3-shard-tracked-source-verification.json"
+    record: "records/release-shard-tracked-source-2026-8-3-1125.prov.yaml"

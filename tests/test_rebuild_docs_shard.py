@@ -104,6 +104,11 @@ class RebuildDocsShardTests(unittest.TestCase):
         (self.repo / ".aiwg" / "plan.md").write_text("# Plan\nbody\n", encoding="utf-8")
         (self.repo / "CHANGELOG.md").write_text("# Changes\n", encoding="utf-8")
         (self.repo / "README.md").write_text("# Readme\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "add", ".aiwg/plan.md", "CHANGELOG.md", "README.md"],
+            cwd=self.repo,
+            check=True,
+        )
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -119,9 +124,13 @@ class RebuildDocsShardTests(unittest.TestCase):
             check=False,
         )
 
+    def track(self, path: str) -> None:
+        subprocess.run(["git", "add", path], cwd=self.repo, check=True)
+
     def test_streams_note_larger_than_128_kib_and_verifies_coverage(self) -> None:
         content = "# Large source\n" + ("x" * (128 * 1024 + 4096))
         (self.repo / "docs" / "large.md").write_text(content, encoding="utf-8")
+        self.track("docs/large.md")
 
         result = self.run_rebuild()
 
@@ -134,6 +143,7 @@ class RebuildDocsShardTests(unittest.TestCase):
         (self.repo / "docs" / "fail.md").write_text(
             "# Failure\ninjected-marker\n", encoding="utf-8"
         )
+        self.track("docs/fail.md")
         self.env["FAKE_CURL_FAIL_MARKER"] = "injected-marker"
 
         result = self.run_rebuild()
@@ -146,6 +156,7 @@ class RebuildDocsShardTests(unittest.TestCase):
 
     def test_empty_export_does_not_replace_existing_shard(self) -> None:
         (self.repo / "docs" / "source.md").write_text("# Source\n", encoding="utf-8")
+        self.track("docs/source.md")
         shard = self.repo / "docker" / "seed-data" / "fortemi-docs.shard"
         shard.write_bytes(b"known-good-shard")
         self.env["FAKE_CURL_EMPTY_EXPORT"] = "1"
@@ -155,6 +166,24 @@ class RebuildDocsShardTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn("Shard export returned an empty body", result.stdout)
         self.assertEqual(shard.read_bytes(), b"known-good-shard")
+
+    def test_excludes_untracked_working_files(self) -> None:
+        tracked_content = "# Tracked source\nrelease documentation\n"
+        untracked_content = "# Local draft\nnot a release source\n"
+        (self.repo / "docs" / "tracked.md").write_text(tracked_content, encoding="utf-8")
+        (self.repo / ".aiwg" / "local-draft.md").write_text(
+            untracked_content, encoding="utf-8"
+        )
+        self.track("docs/tracked.md")
+
+        result = self.run_rebuild()
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+        payloads = [json.loads(line) for line in self.state.read_text().splitlines()]
+        imported = [payload["content"] for payload in payloads]
+        self.assertIn(tracked_content, imported)
+        self.assertNotIn(untracked_content, imported)
+        self.assertIn("Docs shard source coverage passed: 4/4 sources.", result.stdout)
 
 
 if __name__ == "__main__":
